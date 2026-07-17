@@ -3,6 +3,7 @@
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Services\Cloudflare\CloudflareKvService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -30,6 +31,7 @@ it('implements ShouldBeUnique with a 45s window keyed by user_id (§28.6a)', fun
 it('writes {type:"individual"} for an individual professional (§28.6)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     $proId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -57,6 +59,7 @@ it('writes {type:"individual"} for an individual professional (§28.6)', functio
 it('deletes the KV entry for a soft-deleted professional (#P2-45)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     $proId = (string) Str::uuid();
     // Soft-deleted: deleted_at set. find() excludes it; withTrashed() finds it,
@@ -110,6 +113,7 @@ it('no-ops when the professional is gone and no handle was captured (#P2-45)', f
 it('retires the KV entry for a suspended (non-trashed) professional (EDGE-3)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     // Suspended by moderation: status != 'active' but NOT soft-deleted. Before the
     // isActive() gate this re-published the live route, leaving taken-down content
@@ -305,11 +309,72 @@ it('clears the custom-domain pointer via $retireCustomDomain even when the user 
     (new SyncSubdomainToKvJob((string) Str::uuid(), 'goneforever', 'gone.example'))->handle($kv);
 });
 
+// --- JOB-101/102: a real DB failure reading the site must propagate, not be swallowed ---
+
+it('lets a real DB failure reading the site propagate instead of writing a stale KV entry (JOB-101)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    // setupSitesTable() deliberately omitted — site.sites doesn't exist, so
+    // $pro->site throws instead of returning null. Before the fix this was
+    // swallowed and reported(), false-negating the moderation gate and
+    // re-publishing a just-hidden site's route to KV.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'brokenread',
+        'handle_lc' => 'brokenread',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'primary_email' => 'br@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldNotReceive('delete');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    // Throwable::class is an interface — Pest's toThrow() only does an
+    // instanceof check against a concrete class (class_exists()), so assert
+    // the concrete exception the SQLite driver actually throws.
+    expect(fn () => (new SyncSubdomainToKvJob($proId))->handle($kv))->toThrow(QueryException::class);
+});
+
+it('lets a real DB failure reading the site propagate AFTER the handle delete in retire() (JOB-102)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    // setupSitesTable() deliberately omitted — site.sites doesn't exist, so
+    // $pro?->site throws inside retire() after the handle key is already
+    // deleted. Before the fix this was swallowed and reported(), silently
+    // skipping the domain:<host> delete and leaving a taken-down user's
+    // custom domain serving.
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'brokenretire',
+        'handle_lc' => 'brokenretire',
+        'account_type' => 'individual',
+        'status' => 'suspended',
+        'primary_email' => 'bre@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldReceive('delete')->once()->with('brokenretire');
+    $kv->shouldNotReceive('put');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    expect(fn () => (new SyncSubdomainToKvJob($proId))->handle($kv))->toThrow(QueryException::class);
+});
+
 // --- SCALE-6 + P3-31: alias batching and expired-alias skip ---
 
 it('batches N future aliases into a single bulkPut call (SCALE-6)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     $proId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -385,6 +450,7 @@ it('batches N future aliases into a single bulkPut call (SCALE-6)', function () 
 it('excludes already-expired aliases from bulkPut (P3-31)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     $proId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -433,6 +499,7 @@ it('excludes already-expired aliases from bulkPut (P3-31)', function () {
 it('excludes the current handle from alias bulkPut entries (SCALE-6)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     $proId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
@@ -485,6 +552,7 @@ it('excludes the current handle from alias bulkPut entries (SCALE-6)', function 
 it('passes a permanent alias (null expires_at) with null expiration_ttl in bulkPut (SCALE-6)', function () {
     setupUsersTable();
     setupHandleAliasesTable();
+    setupSitesTable();
 
     $proId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([

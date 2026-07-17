@@ -2083,7 +2083,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -2091,7 +2091,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 ## P1 — Fix before pilot launch
 
-- [ ] **JOB-101** · P1 — Swallowed exception in `SyncSubdomainToKvJob::handle()` bypasses the moderation-hide gate on a transient DB error
+- [x] **JOB-101** · P1 — Swallowed exception in `SyncSubdomainToKvJob::handle()` bypasses the moderation-hide gate on a transient DB error
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:105-118
     - **Affects:** Any site whose owner is active but whose SITE has just been hidden by moderation (`site.sites.moderation_state = 'hidden'`) — including CSAM-triggered hides (`SuspendSiteJob::resolveSiteId` resolves both `Site` and `SiteMedia` reportable types to the same hide). This job is the exact job `PurgeModerationCacheJob` dispatches right after a hide to retire the route (`app/Jobs/Moderation/PurgeModerationCacheJob.php:51`), so a transient failure reading the just-hidden site's relationship (deadlock, connection blip, replica lag) causes this same sync to silently re-publish the handle instead.
     - **Effort:** S (~0.5–1h)
@@ -2119,7 +2119,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
         }
         ```
 
-- [ ] **JOB-102** · P1 — Swallowed exception in `SyncSubdomainToKvJob::retire()` can leave a taken-down user's custom domain fully serving their page
+- [x] **JOB-102** · P1 — Swallowed exception in `SyncSubdomainToKvJob::retire()` can leave a taken-down user's custom domain fully serving their page
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:173-185
     - **Affects:** Users who are soft-deleted, suspended, or moderation-hidden AND have an active custom domain (`custom_domain_status = 'active'`). Per the Cloudflare Worker's own routing contract (`cloudflare-worker/src/index.js:427-441`), a `domain:<host>` KV entry carries `{type:'individual', handle:<handle>}` and is resolved **independently** of whether the plain `<handle>` KV entry exists — the Worker forwards straight to `partna-pages` using the handle embedded in the domain entry. This means if `retire()`'s custom-domain delete is skipped, the takedown/hide is INCOMPLETE for anyone visiting via their custom domain: the page stays fully live, even though the handle-based `<handle>.partna.au` route was correctly retired.
     - **Effort:** S (~0.5–1h)

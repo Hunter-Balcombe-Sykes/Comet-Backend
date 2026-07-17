@@ -100,14 +100,13 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         $current = strtolower(trim((string) $pro->handle));
 
         // Read the site once — needed for both the moderation gate below and the
-        // custom-domain publish. Guarded so a missing/corrupt site row can never
-        // black-hole the core subdomain sync.
-        $site = null;
-        try {
-            $site = $pro->site;
-        } catch (Throwable $e) {
-            report($e);
-        }
+        // custom-domain publish. A genuinely missing site row reads as null (no
+        // throw — it's a hasOne). A real DB failure here MUST propagate: swallowing
+        // it previously false-negated the moderation gate below (`$site &&
+        // moderation_state === 'hidden'`), re-publishing a just-hidden site to KV
+        // (JOB-101). The job's retry policy ($tries/$backoff/failed()) exists
+        // precisely to handle this as a transient error, not a silent no-op.
+        $site = $pro->site;
 
         // Moderation has hidden the site — retire the route so a hide_site
         // takedown (which hides the SITE, not the user) also stops resolving.
@@ -168,14 +167,12 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // delete/suspend/moderation-hide. Without this the user's own domain keeps
         // routing to their taken-down page indefinitely (a cache purge alone just
         // resets the clock — the surviving KV pointer re-warms the edge on the next
-        // request). Guarded like handle()'s site read so a missing/corrupt site row
-        // can never black-hole the handle delete above.
-        try {
-            $site = $pro?->site;
-        } catch (Throwable $e) {
-            report($e);
-            $site = null;
-        }
+        // request). The handle delete above has already run (retries are idempotent
+        // — a missing-key delete is a no-op at Cloudflare), so a real DB failure
+        // reading the site here MUST propagate rather than be swallowed: silently
+        // skipping this delete leaves a taken-down user's custom domain serving
+        // (JOB-102). Let the job's retry policy handle it as a transient error.
+        $site = $pro?->site;
 
         if ($site) {
             $customDomain = strtolower(trim((string) ($site->custom_domain ?? '')));
