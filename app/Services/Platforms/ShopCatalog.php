@@ -7,6 +7,7 @@ use App\Models\Core\Site\ShopProduct;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Provider-dispatched product catalog reads + the latest-mode selection sync.
@@ -70,16 +71,30 @@ class ShopCatalog
      * exposes it (Shopify), else the endpoint's own order (Woo Store API and
      * the others list newest/featured first).
      *
-     * Returns the number of products selected, or null when the catalog
-     * couldn't be fetched (brand left untouched — never wipe a selection
-     * because a store was temporarily unreachable).
+     * Returns the number of products selected, or null when the store was
+     * REACHABLE but genuinely has no products (brand left untouched — never
+     * wipe a selection over an empty catalog). A store that couldn't be
+     * reached at all (blocked egress, 5xx, timeout) is a distinct signal —
+     * see the HttpException re-throw below — so callers can tell "empty" from
+     * "broken" instead of both collapsing into the same silent null.
      */
     public function syncLatest(ShopBrand $brand): ?int
     {
         try {
             $catalog = $this->providerProducts($brand->toBrandArray());
-        } catch (HttpException) {
-            return null;
+        } catch (HttpException $e) {
+            // OBS-2: previously swallowed here as a plain `return null`, which
+            // is indistinguishable from a genuinely-empty catalog. ShopFetch's
+            // synced-vs-failed split (and ShopController's manual-sync path)
+            // both need this to propagate so a persistently-blocked store trips
+            // the circuit breaker instead of reporting healthy forever.
+            Log::warning('shop.sync_latest.unreachable', [
+                'brand_id' => $brand->id,
+                'url' => $brand->url,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
 
         if ($catalog === []) {

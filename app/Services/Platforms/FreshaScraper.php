@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Exceptions\Platforms\FreshaEmployeeMenuUnavailableException;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -219,6 +220,7 @@ class FreshaScraper
                 'employee_id' => $employeeId,
                 'error' => $e->getMessage(),
             ]);
+            report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'exception', previous: $e));
 
             return null;
         }
@@ -230,6 +232,7 @@ class FreshaScraper
                 'employee_id' => $employeeId,
                 'status' => $response->status(),
             ]);
+            report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'http_error', status: $response->status()));
 
             return null;
         }
@@ -242,6 +245,7 @@ class FreshaScraper
                 'slug' => $slug,
                 'employee_id' => $employeeId,
             ]);
+            report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'no_categories'));
 
             return null;
         }

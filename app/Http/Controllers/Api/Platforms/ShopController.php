@@ -32,6 +32,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
 // A user connects up to 5 stores by URL alone; ShopProviderDetector works out
@@ -239,10 +240,16 @@ class ShopController extends ApiController
 
             $syncFailed = false;
             if (($validated['selectionMode'] ?? null) === 'latest') {
-                // Sync now (idempotent on re-set). null = store unreachable —
-                // keep the mode (the scheduled refresh retries) but tell the
-                // dashboard so it can message the delay.
-                $syncFailed = $this->catalog->syncLatest($brand->fresh('products')) === null;
+                // Sync now (idempotent on re-set). null = reachable but empty;
+                // HttpException = store unreachable (OBS-2: syncLatest() now
+                // re-throws instead of swallowing it). Either way, keep the
+                // mode (the scheduled refresh retries) but tell the dashboard
+                // so it can message the delay instead of 500ing.
+                try {
+                    $syncFailed = $this->catalog->syncLatest($brand->fresh('products')) === null;
+                } catch (HttpException) {
+                    $syncFailed = true;
+                }
             }
 
             $connection = $this->writeConnection($user, self::MARKER);

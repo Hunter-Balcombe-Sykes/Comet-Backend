@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Scheduled shop refresh: re-syncs every non-individual store's selection to
 // the store's newest products WHEN the user's GLOBAL auto-latest is on
@@ -47,21 +48,40 @@ final readonly class ShopFetch implements FetchStrategy
             throw new FetchNotModifiedException('shop');
         }
 
+        // OBS-2: syncLatest() now RE-THROWS HttpException for a genuinely
+        // unreachable store (blocked egress, 5xx, timeout) instead of
+        // swallowing it as a plain null — so we can tell "blocked" apart from
+        // "reachable but empty". One blocked store must not stop the rest of
+        // the batch from syncing.
         $synced = 0;
+        $failed = 0;
         foreach ($latestBrands as $brand) {
-            if ($this->catalog->syncLatest($brand) !== null) {
-                $synced++;
+            try {
+                if ($this->catalog->syncLatest($brand) !== null) {
+                    $synced++;
+                }
+            } catch (HttpException) {
+                $failed++;
             }
         }
 
-        if ($synced === 0) {
-            // Every latest-mode store was unreachable this cycle — selections
-            // untouched, nothing to publish.
-            throw new FetchNotModifiedException('shop');
+        if ($synced > 0) {
+            $this->refresher->refresh($connection);
+
+            return $connection->payload ?? ['storage' => 'relational'];
         }
 
-        $this->refresher->refresh($connection);
+        if ($failed > 0) {
+            // Every latest-mode store was unreachable this cycle — a real
+            // failure signal, not quiet bookkeeping. PlatformRefresher routes
+            // this to status='unavailable' + consecutive_failures++, tripping
+            // the circuit breaker instead of resetting it to 0.
+            throw new FetchUnavailableException('shop_all_unreachable');
+        }
 
-        return $connection->payload ?? ['storage' => 'relational'];
+        // Every latest-mode store was reachable but genuinely had no products
+        // — selections untouched, nothing to publish. This IS the quiet 304
+        // path; no store was actually broken.
+        throw new FetchNotModifiedException('shop');
     }
 }

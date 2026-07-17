@@ -836,7 +836,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 5 complete
 - P3 Low: 0 of 0 complete
 
@@ -844,7 +844,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **OBS-1** · P1 — FreshaScraper's per-employee menu falls back to whole-location and reports 'ok' forever; the code's own comment promises Nightwatch visibility it never delivers
+- [x] **OBS-1** · P1 — FreshaScraper's per-employee menu falls back to whole-location and reports 'ok' forever; the code's own comment promises Nightwatch visibility it never delivers
     - **Where:** app/Services/Platforms/FreshaScraper.php:203-224
     - **Affects:** Every Fresha connection in per-employee booking mode. A rotated `BOOKING_INIT_HASH`/client version silently and *permanently* downgrades the per-stylist menu to the whole-location menu with zero operator signal.
     - **Effort:** S (~0.5–1h)
@@ -876,7 +876,7 @@ None.
         ```
     - `[Adjudicated: elevated from vendor-services-1 DeepSeek draft OBS-1 (P1, confidence 0.9); tier confirmed after tracing FreshaFetch/PlatformRefresher interaction]`
 
-- [ ] **OBS-2** · P1 — ShopCatalog::syncLatest swallows fetch failures as "nothing changed," resetting the failure counter and defeating the platform's own circuit breaker
+- [x] **OBS-2** · P1 — ShopCatalog::syncLatest swallows fetch failures as "nothing changed," resetting the failure counter and defeating the platform's own circuit breaker
     - **Where:** app/Services/Platforms/ShopCatalog.php:77-83
     - **Affects:** Every shop brand with "auto-latest" enabled. A persistently-blocking store (bot detection, dead URL) never surfaces as a failure — the scheduled sync silently no-ops forever, and the "the scheduled refresh retries" promise made to the user in `ShopController` is never honoured with a retry that actually succeeds or an alert that it can't.
     - **Effort:** M (~2–4h)
