@@ -75,6 +75,8 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     {
         $h = strtolower(trim($this->handle));
         if ($h === '') {
+            $this->fail(new \RuntimeException('Empty handle dispatched to CloudflareCachePurgeJob'));
+
             return;
         }
 

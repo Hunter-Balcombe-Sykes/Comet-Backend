@@ -2,6 +2,7 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Services\Cloudflare\CloudflarePurgeService;
+use Illuminate\Contracts\Queue\Job as QueueJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -39,8 +40,24 @@ it('delegates to CloudflarePurgeService::purgeHandle with the lowered handle', f
     $job->handle($purge);
 });
 
-it('no-ops for empty handle without touching the service', function () {
+it('does not touch the purge service for empty handle when called directly (fail() no-ops without a bound queue job)', function () {
     $job = new CloudflareCachePurgeJob('   ');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldNotReceive('purgeHandle');
+
+    $job->handle($purge);
+});
+
+it('fails the job (Nightwatch-visible) instead of silently succeeding when the handle is empty and a queue job is attached', function () {
+    // Without a bound queue job, InteractsWithQueue::fail() is a no-op — Horizon
+    // only sees the failure when a real dispatch (with a Job contract) hits this
+    // path, so the test must attach one to prove the signal actually fires.
+    $job = new CloudflareCachePurgeJob('   ');
+
+    $queueJob = Mockery::mock(QueueJob::class);
+    $queueJob->shouldReceive('fail')->once()->with(Mockery::type(RuntimeException::class));
+    $job->setJob($queueJob);
 
     $purge = Mockery::mock(CloudflarePurgeService::class);
     $purge->shouldNotReceive('purgeHandle');

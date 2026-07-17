@@ -757,7 +757,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 1 complete
 
@@ -765,7 +765,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#JOB-1** · P1 — CloudflareCachePurgeJob silently succeeds on an empty handle instead of failing loudly
+- [x] **#JOB-1** · P1 — CloudflareCachePurgeJob silently succeeds on an empty handle instead of failing loudly
     - **Where:** app/Jobs/Cloudflare/CloudflareCachePurgeJob.php:76-79
     - **Affects:** Edge cache coherence for every professional's public sitepage — `CloudflareCachePurgeJob` is the only job responsible for busting the router's cache after a visible site mutation
     - **Effort:** S (~0.5–1h)
