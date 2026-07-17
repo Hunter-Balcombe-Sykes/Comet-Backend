@@ -152,9 +152,7 @@ class CloudflarePurgeService
 
         // Menu item detail pages (`/menu/<uuid>`, route added 2026-07-17) —
         // same per-URL edge-key staleness the products fix closed; same
-        // bounded, never-break-the-purge pattern. (Events item pages
-        // deliberately NOT enumerated: their ids live inside platform
-        // payload JSON, not rows — they age out via the page TTL instead.)
+        // bounded, never-break-the-purge pattern.
         try {
             $menuItemIds = DB::connection('pgsql')->table('site.menu_items as mi')
                 ->join('site.menus as m', 'm.id', '=', 'mi.menu_id')
@@ -166,6 +164,48 @@ class CloudflarePurgeService
         } catch (\Throwable $e) {
             Log::debug('CloudflarePurgeService: menu-item lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $menuItemIds = [];
+        }
+
+        // Event detail pages (`/events/<id>`) — ids live inside the event
+        // connections' payload JSON (standalone kind:'event' rows are the
+        // event; account rows carry next/upcoming lists). Enumerated since
+        // 2026-07-17 (reversing the earlier age-out-via-TTL call): the pages
+        // now render refreshable enriched fields (description/venue/times),
+        // so 24h of staleness after a refresh reads as a bug, not decay.
+        try {
+            $eventPayloads = DB::connection('pgsql')->table('site.platform_connections as c')
+                ->join('core.users as u', 'u.id', '=', 'c.user_id')
+                ->where('u.handle_lc', $h)
+                ->whereIn('c.platform', ['eventbrite', 'humanitix', 'events-custom'])
+                ->whereNull('c.deleted_at')
+                ->limit(30)
+                ->pluck('c.payload')
+                ->all();
+
+            $eventIdSet = [];
+            foreach ($eventPayloads as $rawPayload) {
+                $payload = is_array($rawPayload) ? $rawPayload : json_decode((string) $rawPayload, true);
+                if (! is_array($payload)) {
+                    continue;
+                }
+                $next = $payload['next'] ?? null;
+                $candidates = [
+                    $payload,
+                    ...(is_array($next) ? [$next] : []),
+                    ...array_values(array_filter((array) ($payload['upcoming'] ?? []), 'is_array')),
+                ];
+                foreach ($candidates as $event) {
+                    $id = $event['id'] ?? null;
+                    // Path-safe ids only — these become purge URL segments.
+                    if (is_string($id) && preg_match('/^[A-Za-z0-9_-]{1,64}$/', $id) === 1) {
+                        $eventIdSet[$id] = true;
+                    }
+                }
+            }
+            $eventIds = array_slice(array_keys($eventIdSet), 0, 100);
+        } catch (\Throwable $e) {
+            Log::debug('CloudflarePurgeService: event-id lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
+            $eventIds = [];
         }
 
         $urls = [];
@@ -188,6 +228,11 @@ class CloudflarePurgeService
             foreach ($menuItemIds as $menuItemId) {
                 $urls[] = "{$base}/menu/{$menuItemId}";
                 $urls[] = "{$base}/_swr-shadow/menu/{$menuItemId}";
+            }
+            // Each event detail page + its shadow.
+            foreach ($eventIds as $eventId) {
+                $urls[] = "{$base}/events/{$eventId}";
+                $urls[] = "{$base}/_swr-shadow/events/{$eventId}";
             }
         }
 
