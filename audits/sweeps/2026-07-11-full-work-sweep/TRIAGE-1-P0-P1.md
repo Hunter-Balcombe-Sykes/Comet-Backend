@@ -633,14 +633,14 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TXN-1** · P1 — Instagram-auto flag flip and its reserved-slot rebuild commit as two separate transactions
+- [x] **#TXN-1** · P1 — Instagram-auto flag flip and its reserved-slot rebuild commit as two separate transactions
     - **Where:** app/Services/Site/ContentSelectionService.php:222-225, 347-356
     - **Affects:** Any user connecting Instagram or toggling Instagram-auto content. If `persist()` fails after the flag save already committed (constraint violation, deadlock, transient DB error), `content_instagram_auto_enabled` is `true` but no ig-reel/ig-post slots exist — the sitepage silently shows nothing in the reserved positions with no error surfaced to the user.
     - **Effort:** S (~0.5–1h)
@@ -1522,7 +1522,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 1 complete
 
@@ -1530,7 +1530,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEM-1** · P1 — `ContentSelectionService::setInstagramAuto` commits the auto-flag and the reserved-slot rebuild as two separate transactions
+- [x] **#SEM-1** · P1 — `ContentSelectionService::setInstagramAuto` commits the auto-flag and the reserved-slot rebuild as two separate transactions
     - **Where:** app/Services/Site/ContentSelectionService.php:222-241 (flag write), 347-356 (`persist()`)
     - **Affects:** Any user connecting Instagram or toggling Instagram-auto content. A transient DB error inside `persist()` (constraint violation, deadlock, timeout) leaves `content_instagram_auto_enabled = true` already committed while the ig-reel/ig-post slots at positions 1–2 were never written — the sitepage silently renders without the reserved Instagram content, with no error surfaced to the user or caller.
     - **Effort:** S (~0.5–1h)

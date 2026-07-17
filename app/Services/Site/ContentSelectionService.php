@@ -221,66 +221,72 @@ class ContentSelectionService
      */
     public function setInstagramAuto(Site $site, bool $enabled): void
     {
-        $site->content_instagram_auto_enabled = $enabled;
-        $site->save();
+        // Flag flip + slot reconciliation must commit atomically: persist()
+        // opens its own transaction, which nests as a SAVEPOINT here. Without
+        // this wrap a persist() failure left the flag durably flipped with no
+        // slots reserved/cleared to match.
+        DB::connection('pgsql')->transaction(function () use ($site, $enabled) {
+            $site->content_instagram_auto_enabled = $enabled;
+            $site->save();
 
-        $existing = ContentSelection::query()
-            ->where('site_id', $site->id)
-            ->orderBy('position')
-            ->get();
+            $existing = ContentSelection::query()
+                ->where('site_id', $site->id)
+                ->orderBy('position')
+                ->get();
 
-        if (! $enabled) {
-            // Drop ig-* rows, compact the rest.
-            $kept = $existing
+            if (! $enabled) {
+                // Drop ig-* rows, compact the rest.
+                $kept = $existing
+                    ->reject(fn (ContentSelection $r) => in_array($r->entry_type, ContentSelection::IG_TYPES, true))
+                    ->values();
+
+                $this->persist($site, $this->rowsFromModels($site, $kept));
+
+                return;
+            }
+
+            // Enabling: figure out which ig kinds the owner can actually fill.
+            $instagram = $this->instagram($site);
+            $reserve = [];
+            if ($instagram !== null && $instagram->videoUrl !== null) {
+                $reserve[] = ContentSelection::TYPE_IG_REEL;
+            }
+            if ($instagram !== null && ($instagram->images[0] ?? null)) {
+                $reserve[] = ContentSelection::TYPE_IG_POST;
+            }
+
+            // Manual (non-ig) entries keep their relative order, shifted below the
+            // reserved slots. Drop any pre-existing ig-* rows — we re-seed them.
+            $manual = $existing
                 ->reject(fn (ContentSelection $r) => in_array($r->entry_type, ContentSelection::IG_TYPES, true))
                 ->values();
 
-            $this->persist($site, $this->rowsFromModels($site, $kept));
-
-            return;
-        }
-
-        // Enabling: figure out which ig kinds the owner can actually fill.
-        $instagram = $this->instagram($site);
-        $reserve = [];
-        if ($instagram !== null && $instagram->videoUrl !== null) {
-            $reserve[] = ContentSelection::TYPE_IG_REEL;
-        }
-        if ($instagram !== null && ($instagram->images[0] ?? null)) {
-            $reserve[] = ContentSelection::TYPE_IG_POST;
-        }
-
-        // Manual (non-ig) entries keep their relative order, shifted below the
-        // reserved slots. Drop any pre-existing ig-* rows — we re-seed them.
-        $manual = $existing
-            ->reject(fn (ContentSelection $r) => in_array($r->entry_type, ContentSelection::IG_TYPES, true))
-            ->values();
-
-        $rows = [];
-        $position = 1;
-        foreach ($reserve as $type) {
-            $rows[] = [
-                'site_id' => $site->id,
-                'position' => $position++,
-                'entry_type' => $type,
-                'media_id' => null,
-                'external_ref' => null,
-            ];
-        }
-        foreach ($manual as $row) {
-            if ($position > ContentSelection::MAX_POSITION) {
-                break; // overflow past the cap is dropped
+            $rows = [];
+            $position = 1;
+            foreach ($reserve as $type) {
+                $rows[] = [
+                    'site_id' => $site->id,
+                    'position' => $position++,
+                    'entry_type' => $type,
+                    'media_id' => null,
+                    'external_ref' => null,
+                ];
             }
-            $rows[] = [
-                'site_id' => $site->id,
-                'position' => $position++,
-                'entry_type' => $row->entry_type,
-                'media_id' => $row->media_id,
-                'external_ref' => $row->external_ref,
-            ];
-        }
+            foreach ($manual as $row) {
+                if ($position > ContentSelection::MAX_POSITION) {
+                    break; // overflow past the cap is dropped
+                }
+                $rows[] = [
+                    'site_id' => $site->id,
+                    'position' => $position++,
+                    'entry_type' => $row->entry_type,
+                    'media_id' => $row->media_id,
+                    'external_ref' => $row->external_ref,
+                ];
+            }
 
-        $this->persist($site, $rows);
+            $this->persist($site, $rows);
+        });
     }
 
     /**

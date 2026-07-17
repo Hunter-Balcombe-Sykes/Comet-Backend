@@ -343,6 +343,42 @@ it('instagram-auto enable only reserves slots for the kinds the user has', funct
     expect($rows[0]->position)->toBe(1);
 });
 
+it('instagram-auto toggle rolls back the flag when slot rebuild fails', function () {
+    [$user, $site] = contentUserWithSite('ig4');
+    $upload = contentUpload($site);
+    $original = ContentSelection::create([
+        'site_id' => $site->id,
+        'position' => 1,
+        'entry_type' => ContentSelection::TYPE_UPLOAD,
+        'media_id' => $upload->id,
+    ]);
+
+    // Force persist()'s create loop to fail — schema-agnostic across SQLite
+    // (tests) and Postgres (prod), unlike relying on a specific constraint.
+    ContentSelection::creating(function () {
+        throw new \RuntimeException('boom');
+    });
+
+    expect(fn () => app(ContentSelectionService::class)->setInstagramAuto($site, true))
+        ->toThrow(\RuntimeException::class);
+
+    // The flag flip and the slot rebuild are one transaction — a persist()
+    // failure must roll back the flag too, not leave it durably true.
+    expect($site->fresh()->content_instagram_auto_enabled)->not->toBeTrue();
+
+    // persist()'s delete rolled back with it — the original manual row survives.
+    $rows = ContentSelection::query()->where('site_id', $site->id)->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->id)->toBe($original->id);
+
+    // SiteObserver's purge is afterCommit-gated — it must never fire when the
+    // wrapping transaction rolls back.
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
+
+    // Don't leak the forced-failure listener into later tests in this file.
+    ContentSelection::flushEventListeners();
+});
+
 // ── Connect-time hooks ───────────────────────────────────────────────────────
 
 it('GB connect auto-seeds google photos only when the selection is empty', function () {
