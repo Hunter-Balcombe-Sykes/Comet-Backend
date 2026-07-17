@@ -54,6 +54,9 @@ class MenuItem extends BaseModel
         'delivery_source',
         'dd_external_id',
         'currency',
+        // Owner-authored marker: created or edited via the dashboard. Preserved
+        // across scrape rebuilds; a colliding scraped dish defers to it.
+        'is_manual',
     ];
 
     protected $casts = [
@@ -65,6 +68,7 @@ class MenuItem extends BaseModel
         'base_price' => 'float',
         'pickup_price' => 'float',
         'delivery_price' => 'float',
+        'is_manual' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

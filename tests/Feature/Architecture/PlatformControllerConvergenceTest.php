@@ -24,6 +24,7 @@ const BESPOKE_CONTROLLER_ALLOWLIST = [
     'InstagramController.php',        // async connect (job + poll)
     'IntegrationsMetaController.php', // cross-platform sync metadata
     'MenuController.php',             // menu view, no connect
+    'MenuContentController.php',      // owner-authored (manual) menu content CRUD, no connect
     'OnlineOrderingController.php',   // ordering-links category
     'OpenTableController.php',        // suggestion() only — connect is registry-driven
     'RefreshController.php',          // manual refresh, cross-platform

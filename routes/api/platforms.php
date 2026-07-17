@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Controllers\Api\Platforms\HumanitixController;
 use App\Http\Controllers\Api\Platforms\InstagramController;
 use App\Http\Controllers\Api\Platforms\IntegrationsMetaController;
+use App\Http\Controllers\Api\Platforms\MenuContentController;
 use App\Http\Controllers\Api\Platforms\MenuController;
 use App\Http\Controllers\Api\Platforms\OnlineOrderingController;
 use App\Http\Controllers\Api\Platforms\OpenTableController;
@@ -213,11 +214,12 @@ $registerIntegrationRoutes = function (string $base): void {
         });
 
     // Menu — the fetched Uber Eats / DoorDash menu (the single site.menus row),
-    // auto-populated from the online-ordering links, plus one direct write path:
+    // auto-populated from the online-ordering links, plus direct write paths:
     // /scan/apply merges AI-extracted items from a user-uploaded menu photo/PDF
-    // (independent of any scrape — see MenuScanApplier). No connect step for the
-    // scrape side; /refresh re-scrapes. Authenticated dashboard surface — the
-    // menu is ALSO served publicly, via PublicMenuController.
+    // (independent of any scrape — see MenuScanApplier); /categories + /items
+    // are owner-authored (manual) content management (MenuContentController).
+    // No connect step for the scrape side; /refresh re-scrapes. Authenticated
+    // dashboard surface — the menu is ALSO served publicly, via PublicMenuController.
     Route::prefix("{$base}/menu")
         ->middleware($middleware)
         ->group(function () {
@@ -225,6 +227,15 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/', [MenuController::class, 'show']);
             Route::post('/refresh', [MenuController::class, 'refresh']);
             Route::post('/scan/apply', [MenuController::class, 'applyScan']);
+
+            // Owner-authored (manual) menu content. {category}/{item} are UUIDs,
+            // resolved strictly through the caller's own menu inside the controller.
+            Route::post('/categories', [MenuContentController::class, 'createCategory']);
+            Route::patch('/categories/{category}', [MenuContentController::class, 'updateCategory'])->where('category', '[A-Za-z0-9-]+');
+            Route::delete('/categories/{category}', [MenuContentController::class, 'deleteCategory'])->where('category', '[A-Za-z0-9-]+');
+            Route::post('/items', [MenuContentController::class, 'createItem']);
+            Route::patch('/items/{item}', [MenuContentController::class, 'updateItem'])->where('item', '[A-Za-z0-9-]+');
+            Route::delete('/items/{item}', [MenuContentController::class, 'deleteItem'])->where('item', '[A-Za-z0-9-]+');
         });
 
     // ── Registry-driven simple-archetype routes (FOUND-21) ───────────────────
