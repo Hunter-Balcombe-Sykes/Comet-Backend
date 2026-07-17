@@ -62,12 +62,15 @@ trait DesignKitValidationRules
 
             // Typography — fontFamily is a slug resolved by
             // @partnaau/design-system/design-assets. tracking is the
-            // letter-spacing register selection (2026-07-15 axis).
+            // letter-spacing register selection (2026-07-15 axis); weight is
+            // the overall weight register selection (2026-07-17 axis — the
+            // renderer shifts the whole weight system one rung).
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
             'design_kit.typography_line_height' => $len,
             'design_kit.typography_logo_height' => $len,
             'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
             'design_kit.typography_tracking' => ['sometimes', 'nullable', 'string', 'in:tight,normal,wide'],
+            'design_kit.typography_weight' => ['sometimes', 'nullable', 'string', 'in:light,regular,bold'],
 
             // Text scale — semantic slots (2026-07-10): body is the value
             // base; the rest are inferred but keep nullable columns for

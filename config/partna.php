@@ -954,7 +954,7 @@ return [
     // that adds or drops a site.design_kits column — the old cache key orphans
     // and TTLs out, so picking up the new column set needs no `artisan
     // cache:clear`. (LIFE-2)
-    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-10.3'),
+    'design_kit_columns_version' => env('PARTNA_DESIGN_KIT_COLUMNS_VERSION', '2026-07-17.1'),
 
     /*
     |----------------------------------------------------------------------
