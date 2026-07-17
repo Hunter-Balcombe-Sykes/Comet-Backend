@@ -248,14 +248,33 @@ class SiteMedia extends BaseModel
     /**
      * Public URL of the vectorized SVG artifact, or null when this media has none
      * (most logos; all covers). Separate from variantUrls(), which is webp-only.
+     *
+     * Fallback (2026-07-17): when the ORIGINAL upload is itself an SVG, serve
+     * that file as the vector variant — a vector upload shouldn't depend on
+     * the (env-gated, sometimes-skipped) VTracer pipeline to render as one.
+     * The sitepage mask-fills url_svg with the text ink; rasters can't take
+     * that treatment, but a real SVG original always can.
      */
     public function svgVariantUrl(): ?string
     {
         $this->loadMissing('mediaVariants');
 
-        return $this->mediaVariants
+        $vectorized = $this->mediaVariants
             ->firstWhere('artifact_type', 'svg')
             ?->url;
+        if ($vectorized !== null) {
+            return $vectorized;
+        }
+
+        if ($this->path && str_contains(strtolower((string) $this->original_mime), 'svg')) {
+            try {
+                return Storage::disk((string) config('partna.media_disk'))->url($this->path);
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /**
