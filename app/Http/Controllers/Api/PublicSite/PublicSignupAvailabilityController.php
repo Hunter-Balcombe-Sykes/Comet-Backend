@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Auth\SupabaseAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -78,6 +79,28 @@ class PublicSignupAvailabilityController extends ApiController
             $handleExists = User::query()
                 ->where('handle_lc', $handleLc)
                 ->exists();
+
+            // Mirror BootstrapRequest's alias rule: an ACTIVE row in
+            // core.user_handle_aliases reserves the handle too. Without this,
+            // availability green-lights handles the final bootstrap 422s on —
+            // the wizard's live check and the create must agree. Same pgsql +
+            // try/catch shape as the request rule (the dot-prefixed table only
+            // resolves on pgsql; fail-open elsewhere, the bootstrap rule stays
+            // the enforcing backstop).
+            if (! $handleExists) {
+                try {
+                    $handleExists = DB::connection('pgsql')
+                        ->table('core.user_handle_aliases')
+                        ->whereRaw('LOWER(handle) = ?', [$handleLc])
+                        ->where(function ($q) {
+                            $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        })
+                        ->exists();
+                } catch (\Throwable) {
+                    // Non-pgsql test envs / transient failure — availability is
+                    // advisory; bootstrap still enforces.
+                }
+            }
         }
 
         return $this->success([
