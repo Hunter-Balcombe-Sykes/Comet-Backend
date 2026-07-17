@@ -87,3 +87,22 @@ it('dispatches a real edge purge for the owner handle (EDGE-3)', function () {
         fn ($job) => strtolower($job->handle) === 'owneract',
     );
 });
+
+it('tags the edge purge with the moderation case id (EDGE-1)', function () {
+    // hide_content leaves the owner active, so the KV sync above never retires
+    // this page's routing entry — the edge purge is the sole backstop. It must
+    // carry the case id so a permanent failure can page on-call (see
+    // CloudflareCachePurgeJob::failed()).
+    Bus::fake();
+    $user = User::factory()->create(['handle' => 'tagged', 'handle_lc' => 'tagged']);
+    $case = ModerationCase::factory()->create(['reportable_owner_user_id' => $user->id]);
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'hide_content']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'purge_cloudflare_cache']);
+
+    (new PurgeModerationCacheJob($entry->id, $case->id))->handle();
+
+    Bus::assertDispatched(
+        CloudflareCachePurgeJob::class,
+        fn ($job) => strtolower($job->handle) === 'tagged' && $job->moderationCaseId === $case->id,
+    );
+});

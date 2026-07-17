@@ -29,6 +29,15 @@ class ModerationActionDispatcher
         // No auto-notify on warn — spec §4 locked decision (no statement-of-reasons
         // for warn-level outcomes until there's an internal warnings UI).
         'warn' => [],
+        // hide_content has NO KV-retirement backstop: the owner stays active (only
+        // the offending content is taken down), so SyncSubdomainToKvJob — which only
+        // reacts to owner active/suspended state — never retires this page's routing
+        // entry. Eviction relies SOLELY on the CloudflareCachePurgeJob dispatched here
+        // (via PurgeModerationCacheJob, action_type=purge_cloudflare_cache); on
+        // permanent purge failure that job now pages on-call (see
+        // CloudflareCachePurgeJob::failed() / EdgePurgeEscalator) since there's no
+        // other backstop. Contrast hide_site/suspend_user/ban_user below, which run
+        // sync_subdomain_kv and get KV retirement for free.
         'hide_content' => ['notify_reported_user', 'purge_cloudflare_cache'],
         'hide_site' => ['suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],
         'suspend_user' => ['suspend_user', 'suspend_site', 'sync_subdomain_kv', 'notify_reported_user'],

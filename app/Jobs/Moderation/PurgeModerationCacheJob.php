@@ -62,7 +62,12 @@ class PurgeModerationCacheJob implements ShouldQueue
                     ? (string) $site->custom_domain
                     : null;
 
-                CloudflareCachePurgeJob::dispatch((string) $owner->handle, $customDomain);
+                // moderationCaseId (named arg — followUp stays the job's default false)
+                // flags this purge as the sole edge-eviction backstop for hide_content:
+                // it drives CloudflareCachePurgeJob::failed()'s on-call escalation when
+                // retries exhaust. Routine (non-moderation) purge dispatch sites never
+                // pass this, so they never page on-call.
+                CloudflareCachePurgeJob::dispatch((string) $owner->handle, $customDomain, moderationCaseId: $this->caseId);
             }
         }
 

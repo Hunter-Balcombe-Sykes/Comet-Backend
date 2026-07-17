@@ -1,12 +1,15 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Staff\PartnaStaff;
+use App\Notifications\Moderation\EdgePurgeFailedStaffNotification;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Contracts\Queue\Job as QueueJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -168,6 +171,33 @@ it('gives follow-ups their own lock namespace and a shorter lock than their dela
         ->and($followUp->uniqueFor)->toBeLessThan((int) config('partna.cache.purge_followup_seconds', 120));
 });
 
+it('carries the moderation discriminator in uniqueId when a case id is set (EDGE-1)', function () {
+    // A moderation purge must not be coalesced away by a routine purge for the
+    // same handle already in flight — it's the sole backstop for hide_content.
+    $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co', moderationCaseId: 'case-123');
+
+    expect($job->uniqueId())->toBe('jane|tuesdae.co|mcase-123');
+});
+
+it('uniqueId is plain (no discriminator) when moderationCaseId is not set', function () {
+    $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co');
+
+    expect($job->uniqueId())->toBe('jane|tuesdae.co');
+});
+
+it('forwards moderationCaseId to the delayed follow-up purge', function () {
+    $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co', moderationCaseId: 'case-123');
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once();
+    $job->handle($purge);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $followUp) {
+        return $followUp->followUp === true
+            && $followUp->moderationCaseId === 'case-123';
+    });
+});
+
 it('reports to Nightwatch and logs on terminal failure', function () {
     Exceptions::fake();
     Log::spy();
@@ -182,4 +212,40 @@ it('reports to Nightwatch and logs on terminal failure', function () {
         ->withArgs(fn (string $msg, array $ctx) => $msg === 'cloudflare.cache_purge.failed'
             && ($ctx['handle'] ?? null) === 'jane'
             && ($ctx['error'] ?? null) === 'zone error');
+});
+
+it('escalates to on-call staff on terminal failure when moderationCaseId is set (EDGE-1)', function () {
+    // hide_content leaves the owner active, so SyncSubdomainToKvJob never retires
+    // the KV entry — this purge is the ONLY backstop. A silent permanent failure
+    // must page on-call, not just log.
+    setupPartnaStaffTable();
+    Exceptions::fake();
+    Log::spy();
+    Notification::fake();
+    $staff = PartnaStaff::factory()->create(['role' => 'admin']);
+
+    (new CloudflareCachePurgeJob('jane', moderationCaseId: 'case-123'))
+        ->failed(new RuntimeException('zone error'));
+
+    Exceptions::assertReported(RuntimeException::class);
+    Log::shouldHaveReceived('error')->once();
+    Notification::assertSentTo(
+        $staff,
+        EdgePurgeFailedStaffNotification::class,
+        fn ($notification) => $notification->handle === 'jane' && $notification->moderationCaseId === 'case-123',
+    );
+});
+
+it('does NOT escalate on terminal failure for a routine (non-moderation) purge — alert-fatigue guard', function () {
+    setupPartnaStaffTable();
+    Exceptions::fake();
+    Log::spy();
+    Notification::fake();
+    PartnaStaff::factory()->create(['role' => 'admin']);
+
+    (new CloudflareCachePurgeJob('jane'))->failed(new RuntimeException('zone error'));
+
+    Exceptions::assertReported(RuntimeException::class);
+    Log::shouldHaveReceived('error')->once();
+    Notification::assertNothingSent();
 });

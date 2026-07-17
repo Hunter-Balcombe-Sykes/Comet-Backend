@@ -1124,7 +1124,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 2 complete
 
@@ -1132,7 +1132,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **EDGE-1** · P1 — `hide_content` moderation decisions have no KV-level redundancy; a failed edge purge leaves the reported content live for up to 7 days (Category 3)
+- [x] **EDGE-1** · P1 — `hide_content` moderation decisions have no KV-level redundancy; a failed edge purge leaves the reported content live for up to 7 days (Category 3)
     - **Where:** `app/Services/Moderation/ModerationActionDispatcher.php:31` (`ACTIONS_BY_DECISION`), `app/Jobs/Moderation/PurgeModerationCacheJob.php:45-66`, `app/Jobs/Cloudflare/CloudflareCachePurgeJob.php:29-35`
     - **Affects:** Any case resolved with `decision_type = hide_content` (the standard "take this specific content down" outcome) — visitors to the professional's page, and the reporter/staff who believe the content is gone.
     - **Effort:** M (~2–4h)

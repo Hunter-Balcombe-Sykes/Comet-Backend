@@ -4,6 +4,7 @@ namespace App\Jobs\Cloudflare;
 
 use App\Models\Core\Site\Site;
 use App\Services\Cloudflare\CloudflarePurgeService;
+use App\Services\Moderation\EdgePurgeEscalator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -54,16 +55,26 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // Include the custom domain so a purge that must also bust the custom
         // domain isn't coalesced into a handle-only purge already in flight.
         // Follow-ups get their own lock namespace so the primary's lock can't
-        // swallow them.
+        // swallow them. A moderation-context purge (hide_content) gets its own
+        // discriminator too — it must never be coalesced away by a routine
+        // purge for the same handle in flight (e.g. a concurrent unrelated
+        // profile edit), since it's the ONLY backstop that evicts hidden
+        // content from the edge (see failed()).
         return strtolower(trim($this->handle))
             .'|'.strtolower(trim((string) $this->customDomain))
-            .($this->followUp ? '|fu' : '');
+            .($this->followUp ? '|fu' : '')
+            .($this->moderationCaseId !== null ? '|m'.$this->moderationCaseId : '');
     }
 
     public function __construct(
         public readonly string $handle,
         public readonly ?string $customDomain = null,
         public readonly bool $followUp = false,
+        // Set only when this purge enforces a moderation decision (currently
+        // hide_content, dispatched by PurgeModerationCacheJob). Drives failed()
+        // below — routine purges (SiteObserver, gallery, account edits) must
+        // NOT page on-call, so this stays null for every other dispatch site.
+        public readonly ?string $moderationCaseId = null,
     ) {
         // Isolated from user-facing work so a burst of site mutations can't
         // delay notifications or mail delivery.
@@ -107,13 +118,23 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // delayed follow-up purge lands after every payload layer has turned
         // over, evicting any stale re-pin. Follow-ups never chain.
         if (! $this->followUp) {
-            self::dispatch($this->handle, $this->customDomain, followUp: true)
+            self::dispatch($this->handle, $this->customDomain, followUp: true, moderationCaseId: $this->moderationCaseId)
                 ->delay(now()->addSeconds(
                     (int) config('partna.cache.purge_followup_seconds', 120),
                 ));
         }
     }
 
+    /**
+     * Terminal failure. Always reports + logs. When this purge enforces a
+     * moderation hide_content decision, ALSO pages on-call staff: hide_content
+     * keeps the owner active, so SyncSubdomainToKvJob never retires the KV
+     * routing entry for it — this edge purge is the only thing that evicts the
+     * hidden content from caches.default. If it exhausts retries silently,
+     * hidden content can keep serving indefinitely. Routine (non-moderation)
+     * purge failures never reach this branch — moderationCaseId is null — so
+     * SiteObserver/gallery/account-edit purges don't page on-call.
+     */
     public function failed(Throwable $e): void
     {
         report($e);
@@ -121,5 +142,9 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
             'handle' => $this->handle,
             'error' => $e->getMessage(),
         ]);
+
+        if ($this->moderationCaseId !== null) {
+            app(EdgePurgeEscalator::class)->escalate($this->handle, $this->moderationCaseId);
+        }
     }
 }
