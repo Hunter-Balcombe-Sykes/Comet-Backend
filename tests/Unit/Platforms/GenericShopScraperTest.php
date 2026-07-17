@@ -103,13 +103,30 @@ it('inserts a space at former block-element boundaries in a JSON-LD description,
 });
 
 it('falls back to the original html when the boundary-space preg_replace engine-errors, instead of silently degrading to empty (fix-round P4)', function () {
-    // preg_replace returns null (not an exception) on a PCRE engine error —
-    // simulated here via an artificially tiny backtrack limit. Tested
-    // directly against the shared PlatformScraper::sanitizeDescription()
-    // (protected, exposed via an anonymous subclass) rather than through a
-    // full fetchPage() pipeline: the same tiny backtrack limit would also
-    // break the OTHER regexes fetchPage() depends on (JSON-LD extraction,
-    // meta tags) for reasons unrelated to this fix.
+    // preg_replace returns null (not an exception) on a PCRE engine error.
+    // Earlier this test forced that via `ini_set('pcre.backtrack_limit', 1)`
+    // — a process-global mutation. On PHP 8.4, restoring the ini value in a
+    // `finally` isn't enough to contain the blast radius: while the limit is
+    // suppressed, an UNGUARDED preg_replace deeper in the same call
+    // (Str::squish()) also engine-errors, its null return trips a PHP 8.1+
+    // deprecation (mb_strwidth(null, ...)) inside Str::limit(), and PHPUnit's
+    // deprecation handler runs *while still nested inside the mutated
+    // window* — calling Pest's own Testable::getPrintableTestCaseName(),
+    // whose preg_replace ALSO engine-errors under the still-active limit=1,
+    // violating its `: string` return type and crashing the whole runner
+    // (not just this test). Any regex, however trivial, fails once the
+    // limit is set that low — there's no safe margin to carve out for
+    // "everything downstream of the one call under test."
+    //
+    // Fix: trigger a REAL, organic engine error instead — an unclosed tag
+    // whose attribute run is long enough to exceed PCRE's *default*
+    // backtrack_limit (1_000_000) with no ini mutation at all. This regex
+    // has no nested quantifiers (no catastrophic/exponential backtracking),
+    // so the cost is linear in input length; ~20M characters gives a
+    // comfortable multiple of the ~4-5M needed here, and still runs in
+    // milliseconds. Because pcre.backtrack_limit is never touched, nothing
+    // else in the process — Str::squish(), Pest's own regexes, any other
+    // test — can be affected. True test isolation, not a restore-and-hope.
     $scraper = new class(Mockery::mock(SafeUrlFetcher::class)) extends GenericShopScraper
     {
         public function sanitize(mixed $html): ?string
@@ -118,13 +135,13 @@ it('falls back to the original html when the boundary-space preg_replace engine-
         }
     };
 
-    $originalLimit = ini_get('pcre.backtrack_limit');
-    ini_set('pcre.backtrack_limit', 1);
-    try {
-        $result = $scraper->sanitize('<p>Hello</p><p>world</p>');
-    } finally {
-        ini_set('pcre.backtrack_limit', $originalLimit);
-    }
+    // Well-formed content first (this is what the assertion below checks),
+    // then a dangling unclosed <table tag with no closing '>' anywhere —
+    // strip_tags() on the untouched fallback html strips that whole trailing
+    // run since it never finds a closing '>', leaving only "Helloworld".
+    $html = '<p>Hello</p><p>world</p><table '.str_repeat('x', 20_000_000);
+
+    $result = $scraper->sanitize($html);
 
     // Without the `?? $html` fallback, (string) null === '' would silently
     // collapse this to an empty/null description before strip_tags() even
