@@ -60,7 +60,7 @@ return [
         'redis:images' => 300,
         'redis:streaming' => 120,
         'redis:mail' => 120,
-        'redis:scraping' => 300,
+        'redis_scraping:scraping' => 300,
         'redis_gdpr:gdpr' => 600,
         'redis_video:videos' => 300,
     ],
@@ -208,16 +208,21 @@ return [
             'timeout' => 300,
             'nice' => 10,
         ],
-        // Platform scraping jobs (InstagramConnectJob — billed Apify scrape + parallel
-        // image mirroring, 150s timeout; DeleteMirroredMediaJob cleanup). Isolated on
-        // its own supervisor so a burst of connects can't starve user-facing queues —
+        // Platform scraping jobs (MenuFetchJob — up to two Apify store scrapes,
+        // $timeout=600; InstagramConnectJob — billed Apify scrape + parallel image
+        // mirroring, 150s timeout; DeleteMirroredMediaJob cleanup). Isolated on its
+        // own supervisor so a burst of connects can't starve user-facing queues —
         // and, crucially, so the `scraping` queue is actually consumed (previously no
-        // supervisor ran it, so InstagramConnectJob never executed in any env). External
-        // APIs are rate-limited, not CPU-bound → low process count, nice'd. timeout 180
-        // exceeds the job's 150s so Horizon doesn't SIGKILL mid-scrape (and stays under
-        // the redis connection's retry_after=360 so the job can't be re-queued mid-run).
+        // supervisor ran it, so InstagramConnectJob never executed in any env). Must
+        // use the redis_scraping connection (retry_after=660), NOT the default redis
+        // connection (retry_after=360) — MenuFetchJob's 600s timeout would otherwise
+        // let Redis re-queue a still-running scrape to a second worker (concurrent
+        // double-scrape + duplicate menu rows). External APIs are rate-limited, not
+        // CPU-bound → low process count, nice'd. timeout 660 exceeds MenuFetchJob's
+        // 600s so Horizon doesn't SIGKILL mid-scrape, and matches the connection's
+        // retry_after so Horizon's own kill always precedes any Redis re-queue.
         'supervisor-scraping' => [
-            'connection' => 'redis',
+            'connection' => 'redis_scraping',
             'queue' => ['scraping'],
             'balance' => 'auto',
             'minProcesses' => 1,
@@ -226,7 +231,7 @@ return [
             'maxJobs' => 0,
             'memory' => 256,
             'tries' => 1,
-            'timeout' => 180,
+            'timeout' => 660,
             'nice' => 10,
         ],
         // Platform refresh fan-out (RefreshConnectionJob). Isolated so a refresh burst
@@ -300,7 +305,7 @@ return [
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping', 'platform_refresh'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -311,6 +316,18 @@ return [
                 'queue' => ['gdpr'],
                 'balance' => false,
                 'maxProcesses' => 1,
+                'tries' => 1,
+                'timeout' => 660,
+            ],
+            // Split from supervisor-1 (JOB-103): must use the redis_scraping
+            // connection (retry_after=660), NOT the shared redis connection
+            // (retry_after=360) — MenuFetchJob's $timeout=600 would otherwise let
+            // Redis re-queue a still-running scrape to a second worker.
+            'supervisor-scraping' => [
+                'connection' => 'redis_scraping',
+                'queue' => ['scraping'],
+                'balance' => false,
+                'maxProcesses' => 2,
                 'tries' => 1,
                 'timeout' => 660,
             ],
@@ -325,11 +342,12 @@ return [
 
         'local' => [
             // Single supervisor for local dev — processes all queues in priority order.
-            // `gdpr` is split out into its own supervisor because it requires the
-            // redis_gdpr connection (see supervisor-gdpr note above).
+            // `gdpr` and `scraping` are split into their own supervisors because they
+            // require dedicated Redis connections (see supervisor-gdpr /
+            // supervisor-scraping notes above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'scraping', 'platform_refresh'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -340,6 +358,14 @@ return [
                 'queue' => ['gdpr'],
                 'balance' => false,
                 'maxProcesses' => 1,
+                'tries' => 1,
+                'timeout' => 660,
+            ],
+            'supervisor-scraping' => [
+                'connection' => 'redis_scraping',
+                'queue' => ['scraping'],
+                'balance' => false,
+                'maxProcesses' => 2,
                 'tries' => 1,
                 'timeout' => 660,
             ],

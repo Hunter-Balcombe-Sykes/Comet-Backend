@@ -2083,7 +2083,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 1 of 3 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -2146,7 +2146,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
         }
         ```
 
-- [ ] **JOB-103** · P1 — `MenuFetchJob`'s 600s `$timeout` exceeds the `redis` connection's 360s `retry_after`, risking a duplicate concurrent scrape/rebuild
+- [x] **JOB-103** · P1 — `MenuFetchJob`'s 600s `$timeout` exceeds the `redis` connection's 360s `retry_after`, risking a duplicate concurrent scrape/rebuild
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:48 (cross-referenced against config/queue.php:70-79)
     - **Affects:** Any user whose menu fetch genuinely runs long — the exact scenario the job's own 600s timeout exists to cover ("Up to two real store scrapes (UE + DD), each retried on empty"). `MenuFetchJob` is dispatched on `config('partna.queues.scraping', 'scraping')`, which runs on Horizon's `supervisor-scraping` using `'connection' => 'redis'` (config/horizon.php:219-231) — the default `redis` queue connection, whose `retry_after` is 360s. Laravel's worker uses the JOB's own `$timeout` (600s) to decide when to `pcntl_alarm`-kill the process, which is correctly *longer* than Horizon's per-supervisor `timeout: 180`, but that same 600s figure is what the job is actually allowed to run for — well past the 360s point at which Redis considers the job's reservation abandoned and hands the identical queued entry to a second free worker (2 processes configured on `supervisor-scraping`). Two workers then run `handle()` concurrently for the same user: two Apify scrapes are billed, and `persist()`'s delete-then-reinsert transaction (app/Jobs/Platforms/MenuFetchJob.php:263-363) is not safe against a second concurrent execution — each worker computes its own `rebuildableCategoryIds()` snapshot before either commits, so both transactions insert their own full set of categories/items, leaving duplicate menu content live on the user's sitepage.
     - **Effort:** M (~2–4h)

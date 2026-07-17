@@ -103,6 +103,19 @@ return [
             'after_commit' => false,
         ],
 
+        // Dedicated connection for platform scraping jobs. retry_after must exceed
+        // MenuFetchJob::$timeout (600s) so Redis never re-queues a still-running
+        // scrape to a second worker (concurrent double-scrape + duplicate menu rows).
+        // Run workers with: php artisan queue:work redis_scraping --queue=scraping --timeout=660
+        'redis_scraping' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
+            'retry_after' => (int) env('PARTNA_SCRAPING_QUEUE_RETRY_AFTER', 660),
+            'block_for' => null,
+            'after_commit' => false,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],
