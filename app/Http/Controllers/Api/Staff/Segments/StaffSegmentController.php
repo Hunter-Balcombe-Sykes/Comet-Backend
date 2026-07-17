@@ -9,10 +9,13 @@ use App\Http\Requests\Api\Staff\Segments\SegmentMembersRequest;
 use App\Http\Requests\Api\Staff\Segments\StoreSegmentRequest;
 use App\Http\Requests\Api\Staff\Segments\UpdateSegmentRequest;
 use App\Http\Resources\Staff\UserSegmentResource;
+use App\Jobs\Platforms\ReconcilePlatformTakedownJob;
+use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\User\User;
 use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -132,6 +135,23 @@ class StaffSegmentController extends ApiController
         }
 
         FeatureAvailability::flush();
+
+        // OV-A: new members of a segment that already disables an integration inherit
+        // the takedown. Re-run the segment takedown (idempotent — only still-active
+        // rows flip). Only when members were actually added.
+        if ($added > 0) {
+            $registry = app(PlatformRegistry::class);
+            FeatureAvailabilityRule::query()
+                ->where('segment_id', $segment->id)
+                ->where('mode', FeatureAvailabilityRule::MODE_DISABLED)
+                ->get()
+                ->each(function (FeatureAvailabilityRule $rule) use ($registry): void {
+                    $platform = $rule->integrationPlatform();
+                    if ($platform !== null && $registry->has($platform)) {
+                        ReconcilePlatformTakedownJob::dispatch($platform, $rule->segment_id)->afterCommit();
+                    }
+                });
+        }
 
         return $this->success([
             'added_count' => $added,
