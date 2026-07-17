@@ -7,6 +7,7 @@ use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\User\User;
 use App\Services\Platforms\MenuScanApplier;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 // BE3 self-review: the public sitepage menu endpoint (GET
@@ -134,6 +135,47 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
     expect($publicItem['platforms'][1]['platform'])->toBe('doordash');
     expect((float) $publicItem['platforms'][1]['pickupPrice'])->toBe(11.0);
     expect($publicItem['platforms'][1]['deliveryUrl'])->toBeNull();
+});
+
+// ── Popularity ranks (menu_item / menu_category, keyed by stable ids) ──
+
+it('surfaces menu_item and menu_category popularity ranks keyed by the persisted stable ids', function () {
+    // The full scoring loop: item-seen beacons accrue analytics.item_views rows
+    // under item_type=menu_item/menu_category keyed by the persisted UUIDs
+    // (already pinned by ItemSeenIngestTest); compute writes
+    // content_popularity_scores under the same keys; this endpoint annotates
+    // each category/item with its rank. Stable across refreshes because
+    // MenuFetchJob reuses ids for name-matched rows (MenuTest pins that).
+    setupContentPopularityScoresTable();
+    $user = createTenant('pubmenurank');
+
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $popular = MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 0, 'name' => 'Margherita', 'base_price' => 11.0,
+    ]);
+    $sleeper = MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 1, 'name' => 'Anchovy Special', 'base_price' => 13.0,
+    ]);
+
+    $now = now()->toDateTimeString();
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        ['id' => (string) Str::uuid(), 'site_id' => $user->site->id, 'content_type' => 'menu_item', 'content_key' => (string) $popular->id, 'score' => 9.5, 'rank' => 1, 'computed_at' => $now],
+        ['id' => (string) Str::uuid(), 'site_id' => $user->site->id, 'content_type' => 'menu_category', 'content_key' => (string) $category->id, 'score' => 7.0, 'rank' => 1, 'computed_at' => $now],
+    ]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    expect($res->json('data.categories.0.popularityRank'))->toBe(1);
+    $items = collect($res->json('data.categories.0.items'));
+    expect($items->firstWhere('id', (string) $popular->id)['popularityRank'])->toBe(1);
+    // Un-scored items degrade to null, not 0 — the frontend sums per category.
+    expect($items->firstWhere('id', (string) $sleeper->id)['popularityRank'])->toBeNull();
 });
 
 // ── Per-item platform deep links (links: {uber_eats?, doordash?}) ──
