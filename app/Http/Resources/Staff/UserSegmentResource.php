@@ -11,7 +11,7 @@ class UserSegmentResource extends ApiResource
     public function toArray($request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'name' => $this->name,
             'description' => $this->description,
             'filters' => $this->filters ?? [],

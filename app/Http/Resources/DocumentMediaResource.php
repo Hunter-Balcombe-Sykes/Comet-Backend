@@ -7,7 +7,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 // API resource for document-pool media items (PDF/JPG/PNG, pool='documents').
-// Output is byte-identical to UserDocumentController::buildDocumentPayload().
 //
 // Field notes:
 //   - `title`      → maps from alt_text (the editable display name for a document)
@@ -28,7 +27,7 @@ class DocumentMediaResource extends ApiResource
         $previewUrl = Storage::disk($mediaDisk)->url((string) $media->path);
 
         return [
-            'id' => $media->id,
+            'id' => (string) $media->id,
             'title' => $media->alt_text,
             'caption' => $media->caption,
             // is_enabled maps to is_active — the publish toggle reads and writes this.
