@@ -265,7 +265,7 @@ git commit -m "feat(feedback): staffTriage + staffDelete policy abilities"
 - Consumes: `Feedback` model (SoftDeletes), helpers from Task 2's test file.
 - Produces: `FeedbackService::updateStatus(Feedback $feedback, string $status): Feedback` and `FeedbackService::deleteByStaff(Feedback $feedback): void`. Tasks 4/5's controller actions call exactly these.
 
-- [ ] **Step 1: Append failing service tests**
+- [x] **Step 1: Append failing service tests**
 
 Append to `tests/Feature/Staff/StaffFeedbackTriageTest.php`:
 
@@ -293,12 +293,12 @@ it('deleteByStaff soft deletes — row leaves the default scope but survives wit
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: the two new tests FAIL with `Call to undefined method …FeedbackService::updateStatus()`.
 
-- [ ] **Step 3: Implement the service methods**
+- [x] **Step 3: Implement the service methods**
 
 In `app/Services/Feedback/FeedbackService.php`, add after `submit()` (before `hashIp()`):
 
@@ -328,12 +328,12 @@ In `app/Services/Feedback/FeedbackService.php`, add after `submit()` (before `ha
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Pint + commit**
+- [x] **Step 5: Pint + commit**
 
 ```bash
 php artisan pint app/Services/Feedback/FeedbackService.php tests/Feature/Staff/StaffFeedbackTriageTest.php

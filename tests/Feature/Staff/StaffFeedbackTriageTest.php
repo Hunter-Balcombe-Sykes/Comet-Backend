@@ -12,6 +12,7 @@
 use App\Models\Core\Feedback;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use App\Services\Feedback\FeedbackService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -115,4 +116,26 @@ it('allows only admin to staffDelete', function () {
 
     expect(Gate::forUser(triageSupportStaff())->allows('staffDelete', $feedback))->toBeFalse();
     expect(Gate::forUser(triageAdminStaff())->allows('staffDelete', $feedback))->toBeTrue();
+});
+
+// ── Service layer ──
+
+it('updateStatus persists the new status', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    $updated = app(FeedbackService::class)->updateStatus(Feedback::findOrFail($id), 'triaged');
+
+    expect($updated->status)->toBe('triaged');
+    expect(Feedback::findOrFail($id)->status)->toBe('triaged');
+});
+
+it('deleteByStaff soft deletes — row leaves the default scope but survives withTrashed', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    app(FeedbackService::class)->deleteByStaff(Feedback::findOrFail($id));
+
+    expect(Feedback::find($id))->toBeNull();
+    expect(Feedback::withTrashed()->findOrFail($id)->deleted_at)->not->toBeNull();
 });
