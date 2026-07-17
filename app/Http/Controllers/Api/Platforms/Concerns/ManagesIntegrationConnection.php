@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms\Concerns;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\FeatureAvailability\FeatureAvailability;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -78,8 +79,22 @@ trait ManagesIntegrationConnection
      * mirroring canonical_key's stamp-only-if-not-null contract so an already-stored
      * value is never clobbered back to NULL by an unrelated update.
      */
+    /**
+     * OV-A persistence net: refuse any write to a platform staff have disabled for
+     * this user (global or segment rule). 503 matches the FeatureGate convention.
+     * Also stops a reconnect/refresh from resurrecting a taken-down connection.
+     */
+    private function assertPlatformAvailable(User $user): void
+    {
+        if (! FeatureAvailability::for($user)->allows('integration.'.$this->platform())) {
+            abort(503, 'This integration is currently unavailable.');
+        }
+    }
+
     protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null): IntegrationConnection
     {
+        $this->assertPlatformAvailable($user);
+
         // Determine create vs. update before the upsert so the correct ability fires.
         $existing = $this->connectionFor($user, $resourceId);
         if ($existing) {
@@ -137,6 +152,8 @@ trait ManagesIntegrationConnection
      */
     protected function writePendingLinkCard(User $user, array $payload, ?string $resourceId = null, ?string $resourceKind = null): IntegrationConnection
     {
+        $this->assertPlatformAvailable($user);
+
         $existing = $this->connectionFor($user, $resourceId);
         if ($existing) {
             $this->authorizeForUser($user, 'update', $existing);
