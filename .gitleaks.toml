@@ -1,0 +1,25 @@
+# gitleaks config for the supply-chain CI secret scan (launch-check suite).
+#
+# Extends gitleaks' default ruleset and allowlists paths that legitimately contain
+# fake / test-mode / example secrets. Verified 2026-07-17: a full-history scan
+# (2886 commits) surfaced 49 findings, ALL non-live — Stripe `sk_test_` keys and
+# `whsec_` webhook secrets in tests, illustrative values in planning docs, quoted
+# code in audit-pipeline logs, and `.env.example` placeholders. Zero matches for
+# any live-secret format (sk_live_/AKIA/private keys/ghp_/github_pat_/xox/AIza).
+#
+# This is a PATH-SCOPED allowlist, NOT a blanket disable: real application code
+# (app/, config/, routes/, real .env) is still scanned in full, so a live secret
+# committed to production code will still fail CI.
+title = "Partna gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths that legitimately hold fake/test/example secrets (verified non-live 2026-07-17)"
+paths = [
+    '''^tests/''',          # test fixtures + feature tests use fake / sk_test_ / whsec_ values
+    '''^docs/''',           # planning docs carry illustrative example secrets
+    '''^\.audit-work/''',   # audit-pipeline logs quote scanned source (incl. the test fixtures above)
+    '''\.example$''',       # .env.example and friends — placeholders, never real
+]
