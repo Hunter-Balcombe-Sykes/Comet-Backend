@@ -50,7 +50,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/fresha")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [FreshaController::class, 'connect'])->defaults('platform', 'fresha');
+            Route::post('/connect', [FreshaController::class, 'connect'])->defaults('platform', 'fresha')->middleware('platform.available');
             Route::get('/team', [FreshaController::class, 'team']);
             Route::get('/url', [FreshaController::class, 'show']);
             Route::get('/employee-services', [FreshaController::class, 'employeeServices']);
@@ -66,7 +66,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/square")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [SquareController::class, 'connect'])->defaults('platform', 'square');
+            Route::post('/connect', [SquareController::class, 'connect'])->defaults('platform', 'square')->middleware('platform.available');
             Route::get('/selection', [SquareController::class, 'selection']);
             Route::delete('/', [SquareController::class, 'forget']);
         });
@@ -100,7 +100,7 @@ $registerIntegrationRoutes = function (string $base): void {
     Route::prefix("{$base}/instagram")
         ->middleware($middleware)
         ->group(function () {
-            Route::post('/connect', [InstagramController::class, 'connect']);
+            Route::post('/connect', [InstagramController::class, 'connect'])->middleware('platform.available:instagram');
             Route::get('/connect/status', [InstagramController::class, 'connectStatus']);
             Route::get('/selection', [InstagramController::class, 'selection']);
             // BE2: bio-link auto-sync popup contract — mirrors the Google Business
@@ -115,7 +115,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             $musicPlatform = 'apple-music';
             $podcastPlatform = 'apple-podcast';
-            Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', $musicPlatform);
+            Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', $musicPlatform)->middleware('platform.available');
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
             // music reads → generic (platform=apple-music)
@@ -123,7 +123,7 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::delete('/music/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])
                 ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $musicPlatform);
             Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $musicPlatform);
-            Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', $podcastPlatform);
+            Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', $podcastPlatform)->middleware('platform.available');
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
             // podcast reads → generic (platform=apple-podcast)
@@ -141,7 +141,7 @@ $registerIntegrationRoutes = function (string $base): void {
         Route::prefix("{$base}/{$slug}")
             ->middleware($middleware)
             ->group(function () use ($controller, $slug) {
-                Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug);
+                Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug)->middleware('platform.available');
                 Route::get('/accounts', [$controller, 'accounts']);
                 Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
                 Route::post('/events', [$controller, 'addEvent']);
@@ -246,7 +246,7 @@ $registerIntegrationRoutes = function (string $base): void {
                 // Null connectController = fully registry-driven (link-only, and
                 // every platform migrated onto a ConnectStrategy).
                 $connectController = $descriptor->connectController() ?? GenericPlatformController::class;
-                Route::post('/connect', [$connectController, 'connect'])->defaults('platform', $slug);
+                Route::post('/connect', [$connectController, 'connect'])->defaults('platform', $slug)->middleware('platform.available');
 
                 if ($shape === PlatformRouteShape::SingleSelection) {
                     // selection + DELETE stay on the bespoke controller.

@@ -100,6 +100,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'bot.token' => VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
             'idempotent' => IdempotencyKey::class,
+            'platform.available' => \App\Http\Middleware\Context\EnsurePlatformAvailable::class,
         ]);
 
         // Named group for the standard authenticated user route stack.
