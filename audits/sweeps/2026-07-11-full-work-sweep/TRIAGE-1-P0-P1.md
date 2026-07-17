@@ -184,7 +184,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 1 of 3 complete
 - P2 Medium: 0 of 25 complete
 - P3 Low: 0 of 1 complete
 
@@ -233,7 +233,7 @@
         Cache::put('enquiry:notified:'.$this->enquiryId, true, now()->addDay());
         ```
 
-- [ ] **LIFE-3** · P1 — Site-settings PATCH merges the JSONB blob outside any lock — two concurrent saves silently drop one set of changes
+- [x] **LIFE-3** · P1 — Site-settings PATCH merges the JSONB blob outside any lock — two concurrent saves silently drop one set of changes
     - **Where:** app/Services/Site/UpdateSiteAction.php:51-102, 121-141
     - **Affects:** Every authenticated user editing their site settings — two concurrent dashboard saves (multi-tab editing, a slow save race against a second field change) can lose one write entirely, with no error surfaced to either request.
     - **Effort:** M (~2–4h)
