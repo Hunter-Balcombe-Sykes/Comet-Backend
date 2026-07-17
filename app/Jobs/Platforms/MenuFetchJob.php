@@ -352,6 +352,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                         'name' => $item['name'],
                         'description' => $item['description'] ?? null,
                         'image_url' => $item['imageUrl'] ?? null,
+                        // Hero-first image set (JSON like badges — bulk insert bypasses casts).
+                        'images' => isset($item['images']) ? json_encode($item['images']) : null,
                         'rating' => $item['rating'] ?? null,
                         'rating_count' => $item['ratingCount'] ?? null,
                         // Kept as JSONB (reviewed 2026-07-04, #FOUND-13) — display-only, no query pattern exists.

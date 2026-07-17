@@ -522,6 +522,10 @@ class MenuMerger
             'name' => $this->pick($versions, 'name') ?? '',
             'description' => $this->pick($versions, 'description'),
             'imageUrl' => $this->pickRaw($versions, 'image'),
+            // Full image set, hero first. Each platform exposes at most ONE image
+            // per item (memo23 imageUrl / dz_omar image_url), so >1 only occurs
+            // cross-platform; registry order keeps images[0] === imageUrl.
+            'images' => $this->images($versions),
             'rating' => $this->pickRaw($versions, 'rating'),         // DoorDash only (UE items carry null)
             'ratingCount' => $this->pickRaw($versions, 'ratingCount'),
             'badges' => $this->pickRaw($versions, 'badges'),
@@ -534,6 +538,28 @@ class MenuMerger
             'platforms' => $platforms,
             'ddExternalId' => $versions['doordash']['externalId'] ?? null,
         ];
+    }
+
+    /**
+     * Every distinct non-empty image across the dish's platform versions, in
+     * registry (display-priority) order — the same order pickRaw() resolves
+     * `imageUrl`, so the hero (index 0) always matches it. Null when no
+     * platform carries an image, mirroring the other nullable display fields.
+     *
+     * @param  array<string, array<string,mixed>>  $versions
+     * @return list<string>|null
+     */
+    private function images(array $versions): ?array
+    {
+        $out = [];
+        foreach ($this->platforms() as $p) {
+            $image = $this->str($versions[$p]['image'] ?? null);
+            if ($image !== null && ! in_array($image, $out, true)) {
+                $out[] = $image;
+            }
+        }
+
+        return $out === [] ? null : $out;
     }
 
     /** First non-empty string value across registry order. */

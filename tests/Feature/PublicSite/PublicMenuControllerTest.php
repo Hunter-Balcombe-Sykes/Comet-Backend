@@ -62,6 +62,8 @@ it('serves a scan-only menu (no scrape ever ran) on the public endpoint', functi
     expect($item['deliveryPrice'])->toBeNull();
     expect($item['currency'])->toBeNull();
     expect($item['platforms'])->toBe([]);
+    expect($item['images'])->toBeNull();
+    expect($item['links'])->toBeNull();
 });
 
 it('returns 404 for a handle with no menu at all', function () {
@@ -96,6 +98,8 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
         'delivery_price' => 12.5,
         'delivery_source' => 'uber-eats',
         'currency' => 'AUD',
+        'image_url' => 'https://ue/marg.jpg',
+        'images' => ['https://ue/marg.jpg', 'https://dd/marg.jpg'],
     ]);
     MenuItemPlatform::create([
         'menu_item_id' => $item->id,
@@ -114,6 +118,9 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
 
     $publicItem = $res->json('data.categories.0.items.0');
     expect($publicItem['id'])->toBe((string) $item->id);
+    // Cross-platform image set rides alongside the single hero imageUrl.
+    expect($publicItem['imageUrl'])->toBe('https://ue/marg.jpg');
+    expect($publicItem['images'])->toBe(['https://ue/marg.jpg', 'https://dd/marg.jpg']);
     expect($publicItem['price'])->toBe('11.00');
     expect($publicItem['pickupPrice'])->toBe('11.00');
     expect($publicItem['deliveryPrice'])->toBe('12.50');

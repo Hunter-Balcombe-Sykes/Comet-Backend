@@ -217,7 +217,7 @@ it('scrapes and stores the relational menu on source change', function () {
     $this->mock(MenuApifyScraper::class, function ($m) {
         $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
-            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
+            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5, 'image' => 'https://ue/marg.jpg']]]],
         ]]);
     });
 
@@ -232,6 +232,9 @@ it('scrapes and stores the relational menu on source change', function () {
     $item = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
     expect($item->name)->toBe('Margherita');
     expect($item->base_price)->toBe(12.5);
+    // Image set persists hero-first alongside the single image_url.
+    expect($item->image_url)->toBe('https://ue/marg.jpg');
+    expect($item->images)->toBe(['https://ue/marg.jpg']);
 });
 
 it('reuses category and item ids across rebuilds when names match (stable identity)', function () {

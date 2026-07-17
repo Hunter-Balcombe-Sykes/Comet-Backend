@@ -77,6 +77,25 @@ it('prices pickup from DoorDash and delivery from Uber Eats for a matched item',
     expect($item['rating'])->toBe(95.0);                 // DoorDash-only
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
     expect($item['ddExternalId'])->toBe('d1');
+    // Both platforms carried distinct art → both captured, hero (=imageUrl) first.
+    expect($item['images'])->toBe(['https://ue/img.jpg', 'https://dd/img.jpg']);
+});
+
+it('collects the cross-platform image set without duplicating identical art, null when no platform has any', function () {
+    // Same URL on both platforms → one entry (not a fake "gallery" of dupes).
+    $ue = platformMenu([normItem(['name' => 'Same Art Dish', 'deliveryPrice' => 10.0, 'image' => 'https://cdn/shared.jpg'])]);
+    $dd = platformMenu([
+        normItem(['externalId' => 'd1', 'name' => 'Same Art Dish', 'pickupPrice' => 9.0, 'image' => 'https://cdn/shared.jpg']),
+        normItem(['externalId' => 'd2', 'name' => 'Artless Dish', 'pickupPrice' => 5.0]),
+    ]);
+
+    $links = storeLinks(['uber-eats' => ['delivery'], 'doordash' => ['pickup']]);
+    $items = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'];
+
+    expect($items[0]['images'])->toBe(['https://cdn/shared.jpg']);
+    // No image anywhere → null (mirrors imageUrl), never [].
+    $artless = collect($items)->firstWhere('name', 'Artless Dish');
+    expect($artless['images'])->toBeNull();
 });
 
 it('builds a platforms array of length 2 with per-mode prices and urls for a dish on both platforms', function () {

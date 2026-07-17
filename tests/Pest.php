@@ -576,7 +576,8 @@ function setupSitesTable(): void
     // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),
     // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000
     // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables)
-    // + 20260715090000 (menu_items.currency, menus.dining_modes).
+    // + 20260715090000 (menu_items.currency, menus.dining_modes)
+    // + 20260717170000 (menu_items.images).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -622,6 +623,7 @@ function setupSitesTable(): void
         name TEXT NULL,
         description TEXT NULL,
         image_url TEXT NULL,
+        images TEXT NULL,
         rating REAL NULL,
         rating_count INTEGER NULL,
         badges TEXT NULL,
@@ -639,6 +641,11 @@ function setupSitesTable(): void
     // existed (mirrors the site.menus dining_modes pattern above).
     try {
         DB::connection('pgsql')->statement('ALTER TABLE site.menu_items ADD COLUMN currency TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.menu_items ADD COLUMN images TEXT NULL');
     } catch (Throwable $e) {
         // already exists — ignore
     }

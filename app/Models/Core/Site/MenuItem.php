@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // One dish under a site.menu_categories row. Content (name / description /
 // image) is UNIONED across every connected ordering platform: a dish
 // on both Uber Eats and DoorDash becomes one row whose display fields gap-fill
-// across platforms (UE wins a field only where present). Each platform the dish
+// across platforms (UE wins a field only where present). `images` is the full
+// hero-first image set (images[0] = image_url) — cross-platform union, since no
+// single platform exposes more than one image per item today. Each platform the dish
 // is available on is a site.menu_item_platforms row — per-mode pickup/delivery
 // price + url for that platform's store link. `base_price` is the representative
 // headline (min across platforms);
@@ -41,6 +43,7 @@ class MenuItem extends BaseModel
         'name',
         'description',
         'image_url',
+        'images',
         'rating',
         'rating_count',
         'badges',
@@ -56,6 +59,7 @@ class MenuItem extends BaseModel
     protected $casts = [
         'position' => 'integer',
         'badges' => 'array',
+        'images' => 'array',
         'rating' => 'float',
         'rating_count' => 'integer',
         'base_price' => 'float',

@@ -194,6 +194,8 @@ class MenuController extends ApiController
                 'name' => $item->name,
                 'description' => $item->description,
                 'image' => $item->image_url,
+                // Full image set, hero first — mirrors PublicMenuController's `images`.
+                'images' => $item->images,
                 'rating' => $item->rating,
                 'ratingCount' => $item->rating_count,
                 'badges' => $item->badges,

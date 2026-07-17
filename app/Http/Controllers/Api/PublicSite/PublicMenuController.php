@@ -96,6 +96,10 @@ class PublicMenuController extends ApiController
                     'name' => $item->name,
                     'description' => $item->description,
                     'imageUrl' => $item->image_url,
+                    // Full image set, hero first (images[0] === imageUrl). Null when the
+                    // dish has none — each platform exposes at most one item image, so
+                    // >1 entry means the dish appeared on both with distinct art.
+                    'images' => $item->images,
                     // base_price stored in dollars as a float; format to 2dp.
                     'price' => $item->base_price !== null
                         ? number_format((float) $item->base_price, 2)
