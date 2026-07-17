@@ -5,11 +5,13 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use App\Services\Notifications\Dispatchers\AchievementNotifier;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupContactInboxSchema();
+    Cache::flush();
 });
 
 it('resolves enquiry + active contact block then invokes dispatcher', function () {
@@ -45,6 +47,39 @@ it('no-ops when no active contact block exists', function () {
     $user = makeInboxUser();
     $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid());
     // No contact block seeded.
+
+    $dispatcher = Mockery::mock(EnquiryNotificationDispatcher::class);
+    $dispatcher->shouldNotReceive('dispatch');
+
+    (new DispatchEnquiryNotificationsJob($enquiryId))->handle($dispatcher, app(AchievementNotifier::class));
+});
+
+it('claims the idempotency key before invoking the dispatcher', function () {
+    $user = makeInboxUser();
+    $siteId = (string) Str::uuid();
+    $enquiryId = seedInboxEnquiry($user->id, $siteId);
+    seedContactBlock($siteId, $user->id);
+
+    $dispatcher = Mockery::mock(EnquiryNotificationDispatcher::class);
+    $dispatcher->shouldReceive('dispatch')
+        ->once()
+        ->andReturnUsing(function () use ($enquiryId) {
+            // The claim must already be in place by the time the side-effect fires —
+            // that's what makes the guard atomic-before-dispatch rather than after.
+            expect(Cache::has('enquiry:notified:'.$enquiryId))->toBeTrue();
+        });
+
+    (new DispatchEnquiryNotificationsJob($enquiryId))->handle($dispatcher, app(AchievementNotifier::class));
+});
+
+it('does not re-dispatch when the key is already set (crash-retry)', function () {
+    $user = makeInboxUser();
+    $siteId = (string) Str::uuid();
+    $enquiryId = seedInboxEnquiry($user->id, $siteId);
+    seedContactBlock($siteId, $user->id);
+
+    // Simulate a prior run that claimed the key but crashed before/without releasing it.
+    Cache::add('enquiry:notified:'.$enquiryId, true, now()->addDay());
 
     $dispatcher = Mockery::mock(EnquiryNotificationDispatcher::class);
     $dispatcher->shouldNotReceive('dispatch');

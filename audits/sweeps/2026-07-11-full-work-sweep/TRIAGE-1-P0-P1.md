@@ -184,7 +184,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 25 complete
 - P3 Low: 0 of 1 complete
 
@@ -213,7 +213,7 @@
                 ...
         ```
 
-- [ ] **LIFE-2** · P1 — Enquiry-notification idempotency guard is set AFTER the side-effect, not before — a job retry can double-send
+- [x] **LIFE-2** · P1 — Enquiry-notification idempotency guard is set AFTER the side-effect, not before — a job retry can double-send
     - **Where:** app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php:64-77
     - **Affects:** Site owners receiving enquiry notifications — a retry after a mid-flight crash (worker OOM-kill, deploy restart) re-sends the enquiry email/in-app notification.
     - **Effort:** S (~0.5–1h)

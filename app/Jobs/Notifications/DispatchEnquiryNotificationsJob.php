@@ -60,8 +60,12 @@ class DispatchEnquiryNotificationsJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Idempotency guard — a retry after partial success must not re-send the notification.
-        if (Cache::has('enquiry:notified:'.$this->enquiryId)) {
+        // Idempotency guard — claim the key BEFORE the side-effect. Cache::add is an atomic
+        // SETNX (false if the key already exists), so a retry after a mid-flight crash sees
+        // the claim and returns without re-dispatching. Deliberately at-most-once: we do NOT
+        // release on failure — dispatch() swallows adapter errors and the achievement write
+        // runs after it, so releasing would let a retry double-send the owner email.
+        if (! Cache::add('enquiry:notified:'.$this->enquiryId, true, now()->addDay())) {
             return;
         }
 
@@ -73,8 +77,6 @@ class DispatchEnquiryNotificationsJob implements ShouldBeUnique, ShouldQueue
         if (Enquiry::query()->where('user_id', $enquiry->user_id)->count() === 1) {
             $achievements->firstEnquiry((string) $enquiry->user_id);
         }
-
-        Cache::put('enquiry:notified:'.$this->enquiryId, true, now()->addDay());
     }
 
     public function failed(Throwable $e): void
