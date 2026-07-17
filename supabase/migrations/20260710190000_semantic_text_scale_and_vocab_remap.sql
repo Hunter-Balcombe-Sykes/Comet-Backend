@@ -149,4 +149,4 @@ update site.design_kit_contributions
      end
  where target_var = 'border_radius'
    and value not in ('0', '0.25rem', '0.85rem', '1.5rem')
-   and nullif(regexp_replace(value, '[^0-9.]', '', 'g'), '') is not null;
+   and regexp_replace(value, '[^0-9.]', '', 'g') ~ '^[0-9]+(\.[0-9]+)?$';

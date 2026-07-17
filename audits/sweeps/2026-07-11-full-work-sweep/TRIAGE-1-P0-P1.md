@@ -1270,7 +1270,7 @@ None.
 ## Progress
 
 - P0 Blockers: 1 of 1 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 2 complete
 - P3 Low: 0 of 1 complete
 
@@ -1314,7 +1314,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#MIG-2** · P1 — Non-atomic numeric cast in a design-kit vocabulary backfill can abort mid-file, leaving prior DDL committed
+- [x] **#MIG-2** · P1 — Non-atomic numeric cast in a design-kit vocabulary backfill can abort mid-file, leaving prior DDL committed
     - **Where:** `supabase/migrations/20260710190000_semantic_text_scale_and_vocab_remap.sql:143-152`
     - **Affects:** `site.design_kits` / `site.design_kit_contributions` reads during a future apply — a cast failure here leaves the earlier 7 `DROP COLUMN`s and prior `UPDATE`s in this same file committed while this final scrub fails, since the file has no `BEGIN`/`COMMIT` wrapper.
     - **Effort:** S (~0.5–1h)
