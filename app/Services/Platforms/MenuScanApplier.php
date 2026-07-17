@@ -6,6 +6,7 @@ use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheInvalidator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -38,13 +39,17 @@ class MenuScanApplier
 
     private const SOURCE = 'scan';
 
+    public function __construct(
+        private readonly SiteCacheInvalidator $invalidator,
+    ) {}
+
     /**
      * @param  list<array{name:string, description:?string, price:?float, category:?string}>  $items
      * @return array{updated:int, added:int}
      */
     public function apply(User $user, array $items): array
     {
-        return DB::connection('pgsql')->transaction(function () use ($user, $items) {
+        $result = DB::connection('pgsql')->transaction(function () use ($user, $items) {
             $menu = $this->resolveMenu($user);
 
             // orderBy gives a deterministic base for "first occurrence wins"
@@ -128,6 +133,21 @@ class MenuScanApplier
 
             return ['updated' => $updated, 'added' => $added];
         });
+
+        // Scan-applied items/prices show on the public menu page — bust the edge
+        // cache when the scan actually changed something. These are direct model
+        // writes inside a transaction (create/update), but no observer busts the
+        // SITE cache, so dispatch it explicitly (via touchSite → SiteObserver, not
+        // a raw purge job). Skip a no-op scan that matched nothing new.
+        if ($result['updated'] > 0 || $result['added'] > 0) {
+            $this->invalidator->touchSite(
+                fn () => $user->site,
+                'menu-scan-apply',
+                ['user_id' => $user->id],
+            );
+        }
+
+        return $result;
     }
 
     /**

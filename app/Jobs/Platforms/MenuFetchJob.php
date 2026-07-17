@@ -7,6 +7,8 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
+use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
@@ -214,6 +216,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $merged = $merger->merge($menus, $contentSource, $storeLinks, $this->previousCategoryOrder($existing));
 
         $this->persist($menu, $contentSource, $merged, $now);
+
+        // Menu content changed (wholesale rebuild via query builder bypasses the
+        // model observers) — bust the public-page edge cache. purgeHandle already
+        // covers the /menu sub-page; nothing had been DISPATCHING the purge on a
+        // menu content change, so refreshed prices/items sat stale at the edge.
+        $this->bustSiteCache($this->userId);
     }
 
     /**
@@ -418,6 +426,28 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 $menu->forceFill(['content_source' => 'scan'])->save();
             }
         });
+
+        // Scraped rows were removed from the public menu — bust the edge cache
+        // (a menu existed, so this is a real content change, not a no-op).
+        $this->bustSiteCache($userId);
+    }
+
+    /**
+     * Bust the public sitepage cache for a menu content change. Menu writes are
+     * wholesale query-builder rebuilds that intentionally bypass model observers,
+     * so the cache invalidation has to be dispatched explicitly. Routes through
+     * SiteCacheInvalidator::touchSite (→ SiteObserver → Redis invalidate + CF
+     * purge + KV), never a direct CloudflareCachePurgeJob — that would double-fire.
+     * Resolved from the container (not constructor-injected — jobs serialize their
+     * constructor args). Never let a cache-bookkeeping failure fail the job.
+     */
+    private function bustSiteCache(string $userId): void
+    {
+        app(SiteCacheInvalidator::class)->touchSite(
+            fn () => User::query()->with('site')->find($userId)?->site,
+            'menu-fetch',
+            ['user_id' => $userId],
+        );
     }
 
     public function failed(Throwable $e): void
