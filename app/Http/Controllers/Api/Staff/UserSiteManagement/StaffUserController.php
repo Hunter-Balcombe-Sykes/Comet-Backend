@@ -31,6 +31,11 @@ class StaffUserController extends ApiController
     /**
      * GET /api/staff/professionals?q=...&status=...&sector=...&account_type=...&per_page=...
      * OV-A: q also matches sector; sector/account_type are exact-match filters.
+     *
+     * No UserSelfPolicy::staffView call here (#SEC-101) — it authorizes against a
+     * single User target and this is a paginated collection; per-row authorize calls
+     * would be N gate evaluations for a currently-unconditional ability. The PII gate
+     * ($showPii below) is the enforcement point for this endpoint, same as show().
      */
     public function index(Request $request): JsonResponse
     {
@@ -92,9 +97,17 @@ class StaffUserController extends ApiController
      * GET /api/staff/professionals/{professional}
      * OV-A: detail now carries the integrations summary + architecture/design
      * summary so the staff user page renders from one call.
+     *
+     * PII gate (#SEC-101): only admin staff see the sensitive fields on
+     * UserStaffResource (email, phone, address, admin_notes, auth_user_id) —
+     * mirrors the $showPii pattern already used by index().
      */
-    public function show(User $professional): JsonResponse
+    public function show(Request $request, User $professional): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+        $showPii = $staff && $staff->isAdmin();
+
         $professional->load(['site']);
 
         $integrations = $professional->integrationConnections()
@@ -113,7 +126,7 @@ class StaffUserController extends ApiController
         $designKitVars = $professional->site?->designKitVars() ?? [];
 
         return $this->success([
-            'professional' => new UserStaffResource($professional),
+            'professional' => new UserStaffResource($professional, $showPii),
             'site' => $professional->site ? [
                 'id' => $professional->site->id,
                 'subdomain' => $professional->site->subdomain,
@@ -159,8 +172,9 @@ class StaffUserController extends ApiController
         $professional->status = $data['status'];
         $professional->save();
 
+        // staffManage above already enforces admin-only, so PII is always shown here.
         return $this->success([
-            'professional' => new UserStaffResource($professional->fresh()),
+            'professional' => new UserStaffResource($professional->fresh(), true),
         ]);
     }
 
@@ -237,8 +251,9 @@ class StaffUserController extends ApiController
             $professional->save();
         });
 
+        // staffManage above already enforces admin-only, so PII is always shown here.
         return $this->success([
-            'professional' => new UserStaffResource($professional->fresh()),
+            'professional' => new UserStaffResource($professional->fresh(), true),
         ]);
     }
 
@@ -271,9 +286,10 @@ class StaffUserController extends ApiController
             $professional->restore();
         }
 
+        // staffManage above already enforces admin-only, so PII is always shown here.
         return $this->success([
             'message' => 'Professional restored successfully',
-            'professional' => new UserStaffResource($professional->fresh()),
+            'professional' => new UserStaffResource($professional->fresh(), true),
         ]);
     }
 

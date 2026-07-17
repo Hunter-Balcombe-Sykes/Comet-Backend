@@ -96,7 +96,8 @@ it('exposes admin_notes in staff resource but not in self-service resource', fun
     $professional->admin_notes = 'Internal: do not contact this brand directly';
     $professional->display_name = 'Test';
 
-    $staffShape = (new UserStaffResource($professional))->toArray(request());
+    // admin_notes is PII-gated (#SEC-101) — only visible when $showPii is true.
+    $staffShape = (new UserStaffResource($professional, true))->toArray(request());
     $selfShape = (new UserDashboardResource($professional))->toArray(request());
 
     expect($staffShape)->toHaveKey('admin_notes')

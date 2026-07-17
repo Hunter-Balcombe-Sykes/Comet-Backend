@@ -105,6 +105,20 @@ class UserSelfPolicy extends BasePolicy
     }
 
     /**
+     * Read-access seam for the staff detail view (#SEC-101).
+     *
+     * All staff roles may view a professional's detail record — the PII gate
+     * itself lives in UserStaffResource ($showPii, admin-only), not here. This
+     * ability exists so the read path has an explicit, auditable authorization
+     * point (rather than none at all) and a seam to tighten later if a role
+     * should lose read access outright.
+     */
+    public function staffView(PartnaStaff $actor, User $target): bool
+    {
+        return true;
+    }
+
+    /**
      * Hard (force) delete — PERMANENT and irreversible.
      *
      * Explicitly gated to admin role even though the route group already requires

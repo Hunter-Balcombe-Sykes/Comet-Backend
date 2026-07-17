@@ -10,10 +10,24 @@
  */
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+
+/** Build a Request carrying a partna_staff attribute of the given role, as the staff middleware would. */
+function requestAsStaff(string $role = PartnaStaff::ROLE_SUPPORT): Request
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = $role;
+
+    $request = Request::create('/', 'GET');
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     setupUsersTable();
@@ -118,7 +132,7 @@ it('show returns 200 and does not crash without a theme relationship', function 
 
     $controller = app(StaffUserController::class);
 
-    $response = $controller->show($pro);
+    $response = $controller->show(requestAsStaff(), $pro);
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -127,7 +141,7 @@ it('show includes architecture_id in the site payload and omits theme', function
     $pro = seedProfessionalWithSite('one');
 
     $controller = app(StaffUserController::class);
-    $response = $controller->show($pro);
+    $response = $controller->show(requestAsStaff(), $pro);
     $body = json_decode($response->getContent(), true);
 
     expect($body['site'])->not->toBeNull()
@@ -149,7 +163,7 @@ it('show site payload is null when the professional has no site', function () {
     $pro = User::query()->findOrFail($userId);
 
     $controller = app(StaffUserController::class);
-    $response = $controller->show($pro);
+    $response = $controller->show(requestAsStaff(), $pro);
     $body = json_decode($response->getContent(), true);
 
     expect($response->getStatusCode())->toBe(200)

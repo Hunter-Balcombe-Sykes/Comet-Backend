@@ -1601,7 +1601,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 7 complete
 - P3 Low: 0 of 0 complete
 
@@ -1609,7 +1609,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-101** · P1 — `StaffUserController::show()` leaks full PII + admin notes to non-admin staff, bypassing the file's own documented PII gate
+- [x] **#SEC-101** · P1 — `StaffUserController::show()` leaks full PII + admin notes to non-admin staff, bypassing the file's own documented PII gate
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:96-138 (`show()`), contrasted with `index()`:76-89; leaked fields in app/Http/Resources/UserStaffResource.php:13-42
     - **Affects:** Every professional's `primary_email`, `phone`, `public_contact_number`, full location, `auth_user_id`, and `admin_notes` — exposed to any authenticated staff account (support-tier included), not just admins.
     - **Effort:** M (~2–4h)
