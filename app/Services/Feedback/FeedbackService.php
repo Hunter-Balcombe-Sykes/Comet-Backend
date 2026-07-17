@@ -107,6 +107,30 @@ class FeedbackService
         return $feedback;
     }
 
+    /**
+     * Staff triage: set the row's status. Input is validated upstream by
+     * StaffFeedbackUpdateRequest (Rule::in(Feedback::STATUSES)); the DB CHECK
+     * feedback_status_check is the last line of defence on real Postgres.
+     */
+    public function updateStatus(Feedback $feedback, string $status): Feedback
+    {
+        $feedback->status = $status;
+        $feedback->save();
+
+        return $feedback;
+    }
+
+    /**
+     * Staff junk removal: soft delete. NOT an archive — PurgeSoftDeleted
+     * hard-deletes the row after the 30-day retention window. Outcomes that
+     * should be kept forever use terminal statuses instead (shipped /
+     * wontfix / duplicate).
+     */
+    public function deleteByStaff(Feedback $feedback): void
+    {
+        $feedback->delete();
+    }
+
     private function hashIp(?string $ip): ?string
     {
         if ($ip === null || $ip === '') {

@@ -219,3 +219,27 @@ it('rejects an unauthenticated request with 401', function () {
 
     $response->assertStatus(401);
 });
+
+it('filters by status', function () {
+    $alice = ovdSeedUser('alice');
+    ovdSeedFeedback($alice->id, ['status' => 'new', 'message' => 'fresh']);
+    ovdSeedFeedback($alice->id, ['status' => 'shipped', 'message' => 'done']);
+
+    $response = actingAsStaff(ovdSupportStaff())->getJson('/api/staff/feedback?status=shipped');
+
+    $response->assertStatus(200);
+    $items = $response->json('feedback');
+    expect($items)->toHaveCount(1);
+    expect($items[0]['message'])->toBe('done');
+});
+
+it('ignores an unrecognised status filter rather than erroring', function () {
+    $alice = ovdSeedUser('alice');
+    ovdSeedFeedback($alice->id, ['status' => 'new']);
+    ovdSeedFeedback($alice->id, ['status' => 'shipped']);
+
+    $response = actingAsStaff(ovdSupportStaff())->getJson('/api/staff/feedback?status=bogus');
+
+    $response->assertStatus(200);
+    expect($response->json('feedback'))->toHaveCount(2);
+});

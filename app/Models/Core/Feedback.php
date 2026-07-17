@@ -25,6 +25,15 @@ class Feedback extends BaseModel
 {
     use HasUuids, SoftDeletes;
 
+    /**
+     * App-layer mirror of the DB CHECK feedback_status_check
+     * (supabase/migrations/20260526210001_create_feedback_table.sql).
+     * SQLite tests don't enforce the CHECK, so Rule::in(self::STATUSES) in
+     * StaffFeedbackUpdateRequest is the enforcement CI actually exercises —
+     * keep the two lists identical.
+     */
+    public const STATUSES = ['new', 'triaged', 'in_progress', 'shipped', 'wontfix', 'duplicate'];
+
     protected $table = 'core.feedback';
 
     public $incrementing = false;

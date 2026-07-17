@@ -160,6 +160,12 @@ Route::prefix('staff')
         // the response includes submitter email/handle + ip_hash (PRIV-4).
         Route::get('/feedback', [StaffFeedbackController::class, 'index'])
             ->name('staff.feedback.index');
+
+        // Feedback triage — status write. Support or admin; FeedbackPolicy::
+        // staffTriage adds the role gate (this group has no staff.admin).
+        Route::patch('/feedback/{feedback}', [StaffFeedbackController::class, 'update'])
+            ->whereUuid('feedback')
+            ->name('staff.feedback.update');
     });
 
 // Authorised Staff Admin Editing
@@ -271,6 +277,12 @@ Route::prefix('staff')
         Route::post('/early-access/invite', [StaffEarlyAccessController::class, 'invite']);
         Route::patch('/early-access/{signup}', [StaffEarlyAccessController::class, 'update'])->whereUuid('signup');
         Route::delete('/early-access/{signup}', [StaffEarlyAccessController::class, 'destroy'])->whereUuid('signup');
+
+        // Feedback — junk/spam removal (soft delete; purged after 30 days).
+        // FeedbackPolicy::staffDelete adds defence-in-depth on top of staff.admin.
+        Route::delete('/feedback/{feedback}', [StaffFeedbackController::class, 'destroy'])
+            ->whereUuid('feedback')
+            ->name('staff.feedback.destroy');
 
         // Integrations — view + enable/disable per platform for a professional.
         Route::get('/professionals/{professional}/integrations', [StaffIntegrationManagementController::class, 'index']);
