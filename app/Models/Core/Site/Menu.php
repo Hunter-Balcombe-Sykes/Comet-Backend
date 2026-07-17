@@ -54,6 +54,7 @@ class Menu extends BaseModel
         'dining_modes',
         'last_fetched_at',
         'scan_items',
+        'suppressed_items',
     ];
 
     protected $casts = [
@@ -61,6 +62,9 @@ class Menu extends BaseModel
         'review_count' => 'integer',
         'dining_modes' => 'array',
         'scan_items' => 'array',
+        // {category, name} scraped dishes the owner deleted — the scrape rebuild
+        // consults this so a suppressed dish is never resurrected.
+        'suppressed_items' => 'array',
         'last_fetched_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

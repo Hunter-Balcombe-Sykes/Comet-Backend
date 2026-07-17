@@ -61,9 +61,11 @@ const POLICY_EXEMPT = [
     // Handle alias table — read/write access flows through the parent Professional's policy.
     UserHandleAlias::class,
 
-    // Menu child rows — never authorized directly. They are read only via the
-    // parent Menu (gated by SitePolicy + user-scoped in MenuController) and
-    // rebuilt wholesale by MenuFetchJob. No per-row API surface to gate.
+    // Menu child rows — authorized via the parent Menu, never per-row. Reads and
+    // the manual-content writes (MenuContentController's category/item CRUD) both
+    // resolve them strictly through the caller's own menu (user-scoped queries →
+    // 404 for anything not theirs), so there is no direct IDOR surface — the same
+    // precedent as ShopBrand/ShopProduct below. Rebuilt wholesale by MenuFetchJob.
     MenuCategory::class,
     MenuItem::class,
     MenuPlatformLink::class,    // per-platform sync state; access flows through parent Menu

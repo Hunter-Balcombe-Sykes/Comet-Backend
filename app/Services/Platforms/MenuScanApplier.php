@@ -98,6 +98,12 @@ class MenuScanApplier
 
                 $match = $this->resolveMatch($nameKey, $scanCategoryName, $itemsByNameAndCategory, $itemsByName);
                 if ($match !== null) {
+                    // A manual dish (owner-authored via the dashboard) outranks scan
+                    // enrichment — leave it untouched, and don't create a scan
+                    // duplicate either (the manual row already represents this dish).
+                    if ($match->is_manual) {
+                        continue;
+                    }
                     $this->updateItem($match, $item, $enrichOnly);
                     $updated++;
 
