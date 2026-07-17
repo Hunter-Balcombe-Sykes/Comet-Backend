@@ -1690,7 +1690,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 9 complete
 - P3 Low: 0 of 1 complete
 
@@ -1698,7 +1698,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#LIFE-101** · P1 — Signup email-conflict handling discriminates constraints by string-matching the Postgres driver message
+- [x] **#LIFE-101** · P1 — Signup email-conflict handling discriminates constraints by string-matching the Postgres driver message
     - **Where:** app/Services/User/UserBootstrapService.php:100-116
     - **Affects:** Every new-user and existing-user bootstrap call (`POST` signup/profile-bootstrap) — the hottest identity-creation path in the app.
     - **Effort:** M (~2–4h, needs a real-Postgres regression test since SQLite doesn't abort transactions on constraint violation the same way)

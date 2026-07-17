@@ -98,17 +98,25 @@ class UserBootstrapService
             }
 
             try {
-                $professional->save();
+                // LIFE-101: nested tx → SAVEPOINT/ROLLBACK TO SAVEPOINT when run inside the
+                // outer signup transaction above (mirrors SiteProvisioningService::tryCreateSite).
+                // Postgres otherwise aborts the WHOLE transaction on a 23505, which made a
+                // post-catch re-query impossible and forced the old code to string-match the
+                // driver's error message (fragile across driver/version/locale — and untestable,
+                // since SQLite's message differs from Postgres's). The savepoint rollback undoes
+                // only this insert/update, leaving the outer transaction healthy so we can re-query
+                // and classify the cause deterministically instead.
+                DB::connection('pgsql')->transaction(function () use ($professional) {
+                    $professional->save();
+                });
             } catch (UniqueConstraintViolationException $e) {
-                // LIFE-6: guardAgainstEmailReuseByDifferentAuthUser is a TOCTOU-racy pre-check;
-                // the lower(primary_email) unique index is the real backstop. When a concurrent
-                // signup claimed this email between the pre-check and this write, surface the same
-                // friendly EMAIL_ALREADY_REGISTERED the pre-check throws instead of a raw 500. A
-                // re-query is impossible here (Postgres aborts the transaction after a constraint
-                // violation), so discriminate on the index name in the driver message. Any other
-                // unique violation (e.g. users_auth_user_id_unique) re-throws unchanged.
-                if (str_contains($e->getMessage(), 'users_email_unique')
-                    || str_contains($e->getMessage(), 'primary_email')) {
+                // LIFE-6 backstop for the TOCTOU race guardAgainstEmailReuseByDifferentAuthUser
+                // can't see (a concurrent signup claims the email between the pre-check and this
+                // write). Re-query with the same helper the pre-check uses: if another auth user
+                // now holds this email, surface the same friendly EMAIL_ALREADY_REGISTERED the
+                // pre-check throws instead of a raw 500. Any other unique violation (e.g.
+                // users_auth_user_id_unique / core_users_handle_lc_unique) re-throws unchanged.
+                if ($this->emailIsClaimedByAnotherAuthUser((string) $professional->primary_email, $uid)) {
                     throw new RuntimeException('EMAIL_ALREADY_REGISTERED', 0, $e);
                 }
 
@@ -147,19 +155,28 @@ class UserBootstrapService
 
     private function guardAgainstEmailReuseByDifferentAuthUser(string $email, string $uid): void
     {
+        if ($this->emailIsClaimedByAnotherAuthUser($email, $uid)) {
+            throw new RuntimeException('EMAIL_ALREADY_REGISTERED');
+        }
+    }
+
+    /**
+     * Single source of truth for "does another auth user already hold this email?" —
+     * shared by the pre-save guard above and the post-catch re-query in bootstrap()
+     * (LIFE-101). Case-insensitive to match the users_email_unique index, which is
+     * defined on lower(primary_email).
+     */
+    private function emailIsClaimedByAnotherAuthUser(string $email, string $uid): bool
+    {
         $emailLc = strtolower(trim($email));
         if ($emailLc === '') {
-            return;
+            return false;
         }
 
-        $existingByEmail = User::query()
+        return User::query()
             ->whereRaw('lower(primary_email) = ?', [$emailLc])
             ->where('auth_user_id', '!=', $uid)
             ->exists();
-
-        if ($existingByEmail) {
-            throw new RuntimeException('EMAIL_ALREADY_REGISTERED');
-        }
     }
 
     private function ensureSidestUpdatesSubscription(?string $email): void
