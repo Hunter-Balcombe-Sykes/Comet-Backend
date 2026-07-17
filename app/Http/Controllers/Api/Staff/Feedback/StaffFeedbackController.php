@@ -33,7 +33,7 @@ class StaffFeedbackController extends ApiController
 
     public function __construct(private readonly FeedbackService $service) {}
 
-    /** GET /staff/feedback?type=&area=&from=&to=&per_page= */
+    /** GET /staff/feedback?type=&area=&status=&from=&to=&per_page= */
     public function index(Request $request): JsonResponse
     {
         $staff = $request->attributes->get('partna_staff');
@@ -54,6 +54,12 @@ class StaffFeedbackController extends ApiController
         $area = $request->query('area');
         if (is_string($area) && $area !== '') {
             $query->where('area', $area);
+        }
+
+        // Triage status — same silent-ignore convention as `type` above.
+        $status = $request->query('status');
+        if (is_string($status) && in_array($status, Feedback::STATUSES, true)) {
+            $query->where('status', $status);
         }
 
         try {

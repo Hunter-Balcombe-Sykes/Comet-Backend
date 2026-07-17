@@ -697,7 +697,7 @@ git commit -m "feat(feedback): DELETE /staff/feedback/{id} — admin junk remova
 - Consumes: `Feedback::STATUSES` (Task 4).
 - Produces: `GET /staff/feedback?status=<value>` — filters when the value is in `Feedback::STATUSES`, silently ignored otherwise (the controller's existing `type`-filter convention).
 
-- [ ] **Step 1: Append failing filter tests to the LIST test file**
+- [x] **Step 1: Append failing filter tests to the LIST test file**
 
 Append to `tests/Feature/Staff/StaffFeedbackListTest.php` (this file owns the `ovd*` helpers — do NOT redefine them):
 
@@ -727,12 +727,12 @@ it('ignores an unrecognised status filter rather than erroring', function () {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify the new one fails**
+- [x] **Step 2: Run tests to verify the new one fails**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackListTest.php`
 Expected: `filters by status` FAILS (2 rows returned — filter not applied). `ignores an unrecognised status filter` may already pass (unknown query params are ignored by default); that's expected.
 
-- [ ] **Step 3: Add the filter to `index()`**
+- [x] **Step 3: Add the filter to `index()`**
 
 In `StaffFeedbackController::index()`, directly after the `area` filter block:
 
@@ -750,12 +750,12 @@ Also update the `index()` docblock line to include the new param:
     /** GET /staff/feedback?type=&area=&status=&from=&to=&per_page= */
 ```
 
-- [ ] **Step 4: Run both feedback test files to verify green**
+- [x] **Step 4: Run both feedback test files to verify green**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackListTest.php tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: PASS (all tests, both files).
 
-- [ ] **Step 5: Pint + commit**
+- [x] **Step 5: Pint + commit**
 
 ```bash
 php artisan pint app/Http/Controllers/Api/Staff/Feedback/StaffFeedbackController.php tests/Feature/Staff/StaffFeedbackListTest.php
