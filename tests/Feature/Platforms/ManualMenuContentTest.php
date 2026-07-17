@@ -209,6 +209,20 @@ it('404s renaming a category that is not the callers', function () {
     actingAsUser($other)->patchJson("/api/platforms/menu/categories/{$cat->id}", ['name' => 'Nope'])->assertStatus(404);
 });
 
+// menu_categories.id / menu_items.id are real Postgres `uuid` columns — a
+// malformed id must 404 at the router (whereUuid), not reach
+// MenuCategory::find()/MenuItem::find() and 500 on invalid uuid syntax
+// (22P02). SQLite's TEXT-typed test schema can't reproduce that 500, but the
+// router-level whereUuid constraint is DB-agnostic, so this still guards it.
+it('404s a malformed (non-uuid) category or item id on every route', function () {
+    $user = mmcUser('mm4c');
+
+    actingAsUser($user)->patchJson('/api/platforms/menu/categories/not-a-uuid', ['name' => 'X'])->assertStatus(404);
+    actingAsUser($user)->deleteJson('/api/platforms/menu/categories/not-a-uuid')->assertStatus(404);
+    actingAsUser($user)->patchJson('/api/platforms/menu/items/not-a-uuid', ['name' => 'X'])->assertStatus(404);
+    actingAsUser($user)->deleteJson('/api/platforms/menu/items/not-a-uuid')->assertStatus(404);
+});
+
 it('deletes a manual category and its items', function () {
     $user = mmcUser('mm5');
     actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Specials'])->assertOk();

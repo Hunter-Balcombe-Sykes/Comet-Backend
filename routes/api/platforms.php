@@ -230,12 +230,19 @@ $registerIntegrationRoutes = function (string $base): void {
 
             // Owner-authored (manual) menu content. {category}/{item} are UUIDs,
             // resolved strictly through the caller's own menu inside the controller.
+            // whereUuid (not a loose alnum regex) so a malformed id 404s at the router
+            // — menu_categories.id/menu_items.id are real Postgres `uuid` columns, and
+            // a non-UUID literal reaching MenuCategory::find()/MenuItem::find() raises
+            // 22P02 (invalid input syntax for type uuid), an uncaught 500 on live
+            // Postgres that SQLite's TEXT-typed test schema can't reproduce. Matches
+            // the whereUuid() convention already used throughout routes/api/staff.php
+            // and routes/api/user.php for uuid-typed route params.
             Route::post('/categories', [MenuContentController::class, 'createCategory']);
-            Route::patch('/categories/{category}', [MenuContentController::class, 'updateCategory'])->where('category', '[A-Za-z0-9-]+');
-            Route::delete('/categories/{category}', [MenuContentController::class, 'deleteCategory'])->where('category', '[A-Za-z0-9-]+');
+            Route::patch('/categories/{category}', [MenuContentController::class, 'updateCategory'])->whereUuid('category');
+            Route::delete('/categories/{category}', [MenuContentController::class, 'deleteCategory'])->whereUuid('category');
             Route::post('/items', [MenuContentController::class, 'createItem']);
-            Route::patch('/items/{item}', [MenuContentController::class, 'updateItem'])->where('item', '[A-Za-z0-9-]+');
-            Route::delete('/items/{item}', [MenuContentController::class, 'deleteItem'])->where('item', '[A-Za-z0-9-]+');
+            Route::patch('/items/{item}', [MenuContentController::class, 'updateItem'])->whereUuid('item');
+            Route::delete('/items/{item}', [MenuContentController::class, 'deleteItem'])->whereUuid('item');
         });
 
     // ── Registry-driven simple-archetype routes (FOUND-21) ───────────────────
