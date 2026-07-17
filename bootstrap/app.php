@@ -14,6 +14,7 @@ use App\Http\Middleware\Auth\RequireAal2;
 use App\Http\Middleware\Auth\RequireEmailVerified;
 use App\Http\Middleware\Auth\VerifySupabaseHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Http\Middleware\Context\EnsurePlatformAvailable;
 use App\Http\Middleware\Context\LoadCurrentUser;
 use App\Http\Middleware\FeatureGate;
 use App\Http\Middleware\IdempotencyKey;
@@ -100,7 +101,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'bot.token' => VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
             'idempotent' => IdempotencyKey::class,
-            'platform.available' => \App\Http\Middleware\Context\EnsurePlatformAvailable::class,
+            'platform.available' => EnsurePlatformAvailable::class,
         ]);
 
         // Named group for the standard authenticated user route stack.

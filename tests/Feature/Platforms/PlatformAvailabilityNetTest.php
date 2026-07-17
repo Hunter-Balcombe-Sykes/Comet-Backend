@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Platforms\SkoolScraper;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -11,7 +13,7 @@ beforeEach(function () {
     setupSitesTable();
     setupSegmentsTables();
     setupFeatureAvailabilityTable();
-    \Illuminate\Support\Facades\DB::connection('pgsql')->statement('DELETE FROM core.feature_availability');
+    DB::connection('pgsql')->statement('DELETE FROM core.feature_availability');
     FeatureAvailability::flush();
 });
 
@@ -33,7 +35,7 @@ it('blocks persisting a connection for a disabled platform even after a successf
         $m->shouldReceive('fetchCommunity')->andReturn(['url' => 'https://www.skool.com/demo', 'name' => 'Demo']);
     });
 
-    \App\Models\Core\FeatureAvailabilityRule::query()->create([
+    FeatureAvailabilityRule::query()->create([
         'feature_key' => 'integration.skool', 'mode' => 'disabled',
     ]);
     FeatureAvailability::flush();
@@ -59,7 +61,7 @@ it('does not resurrect a taken-down connection while the platform stays disabled
         $m->shouldReceive('fetchCommunity')->andReturn(['url' => 'https://www.skool.com/demo', 'name' => 'Demo']);
     });
 
-    \App\Models\Core\FeatureAvailabilityRule::query()->create([
+    FeatureAvailabilityRule::query()->create([
         'feature_key' => 'integration.skool', 'mode' => 'disabled',
     ]);
     FeatureAvailability::flush();

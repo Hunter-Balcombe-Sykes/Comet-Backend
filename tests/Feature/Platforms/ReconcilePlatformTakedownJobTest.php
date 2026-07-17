@@ -5,6 +5,7 @@ use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Segments\SegmentResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -38,7 +39,7 @@ it('globally flips is_active=false without deleting data', function () {
     $a = skoolConn(takedownUser('tka'));
     $b = skoolConn(takedownUser('tkb'));
 
-    (new ReconcilePlatformTakedownJob('skool'))->handle(app(App\Services\Segments\SegmentResolver::class));
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
 
     $a->refresh();
     $b->refresh();
@@ -55,7 +56,7 @@ it('leaves other platforms untouched', function () {
         'payload' => ['username' => 'x'], 'is_active' => true,
     ]);
 
-    (new ReconcilePlatformTakedownJob('skool'))->handle(app(App\Services\Segments\SegmentResolver::class));
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
 
     expect($ig->refresh()->is_active)->toBeTrue();
 });
@@ -69,7 +70,7 @@ it('scopes a segment takedown to that segment members only', function () {
     $segment = UserSegment::query()->create(['name' => 'seg-'.Str::random(4), 'filters' => []]);
     UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $member->id]);
 
-    (new ReconcilePlatformTakedownJob('skool', $segment->id))->handle(app(App\Services\Segments\SegmentResolver::class));
+    (new ReconcilePlatformTakedownJob('skool', $segment->id))->handle(app(SegmentResolver::class));
 
     expect($mConn->refresh()->is_active)->toBeFalse()
         ->and($oConn->refresh()->is_active)->toBeTrue();
