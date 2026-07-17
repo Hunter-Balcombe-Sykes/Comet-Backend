@@ -33,6 +33,7 @@ class StaffUserListResource extends ApiResource
         return [
             'id' => (string) $this->resource->id,
             'handle' => $this->resource->handle,
+            'account_type' => $this->resource->account_type?->value,
             'display_name' => $this->resource->display_name,
             'status' => $this->resource->status,
             'primary_email' => $this->showPii ? $this->resource->primary_email : null,
