@@ -101,6 +101,15 @@ class UpdateSiteRequest extends BaseFormRequest
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
 
+            // Site policies (Privacy / Terms) — automated flags + the owner's
+            // own text for manual mode. Generated texts are never stored;
+            // SitePolicyResolver derives them at read time.
+            'settings.privacy' => ['sometimes', 'array'],
+            'settings.privacy.automated_privacy' => ['sometimes', 'boolean'],
+            'settings.privacy.automated_terms' => ['sometimes', 'boolean'],
+            'settings.privacy.privacy_manual_text' => ['sometimes', 'nullable', 'string', 'max:30000'],
+            'settings.privacy.terms_manual_text' => ['sometimes', 'nullable', 'string', 'max:30000'],
+
             // Ordering preferences (OV-I actions system) — shared with
             // StaffUpdateSiteRequest via SiteOrderingValidationRules so the two
             // endpoints can't drift (esp. the custom-action http(s) URL rule).

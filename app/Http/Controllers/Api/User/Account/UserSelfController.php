@@ -12,6 +12,7 @@ use App\Http\Resources\UserDashboardResource;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
+use App\Services\Site\SitePolicyResolver;
 use Illuminate\Support\Facades\DB;
 
 // V2: Returns authenticated professional's full profile with site, services, and blocks. Dashboard entry point.
@@ -51,6 +52,18 @@ class UserSelfController extends ApiController
                     'subdomain_change_available_at' => $pro->site->subdomain_changed_at
                         ? $pro->site->subdomain_changed_at->copy()->addDays((int) config('partna.handle.subdomain_cooldown_days', 30))->toIso8601String()
                         : null,
+                    // Resolved auto-generated policy texts (Privacy / Terms) —
+                    // the dashboard's read-only "Automated policy" preview.
+                    // Personalized with the stored workplace name (business
+                    // accounts); the public payload's own resolution applies
+                    // the same templates at render time.
+                    'policy_auto_texts' => app(SitePolicyResolver::class)->autoTexts(
+                        $pro,
+                        $pro->site,
+                        is_string(data_get($pro->site->settings, 'workplace.name'))
+                            ? data_get($pro->site->settings, 'workplace.name')
+                            : null,
+                    ),
                 ],
             ) : null,
         ];

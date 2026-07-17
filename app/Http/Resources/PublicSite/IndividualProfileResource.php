@@ -168,6 +168,12 @@ class IndividualProfileResource extends ApiResource
             // Always an object. partna-pages reads logos for the profile and
             // covers per integration; rendering is the theme's concern.
             'siteImages' => $siteImagesOut,
+
+            // Resolved site policies — {privacy, terms}, each {mode, text,
+            // sections}. Auto mode carries structured sections (the sitepage
+            // renders them as disclosure panels at /privacy + /terms); manual
+            // mode is the owner's own flat text. Null only on partial builds.
+            'policies' => $this->sections['policies'] ?? null,
         ];
     }
 }

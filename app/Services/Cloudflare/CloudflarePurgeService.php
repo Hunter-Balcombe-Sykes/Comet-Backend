@@ -121,6 +121,11 @@ class CloudflarePurgeService
             static fn (string $page): bool => $page !== 'home',
         ));
 
+        // Legal pages are standalone routes outside the SitepageId taxonomy —
+        // without these, a policy edit stays cached at the edge for 24h.
+        $subPages[] = 'privacy';
+        $subPages[] = 'terms';
+
         // Shop product detail pages (`/products/<handle>`) are their own edge
         // keys too — the fixed page taxonomy above doesn't know them, which
         // left freshly-deployed PDPs stale for 24h (2026-07-16). Bounded +

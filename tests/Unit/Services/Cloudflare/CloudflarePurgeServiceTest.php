@@ -17,13 +17,18 @@ function cfRecordedFiles(): array
         ->all();
 }
 
-/** The deep-link sub-pages the service purges: SitepageId taxonomy minus 'home'. */
+/** The deep-link sub-pages the service purges: SitepageId taxonomy minus
+ *  'home', plus the standalone legal routes (/privacy, /terms). */
 function cfDeepLinkSubPages(): array
 {
-    return array_values(array_filter(
-        SitepageId::canonicalOrder(),
-        static fn (string $p): bool => $p !== 'home',
-    ));
+    return [
+        ...array_values(array_filter(
+            SitepageId::canonicalOrder(),
+            static fn (string $p): bool => $p !== 'home',
+        )),
+        'privacy',
+        'terms',
+    ];
 }
 
 it('no-ops when unconfigured (no zone_id or token)', function () {
