@@ -175,6 +175,25 @@ it('BandcampFetch produces the same success payload as the refresher (preserves 
     expect($result['name'])->toBe('Album');
     expect($result['thumbnail'])->toBe('t');
     expect($result['highlights'])->toBe([['itemId' => 'h1']]); // curated highlights preserved
+    // Full releases grid captured from the same fetch (show_all_releases source).
+    expect($result['releases'])->toBe($profile['items']);
+});
+
+it('BandcampFetch freezes the stored payload (quiet ok) when auto_sync_latest is off', function () {
+    // The scraper must never be called — the point is skipping the pull entirely.
+    $this->mock(BandcampScraper::class, fn ($m) => $m->shouldReceive('fetchProfile')->never());
+
+    $stored = ['url' => 'https://artist.bandcamp.com', 'name' => 'Frozen Album', 'latest' => ['name' => 'Frozen Album']];
+    $row = gmSeed(gmUser('gmbc-sync1'), 'bandcamp', $stored);
+    $row->forceFill(['display_settings' => ['auto_sync_latest' => false], 'last_refreshed_at' => now()->subDays(3)])->save();
+
+    app(PlatformRefresher::class)->refresh($row);
+
+    $fresh = $row->fresh();
+    expect($fresh->payload)->toEqual($stored);
+    // 304 semantics: healthy ok + timestamp bump so the dispatcher moves on.
+    expect($fresh->last_refresh_status)->toBe('ok');
+    expect($fresh->last_refreshed_at->greaterThan(now()->subMinute()))->toBeTrue();
 });
 
 it('BandcampFetch throws FetchShapeException when url is missing (refresher status=error)', function () {

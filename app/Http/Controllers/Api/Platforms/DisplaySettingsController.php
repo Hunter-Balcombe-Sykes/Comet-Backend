@@ -18,12 +18,18 @@ use Illuminate\Http\Request;
 //
 // A toggle is backed by ONE of two stores:
 //   • default — a sparse JSONB map on every active connection row
-//     (site.platform_connections.display_settings; absent key = ON).
+//     (site.platform_connections.display_settings; absent key = the toggle's
+//     declared default, ON unless the def carries 'default' => false).
 //   • a `siteColumn` toggle — a boolean column on site.sites. Instagram's
 //     `gallery` toggle is backed by `content_instagram_auto_enabled` so this
 //     switch and the Content/Media "Latest content auto sync" switch are ONE
 //     value (OFF hides ALL auto Instagram content — the curated reel/post
 //     slots AND the integration card).
+//
+// Sparse storage is deviation-from-default: saving a toggle AT its default
+// removes the key, saving the opposite stores it — so the JSONB map stays a
+// list of deviations whatever each toggle's default is (bandcamp's
+// show_all_releases is the first default-OFF toggle).
 // Either write saves a model whose observer purges the edge cache + busts the
 // backend cache, so a flip reflects on the sitepage within seconds.
 class DisplaySettingsController extends ApiController
@@ -92,12 +98,15 @@ class DisplaySettingsController extends ApiController
             return $this->error('Connect this integration first.', 404);
         }
 
-        // toggle key => the site column that backs it (siteColumn toggles only).
+        // toggle key => the site column that backs it (siteColumn toggles only),
+        // and toggle key => its declared default (absent = ON) for the sparse merge.
         $columnByKey = [];
+        $defaultByKey = [];
         foreach ($defs as $def) {
             if (isset($def['siteColumn'])) {
                 $columnByKey[$def['key']] = $def['siteColumn'];
             }
+            $defaultByKey[$def['key']] = (bool) ($def['default'] ?? true);
         }
 
         // Site-column-backed toggles write boolean columns on the owner's site;
@@ -119,15 +128,16 @@ class DisplaySettingsController extends ApiController
         $merged = [];
         if ($jsonIncoming !== []) {
             foreach ($connections as $connection) {
-                // Sparse merge: only keys the owner has ever flipped are stored;
-                // saving TRUE removes the key (back to the ON default) so the
-                // stored map stays a list of deviations, not a full snapshot.
+                // Sparse merge: only DEVIATIONS from each toggle's declared
+                // default are stored; saving the default value removes the key.
+                // (For the historical all-default-ON toggles this is byte-for-
+                // byte the old "true removes / false stores" behaviour.)
                 $current = (array) ($connection->display_settings ?? []);
                 foreach ($jsonIncoming as $key => $enabled) {
-                    if ((bool) $enabled) {
+                    if ((bool) $enabled === ($defaultByKey[$key] ?? true)) {
                         unset($current[$key]);
                     } else {
-                        $current[$key] = false;
+                        $current[$key] = (bool) $enabled;
                     }
                 }
                 $connection->display_settings = $current === [] ? null : $current;
@@ -159,7 +169,7 @@ class DisplaySettingsController extends ApiController
     }
 
     /**
-     * @param  array<int, array{key: string, label: string, description: string, siteColumn?: string}>  $defs
+     * @param  array<int, array{key: string, label: string, description: string, siteColumn?: string, default?: bool}>  $defs
      * @param  array<string, mixed>  $stored  the connection's display_settings (JSONB toggles)
      * @param  Site|null  $site  loaded when any toggle is site-column-backed
      * @return array<int, array{key: string, label: string, description: string, enabled: bool}>
@@ -167,9 +177,11 @@ class DisplaySettingsController extends ApiController
     private function shapeToggles(array $defs, array $stored, ?Site $site): array
     {
         return array_map(function (array $def) use ($stored, $site) {
+            // Absent key = the toggle's declared default (ON unless the def
+            // says 'default' => false); a stored value always wins.
             $enabled = isset($def['siteColumn'])
                 ? ($site !== null && (bool) $site->{$def['siteColumn']})
-                : (($stored[$def['key']] ?? true) !== false);
+                : (bool) ($stored[$def['key']] ?? $def['default'] ?? true);
 
             return [
                 'key' => $def['key'],

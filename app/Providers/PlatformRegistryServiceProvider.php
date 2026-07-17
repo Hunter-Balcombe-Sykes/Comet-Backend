@@ -380,6 +380,17 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                     ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
                 ]);
             }
+            // Bandcamp (Listen section): releases visibility + latest-tile sync.
+            // show_all_releases defaults OFF ('default' => false — the one toggle
+            // whose absent state means disabled): ON reveals the stored full
+            // `releases` list on the public wire (DisplaySettingsFilter stops
+            // suppressing it); OFF keeps today's capped latest+highlights
+            // selection. auto_sync_latest defaults ON and gates BandcampFetch's
+            // scheduled re-pull, mirroring the events toggle semantics.
+            $r->get('bandcamp')->displayToggles([
+                ['key' => 'show_all_releases', 'label' => 'Show all releases', 'description' => 'Show every release from your Bandcamp page, not just the latest and your highlights.', 'default' => false],
+                ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest release', 'description' => 'Automatically refresh your newest release.'],
+            ]);
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything

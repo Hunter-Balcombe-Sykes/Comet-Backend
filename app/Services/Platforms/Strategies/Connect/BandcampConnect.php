@@ -39,6 +39,11 @@ class BandcampConnect implements ConnectStrategy
             'artist' => $profile['name'],
             ...$this->flatTileFields($latest, self::FLAT_FIELDS),
             'latest' => $latest,
+            // Full releases grid (already fetched — zero extra requests), stored
+            // un-price-enriched so connect stays a 2-fetch operation. Served
+            // publicly ONLY when the owner's show_all_releases toggle is on
+            // (DisplaySettingsFilter suppresses it otherwise).
+            'releases' => $profile['items'],
         ];
         // Prefer the latest release art for the tile; fall back to the page's
         // own og:image (artist avatar) when the release has none.

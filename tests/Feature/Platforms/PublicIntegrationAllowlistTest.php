@@ -312,6 +312,45 @@ it('passes the enriched event fields to the public wire and keeps hiddenEventIds
     ]);
 });
 
+it('serves the bandcamp releases list only when show_all_releases is enabled', function () {
+    $payload = [
+        'url' => 'https://artist.bandcamp.com',
+        'artist' => 'Artist',
+        'name' => 'Latest Album',
+        'thumbnail' => 'https://f4.bcbits.com/img/latest.jpg',
+        'link' => 'https://artist.bandcamp.com/album/latest',
+        'latest' => ['itemId' => 'album-1', 'name' => 'Latest Album'],
+        'highlights' => [['itemId' => 'album-2', 'name' => 'Curated Pick']],
+        'releases' => [
+            ['itemId' => 'album-1', 'name' => 'Latest Album', 'thumbnail' => null, 'link' => 'https://artist.bandcamp.com/album/latest'],
+            ['itemId' => 'album-2', 'name' => 'Curated Pick', 'thumbnail' => null, 'link' => 'https://artist.bandcamp.com/album/pick'],
+        ],
+    ];
+
+    // Default (nothing stored): show_all_releases is OFF → releases suppressed,
+    // the capped latest+highlights selection is all the public wire carries.
+    $off = allowlistUser('allowbc1');
+    IntegrationConnection::create([
+        'user_id' => $off->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
+        'payload' => $payload, 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $served = $this->getJson('/api/public/profiles/allowbc1/integrations')->assertOk()->json('data.platforms.bandcamp.0.payload');
+    expect($served)->not->toHaveKey('releases');
+    expect($served['latest']['name'])->toBe('Latest Album');
+    expect($served['highlights'])->toHaveCount(1);
+
+    // Owner opted in (stored true) → the full grid is served.
+    $on = allowlistUser('allowbc2');
+    IntegrationConnection::create([
+        'user_id' => $on->id, 'platform' => 'bandcamp', 'resource_id' => 'bandcamp',
+        'payload' => $payload, 'display_settings' => ['show_all_releases' => true],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $served = $this->getJson('/api/public/profiles/allowbc2/integrations')->assertOk()->json('data.platforms.bandcamp.0.payload');
+    expect($served['releases'])->toHaveCount(2);
+    expect($served['releases'][1]['name'])->toBe('Curated Pick');
+});
+
 it('returns an empty payload array (fail-closed) for a platform with no allowlist entry', function () {
     // SEC-2: the public resource must fail CLOSED — return [] — when a platform
     // has no ALLOWLIST entry, never leaking raw stored keys like _folder / source / sourceUrl.

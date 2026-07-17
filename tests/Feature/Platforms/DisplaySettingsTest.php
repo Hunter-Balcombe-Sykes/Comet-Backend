@@ -68,6 +68,31 @@ it('exposes the events auto_sync_latest toggle on both tickets platforms, defaul
     expect(IntegrationConnection::query()->find($rowId)->display_settings)->toBe(['auto_sync_latest' => false]);
 });
 
+it('exposes bandcamp settings with per-toggle defaults (show_all OFF, auto sync ON) and stores deviations', function () {
+    $pro = createTenant('toggles-bandcamp');
+    $id = displaySeedConnection($pro->id, ['url' => 'https://artist.bandcamp.com', 'artist' => 'Artist'], 'bandcamp');
+
+    // Defaults: show_all_releases is the first default-OFF toggle; auto sync ON.
+    $toggles = collect(actingAsUser($pro)->getJson('/api/platforms/bandcamp/display-settings')->assertOk()->json('toggles'));
+    expect($toggles->pluck('key')->all())->toBe(['show_all_releases', 'auto_sync_latest']);
+    expect($toggles->firstWhere('key', 'show_all_releases')['enabled'])->toBeFalse();
+    expect($toggles->firstWhere('key', 'auto_sync_latest')['enabled'])->toBeTrue();
+
+    // Enabling a default-OFF toggle stores TRUE (a deviation), not nothing.
+    actingAsUser($pro)
+        ->patchJson('/api/platforms/bandcamp/display-settings', ['toggles' => ['show_all_releases' => true]])
+        ->assertOk()
+        ->assertJsonPath('toggles.0.enabled', true);
+    expect(IntegrationConnection::query()->find($id)->display_settings)->toBe(['show_all_releases' => true]);
+
+    // Saving a toggle back AT its default removes the key (sparse deviations only).
+    actingAsUser($pro)
+        ->patchJson('/api/platforms/bandcamp/display-settings', ['toggles' => ['show_all_releases' => false]])
+        ->assertOk()
+        ->assertJsonPath('toggles.0.enabled', false);
+    expect(IntegrationConnection::query()->find($id)->display_settings)->toBeNull();
+});
+
 it('persists a toggle flip sparsely and reports it disabled', function () {
     $pro = createTenant('toggles-flip');
     $id = displaySeedConnection($pro->id, ['name' => 'Cafe']);

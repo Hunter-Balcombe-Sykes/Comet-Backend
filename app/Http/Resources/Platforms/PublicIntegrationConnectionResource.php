@@ -107,7 +107,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         'tidal' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         // square: a single user-pasted booking URL. No scraping — only `url` is stored.
         'square' => ['url'],
-        'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights'],
+        // bandcamp: `releases` (the full grid) is allowlisted but only SURVIVES
+        // when the owner's show_all_releases toggle is on — DisplaySettingsFilter
+        // suppresses it by default (the toggle is default-OFF, see TOGGLE_DEFAULTS).
+        'bandcamp' => ['url', 'artist', 'name', 'thumbnail', 'link', 'latest', 'highlights', 'releases'],
         'vimeo' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights'],
         // youtube-music: channelId (the re-fetch input) stays private.
         'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights'],
