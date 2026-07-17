@@ -4,6 +4,7 @@ use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
+use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\User\User;
 use App\Services\Platforms\MenuScanApplier;
 use Illuminate\Support\Str;
@@ -126,6 +127,52 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
     expect($publicItem['platforms'][1]['platform'])->toBe('doordash');
     expect((float) $publicItem['platforms'][1]['pickupPrice'])->toBe(11.0);
     expect($publicItem['platforms'][1]['deliveryUrl'])->toBeNull();
+});
+
+// ── Per-item platform deep links (links: {uber_eats?, doordash?}) ──
+
+it('serves a DoorDash per-item deep link built from the store link + dd item id, and omits uber_eats', function () {
+    $user = publicMenuUser('publinks1');
+
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'doordash', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    MenuPlatformLink::create([
+        'menu_id' => $menu->id, 'platform' => 'doordash',
+        'store_url' => 'https://www.doordash.com/store/nandos-melbourne-876860', 'status' => 'ok',
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Feasts', 'position' => 0, 'source_platform' => 'doordash',
+    ]);
+    $withId = MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 0,
+        'name' => 'Classic Feast', 'base_price' => 27.95, 'dd_external_id' => '157588920',
+    ]);
+    $withoutId = MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 1,
+        'name' => 'Mystery Dish', 'base_price' => 9.0,
+    ]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    $items = collect($res->json('data.categories.0.items'));
+    $linked = $items->firstWhere('id', (string) $withId->id);
+    // The verified DoorDash share-link form: store page + item_click query —
+    // opens that exact dish's modal, not just the store.
+    expect($linked['links'])->toBe([
+        'doordash' => 'https://www.doordash.com/store/nandos-melbourne-876860/?event_type=item_click&item_id=157588920',
+    ]);
+    // uber_eats is honestly absent — memo23 exposes no per-item id, and a
+    // store-level URL must never masquerade as an item link.
+    expect($linked['links'])->not->toHaveKey('uber_eats');
+
+    // No dd id → nothing item-level derivable → null (graceful absence).
+    $unlinked = $items->firstWhere('id', (string) $withoutId->id);
+    expect($unlinked['links'])->toBeNull();
+
+    // Categories now expose their stable id alongside popularityRank.
+    expect($res->json('data.categories.0.id'))->toBe((string) $category->id);
 });
 
 it('B6: item id is stable across a category reorder, so a URL keyed off it never points at the wrong dish (G6-1)', function () {

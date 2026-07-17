@@ -12,6 +12,7 @@ use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\MenuItemDeepLinks;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Http\JsonResponse;
@@ -155,6 +156,8 @@ class MenuController extends ApiController
                 'categories' => fn ($q) => $q->orderBy('position'),
                 'categories.items' => fn ($q) => $q->orderBy('position'),
                 'categories.items.platformLinks',
+                // Menu-level store links — the base each item's deep link derives from.
+                'platformLinks',
             ])
             ->first();
     }
@@ -173,6 +176,9 @@ class MenuController extends ApiController
         if ($menu === null) {
             return [];
         }
+
+        // slug => normalized store_url — base for each item's per-platform deep link.
+        $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
 
         return $menu->categories->map(fn ($category) => [
             'name' => $category->name,
@@ -198,6 +204,9 @@ class MenuController extends ApiController
                 'deliverySource' => $item->delivery_source,
                 'currency' => $item->currency,
                 'platforms' => $this->platforms($item),
+                // Per-item deep links ({doordash?: url}) — mirrors PublicMenuController
+                // exactly; null when nothing item-level is derivable (see MenuItemDeepLinks).
+                'links' => MenuItemDeepLinks::forItem($item->dd_external_id, $storeUrls) ?: null,
             ])->all(),
         ])->all();
     }

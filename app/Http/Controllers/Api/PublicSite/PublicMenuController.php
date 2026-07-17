@@ -9,6 +9,7 @@ use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Platforms\MenuItemDeepLinks;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -53,6 +54,9 @@ class PublicMenuController extends ApiController
             'categories' => fn ($q) => $q->with([
                 'items' => fn ($q2) => $q2->orderBy('position')->with('platformLinks'),
             ]),
+            // Menu-level per-platform store links — the normalized store_url base
+            // each item's DoorDash deep link is built from (MenuItemDeepLinks).
+            'platformLinks',
         ])
             ->where('user_id', $userId)
             ->whereNotNull('last_fetched_at')
@@ -63,6 +67,9 @@ class PublicMenuController extends ApiController
         }
 
         $currency = $menu->currency ?? 'AUD';
+
+        // slug => normalized store_url, for the per-item deep-link builder.
+        $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
 
         // Popularity ranks — nullable annotations, inert until ONE consumes them.
         // menu_category keyed by category id, menu_item by item id. Item/category
@@ -75,6 +82,9 @@ class PublicMenuController extends ApiController
         $categories = $menu->categories
             ->map(fn ($cat) => [
                 'name' => $cat->name,
+                // Stable persisted id — survives scrapes via MenuFetchJob's name-keyed
+                // id reuse, so the frontend can key category state off it.
+                'id' => (string) $cat->id,
                 'popularityRank' => $categoryRanks[(string) $cat->id] ?? null,
                 'items' => $cat->items->map(fn ($item) => [
                     // Stable persisted id (G6-1/B6) — the frontend keys item-detail
@@ -115,6 +125,11 @@ class PublicMenuController extends ApiController
                         'pickupPrice' => $this->numberOrNull($p->pickup_price),
                         'deliveryPrice' => $this->numberOrNull($p->delivery_price),
                     ])->values()->toArray(),
+                    // Per-item deep links to the SAME dish on each ordering platform
+                    // ({doordash?: url}; uber_eats omitted until an actor exposes item
+                    // uuids — see MenuItemDeepLinks). Null (not {}) when nothing is
+                    // derivable, so json_encode can't flip an empty map to [].
+                    'links' => MenuItemDeepLinks::forItem($item->dd_external_id, $storeUrls) ?: null,
                     'popularityRank' => $itemRanks[(string) $item->id] ?? null,
                 ])->values()->toArray(),
             ])

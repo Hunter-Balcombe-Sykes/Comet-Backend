@@ -273,20 +273,40 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now) {
             // Wholesale rebuild (delete children → reinsert) is intentional, not a perf gap:
             // persist() only runs when handle()'s unchanged-skip gate misses (genuine content
-            // change / forced refresh / recovery), so it is not a hot path. There is also no
-            // stable per-item identity to diff against — ue_external_id was dropped and
-            // menu_items.id is a fresh UUID each scrape; the menu is read fresh on both the
-            // dashboard and the public sitepage, so UUID churn is invisible to consumers.
-            // Keep it atomic in the txn.
+            // change / forced refresh / recovery), so it is not a hot path. Keep it atomic
+            // in the txn.
+            //
+            // STABLE IDENTITY across rebuilds: category + item UUIDs are REUSED when a
+            // rebuilt row's normalized name matches a pre-rebuild row (FIFO per name, so
+            // duplicate names can't double-assign one id). UUID churn used to be harmless
+            // ("read fresh on every render"), but two consumers now key on the id across
+            // refreshes: item-seen popularity scores (analytics.item_views item_id +
+            // content_popularity_scores content_key) and the sitepage's per-item detail
+            // URLs — a fresh UUID every scrape silently reset both. Name-matching is the
+            // same identity heuristic MenuMerger uses cross-platform; a renamed dish gets
+            // a new id (and starts its score over), which is the honest interpretation.
             //
             // Scoped to rebuildableCategoryIds() (NOT every category) — scan-sourced
             // categories (source_platform='scan', written by MenuScanApplier) are never
             // scraper output and must survive every rebuild; see that method's docblock.
+            // (Their ids stay live, so the reuse map — built from the same rebuildable
+            // scope that gets deleted — can never collide with a surviving scan row.)
             //
             // Also clears children explicitly (FK cascade covers this on Postgres, but being
             // explicit prevents orphaned item-platform rows in SQLite tests).
             $categoryIds = $this->rebuildableCategoryIds($menu->id);
             $itemIds = MenuItem::query()->whereIn('category_id', $categoryIds)->pluck('id');
+
+            // Identity snapshot BEFORE the delete: normalized name → FIFO queue of ids,
+            // in stable (category, position) order so re-assignment is deterministic.
+            $previousCategoryIds = $this->idsByNormalizedName(
+                MenuCategory::query()->whereIn('id', $categoryIds)->orderBy('position')->get(['id', 'name'])
+            );
+            $previousItemIds = $this->idsByNormalizedName(
+                MenuItem::query()->whereIn('category_id', $categoryIds)
+                    ->orderBy('category_id')->orderBy('position')->get(['id', 'name'])
+            );
+
             MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
             MenuItem::query()->whereIn('category_id', $categoryIds)->delete();
             MenuCategory::query()->whereIn('id', $categoryIds)->delete();
@@ -309,16 +329,21 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $platformRows = [];
 
             foreach ($merged['categories'] as $ci => $category) {
-                $cat = MenuCategory::create([
+                // new MenuCategory + explicit id (NOT ::create) — 'id' isn't mass-
+                // assignable, and HasUuids only fills the key when it's still empty,
+                // so a reused id set here is respected.
+                $cat = new MenuCategory([
                     'menu_id' => $menu->id,
                     'name' => $category['name'],
                     'position' => $ci,
                     'source_platform' => $category['sourcePlatform'],
                 ]);
+                $cat->id = $this->takeReusedId($previousCategoryIds, (string) $category['name']) ?? (string) Str::uuid();
+                $cat->save();
 
                 $rows = [];
                 foreach ($category['items'] as $ii => $item) {
-                    $itemId = (string) Str::uuid();
+                    $itemId = $this->takeReusedId($previousItemIds, (string) $item['name']) ?? (string) Str::uuid();
                     $rows[] = [
                         'id' => $itemId,
                         'menu_id' => $menu->id,
@@ -388,6 +413,53 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             ->where('menu_id', $menuId)
             ->where(fn ($q) => $q->whereNull('source_platform')->orWhere('source_platform', '!=', 'scan'))
             ->pluck('id');
+    }
+
+    /**
+     * normalized name → FIFO list of row ids, from a (id, name) collection in
+     * its already-sorted stable order. Feeds the persist() identity reuse:
+     * each rebuilt row shifts the oldest unclaimed id sharing its name.
+     *
+     * @param  Collection<int, MenuCategory|MenuItem>  $rows
+     * @return array<string, list<string>>
+     */
+    private function idsByNormalizedName($rows): array
+    {
+        $map = [];
+        foreach ($rows as $row) {
+            $key = $this->normalizeName((string) $row->name);
+            if ($key !== '') {
+                $map[$key][] = (string) $row->id;
+            }
+        }
+
+        return $map;
+    }
+
+    /** Shift (consume) the oldest previous id recorded under this name, or null when none is left. */
+    private function takeReusedId(array &$idsByName, string $name): ?string
+    {
+        $key = $this->normalizeName($name);
+        if ($key === '' || empty($idsByName[$key])) {
+            return null;
+        }
+
+        return array_shift($idsByName[$key]);
+    }
+
+    /**
+     * lowercase, non-alphanumerics → single spaces, trimmed. Deliberately the
+     * same normalization MenuMerger::norm() applies when matching one dish
+     * across platforms, so "identity" means the same thing at merge time and
+     * at persist time. (Kept local — duplication over a shared dependency,
+     * matching the menu controllers' own convention.)
+     */
+    private function normalizeName(string $s): string
+    {
+        $s = mb_strtolower($s);
+        $s = preg_replace('~[^a-z0-9]+~', ' ', $s) ?? '';
+
+        return trim((string) preg_replace('~\s+~', ' ', $s));
     }
 
     /**

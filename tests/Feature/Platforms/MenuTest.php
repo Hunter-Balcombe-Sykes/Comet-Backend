@@ -234,6 +234,61 @@ it('scrapes and stores the relational menu on source change', function () {
     expect($item->base_price)->toBe(12.5);
 });
 
+it('reuses category and item ids across rebuilds when names match (stable identity)', function () {
+    // Popularity scores (analytics item_id) and sitepage item-detail URLs both
+    // key on menu_items.id across refreshes — a wholesale rebuild must therefore
+    // re-assign the SAME id to a dish that still exists (matched by normalized
+    // name, the same identity MenuMerger uses cross-platform). Removed dishes
+    // free their id; new dishes mint fresh ones.
+    $user = menuUser('m6ids');
+    ordering($user, 'https://www.ubereats.com/store/ids', null, '2026-06-17 10:00:00');
+
+    $run1 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Pizzas', 'items' => [
+                ['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5],
+                ['name' => 'Pepperoni', 'pickupPrice' => 14.0, 'deliveryPrice' => 14.0],
+            ]],
+            ['name' => 'Sides', 'items' => [['name' => 'Fries', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0]]],
+        ],
+    ]];
+    // Run 2: categories reordered upstream, Pepperoni dropped, Calzone added.
+    $run2 = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Sides', 'items' => [['name' => 'Fries', 'pickupPrice' => 6.5, 'deliveryPrice' => 6.5]]],
+            ['name' => 'Pizzas', 'items' => [
+                ['name' => 'Margherita', 'pickupPrice' => 13.0, 'deliveryPrice' => 13.0],
+                ['name' => 'Calzone', 'pickupPrice' => 15.0, 'deliveryPrice' => 15.0],
+            ]],
+        ],
+    ]];
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $idsBefore = MenuItem::query()->where('menu_id', $menu->id)->pluck('id', 'name');
+    $pizzasIdBefore = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizzas')->value('id');
+
+    // Forced refresh (the unchanged-skip gate would otherwise no-op the rebuild).
+    (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $idsAfter = MenuItem::query()->where('menu_id', $menu->id)->pluck('id', 'name');
+    expect($idsAfter['Margherita'])->toBe($idsBefore['Margherita']);
+    expect($idsAfter['Fries'])->toBe($idsBefore['Fries']);
+    // The refreshed price landed on the SAME row (a real update, not a lookalike).
+    expect((float) MenuItem::query()->whereKey($idsBefore['Margherita'])->value('base_price'))->toBe(13.0);
+    // Removed dish is gone; its id was not silently re-assigned to the new dish.
+    expect($idsAfter)->not->toHaveKey('Pepperoni');
+    expect($idsAfter['Calzone'])->not->toBe($idsBefore['Pepperoni']);
+    // Categories keep their identity through the upstream reorder too.
+    expect(MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizzas')->value('id'))
+        ->toBe($pizzasIdBefore);
+});
+
 it('skips the paid scrape when the store url is unchanged', function () {
     $user = menuUser('m7');
     ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');
