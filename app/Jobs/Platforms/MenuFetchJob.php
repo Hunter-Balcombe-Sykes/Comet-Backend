@@ -222,10 +222,17 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // written by GoogleMenuPhotoScanJob) over the freshly rebuilt rows —
         // the wholesale rebuild just recreated every scraped item WITHOUT the
         // scan's longer descriptions / dietary badges, and this restores them
-        // from the stored extraction instead of re-billing OCR. Never lets an
-        // enrichment failure break the scrape itself.
+        // from the stored extraction instead of re-billing OCR. Suppressed
+        // dishes are filtered out first — persist() skipping a deleted scraped
+        // dish is pointless if this AUTOMATIC reapply immediately recreates it
+        // from scan_items via MenuScanApplier's no-match→create path. Never
+        // lets an enrichment failure break the scrape itself.
         try {
-            $scanItems = $menu->fresh()?->scan_items['items'] ?? null;
+            $freshMenu = $menu->fresh();
+            $scanItems = $freshMenu?->scan_items['items'] ?? null;
+            if ($freshMenu !== null && is_array($scanItems)) {
+                $scanItems = $this->withoutSuppressedScanItems($scanItems, $freshMenu);
+            }
             $scanUser = is_array($scanItems) && $scanItems !== [] ? User::query()->find($this->userId) : null;
             if ($scanUser) {
                 app(MenuScanApplier::class)->apply($scanUser, $scanItems, enrichOnly: true);
@@ -627,6 +634,45 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
 
         return $keys;
+    }
+
+    /**
+     * $scanItems minus every dish the owner deleted (menus.suppressed_items),
+     * matched by normalized NAME ONLY — deliberately looser than persist()'s
+     * category+name suppression key. Scan category names rarely equal scrape
+     * category names ("Beverages" vs "Drinks"), and the owner's delete intent
+     * is "this dish, gone", not category-scoped; a category-scoped match here
+     * would let the AUTOMATIC scan reapply recreate the deleted dish under a
+     * scan category every rebuild. Applies ONLY to this automatic reapply —
+     * the MANUAL dashboard /scan/apply stays unfiltered, because an explicit
+     * re-scan is the user asking for that photo's content back.
+     *
+     * @param  list<mixed>  $scanItems
+     * @return list<mixed>
+     */
+    private function withoutSuppressedScanItems(array $scanItems, Menu $menu): array
+    {
+        $suppressedNames = [];
+        foreach (($menu->suppressed_items ?? []) as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $name = $this->normalizeName((string) ($entry['name'] ?? ''));
+            if ($name !== '') {
+                $suppressedNames[$name] = true;
+            }
+        }
+        if ($suppressedNames === []) {
+            return $scanItems;
+        }
+
+        // Malformed (non-array / nameless) entries pass through untouched — the
+        // applier's own handling of them is unchanged by this filter.
+        return array_values(array_filter(
+            $scanItems,
+            fn ($item) => ! (is_array($item)
+                && isset($suppressedNames[$this->normalizeName((string) ($item['name'] ?? ''))]))
+        ));
     }
 
     /**

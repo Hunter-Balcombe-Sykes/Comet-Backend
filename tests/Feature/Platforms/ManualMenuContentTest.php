@@ -544,6 +544,61 @@ it('preserves a manual dish when the last ordering link is removed (clearScraped
     expect(MenuCategory::query()->whereKey($mainsId)->exists())->toBeTrue();
 });
 
+// The AUTOMATIC scan reapply (MenuFetchJob → MenuScanApplier, enrichOnly) runs
+// after every scrape persist, from the persisted menus.scan_items. Without the
+// suppression filter it would recreate an owner-deleted dish via the applier's
+// no-match→create path — persist() skips the scraped copy, then the reapply
+// re-adds a scan copy. Matching is NAME-ONLY (scan category names rarely equal
+// scrape category names — 'Beverages' vs 'Drinks' here); the manual dashboard
+// /scan/apply path stays unfiltered by design.
+it('does not resurrect a suppressed dish through the automatic scan reapply', function () {
+    $user = mmcUser('mm17');
+    mmcOrdering($user);
+
+    $run = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Drinks', 'items' => [
+                ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
+                ['name' => 'Water', 'pickupPrice' => 2.0, 'deliveryPrice' => 2.0],
+            ]],
+        ],
+    ]];
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($run, $run);
+    });
+
+    mmcRunFetch($user);
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+
+    // A persisted Google-photos scan knows the deleted dish (under the photo's
+    // own category name, not the scrape's) plus one legitimate scan-only dish.
+    $menu->forceFill(['scan_items' => ['items' => [
+        ['name' => 'Cola', 'description' => 'Ice cold cola.', 'price' => 3.5, 'category' => 'Beverages'],
+        ['name' => 'Lemonade', 'description' => 'House-made lemonade.', 'price' => 4.0, 'category' => 'Beverages'],
+    ], 'source' => 'google-photos']])->save();
+
+    // Owner deletes the scraped Cola → suppressed.
+    $colaId = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Cola')->value('id');
+    actingAsUser($user)->deleteJson("/api/platforms/menu/items/{$colaId}")->assertOk();
+
+    // Forced rebuild: persist() skips the scraped Cola (suppression), and the
+    // automatic scan reapply must not re-add it from scan_items either.
+    mmcRunFetch($user, force: true);
+
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Cola')->exists())->toBeFalse();
+
+    // The reapply itself still ran — the non-suppressed scan-only dish landed
+    // under a scan category — proving only the suppressed dish was dropped.
+    $lemonade = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Lemonade')->first();
+    expect($lemonade)->not->toBeNull();
+    expect($lemonade->category->source_platform)->toBe('scan');
+
+    // The suppression record survives for future rebuilds.
+    $menu->refresh();
+    expect($menu->suppressed_items)->toBe([['category' => 'Drinks', 'name' => 'Cola']]);
+});
+
 it('serves a manual-only menu on status and show (owner content is never orphaned)', function () {
     $user = mmcUser('mm16');
     actingAsUser($user)->postJson('/api/platforms/menu/items', ['name' => 'Solo Manual', 'price' => 9.0])->assertOk();
