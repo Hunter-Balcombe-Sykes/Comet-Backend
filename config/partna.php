@@ -1088,6 +1088,13 @@ return [
         // Max redirect hops followed; each hop is re-validated for SSRF before
         // being followed (SafeUrlFetcher::fetch() / fetchMany()).
         'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 5),
+        // Hard cap on a fetched terminal response body (bytes). A response whose
+        // declared Content-Length OR actual body exceeds this is rejected —
+        // fetch() throws SafeUrlException, fetchMany() drops it to null — so a
+        // hostile/oversized URL can't feed a multi-hundred-MB body into the
+        // link-preview and menu/shop scrapers. 10 MB is generous for the HTML /
+        // JSON those parse.
+        'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 10 * 1024 * 1024),
     ],
 
     /*

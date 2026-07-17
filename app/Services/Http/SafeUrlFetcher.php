@@ -27,6 +27,9 @@ class SafeUrlFetcher
 
     private const TIMEOUT_SECONDS = 8;
 
+    /** 10 MB — fallback for config('partna.http_fetch.max_bytes'). */
+    private const MAX_BYTES = 10 * 1024 * 1024;
+
     /** Browser-ish UA — some providers 403 obvious bots / empty UAs. */
     private const USER_AGENT = 'Mozilla/5.0 (compatible; PartnaBot/1.0; +https://partna.au)';
 
@@ -42,10 +45,13 @@ class SafeUrlFetcher
 
     private readonly int $timeoutSeconds;
 
+    private readonly int $maxBytes;
+
     public function __construct()
     {
         $this->maxRedirects = (int) config('partna.http_fetch.max_redirects', self::MAX_REDIRECTS);
         $this->timeoutSeconds = (int) config('partna.http_fetch.timeout_seconds', self::TIMEOUT_SECONDS);
+        $this->maxBytes = (int) config('partna.http_fetch.max_bytes', self::MAX_BYTES);
     }
 
     /**
@@ -117,6 +123,8 @@ class SafeUrlFetcher
 
                 continue;
             }
+
+            $this->assertWithinByteCap($response);
 
             return [
                 'status' => $status,
@@ -284,7 +292,12 @@ class SafeUrlFetcher
                         // Redirect target failed SSRF check — drop silently.
                     }
                 } else {
-                    // Terminal response (2xx, 4xx, 5xx) — record it.
+                    // Terminal response (2xx, 4xx, 5xx). Drop it (leave null) when
+                    // the body blows the byte cap — same swallow semantics as a
+                    // failed fetch.
+                    if ($this->exceedsByteCap($response)) {
+                        continue;
+                    }
                     $results[$original] = [
                         'status' => $status,
                         'body' => $response->body(),
@@ -340,6 +353,33 @@ class SafeUrlFetcher
     public function assertPublicUrl(string $url): void
     {
         $this->assertSafe($url);
+    }
+
+    /**
+     * Reject a terminal response whose body would blow the configured byte cap.
+     *
+     * Guzzle has already buffered the body by the time we see it, so this cannot
+     * prevent the download itself — the cap's job is to stop an oversized/hostile
+     * body from being handed to the scrapers/parsers downstream, and to reject a
+     * server that *declares* an oversized Content-Length up front.
+     *
+     * @throws SafeUrlException
+     */
+    private function assertWithinByteCap(Response $response): void
+    {
+        if ($this->exceedsByteCap($response)) {
+            throw new SafeUrlException("Response body exceeds the {$this->maxBytes}-byte cap");
+        }
+    }
+
+    /** Declared Content-Length OR actual buffered body length over the byte cap. */
+    private function exceedsByteCap(Response $response): bool
+    {
+        if ((int) $response->header('Content-Length') > $this->maxBytes) {
+            return true;
+        }
+
+        return strlen($response->body()) > $this->maxBytes;
     }
 
     /** Resolve a (possibly relative) redirect Location against the current URL. */
