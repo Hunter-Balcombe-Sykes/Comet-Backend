@@ -80,13 +80,17 @@ class PublicIntegrationConnectionResource extends ApiResource
         // Events platforms carry two row kinds: account rows ({url, organiser,
         // next, upcoming}) and standalone-event rows ({kind:'event', id, ...flat
         // event fields}). hiddenEventIds stays private (dashboard-only state).
-        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'price', 'availability', 'image', 'link'],
-        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'price', 'availability', 'image', 'link'],
+        // The enriched-event keys (description / startsAt / endsAt / priceMin /
+        // currency / soldOut, 2026-07-17) are listed for the STANDALONE rows —
+        // account rows' next/upcoming event objects pass through whole (the
+        // allowlist filters top-level keys only) and carry them implicitly.
+        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
+        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
         // events-custom: a non-Eventbrite/Humanitix link added via the Tickets &
         // Events card, stored as a standalone event row so it renders in the
         // sitepage Events section. Single card — no organiser/upcoming. Snapshot
         // once, never refreshed (absent from the registry's refreshable set).
-        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'price', 'availability', 'image', 'link'],
+        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
         // custom: one row per user-attached link.
         'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],

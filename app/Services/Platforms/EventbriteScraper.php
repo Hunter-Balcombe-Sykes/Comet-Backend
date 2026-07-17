@@ -150,7 +150,11 @@ class EventbriteScraper extends PlatformScraper
         }
 
         $loc = $event['location'] ?? [];
-        $offers = $event['offers'] ?? [];
+        // $offers keeps the historical first-entry collapse (price string +
+        // availability read it); lowestOffer() scans the RAW value so a multi-
+        // tier offers list still yields the true minimum.
+        $offersRaw = $event['offers'] ?? [];
+        $offers = $offersRaw;
         if (isset($offers[0])) {
             $offers = $offers[0];
         }
@@ -159,14 +163,28 @@ class EventbriteScraper extends PlatformScraper
             $image = $image[0] ?? null;
         }
 
+        $availability = $this->normalizeAvailability(data_get($offers, 'availability'));
+        $lowest = $this->lowestOffer($offersRaw);
+
         return [
             'name' => $event['name'] ?? null,
             'venue' => data_get($loc, 'name'),
             'location' => data_get($loc, 'address.addressLocality') ?? data_get($loc, 'address.addressRegion'),
             'startDate' => $event['startDate'] ?? null,
             'endDate' => $event['endDate'] ?? null,
+            // Enrichment (2026-07-17) — same JSON-LD node, zero extra fetches.
+            // startsAt/endsAt are the contract-named ISO aliases of start/endDate
+            // (kept: existing consumers read the old keys); price stays the legacy
+            // display STRING while priceMin/currency carry the machine-readable
+            // lowest ticket price; soldOut is the boolean face of availability.
+            'description' => $this->sanitizeDescription($event['description'] ?? null),
+            'startsAt' => $event['startDate'] ?? null,
+            'endsAt' => $event['endDate'] ?? null,
             'price' => $this->formatPrice(is_array($offers) ? $offers : []),
-            'availability' => $this->normalizeAvailability(data_get($offers, 'availability')),
+            'priceMin' => $lowest['priceMin'],
+            'currency' => $lowest['currency'],
+            'availability' => $availability,
+            'soldOut' => $availability === 'sold_out',
             'image' => is_string($image) ? $image : null,
             'link' => $this->normalizeLink($event['url'] ?? $url),
         ];

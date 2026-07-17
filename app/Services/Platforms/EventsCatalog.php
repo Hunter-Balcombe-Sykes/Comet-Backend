@@ -272,8 +272,17 @@ class EventsCatalog
             'location' => null,
             'startDate' => null,
             'endDate' => null,
+            // Enriched-event keys (2026-07-17) — shape parity with the scraped
+            // platforms so every event card carries the same field set. A custom
+            // link knows none of them; soldOut is the one bool (unknown = false).
+            'description' => $snap['description'] ?? null,
+            'startsAt' => null,
+            'endsAt' => null,
             'price' => null,
+            'priceMin' => null,
+            'currency' => null,
             'availability' => null,
+            'soldOut' => false,
             'image' => $snap['logo'] ?? $snap['favicon'],
             'link' => $snap['url'],
         ]);

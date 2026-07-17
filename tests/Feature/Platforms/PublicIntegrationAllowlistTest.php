@@ -234,6 +234,84 @@ it('allowlists the new v2 platforms on the public endpoint', function () {
     expect($platforms['vimeo'][0]['payload']['highlights'])->toHaveCount(1);   // curated picks are public
 });
 
+it('passes the enriched event fields to the public wire and keeps hiddenEventIds private', function () {
+    $user = allowlistUser('allowevents');
+
+    $enriched = [
+        'id' => 'ev1',
+        'name' => 'Warehouse Rave',
+        'venue' => 'The Depot',
+        'location' => 'Brunswick',
+        'startDate' => '2026-09-05T21:00:00+10:00',
+        'endDate' => '2026-09-06T05:00:00+10:00',
+        'description' => 'All-night warehouse party.',
+        'startsAt' => '2026-09-05T21:00:00+10:00',
+        'endsAt' => '2026-09-06T05:00:00+10:00',
+        'price' => 'AUD 20 – 55.5',
+        'priceMin' => 20.0,
+        'currency' => 'AUD',
+        'availability' => 'available',
+        'soldOut' => false,
+        'image' => 'https://img.evbuc.com/cover.jpg',
+        'link' => 'https://www.eventbrite.com/e/warehouse-rave-tickets-123',
+    ];
+
+    // Account row: upcoming[] event objects pass through WHOLE (top-level filter
+    // only), so the enriched keys ride inside; hiddenEventIds must never leak.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'eventbrite',
+        'resource_id' => 'acct-abc',
+        'payload' => [
+            'url' => 'https://www.eventbrite.com/o/acme-1',
+            'organiser' => 'Acme',
+            'next' => $enriched,
+            'upcoming' => [$enriched],
+            'hiddenEventIds' => ['secret-hide'],
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+    // Standalone event row: the enriched keys are TOP-level, so they must be on
+    // the platform allowlist to survive.
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'humanitix',
+        'resource_id' => 'event-ev1',
+        'payload' => ['kind' => 'event', ...$enriched],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+        'resource_kind' => 'event',
+    ]);
+
+    $platforms = $this->getJson('/api/public/profiles/allowevents/integrations')
+        ->assertOk()
+        ->json('data.platforms');
+
+    $account = $platforms['eventbrite'][0]['payload'];
+    expect($account)->not->toHaveKey('hiddenEventIds');
+    expect($account['upcoming'][0])->toMatchArray([
+        'description' => 'All-night warehouse party.',
+        'startsAt' => '2026-09-05T21:00:00+10:00',
+        'endsAt' => '2026-09-06T05:00:00+10:00',
+        'priceMin' => 20.0,
+        'currency' => 'AUD',
+        'soldOut' => false,
+    ]);
+
+    $standalone = $platforms['humanitix'][0]['payload'];
+    expect($standalone)->toMatchArray([
+        'kind' => 'event',
+        'description' => 'All-night warehouse party.',
+        'startsAt' => '2026-09-05T21:00:00+10:00',
+        'endsAt' => '2026-09-06T05:00:00+10:00',
+        'priceMin' => 20.0,
+        'currency' => 'AUD',
+        'soldOut' => false,
+        'venue' => 'The Depot',
+    ]);
+});
+
 it('returns an empty payload array (fail-closed) for a platform with no allowlist entry', function () {
     // SEC-2: the public resource must fail CLOSED — return [] — when a platform
     // has no ALLOWLIST entry, never leaking raw stored keys like _folder / source / sourceUrl.

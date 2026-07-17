@@ -228,6 +228,45 @@ abstract class PlatformScraper
         return "{$prefix}{$low}";
     }
 
+    /**
+     * The LOWEST ticket price + its currency across a JSON-LD `offers` value —
+     * tolerating every shape the events platforms emit: a single AggregateOffer
+     * dict, a list of Offers, or (Humanitix) an AggregateOffer that carries only
+     * priceCurrency followed by per-ticket Offer entries each carrying `price`.
+     * Per entry, `lowPrice` wins over `price` (an AggregateOffer's own low);
+     * the min is taken across entries. Currency = the first entry declaring
+     * one. Both null when nothing numeric/declared exists (free-form pages).
+     *
+     * @return array{priceMin: ?float, currency: ?string}
+     */
+    protected function lowestOffer(mixed $offers): array
+    {
+        $list = is_array($offers) ? (array_is_list($offers) ? $offers : [$offers]) : [];
+
+        $min = null;
+        $currency = null;
+        foreach ($list as $offer) {
+            if (! is_array($offer)) {
+                continue;
+            }
+            $cur = $offer['priceCurrency'] ?? null;
+            if ($currency === null && is_string($cur) && $cur !== '') {
+                $currency = strtoupper($cur);
+            }
+            foreach ([$offer['lowPrice'] ?? null, $offer['price'] ?? null] as $candidate) {
+                if (is_numeric($candidate)) {
+                    $price = (float) $candidate;
+                    if ($min === null || $price < $min) {
+                        $min = $price;
+                    }
+                    break; // lowPrice already IS this entry's low — don't also read price.
+                }
+            }
+        }
+
+        return ['priceMin' => $min, 'currency' => $currency];
+    }
+
     // schema.org availability URL → "available" | "sold_out" | null.
     protected function normalizeAvailability(?string $availability): ?string
     {

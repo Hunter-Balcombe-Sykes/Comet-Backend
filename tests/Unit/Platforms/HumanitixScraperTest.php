@@ -75,6 +75,44 @@ it('parses events straight off the host page JSON-LD', function () {
     ]);
 });
 
+it('enriches a single event, taking the lowest price across per-ticket Offer entries', function () {
+    // Real Humanitix shape (verified live 2026-07-17): the leading AggregateOffer
+    // carries priceCurrency + availability but NO lowPrice — each ticket tier is
+    // its own Offer entry with a numeric `price`. The legacy display string
+    // (built off offers[0] only) therefore stays null, while priceMin scans all
+    // entries and reports the true floor.
+    $node = [
+        '@type' => 'Event',
+        'name' => 'Strawberry Fields',
+        'description' => 'Three days in the bush.',
+        'startDate' => '2026-11-20T12:00:00+1100',
+        'endDate' => '2026-11-22T20:00:00+1100',
+        'url' => 'https://events.humanitix.com/strawberry-fields-2026',
+        'location' => ['name' => 'The Wildlands', 'address' => ['addressLocality' => 'Tocumwal']],
+        'offers' => [
+            ['@type' => 'AggregateOffer', 'offerCount' => 93, 'priceCurrency' => 'AUD', 'availability' => 'InStock'],
+            ['@type' => 'Offer', 'name' => 'Tier 3', 'price' => 498, 'availability' => 'InStock'],
+            ['@type' => 'Offer', 'name' => 'Concession', 'price' => 420.5, 'availability' => 'InStock'],
+        ],
+    ];
+    $html = '<html><body><script type="application/ld+json">'.json_encode($node).'</script></body></html>';
+
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->once()
+        ->andReturn(['status' => 200, 'body' => $html, 'finalUrl' => 'x', 'contentType' => 'text/html']);
+
+    $event = (new HumanitixScraper($fetcher))->fetchSingleEvent('https://events.humanitix.com/strawberry-fields-2026');
+
+    expect($event['description'])->toBe('Three days in the bush.');
+    expect($event['startsAt'])->toBe('2026-11-20T12:00:00+1100');
+    expect($event['endsAt'])->toBe('2026-11-22T20:00:00+1100');
+    expect($event['priceMin'])->toBe(420.5);   // min across ticket tiers, not offers[0]
+    expect($event['currency'])->toBe('AUD');   // from the AggregateOffer header entry
+    expect($event['soldOut'])->toBeFalse();
+    expect($event['price'])->toBeNull();       // legacy string keyed off offers[0], which has no price — unchanged
+    expect($event['availability'])->toBe('available');
+});
+
 it('returns null when the host page is unreachable', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
     $fetcher->shouldReceive('tryFetch')->andReturn(['status' => 503, 'body' => '', 'finalUrl' => 'x', 'contentType' => '']);
