@@ -164,8 +164,11 @@ Route::post('/public/enquiry', [PublicEnquiryController::class, 'submit'])
 
 // Self-diagnostic env-var check. Independent of every other auth subsystem on
 // purpose — this is the endpoint you hit when something else is misconfigured.
-// Auth is a single shared-secret header inside the controller.
-Route::get('/internal/env-check', EnvCheckController::class);
+// Auth is a single shared-secret header inside the controller. Throttled like
+// the other ops/diagnostic endpoints (health/ready) so the shared-secret header
+// can't be brute-forced and a misconfigured monitor can't flood it.
+Route::get('/internal/env-check', EnvCheckController::class)
+    ->middleware('throttle:health-check');
 
 // CSP violation report sink. Browsers POST here when a page breaks the policy
 // set by SecureHeaders. Unauthenticated (browsers send without credentials);
