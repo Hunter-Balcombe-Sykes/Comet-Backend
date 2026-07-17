@@ -25,7 +25,7 @@
 5. **Instagram-auto flag+slot rebuild atomicity** — `SEM-1`, `TXN-1` · `ContentSelectionService.php` · effort S · 🔒 blocker: Standalone (DB write-path invariant)
 6. **Staff PII/admin_notes leak on show()** — `SEC-101` · `StaffUserController.php` / `UserStaffResource.php` · effort M · 🔒 blocker: auth/PII exposure, Standalone
 7. **Content-image upload MIME byte-sniff** — `SEC-1` · `UploadContentImageRequest.php` · effort S · 🔒 blocker: upload/injection safety, Standalone
-8. **UserSelfController::update() missing relation preload** — `API-101` · `UserSelfController.php` / `UserDashboardResource.php` · effort S · 🔒 blocker: plausible live-prod crash path, Standalone
+8. ~~**UserSelfController::update() missing relation preload** — `API-101`~~ · **RECLASSIFIED P1→P3, DEFERRED** (premise re-verified: 2-query N+1, not a crash — single-model `fresh()` doesn't trip strict lazy-loading in Laravel 12.62). Per Josh 2026-07-18, cheap preload fix deferred to the P3 pass.
 9. **CloudflareCachePurgeJob fail loudly on empty handle** — `JOB-1` · `CloudflareCachePurgeJob.php:76-79` · effort S · 🔒 blocker: Standalone; do before unit 10 (same file)
 10. **hide_content KV-purge redundancy/reconciliation** — `EDGE-1` · `ModerationActionDispatcher.php` / `PurgeModerationCacheJob.php` / `CloudflareCachePurgeJob.php:29-35` · effort M · 🔒 blocker: Standalone, moderation-enforcement blast radius
 11. **Platform-scraper silent-degradation (Fresha + Shop)** — `OBS-1`, `OBS-2` · `FreshaScraper.php` / `ShopCatalog.php` / `ShopFetch.php` / `PlatformRefresher.php` circuit-breaker · effort M · 🔒 blocker: `OBS-2` Standalone (shared failure-classification logic)
@@ -2511,7 +2511,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 3 complete
 
@@ -2519,7 +2519,8 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#API-101** · P1 — `UserSelfController::update()` returns a Resource that unconditionally reads two relations neither `fresh()` nor the controller preloads
+- [x] **#API-101** · P1 — `UserSelfController::update()` returns a Resource that unconditionally reads two relations neither `fresh()` nor the controller preloads
+    - **⚠ RECLASSIFIED P1→P3 · DEFERRED (not code-fixed in this run).** Premise re-verified at fix time: single-model `fresh()` never trips strict lazy-loading in Laravel 12.62 (`Builder::hydrate()` arms the per-instance strict flag only for collections of 2+), so this is a harmless 2-query N+1, **not** the "live-prod crash" that made it a Standalone blocker. Per Josh 2026-07-18: leave the cheap preload fix for the P3 pass (track in TRIAGE-3-P3). Box ticked = resolved-by-decision, NOT code-fixed.
     - **Where:** app/Http/Controllers/Api/User/Account/UserSelfController.php:73-88, app/Http/Resources/UserDashboardResource.php:41,47-49
     - **Affects:** Every authenticated user calling `PATCH /api/user/me` (the profile-settings save flow — display name, contact info, account type, sector) — the single most common self-service dashboard write.
     - **Effort:** S (~0.5–1h)
@@ -2573,7 +2574,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 ## Standalone — do NOT bundle
 
-- **#API-101 — `UserSelfController::update()` missing relation preload** · P1 with a plausible live-production crash path (the environment CLAUDE.md documents as currently serving real sitepage traffic is not confirmed to run with `APP_ENV=production`). Needs its own Cloud-log verification pass before implementation, and its own sign-off given the crash-on-a-common-path risk profile.
+- **#API-101 — `UserSelfController::update()` missing relation preload** · ~~P1 with a plausible live-production crash path~~ → **RECLASSIFIED P3, DEFERRED** (2026-07-18): the crash premise is disproven — single-model `fresh()` never trips strict lazy-loading in Laravel 12.62, so it's a harmless 2-query N+1. Cheap preload fix deferred to the P3 pass, not code-fixed in this run.
 
 
 <!-- ═══════════ audit-2026-07-17-test-coverage.md ═══════════ -->
