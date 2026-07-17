@@ -81,7 +81,7 @@ Number them `SCALE-1`, `SCALE-2`, … sequentially across the whole audit.
 
 ### (10) Index hygiene & query planner readiness
 
-- New live queries introduced by recent commits (analytics v2, integrations v2, skeleton-system design-kit reads) without verified composite indexes for the `WHERE` + `ORDER BY` + `LIMIT` shape.
+- New live queries introduced by recent commits (analytics v2, integrations v2, design-kit reads) without verified composite indexes for the `WHERE` + `ORDER BY` + `LIMIT` shape.
 - Unindexed JSONB queries — `WHERE settings->>'foo' = 'bar'` on `site.sites.settings` without a GIN index on the relevant path.
 - Missing partial indexes where a status filter dominates the query (`WHERE status = 'active'` on a table where most rows are inactive).
 - Stale planner stats: tables with > 10% dead tuples likely need `ANALYZE` (only flag if the migration created the table in question).

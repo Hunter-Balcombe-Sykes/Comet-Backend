@@ -72,7 +72,7 @@ Each of the following code paths is foundational to the platform's operation. Th
 - Every migration introducing a Postgres CHECK constraint should have an invariant test asserting the constraint's SQL is present in the migration file (grep pattern, not live DB insert — SQLite can't exercise Postgres constraints).
 - Migrations adding UNIQUE / FK should have parallel grep-based invariant assertions.
 - New `site.design_kits` columns must be NULLABLE with no DB-level DEFAULT (spec §8 hard rule) — confirm the existing `WriteDesignKitTest.php` exemplar pattern covers this assertion for new columns as they're added.
-- `site.themes` table must be absent after the skeleton-system cleanup migration lands — add an invariant that grepping migrations for `CREATE TABLE site.themes` produces no result after the drop migration.
+- `site.themes` table must be absent (dropped in the architecture-system cleanup) — add an invariant that grepping migrations for `CREATE TABLE site.themes` produces no result after the drop migration.
 
 ### (8) Resource class + Form Request coverage
 

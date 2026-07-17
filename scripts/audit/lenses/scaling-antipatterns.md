@@ -11,7 +11,7 @@ Find write-amplification, rebuild-on-write, and weak-caching patterns in the cod
 **Weak caching** is a cache that provides no real protection: no single-flight lock (stampedes on cold cache), no TTL jitter (synchronised thundering herd at deploy time), TTL-only invalidation (dashboard shows stale data equal to TTL), or cache facades that fall back to file driver in production.
 
 The highest-risk surfaces today:
-- **Analytics v2 ingest**: `app/Services/Analytics/{Ingestors,Writers}`, `app/Jobs/Analytics/RecordAnalyticsEventJob.php` — the write-heavy path (skeleton sitepage events, sessions, regions, platform/product breakdowns). Any per-event rebuild or unbounded write loop here is the most acute risk.
+- **Analytics v2 ingest**: `app/Services/Analytics/{Ingestors,Writers}`, `app/Jobs/Analytics/RecordAnalyticsEventJob.php` — the write-heavy path (sitepage events, sessions, regions, platform/product breakdowns). Any per-event rebuild or unbounded write loop here is the most acute risk.
 - **Notification fan-out**: `app/Jobs/Notifications/`, `app/Services/Notifications/NotificationPublisher.php` — per-user dispatch that could fan out to all users on a broadcast.
 - **Observer-triggered work**: `app/Observers/` — per-save job dispatches that multiply under bulk operations.
 
