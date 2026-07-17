@@ -1,8 +1,15 @@
 <?php
 
+use App\Jobs\Moderation\NotifyOnCallStaffJob;
+use App\Jobs\Moderation\NotifyReportedUserJob;
+use App\Jobs\Moderation\PurgeModerationCacheJob;
+use App\Jobs\Moderation\QuarantineMediaJob;
+use App\Jobs\Moderation\SuspendSiteJob;
+use App\Jobs\Moderation\SuspendUserJob;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\Decision;
 use App\Services\Moderation\ModerationActionDispatcher;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -67,4 +74,46 @@ it('emits no actions for dismiss decision', function () {
     app(ModerationActionDispatcher::class)->dispatchFor($decision);
 
     expect(ActionLogEntry::query()->where('decision_id', $decision->id)->count())->toBe(0);
+});
+
+// ── Enforcement ordering (chain) ────────────────────────────────────────────
+// The KV/edge sync reads the suspension state the earlier jobs write, so it
+// must run strictly after them — as a chain, not as racing parallel dispatches.
+
+it('chains suspend_user enforcement so the edge sync runs after the state writes', function () {
+    Bus::fake();
+    $decision = Decision::factory()->create(['decision_type' => 'suspend_user']);
+    app(ModerationActionDispatcher::class)->dispatchFor($decision);
+
+    Bus::assertChained([
+        SuspendUserJob::class,
+        SuspendSiteJob::class,
+        PurgeModerationCacheJob::class,
+    ]);
+    // Notifies are order-free and must stay OUT of the chain (a failed
+    // suspension link should not also swallow the user notification).
+    Bus::assertDispatched(NotifyReportedUserJob::class);
+});
+
+it('chains the CSAM set with quarantine first and the edge sync last', function () {
+    Bus::fake();
+    $decision = Decision::factory()->create(['decision_type' => 'csam_auto_suspend']);
+    app(ModerationActionDispatcher::class)->dispatchFor($decision);
+
+    Bus::assertChained([
+        QuarantineMediaJob::class,
+        SuspendUserJob::class,
+        SuspendSiteJob::class,
+        PurgeModerationCacheJob::class,
+    ]);
+    Bus::assertDispatched(NotifyOnCallStaffJob::class);
+});
+
+it('dispatches a lone enforcement job for hide_content without a chain', function () {
+    Bus::fake();
+    $decision = Decision::factory()->create(['decision_type' => 'hide_content']);
+    app(ModerationActionDispatcher::class)->dispatchFor($decision);
+
+    Bus::assertDispatched(PurgeModerationCacheJob::class);
+    Bus::assertDispatched(NotifyReportedUserJob::class);
 });

@@ -216,3 +216,44 @@ it('fetchMany does not retry a 403 when the caller already sent a non-Mozilla UA
     expect($out['https://1.1.1.1/x']['status'])->toBe(403);
     Http::assertSentCount(1);
 });
+
+// ── response body byte cap (SafeUrlFetcher size cap) ──────────────────────────
+//
+// A terminal response whose actual body OR declared Content-Length exceeds
+// config('partna.http_fetch.max_bytes') is rejected: fetch() throws
+// SafeUrlException, fetchMany() drops it to null. Guards the link-preview and
+// menu/shop scrapers from an oversized/hostile body.
+
+it('throws when the response body exceeds the byte cap', function () {
+    config()->set('partna.http_fetch.max_bytes', 16);
+    Http::fake(['*' => Http::response(str_repeat('x', 64), 200)]);
+
+    expect(fn () => app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/big'))
+        ->toThrow(SafeUrlException::class);
+});
+
+it('throws when the declared Content-Length exceeds the byte cap even if the body is small', function () {
+    config()->set('partna.http_fetch.max_bytes', 16);
+    Http::fake(['*' => Http::response('small', 200, ['Content-Length' => '1048576'])]);
+
+    expect(fn () => app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/liar'))
+        ->toThrow(SafeUrlException::class);
+});
+
+it('allows a response within the byte cap', function () {
+    config()->set('partna.http_fetch.max_bytes', 1024);
+    Http::fake(['*' => Http::response('tiny', 200)]);
+
+    $out = app(SafeUrlFetcher::class)->fetch('https://1.1.1.1/ok');
+
+    expect($out['status'])->toBe(200)->and($out['body'])->toBe('tiny');
+});
+
+it('fetchMany drops a URL whose body exceeds the byte cap', function () {
+    config()->set('partna.http_fetch.max_bytes', 16);
+    Http::fake(['*' => Http::response(str_repeat('x', 64), 200)]);
+
+    $out = app(SafeUrlFetcher::class)->fetchMany(['https://1.1.1.1/big']);
+
+    expect($out['https://1.1.1.1/big'])->toBeNull();
+});

@@ -12,6 +12,7 @@ use App\Jobs\Moderation\SuspendUserJob;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\CaseSignal;
 use App\Models\Moderation\Decision;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -43,6 +44,24 @@ class ModerationActionDispatcher
         'escalate_esafety' => ['notify_oncall_staff'],
     ];
 
+    // Enforcement actions run as ONE Bus::chain, in the order ACTIONS_BY_DECISION
+    // lists them (already causal: quarantine/suspend writes first, KV + edge sync
+    // last). The sync job decides what the edge serves by READING the state the
+    // earlier jobs write — as independent dispatches on the concurrent
+    // moderation_high queue it could run before those writes committed, re-caching
+    // (and keeping routing for) a page that was just taken down. Chaining makes
+    // the sync strictly follow the writes; a permanently-failed link halts the
+    // chain, leaving the later action rows 'pending' in the staff log rather than
+    // announcing a state that never committed. notify_* actions are order-free
+    // and stay independent dispatches.
+    private const CHAINED_ENFORCEMENT_ACTIONS = [
+        'quarantine_media',
+        'suspend_user',
+        'suspend_site',
+        'sync_subdomain_kv',
+        'purge_cloudflare_cache',
+    ];
+
     public function dispatchFor(Decision $decision): void
     {
         $actionTypes = self::ACTIONS_BY_DECISION[$decision->decision_type] ?? [];
@@ -70,20 +89,41 @@ class ModerationActionDispatcher
         // Dispatch Horizon jobs only after the outer transaction commits so a rollback
         // doesn't produce orphaned jobs against rows that no longer exist.
         DB::afterCommit(function () use ($rows, $decision) {
-            foreach ($rows as $row) {
-                $this->dispatchJob($row->id, $row->action_type, $decision->case_id);
+            [$enforcement, $independent] = $rows->partition(
+                fn (ActionLogEntry $row) => in_array($row->action_type, self::CHAINED_ENFORCEMENT_ACTIONS, true),
+            );
+
+            $chain = $enforcement
+                ->map(fn (ActionLogEntry $row) => $this->makeEnforcementJob($row->id, $row->action_type, $decision->case_id))
+                ->filter()
+                ->values();
+
+            if ($chain->count() > 1) {
+                Bus::chain($chain->all())->dispatch();
+            } elseif ($chain->count() === 1) {
+                dispatch($chain->first());
+            }
+
+            foreach ($independent as $row) {
+                $this->dispatchIndependentJob($row->id, $row->action_type, $decision->case_id);
             }
         });
     }
 
-    private function dispatchJob(string $actionLogId, string $type, string $caseId): void
+    private function makeEnforcementJob(string $actionLogId, string $type, string $caseId): ?object
+    {
+        return match ($type) {
+            'quarantine_media' => new QuarantineMediaJob($actionLogId, $caseId),
+            'suspend_user' => new SuspendUserJob($actionLogId, $caseId),
+            'suspend_site' => new SuspendSiteJob($actionLogId, $caseId),
+            'sync_subdomain_kv', 'purge_cloudflare_cache' => new PurgeModerationCacheJob($actionLogId, $caseId),
+            default => null,
+        };
+    }
+
+    private function dispatchIndependentJob(string $actionLogId, string $type, string $caseId): void
     {
         match ($type) {
-            'quarantine_media' => QuarantineMediaJob::dispatch($actionLogId, $caseId),
-            'suspend_user' => SuspendUserJob::dispatch($actionLogId, $caseId),
-            'suspend_site' => SuspendSiteJob::dispatch($actionLogId, $caseId),
-            'sync_subdomain_kv' => PurgeModerationCacheJob::dispatch($actionLogId, $caseId),
-            'purge_cloudflare_cache' => PurgeModerationCacheJob::dispatch($actionLogId, $caseId),
             'notify_reported_user' => NotifyReportedUserJob::dispatch($actionLogId, $caseId),
             'notify_reporter' => NotifyReporterJob::dispatch($actionLogId, $caseId),
             'notify_oncall_staff' => NotifyOnCallStaffJob::dispatch($actionLogId, $caseId),

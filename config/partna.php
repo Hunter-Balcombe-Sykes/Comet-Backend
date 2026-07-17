@@ -829,36 +829,6 @@ return [
         ],
     ],
 
-    /*
-    |----------------------------------------------------------------------
-    | Account type defaults – applied during registration
-    |----------------------------------------------------------------------
-    | All active accounts are `individual`. Config is flat — no `inherits` key.
-    */
-    'account_type_defaults' => [
-        'individual' => [
-            // NOTE: new block types MUST be appended at the end of the list.
-            // syncAllowedSections iterates this array and writes sort_order =
-            // index, and a unique index on (site_id, block_group, sort_order)
-            // where block_group = 'sections' rejects any re-packing that would
-            // momentarily shift an existing row's sort_order onto another's.
-            // Placing new block types at the tail keeps existing rows at
-            // their stored indices.
-            'allowed_sections' => ['services', 'gallery', 'booking', 'contacts_collection', 'barbershop_info', 'documents', 'newsletter', 'contact'],
-            'default_sections' => ['services', 'gallery'],
-            'is_published' => true,
-            'allowed_theme_count' => 3,
-            'custom_links_allowed' => true,
-            'default_contact' => [
-                'full_name' => 'Charlie',
-                'email' => 'charlie@ai.com',
-                'phone' => '1234 567 890',
-                'source' => 'system_default',
-                'subscribed' => true,
-            ],
-        ],
-    ],
-
     'soft_delete_retention_days' => (int) env('PARTNA_SOFT_DELETE_RETENTION_DAYS', env('SOFT_DELETE_RETENTION_DAYS', 30)),
 
     'analytics_raw_event_retention_days' => (int) env('PARTNA_ANALYTICS_RAW_EVENT_RETENTION_DAYS', env('ANALYTICS_RAW_EVENT_RETENTION_DAYS', 90)),
@@ -1118,6 +1088,13 @@ return [
         // Max redirect hops followed; each hop is re-validated for SSRF before
         // being followed (SafeUrlFetcher::fetch() / fetchMany()).
         'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 5),
+        // Hard cap on a fetched terminal response body (bytes). A response whose
+        // declared Content-Length OR actual body exceeds this is rejected —
+        // fetch() throws SafeUrlException, fetchMany() drops it to null — so a
+        // hostile/oversized URL can't feed a multi-hundred-MB body into the
+        // link-preview and menu/shop scrapers. 10 MB is generous for the HTML /
+        // JSON those parse.
+        'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 10 * 1024 * 1024),
     ],
 
     /*
@@ -1169,10 +1146,11 @@ return [
 
     /*
     |----------------------------------------------------------------------
-    | Video uploads – feature flag + processing config
+    | Video uploads – processing config
     |----------------------------------------------------------------------
-    | Set PARTNA_VIDEO_UPLOADS_ENABLED=true only after dedicated video
-    | workers are running on the "videos" queue.
+    | Availability is gated by the `video_uploads` feature flag
+    | (FeatureFlagService — DB registry, config fallback
+    | partna.features.video_uploads), not a config key here.
     |
     | video_max_upload_size  = max video file size accepted (KB)
     | video_max_duration_seconds = max video length (seconds)
@@ -1187,8 +1165,6 @@ return [
     | the player: optimized (720p, autoplay) + maximized (1080p, on-demand).
     | The frontend chooses which to load by context.
     */
-    'video_uploads_enabled' => (bool) env('PARTNA_VIDEO_UPLOADS_ENABLED', env('SIDEST_VIDEO_UPLOADS_ENABLED', false)),
-
     'video_max_upload_size' => (int) env('PARTNA_VIDEO_MAX_UPLOAD_KB', env('SIDEST_VIDEO_MAX_UPLOAD_KB', 204800)), // 200 MB
     'video_max_duration_seconds' => (int) env('PARTNA_VIDEO_MAX_DURATION_SECONDS', env('SIDEST_VIDEO_MAX_DURATION_SECONDS', 30)), // 30s — short autoplay clips
 

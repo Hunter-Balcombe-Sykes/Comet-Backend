@@ -12,7 +12,7 @@ class EarlyAccessSignupResource extends ApiResource
     public function toArray($request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'email' => $this->getAttribute('email'),
             'type' => $this->type,
             'workplace_or_industry' => $this->workplace_or_industry,

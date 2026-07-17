@@ -47,11 +47,6 @@ class CacheKeyGenerator
         return "pro:auth:{$authUserId}";
     }
 
-    public static function theme(string $themeId): string
-    {
-        return "theme:{$themeId}";
-    }
-
     public static function siteBlocks(string $siteId, string $group): string
     {
         return "site:{$siteId}:blocks:{$group}";

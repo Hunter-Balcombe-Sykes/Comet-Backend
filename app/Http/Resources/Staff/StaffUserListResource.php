@@ -31,7 +31,7 @@ class StaffUserListResource extends ApiResource
         $site = $this->resource->site;
 
         return [
-            'id' => $this->resource->id,
+            'id' => (string) $this->resource->id,
             'handle' => $this->resource->handle,
             'display_name' => $this->resource->display_name,
             'status' => $this->resource->status,
@@ -41,7 +41,7 @@ class StaffUserListResource extends ApiResource
             'updated_at' => optional($this->resource->updated_at)->toISOString(),
 
             'site' => $site ? [
-                'id' => $site->id,
+                'id' => (string) $site->id,
                 'subdomain' => $site->subdomain,
                 'is_published' => (bool) $site->is_published,
                 // architecture_id replaces theme — architectures are code constants, not DB rows.

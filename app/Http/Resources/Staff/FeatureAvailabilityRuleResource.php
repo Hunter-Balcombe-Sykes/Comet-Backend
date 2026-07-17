@@ -10,7 +10,7 @@ class FeatureAvailabilityRuleResource extends ApiResource
     public function toArray($request): array
     {
         return [
-            'id' => $this->id,
+            'id' => (string) $this->id,
             'feature_key' => $this->feature_key,
             'mode' => $this->mode,
             'segment_id' => $this->segment_id,

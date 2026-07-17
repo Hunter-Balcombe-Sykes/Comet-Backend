@@ -6,7 +6,6 @@ use App\Models\Core\Site\SiteMedia;
 use Illuminate\Http\Request;
 
 // API resource for gallery / content pool media items.
-// Output is byte-identical to UserUploadController::buildMediaPayload().
 //
 // Pass `include_variants: true` via withAdditional() (or the static make helper)
 // to include resolved variant/stream maps:
@@ -39,7 +38,7 @@ class SiteMediaResource extends ApiResource
             || $media->processing_state === SiteMedia::PROCESSING_STATE_PROCESSING;
 
         $payload = [
-            'id' => $media->id,
+            'id' => (string) $media->id,
             'pool' => $media->pool,
             'alt_text' => $media->alt_text,
             'caption' => $media->caption,

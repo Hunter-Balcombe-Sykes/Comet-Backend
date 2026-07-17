@@ -86,9 +86,4 @@ class Block extends BaseModel
     {
         return $query->where('is_enabled', true);
     }
-
-    public function scopeVisible($query)
-    {
-        return $query->where('is_enabled', true)->where('is_active', true);
-    }
 }

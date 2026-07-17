@@ -44,3 +44,18 @@ it('filters by case_type', function () {
     $res = actingAsStaff($staff)->getJson('/api/staff/cases?case_type=csam_match');
     expect($res->json('data'))->toHaveCount(1);
 });
+
+it('wraps the list in the shared paginatedResponse envelope (data + meta)', function () {
+    $staff = PartnaStaff::factory()->create();
+    ModerationCase::factory()->count(2)->create();
+
+    $res = actingAsStaff($staff)->getJson('/api/staff/cases');
+
+    $res->assertOk();
+    $res->assertJsonStructure([
+        'data' => [['id', 'case_type', 'severity', 'status']],
+        'meta' => ['current_page', 'per_page', 'total', 'last_page', 'next_page_url', 'prev_page_url'],
+    ]);
+    expect($res->json('data.0.id'))->toBeString();
+    expect($res->json('meta.total'))->toBe(2);
+});
