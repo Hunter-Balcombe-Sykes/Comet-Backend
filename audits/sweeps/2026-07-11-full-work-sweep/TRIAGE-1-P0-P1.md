@@ -1269,7 +1269,7 @@ None.
 
 ## Progress
 
-- P0 Blockers: 0 of 1 complete
+- P0 Blockers: 1 of 1 complete
 - P1 High: 0 of 1 complete
 - P2 Medium: 0 of 2 complete
 - P3 Low: 0 of 1 complete
@@ -1278,7 +1278,7 @@ None.
 
 ## P0 — Must fix before any real user touches the system
 
-- [ ] **#MIG-1** · P0 — One transaction holds `ACCESS EXCLUSIVE` on `site.blocks`/`site.public_site_payload` across a DELETE, two view rebuilds, a CHECK swap+validate, and seven column/table drops
+- [x] **#MIG-1** · P0 — One transaction holds `ACCESS EXCLUSIVE` on `site.blocks`/`site.public_site_payload` across a DELETE, two view rebuilds, a CHECK swap+validate, and seven column/table drops
     - **Where:** `supabase/migrations/20260705120000_drop_dead_profile_features.sql:22-360`
     - **Affects:** Every public sitepage read during deploy — `site.public_site_payload` and `site.all_site_data` are the views every sitepage GET resolves through; `site.blocks` backs both.
     - **Effort:** M (~2–4h)
