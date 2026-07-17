@@ -8,8 +8,10 @@
 
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Services\EarlyAccess\EarlyAccessService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupEarlyAccessTable();
@@ -80,6 +82,85 @@ it('refreshes fields on repeat waitlist submissions without a second email', fun
         ->and($signup->platforms)->toBe(['square', 'google-business']);
 
     Mail::assertQueuedCount(1);
+});
+
+it('LIFE-1: absorbs a concurrent double-submit UniqueConstraintViolationException instead of 500ing', function () {
+    // Root cause was an unguarded read-then-create on email_lc in
+    // EarlyAccessService::signupFromMarketing — two requests racing the same email
+    // both pass the pre-check SELECT, then the loser's INSERT 500s on
+    // early_access_signups_email_lc_unique. firstOrCreate()'s internal createOrFirst
+    // catches that UniqueConstraintViolationException and re-fetches instead.
+    $emailLc = 'racer@example.test';
+    $fired = false;
+
+    // One-shot hook: the instant the service's own INSERT is about to run (i.e.
+    // strictly AFTER its internal firstOrCreate() pre-check SELECT already ran and
+    // found nothing), commit a rival row for the same email_lc on the SAME
+    // connection — standing in for a second request winning the race. Guarded by
+    // $fired (set before the rival insert) so this doesn't recurse on its own
+    // write, and by an exact insert+table match so it never fires on the SELECTs.
+    DB::connection('pgsql')->beforeExecuting(function ($query, $bindings, $connection) use (&$fired, $emailLc) {
+        if ($fired || stripos($query, 'insert into') === false || ! str_contains($query, 'early_access_signups')) {
+            return;
+        }
+        $fired = true;
+
+        $connection->table('core.early_access_signups')->insert([
+            'id' => (string) Str::uuid(),
+            'email' => $emailLc,
+            'email_lc' => $emailLc,
+            'type' => 'partna',
+            'workplace_or_industry' => null,
+            'platforms' => json_encode([]),
+            'status' => EarlyAccessSignup::STATUS_WAITLIST,
+            'source' => 'marketing',
+            'consent_ip_hash' => null,
+            'consent_user_agent' => null,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+    });
+
+    $result = app(EarlyAccessService::class)->signupFromMarketing([
+        'email' => $emailLc,
+        'type' => 'business',
+        'workplace_or_industry' => 'Studio',
+        'platforms' => ['instagram', 'square'],
+    ]);
+
+    expect($fired)->toBeTrue('The rival insert never fired — the race was not actually exercised.')
+        ->and($result['created'])->toBeFalse()
+        ->and($result['signup']->email_lc)->toBe($emailLc)
+        ->and(EarlyAccessSignup::query()->where('email_lc', $emailLc)->count())->toBe(1);
+
+    // The race loser must not send a second thank-you — only the winning insert does.
+    Mail::assertNothingQueued();
+});
+
+it('LIFE-1: is idempotent for a same-email different-case call straight through the service', function () {
+    $emailLc = 'lower@example.test';
+    $existing = EarlyAccessSignup::query()->create([
+        'email' => $emailLc,
+        'email_lc' => $emailLc,
+        'type' => 'partna',
+        'workplace_or_industry' => 'Studio',
+        'platforms' => ['instagram'],
+        'status' => EarlyAccessSignup::STATUS_WAITLIST,
+        'source' => 'marketing',
+    ]);
+
+    $result = app(EarlyAccessService::class)->signupFromMarketing([
+        'email' => 'LOWER@Example.Test',
+        'type' => 'business',
+        'workplace_or_industry' => 'New Studio',
+        'platforms' => ['square', 'google-business'],
+    ]);
+
+    expect($result['created'])->toBeFalse()
+        ->and($result['signup']->id)->toBe($existing->id)
+        ->and(EarlyAccessSignup::query()->where('email_lc', $emailLc)->count())->toBe(1);
+
+    Mail::assertNothingQueued();
 });
 
 it('never downgrades an invited row back to waitlist state', function () {

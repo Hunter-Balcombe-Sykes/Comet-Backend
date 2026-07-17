@@ -29,12 +29,14 @@ class EarlyAccessService
     {
         $emailLc = mb_strtolower(trim($data['email']));
 
-        $existing = EarlyAccessSignup::query()->where('email_lc', $emailLc)->first();
-
-        if ($existing === null) {
-            $signup = EarlyAccessSignup::query()->create([
+        // Race-safe upsert on the email_lc UNIQUE constraint: firstOrCreate ->
+        // createOrFirst catches the UniqueConstraintViolationException a concurrent
+        // double-submit throws on the INSERT and re-fetches the winner off the write
+        // PDO instead of 500ing.
+        $signup = EarlyAccessSignup::query()->firstOrCreate(
+            ['email_lc' => $emailLc],
+            [
                 'email' => $emailLc,
-                'email_lc' => $emailLc,
                 'type' => $data['type'],
                 'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
                 'platforms' => array_values($data['platforms'] ?? []),
@@ -42,22 +44,27 @@ class EarlyAccessService
                 'source' => 'marketing',
                 'consent_ip_hash' => $data['consent_ip_hash'] ?? null,
                 'consent_user_agent' => $data['consent_user_agent'] ?? null,
-            ]);
+            ],
+        );
 
+        if ($signup->wasRecentlyCreated) {
             Mail::queue(new EarlyAccessThankYouMail($emailLc));
 
             return ['signup' => $signup, 'created' => true];
         }
 
-        if ($existing->status === EarlyAccessSignup::STATUS_WAITLIST) {
-            $existing->fill([
+        // Existing row (including a race loser re-fetched above): refresh fields
+        // only while still on the waitlist — an invited/signed-up row never loses
+        // its state to a repeat (or racing) form submission.
+        if ($signup->status === EarlyAccessSignup::STATUS_WAITLIST) {
+            $signup->fill([
                 'type' => $data['type'],
-                'workplace_or_industry' => $data['workplace_or_industry'] ?? $existing->workplace_or_industry,
-                'platforms' => array_values($data['platforms'] ?? ($existing->platforms ?? [])),
+                'workplace_or_industry' => $data['workplace_or_industry'] ?? $signup->workplace_or_industry,
+                'platforms' => array_values($data['platforms'] ?? ($signup->platforms ?? [])),
             ])->save();
         }
 
-        return ['signup' => $existing, 'created' => false];
+        return ['signup' => $signup, 'created' => false];
     }
 
     /**

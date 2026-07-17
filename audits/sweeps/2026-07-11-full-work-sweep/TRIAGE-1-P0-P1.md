@@ -184,7 +184,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 3 complete
+- P1 High: 2 of 3 complete
 - P2 Medium: 0 of 25 complete
 - P3 Low: 0 of 1 complete
 
@@ -192,7 +192,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **LIFE-1** · P1 — Waitlist signup races on read-then-create; the DB's own UNIQUE constraint 500s instead of degrading gracefully
+- [x] **LIFE-1** · P1 — Waitlist signup races on read-then-create; the DB's own UNIQUE constraint 500s instead of degrading gracefully
     - **Where:** app/Services/EarlyAccess/EarlyAccessService.php:32-49
     - **Affects:** Public marketing waitlist form — any double-click, form re-submit, or client retry for the same email crashes the request instead of returning the existing signup.
     - **Effort:** S (~0.5–1h)
