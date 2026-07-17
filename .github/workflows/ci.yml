@@ -178,3 +178,43 @@ jobs:
       - name: npm audit (cloudflare-worker)
         working-directory: cloudflare-worker
         run: npm audit --audit-level=high
+
+  # The schema-drift gate lives in the Feature suite, which `composer test` runs
+  # AFTER the Unit suite. A single unrelated Unit-suite fatal would abort the run
+  # before the gate ever executes — silently disabling the guardrail. Running it
+  # in its own job isolates the gate so it always fires (and can fail on real drift)
+  # regardless of the rest of the suite's health.
+  schema-drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP_ENV: testing
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_sqlite, sqlite3, redis
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy env
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Schema-drift gate
+        run: php artisan test --filter=SchemaDriftGuardTest
