@@ -1,0 +1,5631 @@
+{
+    "generated_at": "2026-07-17T07:32:35Z",
+    "project_ref": "glncumufgaqcmqhzwrxm",
+    "latest_migration": "20260717062901",
+    "columns": [
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "content_type",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "content_key",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "score",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "rank",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "column": "computed_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "item_type",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "item_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "item_title",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "section_key",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "occurred_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "session_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "visitor_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "device_type",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "occurred_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "subdomain",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "site_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "customer_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "outcome",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "lead_submissions",
+            "column": "form_started_at_ms",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "link_block_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "occurred_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "session_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "visitor_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "utm_source",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "utm_medium",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "utm_campaign",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "url",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "platform",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "product_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "product_title",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "section_key",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "label",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "region_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "link_clicks",
+            "column": "device_type",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "block_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "section_key",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "occurred_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "session_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "visitor_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "utm_source",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "utm_medium",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "utm_campaign",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "device_type",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "section_views",
+            "column": "duration_ms",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "day",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "timezone",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "visits_count",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "unique_visitors",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "clicks_count",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "unique_clickers",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_daily",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "hour_start",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "timezone",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "visits_count",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "unique_visitors",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "clicks_count",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "unique_clickers",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_metrics_hourly",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "visitor_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "started_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "last_seen_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "duration_seconds",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "region_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "device_type",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "occurred_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "session_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "visitor_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "utm_source",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "utm_medium",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "utm_campaign",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "device_type",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "region_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "city",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "latitude",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "site_visits",
+            "column": "longitude",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "session_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "event_type",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "factor_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "factor_type",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "ip",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "metadata",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "professional_handle_snapshot",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "professional_email_snapshot",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "triggered_by",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "triggered_by_staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "recipient_email",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "send_to",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "file_path",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "file_size_bytes",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "file_sha256",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "record_counts",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "error_message",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "completed_at",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "email_sent_at",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "column": "email_delivery_status",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "old_handle",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "new_handle",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "reason",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "actor_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "ip_address",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "column": "changed_at",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "actor_kind",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "actor_staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "action",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "target_type",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "target_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "payload",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "staff_email_snapshot",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "impersonator_staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "impersonator_email_snapshot",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "professional_handle_snapshot",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "route",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "http_method",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "status_code",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "payload_summary",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "professional_handle_snapshot",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "professional_email_snapshot",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "event",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "ip_address",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "metadata",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "actor_type",
+            "not_null": true
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "actor_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "actor_handle_snapshot",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "column": "reason",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "email",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "email_lc",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "type",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "workplace_or_industry",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "platforms",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "source",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "invited_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "invite_token_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "invite_meta",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "invited_by",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "signed_up_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "consent_ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "consent_user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "feature_key",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "mode",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "segment_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "created_by",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "flag_key",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "enabled",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "reason",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "expires_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "created_by",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "key",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "description",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "default_enabled",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "rollout_percent",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "reply_email",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "kind",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "severity",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "message",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "page_url",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "viewport",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "app_version",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "request_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "internal_notes",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "tags",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "source",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "type",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "area",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "column": "target",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "auth_user_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "role",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "primary_email",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "name",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "column": "phone",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "webhook_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "request_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "action_type",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "recipient_email_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "raw_payload",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "error",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "queued_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "failed_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_confirmation_preferences",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_confirmation_preferences",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_confirmation_preferences",
+            "column": "action_key",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_confirmation_preferences",
+            "column": "skip_confirmation",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_confirmation_preferences",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_confirmation_preferences",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "handle",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "reclaim_until",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "expires_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "notified_t3_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_handle_aliases",
+            "column": "notified_t1_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_segment_members",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segment_members",
+            "column": "segment_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segment_members",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segment_members",
+            "column": "added_by",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_segment_members",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "name",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "description",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "filters",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "created_by",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "auth_user_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "handle",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "display_name",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "timezone",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "onboarding_step",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "phone",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "primary_email",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "first_name",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "last_name",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "public_contact_number",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "public_contact_email",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "location_street_address",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "location_postcode",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "location_city",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "location_state",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "location_country",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "handle_lc",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "account_type",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "deletion_token_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "deletion_requested_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "deletion_confirmed_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "deletion_previous_status",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "partna_url",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "admin_notes",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "deletion_mail_sent_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "sector",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "column": "sector_source",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "name",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "email",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "email_lc",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "phone",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "applicant_type",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "applicant_type_other",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "industry",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "industry_other",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "pilot_program_opt_in",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "number_of_team_members",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "consent_source",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "consent_ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "consent_user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "last_submitted_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "decision_id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "action_type",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "action_target",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "job_uuid",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "attempts",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "failure_reason",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "dispatched_at",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "completed_at",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "case_id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "signal_source",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "signal_data",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "reporter_user_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "reporter_email",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "reporter_ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "reason_code",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "reason_details",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "dedup_hash",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "case_type",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "reportable_type",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "reportable_id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "reportable_owner_user_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "severity",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "signal_count",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "auto_actioned",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "priority",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "sla_due_at",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "triaged_at",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "triaged_by_staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "resolved_at",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "case_id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "decision_type",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "reason",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "decided_by_staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "decided_by_system",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "auto_actioned",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "supersedes_decision_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "second_staff_approval_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "second_staff_approved_at",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "column": "decided_at",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "case_id",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "signal_id",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "evidence_type",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "payload",
+            "not_null": true
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "content_hash",
+            "not_null": false
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "column": "captured_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "broadcast_email_receipts",
+            "column": "notification_id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "broadcast_email_receipts",
+            "column": "subscription_id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "broadcast_email_receipts",
+            "column": "email_sent_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "list_key",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "email",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "full_name",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "subscribed_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "unsubscribed_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "unsubscribe_token",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "consent_source",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "consent_ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "consent_user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "email_lc",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "qr_slug",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "column": "confirmation_sent_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "column": "category_key",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "column": "mode",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_preferences",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_preferences",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_preferences",
+            "column": "category_key",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_preferences",
+            "column": "enabled",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_preferences",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_preferences",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "notification_id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "read_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "dismissed_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_receipts",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "type",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "title",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "body",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "cta_url",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "severity",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "starts_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "ends_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "primary_action_label",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "secondary_action_label",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "secondary_action_url",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "category",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "dedupe_key",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "email_sent_at",
+            "not_null": false
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "column": "critical",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "site_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "subdomain",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "is_published",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "architecture_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "site_settings",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "site_created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "site_updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "handle",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "display_name",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "location_street_address",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "location_city",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "location_state",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "location_postcode",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "location_country",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "blocks",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "all_site_data",
+            "column": "account_type",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "block_type",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "title",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "icon_key",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "sort_order",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "is_active",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "settings",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "block_group",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "is_enabled",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "live_check_enabled",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "category",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "platform",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "column": "handle",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "position",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "entry_type",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "media_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "external_ref",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "email",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "phone",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "full_name",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "source",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "notes",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "external_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "marketing_opt_in_cached",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "customers",
+            "column": "redacted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "source",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "integration",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "priority",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "mode",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "target_var",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "value",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions_font_backup_20260709",
+            "column": "id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions_font_backup_20260709",
+            "column": "value",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_accent",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_text",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "typography_font_family",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_text_muted",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_accent_contrast",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "border_thickness",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "border_color",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "border_radius",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icon_size",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icon_color",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "motion_expand_duration",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "motion_fade_duration",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "typography_uppercase",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_contrasting_bg",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_contrasting_text",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_placeholder",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_xs",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_s",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_regular",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_medium",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_large",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_desktop_regular",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icons_xl_size",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icons_xxl_size",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icons_stroke_width",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icons_large_stroke_width",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_xl",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "color_secondary_text",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "typography_line_height",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "typography_logo_height",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "weight_regular",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "weight_medium",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "weight_semibold",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "weight_bold",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "border_small_radius",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_xxs",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icons_large_size",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "icons_brand_logo_height",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "motion_pace",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "motion_spin_duration",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "motion_spring_curve",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "theme_mode",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "space_desktop_xl",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "weight_light",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "effect_shadow_style",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "effect_link_style",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "effect_image_treatment",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "layout_density",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "border_style",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "theme_night_shift_auto",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_caption",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_body",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_h3",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_h2",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_h1",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_display",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_desktop_body",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_desktop_h1",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "text_desktop_display",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "typography_tracking",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "theme_contrast",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "weight_heading",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "column": "typography_weight",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits_font_backup_20260709",
+            "column": "site_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "design_kits_font_backup_20260709",
+            "column": "typography_font_family",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "name",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "email",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "phone",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "subject",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "message",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "read_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "email_sent_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "status",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "customer_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "notification_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "replied_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "archived_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "spam_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "redacted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "enquiries",
+            "column": "confirmation_sent_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "media_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "variant_key",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "artifact_type",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "disk",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "path",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "mime",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "width",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "height",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "bitrate_kbps",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "file_size_bytes",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "duration_ms",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "metadata",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "content_hash",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "media_variants",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "menu_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "name",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "position",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "source_platform",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_categories",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "menu_item_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "platform",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "pickup_price",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "pickup_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "delivery_price",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "delivery_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_platforms",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "menu_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "category_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "position",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "name",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "description",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "image_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "rating",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "rating_count",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "badges",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "base_price",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "pickup_price",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "pickup_source",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "delivery_price",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "delivery_source",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "dd_external_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "currency",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "menu_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "platform",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "store_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "synced_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "status",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "rating",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "review_count",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "currency",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "fetch_status",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "last_fetched_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "content_source",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "store_name",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "logo_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "pickup_platform",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "delivery_platform",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "dining_modes",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "platform",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "resource_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "payload",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "sort_order",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "is_active",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "last_visited_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "last_refreshed_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "last_refresh_status",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "last_refresh_error",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "consecutive_failures",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "apify_status",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "place_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "refresh_etag",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "refresh_last_modified",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "canonical_key",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "resource_kind",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "column": "display_settings",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "public_site_payload",
+            "column": "site_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "public_site_payload",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "public_site_payload",
+            "column": "subdomain",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "public_site_payload",
+            "column": "payload",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "title",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "sort_order",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "title",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "description",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "category",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "price_cents",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "currency_code",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "duration_minutes",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "is_active",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "sort_order",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "category_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "deleted_origin",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "connection_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "brand_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "provider",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "source_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "name",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "currency",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "favicon",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "logo",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "discount_code",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "fetch_mode",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "is_individual",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "position",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "style_analysis",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "selection_mode",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "link_mode",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "referral_query",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "brand_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "product_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "position",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "data",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_products",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "bucket",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "path",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "alt_text",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "sort_order",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "deleted_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "is_active",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "pool",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "media_type",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "processing_state",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "original_mime",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "original_size_bytes",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "duration_ms",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "poster_path",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "processing_error",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "caption",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "original_filename",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "product_gid",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "purpose",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "scanned_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "dominant_color",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "column": "palette",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "subdomain",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "reclaim_until",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "expires_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "notified_t3_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "site_subdomain_aliases",
+            "column": "notified_t1_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "subdomain",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "is_published",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "settings",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "subdomain_changed_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "unpublished_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "architecture_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "moderation_state",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "custom_domain",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "custom_domain_status",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "custom_domain_verified_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "custom_domain_cf_id",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "custom_domain_primary",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "show_branding",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "charlie_enabled",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "services_auto_sync_enabled",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "booking_mode",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "manual_booking_url",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "content_instagram_auto_enabled",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "shop_link_mode",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "column": "shop_auto_latest",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "name",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "address",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "address_line1",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "city",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "state",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "postcode",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "country",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "latitude",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "longitude",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "phone",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "website",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "previous_website",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "category",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "description",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "previous_website_analysis",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "opening_hours",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "contact_email",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "workplaces",
+            "column": "field_sources",
+            "not_null": true
+        }
+    ],
+    "checks": [
+        {
+            "schema": "analytics",
+            "table": "site_sessions",
+            "name": "site_sessions_duration_check",
+            "definition": "CHECK (((duration_seconds >= 0) AND (duration_seconds <= 86400)))"
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "name": "auth_factor_events_event_type_check",
+            "definition": "CHECK ((event_type = ANY (ARRAY['enroll_started'::text, 'enroll_completed'::text, 'unenroll'::text, 'challenge_issued'::text, 'verify_success'::text, 'verify_failed'::text, 'verify_rejected_by_hook'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "auth_factor_events",
+            "name": "auth_factor_events_factor_type_check",
+            "definition": "CHECK (((factor_type IS NULL) OR (factor_type = ANY (ARRAY['totp'::text, 'phone'::text, 'webauthn'::text, 'recovery'::text]))))"
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "name": "data_export_audit_email_delivery_status_check",
+            "definition": "CHECK ((email_delivery_status = ANY (ARRAY['sent'::text, 'delivered'::text, 'bounced'::text, 'complaint'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "name": "data_export_audit_send_to_chk",
+            "definition": "CHECK (((send_to IS NULL) OR (send_to = ANY (ARRAY['professional'::text, 'staff'::text]))))"
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "name": "data_export_audit_status_chk",
+            "definition": "CHECK ((status = ANY (ARRAY['queued'::text, 'processing'::text, 'completed'::text, 'failed'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "data_export_audit",
+            "name": "data_export_audit_triggered_by_chk",
+            "definition": "CHECK ((triggered_by = ANY (ARRAY['self'::text, 'staff'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "handle_change_log",
+            "name": "handle_change_log_reason_check",
+            "definition": "CHECK ((reason = ANY (ARRAY['rename'::text, 'reclaim'::text, 'staff_rename'::text, 'system'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "name": "moderation_events_actor_kind_check",
+            "definition": "CHECK (((actor_kind)::text = ANY ((ARRAY['staff'::character varying, 'system'::character varying])::text[])))"
+        },
+        {
+            "schema": "audit",
+            "table": "moderation_events",
+            "name": "moderation_events_actor_xor",
+            "definition": "CHECK (((((actor_kind)::text = 'staff'::text) AND (actor_staff_id IS NOT NULL)) OR (((actor_kind)::text = 'system'::text) AND (actor_staff_id IS NULL))))"
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "name": "staff_audit_log_http_method_check",
+            "definition": "CHECK ((http_method = ANY (ARRAY['POST'::text, 'PATCH'::text, 'PUT'::text, 'DELETE'::text, 'GET'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "staff_audit_log",
+            "name": "staff_audit_log_status_code_check",
+            "definition": "CHECK (((status_code >= 100) AND (status_code <= 599)))"
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "name": "user_deletion_audit_actor_type_check",
+            "definition": "CHECK ((actor_type = ANY (ARRAY['professional'::text, 'staff_admin'::text, 'system'::text])))"
+        },
+        {
+            "schema": "audit",
+            "table": "user_deletion_audit",
+            "name": "user_deletion_audit_event_check",
+            "definition": "CHECK ((event = ANY (ARRAY['requested'::text, 'confirmed'::text, 'cancelled'::text, 'purged'::text, 'purge_failed'::text, 'admin_initiated'::text, 'admin_cancelled'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "name": "early_access_signups_platforms_is_array",
+            "definition": "CHECK ((jsonb_typeof(platforms) = 'array'::text))"
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "name": "early_access_signups_source_check",
+            "definition": "CHECK ((source = ANY (ARRAY['marketing'::text, 'manual'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "name": "early_access_signups_status_check",
+            "definition": "CHECK ((status = ANY (ARRAY['waitlist'::text, 'invited'::text, 'signed_up'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "name": "early_access_signups_type_check",
+            "definition": "CHECK ((type = ANY (ARRAY['partna'::text, 'business'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "name": "feature_availability_key_format",
+            "definition": "CHECK ((feature_key ~ '^[a-z][a-z0-9._-]*$'::text))"
+        },
+        {
+            "schema": "core",
+            "table": "feature_availability",
+            "name": "feature_availability_mode_check",
+            "definition": "CHECK ((mode = ANY (ARRAY['enabled'::text, 'disabled'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "feature_flag_overrides",
+            "name": "feature_flag_overrides_scope_set",
+            "definition": "CHECK ((user_id IS NOT NULL))"
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "name": "feature_flags_key_format",
+            "definition": "CHECK ((key ~ '^[a-z][a-z0-9_]*$'::text))"
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "name": "feature_flags_key_length",
+            "definition": "CHECK ((length(key) <= 128))"
+        },
+        {
+            "schema": "core",
+            "table": "feature_flags",
+            "name": "feature_flags_rollout_percent_range",
+            "definition": "CHECK (((rollout_percent >= 0) AND (rollout_percent <= 100)))"
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "name": "feedback_kind_check",
+            "definition": "CHECK ((kind = ANY (ARRAY['bug'::text, 'idea'::text, 'praise'::text, 'question'::text, 'other'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "name": "feedback_message_length_check",
+            "definition": "CHECK (((char_length(message) >= 1) AND (char_length(message) <= 5000)))"
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "name": "feedback_severity_check",
+            "definition": "CHECK (((severity IS NULL) OR (severity = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text]))))"
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "name": "feedback_source_check",
+            "definition": "CHECK ((source = ANY (ARRAY['dashboard'::text, 'public_site'::text, 'mobile'::text, 'email'::text, 'api'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "feedback",
+            "name": "feedback_status_check",
+            "definition": "CHECK ((status = ANY (ARRAY['new'::text, 'triaged'::text, 'in_progress'::text, 'shipped'::text, 'wontfix'::text, 'duplicate'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "partna_staff",
+            "name": "partna_staff_role_check",
+            "definition": "CHECK ((role = ANY (ARRAY['admin'::text, 'support'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "supabase_email_events",
+            "name": "supabase_email_events_status_check",
+            "definition": "CHECK ((status = ANY (ARRAY['queued'::text, 'failed'::text, 'unhandled'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "user_segments",
+            "name": "user_segments_filters_is_object",
+            "definition": "CHECK ((jsonb_typeof(filters) = 'object'::text))"
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "name": "users_account_type_check",
+            "definition": "CHECK ((account_type = ANY (ARRAY['partna'::text, 'business'::text, 'staff'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "name": "users_status_check",
+            "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'disabled'::text, 'pending_deletion'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "name": "waitlist_signups_industry_check",
+            "definition": "CHECK (((industry IS NULL) OR (industry = ANY (ARRAY['mens_grooming'::text, 'womens_haircare'::text, 'beauty_products'::text, 'vitamins_and_supplements'::text, 'services_and_software'::text, 'other'::text]))))"
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "name": "waitlist_signups_industry_other_required",
+            "definition": "CHECK ((((industry IS NULL) AND (industry_other IS NULL)) OR ((industry = 'other'::text) AND (industry_other IS NOT NULL) AND (btrim(industry_other) <> ''::text)) OR ((industry <> 'other'::text) AND (industry_other IS NULL))))"
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "name": "waitlist_signups_team_members_non_negative",
+            "definition": "CHECK (((number_of_team_members IS NULL) OR (number_of_team_members >= 0)))"
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "name": "waitlist_signups_type_check",
+            "definition": "CHECK (((applicant_type IS NULL) OR (applicant_type = ANY (ARRAY['influencer'::text, 'professional'::text, 'other'::text, 'individual'::text]))))"
+        },
+        {
+            "schema": "core",
+            "table": "waitlist_signups",
+            "name": "waitlist_signups_type_other_required",
+            "definition": "CHECK ((((applicant_type IS NULL) AND (applicant_type_other IS NULL)) OR ((applicant_type = 'other'::text) AND (applicant_type_other IS NOT NULL) AND (btrim(applicant_type_other) <> ''::text)) OR ((applicant_type <> 'other'::text) AND (applicant_type_other IS NULL))))"
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "name": "action_log_action_type_check",
+            "definition": "CHECK (((action_type)::text = ANY ((ARRAY['sync_subdomain_kv'::character varying, 'suspend_user'::character varying, 'suspend_site'::character varying, 'quarantine_media'::character varying, 'file_cybertip_report'::character varying, 'notify_reported_user'::character varying, 'notify_reporter'::character varying, 'notify_oncall_staff'::character varying, 'purge_cloudflare_cache'::character varying, 'redact_reporter_pii'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "action_log",
+            "name": "action_log_status_check",
+            "definition": "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'dispatched'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "name": "case_signals_details_length",
+            "definition": "CHECK (((reason_details IS NULL) OR (length(reason_details) <= 4000)))"
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "name": "case_signals_reason_code_check",
+            "definition": "CHECK (((reason_code)::text = ANY ((ARRAY['spam'::character varying, 'harassment'::character varying, 'impersonation'::character varying, 'illegal_content'::character varying, 'sexual_content'::character varying, 'self_harm'::character varying, 'hate_speech'::character varying, 'intellectual_property'::character varying, 'fake_profile'::character varying, 'other'::character varying, 'auto_csam_hash_match'::character varying, 'auto_other'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "case_signals",
+            "name": "case_signals_signal_source_check",
+            "definition": "CHECK (((signal_source)::text = ANY ((ARRAY['content_report'::character varying, 'csam_scan'::character varying, 'trusted_flagger'::character varying, 'manual_staff'::character varying, 'esafety_notice'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "name": "cases_case_type_check",
+            "definition": "CHECK (((case_type)::text = ANY ((ARRAY['content_report'::character varying, 'csam_match'::character varying, 'trusted_flagger'::character varying, 'manual'::character varying, 'esafety_takedown'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "name": "cases_priority_check",
+            "definition": "CHECK (((priority >= 1) AND (priority <= 10)))"
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "name": "cases_reportable_type_check",
+            "definition": "CHECK (((reportable_type)::text = ANY ((ARRAY['Site'::character varying, 'SiteMedia'::character varying, 'User'::character varying, 'Block'::character varying, 'Service'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "name": "cases_severity_check",
+            "definition": "CHECK (((severity >= 1) AND (severity <= 5)))"
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "name": "cases_signal_count_check",
+            "definition": "CHECK ((signal_count >= 1))"
+        },
+        {
+            "schema": "moderation",
+            "table": "cases",
+            "name": "cases_status_check",
+            "definition": "CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'triaged'::character varying, 'under_review'::character varying, 'resolved'::character varying, 'auto_actioned'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "name": "decisions_actor_xor",
+            "definition": "CHECK ((((decided_by_staff_id IS NOT NULL) AND (decided_by_system = false)) OR ((decided_by_staff_id IS NULL) AND (decided_by_system = true))))"
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "name": "decisions_csam_override_requires_second_staff",
+            "definition": "CHECK ((((decision_type)::text <> 'override_csam_auto_action'::text) OR ((second_staff_approval_id IS NOT NULL) AND (second_staff_approved_at IS NOT NULL) AND (second_staff_approval_id <> decided_by_staff_id))))"
+        },
+        {
+            "schema": "moderation",
+            "table": "decisions",
+            "name": "decisions_decision_type_check",
+            "definition": "CHECK (((decision_type)::text = ANY ((ARRAY['dismiss'::character varying, 'warn'::character varying, 'hide_content'::character varying, 'hide_site'::character varying, 'suspend_user'::character varying, 'ban_user'::character varying, 'csam_auto_suspend'::character varying, 'override_csam_auto_action'::character varying, 'escalate_law_enforcement'::character varying, 'escalate_esafety'::character varying])::text[])))"
+        },
+        {
+            "schema": "moderation",
+            "table": "evidence",
+            "name": "evidence_type_check",
+            "definition": "CHECK (((evidence_type)::text = ANY ((ARRAY['content_snapshot'::character varying, 'csam_hash_match'::character varying, 'upload_metadata'::character varying, 'staff_attachment'::character varying])::text[])))"
+        },
+        {
+            "schema": "notifications",
+            "table": "email_subscriptions",
+            "name": "email_subscriptions_status_check",
+            "definition": "CHECK (((status)::text = ANY ((ARRAY['subscribed'::character varying, 'unsubscribed'::character varying])::text[])))"
+        },
+        {
+            "schema": "notifications",
+            "table": "notification_email_policies",
+            "name": "notification_email_policies_mode_check",
+            "definition": "CHECK ((mode = ANY (ARRAY['default'::text, 'force_on'::text, 'force_off'::text])))"
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "name": "notifications_severity_check",
+            "definition": "CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text])))"
+        },
+        {
+            "schema": "notifications",
+            "table": "notifications",
+            "name": "notifications_type_check",
+            "definition": "CHECK ((type = ANY (ARRAY['Success'::text, 'Critical'::text, 'Warning'::text, 'Invitation'::text, 'To do'::text, 'Info'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "name": "blocks_category_check",
+            "definition": "CHECK (((category IS NULL) OR (category = ANY (ARRAY['social'::text, 'booking'::text, 'education'::text, 'content'::text, 'events'::text, 'streaming'::text, 'other'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "blocks",
+            "name": "blocks_group_type_check",
+            "definition": "CHECK ((((block_group = 'links'::text) AND (block_type = 'link'::text)) OR ((block_group = 'sections'::text) AND (block_type = ANY (ARRAY['gallery'::text, 'services'::text, 'booking'::text, 'contacts_collection'::text, 'barbershop_info'::text, 'documents'::text, 'newsletter'::text, 'contact'::text, 'public_contact'::text, 'workplace'::text])))))"
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "name": "content_selection_entry_type_check",
+            "definition": "CHECK ((entry_type = ANY (ARRAY['upload'::text, 'google-photo'::text, 'ig-reel'::text, 'ig-post'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "name": "content_selection_position_range",
+            "definition": "CHECK (((\"position\" >= 1) AND (\"position\" <= 15)))"
+        },
+        {
+            "schema": "site",
+            "table": "content_selection",
+            "name": "content_selection_ref_shape",
+            "definition": "CHECK ((((entry_type = 'upload'::text) AND (media_id IS NOT NULL) AND (external_ref IS NULL)) OR ((entry_type = 'google-photo'::text) AND (external_ref IS NOT NULL) AND (media_id IS NULL)) OR ((entry_type = ANY (ARRAY['ig-reel'::text, 'ig-post'::text])) AND (media_id IS NULL) AND (external_ref IS NULL))))"
+        },
+        {
+            "schema": "site",
+            "table": "design_kit_contributions",
+            "name": "design_kit_contributions_mode_check",
+            "definition": "CHECK ((mode = ANY (ARRAY['one_shot'::text, 'auto'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "menu_platform_links",
+            "name": "menu_platform_links_status_check",
+            "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'ok'::text, 'unavailable'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "name": "menus_fetch_status_check",
+            "definition": "CHECK ((fetch_status = ANY (ARRAY['pending'::text, 'ok'::text, 'unavailable'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "name": "platform_connections_apify_status_check",
+            "definition": "CHECK (((apify_status IS NULL) OR (apify_status = ANY (ARRAY['pending'::text, 'ok'::text, 'unavailable'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "name": "platform_connections_last_refresh_status_check",
+            "definition": "CHECK ((last_refresh_status = ANY (ARRAY['ok'::text, 'unavailable'::text, 'error'::text, 'pending'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "platform_connections",
+            "name": "platform_connections_resource_kind_check",
+            "definition": "CHECK (((resource_kind IS NULL) OR (resource_kind = ANY (ARRAY['event'::text, 'link'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "service_categories",
+            "name": "service_categories_sort_order_non_negative",
+            "definition": "CHECK ((sort_order >= 0))"
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "name": "services_duration_minutes_check",
+            "definition": "CHECK (((duration_minutes IS NULL) OR (duration_minutes > 0)))"
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "name": "services_price_cents_check",
+            "definition": "CHECK ((price_cents >= 0))"
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "name": "site_media_media_type_check",
+            "definition": "CHECK (((media_type)::text = ANY ((ARRAY['image'::character varying, 'video'::character varying, 'document'::character varying])::text[])))"
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "name": "site_media_pool_check",
+            "definition": "CHECK (((pool)::text = ANY ((ARRAY['gallery'::character varying, 'content'::character varying, 'design'::character varying, 'product'::character varying, 'documents'::character varying])::text[])))"
+        },
+        {
+            "schema": "site",
+            "table": "site_media",
+            "name": "site_media_processing_state_check",
+            "definition": "CHECK (((processing_state)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'scanning'::character varying, 'ready'::character varying, 'failed'::character varying, 'quarantined'::character varying])::text[])))"
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "name": "sites_architecture_id_check",
+            "definition": "CHECK ((architecture_id = 'staple'::text))"
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "name": "sites_booking_mode_check",
+            "definition": "CHECK (((booking_mode IS NULL) OR (booking_mode = ANY (ARRAY['manual'::text, 'none'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "name": "sites_custom_domain_status_check",
+            "definition": "CHECK (((custom_domain_status IS NULL) OR (custom_domain_status = ANY (ARRAY['pending'::text, 'active'::text, 'error'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "name": "sites_moderation_state_check",
+            "definition": "CHECK (((moderation_state)::text = ANY ((ARRAY['active'::character varying, 'warned'::character varying, 'hidden'::character varying])::text[])))"
+        }
+    ]
+}
