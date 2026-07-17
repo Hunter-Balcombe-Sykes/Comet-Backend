@@ -160,6 +160,12 @@ Route::prefix('staff')
         // the response includes submitter email/handle + ip_hash (PRIV-4).
         Route::get('/feedback', [StaffFeedbackController::class, 'index'])
             ->name('staff.feedback.index');
+
+        // Feedback triage — status write. Support or admin; FeedbackPolicy::
+        // staffTriage adds the role gate (this group has no staff.admin).
+        Route::patch('/feedback/{feedback}', [StaffFeedbackController::class, 'update'])
+            ->whereUuid('feedback')
+            ->name('staff.feedback.update');
     });
 
 // Authorised Staff Admin Editing

@@ -139,3 +139,91 @@ it('deleteByStaff soft deletes — row leaves the default scope but survives wit
     expect(Feedback::find($id))->toBeNull();
     expect(Feedback::withTrashed()->findOrFail($id)->deleted_at)->not->toBeNull();
 });
+
+// ── PATCH /staff/feedback/{feedback} ──
+
+it('lets support set a triage status', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    $response = actingAsStaff(triageSupportStaff())
+        ->patchJson("/api/staff/feedback/{$id}", ['status' => 'in_progress']);
+
+    $response->assertStatus(200);
+    expect($response->json('feedback.status'))->toBe('in_progress');
+    expect(Feedback::findOrFail($id)->status)->toBe('in_progress');
+});
+
+it('lets admin set a triage status', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    actingAsStaff(triageAdminStaff())
+        ->patchJson("/api/staff/feedback/{$id}", ['status' => 'shipped'])
+        ->assertStatus(200);
+
+    expect(Feedback::findOrFail($id)->status)->toBe('shipped');
+});
+
+it('422s an out-of-vocabulary status (archived is NOT a status)', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    actingAsStaff(triageSupportStaff())
+        ->patchJson("/api/staff/feedback/{$id}", ['status' => 'archived'])
+        ->assertStatus(422);
+
+    expect(Feedback::findOrFail($id)->status)->toBe('new');
+});
+
+it('422s a missing status', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    actingAsStaff(triageSupportStaff())
+        ->patchJson("/api/staff/feedback/{$id}", [])
+        ->assertStatus(422);
+});
+
+it('404s an unknown feedback id on PATCH', function () {
+    actingAsStaff(triageSupportStaff())
+        ->patchJson('/api/staff/feedback/'.Str::uuid(), ['status' => 'triaged'])
+        ->assertStatus(404);
+});
+
+it('404s when PATCHing a soft-deleted row', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id, ['deleted_at' => now()->toDateTimeString()]);
+
+    actingAsStaff(triageSupportStaff())
+        ->patchJson("/api/staff/feedback/{$id}", ['status' => 'triaged'])
+        ->assertStatus(404);
+});
+
+it('rejects a non-staff authenticated user PATCH with 403 (real EnsurePartnaStaff)', function () {
+    $intruder = triageSeedUser('intruder');
+    $id = triageSeedFeedback($intruder->id);
+
+    actingAsUser($intruder)
+        ->patchJson("/api/staff/feedback/{$id}", ['status' => 'triaged'])
+        ->assertStatus(403);
+});
+
+it('rejects an unauthenticated PATCH with 401', function () {
+    $this->patchJson('/api/staff/feedback/'.Str::uuid(), ['status' => 'triaged'])
+        ->assertStatus(401);
+});
+
+it('records a staff audit row for the status write', function () {
+    $alice = triageSeedUser('alice');
+    $id = triageSeedFeedback($alice->id);
+
+    actingAsStaff(triageSupportStaff())
+        ->patchJson("/api/staff/feedback/{$id}", ['status' => 'triaged'])
+        ->assertStatus(200);
+
+    $writes = DB::connection('pgsql')->table('audit.staff_audit_log')
+        ->where('http_method', 'PATCH')
+        ->count();
+    expect($writes)->toBe(1);
+});

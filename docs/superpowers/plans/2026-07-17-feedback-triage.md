@@ -356,7 +356,7 @@ git commit -m "feat(feedback): FeedbackService updateStatus + deleteByStaff"
 - Consumes: `FeedbackPolicy::staffTriage` (Task 2), `FeedbackService::updateStatus` (Task 3).
 - Produces: `Feedback::STATUSES` (array const — Task 6's filter uses it), route `staff.feedback.update`, response envelope `{"feedback": {…StaffFeedbackResource…}}`.
 
-- [ ] **Step 1: Append failing endpoint tests**
+- [x] **Step 1: Append failing endpoint tests**
 
 Append to `tests/Feature/Staff/StaffFeedbackTriageTest.php`:
 
@@ -450,12 +450,12 @@ it('records a staff audit row for the status write', function () {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: the new PATCH tests FAIL — most with 404/405 (route doesn't exist). The 401 test may already pass (middleware is route-group level); that's fine.
 
-- [ ] **Step 3: Add the STATUSES const to the model**
+- [x] **Step 3: Add the STATUSES const to the model**
 
 In `app/Models/Core/Feedback.php`, add directly above `protected $table`:
 
@@ -470,7 +470,7 @@ In `app/Models/Core/Feedback.php`, add directly above `protected $table`:
     public const STATUSES = ['new', 'triaged', 'in_progress', 'shipped', 'wontfix', 'duplicate'];
 ```
 
-- [ ] **Step 4: Create the FormRequest**
+- [x] **Step 4: Create the FormRequest**
 
 Create `app/Http/Requests/Api/Staff/Feedback/StaffFeedbackUpdateRequest.php`:
 
@@ -498,7 +498,7 @@ class StaffFeedbackUpdateRequest extends BaseFormRequest
 
 (`BaseFormRequest::authorize()` is `final` and returns true — authorization happens in the controller via the policy, per house pattern.)
 
-- [ ] **Step 5: Add `update()` to the controller**
+- [x] **Step 5: Add `update()` to the controller**
 
 In `app/Http/Controllers/Api/Staff/Feedback/StaffFeedbackController.php`:
 
@@ -549,7 +549,7 @@ Replace the entire class docblock with:
  */
 ```
 
-- [ ] **Step 6: Register the route (any-staff group)**
+- [x] **Step 6: Register the route (any-staff group)**
 
 In `routes/api/staff.php`, directly after the existing `staff.feedback.index` route (inside the same any-staff group):
 
@@ -561,12 +561,12 @@ In `routes/api/staff.php`, directly after the existing `staff.feedback.index` ro
             ->name('staff.feedback.update');
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/Staff/StaffFeedbackTriageTest.php`
 Expected: PASS (13 tests).
 
-- [ ] **Step 8: Pint + commit**
+- [x] **Step 8: Pint + commit**
 
 ```bash
 php artisan pint app/Models/Core/Feedback.php app/Http/Requests/Api/Staff/Feedback/StaffFeedbackUpdateRequest.php app/Http/Controllers/Api/Staff/Feedback/StaffFeedbackController.php routes/api/staff.php tests/Feature/Staff/StaffFeedbackTriageTest.php
