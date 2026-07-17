@@ -19,6 +19,8 @@ class FeatureAvailabilityRule extends BaseModel
 
     public const MODE_DISABLED = 'disabled';
 
+    public const INTEGRATION_PREFIX = 'integration.';
+
     protected $table = 'core.feature_availability';
 
     public $incrementing = false;
@@ -40,5 +42,17 @@ class FeatureAvailabilityRule extends BaseModel
     public function segment(): BelongsTo
     {
         return $this->belongsTo(UserSegment::class, 'segment_id');
+    }
+
+    /** Platform key for an integration.<platform> rule, or null for other keys. */
+    public function integrationPlatform(): ?string
+    {
+        if (! str_starts_with((string) $this->feature_key, self::INTEGRATION_PREFIX)) {
+            return null;
+        }
+
+        $platform = substr((string) $this->feature_key, strlen(self::INTEGRATION_PREFIX));
+
+        return $platform === '' ? null : $platform;
     }
 }

@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\Staff\FeatureAvailability;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\FeatureAvailability\UpsertFeatureAvailabilityRequest;
 use App\Http\Resources\Staff\FeatureAvailabilityRuleResource;
+use App\Jobs\Platforms\ReconcilePlatformTakedownJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -52,6 +54,15 @@ class StaffFeatureAvailabilityController extends ApiController
         );
 
         FeatureAvailability::flush();
+
+        // OV-A: a newly-disabled integration takes existing content down (global or
+        // segment scope). Enable/other keys do nothing; re-enable never reactivates.
+        if ($rule->mode === FeatureAvailabilityRule::MODE_DISABLED
+            && ($platform = $rule->integrationPlatform()) !== null
+            && app(PlatformRegistry::class)->has($platform)) {
+            ReconcilePlatformTakedownJob::dispatch($platform, $rule->segment_id)->afterCommit();
+        }
+
         $rule->load('segment:id,name');
 
         return $this->success(
