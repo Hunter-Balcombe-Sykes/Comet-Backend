@@ -177,6 +177,25 @@ it('upload creates a pool=content site_media row', function () {
     expect($row->alt_text)->toBe('My BG');
 });
 
+it('upload rejects a file whose real bytes do not match its declared image mime', function () {
+    Storage::fake('media');
+    config(['partna.media_disk' => 'media', 'filesystems.disks.media.url' => 'https://cdn.test']);
+
+    [$user] = contentUserWithSite('up4');
+
+    // Declares image/png (passes the `image`+`mimes` rules, which trust the
+    // reported mime) but the underlying bytes are not a real PNG — only the
+    // finfo-based magic-byte sniff in SniffsFileMimeType catches this.
+    $disguised = UploadedFile::fake()->create('evil.png', 10, 'image/png');
+
+    actingAsUser($user)->postJson('/api/content/uploads', [
+        'image' => $disguised,
+    ])->assertStatus(422)
+        ->assertJsonValidationErrors('image');
+
+    expect(SiteMedia::query()->count())->toBe(0);
+});
+
 it('delete removes the upload and any selection row referencing it', function () {
     [$user, $site] = contentUserWithSite('up2');
     $media = contentUpload($site);

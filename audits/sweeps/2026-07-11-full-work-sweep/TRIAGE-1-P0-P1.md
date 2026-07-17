@@ -96,7 +96,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 4 complete
 - P3 Low: 0 of 1 complete
 
@@ -104,7 +104,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Content-library image upload trusts client-declared MIME instead of byte-sniffing
+- [x] **#SEC-1** · P1 — Content-library image upload trusts client-declared MIME instead of byte-sniffing
     - **Where:** app/Http/Requests/Api/User/Content/UploadContentImageRequest.php:16-23
     - **Affects:** Content library image uploads (`POST` to the content-image endpoint) — a disguised file (e.g. a script renamed `.png`) can pass validation.
     - **Effort:** S (~0.5–1h)
