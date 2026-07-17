@@ -53,7 +53,7 @@ class DataExportPayloadBuilder
      * tests and small-tenant scenarios. It iterates the same generators
      * stream() exposes, so memory usage scales with the largest section.
      *
-     * @return array{metadata: array, profile: array, site: array, waitlist: array, media: array, design_kit: array, integrations: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
+     * @return array{metadata: array, profile: array, site: array, waitlist: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
      */
     public function build(string $userId): array
     {
@@ -137,6 +137,10 @@ class DataExportPayloadBuilder
             ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($userId)],
             ['name' => 'design_kit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDesignKit($siteId)],
             ['name' => 'integrations', 'kind' => 'rows', 'resolve' => fn () => $this->streamIntegrations($userId)],
+            ['name' => 'analytics.site_visits', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSiteVisits($userId)],
+            ['name' => 'analytics.link_clicks', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsLinkClicks($userId)],
+            ['name' => 'analytics.section_views', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSectionViews($userId)],
+            ['name' => 'analytics.item_views', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsItemViews($userId)],
             [
                 'name' => 'customers',
                 'kind' => 'rows',
@@ -242,10 +246,130 @@ class DataExportPayloadBuilder
         );
     }
 
+    /**
+     * Live platform connections (site.platform_connections) — the user's linked
+     * external platforms (Instagram, Shopify, Fresha, etc.). Explicit allowlist:
+     * excludes internal refresh machinery (last_refresh_error,
+     * consecutive_failures, apify_status, place_id, refresh_etag,
+     * refresh_last_modified) — operational bookkeeping the user never sees, not
+     * personal data about them. Soft-deleted rows are included (mirrors
+     * streamCustomers/streamServices) so a row pending its 30-day purge still
+     * surfaces in a DSAR. payload and display_settings are stored as JSONB;
+     * decoded here so the export nests them as arrays rather than raw JSON text.
+     */
     private function streamIntegrations(string $userId): Generator
     {
-        // No integrations for individual-standalone accounts; yield nothing.
-        yield from [];
+        foreach ($this->lazyRows(
+            DB::connection('pgsql')
+                ->table('site.platform_connections')
+                ->select([
+                    'id', 'platform', 'resource_id', 'resource_kind', 'canonical_key',
+                    'payload', 'display_settings', 'sort_order', 'is_active',
+                    'last_visited_at', 'last_refreshed_at', 'last_refresh_status',
+                    'created_at', 'updated_at', 'deleted_at',
+                ])
+                ->where('user_id', $userId)
+                ->orderBy('sort_order')
+        ) as $row) {
+            $row['payload'] = $this->decodeJsonColumn($row['payload'] ?? null);
+            $row['display_settings'] = $this->decodeJsonColumn($row['display_settings'] ?? null);
+            yield $row;
+        }
+    }
+
+    /**
+     * Visitor analytics: page visits to the user's site. Fingerprint columns
+     * (ip_hash, visitor_id, session_id, user_agent) are excluded — they identify
+     * the *visitor*, a third party, not the site owner who is the DSAR subject.
+     * latitude/longitude are included: coarse (city-level) geo the owner already
+     * sees on their own analytics dashboard, not a fingerprint.
+     */
+    private function streamAnalyticsSiteVisits(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('analytics.site_visits')
+                ->select([
+                    'id', 'occurred_at', 'referrer', 'utm_source', 'utm_medium', 'utm_campaign',
+                    'country_code', 'region_code', 'city', 'device_type', 'latitude', 'longitude',
+                    'created_at',
+                ])
+                ->where('user_id', $userId)
+                ->orderBy('occurred_at')
+        );
+    }
+
+    /**
+     * Outbound link/platform click analytics. Same fingerprint exclusion as
+     * streamAnalyticsSiteVisits — the visitor's identity is redacted, the
+     * click's structured labels (platform/product/section) are not.
+     */
+    private function streamAnalyticsLinkClicks(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('analytics.link_clicks')
+                ->select([
+                    'id', 'occurred_at', 'link_block_id', 'url', 'platform', 'product_id', 'product_title',
+                    'section_key', 'label', 'referrer', 'utm_source', 'utm_medium', 'utm_campaign',
+                    'country_code', 'region_code', 'device_type', 'created_at',
+                ])
+                ->where('user_id', $userId)
+                ->orderBy('occurred_at')
+        );
+    }
+
+    /**
+     * Per-session section visibility/dwell events. Fingerprints excluded per the
+     * pattern above; duration_ms is the dwell signal already surfaced on the
+     * owner's own analytics dashboard.
+     */
+    private function streamAnalyticsSectionViews(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('analytics.section_views')
+                ->select([
+                    'id', 'section_key', 'block_id', 'occurred_at', 'referrer', 'utm_source',
+                    'utm_medium', 'utm_campaign', 'country_code', 'device_type', 'duration_ms', 'created_at',
+                ])
+                ->where('user_id', $userId)
+                ->orderBy('occurred_at')
+        );
+    }
+
+    /**
+     * Item-level (product/menu-item/gallery-item) impression events. user_id is
+     * nullable on this table (fail-open write path — see the table's migration
+     * comment); scoping by it here is still correct since a null-owner row
+     * belongs to no one's DSAR.
+     */
+    private function streamAnalyticsItemViews(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('analytics.item_views')
+                ->select([
+                    'id', 'item_type', 'item_id', 'item_title', 'section_key', 'occurred_at',
+                    'referrer', 'country_code', 'device_type', 'created_at',
+                ])
+                ->where('user_id', $userId)
+                ->orderBy('occurred_at')
+        );
+    }
+
+    /**
+     * Decode a JSONB column fetched via DB::table() (returned as a raw JSON
+     * string by the PDO pgsql/sqlite drivers, not auto-decoded). Passes arrays
+     * through unchanged for callers/tests that pre-decode; null stays null.
+     */
+    private function decodeJsonColumn(mixed $value): ?array
+    {
+        if ($value === null || is_array($value)) {
+            return $value;
+        }
+
+        return json_decode((string) $value, true);
     }
 
     private function streamCustomers(string $userId): Generator

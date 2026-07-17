@@ -945,6 +945,297 @@ it('exports design_kit for the user\'s site, yielding an empty result when no si
     expect($payload2['design_kit'])->toBeEmpty();
 });
 
+it('exports integrations user-scoped with payload/display_settings decoded to arrays (PRIV-3)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $otherId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'platform' => 'instagram',
+            'resource_id' => 'jane.the.stylist',
+            'resource_kind' => null,
+            'canonical_key' => 'instagram:jane.the.stylist',
+            'payload' => json_encode(['username' => 'jane.the.stylist', 'follower_count' => 1200]),
+            'display_settings' => json_encode(['show_follower_count' => true]),
+            'sort_order' => 0,
+            'is_active' => 1,
+            'created_at' => '2026-05-01T00:00:00Z',
+            'updated_at' => '2026-05-01T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'platform' => 'shopify',
+            'resource_id' => 'jane-store',
+            'resource_kind' => null,
+            'canonical_key' => 'shopify:jane-store',
+            'payload' => json_encode(['shop_domain' => 'jane-store.myshopify.com']),
+            'display_settings' => null,
+            'sort_order' => 1,
+            'is_active' => 1,
+            'created_at' => '2026-05-02T00:00:00Z',
+            'updated_at' => '2026-05-02T00:00:00Z',
+        ],
+        // Different user's connection — must not appear.
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $otherId,
+            'platform' => 'tiktok',
+            'resource_id' => 'not-jane',
+            'resource_kind' => null,
+            'canonical_key' => 'tiktok:not-jane',
+            'payload' => json_encode(['username' => 'not-jane']),
+            'display_settings' => null,
+            'sort_order' => 0,
+            'is_active' => 1,
+            'created_at' => '2026-05-03T00:00:00Z',
+            'updated_at' => '2026-05-03T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('integrations');
+    expect($payload['integrations'])->toHaveCount(2);
+
+    $igRow = collect($payload['integrations'])->firstWhere('platform', 'instagram');
+    expect($igRow['payload'])->toBeArray();
+    expect($igRow['payload']['username'])->toBe('jane.the.stylist');
+    expect($igRow['display_settings'])->toBeArray();
+    expect($igRow['display_settings']['show_follower_count'])->toBeTrue();
+
+    $shopifyRow = collect($payload['integrations'])->firstWhere('platform', 'shopify');
+    expect($shopifyRow['display_settings'])->toBeNull();
+
+    $platforms = collect($payload['integrations'])->pluck('platform')->sort()->values()->all();
+    expect($platforms)->toBe(['instagram', 'shopify']);
+});
+
+it('excludes internal refresh machinery columns from the integrations export (PRIV-3)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'platform' => 'google-business',
+        'resource_id' => 'jane-salon',
+        'resource_kind' => null,
+        'canonical_key' => 'google-business:jane-salon',
+        'payload' => json_encode(['name' => 'Jane\'s Salon']),
+        'display_settings' => null,
+        'sort_order' => 0,
+        'is_active' => 1,
+        'last_refresh_status' => 'ok',
+        'last_refresh_error' => 'timeout contacting upstream',
+        'consecutive_failures' => 3,
+        'apify_status' => 'SUCCEEDED',
+        'place_id' => 'ChIJ_internal_place_id',
+        'refresh_etag' => 'W/"abc123"',
+        'refresh_last_modified' => 'Wed, 01 Jul 2026 00:00:00 GMT',
+        'created_at' => '2026-05-01T00:00:00Z',
+        'updated_at' => '2026-05-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $row = $payload['integrations'][0];
+    expect($row)->not->toHaveKey('user_id');
+    expect($row)->not->toHaveKey('last_refresh_error');
+    expect($row)->not->toHaveKey('consecutive_failures');
+    expect($row)->not->toHaveKey('apify_status');
+    expect($row)->not->toHaveKey('place_id');
+    expect($row)->not->toHaveKey('refresh_etag');
+    expect($row)->not->toHaveKey('refresh_last_modified');
+
+    // But the user-facing status is still there.
+    expect($row['last_refresh_status'])->toBe('ok');
+});
+
+it('exports all four analytics sections user-scoped (PRIV-4)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $otherId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('analytics.site_visits')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'site_id' => (string) Str::uuid(),
+            'occurred_at' => '2026-06-01T00:00:00Z',
+            'referrer' => 'https://google.com',
+            'country_code' => 'AU',
+            'device_type' => 'mobile',
+            'created_at' => '2026-06-01T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $otherId,
+            'site_id' => (string) Str::uuid(),
+            'occurred_at' => '2026-06-01T00:00:00Z',
+            'referrer' => null,
+            'country_code' => 'US',
+            'device_type' => 'desktop',
+            'created_at' => '2026-06-01T00:00:00Z',
+        ],
+    ]);
+
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'site_id' => (string) Str::uuid(),
+            'occurred_at' => '2026-06-02T00:00:00Z',
+            'platform' => 'instagram',
+            'url' => 'https://instagram.com/jane',
+            'created_at' => '2026-06-02T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $otherId,
+            'site_id' => (string) Str::uuid(),
+            'occurred_at' => '2026-06-02T00:00:00Z',
+            'platform' => 'tiktok',
+            'url' => 'https://tiktok.com/not-jane',
+            'created_at' => '2026-06-02T00:00:00Z',
+        ],
+    ]);
+
+    DB::connection('pgsql')->table('analytics.section_views')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'site_id' => (string) Str::uuid(),
+            'section_key' => 'hero',
+            'occurred_at' => '2026-06-03T00:00:00Z',
+            'duration_ms' => 4200,
+            'created_at' => '2026-06-03T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $otherId,
+            'site_id' => (string) Str::uuid(),
+            'section_key' => 'hero',
+            'occurred_at' => '2026-06-03T00:00:00Z',
+            'duration_ms' => 100,
+            'created_at' => '2026-06-03T00:00:00Z',
+        ],
+    ]);
+
+    DB::connection('pgsql')->table('analytics.item_views')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'site_id' => (string) Str::uuid(),
+            'item_type' => 'service',
+            'item_id' => 'svc-1',
+            'item_title' => 'Haircut',
+            'occurred_at' => '2026-06-04T00:00:00Z',
+            'created_at' => '2026-06-04T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $otherId,
+            'site_id' => (string) Str::uuid(),
+            'item_type' => 'service',
+            'item_id' => 'svc-2',
+            'item_title' => 'Not Jane\'s service',
+            'occurred_at' => '2026-06-04T00:00:00Z',
+            'created_at' => '2026-06-04T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('analytics');
+
+    expect($payload['analytics']['site_visits'])->toHaveCount(1);
+    expect($payload['analytics']['site_visits'][0]['country_code'])->toBe('AU');
+
+    expect($payload['analytics']['link_clicks'])->toHaveCount(1);
+    expect($payload['analytics']['link_clicks'][0]['platform'])->toBe('instagram');
+
+    expect($payload['analytics']['section_views'])->toHaveCount(1);
+    expect($payload['analytics']['section_views'][0]['duration_ms'])->toBe(4200);
+
+    expect($payload['analytics']['item_views'])->toHaveCount(1);
+    expect($payload['analytics']['item_views'][0]['item_title'])->toBe('Haircut');
+});
+
+it('redacts visitor fingerprints from every analytics section (PRIV-4)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('analytics.site_visits')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'occurred_at' => '2026-06-01T00:00:00Z',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+        'ip_hash' => 'sha256-visitorip',
+        'user_agent' => 'Mozilla/5.0',
+        'country_code' => 'AU',
+        'created_at' => '2026-06-01T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'occurred_at' => '2026-06-02T00:00:00Z',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+        'ip_hash' => 'sha256-visitorip',
+        'user_agent' => 'Mozilla/5.0',
+        'platform' => 'instagram',
+        'created_at' => '2026-06-02T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('analytics.section_views')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'section_key' => 'hero',
+        'occurred_at' => '2026-06-03T00:00:00Z',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+        'ip_hash' => 'sha256-visitorip',
+        'user_agent' => 'Mozilla/5.0',
+        'created_at' => '2026-06-03T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('analytics.item_views')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'item_type' => 'service',
+        'item_id' => 'svc-1',
+        'occurred_at' => '2026-06-04T00:00:00Z',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+        'ip_hash' => 'sha256-visitorip',
+        'user_agent' => 'Mozilla/5.0',
+        'created_at' => '2026-06-04T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    foreach (['site_visits', 'link_clicks', 'section_views', 'item_views'] as $section) {
+        $row = $payload['analytics'][$section][0];
+        expect($row)->not->toHaveKey('ip_hash');
+        expect($row)->not->toHaveKey('visitor_id');
+        expect($row)->not->toHaveKey('session_id');
+        expect($row)->not->toHaveKey('user_agent');
+    }
+
+    // Business columns are still present, proving redaction didn't wipe the whole row.
+    expect($payload['analytics']['site_visits'][0]['country_code'])->toBe('AU');
+    expect($payload['analytics']['link_clicks'][0]['platform'])->toBe('instagram');
+    expect($payload['analytics']['section_views'][0]['section_key'])->toBe('hero');
+    expect($payload['analytics']['item_views'][0]['item_type'])->toBe('service');
+});
+
 it('every section stream() yields resolves to a real key in build() — FOUND-1 regression guard', function () {
     // FOUND-1: build() and stream() used to be two independently hand-written
     // enumerations of the same ~26 sections; a missed edit to one silently

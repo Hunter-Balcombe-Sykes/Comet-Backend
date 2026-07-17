@@ -474,6 +474,128 @@ class DataExportTestCase
             created_at TEXT
         )');
 
+        // PRIV-3: live platform connections (Instagram, Shopify, Fresha, etc.).
+        // Mirrors the real table's columns including the internal refresh
+        // machinery (last_refresh_error, consecutive_failures, apify_status,
+        // place_id, refresh_etag, refresh_last_modified) so a test can prove
+        // those are excluded from the export allowlist.
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            platform TEXT,
+            resource_id TEXT,
+            resource_kind TEXT,
+            canonical_key TEXT,
+            payload TEXT,
+            display_settings TEXT,
+            sort_order INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            last_visited_at TEXT,
+            last_refreshed_at TEXT,
+            last_refresh_status TEXT,
+            last_refresh_error TEXT,
+            consecutive_failures INTEGER DEFAULT 0,
+            apify_status TEXT,
+            place_id TEXT,
+            refresh_etag TEXT,
+            refresh_last_modified TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            deleted_at TEXT
+        )');
+
+        // PRIV-4: visitor analytics. Fingerprint columns (ip_hash, visitor_id,
+        // session_id, user_agent) are included in the stub (mirrors prod) so a
+        // test can prove they are excluded from the export allowlist.
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.site_visits (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            site_id TEXT,
+            occurred_at TEXT,
+            session_id TEXT,
+            visitor_id TEXT,
+            ip_hash TEXT,
+            user_agent TEXT,
+            referrer TEXT,
+            utm_source TEXT,
+            utm_medium TEXT,
+            utm_campaign TEXT,
+            country_code TEXT,
+            region_code TEXT,
+            city TEXT,
+            device_type TEXT,
+            latitude REAL,
+            longitude REAL,
+            created_at TEXT
+        )');
+
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.link_clicks (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            site_id TEXT,
+            link_block_id TEXT,
+            occurred_at TEXT,
+            session_id TEXT,
+            visitor_id TEXT,
+            ip_hash TEXT,
+            user_agent TEXT,
+            url TEXT,
+            platform TEXT,
+            product_id TEXT,
+            product_title TEXT,
+            section_key TEXT,
+            label TEXT,
+            referrer TEXT,
+            utm_source TEXT,
+            utm_medium TEXT,
+            utm_campaign TEXT,
+            country_code TEXT,
+            region_code TEXT,
+            device_type TEXT,
+            created_at TEXT
+        )');
+
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.section_views (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            site_id TEXT,
+            block_id TEXT,
+            section_key TEXT,
+            occurred_at TEXT,
+            session_id TEXT,
+            visitor_id TEXT,
+            ip_hash TEXT,
+            user_agent TEXT,
+            referrer TEXT,
+            utm_source TEXT,
+            utm_medium TEXT,
+            utm_campaign TEXT,
+            country_code TEXT,
+            device_type TEXT,
+            duration_ms INTEGER,
+            created_at TEXT
+        )');
+
+        // user_id nullable (fail-open write path — mirrors prod).
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.item_views (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            site_id TEXT,
+            item_type TEXT,
+            item_id TEXT,
+            item_title TEXT,
+            section_key TEXT,
+            occurred_at TEXT,
+            session_id TEXT,
+            visitor_id TEXT,
+            ip_hash TEXT,
+            user_agent TEXT,
+            referrer TEXT,
+            country_code TEXT,
+            device_type TEXT,
+            created_at TEXT
+        )');
+
         // FOUND-4: workplace card promoted from settings JSONB to child table.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.workplaces (
             site_id TEXT PRIMARY KEY,

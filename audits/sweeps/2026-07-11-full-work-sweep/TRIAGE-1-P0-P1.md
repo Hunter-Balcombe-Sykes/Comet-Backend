@@ -1014,7 +1014,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 4 complete
+- P1 High: 2 of 3 complete
 - P2 Medium: 0 of 5 complete
 - P3 Low: 0 of 4 complete
 
@@ -1043,7 +1043,7 @@ None.
         Schedule::command('handles:notify-expiry')->dailyAt('09:00')...
         ```
 
-- [ ] **PRIV-3** · P1 — Platform integration connections entirely absent from GDPR export
+- [x] **PRIV-3** · P1 — Platform integration connections entirely absent from GDPR export
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:245-249` (`streamIntegrations`)
     - **Affects:** Any professional with connected platforms (Instagram, YouTube, Spotify, shop, etc.) — their stored platform usernames, profile data, and connection metadata never appear in a DSAR.
     - **Effort:** M (~2–4h)
@@ -1061,7 +1061,7 @@ None.
         }
         ```
 
-- [ ] **PRIV-4** · P1 — Site analytics (visits, clicks, section views, item views) entirely absent from GDPR export
+- [x] **PRIV-4** · P1 — Site analytics (visits, clicks, section views, item views) entirely absent from GDPR export
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:123-169` (`sectionDescriptors` — no analytics entries)
     - **Affects:** Every professional requesting a DSAR — their business traffic analytics (visit counts, referrers, UTM data, geo breakdowns, device splits, link-click destinations) is invisible to the export, despite it being the professional's own business data collected from their sitepage.
     - **Effort:** M (~2–4h)
