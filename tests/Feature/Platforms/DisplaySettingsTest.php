@@ -45,6 +45,29 @@ it('returns every declared toggle defaulting ON', function () {
         ->and($toggles->every(fn ($t) => $t['enabled'] === true))->toBeTrue();
 });
 
+it('exposes the events auto_sync_latest toggle on both tickets platforms, defaulting ON', function () {
+    $pro = createTenant('toggles-events');
+    displaySeedConnection($pro->id, ['url' => 'https://www.eventbrite.com/o/acme-1', 'organiser' => 'Acme'], 'eventbrite');
+    displaySeedConnection($pro->id, ['url' => 'https://events.humanitix.com/host/acme', 'organiser' => 'Acme'], 'humanitix');
+
+    foreach (['eventbrite', 'humanitix'] as $platform) {
+        $toggles = actingAsUser($pro)->getJson("/api/platforms/{$platform}/display-settings")
+            ->assertOk()
+            ->json('toggles');
+        expect(array_column($toggles, 'key'))->toBe(['auto_sync_latest'])
+            ->and($toggles[0]['enabled'])->toBeTrue();
+    }
+
+    // Flipping OFF persists sparsely (deviation-only) so the fetch strategies
+    // can read it straight off the connection row.
+    $rowId = IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'eventbrite')->value('id');
+    actingAsUser($pro)
+        ->patchJson('/api/platforms/eventbrite/display-settings', ['toggles' => ['auto_sync_latest' => false]])
+        ->assertOk()
+        ->assertJsonPath('toggles.0.enabled', false);
+    expect(IntegrationConnection::query()->find($rowId)->display_settings)->toBe(['auto_sync_latest' => false]);
+});
+
 it('persists a toggle flip sparsely and reports it disabled', function () {
     $pro = createTenant('toggles-flip');
     $id = displaySeedConnection($pro->id, ['name' => 'Cafe']);

@@ -78,3 +78,38 @@ it('HumanitixFetch (organiser account) matches the refresher', function () {
 
     expect($out)->toEqual($refresherRow->fresh()->payload);
 });
+
+// ── auto_sync_latest=false freezes ACCOUNT rows via 304 semantics ──
+
+it('freezes an organiser account (payload untouched, quiet ok) when auto_sync_latest is off', function () {
+    // The scraper must never even be CALLED — the whole point is skipping the pull.
+    $this->mock(EventbriteScraper::class, fn ($m) => $m->shouldReceive('fetchEvents')->never());
+
+    $stored = ['url' => 'https://eventbrite.com/o/acme', 'organiser' => 'Acme', 'upcoming' => [['id' => 'e1', 'name' => 'Frozen Fest']], 'hiddenEventIds' => []];
+    $row = gmSeed(gmUser('gmev-sync1'), 'eventbrite', $stored);
+    $row->forceFill(['display_settings' => ['auto_sync_latest' => false], 'last_refreshed_at' => now()->subDays(3)])->save();
+
+    app(PlatformRefresher::class)->refresh($row);
+
+    $fresh = $row->fresh();
+    // Stored events untouched; recorded as a healthy 304 (ok + timestamp bump),
+    // so the hourly dispatcher stops re-selecting the row instead of retrying
+    // it forever.
+    expect($fresh->payload)->toEqual($stored);
+    expect($fresh->last_refresh_status)->toBe('ok');
+    expect($fresh->last_refreshed_at->greaterThan(now()->subMinute()))->toBeTrue();
+});
+
+it('keeps refreshing STANDALONE event rows when auto_sync_latest is off (sold-out freshness)', function () {
+    $event = ['link' => 'https://events.humanitix.com/gig-1', 'name' => 'Gig', 'soldOut' => true];
+    $this->mock(HumanitixScraper::class, fn ($m) => $m->shouldReceive('fetchSingleEvent')->once()->andReturn($event));
+
+    $row = gmSeed(gmUser('gmhx-sync1'), 'humanitix', ['kind' => 'event', 'link' => 'https://events.humanitix.com/gig-1', 'name' => 'Old'], 'event-gig1');
+    $row->forceFill(['display_settings' => ['auto_sync_latest' => false]])->save();
+
+    app(PlatformRefresher::class)->refresh($row);
+
+    // The single-event re-scrape ran and persisted — only NEW-event pulling is frozen.
+    expect($row->fresh()->payload['name'])->toBe('Gig');
+    expect($row->fresh()->payload['soldOut'])->toBeTrue();
+});

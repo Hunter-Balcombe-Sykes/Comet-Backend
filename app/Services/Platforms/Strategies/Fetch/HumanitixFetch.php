@@ -31,6 +31,13 @@ final readonly class HumanitixFetch implements FetchStrategy
             return EventsPayload::standalonePayload($event);
         }
 
+        // "Auto sync latest from each organiser" off → freeze the account's
+        // stored events via 304 semantics. Mirrors EventbriteFetch exactly —
+        // see the rationale comment there (standalone rows keep syncing).
+        if ((data_get($connection->display_settings, 'auto_sync_latest') ?? true) === false) {
+            throw new FetchNotModifiedException('humanitix');
+        }
+
         $url = $payload['url'] ?? null;
         if (! $url) {
             throw new FetchShapeException('missing_key: url');

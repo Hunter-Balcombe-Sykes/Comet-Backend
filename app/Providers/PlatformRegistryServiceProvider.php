@@ -368,6 +368,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('instagram')->displayToggles([
                 ['key' => 'gallery', 'label' => 'Gallery', 'description' => 'Your latest Instagram photo and reel.', 'siteColumn' => 'content_instagram_auto_enabled'],
             ]);
+            // Tickets & Events: per-user "auto sync latest from each organiser"
+            // switch. Not a payload-suppression toggle (no DisplaySettingsFilter
+            // entry) — the events FETCH strategies read it and 304 an account row
+            // when it's off, freezing the stored upcoming list while standalone
+            // event rows keep refreshing (sold-out/price freshness is separate).
+            // Declared per platform; the dashboard's single Tickets card PATCHes
+            // both eventbrite and humanitix together.
+            foreach (['eventbrite', 'humanitix'] as $eventsPlatform) {
+                $r->get($eventsPlatform)->displayToggles([
+                    ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
+                ]);
+            }
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything

@@ -34,6 +34,17 @@ final readonly class EventbriteFetch implements FetchStrategy
             return EventsPayload::standalonePayload($event);
         }
 
+        // Owner switched "Auto sync latest from each organiser" off (sparse
+        // display_settings; absent = ON) → freeze this account's stored events.
+        // 304 semantics (not a skip in the dispatcher) so last_refreshed_at
+        // still advances and the hourly cron doesn't re-select the row forever.
+        // Standalone event rows (kind branch above) deliberately keep syncing —
+        // sold-out/price freshness is a separate concern from pulling NEW events.
+        // The manual dashboard Refresh shares this path and honours the switch too.
+        if ((data_get($connection->display_settings, 'auto_sync_latest') ?? true) === false) {
+            throw new FetchNotModifiedException('eventbrite');
+        }
+
         $url = $payload['url'] ?? null;
         if (! $url) {
             throw new FetchShapeException('missing_key: url');
