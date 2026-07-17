@@ -5,6 +5,7 @@ namespace App\Services\FeatureAvailability;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheLockService;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Support\Facades\Cache;
 
@@ -38,7 +39,11 @@ final class FeatureAvailability
     {
         $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
 
-        $overrides = Cache::remember(
+        // Single-flight via CacheLockService — without this, a staff flush() bumping
+        // the version token cold-misses every concurrent reader at once and they all
+        // race to recompute (`for()` is static, so the lock service is resolved from
+        // the container rather than injected).
+        $overrides = app(CacheLockService::class)->rememberLocked(
             "feature-availability:user:{$user->id}:v{$version}",
             self::CACHE_TTL_SECONDS,
             fn () => self::resolveOverrides($user),

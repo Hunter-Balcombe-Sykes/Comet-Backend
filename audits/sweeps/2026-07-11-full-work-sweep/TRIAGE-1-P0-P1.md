@@ -503,7 +503,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 4 complete
 - P3 Low: 0 of 1 complete
 
@@ -511,7 +511,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#CCH-1** · P1 — `FeatureAvailability::for()` uses bare `Cache::remember` without single-flight lock
+- [x] **#CCH-1** · P1 — `FeatureAvailability::for()` uses bare `Cache::remember` without single-flight lock
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:41-45
     - **Affects:** Every professional whose dashboard hits `GET /platforms/meta` (`IntegrationsMetaController`), which resolves availability for every registry platform on load. After a staff member edits a feature-availability rule (`flush()` bumps the version token), every connected user's next dashboard load is a simultaneous cold miss that independently re-queries `feature_availability_rules` + resolves segment membership.
     - **Effort:** S (~0.5–1h)
