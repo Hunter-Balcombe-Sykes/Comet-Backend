@@ -292,6 +292,44 @@ it('reuses category and item ids across rebuilds when names match (stable identi
         ->toBe($pizzasIdBefore);
 });
 
+it('keeps same-named items in different categories on their own ids across rebuilds', function () {
+    // Critic 2026-07-17: a global name→id FIFO deterministically SWAPPED the
+    // ids of two same-named dishes in different categories on every rebuild
+    // (pool order rode category_id's lexicographic sort). Identity reuse is
+    // category-scoped now — "Coke" in Drinks and "Coke" in Combos must each
+    // keep THEIR OWN id no matter how ids/categories sort.
+    $user = menuUser('m6xcat');
+    ordering($user, 'https://www.ubereats.com/store/xcat', null, '2026-06-17 10:00:00');
+
+    $runs = ['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => [
+            ['name' => 'Drinks', 'items' => [['name' => 'Coke', 'pickupPrice' => 4.0, 'deliveryPrice' => 4.0]]],
+            ['name' => 'Combos', 'items' => [['name' => 'Coke', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0]]],
+        ],
+    ]];
+    $this->mock(MenuApifyScraper::class, function ($m) use ($runs) {
+        $m->shouldReceive('fetchStores')->times(3)->andReturn($runs, $runs, $runs);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $catIds = MenuCategory::query()->where('menu_id', $menu->id)->pluck('id', 'name');
+    $cokeByCat = fn () => MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')
+        ->pluck('id', 'category_id');
+    $before = $cokeByCat();
+
+    // TWO forced rebuilds: a swap flips ids each run, so a single rebuild of
+    // a swapped pair can look "stable" if asserted naively — assert both runs.
+    (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    expect($cokeByCat()[$catIds['Drinks']])->toBe($before[$catIds['Drinks']]);
+    expect($cokeByCat()[$catIds['Combos']])->toBe($before[$catIds['Combos']]);
+
+    (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    expect($cokeByCat()[$catIds['Drinks']])->toBe($before[$catIds['Drinks']]);
+    expect($cokeByCat()[$catIds['Combos']])->toBe($before[$catIds['Combos']]);
+});
+
 it('skips the paid scrape when the store url is unchanged', function () {
     $user = menuUser('m7');
     ordering($user, 'https://www.ubereats.com/store/x', null, '2026-06-17 10:00:00');

@@ -302,9 +302,18 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $previousCategoryIds = $this->idsByNormalizedName(
                 MenuCategory::query()->whereIn('id', $categoryIds)->orderBy('position')->get(['id', 'name'])
             );
-            $previousItemIds = $this->idsByNormalizedName(
+            // Items key by (category id, name) — NOT name alone. A global
+            // name pool deterministically SWAPPED ids between same-named
+            // dishes in different categories on every rebuild (critic
+            // 2026-07-17: the FIFO order rode category_id's lexicographic
+            // sort, unrelated to processing order), cross-contaminating
+            // popularity scores and item URLs. Scoping to the matched
+            // category makes reuse exact; the trade-off — a RENAMED category
+            // restarts its items' identities — is the same honest policy as
+            // a renamed dish.
+            $previousItemIds = $this->itemIdsByCategoryAndName(
                 MenuItem::query()->whereIn('category_id', $categoryIds)
-                    ->orderBy('category_id')->orderBy('position')->get(['id', 'name'])
+                    ->orderBy('category_id')->orderBy('position')->get(['id', 'name', 'category_id'])
             );
 
             MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
@@ -343,7 +352,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
                 $rows = [];
                 foreach ($category['items'] as $ii => $item) {
-                    $itemId = $this->takeReusedId($previousItemIds, (string) $item['name']) ?? (string) Str::uuid();
+                    // $cat->id IS the old category id whenever the category
+                    // matched by name above — so this lookup only ever finds
+                    // ids that lived in this same category. A fresh-uuid
+                    // (new/renamed) category finds nothing and mints new ids.
+                    $itemId = $this->takeReusedItemId($previousItemIds, (string) $cat->id, (string) $item['name']) ?? (string) Str::uuid();
                     $rows[] = [
                         'id' => $itemId,
                         'menu_id' => $menu->id,
@@ -447,6 +460,42 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
 
         return array_shift($idsByName[$key]);
+    }
+
+    /**
+     * Item flavour of idsByNormalizedName: "<categoryId>|<normalized name>" →
+     * FIFO list of item ids. Category-scoped so same-named dishes in two
+     * categories can never trade identities across rebuilds (see persist()).
+     *
+     * @param  Collection<int, MenuItem>  $rows
+     * @return array<string, list<string>>
+     */
+    private function itemIdsByCategoryAndName($rows): array
+    {
+        $map = [];
+        foreach ($rows as $row) {
+            $key = $this->normalizeName((string) $row->name);
+            if ($key !== '') {
+                $map[((string) $row->category_id).'|'.$key][] = (string) $row->id;
+            }
+        }
+
+        return $map;
+    }
+
+    /** Shift the oldest previous item id recorded under (category, name), or null. */
+    private function takeReusedItemId(array &$idsByCatAndName, string $categoryId, string $name): ?string
+    {
+        $key = $this->normalizeName($name);
+        if ($key === '') {
+            return null;
+        }
+        $mapKey = $categoryId.'|'.$key;
+        if (empty($idsByCatAndName[$mapKey])) {
+            return null;
+        }
+
+        return array_shift($idsByCatAndName[$mapKey]);
     }
 
     /**

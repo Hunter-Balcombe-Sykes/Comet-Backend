@@ -40,9 +40,13 @@ final class MenuItemDeepLinks
 
         $ddStore = $storeUrls['doordash'] ?? null;
         if (is_string($ddStore) && $ddStore !== '' && is_string($ddExternalId) && trim($ddExternalId) !== '') {
-            // store_url is normalized (query + trailing slash stripped), so the
-            // appended query can never collide with an existing one.
-            $links['doordash'] = rtrim($ddStore, '/').'/?event_type=item_click&item_id='.rawurlencode(trim($ddExternalId));
+            // store_url is NORMALLY normalized (query + trailing slash
+            // stripped) — but MenuSource::normalize() passes schemeless/
+            // malformed URLs through untouched (critic 2026-07-17), so guard
+            // the separator instead of trusting the invariant.
+            $base = rtrim($ddStore, '/');
+            $separator = str_contains($base, '?') ? '&' : '/?';
+            $links['doordash'] = $base.$separator.'event_type=item_click&item_id='.rawurlencode(trim($ddExternalId));
         }
 
         return $links;

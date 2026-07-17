@@ -274,7 +274,10 @@ abstract class PlatformScraper
             return null;
         }
         $a = strtolower($availability);
-        if (str_contains($a, 'soldout')) {
+        // 'outofstock' = schema.org's OutOfStock — distinct from SoldOut and
+        // previously fell through to unknown→available (critic 2026-07-17;
+        // matters now that soldOut is a user-facing boolean).
+        if (str_contains($a, 'soldout') || str_contains($a, 'outofstock')) {
             return 'sold_out';
         }
         if (str_contains($a, 'instock') || str_contains($a, 'limited') || str_contains($a, 'presale') || str_contains($a, 'preorder')) {
