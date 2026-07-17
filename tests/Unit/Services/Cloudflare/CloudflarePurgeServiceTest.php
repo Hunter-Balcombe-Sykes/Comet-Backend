@@ -18,7 +18,7 @@ function cfRecordedFiles(): array
 }
 
 /** The deep-link sub-pages the service purges: SitepageId taxonomy minus
- *  'home', plus the standalone legal routes (/privacy, /terms). */
+ *  'home', plus the standalone routes (/privacy, /terms, /about). */
 function cfDeepLinkSubPages(): array
 {
     return [
@@ -28,6 +28,7 @@ function cfDeepLinkSubPages(): array
         )),
         'privacy',
         'terms',
+        'about',
     ];
 }
 

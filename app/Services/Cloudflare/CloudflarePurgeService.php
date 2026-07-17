@@ -125,6 +125,8 @@ class CloudflarePurgeService
         // without these, a policy edit stays cached at the edge for 24h.
         $subPages[] = 'privacy';
         $subPages[] = 'terms';
+        // /about is a standalone route too (conditional content blocks).
+        $subPages[] = 'about';
 
         // Shop product detail pages (`/products/<handle>`) are their own edge
         // keys too — the fixed page taxonomy above doesn't know them, which
