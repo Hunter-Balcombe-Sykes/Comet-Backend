@@ -53,12 +53,14 @@ class Menu extends BaseModel
         'fetch_status',
         'dining_modes',
         'last_fetched_at',
+        'scan_items',
     ];
 
     protected $casts = [
         'rating' => 'float',
         'review_count' => 'integer',
         'dining_modes' => 'array',
+        'scan_items' => 'array',
         'last_fetched_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',

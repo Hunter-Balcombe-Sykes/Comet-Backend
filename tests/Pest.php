@@ -577,7 +577,8 @@ function setupSitesTable(): void
     // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000
     // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables)
     // + 20260715090000 (menu_items.currency, menus.dining_modes)
-    // + 20260717170000 (menu_items.images).
+    // + 20260717170000 (menu_items.images)
+    // + 20260717210000 (menus.scan_items).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -591,16 +592,22 @@ function setupSitesTable(): void
         delivery_platform TEXT NULL,
         fetch_status TEXT NULL,
         dining_modes TEXT NULL,
+        scan_items TEXT NULL,
         last_fetched_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
     )');
-    // Defensive ALTER for suites that created site.menus before dining_modes
-    // existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
-    // already-created table within a run).
+    // Defensive ALTERs for suites that created site.menus before later
+    // columns existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns
+    // to an already-created table within a run).
     try {
         DB::connection('pgsql')->statement('ALTER TABLE site.menus ADD COLUMN dining_modes TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.menus ADD COLUMN scan_items TEXT NULL');
     } catch (Throwable $e) {
         // already exists — ignore
     }

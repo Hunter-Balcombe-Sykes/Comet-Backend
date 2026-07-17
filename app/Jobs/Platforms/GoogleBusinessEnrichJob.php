@@ -164,6 +164,15 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             ],
             'apify_status' => 'ok',
         ])->saveQuietly();
+
+        // ALWAYS try the Google-photos menu scan after an enrichment (owner
+        // 2026-07-17) — it enriches whatever the ordering-platform scrape
+        // produced (longer descriptions, dietary badges, scan-only dishes)
+        // rather than competing with it. Delayed so a same-connect
+        // MenuFetchJob settles first; the job itself gates on the menu
+        // capability + AI keys and no-ops for everyone else.
+        GoogleMenuPhotoScanJob::dispatch($this->userId, $this->placeId)
+            ->delay(now()->addMinutes(5));
     }
 
     public function failed(Throwable $e): void

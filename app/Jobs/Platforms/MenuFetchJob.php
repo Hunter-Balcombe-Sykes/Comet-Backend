@@ -12,6 +12,7 @@ use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
+use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -216,6 +217,22 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $merged = $merger->merge($menus, $contentSource, $storeLinks, $this->previousCategoryOrder($existing));
 
         $this->persist($menu, $contentSource, $merged, $now);
+
+        // Re-apply the persisted Google-photos scan enrichment (menus.scan_items,
+        // written by GoogleMenuPhotoScanJob) over the freshly rebuilt rows —
+        // the wholesale rebuild just recreated every scraped item WITHOUT the
+        // scan's longer descriptions / dietary badges, and this restores them
+        // from the stored extraction instead of re-billing OCR. Never lets an
+        // enrichment failure break the scrape itself.
+        try {
+            $scanItems = $menu->fresh()?->scan_items['items'] ?? null;
+            $scanUser = is_array($scanItems) && $scanItems !== [] ? User::query()->find($this->userId) : null;
+            if ($scanUser) {
+                app(MenuScanApplier::class)->apply($scanUser, $scanItems, enrichOnly: true);
+            }
+        } catch (Throwable $e) {
+            Log::warning('menu_fetch.scan_reapply_failed', ['user_id' => $this->userId, 'error' => $e->getMessage()]);
+        }
 
         // Menu content changed (wholesale rebuild via query builder bypasses the
         // model observers) — bust the public-page edge cache. purgeHandle already

@@ -114,4 +114,17 @@ return [
         'token' => env('APIFY_TOKEN'),
     ],
 
+    // Mistral — hosted OCR (menu photo → markdown text). Same account/key as
+    // the frontend's /api/menu-scan route; the backend uses it for the
+    // automatic Google-photos menu scan.
+    'mistral' => [
+        'key' => env('MISTRAL_API_KEY'),
+    ],
+
+    // DeepSeek — text structuring (OCR text → menu items). Same key the
+    // frontend chat/menu-scan routes bill against.
+    'deepseek' => [
+        'key' => env('DEEPSEEK_API_KEY'),
+    ],
+
 ];

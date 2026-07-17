@@ -44,12 +44,18 @@ class MenuScanApplier
     ) {}
 
     /**
-     * @param  list<array{name:string, description:?string, price:?float, category:?string}>  $items
+     * $enrichOnly switches the matched-item update rules (owner 2026-07-17):
+     * the MANUAL dashboard scan (default) applies what the user's photo says
+     * — descriptions and prices update when supplied; the AUTOMATIC Google-
+     * photos scan passes true and only ADDS — longer descriptions win,
+     * prices fill gaps, never overwrite. Dietary badges merge in both modes.
+     *
+     * @param  list<array{name:string, description:?string, price:?float, category:?string, dietary?:?list<string>}>  $items
      * @return array{updated:int, added:int}
      */
-    public function apply(User $user, array $items): array
+    public function apply(User $user, array $items, bool $enrichOnly = false): array
     {
-        $result = DB::connection('pgsql')->transaction(function () use ($user, $items) {
+        $result = DB::connection('pgsql')->transaction(function () use ($user, $items, $enrichOnly) {
             $menu = $this->resolveMenu($user);
 
             // orderBy gives a deterministic base for "first occurrence wins"
@@ -92,7 +98,7 @@ class MenuScanApplier
 
                 $match = $this->resolveMatch($nameKey, $scanCategoryName, $itemsByNameAndCategory, $itemsByName);
                 if ($match !== null) {
-                    $this->updateItem($match, $item);
+                    $this->updateItem($match, $item, $enrichOnly);
                     $updated++;
 
                     continue;
@@ -122,6 +128,9 @@ class MenuScanApplier
                     'name' => $name,
                     'description' => $this->cleanString($item['description'] ?? null),
                     'base_price' => $item['price'] ?? null,
+                    // Scan-found dietary markers badge new items too (same
+                    // {text, type} rows the platform drivers write).
+                    'badges' => $this->mergeDietaryBadges(null, $item['dietary'] ?? null),
                 ]);
                 // The new item joins both lookup pools too, so a LATER scan
                 // item in this SAME batch sharing this name can still find it
@@ -234,24 +243,81 @@ class MenuScanApplier
     }
 
     /**
-     * @param  array{name:string, description:?string, price:?float, category:?string}  $item
+     * Matched-item update. Manual mode (default) applies what the scan says
+     * — description/price update whenever supplied (the user deliberately
+     * scanned this photo). Enrich-only mode (the automatic Google-photos
+     * scan) only ADDS to what a platform scrape already knows:
+     *   - description: scanned text wins only when it says MORE (strictly
+     *     longer than what's stored; also fills an empty one).
+     *   - price: fills a missing price only — an OCR misread must never
+     *     clobber a platform-scraped price.
+     * Dietary markers (GF / V / …) merge into badges in BOTH modes, deduped
+     * case-insensitively against whatever the platforms already carry.
+     *
+     * @param  array{name:string, description:?string, price:?float, category:?string, dietary?:?list<string>}  $item
      */
-    private function updateItem(MenuItem $existing, array $item): void
+    private function updateItem(MenuItem $existing, array $item, bool $enrichOnly): void
     {
         $changes = [];
 
         $description = $this->cleanString($item['description'] ?? null);
-        if ($description !== null) {
+        $descriptionSaysMore = $description !== null
+            && mb_strlen($description) > mb_strlen((string) $existing->description);
+        if ($description !== null && ($enrichOnly ? $descriptionSaysMore : true)) {
             $changes['description'] = $description;
         }
 
-        if (($item['price'] ?? null) !== null) {
+        if (($item['price'] ?? null) !== null && (! $enrichOnly || $existing->base_price === null)) {
             $changes['base_price'] = $item['price'];
+        }
+
+        $mergedBadges = $this->mergeDietaryBadges($existing->badges, $item['dietary'] ?? null);
+        if ($mergedBadges !== null) {
+            $changes['badges'] = $mergedBadges;
         }
 
         if ($changes !== []) {
             $existing->forceFill($changes)->save();
         }
+    }
+
+    /**
+     * Existing badges + scanned dietary labels, or null when nothing new —
+     * badge shape mirrors the menu drivers' {text, type?} rows, with scan
+     * rows typed 'dietary'.
+     *
+     * @param  list<string>|null  $dietary
+     * @return list<array{text:string, type?:string}>|null
+     */
+    private function mergeDietaryBadges(mixed $existingBadges, ?array $dietary): ?array
+    {
+        if ($dietary === null || $dietary === []) {
+            return null;
+        }
+
+        $badges = is_array($existingBadges) ? array_values(array_filter($existingBadges, 'is_array')) : [];
+        $seen = [];
+        foreach ($badges as $badge) {
+            if (is_string($badge['text'] ?? null)) {
+                $seen[strtolower(trim($badge['text']))] = true;
+            }
+        }
+
+        $addedAny = false;
+        foreach ($dietary as $label) {
+            if (! is_string($label) || trim($label) === '') {
+                continue;
+            }
+            $key = strtolower(trim($label));
+            if ($seen[$key] ?? false) {
+                continue;
+            }
+            $badges[] = ['text' => trim($label), 'type' => 'dietary'];
+            $seen[$key] = true;
+            $addedAny = true;
+        }
+
+        return $addedAny ? $badges : null;
     }
 
     /** One past the current max `position` in $query (0 when the table's empty). */
