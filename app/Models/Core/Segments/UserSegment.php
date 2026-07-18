@@ -8,9 +8,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 // OV-A: staff-defined user segment — dynamic JSONB filter definition plus a
 // manual member list. Resolved to a live user-id set by SegmentResolver.
-// filters shape (all optional, AND-combined): account_type, sector[],
-// created_from/created_to, has_integration (true|platform), early_access,
-// include_manual_members (default true).
+// The full set of filter keys and their semantics is defined one-class-per-key
+// in App\Services\Segments\Criteria\SegmentCriteria; `include_manual_members`
+// (default true) is structural and handled by the resolver itself.
 class UserSegment extends BaseModel
 {
     use HasUuids;

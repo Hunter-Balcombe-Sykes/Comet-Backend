@@ -4,12 +4,16 @@ namespace App\Services\Segments;
 
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\User\User;
+use App\Services\Segments\Criteria\SegmentCriteria;
+use App\Services\Segments\Criteria\SegmentCriterion;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Carbon;
 
 /**
  * Turns a UserSegment into a live user-id set: dynamic filters evaluated as one
  * query on core.users, UNIONed with the segment's manual members.
+ *
+ * The available filter keys and their query semantics live in
+ * App\Services\Segments\Criteria\SegmentCriteria — one class per criterion.
  *
  * Filter semantics (filters JSONB — see UserSegment):
  *   - missing/null key           → unconstrained
@@ -20,8 +24,6 @@ use Illuminate\Support\Carbon;
  */
 class SegmentResolver
 {
-    private const DYNAMIC_KEYS = ['account_type', 'sector', 'created_from', 'created_to', 'has_integration', 'early_access'];
-
     /** @return list<string> distinct user ids in the segment */
     public function userIds(UserSegment $segment): array
     {
@@ -58,10 +60,10 @@ class SegmentResolver
     {
         $filters = is_array($segment->filters) ? $segment->filters : [];
 
-        $active = array_filter(
-            self::DYNAMIC_KEYS,
-            fn (string $key) => array_key_exists($key, $filters) && $filters[$key] !== null && $filters[$key] !== ''
-        );
+        $active = array_values(array_filter(
+            SegmentCriteria::all(),
+            fn (SegmentCriterion $criterion) => $criterion->isActive($filters)
+        ));
 
         if ($active === []) {
             return null;
@@ -69,45 +71,8 @@ class SegmentResolver
 
         $query = User::query()->select('id'); // SoftDeletes global scope excludes deleted rows
 
-        if (in_array('account_type', $active, true)) {
-            $query->where('account_type', (string) $filters['account_type']);
-        }
-
-        if (in_array('sector', $active, true)) {
-            $sectors = array_values(array_filter(array_map(
-                fn ($s) => is_string($s) ? trim($s) : null,
-                is_array($filters['sector']) ? $filters['sector'] : [$filters['sector']]
-            )));
-            if ($sectors !== []) {
-                $query->whereIn('sector', $sectors);
-            }
-        }
-
-        if (in_array('created_from', $active, true)) {
-            $query->where('created_at', '>=', Carbon::parse((string) $filters['created_from'])->startOfDay());
-        }
-
-        if (in_array('created_to', $active, true)) {
-            $query->where('created_at', '<=', Carbon::parse((string) $filters['created_to'])->endOfDay());
-        }
-
-        if (in_array('has_integration', $active, true)) {
-            // true → any active platform connection; string → that platform.
-            $platform = is_string($filters['has_integration']) ? $filters['has_integration'] : null;
-            $query->whereHas('integrationConnections', function ($q) use ($platform): void {
-                $q->where('is_active', true);
-                if ($platform !== null) {
-                    $q->where('platform', $platform);
-                }
-            });
-        }
-
-        if (in_array('early_access', $active, true)) {
-            // Membership in the early-access programme, keyed by primary email.
-            $exists = 'EXISTS (SELECT 1 FROM core.early_access_signups eas WHERE eas.email_lc = LOWER(core.users.primary_email))';
-            (bool) $filters['early_access']
-                ? $query->whereRaw($exists)
-                : $query->whereRaw("NOT {$exists}");
+        foreach ($active as $criterion) {
+            $criterion->apply($query, $filters);
         }
 
         return $query;
