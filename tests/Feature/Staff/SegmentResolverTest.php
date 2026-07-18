@@ -146,3 +146,72 @@ it('excludes soft-deleted users from dynamic results', function () {
 
     expect(app(SegmentResolver::class)->userIds(ovaSegment(['sector' => ['dj']])))->toBe([$live]);
 });
+
+it('resolves country_code, location_state and location_city', function () {
+    $sydney = ovaSeedUser(['country_code' => 'AU', 'location_state' => 'NSW', 'location_city' => 'Sydney']);
+    $melb = ovaSeedUser(['country_code' => 'AU', 'location_state' => 'Victoria', 'location_city' => 'Melbourne']);
+    $auckland = ovaSeedUser(['country_code' => 'NZ', 'location_state' => 'Auckland', 'location_city' => 'Auckland']);
+    ovaSeedUser(['country_code' => null, 'location_state' => null, 'location_city' => null]);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['country_code' => ['AU']])))
+        ->toContain($sydney)->toContain($melb)->toHaveCount(2)
+        ->and($resolver->userIds(ovaSegment(['country_code' => ['AU', 'NZ']])))->toHaveCount(3)
+        ->and($resolver->userIds(ovaSegment(['location_state' => ['Victoria']])))->toBe([$melb])
+        ->and($resolver->userIds(ovaSegment(['location_city' => ['Auckland']])))->toBe([$auckland]);
+});
+
+it('matches location_state and location_city case-insensitively', function () {
+    $melb = ovaSeedUser(['location_state' => 'Victoria', 'location_city' => 'Melbourne']);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['location_state' => ['VICTORIA']])))->toBe([$melb])
+        ->and($resolver->userIds(ovaSegment(['location_city' => ['melbourne']])))->toBe([$melb]);
+});
+
+it('excludes users with a blank location from location filters', function () {
+    ovaSeedUser(['location_city' => null]);
+    ovaSeedUser(['location_city' => '']);
+    $sydney = ovaSeedUser(['location_city' => 'Sydney']);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment(['location_city' => ['Sydney']])))->toBe([$sydney]);
+});
+
+it('resolves tenure_days_min and tenure_days_max against signup date', function () {
+    $veteran = ovaSeedUser(['created_at' => now()->subDays(200)->toDateTimeString()]);
+    $midterm = ovaSeedUser(['created_at' => now()->subDays(60)->toDateTimeString()]);
+    $rookie = ovaSeedUser(['created_at' => now()->subDays(3)->toDateTimeString()]);
+
+    $resolver = app(SegmentResolver::class);
+
+    // on Partna >= 30 days
+    expect($resolver->userIds(ovaSegment(['tenure_days_min' => 30])))
+        ->toContain($veteran)->toContain($midterm)->toHaveCount(2)
+        // on Partna <= 90 days
+        ->and($resolver->userIds(ovaSegment(['tenure_days_max' => 90])))
+        ->toContain($midterm)->toContain($rookie)->toHaveCount(2)
+        // both bounds → the 30-90 day band
+        ->and($resolver->userIds(ovaSegment(['tenure_days_min' => 30, 'tenure_days_max' => 90])))->toBe([$midterm]);
+});
+
+it('AND-combines tenure with an existing criterion', function () {
+    $djMid = ovaSeedUser(['sector' => 'dj', 'created_at' => now()->subDays(60)->toDateTimeString()]);
+    ovaSeedUser(['sector' => 'dj', 'created_at' => now()->subDays(3)->toDateTimeString()]);
+    ovaSeedUser(['sector' => 'hairdresser', 'created_at' => now()->subDays(60)->toDateTimeString()]);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment(['sector' => ['dj'], 'tenure_days_min' => 30])))
+        ->toBe([$djMid]);
+});
+
+it('treats null location and tenure keys as inert', function () {
+    ovaSeedUser(['location_city' => 'Sydney']);
+    $manual = ovaSeedUser();
+
+    $segment = ovaSegment(['country_code' => null, 'location_city' => null, 'tenure_days_min' => null]);
+    UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $manual]);
+
+    // No criterion active → dynamic set empty → manual members only.
+    expect(app(SegmentResolver::class)->userIds($segment))->toBe([$manual]);
+});

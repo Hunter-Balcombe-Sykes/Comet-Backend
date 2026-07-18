@@ -20,6 +20,10 @@ final class SegmentCriteria
             new CreatedRangeCriterion,
             new HasIntegrationCriterion,
             new EarlyAccessCriterion,
+            new CountryCodeCriterion,
+            new LocationStateCriterion,
+            new LocationCityCriterion,
+            new TenureCriterion,
         ];
     }
 }
