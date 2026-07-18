@@ -75,6 +75,48 @@ it('returns no items for non-menu output', function () {
         ->and(app(MenuAiExtractor::class)->parseItems('total garbage'))->toBe([]);
 });
 
+it('parses a dense multi-category menu into per-category items, never a bare category header', function () {
+    // Representative of a dense multi-column drinks menu (bug repro case:
+    // the scan previously returned only the 6 category headers as "items",
+    // zero real drinks) — 4 categories, wines with a dual glass/bottle price
+    // and a region/appellation line folded into the description.
+    $raw = json_encode(['items' => [
+        ['name' => 'Negroni', 'description' => 'Gin, Campari, sweet vermouth', 'price' => 18, 'category' => 'COCKTAILS', 'dietary' => null],
+        ['name' => 'Aperol Spritz', 'description' => 'Aperol, prosecco, soda', 'price' => 16, 'category' => 'COCKTAILS', 'dietary' => null],
+        ['name' => 'Prosecco', 'description' => 'DOC, Veneto, IT. Bottle $58.', 'price' => 14, 'category' => 'SPARKLING', 'dietary' => null],
+        ['name' => 'Franciacorta Brut', 'description' => 'DOCG, Lombardy, IT. Bottle $72.', 'price' => 18, 'category' => 'SPARKLING', 'dietary' => null],
+        ['name' => 'Chianti Classico', 'description' => 'DOCG, Tuscany, IT. Bottle $60.', 'price' => 15, 'category' => 'RED WINES', 'dietary' => null],
+        ['name' => 'Barolo', 'description' => 'DOCG, Piedmont, IT. Bottle $95.', 'price' => 22, 'category' => 'RED WINES', 'dietary' => null],
+        ['name' => 'Peroni', 'description' => 'Italian lager', 'price' => 9, 'category' => 'BEERS & CIDER', 'dietary' => null],
+        ['name' => 'Guinness', 'description' => 'Irish stout', 'price' => 10, 'category' => 'BEERS & CIDER', 'dietary' => null],
+    ]]);
+
+    $items = app(MenuAiExtractor::class)->parseItems($raw);
+
+    expect($items)->toHaveCount(8);
+
+    $byCategory = collect($items)->groupBy('category');
+    expect($byCategory->keys()->sort()->values()->all())
+        ->toBe(['BEERS & CIDER', 'COCKTAILS', 'RED WINES', 'SPARKLING'])
+        ->and($byCategory['COCKTAILS'])->toHaveCount(2)
+        ->and($byCategory['SPARKLING'])->toHaveCount(2)
+        ->and($byCategory['RED WINES'])->toHaveCount(2)
+        ->and($byCategory['BEERS & CIDER'])->toHaveCount(2);
+
+    // The exact bug under test: no item's name is literally one of the
+    // category header strings ("6 items found" = the 6 headers, 0 drinks).
+    $categoryNames = $byCategory->keys()->all();
+    foreach ($items as $item) {
+        expect($categoryNames)->not->toContain($item['name']);
+    }
+
+    // Dual wine pricing (glass/bottle) resolves to the lower price, with the
+    // second price folded into the description rather than silently dropped.
+    $chianti = collect($items)->firstWhere('name', 'Chianti Classico');
+    expect($chianti['price'])->toBe(15.0)
+        ->and($chianti['description'])->toContain('Bottle $60');
+});
+
 // ── Applier enrich semantics ─────────────────────────────────────────────────
 
 it('updates a matched item description only when the scanned one is longer', function () {
@@ -212,4 +254,104 @@ it('scans stored google photos, applies items, and persists scan_items', functio
     $menu = Menu::query()->where('user_id', $user->id)->first();
     expect($menu->scan_items['source'] ?? null)->toBe('google-photos')
         ->and($menu->scan_items['items'] ?? [])->toHaveCount(1);
+});
+
+it('applies a dense multi-category scan as per-category items, not bare category headers', function () {
+    // End-to-end regression for the reported bug: a dense multi-column
+    // drinks menu (categories + many priced items each) came back from the
+    // scan as "6 items found" — the 6 category headers, zero real drinks.
+    // The Mistral OCR response here mirrors a multi-column menu flattened
+    // to text (4 categories, wines with a region/DOC line + dual glass/
+    // bottle price); the DeepSeek response mirrors what the current
+    // MenuAiExtractor system prompt actually returns for that input
+    // (verified against the live API — see MenuAiExtractor prompt comment).
+    config()->set('services.mistral.key', 'k1');
+    config()->set('services.deepseek.key', 'k2');
+    config()->set('services.apify.token', null); // tier-2 sweep unavailable — free tier must carry it
+
+    $user = scanUser('densemenu');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'place-dense',
+        'payload' => [
+            'photos' => [
+                ['ref' => 'p/1', 'url' => 'https://lh3.example.com/drinks-menu.jpg'],
+            ],
+        ],
+    ]);
+
+    $ocrText = <<<'TXT'
+COCKTAILS
+Negroni $18
+Gin, Campari, sweet vermouth
+
+Aperol Spritz $16
+Aperol, prosecco, soda
+
+SPARKLING
+Prosecco DOC
+Veneto, IT
+Glass $14 / Bottle $58
+
+Franciacorta Brut DOCG
+Lombardy, IT
+Glass $18 / Bottle $72
+
+RED WINES
+Chianti Classico DOCG
+Tuscany, IT
+Glass $15 / Bottle $60
+
+Barolo DOCG
+Piedmont, IT
+Glass $22 / Bottle $95
+
+BEERS & CIDER
+Peroni $9
+Italian lager
+
+Guinness $10
+Irish stout
+TXT;
+
+    Http::fake([
+        'api.mistral.ai/v1/ocr' => Http::response(['pages' => [['markdown' => $ocrText]]]),
+        'api.deepseek.com/*' => Http::response(['choices' => [['message' => ['content' => json_encode(['items' => [
+            ['name' => 'Negroni', 'description' => 'Gin, Campari, sweet vermouth', 'price' => 18, 'category' => 'COCKTAILS', 'dietary' => null],
+            ['name' => 'Aperol Spritz', 'description' => 'Aperol, prosecco, soda', 'price' => 16, 'category' => 'COCKTAILS', 'dietary' => null],
+            ['name' => 'Prosecco', 'description' => 'DOC, Veneto, IT. Bottle $58.', 'price' => 14, 'category' => 'SPARKLING', 'dietary' => null],
+            ['name' => 'Franciacorta Brut', 'description' => 'DOCG, Lombardy, IT. Bottle $72.', 'price' => 18, 'category' => 'SPARKLING', 'dietary' => null],
+            ['name' => 'Chianti Classico', 'description' => 'DOCG, Tuscany, IT. Bottle $60.', 'price' => 15, 'category' => 'RED WINES', 'dietary' => null],
+            ['name' => 'Barolo', 'description' => 'DOCG, Piedmont, IT. Bottle $95.', 'price' => 22, 'category' => 'RED WINES', 'dietary' => null],
+            ['name' => 'Peroni', 'description' => 'Italian lager', 'price' => 9, 'category' => 'BEERS & CIDER', 'dietary' => null],
+            ['name' => 'Guinness', 'description' => 'Irish stout', 'price' => 10, 'category' => 'BEERS & CIDER', 'dietary' => null],
+        ]])]]]]),
+    ]);
+
+    (new GoogleMenuPhotoScanJob((string) $user->id, 'place-dense'))->handle(
+        app(MenuAiExtractor::class),
+        app(GoogleMenuImagesScraper::class),
+        app(MenuScanApplier::class),
+    );
+
+    $menu = Menu::query()->where('user_id', $user->id)->first();
+    $categories = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->get();
+
+    expect($categories)->toHaveCount(4)
+        ->and($categories->pluck('name')->sort()->values()->all())
+        ->toBe(['BEERS & CIDER', 'COCKTAILS', 'RED WINES', 'SPARKLING']);
+
+    foreach ($categories as $category) {
+        $categoryItems = MenuItem::query()->where('category_id', $category->id)->get();
+        expect($categoryItems)->toHaveCount(2);
+        // The bug under test: a category header must never itself land as
+        // an item row (e.g. a bare "COCKTAILS" item with no price).
+        expect($categoryItems->pluck('name')->all())->not->toContain($category->name);
+    }
+
+    $chianti = MenuItem::query()->where('name', 'Chianti Classico')->first();
+    expect($chianti->base_price)->toBe(15.0)
+        ->and($chianti->description)->toContain('Bottle $60');
 });

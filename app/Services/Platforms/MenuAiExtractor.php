@@ -56,17 +56,33 @@ You extract menu items from OCR-extracted text of a restaurant menu (photos that
 Respond with ONLY a strict JSON object — no markdown, no code fences, no commentary, compact one-line output — in exactly this shape:
 {"items":[{"name":"string","description":"string or null","price":number or null,"category":"string or null","dietary":["string"] or null}]}
 
-The text may contain OCR noise: misread characters, broken or joined words, inconsistent spacing or capitalization, multi-column layouts flattened out of reading order, and repeated page furniture (restaurant name/address/phone, headers, footers, page numbers, decorative text). Use judgment to reconstruct the actual items and ignore anything that isn't a dish, drink, or product.
+The menu has a two-level structure: CATEGORY headings (e.g. "STARTERS", "COCKTAILS", "RED WINES" — large, bold, all-caps, or otherwise visually set apart, with no price of their own) followed by the ITEMS inside that section (each with a name and usually a price). Every priced or clearly-named line belongs to exactly one item, filed under the nearest preceding category heading — a heading is NEVER itself an item.
+
+The text may contain OCR noise: misread characters, broken or joined words, inconsistent spacing or capitalization, multi-column layouts flattened or interleaved out of reading order (columns can end up merged line-by-line), and repeated page furniture (restaurant name/address/phone, social handles, headers, footers, page numbers, decorative text). Use judgment to reconstruct the actual items: group lines under the nearest preceding category heading regardless of raw reading order, and treat every repeating "short name phrase followed by a price" as a separate item even when line breaks between items are missing or inconsistent.
 
 Rules:
-- One entry per distinct dish, drink, or product on the menu.
-- name: the item's name as best read, at most 160 characters. Skip anything without a readable name.
-- description: the item's printed description, or null when it has none.
-- price: the numeric amount only — no currency symbols or text — or null when absent or unreadable. When an item lists multiple sizes or options, use the lowest printed price.
-- category: the menu section heading the item appears under (e.g. "Starters", "Mains", "Drinks"), or null when there is none.
+- One entry per distinct dish, drink, or product on the menu. A category heading is structure, not a product — never emit one as an item's name, even when it's the only clearly-readable text in its section (when a heading has no legible item text under it, omit that section rather than inventing an item or reporting the heading itself).
+- Page furniture (restaurant name, address, phone, social handles, website, page numbers, footers) is never an item — skip it, even if it's the cleanest text on the page.
+- name: the item's name as best read, at most 160 characters. Skip anything without a readable name. Never include a region, appellation, vintage, or producer here — see description.
+- description: the item's printed description, or null when it has none. Fold in anything that isn't the core name but is printed with the item: tasting notes, a region/appellation (e.g. "DOC", "DOCG", "Veneto, IT"), a producer or vintage, or a second price (see below).
+- price: the numeric amount only — no currency symbols or text — or null when absent or unreadable. When an item lists multiple sizes or prices (e.g. a wine's glass/bottle, or small/large), use the lowest printed price for this field and note the other price(s) in description (e.g. "Bottle $58").
+- category: the menu section heading the item appears under (e.g. "Starters", "Mains", "Drinks"), or null when there is genuinely none.
 - dietary: the item's printed dietary markers, normalized to this exact vocabulary: "Gluten free" (gf/gfo), "Vegetarian" (v), "Vegan" (vg/vgo/pb), "Dairy free" (df/dfo), "Nut free" (nf), "Halal", "Spicy" (chilli marks). Use null when none are printed. Never guess from ingredients.
 - Keep the menu's own order as best you can tell from the text. Include at most 180 items.
 - If the text is not from a menu, or nothing readable resembles menu items, return {"items":[]}.
+
+Example — input:
+ACME BAR & GRILL   123 Main St
+
+COCKTAILS
+Negroni Gin Campari vermouth $14
+Old Fashioned Bourbon bitters $15
+
+RED WINES
+Chianti DOCG Tuscany IT Glass $12 / Bottle $48
+
+Example — output:
+{"items":[{"name":"Negroni","description":"Gin, Campari, vermouth","price":14,"category":"COCKTAILS","dietary":null},{"name":"Old Fashioned","description":"Bourbon, bitters","price":15,"category":"COCKTAILS","dietary":null},{"name":"Chianti","description":"DOCG, Tuscany, IT. Bottle $48.","price":12,"category":"RED WINES","dietary":null}]}
 PROMPT;
 
     public function configured(): bool
