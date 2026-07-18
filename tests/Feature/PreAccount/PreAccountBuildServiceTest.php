@@ -5,6 +5,8 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -68,6 +70,14 @@ it('retries a failed live build on dedupe hit (F3)', function () {
     $svc = app(PreAccountBuildService::class);
     $first = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
     $first['build']->update(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed']);
+
+    // GeneratePreAccountSiteJob is ShouldBeUnique (keyed on build id); the lock a
+    // real worker releases on job completion never releases under Queue::fake()
+    // (jobs are captured, not processed). Release it manually so this test's
+    // hand-simulated "first job already failed" matches what a real worker would
+    // have already done by the time a retry request lands.
+    (new UniqueLock(app(Repository::class)))
+        ->release(new GeneratePreAccountSiteJob($first['build']->id));
 
     $second = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
     expect($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING)
