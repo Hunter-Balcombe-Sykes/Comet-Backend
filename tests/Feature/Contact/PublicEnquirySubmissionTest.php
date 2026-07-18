@@ -375,7 +375,7 @@ it('422s the enquiry submit when feature.enquiries is globally disabled', functi
     ])->assertStatus(422)->assertJson(['error' => 'FEATURE_UNAVAILABLE']);
 
     // No row written, no notification dispatched — the gate fired before persistence.
-    expect(\App\Models\Core\Site\Enquiry::query()->count())->toBe(0);
+    expect(Enquiry::query()->count())->toBe(0);
     Bus::assertNotDispatched(DispatchEnquiryNotificationsJob::class);
     Bus::assertNotDispatched(SendEnquiryConfirmationJob::class);
 });
@@ -388,7 +388,7 @@ it('allows the enquiry submit when no availability rule exists', function () {
         'X-Site-Subdomain' => 'testpro',
     ])->assertOk()->assertJson(['ok' => true]);
 
-    expect(\App\Models\Core\Site\Enquiry::query()->count())->toBe(1);
+    expect(Enquiry::query()->count())->toBe(1);
 });
 
 it('422s a submitter whose owner is in a disabled segment, but allows one who is not', function () {
@@ -396,7 +396,7 @@ it('422s a submitter whose owner is in a disabled segment, but allows one who is
     seedPublishedContactSite('freepro');                 // owner NOT in the segment
     Bus::fake();
 
-    $segment = UserSegment::query()->create(['name' => 'seg-'.\Illuminate\Support\Str::random(4), 'filters' => []]);
+    $segment = UserSegment::query()->create(['name' => 'seg-'.Str::random(4), 'filters' => []]);
     UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $proId]);
 
     FeatureAvailabilityRule::query()->create([
