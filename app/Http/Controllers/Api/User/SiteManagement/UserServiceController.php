@@ -270,8 +270,28 @@ class UserServiceController extends ApiController
                 abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
             }
 
-            // Apply category order + service order
+            // Apply category order + service order. Services get a GLOBAL running
+            // sort_order across every bucket, not one that restarts at each category —
+            // services_user_sort_order_uq is a partial UNIQUE index on (user_id,
+            // sort_order), scoped to the whole professional, not per category, so two
+            // services in two different buckets both landing on 0 collides (23505).
+            // The display view already orders by category sort_order then service
+            // sort_order, so a monotonic global counter preserves each category's
+            // internal order while satisfying the index.
+            //
+            // Applied in two passes: the unique index is checked on every individual
+            // UPDATE (not deferred), so a single pass can transiently collide with a
+            // row that hasn't been updated yet but still occupies the target value
+            // (e.g. a straight swap between two services). Pass 1 parks every
+            // reordered service at a temporary value far above any real sort_order,
+            // unique among themselves; pass 2 writes the real 0..N-1 values once every
+            // row involved has vacated that range. service_categories carries no
+            // equivalent unique index (only a plain sort index + a unique-title
+            // index), so its write stays single-pass.
             $categorySort = 0;
+            $serviceUpdates = [];
+            $globalServiceIndex = 0;
+
             foreach ($payload['categories'] as $catBlock) {
                 $catId = $catBlock['id'] ?? null;
 
@@ -282,15 +302,30 @@ class UserServiceController extends ApiController
                         ->update(['sort_order' => $categorySort++]);
                 }
 
-                foreach ($catBlock['service_ids'] as $i => $serviceId) {
-                    Service::query()
-                        ->where('user_id', $pro->id)
-                        ->where('id', $serviceId)
-                        ->update([
-                            'category_id' => $catId,
-                            'sort_order' => $i,
-                        ]);
+                foreach ($catBlock['service_ids'] as $serviceId) {
+                    $serviceUpdates[] = [
+                        'serviceId' => $serviceId,
+                        'categoryId' => $catId,
+                        'sortOrder' => $globalServiceIndex++,
+                    ];
                 }
+            }
+
+            foreach ($serviceUpdates as $update) {
+                Service::query()
+                    ->where('user_id', $pro->id)
+                    ->where('id', $update['serviceId'])
+                    ->update(['sort_order' => 1_000_000 + $update['sortOrder']]);
+            }
+
+            foreach ($serviceUpdates as $update) {
+                Service::query()
+                    ->where('user_id', $pro->id)
+                    ->where('id', $update['serviceId'])
+                    ->update([
+                        'category_id' => $update['categoryId'],
+                        'sort_order' => $update['sortOrder'],
+                    ]);
             }
         });
 
