@@ -8,10 +8,9 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
-use Illuminate\Support\Str;
+use App\Support\BusinessName;
 
 // Builds a provisional business user's site from a Google Business Profile
 // place_id via the EXISTING Places + IdentitySync machinery: fetch details with
@@ -22,7 +21,6 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
 {
     public function __construct(
         private readonly GoogleBusinessService $service,
-        private readonly IdentitySync $identitySync,
     ) {}
 
     public function normalizeRef(string $raw): string
@@ -90,17 +88,23 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
             'apify_status' => $enrich ? 'pending' : null,
         ])->saveQuietly();
 
-        // Identity fold: business accounts get full overwrite via the capability
-        // (AccountCapabilities::google_business_full_sync) — same engine as connect.
-        // Also caps the name at 15 chars (BusinessName::wordTrim, inside IdentitySync).
-        $this->identitySync->applyFromGooglePayload($user, $payload);
+        // Identity fold happens automatically here: IntegrationConnectionObserver::saved()
+        // sees this google-business row created/payload-changed and calls
+        // IdentitySync::applyFromGooglePayload for us (business accounts get full
+        // overwrite via AccountCapabilities::google_business_full_sync) — same engine
+        // as connect. Do NOT call IdentitySync directly, or the fold runs twice.
 
-        // Business accounts adopt the Google name as display name (capability-gated,
-        // mirroring GoogleBusinessController::maybeAdoptGoogleName).
+        // Business accounts adopt the Google name as display name (capability-gated),
+        // mirroring GoogleBusinessController::maybeAdoptGoogleName EXACTLY: word-trim
+        // to the business cap before writing, and only write when it actually changed.
+        // An untrimmed write 422s the user's first profile edit after claim
+        // (UpdateUserRequest enforces max:15 for business accounts).
         if ($name !== '' && AccountCapabilities::for($user)->google_business_sets_display_name) {
-            $user->display_name = $name;
-            $user->first_name = Str::before($name, ' ') ?: $name;
-            $user->save();
+            $trimmedName = BusinessName::wordTrim($name);
+            if ($user->display_name !== $trimmedName) {
+                $user->display_name = $trimmedName;
+                $user->save();
+            }
         }
 
         if ($enrich) {
