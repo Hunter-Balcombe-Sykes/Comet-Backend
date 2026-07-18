@@ -30,7 +30,9 @@ final class IgFollowersCriterion implements SegmentCriterion
      * int|string|null (InstagramPayload::intStringOrNull). A bare
      * `guard AND cast` is NOT safe — Postgres does not guarantee AND operand
      * evaluation order — so this uses CASE, which is documented to
-     * short-circuit. bigint, not int, so a garbage-huge value cannot overflow.
+     * short-circuit. The regex is also bounded to 15 digits: bigint's
+     * ceiling is 19 digits, so an unbounded all-digit match (e.g. a
+     * corrupted scrape) would itself overflow ::bigint and throw.
      *
      * Pinned by tests/Unit/Segments/IgFollowersExpressionTest.php.
      */
@@ -39,11 +41,16 @@ final class IgFollowersCriterion implements SegmentCriterion
         if ($driver === 'sqlite') {
             $json = "json_extract(payload, '\$.followersCount')";
 
+            // Same 15-digit bound as the pgsql branch below, kept in sync so
+            // both drivers agree on which values resolve to NULL — SQLite's
+            // CAST silently clamps rather than throwing, but a corrupted
+            // 16+ digit scrape should still be treated as unusable, not
+            // coerced into bigint's max value.
             return "CASE WHEN {$json} GLOB '[0-9]*' AND {$json} NOT GLOB '*[^0-9]*' "
-                ."THEN CAST({$json} AS INTEGER) ELSE NULL END";
+                ."AND LENGTH({$json}) <= 15 THEN CAST({$json} AS INTEGER) ELSE NULL END";
         }
 
-        return "CASE WHEN payload->>'followersCount' ~ '^\\d+\$' "
+        return "CASE WHEN payload->>'followersCount' ~ '^\\d{1,15}\$' "
             ."THEN (payload->>'followersCount')::bigint ELSE NULL END";
     }
 
