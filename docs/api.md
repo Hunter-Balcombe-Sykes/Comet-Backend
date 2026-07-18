@@ -1119,7 +1119,21 @@ Reads `followersCount` from the synced Instagram connection payload, matching **
 }
 ```
 
-Thresholds on the total over the lookback window. **Zero-activity users are excluded when `min` is set and included when only `max` is set** — a user with no events has 0, which is at or below any max. That is what makes `max`-only a usable "low-traffic users" filter.
+Thresholds on the total over the lookback window. **Zero-activity users are excluded when a positive `min` is set, and included otherwise** — a user with no events has 0, which is at or below any max. That is what makes `max` a usable "low-traffic users" filter.
+
+`min: 0` means *no lower bound*, not "at least zero" — a count is never negative, so the zero constrains nothing and the filter behaves exactly as if `min` were omitted. Consequently:
+
+| shape | matches |
+|---|---|
+| `{"min": 5}` | ≥ 5 events; zero-activity users excluded |
+| `{"max": 5}` | ≤ 5 events; zero-activity users **included** |
+| `{"min": 0, "max": 5}` | identical to `{"max": 5}` |
+| `{"min": 0, "max": 0}` | exactly the users with **no activity** in the window |
+| `{"min": 0}` alone | **422** — see below |
+
+`min: 0` on its own is rejected with `422` rather than accepted as a no-op. It asks for no bounds at all, and an inert criterion is dropped from the query — so a segment filtered only on `{"min": 0}` would resolve to *nobody* rather than everybody. The error is the same "requires at least one of min or max" as an empty object. `max: 0` is unaffected: zero is a meaningful **upper** bound.
+
+The same `min: 0` rule applies to `ig_followers`, where it is a no-op in every shape that also sets `max`. To target "has an Instagram connection" with no follower threshold, use `has_integration: "instagram"`.
 
 Free-text `location_state` / `location_city` matching is best-effort: users who left the field blank never match.
 

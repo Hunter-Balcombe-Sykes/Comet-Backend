@@ -41,6 +41,35 @@ it('requires at least one bound on the object criteria', function () {
         ->and(ovaValidate(['analytics' => ['metric' => 'visits', 'window_days' => 30]])->passes())->toBeFalse();
 });
 
+it('rejects a lone min:0, which asks for no bounds at all', function () {
+    // `min: 0` reads as "no lower bound", so on its own it constrains nothing.
+    // It cannot be accepted-and-ignored: a criterion that goes inert is dropped
+    // from the query, and a segment with NO active criterion resolves to the
+    // empty dynamic set — so the operator would ask for ">= 0 visits" and get
+    // nobody. A 422 is the honest answer.
+    expect(ovaValidate(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 0]])->passes())->toBeFalse()
+        ->and(ovaValidate(['ig_followers' => ['min' => 0]])->passes())->toBeFalse()
+        ->and(ovaValidate(['ig_followers' => ['min' => 0, 'synced_within_days' => 30]])->passes())->toBeFalse();
+});
+
+it('accepts min:0 when paired with a max, including max:0', function () {
+    // The asymmetry: 0 is not a lower bound, but it IS an upper bound.
+    // `min:0, max:0` is the "no activity at all" segment.
+    expect(ovaValidate(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 0, 'max' => 5]])->passes())->toBeTrue()
+        ->and(ovaValidate(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 0, 'max' => 0]])->passes())->toBeTrue()
+        ->and(ovaValidate(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'max' => 0]])->passes())->toBeTrue()
+        ->and(ovaValidate(['ig_followers' => ['min' => 0, 'max' => 0]])->passes())->toBeTrue();
+});
+
+it('still reports a non-numeric min as an integer error, not a missing bound', function () {
+    // isLowerBound() must not swallow garbage into the "no bound" bucket, or
+    // `min: "abc"` surfaces the misleading "requires at least one of min or max".
+    $validator = ovaValidate(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 'abc']]);
+
+    expect($validator->passes())->toBeFalse()
+        ->and($validator->errors()->keys())->toContain('filters.analytics.min');
+});
+
 it('requires metric and window_days whenever analytics is present', function () {
     expect(ovaValidate(['analytics' => ['min' => 10]])->passes())->toBeFalse()
         ->and(ovaValidate(['analytics' => ['metric' => 'not_a_metric', 'window_days' => 30, 'min' => 10]])->passes())->toBeFalse()
