@@ -102,8 +102,12 @@ class User extends BaseModel
         'deletion_mail_sent_at' => 'datetime',
     ];
 
-    /** Route mail notifications to the user's primary email address. */
-    public function routeNotificationForMail(): string
+    /**
+     * Mail-channel routing. Nullable: provisional (unclaimed) users have no email
+     * until claim — returning null makes the mail channel skip them instead of
+     * fataling (TypeError) inside any queued notification.
+     */
+    public function routeNotificationForMail(): ?string
     {
         return $this->primary_email;
     }
