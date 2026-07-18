@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\PublicSite;
 
+use App\Enums\PublicFeature;
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\GatesPublicFeature;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
@@ -17,6 +19,7 @@ use Illuminate\Http\Request;
 // V2: Captures lead form submissions with spam detection (honeypot, timing). Creates/updates customers with marketing subscription handling.
 class PublicCustomerLeadController extends ApiController
 {
+    use GatesPublicFeature;
     use HashesClientData;
     use ResolvesSubdomainFromHost;
 
@@ -74,7 +77,9 @@ class PublicCustomerLeadController extends ApiController
             return $this->error('Site is not linked to a professional.', 422);
         }
 
-        $site->loadMissing('professional');
+        // 'professional' relation was renamed to 'user' (commit 69496a0c); this
+        // loadMissing straggler was missed and 500'd every valid submission.
+        $site->loadMissing('user');
 
         if (! $site->user) {
             $this->logLead($request, $subdomain, $site->id, null, null, 'site_unlinked', $startedMs);
@@ -83,6 +88,9 @@ class PublicCustomerLeadController extends ApiController
         }
 
         $pro = $site->user;
+
+        // Staff feature kill-switch.
+        $this->assertPublicFeatureAvailable($site, PublicFeature::CustomerLeads);
 
         // Check if customer with this email already exists (excluding soft-deleted)
         $customer = $pro->customers()
