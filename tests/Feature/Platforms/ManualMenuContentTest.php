@@ -142,6 +142,11 @@ it('creates a manual category and returns the full menu shape', function () {
     expect($category->position)->toBe(0);
     // The freshly-created category surfaces in the returned menu (own-content, not orphaned).
     expect(collect($res->json('categories'))->pluck('name')->all())->toContain('Appetizers');
+    // Composer echoes the category's persisted id (addresses PATCH/DELETE
+    // .../categories/{id}) and sourcePlatform (drives the sync-detach warning).
+    $responseCategory = collect($res->json('categories'))->firstWhere('name', 'Appetizers');
+    expect($responseCategory['id'])->toBe((string) $category->id);
+    expect($responseCategory['sourcePlatform'])->toBe('manual');
 });
 
 it('positions a second manual category after the first', function () {
@@ -612,5 +617,9 @@ it('serves a manual-only menu on status and show (owner content is never orphane
     $res = actingAsUser($user)->getJson('/api/platforms/menu')->assertOk();
     expect($res->json('source'))->toBe('manual');
     expect($res->json('categories.0.name'))->toBe('Menu');
+    expect($res->json('categories.0.id'))->not->toBeNull();
+    expect($res->json('categories.0.sourcePlatform'))->toBe('manual');
     expect($res->json('categories.0.items.0.name'))->toBe('Solo Manual');
+    // Owner-authored item — is_manual=true (never omitted/false for a hand-added dish).
+    expect($res->json('categories.0.items.0.isManual'))->toBeTrue();
 });

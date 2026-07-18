@@ -473,6 +473,11 @@ it('returns the full menu with per-mode prices and computed order links', functi
 
     expect($res->json('source'))->toBe('uber-eats');
     expect((float) $res->json('rating'))->toBe(4.7);
+    // Category carries its persisted id (addresses PATCH/DELETE .../categories/{id})
+    // and sourcePlatform (drives the dashboard's sync-detach warning).
+    $dbCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Pizzas')->firstOrFail();
+    expect($res->json('categories.0.id'))->toBe((string) $dbCategory->id);
+    expect($res->json('categories.0.sourcePlatform'))->toBe('uber-eats');
     $item = $res->json('categories.0.items.0');
     expect($item['name'])->toBe('Margherita');
     // Stable persisted id (fix-round P1) — mirrors PublicMenuController's
@@ -480,6 +485,8 @@ it('returns the full menu with per-mode prices and computed order links', functi
     // endpoint's id, not the public sitepage payload's.
     $dbItem = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Margherita')->firstOrFail();
     expect($item['id'])->toBe((string) $dbItem->id);
+    // Scraped item — never manual.
+    expect($item['isManual'])->toBeFalse();
     expect((float) $item['basePrice'])->toBe(11.0);
     expect((float) $item['pickupPrice'])->toBe(11.0);
     expect($item['pickupSource'])->toBe('doordash');

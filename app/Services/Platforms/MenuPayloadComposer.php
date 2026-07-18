@@ -103,13 +103,17 @@ class MenuPayloadComposer
     }
 
     /**
-     * Categories → items shaped for the dashboard grid. Each item carries its
-     * representative base price, the aggregate pickup/delivery prices (each
-     * tagged with the platform backing the min), the per-platform availability
-     * list (platform + price + supported modes + order url), and the DoorDash
-     * rating + badges.
+     * Categories → items shaped for the dashboard grid. Each category carries
+     * its persisted id (PATCH/DELETE /menu/categories/{id}, and the id an item
+     * write targets via category_id) and sourcePlatform (drives the "no longer
+     * stay synced" warning on editing/deleting a scraped category). Each item
+     * carries its representative base price, the aggregate pickup/delivery
+     * prices (each tagged with the platform backing the min), the per-platform
+     * availability list (platform + price + supported modes + order url), the
+     * DoorDash rating + badges, and isManual (owner-authored — skips the
+     * sync-detach warning).
      *
-     * @return list<array{name:string, items:list<array<string,mixed>>}>
+     * @return list<array{id:string, name:string, sourcePlatform:?string, items:list<array<string,mixed>>}>
      */
     private function categories(?Menu $menu): array
     {
@@ -121,7 +125,13 @@ class MenuPayloadComposer
         $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
 
         return $menu->categories->map(fn ($category) => [
+            // Stable persisted id — addresses PATCH/DELETE /menu/categories/{id}
+            // and is the value an item write sends as category_id.
+            'id' => (string) $category->id,
             'name' => $category->name,
+            // Drives the dashboard's "this will no longer stay synced" warning —
+            // only 'manual'/'scan' categories are owner-editable (MenuContentController::EDITABLE_SOURCES).
+            'sourcePlatform' => $category->source_platform,
             'items' => $category->items->map(fn (MenuItem $item) => [
                 // Stable persisted id — mirrors PublicMenuController's `id` field.
                 // Partna-Frontend's menu-item-detail URLs read THIS endpoint's id.
@@ -140,6 +150,9 @@ class MenuPayloadComposer
                 'deliveryPrice' => $item->delivery_price,
                 'deliverySource' => $item->delivery_source,
                 'currency' => $item->currency,
+                // Owner-authored marker — skips the sync-detach warning (an
+                // already-manual item has nothing left to detach from).
+                'isManual' => $item->is_manual,
                 'platforms' => $this->platforms($item),
                 // Per-item deep links ({doordash?: url}) — mirrors PublicMenuController
                 // exactly; null when nothing item-level is derivable (see MenuItemDeepLinks).
