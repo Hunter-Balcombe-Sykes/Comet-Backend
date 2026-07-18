@@ -1064,6 +1064,65 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - DELETE /api/staff/professionals/{professional}/sections/{blockType}
 - POST /api/staff/notifications
 
+### Segments (OV-A)
+
+Staff-defined user segments — a dynamic filter definition plus an optional manual member list. Consumed by the feature kill-switch, staff notifications, and any staff tooling that resolves a user set.
+
+Read side (staff):
+- GET /api/staff/segments
+- GET /api/staff/segments/{segment}
+- GET /api/staff/segments/{segment}/users
+
+Write side (staff-admin):
+- POST /api/staff/segments
+- PATCH /api/staff/segments/{segment}
+- DELETE /api/staff/segments/{segment}
+- POST /api/staff/segments/{segment}/members
+- DELETE /api/staff/segments/{segment}/members
+
+#### `filters` definition
+
+All keys are optional and AND-combine. A missing or null key is unconstrained. **A definition with zero active criteria resolves to an EMPTY dynamic set** (manual members only) — `{}` never means "all users". Soft-deleted users are always excluded from dynamic results.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `account_type` | `"partna" \| "business"` | Exact account type match |
+| `sector` | `string[]` | Any of the given sector slugs |
+| `created_from` / `created_to` | `YYYY-MM-DD` | Absolute signup-date window |
+| `has_integration` | `true \| "<platform>"` | Any active connection, or one platform |
+| `early_access` | `boolean` | In (or, when `false`, not in) the early-access programme |
+| `country_code` | `string[]` | ISO alpha-2, uppercase — e.g. `["AU","NZ"]` |
+| `location_state` | `string[]` | Free-text state, case-insensitive exact match |
+| `location_city` | `string[]` | Free-text city, case-insensitive exact match |
+| `tenure_days_min` | `int` 0–3650 | On Partna at least N days |
+| `tenure_days_max` | `int` 0–3650 | On Partna at most N days |
+| `ig_followers` | object | Instagram follower band — see below |
+| `analytics` | object | Visit/click volume — see below |
+| `include_manual_members` | `boolean` (default `true`) | Structural, not a filter |
+
+```jsonc
+"ig_followers": {
+  "min": 1000,               // optional; at least one of min/max required
+  "max": 50000,              // optional
+  "synced_within_days": 30   // optional freshness window on the connection
+}
+```
+
+Reads `followersCount` from the synced Instagram connection payload, matching **active** `instagram` connections only. A missing or non-numeric follower count excludes the user (it never errors). `synced_within_days` measures from `last_refreshed_at`, falling back to `created_at` when the connection has never been refreshed.
+
+```jsonc
+"analytics": {
+  "metric": "visits",        // visits | unique_visitors | clicks | unique_clickers
+  "window_days": 30,         // 1-90 (raw analytics events are purged at 90 days)
+  "min": 100,                // optional
+  "max": null                // optional; at least one of min/max required
+}
+```
+
+Thresholds on the total over the lookback window. **Zero-activity users are excluded when `min` is set and included when only `max` is set** — a user with no events has 0, which is at or below any max. That is what makes `max`-only a usable "low-traffic users" filter.
+
+Free-text `location_state` / `location_city` matching is best-effort: users who left the field blank never match.
+
 ## 9) Media uploads & processing (images + videos)
 
 Images and videos are uploaded through the Partna API and processed entirely server-side. No direct-to-storage uploads from the frontend.
