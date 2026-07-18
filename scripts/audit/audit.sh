@@ -214,7 +214,7 @@ outbound-platforms|app/Services/Platforms
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
-account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
+account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
 moderation-streaming|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Jobs/Moderation app/Jobs/Notifications app/Jobs/Streaming app/Jobs/Cloudflare
 connectors|app/Services/Platforms app/Jobs/Platforms
 EOF
