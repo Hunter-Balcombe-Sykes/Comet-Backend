@@ -531,6 +531,29 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Pre-account build creation (site-first signup + staff marketing
+        // builds). CF-Connecting-IP preferred (SEC-2) — same rationale as
+        // public-site. Scraping is expensive (Apify-billed): tight per-minute
+        // + hourly ceiling, both keyed off the same IP so a burst can't
+        // exhaust one bucket while leaving the other untouched.
+        RateLimiter::for('pre-account-build', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $key = $request->header('CF-Connecting-IP') ?: $request->ip();
+
+            return [
+                Limit::perMinute(3)
+                    ->by('pab:m:'.$key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+
+                Limit::perHour(10)
+                    ->by('pab:h:'.$key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
         // Public waitlist submissions. CF-Connecting-IP preferred on the
         // IP-keyed bucket (SEC-2) — same rationale as public-site.
         RateLimiter::for('waitlist', function (Request $request) use ($throttleEnabled) {
