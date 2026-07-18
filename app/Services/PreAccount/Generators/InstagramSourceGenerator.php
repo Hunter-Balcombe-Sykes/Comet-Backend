@@ -2,17 +2,30 @@
 
 namespace App\Services\PreAccount\Generators;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Platforms\InstagramConnectionSeeder;
+use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\Registry\Platform;
+use App\Services\PreAccount\SourceGenerationException;
+use Illuminate\Support\Str;
 
-// MINIMAL STUB — normalizeRef/dedupeKey/handleSeed are complete; generate()
-// (seeder extraction + scrape wiring) is completed in Task 8.
+// Builds a provisional user's site from a typed Instagram handle by reusing the
+// EXACT connect machinery an authenticated user gets: a pending IntegrationConnection
+// seeded by InstagramConnectionSeeder (scrape → mirror to R2 → payload write). The
+// unclaimed site therefore renders identically to a connected user's site, and the
+// IntegrationConnectionObserver flips content_instagram_auto_enabled on create.
 class InstagramSourceGenerator implements SiteSourceGenerator
 {
+    public function __construct(
+        private readonly InstagramScraper $scraper,
+        private readonly InstagramConnectionSeeder $seeder,
+    ) {}
+
     public function normalizeRef(string $raw): string
     {
         $ref = mb_strtolower(ltrim(trim($raw), '@'));
-
         if ($ref === '' || ! preg_match('/^[a-z0-9._]{1,30}$/', $ref)) {
             throw new \InvalidArgumentException('That does not look like an Instagram handle.');
         }
@@ -22,7 +35,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
 
     public function dedupeKey(string $normalizedRef): string
     {
-        return $normalizedRef;
+        return $normalizedRef; // already lowercase
     }
 
     public function handleSeed(string $normalizedRef, ?string $sourceName): string
@@ -32,7 +45,43 @@ class InstagramSourceGenerator implements SiteSourceGenerator
 
     public function generate(User $user, Site $site, string $sourceRef): void
     {
-        // Completed in Task 8 (seeder extraction + scrape wiring).
-        throw new \LogicException('InstagramSourceGenerator::generate is completed in Task 8.');
+        $profile = $this->scraper->fetchProfile($sourceRef, $user->id);
+        if (! $profile) {
+            throw SourceGenerationException::sourceNotFound();
+        }
+
+        // Pending placeholder mirroring InstagramController::connect — payload []
+        // (NOT null: platform_connections.payload is NOT NULL on live Postgres).
+        // resource_id matches ManagesIntegrationConnection::defaultResourceId()
+        // (= platform()), which InstagramController also uses: 'instagram'.
+        $connection = IntegrationConnection::updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'platform' => Platform::Instagram->value,
+                'resource_id' => Platform::Instagram->value,
+            ],
+            [
+                'payload' => [],
+                'is_active' => false,
+                'last_refreshed_at' => null,
+                'last_refresh_status' => 'pending',
+                'last_refresh_error' => null,
+                'consecutive_failures' => 0,
+            ],
+        );
+
+        try {
+            $this->seeder->seed($connection, $sourceRef, $user->id, $profile);
+        } catch (\Throwable $e) {
+            throw SourceGenerationException::scrapeFailed($e->getMessage());
+        }
+
+        // Scraped identity onto the user row (spec §4): placeholder → real values.
+        $fullName = trim((string) data_get($profile, 'fullName'));
+        if ($fullName !== '') {
+            $user->display_name = $fullName;
+            $user->first_name = Str::before($fullName, ' ') ?: $fullName;
+            $user->save();
+        }
     }
 }
