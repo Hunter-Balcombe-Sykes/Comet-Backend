@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 // retention (default 7y) on the append-only handle-rename audit log. app_backend
 // has no DELETE on the audit schema, so the real deletion runs inside the
 // SECURITY DEFINER audit.prune_handle_change_log() Postgres function (see
-// 20260718000000_handle_change_log_retention_prune.sql), which briefly disables
+// 20260718010000_handle_change_log_retention_prune.sql), which briefly disables
 // the append-only trigger for its own atomic delete.
 class PruneHandleAuditLogs extends Command
 {

@@ -2,7 +2,7 @@
 
 // Audit / Supabase security-advisor regression guard: the 12 trigger and helper
 // functions hardened in 20260606040000_pin_function_search_paths.sql, plus
-// audit.prune_handle_change_log (PRIV-2, 20260718000000_handle_change_log_retention_prune.sql),
+// audit.prune_handle_change_log (PRIV-2, 20260718010000_handle_change_log_retention_prune.sql),
 // must keep a PINNED search_path. A function with a mutable (null proconfig)
 // search_path inherits the caller's search_path, letting a malicious caller
 // shadow any unqualified object reference inside the body — a privilege-

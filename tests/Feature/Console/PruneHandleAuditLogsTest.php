@@ -2,7 +2,7 @@
 
 // PRIV-2: retention prune for the append-only audit.handle_change_log table.
 // The real deletion runs through the SECURITY DEFINER audit.prune_handle_change_log()
-// RPC (20260718000000_handle_change_log_retention_prune.sql) because app_backend
+// RPC (20260718010000_handle_change_log_retention_prune.sql) because app_backend
 // cannot DELETE from the audit schema directly. That RPC doesn't exist on the
 // SQLite test connection, so only the dry-run + retention-floor guard are
 // exercised here; the real-delete path is gated behind a Postgres-only test.
