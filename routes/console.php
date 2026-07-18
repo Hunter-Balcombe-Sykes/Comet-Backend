@@ -154,6 +154,16 @@ Schedule::command('handles:notify-expiry')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('handles-notify-expiry'));
 
+// PRIV-2: enforces config('partna.handle.audit_retention_years') (default 7y) on
+// the append-only audit.handle_change_log table via the SECURITY DEFINER
+// audit.prune_handle_change_log() RPC (app_backend cannot DELETE directly).
+Schedule::command('handles:prune-audit-logs')
+    ->dailyAt('03:25')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('handles-prune-audit-logs'));
+
 Schedule::command('feature-flags:prune-expired')
     ->dailyAt('03:30')
     ->withoutOverlapping(30)

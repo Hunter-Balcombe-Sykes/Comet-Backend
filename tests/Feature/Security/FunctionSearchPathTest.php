@@ -1,12 +1,13 @@
 <?php
 
 // Audit / Supabase security-advisor regression guard: the 12 trigger and helper
-// functions hardened in 20260606040000_pin_function_search_paths.sql must keep a
-// PINNED search_path. A function with a mutable (null proconfig) search_path
-// inherits the caller's search_path, letting a malicious caller shadow any
-// unqualified object reference inside the body — a privilege-escalation /
-// resolution-hijack vector. The advisor (`function_search_path_mutable`) flags
-// any such function; this sentinel keeps it from regressing.
+// functions hardened in 20260606040000_pin_function_search_paths.sql, plus
+// audit.prune_handle_change_log (PRIV-2, 20260718000000_handle_change_log_retention_prune.sql),
+// must keep a PINNED search_path. A function with a mutable (null proconfig)
+// search_path inherits the caller's search_path, letting a malicious caller
+// shadow any unqualified object reference inside the body — a privilege-
+// escalation / resolution-hijack vector. The advisor (`function_search_path_mutable`)
+// flags any such function; this sentinel keeps it from regressing.
 //
 // Strategy mirrors tests/Feature/Security/ModerationSchemaRlsTest.php and
 // DesignKitsRlsTest.php: introspect pg_proc.proconfig (PostgreSQL-only) rather
@@ -40,7 +41,11 @@ function fetchFunctionSearchPathConfig(string $schema, string $name): ?object
     );
 }
 
-// The 12 functions pinned in 20260606040000_pin_function_search_paths.sql.
+// The 12 functions pinned in 20260606040000_pin_function_search_paths.sql, plus
+// audit.prune_handle_change_log (PRIV-2, 20260718000000) — a SECURITY DEFINER
+// function, so an unpinned search_path there is a privilege-escalation vector,
+// not just a resolution-hijack one: every identifier in its body is already
+// fully schema-qualified, so the empty path is safe.
 // Each is [schema, name].
 $searchPathFunctions = [
     ['public', 'set_updated_at'],
@@ -55,6 +60,7 @@ $searchPathFunctions = [
     ['site', 'trg_recompute_partna_url'],
     ['site', 'create_empty_design_kit'],
     ['site', 'trg_sites_url_sync'],
+    ['audit', 'prune_handle_change_log'],
 ];
 
 dataset('search_path_functions', array_map(

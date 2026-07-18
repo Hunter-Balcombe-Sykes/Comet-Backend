@@ -1014,7 +1014,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 5 complete
 - P3 Low: 0 of 4 complete
 
@@ -1022,7 +1022,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **PRIV-2** · P1 — 7-year handle-audit retention is declared in config but no job enforces it
+- [x] **PRIV-2** · P1 — 7-year handle-audit retention is declared in config but no job enforces it
     - **Where:** `config/partna.php:56` (`handle.audit_retention_years`) and `routes/console.php` (no matching `Schedule::command()`)
     - **Affects:** Every row in `audit.handle_change_log` — every historical handle a professional has ever held, tied to their identity, retained forever with no expiry mechanism.
     - **Effort:** S (~0.5–1h)
