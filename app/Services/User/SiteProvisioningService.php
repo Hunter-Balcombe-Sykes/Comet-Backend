@@ -11,7 +11,7 @@ use RuntimeException;
 // V2: Provisions new professional sites with unique subdomains.
 class SiteProvisioningService
 {
-    public function createSiteWithRetry(string $userId, string $base): Site
+    public function createSiteWithRetry(string $userId, string $base, bool $published = true): Site
     {
         $reserved = array_map('strtolower', config('partna.reserved_subdomains', []));
         $base = strtolower($base);
@@ -20,7 +20,7 @@ class SiteProvisioningService
         if ($baseIsReserved) {
             for ($i = 1; $i <= 20; $i++) {
                 $candidate = $this->buildCandidate($base, (string) $i);
-                $site = $this->tryCreateSite($userId, $candidate);
+                $site = $this->tryCreateSite($userId, $candidate, $published);
                 if ($site) {
                     return $site;
                 }
@@ -29,7 +29,7 @@ class SiteProvisioningService
             for ($i = 0; $i < 20; $i++) {
                 $suffix = $i === 0 ? null : (string) $i;
                 $candidate = $this->buildCandidate($base, $suffix);
-                $site = $this->tryCreateSite($userId, $candidate);
+                $site = $this->tryCreateSite($userId, $candidate, $published);
                 if ($site) {
                     return $site;
                 }
@@ -39,7 +39,7 @@ class SiteProvisioningService
         for ($i = 0; $i < 10; $i++) {
             $rand = Str::lower(Str::random(6));
             $candidate = $this->buildCandidate($base, $rand);
-            $site = $this->tryCreateSite($userId, $candidate);
+            $site = $this->tryCreateSite($userId, $candidate, $published);
             if ($site) {
                 return $site;
             }
@@ -82,7 +82,7 @@ class SiteProvisioningService
         return substr($base, 0, $max);
     }
 
-    private function tryCreateSite(string $userId, string $candidate): ?Site
+    private function tryCreateSite(string $userId, string $candidate, bool $published): ?Site
     {
         try {
             // Wrap the insert in a nested transaction so Laravel emits a
@@ -97,13 +97,13 @@ class SiteProvisioningService
             // the retry loop can try the next candidate. SQLite doesn't abort on
             // statement error, which is why this bug is invisible in the SQLite
             // test suite (see SiteProvisioningSavepointTest, gated to real pgsql).
-            return DB::connection('pgsql')->transaction(function () use ($userId, $candidate) {
+            return DB::connection('pgsql')->transaction(function () use ($userId, $candidate, $published) {
                 // architecture_id defaults to 'staple' at the DB level (TEXT CHECK
                 // DEFAULT 'staple' — the only layout). New sites pick up the
                 // default automatically; no need to set it explicitly.
                 $site = new Site([
                     'subdomain' => $candidate,
-                    'is_published' => true,
+                    'is_published' => $published,
                     'settings' => [],
                 ]);
 
