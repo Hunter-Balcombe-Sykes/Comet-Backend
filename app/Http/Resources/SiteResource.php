@@ -2,8 +2,11 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\PublicFeature;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Design\DesignRationaleService;
+use App\Services\FeatureAvailability\FeatureAvailability;
 use Illuminate\Http\Request;
 
 // API resource for site.sites rows (dashboard + staff side).
@@ -26,6 +29,34 @@ class SiteResource extends ApiResource
         $this->withRationale = $with;
 
         return $this;
+    }
+
+    /** Owner whose feature availability to emit; null = don't emit the map. */
+    private ?User $featureAvailabilityOwner = null;
+
+    /** Opt this resource into emitting feature_availability for $owner. Fluent. */
+    public function withFeatureAvailability(User $owner): static
+    {
+        $this->featureAvailabilityOwner = $owner;
+
+        return $this;
+    }
+
+    /**
+     * feature_key value => is-available, for every enforceable PublicFeature.
+     * Resolves the per-user availability snapshot ONCE (not per key).
+     *
+     * @return array<string, bool>
+     */
+    private function featureAvailabilityMap(User $owner): array
+    {
+        $availability = FeatureAvailability::for($owner);
+
+        return collect(PublicFeature::cases())
+            ->mapWithKeys(fn (PublicFeature $feature) => [
+                $feature->value => $availability->allows($feature->availabilityKey()),
+            ])
+            ->all();
     }
 
     /**
@@ -79,6 +110,12 @@ class SiteResource extends ApiResource
             // Conditionally merged so the keys are absent (not null) when unset,
             // keeping the shape clean for clients that don't care about booking.
             array_key_exists('booking_mode', $settings) ? ['booking_mode' => $settings['booking_mode']] : [],
-            array_key_exists('manual_booking_url', $settings) ? ['manual_booking_url' => $settings['manual_booking_url']] : []);
+            array_key_exists('manual_booking_url', $settings) ? ['manual_booking_url' => $settings['manual_booking_url']] : [],
+            // Owner-facing feature availability (spec §7). Opt-in via
+            // withFeatureAvailability() so only the owner's own site read pays the
+            // (already-cached) snapshot lookup; staff/self/visibility responses skip it.
+            $this->featureAvailabilityOwner !== null
+                ? ['feature_availability' => $this->featureAvailabilityMap($this->featureAvailabilityOwner)]
+                : []);
     }
 }
