@@ -24,6 +24,7 @@ final class SegmentCriteria
             new LocationStateCriterion,
             new LocationCityCriterion,
             new TenureCriterion,
+            new IgFollowersCriterion,
         ];
     }
 }

@@ -16,12 +16,15 @@ beforeEach(function () {
     setupSegmentsTables();
     setupEarlyAccessTable();
 
-    // has_integration reads site.platform_connections via the model relation.
+    // has_integration and ig_followers read site.platform_connections via the
+    // model relation. payload mirrors the real jsonb column (TEXT here).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         platform TEXT NULL,
+        payload TEXT NULL,
         is_active INTEGER NULL,
+        last_refreshed_at TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
@@ -214,4 +217,114 @@ it('treats null location and tenure keys as inert', function () {
 
     // No criterion active → dynamic set empty → manual members only.
     expect(app(SegmentResolver::class)->userIds($segment))->toBe([$manual]);
+});
+
+function ovaSeedInstagram(string $userId, mixed $followers, array $overrides = []): void
+{
+    DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'platform' => 'instagram',
+        'payload' => json_encode(['followersCount' => $followers]),
+        'is_active' => 1,
+        'last_refreshed_at' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ], $overrides));
+}
+
+it('resolves ig_followers min and max bounds', function () {
+    $small = ovaSeedUser();
+    $mid = ovaSeedUser();
+    $huge = ovaSeedUser();
+    ovaSeedUser(); // no instagram connection at all
+
+    ovaSeedInstagram($small, 500);
+    ovaSeedInstagram($mid, 10000);
+    ovaSeedInstagram($huge, 900000);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['ig_followers' => ['min' => 1000]])))
+        ->toContain($mid)->toContain($huge)->toHaveCount(2)
+        ->and($resolver->userIds(ovaSegment(['ig_followers' => ['max' => 1000]])))->toBe([$small])
+        ->and($resolver->userIds(ovaSegment(['ig_followers' => ['min' => 1000, 'max' => 50000]])))->toBe([$mid]);
+});
+
+it('reads ig follower counts stored as numeric strings', function () {
+    $stringy = ovaSeedUser();
+    ovaSeedInstagram($stringy, '2500');
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment(['ig_followers' => ['min' => 1000]])))->toBe([$stringy]);
+});
+
+it('excludes non-numeric and missing ig follower counts without erroring', function () {
+    $garbage = ovaSeedUser();
+    $nulled = ovaSeedUser();
+    $absent = ovaSeedUser();
+    $good = ovaSeedUser();
+
+    ovaSeedInstagram($garbage, '1.2M');
+    ovaSeedInstagram($nulled, null);
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $absent,
+        'platform' => 'instagram',
+        'payload' => json_encode(['username' => 'nofollowers']),
+        'is_active' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    ovaSeedInstagram($good, 5000);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment(['ig_followers' => ['min' => 1]])))->toBe([$good]);
+});
+
+it('ignores inactive instagram connections for ig_followers', function () {
+    $inactive = ovaSeedUser();
+    ovaSeedInstagram($inactive, 9999, ['is_active' => 0]);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment(['ig_followers' => ['min' => 100]])))->toBeEmpty();
+});
+
+it('applies synced_within_days, falling back to created_at when never refreshed', function () {
+    $freshConnect = ovaSeedUser();   // never refreshed, but connected today
+    $staleConnect = ovaSeedUser();   // never refreshed, connected long ago
+    $refreshed = ovaSeedUser();      // connected long ago, refreshed today
+
+    ovaSeedInstagram($freshConnect, 5000);
+    ovaSeedInstagram($staleConnect, 5000, [
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+    ]);
+    ovaSeedInstagram($refreshed, 5000, [
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'last_refreshed_at' => now()->toDateTimeString(),
+    ]);
+
+    $ids = app(SegmentResolver::class)->userIds(ovaSegment([
+        'ig_followers' => ['min' => 1000, 'synced_within_days' => 30],
+    ]));
+
+    expect($ids)->toContain($freshConnect)->toContain($refreshed)->toHaveCount(2);
+});
+
+it('treats an empty or all-null ig_followers object as inert', function () {
+    ovaSeedInstagram(ovaSeedUser(), 5000);
+    $manual = ovaSeedUser();
+
+    $segment = ovaSegment(['ig_followers' => ['min' => null, 'max' => null]]);
+    UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $manual]);
+
+    expect(app(SegmentResolver::class)->userIds($segment))->toBe([$manual])
+        ->and(app(SegmentResolver::class)->userIds(ovaSegment(['ig_followers' => []])))->toBeEmpty();
+});
+
+it('AND-combines ig_followers with an existing criterion', function () {
+    $djBig = ovaSeedUser(['sector' => 'dj']);
+    $hairBig = ovaSeedUser(['sector' => 'hairdresser']);
+    ovaSeedInstagram($djBig, 20000);
+    ovaSeedInstagram($hairBig, 20000);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment(['sector' => ['dj'], 'ig_followers' => ['min' => 1000]])))
+        ->toBe([$djBig]);
 });

@@ -14,6 +14,16 @@ use App\Services\Segments\Criteria\SegmentCriterion;
 // Only structural keys are declared here.
 class StoreSegmentRequest extends BaseFormRequest
 {
+    /**
+     * Object criteria accept a fixed set of sub-keys; anything else is dropped
+     * rather than rejected, mirroring how the engine ignores unknown top-level
+     * filter keys.
+     */
+    private const OBJECT_SUB_KEYS = [
+        'ig_followers' => ['min', 'max', 'synced_within_days'],
+        'analytics' => ['metric', 'window_days', 'min', 'max'],
+    ];
+
     public function rules(): array
     {
         $rules = [
@@ -29,5 +39,26 @@ class StoreSegmentRequest extends BaseFormRequest
         }
 
         return $rules;
+    }
+
+    /** @return array<string, mixed> */
+    public static function stripUnknownSubKeys(array $filters): array
+    {
+        foreach (self::OBJECT_SUB_KEYS as $key => $allowed) {
+            if (isset($filters[$key]) && is_array($filters[$key])) {
+                $filters[$key] = array_intersect_key($filters[$key], array_flip($allowed));
+            }
+        }
+
+        return $filters;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $filters = $this->input('filters');
+
+        if (is_array($filters)) {
+            $this->merge(['filters' => self::stripUnknownSubKeys($filters)]);
+        }
     }
 }
