@@ -3,7 +3,11 @@
 use App\Jobs\Notifications\DispatchEnquiryNotificationsJob;
 use App\Jobs\Notifications\SendEnquiryConfirmationJob;
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
+use App\Models\Core\FeatureAvailabilityRule;
+use App\Models\Core\Segments\UserSegment;
+use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Site\Enquiry;
+use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Notifications\EnquirySpamBlocklist;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -26,6 +30,8 @@ function setupContactSubmissionSchema(): void
     setupUsersTable();
     setupSitesTable();
     setupBlocksTable();
+    setupSegmentsTables();            // core.user_segments (+ members) — feature-availability segment rules
+    setupFeatureAvailabilityTable();  // core.feature_availability — else the gate fails OPEN in tests
 
     attachTestSchemas();
 
@@ -352,4 +358,73 @@ it('dispatches SendEnquiryConfirmationJob to confirm receipt to the visitor', fu
     ])->assertOk();
 
     Bus::assertDispatched(SendEnquiryConfirmationJob::class);
+});
+
+it('422s the enquiry submit when feature.enquiries is globally disabled', function () {
+    seedPublishedContactSite();
+    Bus::fake();
+
+    FeatureAvailabilityRule::query()->create([
+        'feature_key' => 'feature.enquiries',
+        'mode' => FeatureAvailabilityRule::MODE_DISABLED,
+    ]);
+    FeatureAvailability::flush();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), [
+        'X-Site-Subdomain' => 'testpro',
+    ])->assertStatus(422)->assertJson(['error' => 'FEATURE_UNAVAILABLE']);
+
+    // No row written, no notification dispatched — the gate fired before persistence.
+    expect(\App\Models\Core\Site\Enquiry::query()->count())->toBe(0);
+    Bus::assertNotDispatched(DispatchEnquiryNotificationsJob::class);
+    Bus::assertNotDispatched(SendEnquiryConfirmationJob::class);
+});
+
+it('allows the enquiry submit when no availability rule exists', function () {
+    seedPublishedContactSite();
+    Bus::fake();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), [
+        'X-Site-Subdomain' => 'testpro',
+    ])->assertOk()->assertJson(['ok' => true]);
+
+    expect(\App\Models\Core\Site\Enquiry::query()->count())->toBe(1);
+});
+
+it('422s a submitter whose owner is in a disabled segment, but allows one who is not', function () {
+    [$proId] = seedPublishedContactSite('segpro');       // owner IN the segment
+    seedPublishedContactSite('freepro');                 // owner NOT in the segment
+    Bus::fake();
+
+    $segment = UserSegment::query()->create(['name' => 'seg-'.\Illuminate\Support\Str::random(4), 'filters' => []]);
+    UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $proId]);
+
+    FeatureAvailabilityRule::query()->create([
+        'feature_key' => 'feature.enquiries',
+        'mode' => FeatureAvailabilityRule::MODE_DISABLED,
+        'segment_id' => $segment->id,
+    ]);
+    FeatureAvailability::flush();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), ['X-Site-Subdomain' => 'segpro'])
+        ->assertStatus(422)->assertJson(['error' => 'FEATURE_UNAVAILABLE']);
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), ['X-Site-Subdomain' => 'freepro'])
+        ->assertOk();
+});
+
+it('gate precedence: disabled feature 422s even with a live contact block', function () {
+    // seedPublishedContactSite() creates a live `contact` section block, so this
+    // proves the feature gate fires BEFORE the existing contact-block check.
+    seedPublishedContactSite();
+    Bus::fake();
+
+    FeatureAvailabilityRule::query()->create([
+        'feature_key' => 'feature.enquiries',
+        'mode' => FeatureAvailabilityRule::MODE_DISABLED,
+    ]);
+    FeatureAvailability::flush();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), ['X-Site-Subdomain' => 'testpro'])
+        ->assertStatus(422)->assertJson(['error' => 'FEATURE_UNAVAILABLE']);
 });
