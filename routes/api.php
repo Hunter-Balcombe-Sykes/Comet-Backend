@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Internal\EnvCheckController;
 use App\Http\Controllers\Api\Internal\SupabaseEmailHookController;
 use App\Http\Controllers\Api\PublicSite\AnalyticsController;
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
+use App\Http\Controllers\Api\PublicSite\ClaimController;
 use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
 use App\Http\Controllers\Api\PublicSite\PreAccountBuildController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
@@ -48,6 +49,11 @@ Route::middleware('throttle:webhooks')->group(function () {
 
 // bootstrap uses ONLY JWT middleware
 Route::middleware(['supabase.jwt', 'throttle:bootstrap'])->post('/bootstrap', [BootstrapController::class, 'bootstrap']);
+
+// claim uses ONLY JWT middleware — same shape as bootstrap. Binds a Supabase
+// auth user with no core.users row yet to an unclaimed pre-account site
+// (first-come). Email is read exclusively from the verified JWT claim.
+Route::middleware(['supabase.jwt', 'throttle:claim'])->post('/claim', [ClaimController::class, 'store']);
 
 // Split route files (keeps api.php tidy)
 require __DIR__.'/api/user.php';

@@ -733,6 +733,23 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        // Site claim (first-come binding of a Supabase auth user to an
+        // unclaimed pre-account site — see ClaimSiteService). Same per-uid
+        // shape as bootstrap; the limiter fails loudly if supabase.jwt didn't
+        // run first, rather than silently keying on an empty string.
+        RateLimiter::for('claim', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $uid = (string) $request->attributes->get('supabase_uid');
+            if ($uid === '') {
+                throw new \RuntimeException('claim limiter requires supabase_uid — check middleware order.');
+            }
+
+            return Limit::perMinute(5)->by('claim:'.$uid);
+        });
+
         // Session-management write endpoints (logout, logout-others, revoke session).
         // Keyed per-user because these write to the Redis session-id blocklist
         // (see TokenRevocationService), which is consulted on every authenticated

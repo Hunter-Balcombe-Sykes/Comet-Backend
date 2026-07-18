@@ -23,6 +23,14 @@ const EMAIL_VERIFY_EXEMPT = [
     // BEFORE verification. The controller itself is read-only and only
     // returns the caller's own data.
     'POST api/bootstrap',
+    // Same OV-A pattern as bootstrap: /claim binds a fresh Supabase auth user
+    // (email OTP, possibly still unverified at the JWT layer) to an unclaimed
+    // pre-account site. ClaimController fails closed itself — it reads the
+    // email ONLY from the verified JWT claim and 422s EMAIL_VERIFICATION_REQUIRED
+    // when absent — so a route-level require.email_verified gate would be
+    // redundant and would block the legitimate unverified-token case this
+    // endpoint exists to handle.
+    'POST api/claim',
 ];
 
 it('every supabase.jwt route also runs RequireEmailVerified (or is explicitly exempt)', function () {
