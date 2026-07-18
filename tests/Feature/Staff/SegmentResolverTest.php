@@ -15,6 +15,8 @@ beforeEach(function () {
     setupUsersTable();
     setupSegmentsTables();
     setupEarlyAccessTable();
+    setupSiteVisitsTable();
+    setupLinkClicksTable();
 
     // has_integration and ig_followers read site.platform_connections via the
     // model relation. payload mirrors the real jsonb column (TEXT here).
@@ -33,6 +35,8 @@ beforeEach(function () {
     DB::connection('pgsql')->statement('DELETE FROM core.users');
     DB::connection('pgsql')->statement('DELETE FROM site.platform_connections');
     DB::connection('pgsql')->statement('DELETE FROM core.early_access_signups');
+    DB::connection('pgsql')->statement('DELETE FROM analytics.site_visits');
+    DB::connection('pgsql')->statement('DELETE FROM analytics.link_clicks');
 });
 
 function ovaSeedUser(array $overrides = []): string
@@ -327,4 +331,156 @@ it('AND-combines ig_followers with an existing criterion', function () {
 
     expect(app(SegmentResolver::class)->userIds(ovaSegment(['sector' => ['dj'], 'ig_followers' => ['min' => 1000]])))
         ->toBe([$djBig]);
+});
+
+function ovaSeedVisit(string $userId, string $visitorId, int $daysAgo): void
+{
+    DB::connection('pgsql')->table('analytics.site_visits')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'visitor_id' => $visitorId,
+        'occurred_at' => now()->subDays($daysAgo)->toDateTimeString(),
+        'created_at' => now()->subDays($daysAgo)->toDateTimeString(),
+    ]);
+}
+
+function ovaSeedClick(string $userId, string $visitorId, int $daysAgo): void
+{
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'visitor_id' => $visitorId,
+        'occurred_at' => now()->subDays($daysAgo)->toDateTimeString(),
+        'created_at' => now()->subDays($daysAgo)->toDateTimeString(),
+    ]);
+}
+
+it('resolves an analytics visits minimum over the window', function () {
+    $busy = ovaSeedUser();
+    $quiet = ovaSeedUser();
+    ovaSeedUser(); // zero rows
+
+    foreach (range(1, 5) as $i) {
+        ovaSeedVisit($busy, "v{$i}", 3);
+    }
+    ovaSeedVisit($quiet, 'v1', 3);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 3],
+    ])))->toBe([$busy]);
+});
+
+it('ignores analytics events outside the window', function () {
+    $lapsed = ovaSeedUser();
+
+    foreach (range(1, 5) as $i) {
+        ovaSeedVisit($lapsed, "v{$i}", 60); // older than the 30-day window
+    }
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 1],
+    ])))->toBeEmpty();
+});
+
+it('counts unique_visitors distinctly from raw visits', function () {
+    $repeat = ovaSeedUser();
+
+    // 4 visits, but only 2 distinct visitors.
+    ovaSeedVisit($repeat, 'v1', 2);
+    ovaSeedVisit($repeat, 'v1', 3);
+    ovaSeedVisit($repeat, 'v2', 4);
+    ovaSeedVisit($repeat, 'v2', 5);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 4]])))->toBe([$repeat])
+        ->and($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'unique_visitors', 'window_days' => 30, 'min' => 4]])))->toBeEmpty()
+        ->and($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'unique_visitors', 'window_days' => 30, 'min' => 2]])))->toBe([$repeat]);
+});
+
+it('resolves click metrics from the link_clicks table', function () {
+    $clicker = ovaSeedUser();
+    $visitorOnly = ovaSeedUser();
+
+    ovaSeedClick($clicker, 'v1', 2);
+    ovaSeedClick($clicker, 'v2', 3);
+    ovaSeedVisit($visitorOnly, 'v9', 2);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'clicks', 'window_days' => 30, 'min' => 2]])))->toBe([$clicker])
+        ->and($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'unique_clickers', 'window_days' => 30, 'min' => 2]])))->toBe([$clicker]);
+});
+
+it('INCLUDES zero-row users under a max-only analytics filter', function () {
+    $busy = ovaSeedUser();
+    $quiet = ovaSeedUser();
+    $silent = ovaSeedUser(); // no analytics rows whatsoever
+
+    foreach (range(1, 10) as $i) {
+        ovaSeedVisit($busy, "v{$i}", 3);
+    }
+    ovaSeedVisit($quiet, 'v1', 3);
+
+    // "low traffic" must mean quiet AND silent — a user with no rows has 0
+    // visits, which is <= the max. This is the semantic most likely to regress.
+    $ids = app(SegmentResolver::class)->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'max' => 5],
+    ]));
+
+    expect($ids)->toContain($quiet)->toContain($silent)->not->toContain($busy)->toHaveCount(2);
+});
+
+it('EXCLUDES zero-row users when a min is set', function () {
+    $silent = ovaSeedUser();
+    $busy = ovaSeedUser();
+    ovaSeedVisit($busy, 'v1', 3);
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 1],
+    ])))->toBe([$busy])->not->toContain($silent);
+});
+
+it('applies both analytics bounds as a band', function () {
+    $low = ovaSeedUser();
+    $mid = ovaSeedUser();
+    $high = ovaSeedUser();
+
+    ovaSeedVisit($low, 'v1', 2);
+    foreach (range(1, 5) as $i) {
+        ovaSeedVisit($mid, "v{$i}", 2);
+    }
+    foreach (range(1, 20) as $i) {
+        ovaSeedVisit($high, "v{$i}", 2);
+    }
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 3, 'max' => 10],
+    ])))->toBe([$mid]);
+});
+
+it('treats an all-null analytics object as inert', function () {
+    $busy = ovaSeedUser();
+    ovaSeedVisit($busy, 'v1', 2);
+    $manual = ovaSeedUser();
+
+    $segment = ovaSegment(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => null, 'max' => null]]);
+    UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $manual]);
+
+    expect(app(SegmentResolver::class)->userIds($segment))->toBe([$manual]);
+});
+
+it('AND-combines analytics with an existing criterion', function () {
+    $djBusy = ovaSeedUser(['sector' => 'dj']);
+    $hairBusy = ovaSeedUser(['sector' => 'hairdresser']);
+
+    foreach (range(1, 5) as $i) {
+        ovaSeedVisit($djBusy, "v{$i}", 2);
+        ovaSeedVisit($hairBusy, "v{$i}", 2);
+    }
+
+    expect(app(SegmentResolver::class)->userIds(ovaSegment([
+        'sector' => ['dj'],
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 3],
+    ])))->toBe([$djBusy]);
 });
