@@ -40,6 +40,10 @@ trait ResolvesFilterValues
      * min/max, which no structural Laravel rule can express. Non-array values
      * pass through — that shape is rejected elsewhere by the sibling 'array'
      * rule, not here.
+     *
+     * Note the asymmetry: `min: 0` does NOT satisfy this (see isLowerBound),
+     * but `max: 0` does — "at most zero" is a real constraint. So
+     * `{min: 0, max: 0}` passes and `{min: 0}` alone is a 422.
      */
     protected function requiresABound(string $message): Closure
     {
@@ -48,9 +52,31 @@ trait ResolvesFilterValues
                 return;
             }
 
-            if (($value['min'] ?? null) === null && ($value['max'] ?? null) === null) {
+            if (! self::isLowerBound($value['min'] ?? null) && ($value['max'] ?? null) === null) {
                 $fail($message);
             }
         };
+    }
+
+    /**
+     * Is this `min` an actual lower bound, or the no-op zero?
+     *
+     * Every quantity these criteria bound (event counts, follower counts) is
+     * non-negative, so `>= 0` constrains nothing — it reads as "no minimum".
+     * Taking it literally is actively harmful in AnalyticsCriterion, where the
+     * min branch is an EXISTS/GROUP BY that silently excludes zero-activity
+     * users; see the branch comments there.
+     *
+     * Non-numeric values count as a bound so the sibling `integer` rule owns
+     * reporting them — otherwise `min: "abc"` would surface as the misleading
+     * "requires at least one of min or max".
+     */
+    protected static function isLowerBound(mixed $min): bool
+    {
+        if ($min === null || $min === '') {
+            return false;
+        }
+
+        return ! (is_numeric($min) && (int) $min === 0);
     }
 }

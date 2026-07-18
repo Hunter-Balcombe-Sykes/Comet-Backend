@@ -52,9 +52,13 @@ final class AnalyticsCriterion implements SegmentCriterion
     {
         $config = $this->objectConfig($filters, 'analytics');
 
+        // `min: 0` is not a bound (see ResolvesFilterValues::isLowerBound), so
+        // it does not activate the criterion on its own. Validation rejects
+        // that shape outright rather than letting it go inert here — an inert
+        // sole criterion would resolve the whole segment to the EMPTY set.
         return isset(self::METRICS[$config['metric'] ?? ''])
             && isset($config['window_days'])
-            && (isset($config['min']) || isset($config['max']));
+            && (self::isLowerBound($config['min'] ?? null) || isset($config['max']));
     }
 
     public function apply(Builder $query, array $filters): void
@@ -65,8 +69,23 @@ final class AnalyticsCriterion implements SegmentCriterion
         $table = $metric['table'];
         $aggregate = $metric['aggregate'];
 
-        $min = $config['min'] ?? null;
+        // A count is always >= 0, so `min: 0` bounds nothing — normalise it to
+        // null so it takes the NOT EXISTS branch below. This is not just a
+        // relaxed threshold: the min branch cannot SEE zero-activity users at
+        // all (no rows → no group), so `min: 0, max: N` would otherwise drop
+        // exactly the low-traffic users it is meant to find, and
+        // `min: 0, max: 0` would be unsatisfiable by construction.
+        $min = self::isLowerBound($config['min'] ?? null) ? (int) $config['min'] : null;
         $max = $config['max'] ?? null;
+
+        // Unreachable via the API — validation 422s a bound-less analytics
+        // object and isActive() keeps it out of the query. Guarded anyway
+        // because the failure mode is silent and wrong in the dangerous
+        // direction: a null binding makes `> ?` never true, so NOT EXISTS
+        // holds for everyone and the segment quietly matches ALL users.
+        if ($min === null && $max === null) {
+            return;
+        }
 
         // Cutoff computed in PHP and bound — no SQL date arithmetic, so the
         // predicate is identical on Postgres and SQLite.
@@ -96,9 +115,12 @@ final class AnalyticsCriterion implements SegmentCriterion
             return;
         }
 
-        // max-only: no rows → no group → NOT EXISTS true → INCLUDED. A user
-        // with no events has 0, which is <= max. Deliberate — this is what
-        // makes "target low-traffic users" work.
+        // No lower bound (max alone, or a normalised `min: 0`): invert, so the
+        // subquery looks for a DISQUALIFYING group instead of a qualifying
+        // one. No rows → no group → NOT EXISTS true → INCLUDED. A user with no
+        // events has 0, which is <= max. Deliberate — this is what makes
+        // "target low-traffic users" work, and it is the only branch that can
+        // return zero-activity users at all.
         $query->whereRaw("NOT EXISTS ({$inner}{$aggregate} > ?)", [$cutoff, (int) $max]);
     }
 }

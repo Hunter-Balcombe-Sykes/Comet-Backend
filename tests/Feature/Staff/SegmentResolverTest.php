@@ -484,3 +484,100 @@ it('AND-combines analytics with an existing criterion', function () {
         'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 3],
     ])))->toBe([$djBusy]);
 });
+
+/**
+ * `min: 0` = "no lower bound". A count is never negative, so the zero is inert
+ * as a threshold — but taking it literally routes the query down the
+ * EXISTS/GROUP BY branch, which cannot see zero-activity users at all. These
+ * pin the corrected routing.
+ */
+it('treats analytics min:0 as no lower bound, keeping zero-row users in a band', function () {
+    $busy = ovaSeedUser();
+    $quiet = ovaSeedUser();
+    $silent = ovaSeedUser(); // no analytics rows whatsoever
+
+    foreach (range(1, 10) as $i) {
+        ovaSeedVisit($busy, "v{$i}", 3);
+    }
+    ovaSeedVisit($quiet, 'v1', 3);
+
+    $resolver = app(SegmentResolver::class);
+
+    $banded = $resolver->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 0, 'max' => 5],
+    ]));
+
+    // "0 to 5 visits" must include the user with literally zero.
+    expect($banded)->toContain($quiet)->toContain($silent)->not->toContain($busy)->toHaveCount(2);
+
+    // ...and must agree exactly with the max-only form, since min:0 adds nothing.
+    $maxOnly = $resolver->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'max' => 5],
+    ]));
+
+    expect(array_values($banded))->toBe(array_values($maxOnly));
+});
+
+it('resolves analytics min:0,max:0 to exactly the zero-activity users', function () {
+    $busy = ovaSeedUser();
+    $silent = ovaSeedUser();
+    $lapsed = ovaSeedUser();
+
+    ovaSeedVisit($busy, 'v1', 3);
+    ovaSeedVisit($lapsed, 'v1', 60); // outside the window — zero *in window*
+
+    // Under the old EXISTS/HAVING form this was unsatisfiable by construction:
+    // a GROUP BY group only exists when there is >= 1 row, so COUNT(*) is never
+    // 0 for a group that exists, and `>= 0 AND <= 0` matched nobody, ever.
+    expect(app(SegmentResolver::class)->userIds(ovaSegment([
+        'analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 0, 'max' => 0],
+    ])))->toContain($silent)->toContain($lapsed)->not->toContain($busy)->toHaveCount(2);
+});
+
+it('leaves a positive analytics min excluding zero-row users', function () {
+    // Guards the other direction: normalising min:0 must not soften min:1.
+    $silent = ovaSeedUser();
+    $quiet = ovaSeedUser();
+    ovaSeedVisit($quiet, 'v1', 3);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 1]])))
+        ->toBe([$quiet])->not->toContain($silent)
+        ->and($resolver->userIds(ovaSegment(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 1, 'max' => 5]])))
+        ->toBe([$quiet])->not->toContain($silent);
+});
+
+it('treats a stored analytics min:0 with no max as inert rather than matching everyone', function () {
+    // Not reachable through the API (validation 422s it), but a hand-written
+    // filters JSONB could carry this shape. It must NOT fall through to a
+    // `> NULL` binding, which would make NOT EXISTS true for every user and
+    // silently resolve the segment to the entire user base.
+    $busy = ovaSeedUser();
+    ovaSeedVisit($busy, 'v1', 2);
+    $manual = ovaSeedUser();
+
+    $segment = ovaSegment(['analytics' => ['metric' => 'visits', 'window_days' => 30, 'min' => 0]]);
+    UserSegmentMember::query()->create(['segment_id' => $segment->id, 'user_id' => $manual]);
+
+    expect(app(SegmentResolver::class)->userIds($segment))->toBe([$manual]);
+});
+
+it('leaves ig_followers min:0 paired with a max behaving as the max alone', function () {
+    // The shared requiresABound()/isLowerBound() helper is used by ig_followers
+    // too. Its query shape is a plain comparison, not GROUP BY/HAVING, so
+    // `>= 0` was already a logical no-op there — this pins that the shared
+    // change did not alter ig_followers' resolved set.
+    $small = ovaSeedUser();
+    $large = ovaSeedUser();
+    ovaSeedUser(); // no instagram connection at all
+
+    ovaSeedInstagram($small, 500);
+    ovaSeedInstagram($large, 90000);
+
+    $resolver = app(SegmentResolver::class);
+
+    expect($resolver->userIds(ovaSegment(['ig_followers' => ['min' => 0, 'max' => 1000]])))
+        ->toBe($resolver->userIds(ovaSegment(['ig_followers' => ['max' => 1000]])))
+        ->toBe([$small])->not->toContain($large);
+});
