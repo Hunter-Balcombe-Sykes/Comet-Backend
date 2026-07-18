@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\PublicSite;
 
+use App\Enums\PublicFeature;
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\GatesPublicFeature;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEnquiryRequest;
@@ -22,6 +24,7 @@ use Illuminate\Http\Request;
 // V2: Handles public contact form submissions. Saves enquiry, upserts submitter as Customer lead, dispatches notification email.
 class PublicEnquiryController extends ApiController
 {
+    use GatesPublicFeature;
     use HashesClientData;
     use ResolvesSubdomainFromHost;
 
@@ -69,6 +72,10 @@ class PublicEnquiryController extends ApiController
 
             return $this->error('Site not found.', 404);
         }
+
+        // Staff feature kill-switch: 422 before the contact-block check so a
+        // disabled rule takes precedence over "no contact block".
+        $this->assertPublicFeatureAvailable($site, PublicFeature::Enquiries);
 
         // 3) Contact block must be active on this site.
         $block = Block::query()

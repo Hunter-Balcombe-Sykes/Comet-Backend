@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\PublicSite;
 
+use App\Enums\PublicFeature;
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\GatesPublicFeature;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSubdomainFromHost;
 use App\Http\Requests\Api\PublicSite\PublicEmailSubscribeRequest;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\Log;
 // V2: Newsletter signup with name inference from email and customer upsert.
 class PublicEmailSubscriptionController extends ApiController
 {
+    use GatesPublicFeature;
     use HashesClientData;
     use ResolvesSubdomainFromHost;
 
@@ -78,6 +81,9 @@ class PublicEmailSubscriptionController extends ApiController
         if (! $site) {
             return $this->error('Site not found.', 404);
         }
+
+        // Staff feature kill-switch.
+        $this->assertPublicFeatureAvailable($site, PublicFeature::EmailSignup);
 
         $listKey = $data['list_key'] ?? 'marketing';
 

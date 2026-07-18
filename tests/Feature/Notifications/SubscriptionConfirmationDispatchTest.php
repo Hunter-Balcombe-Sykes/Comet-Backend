@@ -1,6 +1,9 @@
 <?php
 
 use App\Jobs\Notifications\SendSubscriptionConfirmationJob;
+use App\Models\Core\FeatureAvailabilityRule;
+use App\Models\Core\Notifications\EmailSubscription;
+use App\Services\FeatureAvailability\FeatureAvailability;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -12,6 +15,8 @@ beforeEach(function () {
     setupBlocksTable();
     setupEmailSubscriptionsTable();
     setupCustomersTable();
+    setupSegmentsTables();            // feature-availability segment rules
+    setupFeatureAvailabilityTable();  // else the gate fails OPEN in tests
 });
 
 function seedPublishedSubscribeSite(string $subdomain = 'subpro'): string
@@ -93,4 +98,43 @@ it('dispatches again when a previously-unsubscribed address re-subscribes', func
     ])->assertOk();
 
     Bus::assertDispatched(SendSubscriptionConfirmationJob::class);
+});
+
+function validSubscribePayload(array $overrides = []): array
+{
+    return array_merge([
+        'email' => 'reader@example.com',
+        'full_name' => 'Reader Person',
+        'website' => '',
+        'form_started_at_ms' => (int) floor(microtime(true) * 1000) - 5000,
+    ], $overrides);
+}
+
+it('422s the subscribe submit when feature.email_signup is globally disabled', function () {
+    seedPublishedSubscribeSite();
+    Bus::fake(); // confirmation job runs inline on the sync queue otherwise
+
+    FeatureAvailabilityRule::query()->create([
+        'feature_key' => 'feature.email_signup',
+        'mode' => FeatureAvailabilityRule::MODE_DISABLED,
+    ]);
+    FeatureAvailability::flush();
+
+    $this->postJson('/api/public/subscribe', validSubscribePayload(), [
+        'X-Site-Subdomain' => 'subpro',
+    ])->assertStatus(422)->assertJson(['error' => 'FEATURE_UNAVAILABLE']);
+
+    // No subscription row written — the gate fired before persistence.
+    expect(EmailSubscription::query()->count())->toBe(0);
+});
+
+it('allows the subscribe submit when no availability rule exists', function () {
+    seedPublishedSubscribeSite();
+    Bus::fake(); // confirmation job runs inline on the sync queue otherwise
+
+    $this->postJson('/api/public/subscribe', validSubscribePayload(), [
+        'X-Site-Subdomain' => 'subpro',
+    ])->assertOk()->assertJson(['subscribed' => true]);
+
+    expect(EmailSubscription::query()->count())->toBe(1);
 });
