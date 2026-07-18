@@ -29,6 +29,7 @@ use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
@@ -49,6 +50,7 @@ use App\Policies\GdprPolicy;
 use App\Policies\IntegrationConnectionPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
+use App\Policies\PreAccountBuildPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSegmentPolicy;
@@ -204,6 +206,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(ModerationCase::class, CasePolicy::class);
         Gate::policy(Decision::class, DecisionPolicy::class);
         Gate::policy(IntegrationConnection::class, IntegrationConnectionPolicy::class);
+        Gate::policy(PreAccountBuild::class, PreAccountBuildPolicy::class);
         // Menu carries user_id directly — generic owner policy.
         Gate::policy(Menu::class, SitePolicy::class);
         // FOUND-4: workplace card model. Owned via its parent Site so it maps

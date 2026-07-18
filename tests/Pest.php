@@ -349,6 +349,31 @@ function setupUsersTable(): void
 }
 
 /**
+ * Permissive core.pre_account_builds table — every column nullable except the
+ * load-bearing default. Mirrors migration 20260718200000_pre_account_sites.sql.
+ */
+function setupPreAccountBuildsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_builds (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        source_type TEXT NULL,
+        source_ref TEXT NULL,
+        source_ref_lc TEXT NULL,
+        built_via TEXT NULL,
+        built_by_staff_id TEXT NULL,
+        build_state TEXT NULL DEFAULT \'pending\',
+        failure_code TEXT NULL,
+        created_ip_hash TEXT NULL,
+        expires_at TEXT NULL,
+        claimed_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
  * core.feedback table for in-app feedback submission tests.
  * Mirrors columns from migration 20260526210001 + OV-D's
  * 20260711153000_feedback_type_area_target (type/area/target).

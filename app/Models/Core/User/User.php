@@ -130,9 +130,20 @@ class User extends BaseModel
         return mb_strtolower(trim((string) ($this->status ?? ''))) === 'active';
     }
 
+    /** Canonical 'unclaimed' predicate (pre-account build; no auth user yet). */
+    public function isUnclaimed(): bool
+    {
+        return mb_strtolower(trim((string) $this->status)) === 'unclaimed';
+    }
+
     public function site(): HasOne
     {
         return $this->hasOne(Site::class, 'user_id');
+    }
+
+    public function preAccountBuild(): HasOne
+    {
+        return $this->hasOne(PreAccountBuild::class, 'user_id');
     }
 
     // Internal-staff link: a user MAY also be a Partna staff member (the two
