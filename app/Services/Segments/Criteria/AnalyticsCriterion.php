@@ -3,7 +3,6 @@
 namespace App\Services\Segments\Criteria;
 
 use App\Rules\MaxNotBelowMin;
-use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\Rule;
 
@@ -41,7 +40,7 @@ final class AnalyticsCriterion implements SegmentCriterion
     public function rules(): array
     {
         return [
-            'filters.analytics' => ['sometimes', 'nullable', 'array', $this->requiresABound()],
+            'filters.analytics' => ['sometimes', 'nullable', 'array', $this->requiresABound('analytics requires at least one of min or max.')],
             'filters.analytics.metric' => ['required_with:filters.analytics', Rule::in(array_keys(self::METRICS))],
             'filters.analytics.window_days' => ['required_with:filters.analytics', 'integer', 'min:1', 'max:90'],
             'filters.analytics.min' => ['sometimes', 'nullable', 'integer', 'min:0'],
@@ -101,19 +100,5 @@ final class AnalyticsCriterion implements SegmentCriterion
         // with no events has 0, which is <= max. Deliberate — this is what
         // makes "target low-traffic users" work.
         $query->whereRaw("NOT EXISTS ({$inner}{$aggregate} > ?)", [$cutoff, (int) $max]);
-    }
-
-    /** At least one of min/max, which no structural rule can express. */
-    private function requiresABound(): Closure
-    {
-        return function (string $attribute, mixed $value, Closure $fail): void {
-            if (! is_array($value)) {
-                return;
-            }
-
-            if (($value['min'] ?? null) === null && ($value['max'] ?? null) === null) {
-                $fail('analytics requires at least one of min or max.');
-            }
-        };
     }
 }

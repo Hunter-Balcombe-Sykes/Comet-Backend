@@ -3,7 +3,6 @@
 namespace App\Services\Segments\Criteria;
 
 use App\Rules\MaxNotBelowMin;
-use Closure;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -57,7 +56,7 @@ final class IgFollowersCriterion implements SegmentCriterion
     public function rules(): array
     {
         return [
-            'filters.ig_followers' => ['sometimes', 'nullable', 'array', $this->requiresABound()],
+            'filters.ig_followers' => ['sometimes', 'nullable', 'array', $this->requiresABound('ig_followers requires at least one of min or max.')],
             'filters.ig_followers.min' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'filters.ig_followers.max' => ['sometimes', 'nullable', 'integer', 'min:0', new MaxNotBelowMin('filters.ig_followers.min')],
             'filters.ig_followers.synced_within_days' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:365'],
@@ -100,19 +99,5 @@ final class IgFollowersCriterion implements SegmentCriterion
                 ]);
             }
         });
-    }
-
-    /** At least one of min/max, which no structural rule can express. */
-    private function requiresABound(): Closure
-    {
-        return function (string $attribute, mixed $value, Closure $fail): void {
-            if (! is_array($value)) {
-                return;
-            }
-
-            if (($value['min'] ?? null) === null && ($value['max'] ?? null) === null) {
-                $fail('ig_followers requires at least one of min or max.');
-            }
-        };
     }
 }

@@ -14,16 +14,6 @@ use App\Services\Segments\Criteria\SegmentCriterion;
 // Only structural keys are declared here.
 class StoreSegmentRequest extends BaseFormRequest
 {
-    /**
-     * Object criteria accept a fixed set of sub-keys; anything else is dropped
-     * rather than rejected, mirroring how the engine ignores unknown top-level
-     * filter keys.
-     */
-    private const OBJECT_SUB_KEYS = [
-        'ig_followers' => ['min', 'max', 'synced_within_days'],
-        'analytics' => ['metric', 'window_days', 'min', 'max'],
-    ];
-
     public function rules(): array
     {
         $rules = [
@@ -41,10 +31,42 @@ class StoreSegmentRequest extends BaseFormRequest
         return $rules;
     }
 
+    /**
+     * Object criteria accept a fixed set of sub-keys; anything else is dropped
+     * rather than rejected, mirroring how the engine ignores unknown top-level
+     * filter keys. The allowed set is DERIVED from the criteria's own rules()
+     * rather than hand-maintained, so a sub-key added to a criterion's rules()
+     * is automatically allowed here too — there is no third schema location
+     * that can fall out of sync.
+     *
+     * @return array<string, list<string>>
+     */
+    private static function objectSubKeys(): array
+    {
+        $subKeys = [];
+
+        foreach (SegmentCriteria::all() as $criterion) {
+            /** @var SegmentCriterion $criterion */
+            foreach (array_keys($criterion->rules()) as $ruleKey) {
+                $segments = explode('.', $ruleKey);
+
+                // A named sub-key rule looks like "filters.<parent>.<child>" —
+                // exactly three segments. Laravel's `*` each-element wildcard
+                // (e.g. filters.sector.*, for list-of-scalars criteria) isn't a
+                // real key, so it's excluded rather than treated as one.
+                if (count($segments) === 3 && $segments[0] === 'filters' && $segments[2] !== '*') {
+                    $subKeys[$segments[1]][] = $segments[2];
+                }
+            }
+        }
+
+        return $subKeys;
+    }
+
     /** @return array<string, mixed> */
     public static function stripUnknownSubKeys(array $filters): array
     {
-        foreach (self::OBJECT_SUB_KEYS as $key => $allowed) {
+        foreach (self::objectSubKeys() as $key => $allowed) {
             if (isset($filters[$key]) && is_array($filters[$key])) {
                 $filters[$key] = array_intersect_key($filters[$key], array_flip($allowed));
             }

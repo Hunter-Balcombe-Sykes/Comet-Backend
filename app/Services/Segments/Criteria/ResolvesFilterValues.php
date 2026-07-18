@@ -2,6 +2,8 @@
 
 namespace App\Services\Segments\Criteria;
 
+use Closure;
+
 /** Shared activation helpers — the house rules for "is this key set". */
 trait ResolvesFilterValues
 {
@@ -31,5 +33,24 @@ trait ResolvesFilterValues
         }
 
         return array_filter($value, fn ($v) => $v !== null && $v !== '');
+    }
+
+    /**
+     * Validation closure for object criteria: requires at least one of
+     * min/max, which no structural Laravel rule can express. Non-array values
+     * pass through — that shape is rejected elsewhere by the sibling 'array'
+     * rule, not here.
+     */
+    protected function requiresABound(string $message): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($message): void {
+            if (! is_array($value)) {
+                return;
+            }
+
+            if (($value['min'] ?? null) === null && ($value['max'] ?? null) === null) {
+                $fail($message);
+            }
+        };
     }
 }

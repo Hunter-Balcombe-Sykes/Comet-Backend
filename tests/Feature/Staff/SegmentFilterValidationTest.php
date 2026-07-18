@@ -78,6 +78,40 @@ it('exposes validation rules for every key the registry claims to own', function
     }
 });
 
+it('never silently strips a sub-key that has a validation rule declared for it', function () {
+    // The strip-list in StoreSegmentRequest::objectSubKeys() is DERIVED from
+    // the registry's own rules() output, not hand-maintained — so this test
+    // reconstructs the same "filters.<parent>.<child>" dot-path scan the
+    // production code uses and asserts every declared sub-key round-trips
+    // through stripUnknownSubKeys() untouched. If a future refactor
+    // reintroduces a separate hand-written list, this catches it drifting
+    // from rules() the same way the sibling coverage tests above catch a
+    // criterion missing from the registry.
+    $rules = (new StoreSegmentRequest)->rules();
+    $declaredSubKeys = [];
+
+    foreach (array_keys($rules) as $ruleKey) {
+        $segments = explode('.', $ruleKey);
+
+        if (count($segments) === 3 && $segments[0] === 'filters' && $segments[2] !== '*') {
+            $declaredSubKeys[$segments[1]][] = $segments[2];
+        }
+    }
+
+    // Sanity check: this suite only means something if the object criteria
+    // still exist and still declare named sub-keys.
+    expect($declaredSubKeys)->toHaveKeys(['ig_followers', 'analytics']);
+
+    foreach ($declaredSubKeys as $parent => $subKeys) {
+        $probe = [$parent => array_fill_keys($subKeys, 'probe-value')];
+
+        $stripped = StoreSegmentRequest::stripUnknownSubKeys($probe);
+
+        expect($stripped[$parent])->toBe($probe[$parent],
+            message: sprintf('A sub-key declared on "%s" was silently stripped before validation ran.', $parent));
+    }
+});
+
 it('registers every criterion class that exists on disk', function () {
     $onDisk = collect(glob(app_path('Services/Segments/Criteria/*Criterion.php')))
         ->map(fn (string $path) => 'App\\Services\\Segments\\Criteria\\'.basename($path, '.php'))
