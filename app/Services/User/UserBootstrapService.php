@@ -3,14 +3,11 @@
 namespace App\Services\User;
 
 use App\Enums\AccountType;
-use App\Models\Core\Notifications\EmailSubscription;
-use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\UserCacheService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use RuntimeException;
 
 // Bootstrap a new or existing professional from a validated request. Runs the
@@ -24,6 +21,7 @@ class UserBootstrapService
         private readonly SiteProvisioningService $siteProvisioning,
         private readonly UserCacheService $cache,
         private readonly EmailReuseGuard $emailReuseGuard,
+        private readonly SignupSideEffects $sideEffects,
     ) {}
 
     /**
@@ -124,7 +122,7 @@ class UserBootstrapService
                 throw $e;
             }
 
-            $this->ensureSidestUpdatesSubscription($professional->primary_email);
+            $this->sideEffects->ensureSidestUpdatesSubscription($professional->primary_email);
 
             $site = Site::query()->where('user_id', $professional->id)->first();
             if (! $site) {
@@ -133,7 +131,7 @@ class UserBootstrapService
             }
 
             if ($createdProfessional) {
-                $this->createWelcomeNotification($professional);
+                $this->sideEffects->createWelcomeNotification($professional);
             }
 
             return [
@@ -159,55 +157,5 @@ class UserBootstrapService
         if ($this->emailReuseGuard->isClaimedByAnotherAuthUser($email, $uid)) {
             throw new RuntimeException('EMAIL_ALREADY_REGISTERED');
         }
-    }
-
-    private function ensureSidestUpdatesSubscription(?string $email): void
-    {
-        $email = is_string($email) ? strtolower(trim($email)) : '';
-        if ($email === '') {
-            return;
-        }
-
-        $now = now();
-
-        EmailSubscription::insertOrIgnore([
-            'id' => (string) Str::uuid(),
-            'user_id' => null,
-            'list_key' => 'sidest_updates',
-            'email' => $email,
-            'email_lc' => $email,
-            'status' => 'subscribed',
-            'subscribed_at' => $now,
-            'consent_source' => 'bootstrap',
-            'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-    }
-
-    private function createWelcomeNotification(User $professional): void
-    {
-        // Atomic dedup via the notifications_dedupe_key_per_pro_uq unique index
-        // (user_id, dedupe_key): insertOrIgnore compiles to ON CONFLICT DO NOTHING, so a
-        // concurrent double-bootstrap can't create two welcome rows — and, unlike a raw
-        // insert that would throw, it never aborts the surrounding bootstrap transaction
-        // on Postgres. Replaces the old racy firstOrCreate (LIFE-7 / DINT-12). insertOrIgnore
-        // bypasses Eloquent, so id + timestamps are set explicitly.
-        $now = now();
-
-        Notification::query()->insertOrIgnore([
-            'id' => (string) Str::uuid(),
-            'user_id' => $professional->id,
-            'type' => 'Info',
-            'title' => 'Welcome to Partna',
-            'body' => 'Your account is ready. Complete your profile and start building your professional page from your dashboard.',
-            'cta_url' => null,
-            'severity' => 'info',
-            'starts_at' => $now,
-            'ends_at' => null,
-            'dedupe_key' => 'welcome:'.$professional->id,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
     }
 }
