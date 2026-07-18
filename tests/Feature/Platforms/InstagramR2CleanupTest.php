@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Observers\Core\IntegrationConnectionObserver;
 use App\Services\Platforms\InstagramAutoSync;
+use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
@@ -145,8 +146,11 @@ it('the async connect job stores the R2 _folder in the payload', function () {
     $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => ['thumbnailUrl' => 'https://scontent.cdninstagram.com/i.jpg', 'shortCode' => 'i'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
-    (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
     $conn->refresh();
 
     expect($conn->payload['_folder'])->toBe('platforms/instagram/'.$conn->created_at->timestamp);

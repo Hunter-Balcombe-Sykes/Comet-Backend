@@ -4,6 +4,7 @@ use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
+use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Facades\Http;
@@ -148,9 +149,12 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
         ->once()
         ->andReturn($picUrl);
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
     $job = new InstagramConnectJob($user->id, 'testuser', $connection->id);
-    $job->handle($scraper, app(InstagramAutoSync::class));
+    $job->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -196,8 +200,11 @@ it('InstagramConnectJob mirrors both the latest photo and the latest reel (mp4 +
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
-    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -239,8 +246,11 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
     $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => ['thumbnailUrl' => $redirectUrl, 'shortCode' => 'r'], 'video' => null]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
-    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -288,8 +298,11 @@ it('InstagramConnectJob drops an oversized cover image and completes the job wit
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn($picUrl);
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
-    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
 
@@ -328,7 +341,7 @@ it('InstagramConnectJob hard-fails (does not silently succeed) when the scrape r
     );
     $job->shouldReceive('fail')->once();
 
-    $job->handle($scraper, app(InstagramAutoSync::class));
+    $job->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     // The happy path must NOT have run — the connection is never marked 'ok'.
     expect($connection->fresh()->last_refresh_status)->not->toBe('ok');
@@ -482,8 +495,11 @@ it('reconnect reclaims stale reel files when the account now leads with a photo 
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
-    (new InstagramConnectJob($user->id, 'job2user', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'job2user', $connection->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     // Fresh photo written.
     expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
@@ -521,9 +537,12 @@ it('first connect writes photo and does not delete any spurious files (JOB-2)', 
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
     // No pre-existing files — handle() must complete without exception.
-    (new InstagramConnectJob($user->id, 'firstuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'firstuser', $connection->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
     $connection->refresh();
@@ -563,8 +582,11 @@ it('removed profile pic is reclaimed on reconnect when scraper returns null (JOB
     // Profile pic no longer available on this run.
     $scraper->shouldReceive('profilePicUrl')->once()->andReturnNull();
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The seeder resolves its own InstagramScraper from the container — bind the
+    // mock so seed() (called inside handle()) uses it too, not a real scraper.
+    app()->instance(InstagramScraper::class, $scraper);
 
-    (new InstagramConnectJob($user->id, 'picgoneuser', $connection->id))->handle($scraper, app(InstagramAutoSync::class));
+    (new InstagramConnectJob($user->id, 'picgoneuser', $connection->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     // Fresh photo still written.
     expect(Storage::disk('media')->exists("{$folder}/photo.jpg"))->toBeTrue();
@@ -614,7 +636,7 @@ it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the
     ]);
 
     (new InstagramConnectJob($user->id, 'docpizza', $connection->id))
-        ->handle(app(InstagramScraper::class), app(InstagramAutoSync::class));
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
     expect($connection->last_refresh_status)->toBe('ok');
@@ -653,7 +675,7 @@ it('BE2: an Apify response with none of the bio fields (older actor shape) leave
     ]);
 
     (new InstagramConnectJob($user->id, 'legacyuser', $connection->id))
-        ->handle(app(InstagramScraper::class), app(InstagramAutoSync::class));
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
     expect($connection->last_refresh_status)->toBe('ok');
