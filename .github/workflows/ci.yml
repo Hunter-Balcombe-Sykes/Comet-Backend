@@ -5,9 +5,18 @@ on:
     branches: [main, development-v2, development]
   push:
     branches: [main, development]
+  schedule:
+    # Weekly dependency-advisory check (Sun 20:00 UTC = Mon ~6am AEST). New CVEs
+    # land against an unchanged composer.lock/package-lock.json, so push-triggered
+    # CI alone misses them during quiet weeks. Only the supply-chain job runs on
+    # this trigger — test/schema-drift are code-driven and skip it.
+    # NOTE: GitHub registers cron triggers from the DEFAULT branch's copy of this
+    # file, so this block must exist on that branch to fire at all.
+    - cron: '0 20 * * 0'
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read  # Locked to least-privilege — add per-step permissions explicitly if a future step needs the token.
@@ -162,6 +171,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # gitleaks scans full history — a key committed months ago is still live
+          # Scheduled runs execute from the DEFAULT branch (production — stale).
+          # Pin the audited code to development, the branch that's actually
+          # deployed. Empty string = checkout's normal event-ref behaviour.
+          ref: ${{ github.event_name == 'schedule' && 'development' || '' }}
+
+      - name: Dependency advisories (composer audit)
+        # Reads composer.lock against the Packagist advisory DB — no vendor
+        # install needed; the runner's preinstalled PHP/composer suffice.
+        run: composer audit
 
       - name: Secret scan (gitleaks, full history)
         run: |
@@ -185,6 +203,7 @@ jobs:
   # in its own job isolates the gate so it always fires (and can fail on real drift)
   # regardless of the rest of the suite's health.
   schema-drift:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
