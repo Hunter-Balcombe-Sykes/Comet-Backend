@@ -35,9 +35,12 @@ class DataExportPayloadBuilder
     public const COVERED_PII_TABLES = [
         'core.users',
         'core.early_access_signups',
+        'core.feedback',
         'site.customers',
         'site.enquiries',
+        'site.workplaces',
         'notifications.email_subscriptions',
+        'audit.data_export_audit',
     ];
 
     private const SCHEMA_VERSION = 1;

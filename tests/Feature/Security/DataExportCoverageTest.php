@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Core\Staff\PartnaStaff;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Symfony\Component\Finder\Finder;
 
@@ -19,11 +20,36 @@ use Symfony\Component\Finder\Finder;
 */
 
 const EXPORT_EXEMPT = [
-    // (empty — every PII-bearing model is currently exported)
+    // Internal Partna employee record, not a data subject of this exporter.
+    // DataExportPayloadBuilder exports one PROFESSIONAL's own account by
+    // user_id; staff have no per-professional linkage here. The design spec
+    // (docs/superpowers/specs/2026-04-25-data-export-design.md, "Ring 3 —
+    // always exclude") explicitly excludes "internal staff notes" and calls
+    // out staff data as third-party PII that must NOT appear in a
+    // professional's export. There is no separate staff/employee DSAR
+    // mechanism in this codebase (out of scope, not a silent omission).
+    PartnaStaff::class,
 ];
 
-/** Column names that mark a model as carrying direct PII. */
-const PII_MARKERS = ['email', 'email_lc', 'consent_ip_hash'];
+/**
+ * Column names that mark a model as carrying direct, raw PII.
+ *
+ * Deliberately CURATED, not a substring/pattern match (e.g. `str_contains($col,
+ * 'email')`). A substring match sweeps in ~13 models that aren't raw PII —
+ * already-hashed values (recipient_email_hash), audit-trail snapshots
+ * (professional_email_snapshot, staff_email_snapshot,
+ * impersonator_email_snapshot), and non-PII metadata (email_sent_at,
+ * email_delivery_status) — forcing a large exemption list that everyone
+ * eventually silences, which defeats the guard.
+ *
+ * When a model gains a new raw-PII column, add its exact name here rather
+ * than switching to a substring match.
+ */
+const PII_MARKERS = [
+    'email', 'email_lc', 'consent_ip_hash',
+    'primary_email', 'public_contact_email', 'reply_email',
+    'contact_email', 'recipient_email',
+];
 
 it('every PII-bearing model is covered by the data export', function () {
     $modelFiles = (new Finder)
