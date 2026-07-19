@@ -663,6 +663,56 @@ it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the
     ]);
 });
 
+// ── A1.4: InstagramIdentitySync wired into the connect job ──────────────────
+
+it('applies instagram identity fields (sector/display_name) as part of the connect job, fill-if-empty', function () {
+    Storage::fake('media');
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'fullName' => 'Test Cafe',
+        'businessCategoryName' => 'Cafe',
+        'username' => 'test_cafe_ig',
+        'latestPosts' => [],
+    ]], 201)]);
+
+    $user = User::create([
+        'handle' => 'igidentity1', 'handle_lc' => 'igidentity1', 'display_name' => '',
+        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'igidentity1@example.com', 'sector' => null, 'sector_source' => null,
+    ]);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'test_cafe_ig', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    $fresh = $user->fresh();
+    expect($fresh->display_name)->toBe('Test Cafe');
+    expect($fresh->sector)->toBe('cafe');
+    expect($fresh->sector_source)->toBe('instagram');
+});
+
+it('does not overwrite already-set identity fields as part of the connect job', function () {
+    Storage::fake('media');
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'fullName' => 'Test Cafe', 'businessCategoryName' => 'Cafe', 'username' => 'test_cafe_ig', 'latestPosts' => [],
+    ]], 201)]);
+
+    $user = igAsyncUser('igidentity2'); // display_name defaults to 'Igidentity2' (non-blank)
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'test_cafe_ig', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    expect($user->fresh()->display_name)->toBe('Igidentity2');
+});
+
 it('BE2: an Apify response with none of the bio fields (older actor shape) leaves website/bioLinks/syncFindings/unmatched empty and does not break the job', function () {
     Storage::fake('media');
     config(['services.apify.token' => 'test-token']);

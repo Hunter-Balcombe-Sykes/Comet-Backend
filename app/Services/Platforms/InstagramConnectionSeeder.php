@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\Payloads\InstagramPayload;
@@ -45,6 +46,7 @@ class InstagramConnectionSeeder
     public function __construct(
         private readonly InstagramScraper $scraper,
         private readonly InstagramAutoSync $autoSync,
+        private readonly InstagramIdentitySync $identitySync,
     ) {}
 
     /**
@@ -159,6 +161,14 @@ class InstagramConnectionSeeder
         $sync = $this->autoSync->seed($userId, $bioLinks);
         $selection['syncFindings'] = $sync['findings'];
         $selection['unmatched'] = $sync['unmatched'];
+
+        // Fold Instagram's own identity fields (industry/name/handle/contact)
+        // into the user's real records, fill-if-empty. $userId is only a
+        // string in this scope — resolve the model explicitly.
+        $user = User::find($userId);
+        if ($user !== null) {
+            $this->identitySync->applyIdentity($user, $profile);
+        }
 
         $connection->update([
             'payload' => $selection,
