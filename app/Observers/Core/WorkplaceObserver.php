@@ -2,18 +2,18 @@
 
 namespace App\Observers\Core;
 
-use App\Jobs\Design\AnalyzePreviousWebsiteJob;
+use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
 use App\Models\Core\Site\Workplace;
 use App\Services\Cache\SiteCacheInvalidator;
-use App\Services\Design\WebsiteStyleAnalyzer;
 use Illuminate\Support\Facades\Log;
 
-// Keeps the previous-website brand analysis in step with the stored URL via
-// STATE RECONCILIATION (current URL vs current analysis.url — no
-// original-value diffing, so it works identically under afterCommit,
-// transactions, and every write path: dashboard PATCH, full workplace upsert,
-// Google Business auto-fill). The analyze job writing its result makes the
-// two agree, so the loop terminates by construction.
+// Dispatches the previous-website content scan (about text, menu, links,
+// accent colour, logo candidates — see ScanPreviousWebsiteContentJob) off a
+// GENUINE previous_website change — no staleness/version reconciliation:
+// fill-if-empty writes are permanent, not periodically re-synced, so there's
+// no "current analysis vs current URL" state to keep in step any more (that
+// concept belonged entirely to the deleted headless-browser design-scan
+// pipeline this observer used to trigger).
 //
 // ALSO busts the public-page cache when a workplace field that renders on the
 // sitepage changes. The workplace card (address/hours/phone/description/…) feeds
@@ -27,10 +27,8 @@ class WorkplaceObserver
     public bool $afterCommit = true;
 
     // Columns whose change is visible on the public sitepage. A save touching
-    // ONLY other columns (previous_website + its system-written analysis /
-    // field_sources provenance — design-factor inputs, never rendered) skips the
-    // purge, so AnalyzePreviousWebsiteJob writing its result back doesn't
-    // spuriously bust the edge cache on every analysis pass.
+    // ONLY other columns (previous_website + its field_sources provenance —
+    // design-factor inputs, never rendered) skips the purge.
     private const CACHE_AFFECTING_COLUMNS = [
         'name', 'address', 'address_line1', 'city', 'state', 'postcode', 'country',
         'latitude', 'longitude', 'phone', 'website', 'category', 'description',
@@ -43,7 +41,20 @@ class WorkplaceObserver
 
     public function saved(Workplace $workplace): void
     {
-        $this->reconcile($workplace);
+        // wasChanged() is unreliable immediately after create() — getChanges()
+        // reads empty on a fresh insert on this model (confirmed directly: a
+        // Workplace::create(['previous_website' => '...']) reports
+        // wasChanged('previous_website') === false, while a genuine later
+        // update to the same column correctly reports true). A brand-new
+        // workplace created WITH a previous_website already set (e.g. from an
+        // import) must still trigger the scan, so wasRecentlyCreated covers
+        // that case explicitly rather than trusting wasChanged() for it.
+        $hasUrl = trim((string) $workplace->previous_website) !== '';
+        $isNewWithUrl = $workplace->wasRecentlyCreated && $hasUrl;
+        $changedToUrl = ! $workplace->wasRecentlyCreated && $workplace->wasChanged('previous_website') && $hasUrl;
+        if ($isNewWithUrl || $changedToUrl) {
+            $this->dispatchContentScan($workplace);
+        }
 
         // wasRecentlyCreated covers first insert (whole card is new content);
         // wasChanged() gates updates to the public-visible columns only.
@@ -58,12 +69,10 @@ class WorkplaceObserver
 
     public function deleted(Workplace $workplace): void
     {
-        // Row gone → URL gone → analysis died with the row. Re-resolve so the
-        // previous-website contributions sweep. (The analyze job handles the
-        // no-workplace case as "URL cleared".)
-        $this->dispatch($workplace);
-
-        // The card also vanishes from the public page — bust the edge cache.
+        // Row gone → URL gone. Fill-if-empty writes are permanent (not a
+        // reconciled analysis document), so unlike the old design-scan
+        // reconciliation this observer used to do, there is nothing
+        // scan-related to (re-)dispatch here.
         $this->invalidator->touchSite(
             fn () => $workplace->site,
             'workplace-delete',
@@ -71,32 +80,18 @@ class WorkplaceObserver
         );
     }
 
-    private function reconcile(Workplace $workplace): void
-    {
-        $url = trim((string) $workplace->previous_website);
-        $analysis = $workplace->previous_website_analysis;
-        $analyzedUrl = is_array($analysis) ? ($analysis['url'] ?? null) : null;
-        $analyzedVersion = is_array($analysis) ? ($analysis['v'] ?? null) : null;
-
-        // In-sync states: no URL + no analysis, or a CURRENT-version analysis
-        // matching the URL. A version bump makes every stored analysis stale,
-        // so re-scans roll out organically (and via the backfill command).
-        if (($url === '' && $analysis === null)
-            || ($url !== '' && $analyzedUrl === $url && $analyzedVersion === WebsiteStyleAnalyzer::VERSION)) {
-            return;
-        }
-
-        $this->dispatch($workplace);
-    }
-
     // Observer must never crash the parent write.
-    private function dispatch(Workplace $workplace): void
+    private function dispatchContentScan(Workplace $workplace): void
     {
         try {
-            AnalyzePreviousWebsiteJob::dispatch((string) $workplace->site_id);
+            ScanPreviousWebsiteContentJob::dispatch(
+                (string) $workplace->site->user_id,
+                (string) $workplace->site_id,
+                trim((string) $workplace->previous_website),
+            );
         } catch (\Throwable $e) {
             report($e);
-            Log::warning('WorkplaceObserver analyze dispatch failed', [
+            Log::warning('WorkplaceObserver content-scan dispatch failed', [
                 'site_id' => $workplace->site_id,
                 'message' => $e->getMessage(),
             ]);
