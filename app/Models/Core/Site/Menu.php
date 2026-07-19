@@ -76,7 +76,11 @@ class Menu extends BaseModel
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    /** Ordered categories for this menu. */
+    /**
+     * Ordered categories for this menu.
+     *
+     * @return HasMany<MenuCategory, $this>
+     */
     public function categories(): HasMany
     {
         return $this->hasMany(MenuCategory::class, 'menu_id')->orderBy('position');

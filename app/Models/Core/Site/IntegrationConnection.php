@@ -119,12 +119,17 @@ class IntegrationConnection extends BaseModel
         });
     }
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    /** FOUND-25: the shop connection's brands (child table, formerly the payload map). */
+    /**
+     * FOUND-25: the shop connection's brands (child table, formerly the payload map).
+     *
+     * @return HasMany<ShopBrand, $this>
+     */
     public function shopBrands(): HasMany
     {
         return $this->hasMany(ShopBrand::class, 'connection_id')

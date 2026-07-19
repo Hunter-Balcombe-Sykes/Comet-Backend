@@ -532,7 +532,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * its already-sorted stable order. Feeds the persist() identity reuse:
      * each rebuilt row shifts the oldest unclaimed id sharing its name.
      *
-     * @param  Collection<int, MenuCategory|MenuItem>  $rows
+     * @param  Collection<int, MenuCategory>  $rows
      * @return array<string, list<string>>
      */
     private function idsByNormalizedName($rows): array

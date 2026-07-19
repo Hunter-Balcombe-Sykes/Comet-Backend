@@ -73,6 +73,7 @@ class MenuItem extends BaseModel
         'updated_at' => 'datetime',
     ];
 
+    /** @return BelongsTo<MenuCategory, $this> */
     public function category(): BelongsTo
     {
         return $this->belongsTo(MenuCategory::class, 'category_id');
@@ -83,7 +84,11 @@ class MenuItem extends BaseModel
         return $this->belongsTo(Menu::class, 'menu_id');
     }
 
-    /** Per-platform availability (one row per ordering platform, per-mode prices/urls). */
+    /**
+     * Per-platform availability (one row per ordering platform, per-mode prices/urls).
+     *
+     * @return HasMany<MenuItemPlatform, $this>
+     */
     public function platformLinks(): HasMany
     {
         return $this->hasMany(MenuItemPlatform::class, 'menu_item_id');

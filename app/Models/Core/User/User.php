@@ -140,6 +140,7 @@ class User extends BaseModel
         return mb_strtolower(trim((string) $this->status)) === 'unclaimed';
     }
 
+    /** @return HasOne<Site, $this> */
     public function site(): HasOne
     {
         return $this->hasOne(Site::class, 'user_id');
@@ -212,6 +213,7 @@ class User extends BaseModel
         return $this->hasMany(EmailSubscription::class, 'user_id');
     }
 
+    /** @return HasMany<IntegrationConnection, $this> */
     public function integrationConnections(): HasMany
     {
         return $this->hasMany(IntegrationConnection::class, 'user_id');
