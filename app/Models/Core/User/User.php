@@ -23,7 +23,7 @@ use Illuminate\Notifications\Notifiable;
 
 /**
  * @property string $id
- * @property string $auth_user_id
+ * @property string|null $auth_user_id Null until claim — pre-account signup leaves it unset on provisional 'unclaimed' users.
  * @property string $handle
  * @property string $display_name
  * @property int $onboarding_step
