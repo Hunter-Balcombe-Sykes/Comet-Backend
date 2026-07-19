@@ -558,10 +558,13 @@ class DataExportPayloadBuilder
      * so the row persists after signup. Under Article 15 it is personal data of
      * the data subject and must be exported.
      *
-     * Email-recycle note: EarlyAccessService upserts by email_lc, so when an email
-     * is recycled the row CONTENT is overwritten with the new user's data; only
-     * created_at and id survive from the prior occupant. Bounded leak — see
-     * streamEmailSubscriptions comment.
+     * Email-recycle note: EarlyAccessService::signupFromMarketing() upserts by
+     * email_lc via firstOrCreate, refreshing type/workplace_or_industry/platforms
+     * only while the existing row's status is still 'waitlist'. Once a row has
+     * progressed to invited or signed_up, a resubmission under a recycled email
+     * is a silent no-op — the row keeps the FORMER occupant's type, status,
+     * invited_at, and signed_up_at, not just created_at/id. Larger leak than the
+     * streamEmailSubscriptions case; no schema-level fix yet.
      */
     private function streamEarlyAccessSignups(?string $email): Generator
     {
