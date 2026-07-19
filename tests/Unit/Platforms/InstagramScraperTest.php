@@ -112,6 +112,39 @@ it('drops a non-http externalUrl and biography-embedded non-http scheme', functi
     expect($links)->toBe([]);
 });
 
+// ── bio_links[] — the figue~instagram-profile-scraper actor shape ────────────
+
+it('extracts bio links from the figue actor shape (bio_links array)', function () {
+    $links = (new InstagramScraper)->bioLinks([
+        'bio_links' => [['url' => 'https://linktr.ee/venue'], ['url' => 'https://instagram.com/venue']],
+    ]);
+
+    expect($links)->toBe(['https://linktr.ee/venue', 'https://instagram.com/venue']);
+});
+
+it('collects bio_links ahead of externalUrl/externalUrls/biography, deduped across all four sources', function () {
+    $links = (new InstagramScraper)->bioLinks([
+        'bio_links' => [['url' => 'https://linktr.ee/venue']],
+        'externalUrl' => 'https://linktr.ee/venue', // duplicate of a bio_links entry
+        'externalUrls' => [['url' => 'https://other.example.com']],
+        'biography' => 'Also see https://third.example.com',
+    ]);
+
+    expect($links)->toBe([
+        'https://linktr.ee/venue',
+        'https://other.example.com',
+        'https://third.example.com',
+    ]);
+});
+
+it('tolerates a bio_links entry that is a bare string, and ignores non-string entries', function () {
+    $links = (new InstagramScraper)->bioLinks([
+        'bio_links' => ['https://linktr.ee/venue', 123, null],
+    ]);
+
+    expect($links)->toBe(['https://linktr.ee/venue']);
+});
+
 // ── fetchProfile() end-to-end: bio fields flow through from a realistic Apify item ──
 
 function igScraperItem(array $overrides = []): array
@@ -148,6 +181,18 @@ it('fetchProfile returns the raw item with bio fields intact for bioLinks() to r
         'https://www.facebook.com/docpizzabar',
         'https://www.opentable.com.au/r/doc-pizza',
     ]);
+});
+
+it('posts to the configured apify actor id', function () {
+    config(['services.apify.token' => 'test-token', 'partna.instagram.actor' => 'figue~instagram-profile-scraper']);
+    Http::fake(['api.apify.com/*' => Http::response([igScraperItem()], 201)]);
+
+    (new InstagramScraper)->fetchProfile('docpizza');
+
+    Http::assertSent(fn ($request) => str_contains(
+        $request->url(),
+        'acts/figue~instagram-profile-scraper/run-sync-get-dataset-items'
+    ));
 });
 
 it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (older Apify actor shape)', function () {
