@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramIdentitySync;
 
@@ -61,4 +63,48 @@ it('does nothing when the payload has none of the identity fields', function () 
     expect($fresh->sector)->toBeNull();
     expect($fresh->display_name)->toBe('');
     expect($fresh->handle)->toBe('');
+});
+
+// ── contact fields (email, phone) on Workplace ────────────────────────────
+
+it('fills workplace contact_email and phone only when blank, with field_sources provenance', function () {
+    $user = User::factory()->create(['account_type' => 'business']);
+    $site = Site::factory()->for($user, 'user')->create();
+    Workplace::create(['site_id' => (string) $site->id, 'phone' => '+61 2 already set']);
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, [
+        'businessEmail' => 'hello@venue.example',
+        'businessPhoneNumber' => '+61 2 9999 0000',
+    ]);
+
+    $wp = Workplace::where('site_id', (string) $site->id)->first();
+    expect($wp->contact_email)->toBe('hello@venue.example');
+    expect($wp->phone)->toBe('+61 2 already set'); // untouched
+    expect($wp->field_sources['contact_email']['source'])->toBe('instagram');
+    expect($wp->field_sources)->not->toHaveKey('phone'); // untouched field is not re-stamped
+});
+
+it('creates the workplace row if none exists yet, when contact fields are present', function () {
+    $user = User::factory()->create(['account_type' => 'partna']);
+    $site = Site::factory()->for($user, 'user')->create();
+
+    app(InstagramIdentitySync::class)->applyIdentity($user, ['businessEmail' => 'hello@venue.example']);
+
+    $wp = Workplace::where('site_id', (string) $site->id)->first();
+    expect($wp)->not->toBeNull();
+    expect($wp->contact_email)->toBe('hello@venue.example');
+});
+
+it('does nothing to workplace contact fields when the user has no site', function () {
+    $user = User::factory()->create();
+    // No Site exists for this user — applyIdentity must not throw.
+    app(InstagramIdentitySync::class)->applyIdentity($user, ['businessEmail' => 'hello@venue.example']);
+    expect(Workplace::count())->toBe(0);
+});
+
+it('does nothing to workplace when neither contact field is present in the payload', function () {
+    $user = User::factory()->create();
+    $site = Site::factory()->for($user, 'user')->create();
+    app(InstagramIdentitySync::class)->applyIdentity($user, ['fullName' => 'Jane']);
+    expect(Workplace::where('site_id', (string) $site->id)->exists())->toBeFalse();
 });

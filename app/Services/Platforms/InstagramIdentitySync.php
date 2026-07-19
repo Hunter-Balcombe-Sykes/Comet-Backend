@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Support\Str;
@@ -22,6 +24,7 @@ class InstagramIdentitySync
         $this->applySector($user, $this->stringOrNull($payload['businessCategoryName'] ?? null));
         $this->applyDisplayName($user, $this->stringOrNull($payload['fullName'] ?? null));
         $this->applyHandle($user, $this->stringOrNull($payload['username'] ?? null));
+        $this->applyContactFields($user, $payload);
     }
 
     private function applySector(User $user, ?string $category): void
@@ -66,6 +69,35 @@ class InstagramIdentitySync
         $user->handle = $candidate;
         $user->handle_lc = strtolower($candidate);
         $user->save();
+    }
+
+    private function applyContactFields(User $user, array $payload): void
+    {
+        $email = $this->stringOrNull($payload['businessEmail'] ?? null);
+        $phone = $this->stringOrNull($payload['businessPhoneNumber'] ?? null);
+        if ($email === null && $phone === null) {
+            return;
+        }
+        $site = Site::query()->where('user_id', $user->id)->first();
+        if ($site === null) {
+            return;
+        }
+        $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
+        $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
+        $stamp = now()->toIso8601String();
+        $changed = false;
+        foreach (['contact_email' => $email, 'phone' => $phone] as $field => $value) {
+            if ($value === null || ! $this->isBlank($workplace->{$field} ?? null)) {
+                continue;
+            }
+            $workplace->{$field} = $value;
+            $sources[$field] = ['source' => self::INSTAGRAM_SOURCE, 'at' => $stamp];
+            $changed = true;
+        }
+        if ($changed) {
+            $workplace->field_sources = $sources;
+            $workplace->save();
+        }
     }
 
     private function isBlank($value): bool
