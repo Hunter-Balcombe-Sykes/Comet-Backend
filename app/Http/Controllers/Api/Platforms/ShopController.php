@@ -627,8 +627,8 @@ class ShopController extends ApiController
      * came with it) for a freshly-detected store.
      *
      * @param  array{provider:string, origin:string, sourceUrl:string, page:array|null,
-     *               store:array|null, clientBrand:array|null, clientProducts:array|null,
-     *               fetchMode:string|null}  $detected
+     *               store:array|null, clientBrand?:array, clientProducts?:array,
+     *               fetchMode?:string}  $detected
      * @return array{0: array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}, 1: ?array}
      */
     private function brandProfileFor(array $detected): array

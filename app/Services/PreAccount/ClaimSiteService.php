@@ -78,6 +78,9 @@ class ClaimSiteService
                 // (partial unique index race on users_email_unique).
                 DB::connection('pgsql')->transaction(fn () => $professional->save());
             } catch (UniqueConstraintViolationException $e) {
+                // Deliberate post-23505 race backstop, not dead code: PHPStan only
+                // accepts this re-check as live because of the @phpstan-impure tag
+                // on EmailReuseGuard::isClaimedByAnotherAuthUser() — don't strip that tag.
                 if ($this->emailGuard->isClaimedByAnotherAuthUser($verifiedEmail, $uid)) {
                     throw new RuntimeException('EMAIL_ALREADY_REGISTERED', 0, $e);
                 }
