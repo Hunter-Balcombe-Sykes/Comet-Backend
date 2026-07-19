@@ -25,7 +25,8 @@
 #     concurrency      — caching-gold-standard + webhook-idempotency + transaction-boundaries
 #                        (correctness-under-concurrency trio: silent state drift bugs)
 #     pre-merge        — migration-safety + api-contract + configuration-hygiene + test-coverage
-#                        (run before merging a PR that touches schema or public API)
+#                        + test-prod-parity (run before merging a PR that touches schema or
+#                        public API; parity catches SQLite-green/Postgres-500 writes)
 #     code-quality     — code-quality-slop + semantic-correctness
 #                        (AI slop + plausible-but-wrong logic the compiler can't see;
 #                         the qualitative companion to `composer analyse`)
@@ -39,9 +40,9 @@
 #                        + migration-safety + api-contract (the go-live gate)
 #     scale-health     — caching trio + database-and-queue-scaling + job-queue-correctness
 #                        + observability, graded against a 10k-user target (run post-launch)
-#     full-sweep       — ALL 20 lenses (the stage bundles plus test-coverage,
-#                        code-quality-slop, semantic-correctness). Nothing left
-#                        unturned; use with --codebase for a whole-repo audit.
+#     full-sweep       — ALL 21 lenses (the stage bundles plus test-coverage,
+#                        test-prod-parity, code-quality-slop, semantic-correctness).
+#                        Nothing left unturned; use with --codebase for a whole-repo audit.
 #
 # Codebase mode (whole-repo audit, per-lens scopes — usually with pre-pilot /
 # launch-readiness / scale-health / full-sweep):
@@ -217,7 +218,8 @@ write_consolidated() {
 codebase_chunks() {
     case "$1" in
         security) cat <<'EOF'
-auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Api/ApiController.php app/Exceptions app/Rules config
+auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Api/ApiController.php app/Exceptions app/Rules
+config-models|config app/Models
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
 public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php app/Http/Resources
 outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Design app/Services/Profile cloudflare-worker/src
@@ -225,18 +227,27 @@ outbound-platforms|app/Services/Platforms
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
-account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
-moderation-streaming|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Jobs/Moderation app/Jobs/Notifications app/Jobs/Streaming app/Jobs/Cloudflare
-connectors|app/Services/Platforms app/Jobs/Platforms
+account-core|app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Http/Middleware/Context app/Http/Controllers/Api/User/Notifications
+site-cache|app/Services/Site app/Services/PublicSite app/Services/Cache app/Services/Cloudflare
+media-jobs|app/Services/Media app/Jobs
+moderation-policies|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Observers app/Policies
+connectors|app/Services/Platforms
+schema-cron|supabase/migrations routes/console.php
 EOF
         ;;
         scaling-antipatterns) cat <<'EOF'
-write-paths|app/Services/Analytics app/Jobs/Analytics app/Services/Notifications app/Jobs/Notifications app/Notifications app/Observers app/Services/Cache app/Http/Resources
+write-paths|app/Services/Analytics app/Jobs/Analytics app/Services/Notifications app/Jobs/Notifications app/Notifications app/Observers app/Jobs/Cache app/Jobs/Cloudflare
+read-surface|app/Services/Cache app/Http/Resources app/Http/Controllers/Api/Staff app/Http/Controllers/Api/User/Analytics
 EOF
         ;;
         database-and-queue-scaling) cat <<'EOF'
-models-config|app/Models app/Http/Resources database/factories app/Console routes/console.php config/horizon.php config/queue.php
-jobs-vendors|app/Jobs app/Services/Media app/Services/Streaming app/Services/Cloudflare app/Services/Analytics
+models-config|app/Models app/Http/Resources database/factories routes/console.php config/horizon.php config/queue.php
+jobs|app/Jobs
+vendors|app/Services/Media app/Services/Streaming app/Services/Cloudflare app/Services/Analytics
+platforms|app/Services/Platforms
+console-controllers-user|app/Console app/Http/Controllers/Api/User
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
+migrations|supabase/migrations
 EOF
         ;;
         schema-rls) cat <<'EOF'
@@ -244,13 +255,18 @@ schema|supabase/migrations app/Models
 EOF
         ;;
         caching-gold-standard) cat <<'EOF'
-read-paths|app/Services/Cache app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/FeatureFlags app/Services/FeatureAvailability app/Http/Middleware
-write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Services/Analytics app/Services/Notifications app/Services/Streaming
+read-services|app/Services/Cache app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/FeatureFlags app/Services/FeatureAvailability
+read-user-mw|app/Services/User app/Http/Middleware
+read-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
+read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
+write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Services/Analytics app/Services/Notifications app/Services/Streaming
 EOF
         ;;
         caching-coverage-gaps) cat <<'EOF'
-hot-reads-app|app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/Cache app/Http/Middleware app/Http/Controllers/Api/PublicSite app/Services/Streaming
+hot-reads-app|app/Services/Site app/Services/PublicSite app/Services/Accounts app/Services/Cache app/Services/Streaming app/Services/Cloudflare app/Services/Http
 hot-reads-platforms|app/Services/Platforms
+hot-reads-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
+hot-reads-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Middleware
 EOF
         ;;
         webhook-idempotency) cat <<'EOF'
@@ -258,7 +274,7 @@ callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal ap
 EOF
         ;;
         transaction-boundaries) cat <<'EOF'
-domain-services|app/Services/User app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Observers
+domain-services|app/Services/User app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Observers app/Http/Controllers/Api/Internal
 vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Platforms app/Services/Http app/Jobs app/Listeners
 EOF
         ;;
@@ -266,18 +282,45 @@ EOF
 migrations|supabase/migrations
 EOF
         ;;
+        test-prod-parity) cat <<'EOF'
+migrations|supabase/migrations
+models|app/Models app/Enums database/factories tests/Pest.php tests/TestCase.php
+writers-jobs|app/Jobs app/Observers
+writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
+writers-platforms-controllers|app/Http/Controllers/Api/Platforms
+services-platforms|app/Services/Platforms
+services-design-media|app/Services/Design app/Services/Media
+services-core|app/Services/User app/Services/Site app/Services/PublicSite
+services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
+services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
+EOF
+        ;;
         api-contract) cat <<'EOF'
 user-api|app/Http/Resources app/Http/Controllers/Api/User app/Http/Controllers/Api/ApiController.php
-other-api|app/Http/Resources app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Platforms
+public-staff-api|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal
+platforms-api|app/Http/Controllers/Api/Platforms
+payload-services|app/Services/PublicSite app/Services/Site app/Services/Analytics
 EOF
         ;;
         configuration-hygiene) cat <<'EOF'
 config-files|config .env.example routes bootstrap/app.php bootstrap/providers.php .github/workflows deploy
-consumers|app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Media app/Services/FeatureFlags app/Services/Diagnostics app/Jobs app/Console app/Http/Middleware
+consumers-jobs|app/Jobs
+consumers-console-mw|app/Console app/Http/Middleware
+services-platforms|app/Services/Platforms
+services-design-media|app/Services/Design app/Services/Media
+services-core|app/Services/User app/Services/Site app/Services/PublicSite
+services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit
+services-rest|app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile
 EOF
         ;;
         test-coverage) cat <<'EOF'
 sweep-conventions|tests/Pest.php tests/Feature/Security app/Policies
+prod-http|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Webhooks app/Http/Middleware/Auth app/Http/Resources
+prod-requests|app/Http/Requests
+prod-platforms-controllers|app/Http/Controllers/Api/Platforms
+prod-platforms-services|app/Services/Platforms
+prod-jobs|app/Jobs database/factories
+prod-schema|supabase/migrations
 feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/Feature/Contact
 feature-site-staff|tests/Feature/Site tests/Feature/Staff tests/Feature/Notifications tests/Feature/Moderation
 feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design
@@ -297,17 +340,20 @@ jobs|app/Jobs app/Console config/horizon.php config/queue.php
 EOF
         ;;
         observability) cat <<'EOF'
-jobs-hooks|app/Jobs app/Console app/Listeners app/Exceptions app/Services/Webhooks app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php config/queue.php config/horizon.php
-vendor-services|app/Services/Cloudflare app/Services/Streaming app/Services/Platforms app/Services/Media app/Services/Moderation app/Services/Audit
+jobs|app/Jobs config/queue.php config/horizon.php
+console-hooks|app/Console app/Listeners app/Exceptions app/Services/Webhooks app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal app/Http/Controllers/Api/HealthController.php app/Http/Middleware/Logging
+vendor-services|app/Services/Cloudflare app/Services/Streaming app/Services/Media app/Services/Moderation app/Services/Audit
+vendor-platforms|app/Services/Platforms
 EOF
         ;;
         edge-worker) cat <<'EOF'
-worker|cloudflare-worker/src cloudflare-worker/wrangler.toml app/Jobs/Cloudflare app/Services/Cloudflare app/Services/Cache/SiteCacheService.php config/partna.php
+worker|cloudflare-worker/src cloudflare-worker/wrangler.toml app/Jobs/Cloudflare app/Services/Cloudflare app/Services/Cache/SiteCacheService.php app/Observers app/Services/Moderation config/partna.php
 EOF
         ;;
         privacy-compliance) cat <<'EOF'
 rights-machinery|app/Jobs/Gdpr app/Jobs/Account app/Services/User app/Models app/Http/Resources
 collection-retention|app/Services/Analytics app/Jobs/Analytics app/Services/Moderation app/Services/Notifications app/Services/Audit app/Console app/Mail app/Http/Middleware/Logging config/partna.php routes/console.php
+edge-processors|app/Jobs/Cloudflare app/Services/Cloudflare
 schema-pii|supabase/migrations
 EOF
         ;;
@@ -319,7 +365,7 @@ services-data|app/Services/Analytics app/Services/Cache app/Services/Segments ap
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
-controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
 jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
@@ -335,7 +381,7 @@ services-data|app/Services/Analytics app/Services/Cache app/Services/Segments ap
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
-controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
 jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
@@ -476,8 +522,9 @@ if $FULL; then
                 "$SCRIPT_DIR/lenses/api-contract.md"
                 "$SCRIPT_DIR/lenses/configuration-hygiene.md"
                 "$SCRIPT_DIR/lenses/test-coverage.md"
+                "$SCRIPT_DIR/lenses/test-prod-parity.md"
             )
-            META_PREFIXES="migration safety (MIG-*), API contract (API-*), configuration hygiene (CFG-*), and test coverage gaps (TEST-*) — pre-merge sweep for PRs touching schema, public API, or config"
+            META_PREFIXES="migration safety (MIG-*), API contract (API-*), configuration hygiene (CFG-*), test coverage gaps (TEST-*), and SQLite-vs-Postgres test/prod drift (PARITY-*) — pre-merge sweep for PRs touching schema, public API, or config"
             ;;
         code-quality)
             LENS_FILES=(
@@ -559,6 +606,7 @@ if $FULL; then
                 "$SCRIPT_DIR/lenses/migration-safety.md"
                 "$SCRIPT_DIR/lenses/api-contract.md"
                 "$SCRIPT_DIR/lenses/test-coverage.md"
+                "$SCRIPT_DIR/lenses/test-prod-parity.md"
                 "$SCRIPT_DIR/lenses/code-quality-slop.md"
                 "$SCRIPT_DIR/lenses/semantic-correctness.md"
             )

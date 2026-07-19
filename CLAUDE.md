@@ -225,7 +225,7 @@ scripts/audit/audit.sh --codebase --bundle full-sweep
 **Lens / scope:** when Josh doesn't name a lens, auto-pick the best-fit lens(es) and STATE the choice
 before firing — don't ask "what lens?". Bundles: `core` (=`--full`, 8 lenses), `concurrency`,
 `pre-merge`, `code-quality`, `pre-pilot` (12), `security` (5), `launch-readiness` (6), `scale-health`
-(6), `full-sweep` (all 20). Multi-lens scope → use a bundle, not repeated `--lens`.
+(6), `full-sweep` (all 21). Multi-lens scope → use a bundle, not repeated `--lens`.
 
 **Output is ALWAYS one folder per run, ALWAYS containing `CONSOLIDATED.md`:**
 - targeted → `audits/<category>/<date>-<name>/CONSOLIDATED.md`
@@ -270,8 +270,10 @@ historical example). Per finding: top-level `- [ ]` checkbox + `**#ID**` + tier 
 
 ### Keeping the audit pipeline honest (scope + freshness)
 
-The pipeline can silently audit the wrong thing two ways. Both are guarded by
-`tests/Feature/Architecture/AuditPipelineIntegrityTest.php` (runs in `composer test` / CI):
+The pipeline can silently audit the wrong thing several ways. All are guarded by
+`tests/Feature/Architecture/AuditPipelineIntegrityTest.php` (runs in `composer test` / CI). **A lens
+reports nothing for files it never opens, and that reads as "clean"** — every guard below exists
+because a silent scope hole is indistinguishable from a passing audit.
 
 - **Scope coverage.** `--codebase` sweeps only scan what `codebase_chunks()` in `scripts/audit/audit.sh`
   lists. The scanner recurses a mapped dir, so a **new file in an existing dir is covered automatically** —
@@ -280,6 +282,15 @@ The pipeline can silently audit the wrong thing two ways. Both are guarded by
   `codebase_chunks()` **and** the lens's `.md` scope-group. The guard fails CI if you forget (or add a
   justified `$coverageExempt` entry). Also remember the file-type glob in `audit-scan.sh` — a scope path
   whose extension isn't in it (`.php .blade.php .sql .js .ts .yml .yaml .sh`) is read as nothing.
+- **Per-lens coverage.** Scanning happens PER LENS, so global coverage is not enough: `app/Models` mapped
+  under `schema-rls` does nothing for `code-quality-slop`. Two guards cover this — **breadth lenses**
+  (`code-quality-slop`, `semantic-correctness`) must each reach the whole product surface, and **every
+  lens must be fed the paths its own `.md` `--scope` lines declare**. If a lens's doc overreaches, narrow
+  the doc; don't silently leave the arm short. This is what let the unused waitlist subsystem survive a
+  whole-repo dead-code sweep (2026-07-19) — slop's map reached 1 of its 6 files.
+- **Bundle reachability.** A lens file listed in no bundle can never run in a sweep. `test-prod-parity`
+  sat orphaned this way, so the SQLite-vs-Postgres write drift it hunts (the class behind two Instagram
+  incidents) was covered by nothing. The guard fails CI on any lens no bundle references.
 - **Lens freshness.** Lenses + `system-prompt.md` + `adjudicate-prompt.md` encode the architecture as-written;
   after a shift they audit code that no longer exists. On any architectural change (renamed/removed class,
   dir, DB concept), refresh `system-prompt.md` + `adjudicate-prompt.md` **first**, then grep `lenses/` for the

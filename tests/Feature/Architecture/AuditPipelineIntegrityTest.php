@@ -122,6 +122,91 @@ function auditPathIsCovered(string $path, array $covered): bool
 }
 
 /**
+ * What under $path is NOT reachable from $covered, as the SHALLOWEST set of paths.
+ *
+ * Big roots are enumerated child-by-child in codebase_chunks() to keep each chunk
+ * under the scan payload ceiling, so `app/Services` can be fully covered without
+ * the literal string `app/Services` appearing anywhere — hence the recursion. A
+ * subtree with nothing covered inside it collapses to its own root so the failure
+ * message names `app/Services/Platforms`, not its 60 files.
+ *
+ * Returns [] when fully covered.
+ *
+ * @param  array<string, mixed>  $covered  path => anything
+ * @return list<string>
+ */
+function auditUncoveredUnder(string $path, array $covered): array
+{
+    if (auditPathIsCovered($path, $covered)) {
+        return [];
+    }
+
+    $abs = base_path($path);
+    if (! is_dir($abs)) {
+        return [$path];   // a file (or missing path) that simply isn't mapped
+    }
+
+    // Dependency trees are never audit scope, whatever a lens's prose implies.
+    static $skip = ['node_modules', 'vendor', '.git', 'dist', 'build'];
+
+    $missing = [];
+    $anyCovered = false;
+    foreach (glob($abs.'/*') ?: [] as $childAbs) {
+        $child = str_replace('\\', '/', str_replace(base_path().'/', '', $childAbs));
+        if (in_array(basename($child), $skip, true)) {
+            continue;
+        }
+        // Only dirs and .php files matter — the scanner's glob ignores the rest.
+        if (! is_dir($childAbs) && ! str_ends_with($child, '.php')) {
+            continue;
+        }
+
+        $sub = auditUncoveredUnder($child, $covered);
+        if ($sub === []) {
+            $anyCovered = true;
+        }
+        $missing = array_merge($missing, $sub);
+    }
+
+    // Nothing inside is covered — report this root rather than every leaf under it.
+    if (! $anyCovered) {
+        return [$path];
+    }
+    sort($missing);
+
+    return $missing;
+}
+
+/**
+ * The `--scope <path>` paths each lens declares in its own
+ * "Suggested per-domain scope groups" prose, keyed by lens name.
+ *
+ * These are the lens author's statement of where the bugs it hunts live. When
+ * codebase_chunks() does not feed a lens what its own doc asks for, the lens
+ * silently under-reports — see the self-consistency test below.
+ *
+ * @return array<string, list<string>>
+ */
+function auditLensDeclaredScopes(): array
+{
+    $declared = [];
+    foreach (glob(base_path('scripts/audit/lenses/*.md')) ?: [] as $file) {
+        $lens = basename($file, '.md');
+        $paths = [];
+        foreach (preg_split('/\R/', (string) file_get_contents($file)) as $line) {
+            if (preg_match('/^\s*--scope\s+(\S+)\s*$/', $line, $m) === 1) {
+                $paths[rtrim($m[1], '/')] = true;
+            }
+        }
+        if ($paths !== []) {
+            $declared[$lens] = array_keys($paths);
+        }
+    }
+
+    return $declared;
+}
+
+/**
  * File-path references made in lens/prompt prose, mapped to the files that make
  * them. Only tokens that look like real repo paths (start with a known root,
  * no globs/placeholders/calls) are returned.
@@ -275,24 +360,8 @@ it('breadth lenses cover the whole product surface', function () {
         $covered = array_flip($byLens[$lens]);
 
         foreach ($productSurface as $root) {
-            if (auditPathIsCovered($root, $covered)) {
-                continue;
-            }
-
-            // Root not mapped wholesale — every immediate child must be mapped.
-            $missing = [];
-            foreach (glob(base_path($root).'/*') ?: [] as $abs) {
-                $child = str_replace('\\', '/', str_replace(base_path().'/', '', $abs));
-                if (! is_dir($abs) && ! str_ends_with($child, '.php')) {
-                    continue;
-                }
-                if (! auditPathIsCovered($child, $covered)) {
-                    $missing[] = $child;
-                }
-            }
-
+            $missing = auditUncoveredUnder($root, $covered);
             if ($missing !== []) {
-                sort($missing);
                 $gaps[] = "$lens is blind to: ".implode(', ', $missing);
             }
         }
@@ -304,6 +373,103 @@ it('breadth lenses cover the whole product surface', function () {
         "surface — they report nothing for files they never open, which reads as 'clean'. Add each \n".
         "path to that lens's arm in codebase_chunks() (scripts/audit/audit.sh), keeping chunks under \n".
         "~350KB of source, and mirror it in the lens's .md scope-group:\n - ".implode("\n - ", $gaps),
+    );
+});
+
+it('every lens is fed the scope its own doc asks for', function () {
+    // Each lens's "Suggested per-domain scope groups" section is the author's
+    // statement of where the bugs it hunts actually live. codebase_chunks() is what
+    // the lens is really handed in --codebase mode. When those two disagree, the
+    // lens reports on a subset of its own remit and the gap is invisible — the run
+    // still says "clean", just about less code than anyone thinks.
+    //
+    // This is the mechanically checkable half of scope drift. It caught, on
+    // 2026-07-19: database-and-queue-scaling declaring `--scope supabase/migrations`
+    // for its whole CONCURRENTLY / lock_timeout / NOT VALID category while its arm
+    // mapped no migrations at all; test-coverage declaring 8 production-code dirs
+    // and being handed none of them; and security asking to sweep app/Models for
+    // mass-assignment while its arm omitted app/Models entirely.
+    //
+    // A lens with NO --scope prose (foundational-durability) declares nothing and is
+    // skipped here — the dead-path and breadth guards still cover it.
+    $byLens = auditScopePathsByLens();
+
+    // Lenses intentionally allowed to be fed less than they declare.
+    // Key = lens name, value = written justification.
+    $declarationExempt = [
+        // 'some-lens' => 'why its arm is deliberately narrower than its doc',
+    ];
+
+    $gaps = [];
+    foreach (auditLensDeclaredScopes() as $lens => $declaredPaths) {
+        if (isset($declarationExempt[$lens])) {
+            continue;
+        }
+
+        if (! isset($byLens[$lens])) {
+            $gaps[] = "$lens declares ".count($declaredPaths).' scope path(s) in its .md but has NO '.
+                'arm in codebase_chunks() — it cannot run in --codebase mode at all';
+
+            continue;
+        }
+
+        $covered = array_flip($byLens[$lens]);
+
+        $unfed = [];
+        foreach ($declaredPaths as $declared) {
+            foreach (auditUncoveredUnder($declared, $covered) as $missing) {
+                $unfed[$missing] = true;
+            }
+        }
+
+        if ($unfed !== []) {
+            $unfed = array_keys($unfed);
+            sort($unfed);
+            // Drop entries already implied by a shallower one in the same list
+            // (a lens can declare both a dir and a file inside it).
+            $unfed = array_values(array_filter(
+                $unfed,
+                fn (string $p): bool => ! auditPathIsCovered(
+                    dirname($p),
+                    array_flip(array_diff($unfed, [$p])),
+                ),
+            ));
+            $gaps[] = "$lens declares but is never fed: ".implode(', ', $unfed);
+        }
+    }
+    sort($gaps);
+
+    expect($gaps)->toBeEmpty(
+        "Lens .md scope-groups and codebase_chunks() disagree. Each lens must be handed the \n".
+        "paths its own doc says its bugs live in, or it under-reports silently. Fix by widening \n".
+        "the lens's arm in codebase_chunks() (scripts/audit/audit.sh, chunks under ~350KB of \n".
+        "source), OR — if the doc overreaches — narrowing the .md's --scope lines to match \n".
+        "reality, OR adding a justified \$declarationExempt entry:\n - ".implode("\n - ", $gaps),
+    );
+});
+
+it('every lens is reachable from a bundle', function () {
+    // A lens file that no bundle lists can only be run by someone who happens to
+    // read the lenses/ directory — it will never appear in a sweep. test-prod-parity
+    // sat like this until 2026-07-19, so the SQLite-vs-Postgres write drift it hunts
+    // (the class behind two real Instagram incidents) was covered by nothing.
+    $src = (string) file_get_contents(base_path('scripts/audit/audit.sh'));
+
+    preg_match_all('#lenses/([a-z0-9-]+)\.md#', $src, $m);
+    $referenced = array_flip($m[1]);
+
+    $orphaned = [];
+    foreach (glob(base_path('scripts/audit/lenses/*.md')) ?: [] as $file) {
+        $lens = basename($file, '.md');
+        if (! isset($referenced[$lens])) {
+            $orphaned[] = $lens;
+        }
+    }
+    sort($orphaned);
+
+    expect($orphaned)->toBeEmpty(
+        'These lens files are referenced by no bundle in scripts/audit/audit.sh — they can never '
+        ."run in a sweep. Add each to the bundle(s) it belongs in:\n - ".implode("\n - ", $orphaned),
     );
 });
 
