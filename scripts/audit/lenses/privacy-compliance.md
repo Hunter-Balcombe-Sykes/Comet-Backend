@@ -54,7 +54,7 @@ Trace the account-deletion flow end-to-end and tick off EVERY store from the inv
 ### (5) Minimisation at collection
 
 - Analytics ingest: is IP truncated/hashed or stored raw? Is user agent stored verbatim? Is region derived-then-dropped or kept alongside the raw IP? Storing raw forever when a derived value would serve is the canonical APP minimisation finding (P2).
-- Public forms (enquiries, feedback, waitlist): fields collected vs fields used — any collected-but-never-read PII field is minimisation debt.
+- Public forms (enquiries, feedback, early access): fields collected vs fields used — any collected-but-never-read PII field is minimisation debt. This is exactly how `core.waitlist_signups` became write-only and was retired 2026-07-19.
 - Media uploads: EXIF/location metadata stripped on processing? (`app/Services/Media` pipeline — confirm or flag.)
 - Bot-protection providers receive what (IP, UA, token)? Confirm only the minimum crosses the boundary.
 

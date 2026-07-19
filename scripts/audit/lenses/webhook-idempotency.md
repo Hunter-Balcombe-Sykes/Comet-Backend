@@ -93,7 +93,7 @@ The `IdempotencyKey` middleware (`app/Http/Middleware/IdempotencyKey.php`) provi
 
 ### (9) Bot-token-gated internal endpoints
 
-- `VerifyBotToken` (alias `bot.token`) guards public-facing write paths (subscribe, signup, lead, enquiry, waitlist) — not the Supabase hook paths. Confirm the hook routes do NOT use `bot.token` (they use `supabase.auth-hook` / `supabase.email-hook` instead).
+- `VerifyBotToken` (alias `bot.token`) guards public-facing write paths (subscribe, signup, lead, enquiry) — not the Supabase hook paths. Confirm the hook routes do NOT use `bot.token` (they use `supabase.auth-hook` / `supabase.email-hook` instead).
 - Internal endpoints without any auth middleware (e.g. `GET /internal/env-check`) — confirm these endpoints are read-only or appropriately scoped.
 - `fail_open = true` mode in `VerifyBotToken`: when the captcha provider is unreachable the request proceeds. Confirm this is the intended production posture and that Nightwatch will surface the `Log::warning('bot_protection.fail_open', ...)` correctly (it won't — `Log::warning` is invisible to Nightwatch alerts; flag if a circuit-open state needs to be escalated).
 
