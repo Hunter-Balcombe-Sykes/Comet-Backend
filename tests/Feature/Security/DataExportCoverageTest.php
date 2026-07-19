@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\Staff\StaffAuditEntry;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Symfony\Component\Finder\Finder;
 
@@ -29,18 +30,29 @@ const EXPORT_EXEMPT = [
     // professional's export. There is no separate staff/employee DSAR
     // mechanism in this codebase (out of scope, not a silent omission).
     PartnaStaff::class,
+
+    // audit.staff_audit_log: staff_email_snapshot and impersonator_email_snapshot
+    // are the ACTING STAFF MEMBER's (and impersonator's) own email — third-party
+    // staff PII, not the professional's. Same Ring 3 "always exclude" rationale
+    // as PartnaStaff above. This builder is scoped to one professional's
+    // user_id; professional_handle_snapshot on this table is already exported
+    // via streamAudit()/streamDeletionAudit() where it's the subject's own data —
+    // here it's a bystander column on a row about a staff action, not a
+    // professional-initiated record, so the row as a whole stays out.
+    StaffAuditEntry::class,
 ];
 
 /**
  * Column names that mark a model as carrying direct, raw PII.
  *
  * Deliberately CURATED, not a substring/pattern match (e.g. `str_contains($col,
- * 'email')`). A substring match sweeps in ~13 models that aren't raw PII —
- * already-hashed values (recipient_email_hash), audit-trail snapshots
- * (professional_email_snapshot, staff_email_snapshot,
- * impersonator_email_snapshot), and non-PII metadata (email_sent_at,
- * email_delivery_status) — forcing a large exemption list that everyone
- * eventually silences, which defeats the guard.
+ * 'email')`). A substring match sweeps in non-PII metadata columns too
+ * (email_sent_at, email_delivery_status) — forcing a large exemption list that
+ * everyone eventually silences, which defeats the guard. `recipient_email_hash`
+ * (core.supabase_email_events / SupabaseEmailEvent) is deliberately NOT a
+ * marker for a different reason than hashing: that table has no user_id or
+ * any other per-professional FK, so it is structurally unscopable to a
+ * per-professional export regardless of whether the column is raw or hashed.
  *
  * When a model gains a new raw-PII column, add its exact name here rather
  * than switching to a substring match.
@@ -49,6 +61,8 @@ const PII_MARKERS = [
     'email', 'email_lc', 'consent_ip_hash',
     'primary_email', 'public_contact_email', 'reply_email',
     'contact_email', 'recipient_email',
+    'professional_email_snapshot',
+    'staff_email_snapshot', 'impersonator_email_snapshot',
 ];
 
 it('every PII-bearing model is covered by the data export', function () {

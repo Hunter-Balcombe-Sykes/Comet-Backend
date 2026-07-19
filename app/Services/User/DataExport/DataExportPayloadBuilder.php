@@ -41,6 +41,7 @@ class DataExportPayloadBuilder
         'site.workplaces',
         'notifications.email_subscriptions',
         'audit.data_export_audit',
+        'audit.user_deletion_audit',
     ];
 
     private const SCHEMA_VERSION = 1;
