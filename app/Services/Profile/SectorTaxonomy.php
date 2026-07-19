@@ -292,4 +292,21 @@ final class SectorTaxonomy
 
         return CategoryStylePresets::classify($category, self::KEYWORD_SECTORS);
     }
+
+    /**
+     * Map a raw Instagram business category (Apify `businessCategoryName`, e.g.
+     * "Hair Salon", "Italian Restaurant") to the closest curated sector slug via
+     * the same shared ordered-keyword classifier fromGoogleCategory() uses — the
+     * two platforms' raw category strings land on the same sector for the same
+     * business. Null when nothing matches or the input is empty — callers leave
+     * the stored sector untouched on null.
+     */
+    public static function fromInstagramCategory(?string $category): ?string
+    {
+        if (! is_string($category) || trim($category) === '') {
+            return null;
+        }
+
+        return CategoryStylePresets::classify($category, self::KEYWORD_SECTORS);
+    }
 }
