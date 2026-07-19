@@ -475,6 +475,95 @@ attack surface, the data-corruption race, the cutover, and GDPR.
 
 ---
 
+# Running ranks 1–5 end to end (the pre-pilot set)
+
+18 runs. Paste the prompt below. It is resumable — re-paste it after an
+interruption and it skips whatever already completed.
+
+> ⚠ **The one hard rule: `audit.sh` is never run concurrently.** Every run
+> shares the local `claude` CLI's plan/rate budget, so two at once corrupts both.
+> The prompt below spawns one agent at a time and waits. Do not "parallelise" it.
+
+> **Prompt:**
+>
+> Work through ranks 1–5 of `scripts/audit/campaigns.md` — the 18-run pre-pilot
+> audit set. Read that file first for the exact commands.
+>
+> **The run list, in this exact order:**
+>
+> | # | category | name | campaign |
+> |---|---|---|---|
+> | 1 | security | preaccount-claim | Security T1 |
+> | 2 | security | public-surface | Security T1 |
+> | 3 | security | authz-core | Security T1 |
+> | 4 | security | user-api | Security T1 |
+> | 5 | security | requests-resources | Security T1 |
+> | 6 | security | staff-api | Security T1 |
+> | 7 | security | webhooks-internal | Security T1 |
+> | 8 | security | models-data | Security T1 |
+> | 9 | concurrency | claim-and-provision | Concurrency T1 |
+> | 10 | concurrency | cache-invalidation | Concurrency T1 |
+> | 11 | concurrency | webhooks-idempotency | Concurrency T1 |
+> | 12 | cutover | migrations-early | Cutover T1 |
+> | 13 | cutover | migrations-recent | Cutover T1 |
+> | 14 | cutover | parity-models | Cutover T1 |
+> | 15 | cutover | parity-services | Cutover T2 |
+> | 16 | cutover | parity-jobs | Cutover T2 |
+> | 17 | privacy | gdpr-deletion-export | Data T1 |
+> | 18 | privacy | pii-schema | Data T1 |
+>
+> **Rules — these are not negotiable:**
+>
+> 1. **STRICTLY SEQUENTIAL.** Exactly one `audit.sh` process at any moment. Spawn
+>    the agent for run N+1 only after run N's agent has returned. Never use
+>    parallel tool calls for these. This is a correctness constraint, not a
+>    preference — concurrent runs share the `claude` CLI budget and corrupt each
+>    other.
+> 2. **Resume first.** Before starting, check for each run whether
+>    `audits/<category>/*-<name>/CONSOLIDATED.md` already exists. Skip those and
+>    tell me which you skipped. A folder with no `CONSOLIDATED.md` means a failed
+>    run — delete the folder and redo it.
+> 3. **One subagent per run**, `model: sonnet`, `run_in_background: false`. Give it
+>    the exact command from `campaigns.md` plus the tier's guidance prompt. Tell it
+>    to return ONLY: the tier counts (P0/P1/P2/P3/total), the folder path, and any
+>    P0/P1 finding titles. It must not paste the audit file back.
+> 4. **Stop on failure.** If a run exits non-zero or writes no `CONSOLIDATED.md`,
+>    stop the whole sequence and tell me which run failed and why. Do not continue
+>    past a failure. Common causes are the `claude` CLI session limit and budget
+>    exhaustion — both now fail loudly and write no audit, so a missing
+>    `CONSOLIDATED.md` is a genuine failure, not a clean result.
+> 5. **Budget awareness.** 18 runs is roughly 90 scans plus 18 adjudications and
+>    will likely hit a session limit partway. That is expected — stop, tell me
+>    where you got to, and I will re-paste this prompt to resume.
+> 6. **Progress only, no dumps.** After each run, one line: `[n/18] <name> —
+>    P0:x P1:x P2:x P3:x → <path>`.
+>
+> **When all 18 are done (or you stop early), give me:**
+>
+> - A single table of every P0 and P1 across all runs: ID, tier, run it came from,
+>   one-line summary.
+> - **Deduplicated** — the same defect will surface in several runs (e.g. a
+>   mass-assignment issue appearing in both `models-data` and `parity-models`).
+>   Merge those, noting which runs found it; agreement across runs is a confidence
+>   signal worth recording.
+> - Anything needing a schema change called out separately — those need lead time
+>   before the cutover.
+> - Your own read on which 3 findings to fix first, and why.
+>
+> Do not fix anything. This pass is discovery only; fixes go through
+> `execute audit <path>` per `fix-flow.md`.
+
+## Expected cost
+
+Roughly 90 DeepSeek scans and 18 Claude adjudications. Adjudication budget scales
+with scope size (`$2 + $2/100KB`, capped $18), so the larger runs sit near the top
+of that range. Several hours wall-clock, sequential by design.
+
+If that is too much in one go, ranks 1–2 (11 runs) cover the externally reachable
+attack surface and the data-corruption race — the two things that cannot wait.
+
+---
+
 # After the baseline — audit the delta, not the repo
 
 Once a campaign has run, **do not repeat it**. Diff-scoped sweeps sit far below
