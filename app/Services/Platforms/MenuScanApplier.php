@@ -50,13 +50,20 @@ class MenuScanApplier
      * photos scan passes true and only ADDS — longer descriptions win,
      * prices fill gaps, never overwrite. Dietary badges merge in both modes.
      *
+     * $source overrides the menu_categories.source_platform / menu.content_source
+     * tag written by this apply (default self::SOURCE = 'scan') — used by the
+     * website-scan pipeline to tag its own menu writes 'website-scan' instead,
+     * so they're independently protected from MenuFetchJob's rebuild wipe (see
+     * MenuFetchJob::rebuildableCategoryIds()) without being confused for a
+     * user's own manual/Google-photo scan.
+     *
      * @param  list<array{name:string, description:?string, price:?float, category:?string, dietary?:?list<string>}>  $items
      * @return array{updated:int, added:int}
      */
-    public function apply(User $user, array $items, bool $enrichOnly = false): array
+    public function apply(User $user, array $items, bool $enrichOnly = false, string $source = self::SOURCE): array
     {
-        $result = DB::connection('pgsql')->transaction(function () use ($user, $items, $enrichOnly) {
-            $menu = $this->resolveMenu($user);
+        $result = DB::connection('pgsql')->transaction(function () use ($user, $items, $enrichOnly, $source) {
+            $menu = $this->resolveMenu($user, $source);
 
             // orderBy gives a deterministic base for "first occurrence wins"
             // below — without it, two same-name rows on Postgres could resolve
@@ -82,7 +89,7 @@ class MenuScanApplier
             }
 
             $scanCategoriesByName = $this->indexByNormalizedName(
-                MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', self::SOURCE)->get(),
+                MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', $source)->get(),
                 fn (MenuCategory $category) => $category->name,
             );
             $nextCategoryPosition = $this->nextPosition(MenuCategory::query()->where('menu_id', $menu->id));
@@ -118,7 +125,7 @@ class MenuScanApplier
                         'menu_id' => $menu->id,
                         'name' => $categoryName,
                         'position' => $nextCategoryPosition++,
-                        'source_platform' => self::SOURCE,
+                        'source_platform' => $source,
                     ]);
                     $scanCategoriesByName[$categoryKey] = $category;
                 }
@@ -198,7 +205,7 @@ class MenuScanApplier
      * visibility on it being non-null, and a scan-only menu never gets a real
      * scrape to set it otherwise.
      */
-    private function resolveMenu(User $user): Menu
+    private function resolveMenu(User $user, string $source): Menu
     {
         $menu = Menu::query()->where('user_id', $user->id)->first();
         if ($menu !== null) {
@@ -209,7 +216,7 @@ class MenuScanApplier
 
         return Menu::create([
             'user_id' => $user->id,
-            'content_source' => self::SOURCE,
+            'content_source' => $source,
             'currency' => 'AUD',
             'fetch_status' => 'ok',
             'last_fetched_at' => now(),
