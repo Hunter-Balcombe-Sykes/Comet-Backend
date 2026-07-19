@@ -122,8 +122,12 @@ slugify() {
 
 # Count finding-header checkbox lines for a given tier (P0/P1/P2/P3) in a file.
 # Matches the canonical line:  - [ ] **#ID** · P0 — title
+# The '#' in **#ID** is optional: the adjudicator emits **#SEC-1** most of the
+# time but drops the hash on some runs (**SLOP-7**). Requiring it made the header
+# table silently read "Total 0" under a file with nine findings in it — a wrong
+# number is worse than no number, so match both.
 tier_count() {
-    grep -cE "^- \[[ x]\] \*\*#.*· $1 " "$2" 2>/dev/null || true
+    grep -cE "^- \[[ x]\] \*\*#?[A-Za-z].*· $1 " "$2" 2>/dev/null || true
 }
 
 # Emit the shared Execution-policy block. Single source of truth for the model
@@ -221,8 +225,10 @@ codebase_chunks() {
 auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Api/ApiController.php app/Exceptions app/Rules
 config-models|config app/Models
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
-public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php app/Http/Resources
-outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Design app/Services/Profile cloudflare-worker/src
+public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php
+platforms-surface|app/Http/Controllers/Api/Platforms app/Http/Resources
+outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Profile cloudflare-worker/src
+outbound-design|app/Services/Design
 signup-claim|app/Services/PreAccount app/Services/User
 outbound-platforms|app/Services/Platforms
 EOF
@@ -252,7 +258,8 @@ migrations|supabase/migrations
 EOF
         ;;
         schema-rls) cat <<'EOF'
-schema|supabase/migrations app/Models
+schema|supabase/migrations
+models|app/Models
 EOF
         ;;
         caching-gold-standard) cat <<'EOF'
@@ -330,8 +337,10 @@ prod-platforms-services|app/Services/Platforms
 prod-jobs|app/Jobs database/factories
 prod-schema|supabase/migrations
 feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/Feature/Contact
-feature-site-staff|tests/Feature/Site tests/Feature/Staff tests/Feature/Notifications tests/Feature/Moderation
-feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design
+feature-site-staff|tests/Feature/Site tests/Feature/Staff
+feature-notif-moderation|tests/Feature/Notifications tests/Feature/Moderation
+feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics
+feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design
 feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware
 feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
@@ -339,12 +348,14 @@ unit-suite|tests/Unit
 EOF
         ;;
         data-integrity) cat <<'EOF'
-schema|supabase/migrations app/Enums database/factories
+schema|supabase/migrations
+enums-factories|app/Enums database/factories
 models-gdpr|app/Models app/Observers app/Jobs/Gdpr app/Services/User
 EOF
         ;;
         job-queue-correctness) cat <<'EOF'
-jobs|app/Jobs app/Console config/horizon.php config/queue.php
+jobs|app/Jobs config/horizon.php config/queue.php
+console|app/Console
 mail|app/Mail
 EOF
         ;;
@@ -361,7 +372,8 @@ EOF
         ;;
         privacy-compliance) cat <<'EOF'
 rights-machinery|app/Jobs/Gdpr app/Jobs/Account app/Services/User app/Models app/Http/Resources
-collection-retention|app/Services/Analytics app/Jobs/Analytics app/Services/Moderation app/Services/Notifications app/Services/Audit app/Console app/Mail app/Http/Middleware/Logging config/partna.php routes/console.php
+collection-retention|app/Services/Analytics app/Jobs/Analytics app/Services/Moderation app/Services/Notifications app/Services/Audit app/Http/Middleware/Logging config/partna.php routes/console.php
+console-mail|app/Console app/Mail
 edge-processors|app/Jobs/Cloudflare app/Services/Cloudflare
 schema-pii|supabase/migrations
 EOF
@@ -406,10 +418,12 @@ models-config|app/Models config/partna.php
 integration-cross-cutting|app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
 controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 controllers-staff-public|app/Http/Controllers/Api/Staff app/Http/Controllers/Api/PublicSite app/Http/Controllers/Concerns app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Controller.php
-services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Auth app/Services/Cache
+services-core|app/Services/User app/Services/Site app/Services/PublicSite
+services-auth-cache|app/Services/Auth app/Services/Cache
 services-vendor|app/Services/Media app/Services/Analytics app/Services/Moderation app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Diagnostics app/Services/Feedback app/Services/Webhooks app/Services/Audit
 requests-resources|app/Http/Requests app/Http/Resources
-routing-middleware-policies|routes app/Console app/Http/Middleware app/Policies app/Observers
+routing-middleware|routes app/Http/Middleware app/Policies app/Observers
+console|app/Console
 jobs-providers-rest|app/Jobs/Moderation app/Jobs/Cloudflare app/Jobs/Gdpr app/Jobs/Cache app/Jobs/Account app/Jobs/Streaming app/Jobs/Analytics app/Jobs/Concerns app/Providers app/Mail app/Notifications app/Listeners app/Exceptions app/DTOs app/Support app/Enums app/Rules app/Contracts app/helpers.php
 EOF
         ;;
@@ -765,10 +779,15 @@ if $FULL; then
                 "${ADJ_SCOPES[@]}" \
                 --no-source \
                 --max-budget "$ADJ_MAX" \
-                --out "$OUT_FILE"; then
+                --out "$OUT_FILE" \
+                && grep -qE '^#{1,3} ' "$OUT_FILE" 2>/dev/null; then
                 WRITTEN+=("$OUT_FILE")
             else
-                echo "WARNING: adjudication failed for $LENS_NAME" >&2
+                # Move the partial/error blob aside. It is excluded from
+                # CONSOLIDATED.md either way, but left in place it sits in the run
+                # folder looking like a real per-lens audit that found nothing.
+                [[ -f "$OUT_FILE" ]] && mv "$OUT_FILE" "$OUT_FILE.failed"
+                echo "WARNING: adjudication failed for $LENS_NAME (partial output at ${OUT_FILE}.failed)" >&2
                 FAILED_LENSES+=("$LENS_NAME (adjudication failed)")
             fi
         done
@@ -895,12 +914,53 @@ fi
 # The adjudicator writes its full audit doc straight to the folder's
 # CONSOLIDATED.md; write_consolidated then prepends the deterministic
 # scope/counts/exec-policy header in place.
-"$SCRIPT_DIR/audit-adjudicate.sh" \
+# Scale the targeted-run budget by how much source the adjudicator must verify.
+# A flat $2 ceiling starved a 669KB scope ("Error: Exceeded USD budget (2)") and,
+# worse, wrote that message into CONSOLIDATED.md. Mirrors the per-chunk scaling
+# the codebase path already does. Floor = whatever the bundle set, cap $18.
+SCOPE_BYTES=0
+for _p in "${SCOPE_ARGS[@]}"; do
+    [[ "$_p" == "--scope" ]] && continue
+    [[ -e "$_p" ]] || continue
+    _b=$(find "$_p" -type f \( -name '*.php' -o -name '*.blade.php' -o -name '*.sql' \
+        -o -name '*.js' -o -name '*.ts' -o -name '*.yml' -o -name '*.yaml' -o -name '*.sh' \) \
+        ! -path "*/node_modules/*" -exec cat {} + 2>/dev/null | wc -c)
+    SCOPE_BYTES=$((SCOPE_BYTES + _b))
+done
+ADJ_BUDGET=$(awk -v cur="$ADJ_BUDGET" -v kb="$((SCOPE_BYTES / 1024))" \
+    'BEGIN{ b=2.0+2.0*(kb/100); if(b<cur)b=cur; if(b>18)b=18; printf "%.2f", b }')
+echo "→ Adjudication budget: \$${ADJ_BUDGET} (scope $((SCOPE_BYTES / 1024))KB)" >&2
+
+# A failed adjudication must NOT leave a CONSOLIDATED.md behind. The claude CLI
+# writes its stdout to --out whatever happens, so a session-limit or budget error
+# ends up sitting in the folder looking exactly like a finished audit ("You've hit
+# your session limit", "Error: Exceeded USD budget (2)"). Anyone — or
+# archive-done.sh — reading that folder later sees an audit that says nothing and
+# concludes the code is clean. Fail loudly and leave no result instead.
+adjudication_failed() {
+    local reason="$1"
+    [[ -f "$OUT" ]] && mv "$OUT" "$OUT.failed"
+    echo "" >&2
+    echo "ERROR: adjudication failed — $reason" >&2
+    echo "       NO audit was written. Any partial output is at ${OUT}.failed" >&2
+    echo "       Drafts are preserved; re-run with --keep-drafts to reuse them." >&2
+    exit 1
+}
+
+if ! "$SCRIPT_DIR/audit-adjudicate.sh" \
     --drafts "$DRAFTS" \
     --max-budget "$ADJ_BUDGET" \
     "${LENS_PASS_ARGS[@]}" \
     "${SCOPE_ARGS[@]}" \
-    --out "$OUT"
+    --out "$OUT"; then
+    adjudication_failed "audit-adjudicate.sh exited non-zero"
+fi
+
+# Exit 0 is not proof of an audit: a truncated or refused run can still write a
+# short non-audit blob. A real audit always carries a markdown heading.
+if ! grep -qE '^#{1,3} ' "$OUT" 2>/dev/null; then
+    adjudication_failed "adjudicator produced no audit content"
+fi
 
 write_consolidated "$OUT" "$HEADER_TITLE" "$HEADER_LENS" "$SCOPE_LIST"
 
