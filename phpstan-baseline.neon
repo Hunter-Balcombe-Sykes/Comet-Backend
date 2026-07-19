@@ -8027,3 +8027,49 @@ parameters:
 			count: 1
 			path: app/Jobs/Concerns/GuardsMediaProcessing.php
 
+		# Dead conditions confirmed by individual code reads: each is unreachable via type
+		# narrowing or guaranteed control flow, with no logic bug behind it. Retained rather than
+		# deleted because they are cheap runtime defensive guards and the analyser's narrowing
+		# depends on annotations that have proven unreliable elsewhere in this codebase.
+		-
+			message: '#^Comparison operation "\<" between int\<1, max\> and 1 is always false\.$#'
+			identifier: smaller.alwaysFalse
+			count: 4
+			path: app/Services/Media/ImagePaletteExtractor.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 2
+			path: app/Services/Media/ImagePaletteExtractor.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-empty\-list\<float\> and array\{\} will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Services/Design/Presets/RecipeSignals.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-empty\-array\<int, int\<1, max\>\> and array\{\} will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Services/Design/Scan/ScreenshotSampler.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Services/Platforms/EventbriteScraper.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Services/Platforms/InstagramConnectionSeeder.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-list\<array\{externalId\: null, name\: string, description\: string\|null, price\: float\|null, currency\: string\|null, image\: string\|null, rating\: null, ratingCount\: null, \.\.\.\}\> and array\{\} will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Services/Platforms/UberEatsMenuDriver.php
+
