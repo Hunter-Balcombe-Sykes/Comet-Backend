@@ -306,6 +306,17 @@ because a silent scope hole is indistinguishable from a passing audit.
 - **Bundle reachability.** A lens file listed in no bundle can never run in a sweep. `test-prod-parity`
   sat orphaned this way, so the SQLite-vs-Postgres write drift it hunts (the class behind two Instagram
   incidents) was covered by nothing. The guard fails CI on any lens no bundle references.
+- **Applicable-lens coverage (signals).** The guards above ensure *something* reads each file; this one
+  ensures the *right* lens does. Applicability can't be judged by a test, but a large slice of it is an
+  observable fact rather than an opinion: a file containing `DB::transaction` belongs in
+  `transaction-boundaries` whatever anyone thinks. The guard maps mechanical signals → owning lens
+  (`DB::transaction`/`lockForUpdate` → transaction-boundaries, `Cache::` → caching-gold-standard,
+  `ShouldQueue` → job-queue-correctness, `$fillable`/`$guarded` → security, `env(` →
+  configuration-hygiene) and fails when a lens can't reach code carrying its own signal. It caught the
+  pre-account `ClaimSiteService` (locked, savepoint-wrapped claim race) sitting outside
+  transaction-boundaries. **It is a floor, not a guarantee** — a bug with no grep signature is invisible
+  to it, so placing new code across the lenses that matter is still a human call. When adding a signal,
+  keep it high-confidence; a noisy guard gets suppressed, and a suppressed guard protects nothing.
 - **Lens freshness.** Lenses + `system-prompt.md` + `adjudicate-prompt.md` encode the architecture as-written;
   after a shift they audit code that no longer exists. On any architectural change (renamed/removed class,
   dir, DB concept), refresh `system-prompt.md` + `adjudicate-prompt.md` **first**, then grep `lenses/` for the

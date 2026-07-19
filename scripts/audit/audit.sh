@@ -260,7 +260,10 @@ read-services|app/Services/Cache app/Services/Site app/Services/PublicSite app/S
 read-user-mw|app/Services/User app/Http/Middleware
 read-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
-write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Services/Analytics app/Services/Notifications app/Services/Streaming
+write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Jobs/Notifications app/Services/Analytics app/Services/Notifications app/Services/Streaming
+platforms-services|app/Services/Platforms
+platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
+design|app/Services/Design
 EOF
         ;;
         caching-coverage-gaps) cat <<'EOF'
@@ -276,7 +279,11 @@ EOF
         ;;
         transaction-boundaries) cat <<'EOF'
 domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Observers app/Http/Controllers/Api/Internal
-vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Platforms app/Services/Http app/Jobs app/Listeners
+vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app/Jobs app/Listeners
+platforms|app/Services/Platforms
+controllers-user|app/Http/Controllers/Api/User
+controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
+media-design|app/Services/Media app/Services/Design
 EOF
         ;;
         migration-safety) cat <<'EOF'
@@ -338,6 +345,7 @@ EOF
         ;;
         job-queue-correctness) cat <<'EOF'
 jobs|app/Jobs app/Console config/horizon.php config/queue.php
+mail|app/Mail
 EOF
         ;;
         observability) cat <<'EOF'

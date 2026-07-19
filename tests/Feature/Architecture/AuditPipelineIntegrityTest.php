@@ -539,6 +539,107 @@ it('a full sweep reads every auditable file in the repo', function () {
     );
 });
 
+it('every lens sees the code carrying the signals it hunts', function () {
+    // The "all APPLICABLE lenses" guard. The other coverage tests enforce that
+    // SOMETHING reads each file; this one enforces that the RIGHT lens does.
+    //
+    // "Applicable" can't be judged by a test — no assertion can decide whether code
+    // "looks insecure". But a large slice of applicability is not a judgement at all,
+    // it's an observable fact: a file containing DB::transaction demonstrably belongs
+    // in transaction-boundaries whatever anyone thinks. Each signal below is a
+    // mechanical marker plus the lens that owns it.
+    //
+    // Caught the motivating case: ClaimSiteService (pre-account signup, merged
+    // 2026-07-19) runs DB::transaction + lockForUpdate + a savepoint-wrapped save,
+    // and transaction-boundaries could not see the file.
+    //
+    // LIMITS — read before trusting this:
+    //   - It is a FLOOR, not a guarantee. A security bug with no grep signature is
+    //     invisible here. Placing code by hand for reasons the signals miss is still
+    //     required; this only stops the mistakes that ARE mechanically detectable.
+    //   - Signals are deliberately high-confidence. Resist adding fuzzy ones
+    //     (e.g. "mentions user input") — a noisy guard gets suppressed, and a
+    //     suppressed guard protects nothing.
+    $signals = [
+        [
+            'label' => 'DB::transaction / lockForUpdate / advisory lock',
+            'lens' => 'transaction-boundaries',
+            'pattern' => '/DB::transaction|->lockForUpdate\(|pg_advisory/',
+            'exempt' => [],
+        ],
+        [
+            'label' => 'Cache:: read or write',
+            'lens' => 'caching-gold-standard',
+            'pattern' => '/Cache::(remember|put|forget|lock|get)\b/',
+            'exempt' => [],
+        ],
+        [
+            'label' => 'queued job or mailable (ShouldQueue)',
+            'lens' => 'job-queue-correctness',
+            'pattern' => '/implements\s+ShouldQueue|,\s*ShouldQueue\b/',
+            'exempt' => [],
+        ],
+        [
+            'label' => 'mass-assignment surface ($fillable / $guarded)',
+            'lens' => 'security',
+            'pattern' => '/protected\s+\$(fillable|guarded)\b/',
+            'exempt' => [],
+        ],
+        [
+            'label' => 'env() read outside the config layer',
+            'lens' => 'configuration-hygiene',
+            'pattern' => '/[^_a-zA-Z]env\(/',
+            'exempt' => [],
+        ],
+    ];
+
+    $byLens = auditScopePathsByLens();
+
+    // Every PHP file under app/, read once and tested against all signals.
+    $files = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app')));
+    foreach ($it as $f) {
+        if ($f->isFile() && $f->getExtension() === 'php') {
+            $files[] = str_replace(base_path().'/', '', str_replace('\\', '/', $f->getPathname()));
+        }
+    }
+    sort($files);
+
+    $violations = [];
+    foreach ($signals as $signal) {
+        $covered = array_flip($byLens[$signal['lens']] ?? []);
+        $exempt = array_flip($signal['exempt']);
+
+        $unseen = [];
+        foreach ($files as $file) {
+            if (isset($exempt[$file])) {
+                continue;
+            }
+            if (preg_match($signal['pattern'], (string) file_get_contents(base_path($file))) !== 1) {
+                continue;
+            }
+            if (! auditPathIsCovered($file, $covered)) {
+                $unseen[dirname($file)] = true;
+            }
+        }
+
+        if ($unseen !== []) {
+            $dirs = array_keys($unseen);
+            sort($dirs);
+            $violations[] = $signal['lens'].' cannot see code with '.$signal['label'].' in: '
+                .implode(', ', $dirs);
+        }
+    }
+    sort($violations);
+
+    expect($violations)->toBeEmpty(
+        "Code carries a signal a lens exists to hunt, but that lens's scope map cannot reach it — \n".
+        "the sweep will report clean on exactly the code the lens was written for. Add the paths to \n".
+        "that lens's arm in codebase_chunks() (scripts/audit/audit.sh), or add a justified per-signal \n".
+        "'exempt' entry above:\n - ".implode("\n - ", $violations),
+    );
+});
+
 it('audit lenses reference no stale file paths', function () {
     $stale = [];
     foreach (auditPromptPathRefs() as $path => $files) {
