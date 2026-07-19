@@ -70,10 +70,8 @@ use App\Services\Design\Presets\Factors\ImageryPaletteFactor;
 use App\Services\Design\Presets\Factors\InstagramCategoryFactor;
 use App\Services\Design\Presets\Factors\LaunchRecipeFactor;
 use App\Services\Design\Presets\Factors\MusicGenreFactor;
-use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use App\Services\Design\Presets\Factors\OwnMediaAccentFactor;
 use App\Services\Design\Presets\Factors\PlatformMixFactor;
-use App\Services\Design\Presets\Factors\PreviousWebsiteFactor;
 use App\Services\Design\Presets\Factors\SectorFactor;
 use App\Services\Design\Presets\Factors\StorePricePointFactor;
 use App\Services\FeatureFlags\FeatureFlagService;
@@ -133,12 +131,15 @@ class AppServiceProvider extends ServiceProvider
         // Design-kit preset factors. Registry is a singleton holding the
         // concrete factor lists; empty lists make the preset system a no-op.
         // Priority bands (factors-engine spec §4 + P4, low→high): A ambient 10-19
-        // (outside-websites 10, platform-mix 12, hours-rhythm 15) < B media 20-29
+        // (platform-mix 12, hours-rhythm 15) < B media 20-29
         // (own-media 20, imagery-palette 22) < C category 30-49 (Instagram 30,
         // music-genre 34, Google type 40, cuisine 44) < D refiners 50-59 (Google
         // attributes 52, store price-point 58) < E declared 60-69 (sector 60,
-        // aesthetic-expression 64) < launch-recipe 70 < F own-site 80-89
-        // (previous-website 84). Manual design_kits values still win outright.
+        // aesthetic-expression 64) < launch-recipe 70. Manual design_kits values
+        // still win outright. (Band F, own-site 80-89/previous-website 84, and
+        // outside-websites 10 in band A are gone — deleted along with the
+        // website-design-scan pipeline; accent colour is now a direct fill-if-empty
+        // write, see DesignKitAccentApplier.)
         //
         // Three lists: v1 per-connection factors, v1 site-level factors, and v2
         // evidence factors (which reason over the whole assembled IdentityEvidence
@@ -154,9 +155,7 @@ class AppServiceProvider extends ServiceProvider
                 new InstagramCategoryFactor,
             ],
             [
-                new PreviousWebsiteFactor,
                 new SectorFactor,
-                new OutsideWebsitesFactor,
                 new OwnMediaAccentFactor($this->app->make(SafeUrlFetcher::class)),
             ],
             [
