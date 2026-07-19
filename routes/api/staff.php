@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffCustomerManagementCon
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffDataExportController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffIntegrationManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffLinkBlockManagementController;
+use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffPreAccountBuildController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffSectionManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceCategoryManagementController;
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceManagementController;
@@ -54,6 +55,11 @@ Route::prefix('staff')
 
         // Platform-wide stats
         Route::get('/stats', [StaffStatsController::class, 'show']);
+
+        // Pre-account (site-first) build trigger — the ManyChat/marketing surface.
+        // Any staff role may fire one (PreAccountBuildPolicy::staffCreate); builds
+        // publish by default since the site IS the pitch.
+        Route::post('/builds', [StaffPreAccountBuildController::class, 'store']);
 
         // Staff can see Site
         Route::get('/sites/{subdomain}', [StaffSiteController::class, 'show'])
