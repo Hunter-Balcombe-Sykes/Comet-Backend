@@ -264,17 +264,27 @@ class DataExportTestCase
             created_at TEXT
         )');
 
+        // Column list mirrors PRODUCTION (site.site_media in the standalone
+        // baseline), NOT the export query's SELECT list. The previous fixture
+        // declared user_id/width/height — none of which exist in Postgres —
+        // so it made a broken query valid on SQLite and the export's media
+        // section 500'd only in production. Scope column is site_id.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.site_media (
             id TEXT PRIMARY KEY,
-            user_id TEXT,
+            site_id TEXT,
+            bucket TEXT,
             pool TEXT,
             purpose TEXT,
             path TEXT,
-            width INTEGER,
-            height INTEGER,
+            media_type TEXT,
+            original_filename TEXT,
             caption TEXT,
             alt_text TEXT,
-            created_at TEXT
+            sort_order INTEGER,
+            is_active INTEGER,
+            created_at TEXT,
+            updated_at TEXT,
+            deleted_at TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (

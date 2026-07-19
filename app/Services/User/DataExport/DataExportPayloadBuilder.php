@@ -154,7 +154,7 @@ class DataExportPayloadBuilder
                 'resolve' => fn () => $this->streamEarlyAccessSignups($lookupEmail),
                 'csv_columns' => ['id', 'email', 'type', 'workplace_or_industry', 'platforms', 'status', 'source', 'invited_at', 'signed_up_at', 'created_at', 'updated_at'],
             ],
-            ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($userId)],
+            ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($siteId)],
             ['name' => 'design_kit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDesignKit($siteId)],
             ['name' => 'integrations', 'kind' => 'rows', 'resolve' => fn () => $this->streamIntegrations($userId)],
             ['name' => 'analytics.site_visits', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSiteVisits($userId)],
@@ -256,13 +256,36 @@ class DataExportPayloadBuilder
         ];
     }
 
-    private function streamMedia(string $userId): Generator
+    /**
+     * Uploaded media metadata, scoped through the user's SITE.
+     *
+     * site.site_media has NO user_id column — tenancy runs site_id -> site.sites
+     * -> user_id — and no width/height columns (those live on site.media_variants,
+     * one row per rendition). The original implementation selected width/height
+     * and filtered on user_id, so it threw 42703 on Postgres and took the whole
+     * DSAR export down with it. It stayed green in CI because SQLite silently
+     * reinterprets an unknown double-quoted identifier as a string literal
+     * rather than erroring, so the bad filter merely matched zero rows.
+     *
+     * Dimensions are deliberately not re-added via a media_variants join: they
+     * are rendition detail, not personal data, and Article 15 does not need them.
+     */
+    private function streamMedia(?string $siteId): Generator
     {
-        return $this->lazyRows(
+        if ($siteId === null) {
+            yield from [];
+
+            return;
+        }
+
+        yield from $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.site_media')
-                ->select(['id', 'pool', 'purpose', 'path', 'width', 'height', 'caption', 'alt_text', 'created_at'])
-                ->where('user_id', $userId)
+                ->select([
+                    'id', 'pool', 'purpose', 'path', 'media_type',
+                    'original_filename', 'caption', 'alt_text', 'created_at',
+                ])
+                ->where('site_id', $siteId)
         );
     }
 

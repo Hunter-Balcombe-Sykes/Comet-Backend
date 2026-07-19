@@ -28,6 +28,63 @@ function seedProForPayload(string $id, string $email = 'jane@example.com', ?stri
     return User::find($id);
 }
 
+/*
+| Media is scoped through the user's SITE (site_media.site_id), not a user_id
+| column — site_media has no user_id in production. Before this test the
+| section selected width/height and filtered on user_id, none of which exist
+| in Postgres, so the export 500'd in prod while staying green here: SQLite
+| silently reinterprets an unknown double-quoted identifier as a string
+| literal instead of erroring, so `where "user_id" = ?` just matched nothing.
+| Asserting the row actually COMES BACK is what makes that visible.
+*/
+it('exports site media scoped through the user site, not a user_id column', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+    $otherSiteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        ['id' => $siteId, 'user_id' => $pro->id, 'subdomain' => 'jane', 'created_at' => '2026-01-01T00:00:00Z'],
+        ['id' => $otherSiteId, 'user_id' => (string) Str::uuid(), 'subdomain' => 'someone', 'created_at' => '2026-01-01T00:00:00Z'],
+    ]);
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'site_id' => $siteId,
+            'pool' => 'gallery',
+            'purpose' => 'portfolio',
+            'path' => 'media/jane/one.jpg',
+            'media_type' => 'image',
+            'original_filename' => 'holiday-headshot.jpg',
+            'caption' => 'Jane at work',
+            'alt_text' => 'Portrait of Jane',
+            'created_at' => '2026-03-01T00:00:00Z',
+        ],
+        [
+            // Another user's media — must NOT leak into Jane's export.
+            'id' => (string) Str::uuid(),
+            'site_id' => $otherSiteId,
+            'pool' => 'gallery',
+            'purpose' => 'portfolio',
+            'path' => 'media/someone/two.jpg',
+            'media_type' => 'image',
+            'original_filename' => 'not-jane.jpg',
+            'caption' => 'Not Jane',
+            'alt_text' => 'Someone else',
+            'created_at' => '2026-03-02T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['media']['site_media'])->toHaveCount(1);
+    expect($payload['media']['site_media'][0]['path'])->toBe('media/jane/one.jpg');
+    expect($payload['media']['site_media'][0]['caption'])->toBe('Jane at work');
+    // original_filename is user-supplied and can carry personal detail, so a
+    // DSAR must surface it.
+    expect($payload['media']['site_media'][0]['original_filename'])->toBe('holiday-headshot.jpg');
+});
+
 it('exports early access signups matched by email_lc', function () {
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
 
