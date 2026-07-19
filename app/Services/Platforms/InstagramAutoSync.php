@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -54,6 +55,7 @@ class InstagramAutoSync
     public function __construct(
         private readonly WebsiteLinkHarvester $harvester,
         private readonly FacebookNormalizer $facebookNormalizer,
+        private readonly LinkInBioDetector $linkInBioDetector,
     ) {}
 
     /**
@@ -82,6 +84,18 @@ class InstagramAutoSync
                 continue;
             }
             $url = trim($url);
+
+            if ($this->linkInBioDetector->matches($url)) {
+                // A curated link-in-bio page (Linktree/Milkshake/Beacons/Stan
+                // Store) isn't itself classifiable — it's a page to unroll, not
+                // a platform to connect. Scanned async (its own fetch can be
+                // slow/JS-heavy) rather than inline here, which would risk
+                // blowing InstagramConnectJob's timeout. Nothing about the
+                // bio-link URL itself is persisted; see LinkInBioScanJob.
+                LinkInBioScanJob::dispatch($userId, $url);
+
+                continue;
+            }
 
             $classified = $this->harvester->classify($url);
             if ($classified === null) {

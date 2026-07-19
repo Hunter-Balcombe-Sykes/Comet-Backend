@@ -1,8 +1,10 @@
 <?php
 
+use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 // BE2: mirrors GoogleBusinessAutoSync::seed()'s shape (only-if-empty seeding,
@@ -227,11 +229,40 @@ it('still seeds booking for a NON-food business (barbershop keeps can_use_bookin
 it('routes a genuinely unclassified link to unmatched with a host-derived label', function () {
     $user = igAutoSyncUser('igas6');
 
+    // NOT one of the 4 curated link-in-bio hosts (that's its own path — see
+    // "detects and dispatches a scan" below) — a plain, genuinely unclassified link.
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://someblog.example/docpizza']);
+
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([['url' => 'https://someblog.example/docpizza', 'label' => 'someblog.example']]);
+});
+
+// ── A3.3/A3.4: curated link-in-bio hosts are detected and dispatched, not classified ──
+
+it('detects a curated link-in-bio host and dispatches a scan instead of routing it to unmatched', function () {
+    Queue::fake();
+    $user = igAutoSyncUser('igas6b');
+
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://linktr.ee/docpizza']);
 
     expect($result['findings'])->toBe([]);
-    expect($result['unmatched'])->toBe([['url' => 'https://linktr.ee/docpizza', 'label' => 'linktr.ee']]);
+    expect($result['unmatched'])->toBe([]); // not routed to unmatched — it's being scanned instead
+    Queue::assertPushed(LinkInBioScanJob::class, fn ($job) => $job->userId === (string) $user->id && $job->bioPageUrl === 'https://linktr.ee/docpizza');
 });
+
+it('detects each of the 4 curated link-in-bio hosts from a bio link', function (string $url) {
+    Queue::fake();
+    $user = igAutoSyncUser('igas6c');
+
+    app(InstagramAutoSync::class)->seed((string) $user->id, [$url]);
+
+    Queue::assertPushed(LinkInBioScanJob::class, fn ($job) => $job->bioPageUrl === $url);
+})->with([
+    'https://linktr.ee/venue',
+    'https://msha.ke/venue',
+    'https://beacons.ai/venue',
+    'https://stan.store/venue',
+]);
 
 it('routes classified-but-not-auto-synced links (youtube, opentable, instagram) to unmatched with their real label', function () {
     $user = igAutoSyncUser('igas7');

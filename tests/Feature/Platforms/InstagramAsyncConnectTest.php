@@ -624,6 +624,7 @@ function igItemWithoutBio(): array
 
 it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the real scraper end-to-end', function () {
     Storage::fake('media');
+    Queue::fake();
     config(['services.apify.token' => 'test-token']);
     Http::fake(['api.apify.com/*' => Http::response([igItemWithBio()], 201)]);
 
@@ -655,12 +656,14 @@ it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the
     expect($fb['url'])->toBe('https://www.facebook.com/docpizzabar');
     expect($fb['source'])->toBe('instagram');
 
-    // The generic website (externalUrl) and the Linktree link aren't auto-syncable
-    // → both surface as "add as custom link" suggestions, in bioLinks() order.
+    // The generic website (externalUrl) isn't auto-syncable → surfaces as an
+    // "add as custom link" suggestion (and, per A2.2, gets auto-saved as one).
+    // The Linktree link is no longer routed to unmatched at all — A3.3/A3.4
+    // detect it as a curated link-in-bio host and dispatch a scan instead.
     expect($connection->payload['unmatched'])->toBe([
         ['url' => 'https://docpizza.example.com', 'label' => 'docpizza.example.com'],
-        ['url' => 'https://linktr.ee/docpizza', 'label' => 'linktr.ee'],
     ]);
+    Queue::assertPushed(\App\Jobs\Platforms\LinkInBioScanJob::class, fn ($job) => $job->bioPageUrl === 'https://linktr.ee/docpizza');
 });
 
 // ── A1.4: InstagramIdentitySync wired into the connect job ──────────────────
