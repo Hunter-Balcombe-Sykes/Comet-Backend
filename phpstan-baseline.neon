@@ -6291,7 +6291,7 @@ parameters:
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
 			identifier: property.notFound
-			count: 2
+			count: 1
 			path: app/Services/Platforms/GoogleBusinessAutoSync.php
 
 		-

@@ -488,16 +488,6 @@ class GoogleBusinessAutoSync
         return null;
     }
 
-    /** Whether the user already has any ordering row for this store key. */
-    private function hasStoreKey(string $userId, string $storeKey): bool
-    {
-        return IntegrationConnection::query()
-            ->where('user_id', $userId)
-            ->where('platform', Platform::OnlineOrdering->value)
-            ->get()
-            ->contains(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey);
-    }
-
     /**
      * A store grouping key — "<host>|<path>", query + fragment + trailing slash
      * stripped (so Uber Eats ?diningMode / DoorDash ?pickup variants of one store
@@ -672,11 +662,6 @@ class GoogleBusinessAutoSync
         }
 
         return $q->exists();
-    }
-
-    private function count(string $userId, string $platform): int
-    {
-        return IntegrationConnection::query()->where('user_id', $userId)->where('platform', $platform)->count();
     }
 
     /** @param  array<string,mixed>  $payload */
