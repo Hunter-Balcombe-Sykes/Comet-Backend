@@ -43,6 +43,10 @@ Individual professionals (barbers, hairdressers, stylists, etc.) need a polished
 - Visitors trigger analytics events (pageviews, clicks). Leads submit via the public API.
 - An unclaimed build that's never claimed expires (30 days by default) and is hard-deleted by the
   `builds:prune-expired` command.
+- Staff (and ManyChat automation) can trigger the same builds via `POST /api/staff/builds` — these
+  publish immediately (the live site IS the marketing pitch) with a configurable expiry; the
+  Cloudflare KV routing entry for any unclaimed site carries a TTL aligned to the build's
+  `expires_at`, so an expired build stops routing at the edge even if pruning lags.
 
 ### How the System Works
 
