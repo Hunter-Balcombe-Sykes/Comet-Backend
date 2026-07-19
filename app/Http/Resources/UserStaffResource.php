@@ -52,6 +52,25 @@ class UserStaffResource extends ApiResource
             // Signals to staff UI that this professional is soft-deleted (deleted_at is set);
             // distinct from status='pending_deletion' which is the 30-day grace period.
             'parent_status' => $this->trashed() ? 'soft_deleted' : 'active',
+            // Task 18 — marketing-pipeline visibility: the pre-account build origin
+            // record, when one exists. A bare whenLoaded() isn't enough here — Eloquent's
+            // HasOne eager-load marks the relation "loaded" even on a no-match (it sets
+            // it to null), so once show() eager-loads this for every professional a plain
+            // whenLoaded() would emit an all-null block for ordinary users too. Gate on
+            // the resolved value, not just the loaded flag, so the key is fully absent
+            // (not present-with-nulls) when there's no build.
+            'pre_account_build' => $this->when(
+                $this->relationLoaded('preAccountBuild') && $this->preAccountBuild !== null,
+                fn () => [
+                    'source_type' => $this->preAccountBuild->source_type,
+                    'source_ref' => $this->preAccountBuild->source_ref,
+                    'built_via' => $this->preAccountBuild->built_via,
+                    'build_state' => $this->preAccountBuild->build_state,
+                    'failure_code' => $this->preAccountBuild->failure_code,
+                    'expires_at' => $this->preAccountBuild->expires_at?->toIso8601String(),
+                    'claimed_at' => $this->preAccountBuild->claimed_at?->toIso8601String(),
+                ]
+            ),
         ];
     }
 }

@@ -22,6 +22,8 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 18: show() now also eager-loads preAccountBuild.
+    setupPreAccountBuildsTable();
 
     // admin_notes isn't part of the shared core.users stub in tests/Pest.php —
     // add it defensively, mirroring the sector/sector_source ALTER pattern there.
