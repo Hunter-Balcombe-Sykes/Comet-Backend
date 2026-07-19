@@ -97,12 +97,28 @@ PROMPT;
      */
     public function ocrImageUrl(string $imageUrl, ?string $userId = null): ?string
     {
+        return $this->ocr(['type' => 'image_url', 'image_url' => $imageUrl], $userId);
+    }
+
+    /**
+     * OCR one publicly-reachable PDF document URL to markdown text — same
+     * Mistral endpoint, 'document_url' document type instead of 'image_url'.
+     * Null = hard failure; '' = OCR ran but read nothing (not a menu PDF).
+     */
+    public function ocrDocumentUrl(string $documentUrl, ?string $userId = null): ?string
+    {
+        return $this->ocr(['type' => 'document_url', 'document_url' => $documentUrl], $userId);
+    }
+
+    /** @param  array{type:string, image_url?:string, document_url?:string}  $document */
+    private function ocr(array $document, ?string $userId): ?string
+    {
         try {
             $response = Http::withToken((string) config('services.mistral.key'))
                 ->timeout(60)
                 ->post(self::MISTRAL_OCR_URL, [
                     'model' => self::MISTRAL_MODEL,
-                    'document' => ['type' => 'image_url', 'image_url' => $imageUrl],
+                    'document' => $document,
                     'table_format' => 'markdown',
                 ]);
         } catch (Throwable $e) {
