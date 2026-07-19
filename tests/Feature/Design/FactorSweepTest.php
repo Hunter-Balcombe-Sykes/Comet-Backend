@@ -38,7 +38,6 @@ use App\Services\Design\Presets\Factors\StorePricePointFactor;
 use App\Services\Design\Presets\IdentityEvidence;
 use App\Services\Design\Presets\LaunchRecipes;
 use App\Services\Design\Presets\PresetTargetableColumns;
-use App\Services\Design\Presets\StyleTiers;
 use Illuminate\Support\Collection;
 
 // Feature tests inherit Tests\TestCase from tests/Pest.php — no per-file uses().
@@ -285,14 +284,6 @@ function swAllStaticEmissions(): array
         $sets["recipe:{$recipe['key']}"] = $recipe['values'];
     }
 
-    // Every analyzer tier of every signal, through the real mapping.
-    $tiers = (new ReflectionClass(StyleTiers::class))->getConstant('TIERS');
-    foreach ($tiers as $signal => $tierMap) {
-        foreach (array_keys($tierMap) as $tier) {
-            $sets["tier:{$signal}:{$tier}"] = StyleTiers::columnsFromTiers([$signal => $tier]);
-        }
-    }
-
     // Factor overlay consts (the full static emission surface of the stack).
     foreach ([
         [HoursRhythmFactor::class, 'RHYTHM_TARGETS'],
@@ -322,6 +313,11 @@ it('every statically-enumerable emission sits exactly on the locked vocabulary',
         'effect_shadow_style' => ['flat', 'soft', 'hard'],
         'effect_link_style' => ['underline-hover', 'underline-always', 'plain'],
         'effect_image_treatment' => ['none', 'mono', 'duotone', 'warm', 'muted'],
+        // The 7-font single-font roster StyleTiers used to enforce (deleted
+        // along with the website-design-scan pipeline it bridged — this sweep
+        // now checks the closed vocabulary directly instead of via reflection
+        // into that class). Canon: docs/design/font-icon-knowledge.md §1/§4.
+        'typography_font_family' => ['geist', 'inter', 'general-sans', 'monument-grotesk', 'forma-djr', 'helvetica-neue', 'helvetica-now'],
     ];
 
     foreach (swAllStaticEmissions() as $name => $values) {
@@ -333,17 +329,6 @@ it('every statically-enumerable emission sits exactly on the locked vocabulary',
             if ($column === 'color_accent') {
                 expect((bool) preg_match('/^#[0-9a-f]{6}$/', $value))->toBeTrue(
                     "{$name} accent '{$value}' is not lowercase 6-digit hex",
-                );
-
-                continue;
-            }
-
-            if ($column === 'typography_font_family') {
-                // Closed loop: an emitted font slug must be a live StyleTiers
-                // font tier (the 9-font roster allowlist).
-                expect(StyleTiers::columnsFromTiers(['font' => $value]))->toBe(
-                    ['typography_font_family' => $value],
-                    "{$name} font '{$value}' is not in the live roster",
                 );
 
                 continue;
