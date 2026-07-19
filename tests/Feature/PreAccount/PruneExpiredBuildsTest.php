@@ -4,6 +4,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -86,4 +87,36 @@ it('supports --dry-run', function () {
     makeExpiredBuild();
     $this->artisan('builds:prune-expired --dry-run')->assertSuccessful();
     expect(PreAccountBuild::query()->count())->toBe(1);
+});
+
+it('isolates a per-candidate teardown fault and still prunes the remaining candidate', function () {
+    [$u1, $s1, $b1] = makeExpiredBuild();
+    $u2 = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null, 'handle' => 'stale-two']);
+    $s2 = Site::factory()->create(['user_id' => $u2->id, 'subdomain' => 'stale-two']);
+    $b2 = PreAccountBuild::factory()->make(['expires_at' => now()->subDay()]);
+    $b2->user()->associate($u2);
+    $b2->save();
+
+    // First candidate's cache invalidation throws — the per-candidate transaction
+    // rolls back and the sweep must keep going instead of aborting entirely.
+    $this->partialMock(SiteCacheService::class, function ($mock) use ($s1) {
+        $mock->shouldReceive('invalidateSite')
+            ->twice()
+            ->andReturnUsing(function (Site $site) use ($s1) {
+                if ($site->id === $s1->id) {
+                    throw new RuntimeException('redis unavailable');
+                }
+
+                return null;
+            });
+    });
+
+    $this->artisan('builds:prune-expired')->assertSuccessful();
+
+    // Failed candidate: transaction rolled back, untouched, retried next run.
+    expect(User::query()->find($u1->id))->not->toBeNull()
+        ->and(PreAccountBuild::query()->find($b1->id))->not->toBeNull()
+        // Successful candidate: still pruned despite the other candidate's fault.
+        ->and(User::query()->find($u2->id))->toBeNull()
+        ->and(PreAccountBuild::query()->find($b2->id))->toBeNull();
 });
