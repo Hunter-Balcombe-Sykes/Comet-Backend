@@ -157,6 +157,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('category')
             ->withTrashed();
         Route::post('/services/reorder-layout', [UserServiceController::class, 'reorderLayout']);
+        // Move a single service into a category (or Uncategorized). Dedicated,
+        // narrow endpoint — never exposes sort_order as writable input; appends
+        // at global max(sort_order)+1, same advisory-lock key as reorder-layout.
+        Route::patch('/services/{service}/category', [UserServiceController::class, 'updateCategory'])
+            ->whereUuid('service');
 
         // View Analytics
         Route::get('/analytics', [UserAnalyticsController::class, 'summary']);
