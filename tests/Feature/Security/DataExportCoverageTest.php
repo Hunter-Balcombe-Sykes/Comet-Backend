@@ -97,7 +97,10 @@ it('every COVERED_PII_TABLES entry is actually referenced by the builder', funct
 });
 
 it('every EXPORT_EXEMPT entry resolves to a real model class', function () {
-    foreach (EXPORT_EXEMPT as $class) {
-        expect(class_exists($class))->toBeTrue("EXPORT_EXEMPT entry {$class} does not resolve to an existing class.");
-    }
+    $unresolved = array_values(array_filter(
+        EXPORT_EXEMPT,
+        fn (string $class) => ! class_exists($class),
+    ));
+
+    expect($unresolved)->toBe([], "EXPORT_EXEMPT entries that do not resolve to an existing class:\n  - ".implode("\n  - ", $unresolved));
 });
