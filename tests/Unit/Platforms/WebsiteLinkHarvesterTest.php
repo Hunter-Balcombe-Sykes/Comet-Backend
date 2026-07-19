@@ -52,6 +52,46 @@ it('returns nothing for a missing or non-http website', function () {
         ->and($harvester->harvest('not-a-url'))->toBe([]);
 });
 
+// ── A3.1: harvestHtml() / allOutboundLinks() — fetch split from parse ────────
+
+it('harvests from a raw html string the same way harvest() does from a url', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $harvester = new WebsiteLinkHarvester($fetcher);
+
+    $html = '<a href="https://www.fresha.com/a/venue-1">Book</a>';
+    $out = $harvester->harvestHtml($html, 'https://venue.example');
+
+    expect($out['booking'][0])->toContain('fresha.com');
+});
+
+it('allOutboundLinks returns every absolute outbound link, not just categorized ones', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $harvester = new WebsiteLinkHarvester($fetcher);
+
+    $html = '<a href="https://www.fresha.com/a/venue-1">Book</a><a href="https://someblog.example">Blog</a><a href="#anchor">skip</a>';
+    $links = $harvester->allOutboundLinks($html, 'https://venue.example');
+
+    expect($links)->toContain('https://www.fresha.com/a/venue-1', 'https://someblog.example');
+    expect($links)->toHaveCount(2);
+});
+
+it('allOutboundLinks resolves relative hrefs against the given base url', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $harvester = new WebsiteLinkHarvester($fetcher);
+
+    $links = $harvester->allOutboundLinks('<a href="/menu">Menu</a>', 'https://venue.example');
+
+    expect($links)->toBe(['https://venue.example/menu']);
+});
+
+it('harvest() still delegates through harvestHtml() with byte-identical behavior (regression)', function () {
+    $html = '<a href="https://www.instagram.com/docpizza">IG</a><a href="https://www.fresha.com/a/doc-cuts">Book</a>';
+    $out = harvesterFor($html)->harvest('https://example.com.au');
+
+    expect($out['socials']['instagram'])->toBe('https://www.instagram.com/docpizza');
+    expect($out['booking'][0])->toContain('fresha.com');
+});
+
 // ── classify() — single-URL host classification (BE2: reused by InstagramAutoSync) ──
 
 function classifierHarvester(): WebsiteLinkHarvester
