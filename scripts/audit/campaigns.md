@@ -345,6 +345,136 @@ $A --category quality --name controllers --bundle code-quality \
 
 ---
 
+# Campaign 6 — Prod-cutover readiness  ⚠ time-sensitive
+
+Lenses: `migration-safety`, `test-prod-parity`, `schema-rls`.
+
+**Why this is urgent and not optional.** Prod is still on the old v2 schema; all
+185 repo migrations are unapplied, so the cutover is a gated re-baseline rather
+than a normal deploy. And tests run on SQLite while prod is Postgres — the test
+schema does NOT mirror prod constraints (NOT NULL, CHECK, FK), so a write that
+violates them passes CI green and only 500s on real Postgres. That exact class has
+already bitten twice on the Instagram connect (`payload => null`, then a
+`last_refresh_status` value missing from that column's CHECK).
+
+## Tier 1 — will the cutover survive contact (3 runs)
+
+> **Prompt:**
+> Run Tier 1 of the prod-cutover campaign in `scripts/audit/campaigns.md`.
+> Sequential, counts + paths only, stop on failure. Context: prod Supabase is on
+> the pre-standalone v2 schema with all 185 repo migrations unapplied, and the
+> pilot will cut over to it. Grade every finding by "would this break or corrupt
+> data during a full replay of these migrations onto an old schema". For
+> test-prod-parity findings, verify the constraint against the actual DDL in
+> `supabase/migrations/`, NOT against the SQLite test schema in `tests/Pest.php` —
+> the two have drifted and the SQLite one is not authoritative.
+
+```bash
+A=scripts/audit/audit.sh
+L=scripts/audit/lenses
+$A --category cutover --name migrations-early --lens-file $L/migration-safety.md \
+  $(printf -- '--scope %s ' supabase/migrations/20260[1-6]*.sql)                    # 332 KB
+$A --category cutover --name migrations-recent --lens-file $L/migration-safety.md \
+  $(printf -- '--scope %s ' supabase/migrations/20260[7-9]*.sql)                    # 212 KB
+$A --category cutover --name parity-models --lens-file $L/test-prod-parity.md \
+  --scope app/Models --scope app/Observers                                          # 174 KB
+```
+
+## Tier 2 — write paths that only fail on real Postgres (2 runs)
+
+> **Prompt:**
+> Run Tier 2 of the prod-cutover campaign in `scripts/audit/campaigns.md` — the 2
+> write-path parity runs. Sequential, counts + paths only. For each finding, name
+> the exact column and constraint in `supabase/migrations/` that the write would
+> violate, and confirm the SQLite test schema does not enforce it (that asymmetry
+> is the bug). Reject findings that cannot cite the DDL.
+
+```bash
+A=scripts/audit/audit.sh
+L=scripts/audit/lenses
+$A --category cutover --name parity-services --lens-file $L/test-prod-parity.md \
+  --scope app/Services/User --scope app/Services/Site --scope app/Services/PreAccount \
+  --scope app/Services/Platforms/Registry                                           # 258 KB
+$A --category cutover --name parity-jobs --lens-file $L/test-prod-parity.md \
+  --scope app/Jobs --scope database/factories                                       # 260 KB
+```
+
+---
+
+# Campaign 7 — API contract & test coverage
+
+Lenses: `api-contract`, `test-coverage`. Run before a release that touches public
+API shape — the frontend and the Astro sitepage app both consume these payloads.
+
+> **Prompt:**
+> Run the API-contract & test-coverage campaign in `scripts/audit/campaigns.md`.
+> Sequential, counts + paths only. For contract findings, treat any change to a
+> field name, nullability or shape in a Resource as breaking unless a dual-key
+> transition is in place (see `IndividualProfileResource`, which deliberately
+> emits both `architectureId` and the legacy `skeletonId`). For coverage findings,
+> only report gaps on code that can actually break a user flow — do not ask for
+> tests on trivial getters.
+
+```bash
+A=scripts/audit/audit.sh
+L=scripts/audit/lenses
+$A --category contract --name public-api-shape --lens-file $L/api-contract.md \
+  --scope app/Http/Resources --scope app/Http/Controllers/Api/PublicSite            # 217 KB
+$A --category contract --name user-api-shape --lens-file $L/api-contract.md \
+  --scope app/Http/Controllers/Api/User --scope app/Http/Requests/Api/User          # 261 KB
+$A --category contract --name coverage-security --lens-file $L/test-coverage.md \
+  --scope tests/Feature/Security --scope app/Policies --scope app/Http/Middleware/Auth  # 259 KB
+```
+
+---
+
+# Campaign 8 — Foundational durability
+
+Bundle: `--bundle foundational`. Architecture debt — shotgun surgery, JSON that
+should be columns, leaky boundaries, breaking-migration risk. Run when planning
+a subsystem change, not on a schedule.
+
+> **Prompt:**
+> Run the foundational-durability campaign in `scripts/audit/campaigns.md`.
+> Sequential, counts + paths only. This lens grades extensibility, so anchor every
+> finding to a concrete near-term change that would be painful — "adding platform
+> #37", "adding a second architecture", "adding a design-kit var". Reject abstract
+> "this could be cleaner" findings with no such change behind them.
+
+```bash
+A=scripts/audit/audit.sh
+$A --category foundation --name platform-registry --bundle foundational \
+  --scope app/Services/Platforms/Registry --scope app/Http/Controllers/Api/Platforms \
+  --scope app/Services/Platforms/Strategies                                         # 303 KB
+$A --category foundation --name json-denormalisation --bundle foundational \
+  --scope app/Models --scope app/Services/Segments --scope config/partna.php        # 249 KB
+```
+
+---
+
+# Priority order — what to run, in what order
+
+Ranked across all campaigns for the current stage (pre-beta, no customers, pilot
+on a cut-over prod Supabase). Stop wherever the value stops justifying the spend.
+
+| Rank | Run | Why now |
+|---|---|---|
+| 1 | **Security Tier 1** (8 runs) | Everything externally reachable. Nothing else matters if this is wrong. |
+| 2 | **Concurrency Tier 1** (3 runs) | The claim race is new, unaudited, and corrupts data silently rather than erroring. |
+| 3 | **Cutover Tier 1** (3 runs) | Gates the pilot. 185 unapplied migrations onto a v2 schema is the single riskiest planned operation. |
+| 4 | **Cutover Tier 2** (2 runs) | The SQLite/Postgres asymmetry that has already caused two incidents. |
+| 5 | **Data & privacy Tier 1** (2 runs) | Pilot means real user data. GDPR is legal risk, not technical debt. |
+| 6 | **Security Tier 2** (6 runs) | Outbound/SSRF and wiring. |
+| 7 | **Contract campaign** (3 runs) | Before any release the frontend consumes. |
+| 8 | **Scale Tier 1** (3 runs) | Real but not yet binding — no customers. Do it before the pilot opens, not now. |
+| 9 | **Concurrency Tier 2**, **Data Tier 2**, **Security Tier 3** | Defence in depth. |
+| 10 | **Scale Tiers 2–3**, **Foundation**, **Code quality** | Opportunistic, or when planning a change in that area. |
+
+**Minimum viable set before the pilot:** ranks 1–5 (18 runs). That covers the
+attack surface, the data-corruption race, the cutover, and GDPR.
+
+---
+
 # After the baseline — audit the delta, not the repo
 
 Once a campaign has run, **do not repeat it**. Diff-scoped sweeps sit far below
