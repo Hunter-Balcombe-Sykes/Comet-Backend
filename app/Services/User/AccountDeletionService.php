@@ -965,9 +965,13 @@ class AccountDeletionService
      * surviving record of which R2 objects an exhausted DeleteMediaArtifactsJob
      * left behind, and the daily gdpr sweep re-deletes them. (P1-08)
      *
+     * Public: a second caller, PruneExpiredPreAccountBuilds, reuses this seam so
+     * an expired provisional user's R2 media is cleaned up before its row cascade
+     * (DB cascades never touch storage) — same requirement as purge()'s Step 2.
+     *
      * @return list<string> video artifact base paths
      */
-    private function purgeMediaArtifacts(User $professional): array
+    public function purgeMediaArtifacts(User $professional): array
     {
         $site = Site::query()->where('user_id', $professional->id)->first();
 

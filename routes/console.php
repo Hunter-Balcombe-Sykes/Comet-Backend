@@ -171,6 +171,16 @@ Schedule::command('feature-flags:prune-expired')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('feature-flags:prune-expired'));
 
+// Pre-account sites: hard-deletes expired unclaimed builds (+ stale failed
+// builds past failed_prune_hours). Teardown-ordering mirrors
+// AccountDeletionService::purge() — see PruneExpiredPreAccountBuilds.
+Schedule::command('builds:prune-expired')
+    ->dailyAt('03:40')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('prune-expired-pre-account-builds'));
+
 // Keep Laravel Cloud warm. Fires a 3-second HTTP request to the local /up
 // health endpoint every minute so the autoscaler doesn't park the web
 // pod between visitor bursts. Cold starts (when the pod has been parked)

@@ -375,6 +375,18 @@ function setupPreAccountBuildsTable(): void
 }
 
 /**
+ * Alias for setupSitesTable() — ensures site.platform_connections
+ * (IntegrationConnection's table) exists. setupSitesTable() already creates it
+ * as part of the full sites stub; this named wrapper lets a test spell out the
+ * table it actually depends on (mirrors the setupSiteMediaTable() alias
+ * elsewhere in this file, which wraps setupMediaTables() the same way).
+ */
+function setupIntegrationConnectionsTable(): void
+{
+    setupSitesTable();
+}
+
+/**
  * An unsaved User with just enough shape for actingAsUser() to derive JWT
  * claims (sub + email) for a Supabase auth id with no core.users row — the
  * pre-claim state ClaimSiteService expects. auth_user_id isn't fillable, so
