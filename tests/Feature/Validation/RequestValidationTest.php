@@ -3,7 +3,6 @@
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
 use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
-use App\Http\Requests\Api\PublicSite\PublicWaitlistSignupRequest;
 use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
@@ -39,46 +38,6 @@ it('rejects invalid public customer lead payload', function () {
     expect($validator->errors()->has('full_name'))->toBeTrue();
     expect($validator->errors()->has('email'))->toBeTrue();
     expect($validator->errors()->has('phone'))->toBeTrue();
-});
-
-it('rejects invalid public waitlist payload', function () {
-    $payload = [
-        'name' => '',
-        'email' => 'bad-email',
-        'phone' => 'abc',
-        'type' => 'unknown',
-        'industry' => 'unknown',
-        'pilot_program_opt_in' => 'not-a-bool',
-    ];
-
-    $validator = Validator::make($payload, (new PublicWaitlistSignupRequest)->rules());
-
-    expect($validator->fails())->toBeTrue();
-    // `name` is nullable — empty string is valid. Asserted explicitly so a
-    // future tightening of this rule shows up here as a regression.
-    expect($validator->errors()->has('name'))->toBeFalse();
-    expect($validator->errors()->has('email'))->toBeTrue();
-    expect($validator->errors()->has('phone'))->toBeTrue();
-    expect($validator->errors()->has('type'))->toBeTrue();
-    expect($validator->errors()->has('industry'))->toBeTrue();
-    expect($validator->errors()->has('pilot_program_opt_in'))->toBeTrue();
-});
-
-it('requires conditional fields for public waitlist payload', function () {
-    $otherPayload = [
-        'name' => 'Other Person',
-        'email' => 'other@example.com',
-        'phone' => '+61422222222',
-        'type' => 'other',
-        'industry' => 'other',
-        'pilot_program_opt_in' => false,
-    ];
-
-    $otherValidator = Validator::make($otherPayload, (new PublicWaitlistSignupRequest)->rules());
-
-    expect($otherValidator->fails())->toBeTrue();
-    expect($otherValidator->errors()->has('type_other_text'))->toBeTrue();
-    expect($otherValidator->errors()->has('industry_other_text'))->toBeTrue();
 });
 
 it('rejects invalid public site subdomain', function () {

@@ -148,7 +148,6 @@ Visitor analytics + lead capture → analytics.* tables
 | `EmailSubscription` | — | `notifications.email_subscriptions` | Marketing email opt-in per user |
 | `SiteSubdomainAlias` | — | `site.site_subdomain_aliases` | Subdomain alias management |
 | `Theme` | — | `site.themes` | Site theme definitions (platform-wide catalog, lives in site for render-data co-location) |
-| `WaitlistSignup` | — | `core.waitlist_signups` | Pre-launch waitlist |
 | `SiteVisit` | — | `analytics.site_visits` | Page view events |
 | `LinkClick` | — | `analytics.link_clicks` | Link/section click events |
 | `LeadSubmission` | — | `analytics.lead_submissions` | Lead form submissions |
@@ -158,7 +157,7 @@ Visitor analytics + lead capture → analytics.* tables
 | Schema | Contents |
 |--------|----------|
 | `public` | Laravel infrastructure (cache, jobs, failed_jobs) |
-| `core` | Users, customers, themes, staff, waitlist |
+| `core` | Users, customers, themes, staff |
 | `site` | Sites, blocks, media, services, service_categories, subdomain_aliases |
 | `notifications` | Notifications, receipts, email subscriptions, policies, preferences |
 | `analytics` | Raw event tables: `site_visits`, `link_clicks`, `lead_submissions` |

@@ -24,6 +24,26 @@ class DataExportPayloadBuilder
 {
     use ResolvesDeletedEmail;
 
+    /**
+     * Tables whose PII this export covers. Read by DataExportCoverageTest to
+     * assert no PII-bearing model is silently missing from sectionDescriptors().
+     * Adding a PII table to the export means adding it here too.
+     *
+     * Entries MUST be schema-qualified — they are compared against the models'
+     * $table values, which carry the Postgres schema prefix.
+     */
+    public const COVERED_PII_TABLES = [
+        'core.users',
+        'core.early_access_signups',
+        'core.feedback',
+        'site.customers',
+        'site.enquiries',
+        'site.workplaces',
+        'notifications.email_subscriptions',
+        'audit.data_export_audit',
+        'audit.user_deletion_audit',
+    ];
+
     private const SCHEMA_VERSION = 1;
 
     private const PII_DISCLOSURE = 'This export contains personally identifiable information (PII) you collected from your customers via Partna (booking history, enquiries, email subscriptions). Handle in accordance with applicable privacy law.';
@@ -53,7 +73,7 @@ class DataExportPayloadBuilder
      * tests and small-tenant scenarios. It iterates the same generators
      * stream() exposes, so memory usage scales with the largest section.
      *
-     * @return array{metadata: array, profile: array, site: array, waitlist: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
+     * @return array{metadata: array, profile: array, site: array, early_access: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
      */
     public function build(string $userId): array
     {
@@ -129,10 +149,10 @@ class DataExportPayloadBuilder
             ['name' => 'profile', 'kind' => 'value', 'resolve' => fn () => $this->profile($professional)],
             ['name' => 'site', 'kind' => 'value', 'resolve' => fn () => $this->site($userId)],
             [
-                'name' => 'waitlist',
+                'name' => 'early_access',
                 'kind' => 'rows',
-                'resolve' => fn () => $this->streamWaitlistSignups($lookupEmail),
-                'csv_columns' => ['id', 'name', 'email', 'phone', 'applicant_type', 'applicant_type_other', 'industry', 'industry_other', 'pilot_program_opt_in', 'number_of_team_members', 'consent_source', 'last_submitted_at', 'created_at', 'updated_at'],
+                'resolve' => fn () => $this->streamEarlyAccessSignups($lookupEmail),
+                'csv_columns' => ['id', 'email', 'type', 'workplace_or_industry', 'platforms', 'status', 'source', 'invited_at', 'signed_up_at', 'created_at', 'updated_at'],
             ],
             ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($userId)],
             ['name' => 'design_kit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDesignKit($siteId)],
@@ -538,16 +558,19 @@ class DataExportPayloadBuilder
     }
 
     /**
-     * Pre-account waitlist signup record. No FK to core.users — joined only
-     * by email_lc — so the row persists indefinitely even after signup. Under
-     * Article 15 it is personal data of the data subject and must be exported.
+     * Early-access signup record. No FK to core.users — joined only by email_lc —
+     * so the row persists after signup. Under Article 15 it is personal data of
+     * the data subject and must be exported.
      *
-     * Email-recycle note: PublicWaitlistController upserts by email_lc, so when
-     * an email is recycled the row CONTENT is overwritten with the new user's
-     * data; only created_at and id are preserved from the prior occupant.
-     * Bounded leak — see streamEmailSubscriptions comment.
+     * Email-recycle note: EarlyAccessService::signupFromMarketing() upserts by
+     * email_lc via firstOrCreate, refreshing type/workplace_or_industry/platforms
+     * only while the existing row's status is still 'waitlist'. Once a row has
+     * progressed to invited or signed_up, a resubmission under a recycled email
+     * is a silent no-op — the row keeps the FORMER occupant's type, status,
+     * invited_at, and signed_up_at, not just created_at/id. Larger leak than the
+     * streamEmailSubscriptions case; no schema-level fix yet.
      */
-    private function streamWaitlistSignups(?string $email): Generator
+    private function streamEarlyAccessSignups(?string $email): Generator
     {
         $emailLc = $this->normaliseEmail($email);
         if ($emailLc === null) {
@@ -556,18 +579,16 @@ class DataExportPayloadBuilder
             return;
         }
 
-        // Drops consent_ip_hash + consent_user_agent (technical fingerprint)
-        // and email_lc (redundant with email). Mirrors the streamEnquiries
-        // redaction pattern.
+        // Drops consent_ip_hash + consent_user_agent (technical fingerprint),
+        // email_lc (redundant with email), and invite_token_hash (credential
+        // material — never exported). Mirrors the streamEnquiries redaction pattern.
         yield from $this->lazyRows(
             DB::connection('pgsql')
-                ->table('core.waitlist_signups')
+                ->table('core.early_access_signups')
                 ->select([
-                    'id', 'name', 'email', 'phone',
-                    'applicant_type', 'applicant_type_other',
-                    'industry', 'industry_other',
-                    'pilot_program_opt_in', 'number_of_team_members',
-                    'consent_source', 'last_submitted_at',
+                    'id', 'email', 'type', 'workplace_or_industry',
+                    'platforms', 'status', 'source',
+                    'invited_at', 'signed_up_at',
                     'created_at', 'updated_at',
                 ])
                 ->where('email_lc', $emailLc)

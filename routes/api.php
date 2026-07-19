@@ -21,7 +21,6 @@ use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicMenuController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
-use App\Http\Controllers\Api\PublicSite\PublicWaitlistController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
 use Illuminate\Support\Facades\Route;
 
@@ -139,13 +138,11 @@ Route::get('/public/signup/builds/{build}', [PreAccountBuildController::class, '
     ->middleware('throttle:public-site');
 Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
     ->middleware(['throttle:login-identifier', 'bot.token:login-identifier']);
-Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
-    ->middleware(['throttle:waitlist', 'bot.token:waitlist']);
 
 // OV-A: early-access marketing form (no bot.token — the marketing site posts
 // cross-origin without a token bootstrap; honeypot + timing check + the
-// waitlist-grade throttle carry the abuse load) and the invite-token resolve
-// used by /signup?invite=<token> to autofill + lock the email.
+// dedicated `early-access` throttle carry the abuse load) and the invite-token
+// resolve used by /signup?invite=<token> to autofill + lock the email.
 Route::post('/public/early-access', [PublicEarlyAccessController::class, 'store'])
     ->middleware('throttle:early-access');
 Route::get('/public/early-access/invite/{token}', [PublicEarlyAccessController::class, 'resolveInvite'])

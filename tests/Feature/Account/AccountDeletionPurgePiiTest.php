@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 use Tests\Feature\User\AccountDeletion\AccountDeletionTestCase;
 
 // Integration test verifying all five PII erasure surfaces cleared by purge() (Bundle B4).
-// Covers #P2-08 (R2 export ZIPs), #P2-09 (waitlist signups), #P2-10 (feedback),
+// Covers #P2-08 (R2 export ZIPs), #P2-09 (early access signups), #P2-10 (feedback),
 // #P2-11 (case_signal reporter fields), #P2-12 (global email subscriptions).
 
 beforeEach(function () {
@@ -96,21 +96,27 @@ it('deletes R2 export ZIP files before forceDelete (P2-08)', function () {
     Storage::disk('media')->assertMissing($orphanPath);
 });
 
-it('deletes waitlist signup row matched by email_lc (P2-09)', function () {
+it('deletes early access signup row matched by email_lc (P2-09)', function () {
     $user = seedPurgePiiUser('p209@example.com');
     $emailLc = 'p209@example.com';
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         'id' => (string) Str::uuid(),
-        'email' => 'P209@example.com',
+        'email' => $emailLc,
         'email_lc' => $emailLc,
-        'created_at' => now()->toIso8601String(),
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
     ]);
 
     $professional = User::find($user['id']);
     app(AccountDeletionService::class)->purge($professional);
 
-    $row = DB::connection('pgsql')->table('core.waitlist_signups')
+    $row = DB::connection('pgsql')->table('core.early_access_signups')
         ->where('email_lc', $emailLc)->first();
 
     expect($row)->toBeNull();
@@ -291,12 +297,18 @@ it('clears all five PII surfaces in a single purge run', function () {
         'created_at' => now()->toIso8601String(),
     ]);
 
-    // #P2-09: waitlist signup
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    // #P2-09: early access signup
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         'id' => (string) Str::uuid(),
         'email' => $originalEmail,
         'email_lc' => $emailLc,
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
         'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
     ]);
 
     // #P2-10: feedback
@@ -345,9 +357,9 @@ it('clears all five PII surfaces in a single purge run', function () {
     // P2-08: ZIP deleted from R2
     Storage::disk('media')->assertMissing($zipPath);
 
-    // P2-09: waitlist row gone
+    // P2-09: early access row gone
     expect(
-        DB::connection('pgsql')->table('core.waitlist_signups')->where('email_lc', $emailLc)->exists()
+        DB::connection('pgsql')->table('core.early_access_signups')->where('email_lc', $emailLc)->exists()
     )->toBeFalse();
 
     // P2-10: feedback gone (all rows for this user)

@@ -104,7 +104,7 @@ The inbound-callback surface post-strip is small but critical. **Signature verif
 - Public endpoints that accept untrusted input without `throttle` middleware or bot-protection (`BotProtectionCoverageTest` is the house sweep pattern):
   - `PublicEnquiryController` — enquiry spam / lead harvesting.
   - `PublicCustomerLeadController` / `PublicEmailSubscriptionController` — list-bombing risk.
-  - `PublicWaitlistController` — waitlist spam.
+  - `PublicEarlyAccessController` — early-access signup spam.
   - `PublicReportController` — abuse report flooding.
   - `PublicSite/AnalyticsController` — analytics ingest flooding (fire-and-forget job queue exhaustion).
 - Any public endpoint that triggers an outbound email (enquiry confirmation, subscription confirmation) without rate limiting — email relay abuse.

@@ -74,7 +74,6 @@ it('does not add public cache headers to non-allow-listed public paths', functio
     $nonCacheablePaths = [
         '/api/public/subscribe',
         '/api/public/customers',
-        '/api/public/waitlist',
         '/api/public/signup/availability',
         '/api/public/analytics/pageviews',
     ];

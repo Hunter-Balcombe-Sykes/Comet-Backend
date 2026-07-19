@@ -554,37 +554,7 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Public waitlist submissions. CF-Connecting-IP preferred on the
-        // IP-keyed bucket (SEC-2) — same rationale as public-site.
-        RateLimiter::for('waitlist', function (Request $request) use ($throttleEnabled) {
-            if (! $throttleEnabled) {
-                return [Limit::none()];
-            }
-
-            $email = strtolower(trim((string) $request->input('email', '')));
-            $emailKey = $email !== '' ? hash('sha256', $email) : 'unknown';
-            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
-
-            return [
-                Limit::perMinute(5)
-                    ->by('waitlist:ip:'.$key)
-                    ->response(function () {
-                        return response()->json([
-                            'message' => 'Too many waitlist submissions. Please try again shortly.',
-                        ], 429);
-                    }),
-
-                Limit::perHour(12)
-                    ->by('waitlist:email:'.$emailKey)
-                    ->response(function () {
-                        return response()->json([
-                            'message' => 'This email has been submitted recently. Please try again later.',
-                        ], 429);
-                    }),
-            ];
-        });
-
-        // Public early-access signups (OV-A). Same posture as waitlist:
+        // Public early-access signups (OV-A). Same posture as the retired waitlist limiter:
         // 5/min per IP (CF-Connecting-IP preferred) + 12/h per email.
         RateLimiter::for('early-access', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
@@ -616,7 +586,7 @@ class AppServiceProvider extends ServiceProvider
 
         // public-subscribe: newsletter signups. Tightened from the previous
         // throttle:public-site (60/min IP) to 5/min IP + 12/h per email,
-        // matching the waitlist limiter's per-email cap. CF-Connecting-IP
+        // matching the early-access limiter's per-email cap. CF-Connecting-IP
         // preferred on the IP-keyed bucket (SEC-2) — same rationale as
         // public-site.
         RateLimiter::for('public-subscribe', function (Request $request) use ($throttleEnabled) {

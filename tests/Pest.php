@@ -914,35 +914,6 @@ function setupContentSelectionTable(): void
 }
 
 /**
- * core.waitlist_signups for waitlist tests. Column list mirrors the production
- * baseline post-relaxation migration (20260526010000) — all columns nullable
- * here for SQLite permissiveness, but every column name matches.
- */
-function setupWaitlistTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
-        id TEXT PRIMARY KEY,
-        name TEXT NULL,
-        email TEXT NULL,
-        email_lc TEXT NULL UNIQUE,
-        phone TEXT NULL,
-        applicant_type TEXT NULL,
-        applicant_type_other TEXT NULL,
-        industry TEXT NULL,
-        industry_other TEXT NULL,
-        pilot_program_opt_in INTEGER NULL,
-        number_of_team_members INTEGER NULL,
-        consent_source TEXT NULL,
-        consent_ip_hash TEXT NULL,
-        consent_user_agent TEXT NULL,
-        last_submitted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-}
-
-/**
  * Register SQLite UDFs that mimic the Postgres functions our advisory-locking
  * code paths rely on. Production calls `pg_advisory_xact_lock(hashtext(?))`
  * to serialize concurrent reorder/upsert writes per site; under SQLite both

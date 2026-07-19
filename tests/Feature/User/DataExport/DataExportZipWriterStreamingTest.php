@@ -75,7 +75,7 @@ it('writeStreaming produces a zip containing data.json with builder-defined sect
     // Top-level keys parity with build() — verifies stream() and build()
     // emit the same section list (modulo grouping).
     expect($decoded)->toHaveKeys([
-        'metadata', 'profile', 'site', 'waitlist',
+        'metadata', 'profile', 'site', 'early_access',
         'media', 'integrations', 'customers', 'services', 'service_categories',
         'enquiries', 'lead_submissions', 'email_subscriptions',
         'notifications', 'ui_preferences', 'notification_preferences',
@@ -92,7 +92,7 @@ it('writeStreaming produces a zip containing data.json with builder-defined sect
     // CSV emitted for the customers section (has csv_columns).
     expect($zip->locateName('customers.csv'))->not->toBeFalse();
     // No CSV for sections without csv_columns.
-    expect($zip->locateName('waitlist.csv'))->toBeFalse();
+    expect($zip->locateName('early_access.csv'))->toBeFalse();
     expect($zip->locateName('audit_handle_change_log.csv'))->toBeFalse();
 
     $zip->close();
