@@ -47,6 +47,7 @@ class InstagramConnectionSeeder
         private readonly InstagramScraper $scraper,
         private readonly InstagramAutoSync $autoSync,
         private readonly InstagramIdentitySync $identitySync,
+        private readonly CustomLinkSeeder $linkSeeder,
     ) {}
 
     /**
@@ -168,6 +169,7 @@ class InstagramConnectionSeeder
         $user = User::find($userId);
         if ($user !== null) {
             $this->identitySync->applyIdentity($user, $profile);
+            $this->autoSaveUnmatchedLinks($user, $sync['unmatched']);
         }
 
         $connection->update([
@@ -180,6 +182,17 @@ class InstagramConnectionSeeder
         ]);
 
         return $selection;
+    }
+
+    /** @param  list<array<string,mixed>>  $unmatched */
+    private function autoSaveUnmatchedLinks(User $user, array $unmatched): void
+    {
+        foreach ($unmatched as $entry) {
+            $url = is_array($entry) ? ($entry['url'] ?? null) : null;
+            if (is_string($url)) {
+                $this->linkSeeder->seed($user, $url);
+            }
+        }
     }
 
     // Mirror a single image (cover or profile pic) to R2.

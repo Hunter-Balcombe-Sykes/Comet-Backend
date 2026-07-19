@@ -713,6 +713,59 @@ it('does not overwrite already-set identity fields as part of the connect job', 
     expect($user->fresh()->display_name)->toBe('Igidentity2');
 });
 
+// ── A2.2: unmatched bio links auto-saved as custom links ────────────────────
+
+it('auto-creates a custom link for each unmatched instagram bio link', function () {
+    Storage::fake('media');
+    Queue::fake();
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'fullName' => 'Blog User',
+        'externalUrl' => 'https://someblog.example/post',
+        'latestPosts' => [],
+    ]], 201)]);
+
+    $user = igAsyncUser('igcustomlink1');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    $connection->refresh();
+    expect($connection->payload['unmatched'])->toBe([
+        ['url' => 'https://someblog.example/post', 'label' => 'someblog.example'],
+    ]);
+    $custom = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->first();
+    expect($custom)->not->toBeNull();
+    expect($custom->payload['url'])->toBe('https://someblog.example/post');
+});
+
+it('does not auto-create a custom link for a bio link that WAS auto-synced as a platform connection', function () {
+    Storage::fake('media');
+    Queue::fake();
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'fullName' => 'Doc Pizza',
+        'externalUrls' => [['url' => 'https://www.facebook.com/docpizzabar']],
+        'latestPosts' => [],
+    ]], 201)]);
+
+    // Business account: matched social links get seeded, not routed to unmatched.
+    $user = igAsyncUser('igcustomlink2', 'business');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => false, 'last_refresh_status' => 'pending',
+    ]);
+
+    (new InstagramConnectJob($user->id, 'docpizza', $connection->id))
+        ->handle(app(InstagramScraper::class), app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->exists())->toBeFalse();
+});
+
 it('BE2: an Apify response with none of the bio fields (older actor shape) leaves website/bioLinks/syncFindings/unmatched empty and does not break the job', function () {
     Storage::fake('media');
     config(['services.apify.token' => 'test-token']);
