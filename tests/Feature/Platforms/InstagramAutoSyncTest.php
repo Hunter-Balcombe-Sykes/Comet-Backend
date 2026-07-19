@@ -432,3 +432,111 @@ it('applyFinding is a safe no-op for a malformed/seeded finding with no apply re
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
 });
+
+// ── A3.2: handleClassifiedLink() — the extracted, directly-callable, per-link handler ──
+// Proves the same gating/dedup guarantee is reachable independent of seed()'s
+// own loop, so a link found one hop into an unrolled link-in-bio page (A3.4)
+// gets identical treatment to one found directly in the bio.
+
+it('handleClassifiedLink seeds a classified link directly, matching what seed() would do for the same link', function () {
+    $user = igAutoSyncUser('igas13'); // business — google_business_full_sync true
+    $classified = ['platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook'];
+    $seenPlatforms = [];
+    $findings = [];
+    $unmatched = [];
+
+    app(InstagramAutoSync::class)->handleClassifiedLink(
+        $user, $classified, 'https://www.facebook.com/docpizzabar', $seenPlatforms, $findings, $unmatched
+    );
+
+    expect($findings)->toHaveCount(1);
+    expect($findings[0]['outcome'])->toBe('seeded');
+    expect($unmatched)->toBe([]);
+    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
+    expect($fb['url'])->toBe('https://www.facebook.com/docpizzabar');
+});
+
+it('handleClassifiedLink resolves the capability gate INTERNALLY from $user — a standard account cannot be made to bypass it', function () {
+    // Regression for the exact bug an earlier draft reintroduced: the method
+    // must derive google_business_full_sync itself, not trust a caller-passed
+    // boolean. A 'partna' account has no google_business_full_sync.
+    $user = igAutoSyncUser('igas14', 'partna');
+    $classified = ['platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook'];
+    $seenPlatforms = [];
+    $findings = [];
+    $unmatched = [];
+
+    app(InstagramAutoSync::class)->handleClassifiedLink(
+        $user, $classified, 'https://www.facebook.com/docpizzabar', $seenPlatforms, $findings, $unmatched
+    );
+
+    expect($findings)->toBe([]);
+    expect($unmatched)->toBe([['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook']]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+});
+
+it('handleClassifiedLink gates booking on can_use_booking for a food-sector account, routing to unmatched', function () {
+    $user = igAutoSyncUser('igas15');
+    $user->forceFill(['sector' => 'restaurant'])->save();
+    $classified = ['platform' => 'fresha', 'category' => 'booking', 'label' => 'Fresha'];
+    $seenPlatforms = [];
+    $findings = [];
+    $unmatched = [];
+
+    app(InstagramAutoSync::class)->handleClassifiedLink(
+        $user, $classified, 'https://www.fresha.com/a/doc-cuts', $seenPlatforms, $findings, $unmatched
+    );
+
+    expect($findings)->toBe([]);
+    expect($unmatched)->toBe([['url' => 'https://www.fresha.com/a/doc-cuts', 'label' => 'Fresha']]);
+});
+
+it('handleClassifiedLink routes a classified-but-not-actionable platform (e.g. youtube) to unmatched', function () {
+    $user = igAutoSyncUser('igas16');
+    $classified = ['platform' => 'youtube', 'category' => 'social', 'label' => 'YouTube'];
+    $seenPlatforms = [];
+    $findings = [];
+    $unmatched = [];
+
+    app(InstagramAutoSync::class)->handleClassifiedLink(
+        $user, $classified, 'https://www.youtube.com/@acme', $seenPlatforms, $findings, $unmatched
+    );
+
+    expect($unmatched)->toBe([['url' => 'https://www.youtube.com/@acme', 'label' => 'YouTube']]);
+});
+
+it('handleClassifiedLink respects seenPlatforms across repeated calls sharing the same accumulators', function () {
+    $user = igAutoSyncUser('igas17');
+    $classified = ['platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook'];
+    $seenPlatforms = [];
+    $findings = [];
+    $unmatched = [];
+
+    $sync = app(InstagramAutoSync::class);
+    $sync->handleClassifiedLink($user, $classified, 'https://www.facebook.com/first', $seenPlatforms, $findings, $unmatched);
+    $sync->handleClassifiedLink($user, $classified, 'https://www.facebook.com/second', $seenPlatforms, $findings, $unmatched);
+
+    // First one seeded; the platform slot is now consumed for this run, so the
+    // second call is a silent no-op (mirrors seed()'s own "first bio link per
+    // platform wins" behavior for two links classifying to the same platform).
+    expect($findings)->toHaveCount(1);
+    expect($findings[0]['foundUrl'])->toBe('https://www.facebook.com/first');
+});
+
+it('seed() still produces byte-identical results through the refactored handleClassifiedLink (full-suite regression)', function () {
+    $user = igAutoSyncUser('igas18');
+
+    $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
+        'https://www.instagram.com/docpizza', // bare profile, no path beyond handle
+        'https://www.facebook.com/docpizzabar',
+        'https://www.fresha.com/a/doc-cuts',
+        'https://someblog.example',
+    ]);
+
+    expect($result['findings'])->toHaveCount(2); // facebook + fresha seeded
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['facebook', 'fresha']);
+    expect($result['unmatched'])->toBe([
+        ['url' => 'https://www.instagram.com/docpizza', 'label' => 'Instagram'],
+        ['url' => 'https://someblog.example', 'label' => 'someblog.example'],
+    ]);
+});

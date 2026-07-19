@@ -68,13 +68,10 @@ class InstagramAutoSync
             return ['findings' => [], 'unmatched' => []];
         }
 
-        // Social auto-sync is gated on the SAME capability GB's socials tier
-        // uses (see class docblock); booking on can_use_booking (sector
-        // gating). A missing user reads as no capability — fail closed, gated
-        // links fall through to unmatched.
+        // A missing user reads as no capability — fail closed, below, exactly
+        // like handleClassifiedLink()'s own capability derivation would if it
+        // could resolve a $user at all.
         $user = User::find($userId);
-        $canSyncSocial = $user !== null && AccountCapabilities::for($user)->google_business_full_sync;
-        $canSyncBooking = $user !== null && AccountCapabilities::for($user)->can_use_booking;
 
         $findings = [];
         $unmatched = [];
@@ -86,127 +83,167 @@ class InstagramAutoSync
             }
             $url = trim($url);
 
-            try {
-                $classified = $this->harvester->classify($url);
-                if ($classified === null) {
-                    $unmatched[] = ['url' => $url, 'label' => $this->hostLabel($url)];
+            $classified = $this->harvester->classify($url);
+            if ($classified === null) {
+                $unmatched[] = ['url' => $url, 'label' => $this->hostLabel($url)];
 
-                    continue;
-                }
-
-                $platform = $classified['platform'];
-                if (! isset(self::ACTIONABLE[$platform])) {
-                    // Recognised (e.g. YouTube, OpenTable, Instagram) but not
-                    // something this service auto-syncs — see class docblock.
-                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
-
-                    continue;
-                }
-                if (self::ACTIONABLE[$platform] === 'social' && ! $canSyncSocial) {
-                    // Capability-gated (RULING 1): a standard account keeps the
-                    // link as a custom-link suggestion instead of an auto-synced
-                    // connection — surfaced, never silently dropped.
-                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
-
-                    continue;
-                }
-                if (self::ACTIONABLE[$platform] === 'booking' && ! $canSyncBooking) {
-                    // Sector-gated (2026-07-15): a food-sector business doesn't
-                    // use booking — same unmatched routing as gated socials, so
-                    // the link still surfaces as a custom-link suggestion.
-                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
-
-                    continue;
-                }
-                if (isset($seenPlatforms[$platform])) {
-                    continue; // first HANDLED bio link per platform wins this run
-                }
-
-                $write = $this->resolveWrite($platform, $url);
-
-                if (self::ACTIONABLE[$platform] === 'booking') {
-                    // XOR invariant (FreshaController/SquareController::
-                    // hasConflictingConnection() both 409 the other way): only
-                    // one booking provider may be live at a time. Mirrors
-                    // GoogleBusinessAutoSync::seedBooking's group-level check —
-                    // unlike the same-platform branch below, GB's own group
-                    // check never compares urls (there's no meaningful "same
-                    // link" across two different providers), so neither do we
-                    // here: any OTHER live booking connection always conflicts,
-                    // never a silent write of a second live provider.
-                    $conflictingBooking = IntegrationConnection::query()
-                        ->where('user_id', $userId)
-                        ->whereIn('platform', self::BOOKING_PLATFORMS)
-                        ->where('platform', '!=', $platform)
-                        ->first();
-
-                    if ($conflictingBooking !== null) {
-                        $findings[] = $this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
-                            'remove' => self::BOOKING_PLATFORMS,
-                            'write' => $write,
-                        ]);
-                        $seenPlatforms[$platform] = true;
-
-                        continue;
-                    }
-                }
-
-                $existing = IntegrationConnection::query()
-                    ->where('user_id', $userId)->where('platform', $platform)
-                    ->first();
-
-                if ($existing === null) {
-                    // A soft-deleted row means the user explicitly disconnected
-                    // this platform before (ManagesIntegrationConnection::
-                    // forgetConnection() soft-deletes on disconnect) — a
-                    // tombstone, not "never connected". The default Eloquent
-                    // scope excludes it, so treating "no live row" as blank
-                    // slate would silently resurrect a connection the user
-                    // chose to remove. Respect it: route the link to unmatched
-                    // instead (still addable manually). NOTE: GoogleBusiness-
-                    // AutoSync has the same gap (no trashed-check either) —
-                    // parity fix deferred to the owner.
-                    $wasDisconnected = IntegrationConnection::onlyTrashed()
-                        ->where('user_id', $userId)->where('platform', $platform)
-                        ->exists();
-
-                    if ($wasDisconnected) {
-                        $unmatched[] = ['url' => $url, 'label' => $classified['label']];
-                        $seenPlatforms[$platform] = true;
-
-                        continue;
-                    }
-
-                    $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
-                    $findings[] = $this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url);
-                    // Consume the platform slot only AFTER the write succeeded —
-                    // a caught throw (query/write above) must leave it open so a
-                    // later same-platform link in this run still gets its attempt.
-                    $seenPlatforms[$platform] = true;
-
-                    continue;
-                }
-
-                // An existing row was found: both outcomes below (same-url skip,
-                // conflict finding) are handled, throw-free array work — consume
-                // the slot now.
-                $seenPlatforms[$platform] = true;
-
-                $existingUrl = CardPayload::fromArray($existing->payload)->url();
-                if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {
-                    continue; // already synced with the same link — nothing to surface
-                }
-
-                $findings[] = $this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
-                    'remove' => [$write['platform']],
-                    'write' => $write,
-                ]);
-            } catch (Throwable $e) {
-                report($e);
+                continue;
             }
+
+            if ($user === null) {
+                $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                continue;
+            }
+
+            $this->handleClassifiedLink($user, $classified, $url, $seenPlatforms, $findings, $unmatched);
         }
 
         return ['findings' => $findings, 'unmatched' => $unmatched];
+    }
+
+    /**
+     * The real per-link handling for a URL ALREADY classified into a known
+     * platform — capability gating, dedup, conflict/seed decision, tombstone
+     * check. Shared by seed()'s own loop and LinkInBioScanJob (BE2 link-in-bio
+     * scan), so a link found one hop into an unrolled link-in-bio page gets
+     * IDENTICAL gating to one found directly in the bio.
+     *
+     * Capability flags are resolved INTERNALLY from $user — never accepted as
+     * caller-supplied booleans. That's deliberate: a parameter shape like
+     * `bool $canSyncSocial` would let any new caller pass `true` without
+     * actually checking anything, reintroducing the exact "gate lives in the
+     * wrapper, not the thing that does the write" bug this extraction exists
+     * to avoid. Passing the resolved User (not a raw string id) also means
+     * AccountCapabilities::for()'s per-instance memoization still works across
+     * repeated calls sharing one $user in a loop, instead of re-querying per link.
+     *
+     * Fault-isolated: a throw here is reported and swallowed, never bubbles to
+     * the caller's loop — mirrors seed()'s original per-link try/catch, now
+     * owned by the method itself so every caller gets it for free.
+     *
+     * @param  array{platform:string, category:string, label:string}  $classified
+     * @param  array<string,true>  $seenPlatforms
+     * @param  list<array<string,mixed>>  $findings
+     * @param  list<array<string,mixed>>  $unmatched
+     */
+    public function handleClassifiedLink(User $user, array $classified, string $url, array &$seenPlatforms, array &$findings, array &$unmatched): void
+    {
+        try {
+            $userId = (string) $user->id;
+            $canSyncSocial = AccountCapabilities::for($user)->google_business_full_sync;
+            $canSyncBooking = AccountCapabilities::for($user)->can_use_booking;
+
+            $platform = $classified['platform'];
+            if (! isset(self::ACTIONABLE[$platform])) {
+                // Recognised (e.g. YouTube, OpenTable, Instagram) but not
+                // something this service auto-syncs — see class docblock.
+                $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                return;
+            }
+            if (self::ACTIONABLE[$platform] === 'social' && ! $canSyncSocial) {
+                // Capability-gated (RULING 1): a standard account keeps the
+                // link as a custom-link suggestion instead of an auto-synced
+                // connection — surfaced, never silently dropped.
+                $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                return;
+            }
+            if (self::ACTIONABLE[$platform] === 'booking' && ! $canSyncBooking) {
+                // Sector-gated (2026-07-15): a food-sector business doesn't
+                // use booking — same unmatched routing as gated socials, so
+                // the link still surfaces as a custom-link suggestion.
+                $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                return;
+            }
+            if (isset($seenPlatforms[$platform])) {
+                return; // first HANDLED bio link per platform wins this run
+            }
+
+            $write = $this->resolveWrite($platform, $url);
+
+            if (self::ACTIONABLE[$platform] === 'booking') {
+                // XOR invariant (FreshaController/SquareController::
+                // hasConflictingConnection() both 409 the other way): only
+                // one booking provider may be live at a time. Mirrors
+                // GoogleBusinessAutoSync::seedBooking's group-level check —
+                // unlike the same-platform branch below, GB's own group
+                // check never compares urls (there's no meaningful "same
+                // link" across two different providers), so neither do we
+                // here: any OTHER live booking connection always conflicts,
+                // never a silent write of a second live provider.
+                $conflictingBooking = IntegrationConnection::query()
+                    ->where('user_id', $userId)
+                    ->whereIn('platform', self::BOOKING_PLATFORMS)
+                    ->where('platform', '!=', $platform)
+                    ->first();
+
+                if ($conflictingBooking !== null) {
+                    $findings[] = $this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                        'remove' => self::BOOKING_PLATFORMS,
+                        'write' => $write,
+                    ]);
+                    $seenPlatforms[$platform] = true;
+
+                    return;
+                }
+            }
+
+            $existing = IntegrationConnection::query()
+                ->where('user_id', $userId)->where('platform', $platform)
+                ->first();
+
+            if ($existing === null) {
+                // A soft-deleted row means the user explicitly disconnected
+                // this platform before (ManagesIntegrationConnection::
+                // forgetConnection() soft-deletes on disconnect) — a
+                // tombstone, not "never connected". The default Eloquent
+                // scope excludes it, so treating "no live row" as blank
+                // slate would silently resurrect a connection the user
+                // chose to remove. Respect it: route the link to unmatched
+                // instead (still addable manually). NOTE: GoogleBusiness-
+                // AutoSync has the same gap (no trashed-check either) —
+                // parity fix deferred to the owner.
+                $wasDisconnected = IntegrationConnection::onlyTrashed()
+                    ->where('user_id', $userId)->where('platform', $platform)
+                    ->exists();
+
+                if ($wasDisconnected) {
+                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+                    $seenPlatforms[$platform] = true;
+
+                    return;
+                }
+
+                $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+                $findings[] = $this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url);
+                // Consume the platform slot only AFTER the write succeeded —
+                // a caught throw (query/write above) must leave it open so a
+                // later same-platform link in this run still gets its attempt.
+                $seenPlatforms[$platform] = true;
+
+                return;
+            }
+
+            // An existing row was found: both outcomes below (same-url skip,
+            // conflict finding) are handled, throw-free array work — consume
+            // the slot now.
+            $seenPlatforms[$platform] = true;
+
+            $existingUrl = CardPayload::fromArray($existing->payload)->url();
+            if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {
+                return; // already synced with the same link — nothing to surface
+            }
+
+            $findings[] = $this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                'remove' => [$write['platform']],
+                'write' => $write,
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**
