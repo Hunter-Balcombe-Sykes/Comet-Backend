@@ -66,6 +66,22 @@ jobs:
       - name: Copy env
         run: cp .env.example .env && php artisan key:generate
 
+      - name: Static analysis (PHPStan level 5)
+        run: composer analyse
+
+      - name: Security scan (Checkpoint)
+        # False positives are suppressed by hash in config/checkpoint.php. FAIL
+        # (not WARN) breaks the build — see ScanCommand::outputTable in
+        # vendor/andreapollastri/checkpoint.
+        run: php artisan checkpoint:scan
+
+      - name: Security audit (Vigil)
+        # env-dependent checks (APP_DEBUG, headers) are only meaningful on the
+        # deployed env; this CI gate covers filesystem/secrets/dependency checks.
+        # APP_DEBUG=false neutralises the synthetic CI .env (.env.example already
+        # defaults to false, but this keeps the gate correct if that ever drifts).
+        run: APP_DEBUG=false php artisan vigil:audit --fail-on=critical
+
       - name: Check code style
         run: vendor/bin/pint --test
 
@@ -195,6 +211,11 @@ jobs:
 
       - name: npm audit (cloudflare-worker)
         working-directory: cloudflare-worker
+        run: npm audit --audit-level=high
+
+      - name: npm audit (repo root)
+        # Root package.json (Vite build tooling) was previously unaudited —
+        # Checkpoint caught 2 critical CVEs here 2026-07-19.
         run: npm audit --audit-level=high
 
   # The schema-drift gate lives in the Feature suite, which `composer test` runs
