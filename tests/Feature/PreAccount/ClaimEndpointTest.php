@@ -1,7 +1,6 @@
 <?php
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
-use App\Models\Core\User\User;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -14,20 +13,8 @@ beforeEach(function () {
     Queue::fake(); // avoid SyncSubdomainToKvJob actually running under QUEUE_CONNECTION=sync
 });
 
-// An UNSAVED User carrying just enough shape for actingAsUser() to derive JWT
-// claims (sub + email) for a Supabase auth id with NO core.users row — the
-// pre-claim state ClaimSiteService expects. auth_user_id isn't fillable (see
-// ClaimSiteService's own comment to that effect), so it's set directly.
-function claimJwtUser(string $uid, ?string $email): User
-{
-    $user = new User(['primary_email' => $email]);
-    $user->auth_user_id = $uid;
-
-    return $user;
-}
-
 it('claims a ready build end-to-end and returns the bootstrap-shaped payload', function () {
-    makeReadyBuild(); // shared helper from ClaimSiteServiceTest.php (global Pest function)
+    makeReadyBuild(); // suite-global helper — tests/Pest.php
     actingAsUser(claimJwtUser('auth-uid-1', 'jane@example.com'));
 
     $this->postJson('/api/claim', ['subdomain' => 'janedoe'])

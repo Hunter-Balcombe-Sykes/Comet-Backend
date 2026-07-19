@@ -9,8 +9,8 @@
  *
  * Runs at the real HTTP route (not the controller directly) so the route
  * wiring + throttle:bootstrap group stay covered, and reuses the
- * claimJwtUser() helper (defined in ClaimEndpointTest.php, suite-global per
- * Pest convention) to model a JWT sub with no backing core.users row.
+ * claimJwtUser() helper (suite-global, tests/Pest.php) to model a JWT sub
+ * with no backing core.users row.
  */
 
 use App\Models\Core\Site\Site;
@@ -83,14 +83,13 @@ it('still refreshes an existing user end-to-end (update path untouched)', functi
 });
 
 // ─── Dead-block reachability proof ─────────────────────────────────────────
-// The invite-token block, the WAITLIST_ONLY block, and the individual-waitlist
-// divert were only ever reachable for `! hasExistingProfessional($uid)`
-// callers — every one of them sat behind that same implicit gate (either the
-// explicit `! $this->hasExistingProfessional($uid)` check, or because the
-// existing-user branch always returned before reaching them). Now that such
-// callers 410 first, none of these config toggles (or an attacker-supplied
-// invite token) can change the outcome for a brand-new signup attempt —
-// proving the removed blocks really were dead code, not just less visible.
+// WAITLIST_ONLY and the individual-waitlist divert were each explicitly gated
+// on `! hasExistingProfessional($uid)`, so they're provably dead now that such
+// callers 410 first — no config toggle can revive them for a brand-new signup.
+// The invite-token block ran UNCONDITIONALLY (no row-less gate); its removal
+// is proven dead for new users by the 410 below, and — because it used to run
+// for existing users too — the relaxation for existing users (stale invite
+// param now refreshes normally instead of 422ing) is pinned separately below.
 
 it('still 410s a new user even with waitlist mode enabled (WAITLIST_ONLY block is dead)', function () {
     config(['partna.waitlist.enabled' => true]);
@@ -128,6 +127,58 @@ it('still 410s a new user even with a would-be invite token in the body (invite 
     ])
         ->assertStatus(410)
         ->assertJsonPath('code', 'SIGNUP_MOVED');
+});
+
+// ─── Existing-user invite relaxation (intentional behavior change) ────────
+// Unlike the two waitlist blocks above, the invite-token block was NOT
+// gated on `! hasExistingProfessional($uid)` — it ran unconditionally, so
+// under the OLD code an existing user posting a garbage `invite` param got
+// 422 INVITE_INVALID. Bootstrap no longer consumes `invite` at all (contract
+// item 4/F5), so that same request is now a normal 200 refresh — this pins
+// the relaxation so it can't regress silently.
+it('refreshes an existing user normally even with a garbage invite param (invite no longer consumed)', function () {
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => '00000000-0000-0000-0000-0000000000f4',
+        'auth_user_id' => 'existing-invite-uid',
+        'primary_email' => 'existinginvite@example.com',
+        'handle' => 'existinginvitehandle',
+        'handle_lc' => 'existinginvitehandle',
+        'display_name' => 'Existing Invite User',
+        'status' => 'active',
+        'account_type' => 'partna',
+    ]);
+
+    $professional = new User([
+        'handle' => 'existinginvitehandle',
+        'display_name' => 'Existing Invite User',
+        'primary_email' => 'existinginvite@example.com',
+        'status' => 'active',
+        'account_type' => 'partna',
+    ]);
+    $professional->id = '00000000-0000-0000-0000-0000000000f4';
+    $professional->auth_user_id = 'existing-invite-uid';
+
+    $site = new Site(['subdomain' => 'existinginvitehandle']);
+    $site->id = '00000000-0000-0000-0000-0000000000f5';
+
+    $this->instance(UserBootstrapService::class, Mockery::mock(UserBootstrapService::class, function ($mock) use ($professional, $site) {
+        $mock->shouldReceive('bootstrap')->once()->andReturn([
+            'professional' => $professional,
+            'site' => $site,
+            'created' => false,
+        ]);
+    }));
+
+    actingAsUser($professional);
+
+    $this->postJson('/api/bootstrap', [
+        'display_name' => 'Existing Invite User',
+        'primary_email' => 'existinginvite@example.com',
+        'handle' => 'existinginvitehandle',
+        'invite' => 'garbage-invite-token',
+    ])
+        ->assertOk()
+        ->assertJsonPath('professional.status', 'active');
 });
 
 it('still requires BootstrapRequest validation before the 410 (handle_lc uniqueness still enforced)', function () {

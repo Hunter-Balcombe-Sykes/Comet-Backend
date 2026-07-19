@@ -10,6 +10,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
@@ -371,6 +372,37 @@ function setupPreAccountBuildsTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+}
+
+/**
+ * An unsaved User with just enough shape for actingAsUser() to derive JWT
+ * claims (sub + email) for a Supabase auth id with no core.users row — the
+ * pre-claim state ClaimSiteService expects. auth_user_id isn't fillable, so
+ * it's set directly. Suite-global: shared by ClaimEndpointTest and
+ * BootstrapRetirementTest.
+ */
+function claimJwtUser(string $uid, ?string $email): User
+{
+    $user = new User(['primary_email' => $email]);
+    $user->auth_user_id = $uid;
+
+    return $user;
+}
+
+/**
+ * Build a claim-ready pre-account site: an unclaimed User + Site + a READY
+ * PreAccountBuild linked via associate(). Returns [$user, $site, $build].
+ * Suite-global: shared by ClaimSiteServiceTest and ClaimEndpointTest.
+ */
+function makeReadyBuild(string $subdomain = 'janedoe'): array
+{
+    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
+    $site = Site::factory()->create(['user_id' => $user->id, 'subdomain' => $subdomain, 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
+    $build->user()->associate($user);
+    $build->save();
+
+    return [$user, $site, $build];
 }
 
 /**

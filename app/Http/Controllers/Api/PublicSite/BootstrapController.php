@@ -57,10 +57,12 @@ class BootstrapController extends ApiController
         // retired — a sub with no row builds a site (POST /api/public/signup/build)
         // and claims it (POST /api/claim). The update path below survives as the
         // idempotent profile-refresh existing users rely on. This is the only
-        // gate left in the controller — the invite-token, WAITLIST_ONLY, and
-        // individual-waitlist-divert blocks that used to sit here were reachable
-        // ONLY for `! hasExistingProfessional($uid)` callers, so they are dead
-        // code now that such callers 410 here first; removed with this change.
+        // gate left in the controller. WAITLIST_ONLY and the individual-waitlist
+        // divert were each explicitly gated on `! hasExistingProfessional($uid)`,
+        // so they're provably dead now. The invite-token block, unlike those two,
+        // ran unconditionally — it's removed because bootstrap no longer consumes
+        // `invite` at all (contract item 4/F5): an existing user's stale invite
+        // param now refreshes normally (200) instead of 422 INVITE_INVALID.
         if (! $this->hasExistingProfessional($uid)) {
             return $this->error(
                 'Signup now starts from your site. Build it first, then claim it.',

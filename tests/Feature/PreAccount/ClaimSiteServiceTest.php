@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimSiteService;
@@ -15,17 +14,6 @@ beforeEach(function () {
     setupSubdomainAliasesTable(); // SiteCacheService::invalidateSite reads this (post-commit cache bust)
     Queue::fake(); // avoid SyncSubdomainToKvJob actually running under QUEUE_CONNECTION=sync (mirrors BootstrapEmailRaceTest)
 });
-
-function makeReadyBuild(string $subdomain = 'janedoe'): array
-{
-    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
-    $site = Site::factory()->create(['user_id' => $user->id, 'subdomain' => $subdomain, 'is_published' => false]);
-    $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
-    $build->user()->associate($user);
-    $build->save();
-
-    return [$user, $site, $build];
-}
 
 it('claims: binds auth + email, activates, stamps claimed_at, runs side effects', function () {
     [$user, $site, $build] = makeReadyBuild();
