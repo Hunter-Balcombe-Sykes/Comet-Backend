@@ -12,6 +12,11 @@
 //     (b) a new feature namespace (e.g. app/Services/Billing, a new
 //         app/Http/Controllers/Api/* or tests/Feature/* dir) is added but never
 //         wired into any chunk -> it gets ZERO sweep coverage.
+//     (c) a path is mapped under SOME lens but not under a BREADTH lens
+//         (code-quality-slop, semantic-correctness). Scanning is per lens, so
+//         (b) passing does not mean the dead-code lens can see the file. This is
+//         the subtlest of the three and the one that shipped a false clean bill:
+//         see the breadth-lens test below.
 //   The scanner recurses (`find <dir>`), so a NEW FILE inside an already-mapped
 //   dir is covered automatically; only NEW DIRECTORIES need wiring — hence the
 //   watched parents below are the places new namespaces appear.
@@ -30,12 +35,18 @@
 // $coverageExempt.
 
 /**
- * Every path referenced by codebase_chunks() in audit.sh.
- * Scope-map lines look like: chunk-name|path1 path2 path3  (inside heredocs).
+ * Scope-map paths from codebase_chunks() in audit.sh, keyed by LENS name.
+ * The function is a shell `case`; each arm looks like:
+ *     lens-name) cat <<'EOF'
+ *     chunk-name|path1 path2 path3
+ *     EOF
+ *     ;;
+ * Per-lens attribution matters because the pipeline scans per lens — a path
+ * mapped only under schema-rls is invisible to code-quality-slop.
  *
- * @return list<string>
+ * @return array<string, list<string>>
  */
-function auditScopePaths(): array
+function auditScopePathsByLens(): array
 {
     $src = (string) file_get_contents(base_path('scripts/audit/audit.sh'));
 
@@ -44,20 +55,70 @@ function auditScopePaths(): array
         throw new RuntimeException('Could not locate codebase_chunks() in scripts/audit/audit.sh');
     }
 
-    $paths = [];
+    $byLens = [];
+    $lens = null;
     foreach (preg_split('/\R/', $m[1]) as $line) {
+        $line = trim($line);
+
+        // Case arm opener: `lens-name) cat <<'EOF'` — switches the active lens.
+        if (preg_match("/^([a-z0-9-]+)\)\s*cat\s*<<'EOF'/", $line, $lm) === 1) {
+            $lens = $lm[1];
+            $byLens[$lens] ??= [];
+
+            continue;
+        }
+
         // A map line: lowercase chunk name, a pipe, then space-separated paths.
-        if (preg_match('/^[a-z0-9-]+\|(.+)$/', trim($line), $mm) !== 1) {
+        if ($lens === null || preg_match('/^[a-z0-9-]+\|(.+)$/', $line, $mm) !== 1) {
             continue;
         }
         foreach (preg_split('/\s+/', trim($mm[1])) as $p) {
             if ($p !== '') {
-                $paths[$p] = true;
+                $byLens[$lens][$p] = true;
             }
         }
     }
 
-    return array_keys($paths);
+    return array_map(
+        fn (array $paths): array => array_keys($paths),
+        $byLens,
+    );
+}
+
+/**
+ * Every path referenced by codebase_chunks(), flattened across all lenses.
+ *
+ * @return list<string>
+ */
+function auditScopePaths(): array
+{
+    $all = [];
+    foreach (auditScopePathsByLens() as $paths) {
+        foreach ($paths as $p) {
+            $all[$p] = true;
+        }
+    }
+
+    return array_keys($all);
+}
+
+/**
+ * True if $path, or any ancestor of it, is in $covered. The scanner recurses
+ * (`find <dir>`), so an ancestor mapping covers every descendant.
+ *
+ * @param  array<string, mixed>  $covered  path => anything
+ */
+function auditPathIsCovered(string $path, array $covered): bool
+{
+    $parts = explode('/', $path);
+    while ($parts !== []) {
+        if (isset($covered[implode('/', $parts)])) {
+            return true;
+        }
+        array_pop($parts);
+    }
+
+    return false;
 }
 
 /**
@@ -150,25 +211,11 @@ it('every feature namespace is covered by an audit scope map', function () {
 
     $covered = array_flip(auditScopePaths());
 
-    // A dir is covered if it or any ancestor is a scope-map path (the scanner
-    // recurses, so an ancestor mapping covers all descendants).
-    $isCovered = function (string $dir) use ($covered): bool {
-        $parts = explode('/', $dir);
-        while ($parts !== []) {
-            if (isset($covered[implode('/', $parts)])) {
-                return true;
-            }
-            array_pop($parts);
-        }
-
-        return false;
-    };
-
     $uncovered = [];
     foreach ($watchedParents as $parent) {
         foreach (glob(base_path($parent).'/*', GLOB_ONLYDIR) ?: [] as $abs) {
             $child = str_replace('\\', '/', str_replace(base_path().'/', '', $abs));
-            if (isset($coverageExempt[$child]) || $isCovered($child)) {
+            if (isset($coverageExempt[$child]) || auditPathIsCovered($child, $covered)) {
                 continue;
             }
             $uncovered[] = $child;
@@ -180,6 +227,83 @@ it('every feature namespace is covered by an audit scope map', function () {
         'These directories get zero audit sweep coverage — add each to the right lens chunk in '
         .'codebase_chunks() (scripts/audit/audit.sh) + its .md scope-group, or add a justified '
         ."\$coverageExempt entry:\n - ".implode("\n - ", $uncovered),
+    );
+});
+
+it('breadth lenses cover the whole product surface', function () {
+    // The test above checks coverage by ANY lens. That is not enough for the two
+    // BREADTH lenses: the pipeline scans per lens, so app/Models being mapped under
+    // schema-rls does nothing for code-quality-slop. Dead code and plausible-but-wrong
+    // logic are only findable in files the lens actually reads, and a narrow map
+    // produces a confident, empty, wrong report rather than an error.
+    //
+    // Caught for real on 2026-07-19: the waitlist subsystem (model, public controller,
+    // form request, route, config keys, console command) survived a whole-repo
+    // dead-code sweep because slop's map reached exactly one of those files.
+    $breadthLenses = ['code-quality-slop', 'semantic-correctness'];
+
+    // Roots each breadth lens must reach in full. A root counts as covered when the
+    // root itself is mapped, OR every immediate child (dir or .php file) is — which
+    // is how the big roots are handled, enumerated child-by-child to stay under the
+    // per-chunk size ceiling. Enumerating means a NEW child silently drops out of
+    // scope, so this assertion is what makes child-level chunking safe.
+    $productSurface = [
+        'app/Services',
+        'app/Models',
+        'app/Http/Controllers/Api',
+        'app/Http/Requests',
+        'app/Http/Resources',
+        'app/Jobs',
+        'app/Console',
+        'app/Observers',
+        'app/Notifications',
+        'app/Policies',
+        'routes',
+        'config',
+    ];
+
+    $byLens = auditScopePathsByLens();
+
+    $gaps = [];
+    foreach ($breadthLenses as $lens) {
+        if (! isset($byLens[$lens])) {
+            $gaps[] = "$lens has no arm in codebase_chunks() at all — it cannot run in --codebase mode";
+
+            continue;
+        }
+
+        $covered = array_flip($byLens[$lens]);
+
+        foreach ($productSurface as $root) {
+            if (auditPathIsCovered($root, $covered)) {
+                continue;
+            }
+
+            // Root not mapped wholesale — every immediate child must be mapped.
+            $missing = [];
+            foreach (glob(base_path($root).'/*') ?: [] as $abs) {
+                $child = str_replace('\\', '/', str_replace(base_path().'/', '', $abs));
+                if (! is_dir($abs) && ! str_ends_with($child, '.php')) {
+                    continue;
+                }
+                if (! auditPathIsCovered($child, $covered)) {
+                    $missing[] = $child;
+                }
+            }
+
+            if ($missing !== []) {
+                sort($missing);
+                $gaps[] = "$lens is blind to: ".implode(', ', $missing);
+            }
+        }
+    }
+    sort($gaps);
+
+    expect($gaps)->toBeEmpty(
+        "Breadth lenses (code-quality-slop, semantic-correctness) must read the whole product \n".
+        "surface — they report nothing for files they never open, which reads as 'clean'. Add each \n".
+        "path to that lens's arm in codebase_chunks() (scripts/audit/audit.sh), keeping chunks under \n".
+        "~350KB of source, and mirror it in the lens's .md scope-group:\n - ".implode("\n - ", $gaps),
     );
 });
 

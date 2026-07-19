@@ -67,6 +67,11 @@ A SEM report with three proven findings is worth more than thirty plausible ones
 
 ## Suggested per-domain scope groups
 
+This is a **breadth lens**: in `--codebase` mode it maps the whole product surface
+(the same map as `code-quality-slop`), because plausible-but-wrong logic is only
+findable in files that were actually read. The groups below are for targeted manual
+runs; the full sweep map lives in `codebase_chunks()`.
+
 ### Group A — services with external-API / cache / Redis calls (richest semantic surface)
 ```
 --scope app/Services
@@ -75,12 +80,21 @@ A SEM report with three proven findings is worth more than thirty plausible ones
 ### Group B — jobs (units, retries, idempotency, side-effect ordering)
 ```
 --scope app/Jobs
+--scope app/Observers
 ```
 
-### Group C — controllers + policies (auth idiom, status codes, capability gates)
+### Group C — HTTP surface (auth idiom, status codes, capability gates, validation)
 ```
 --scope app/Http/Controllers
+--scope app/Http/Requests
 --scope app/Policies
+```
+
+### Group D — models + wiring (casts, scopes, relations, config literals)
+```
+--scope app/Models
+--scope config
+--scope routes
 ```
 
 ## Exhaustiveness directive

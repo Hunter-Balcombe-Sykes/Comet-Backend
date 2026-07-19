@@ -199,10 +199,21 @@ write_consolidated() {
 # unit-suite) are single dirs that exceed the ceiling on their own; they trip
 # the soft-size warning in audit-scan.sh by design (can't be split by directory
 # — loose top-level files recurse — and partial coverage beats none).
+# code-quality-slop's services-platforms chunk exceeds it for the same reason.
+#
+# BREADTH LENSES — code-quality-slop and semantic-correctness deliberately share
+# one identical, whole-product-surface map. Most lenses are targeted (schema-rls
+# only wants migrations + models); these two are not. Slop hunts dead code and
+# SEM hunts plausible-but-wrong logic, and both can only find what they READ —
+# a narrow map doesn't make them cheap, it makes them silently blind. This bit us
+# on 2026-07-19: the waitlist subsystem sat unread through a whole-repo dead-code
+# sweep because slop's map covered 1 of its 7 files. Widen both together, or the
+# per-lens coverage guard below fails.
 #
 # GUARDED: tests/Feature/Architecture/AuditPipelineIntegrityTest.php fails CI if a
 # path here is dead, if a new namespace under app/Services|app/Http/Controllers/Api|
-# app/Jobs|tests/Feature isn't covered, or if lens prose references a dead file path.
+# app/Jobs|tests/Feature isn't covered by ANY lens, if a breadth lens loses coverage
+# of a product-surface root, or if lens prose references a dead file path.
 codebase_chunks() {
     case "$1" in
         security) cat <<'EOF'
@@ -301,13 +312,35 @@ schema-pii|supabase/migrations
 EOF
         ;;
         code-quality-slop) cat <<'EOF'
-services|app/Services/User app/Services/Media app/Services/Platforms app/Services/Feedback app/Services/Diagnostics app/Mail
-http-jobs|app/Http/Controllers/Api/User app/Http/Resources app/Jobs app/Console app/Notifications app/Observers
+services-platforms|app/Services/Platforms
+services-design-media|app/Services/Design app/Services/Media
+services-site|app/Services/User app/Services/Site app/Services/PublicSite
+services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
+services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
+controllers-platforms|app/Http/Controllers/Api/Platforms
+controllers-user|app/Http/Controllers/Api/User
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php
+requests|app/Http/Requests
+resources-models|app/Http/Resources app/Models
+jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
+console-policies|app/Console app/Policies app/Rules app/Support app/Contracts app/DTOs app/helpers.php
+wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
 EOF
         ;;
         semantic-correctness) cat <<'EOF'
-core-services|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Cache app/Services/Accounts app/Services/Auth app/Services/FeatureFlags app/Support app/Contracts app/helpers.php
-jobs-controllers|app/Jobs app/Http/Controllers/Api/User app/Policies app/DTOs
+services-platforms|app/Services/Platforms
+services-design-media|app/Services/Design app/Services/Media
+services-site|app/Services/User app/Services/Site app/Services/PublicSite
+services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
+services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
+controllers-platforms|app/Http/Controllers/Api/Platforms
+controllers-user|app/Http/Controllers/Api/User
+controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php
+requests|app/Http/Requests
+resources-models|app/Http/Resources app/Models
+jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
+console-policies|app/Console app/Policies app/Rules app/Support app/Contracts app/DTOs app/helpers.php
+wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
 EOF
         ;;
         foundational-durability) cat <<'EOF'

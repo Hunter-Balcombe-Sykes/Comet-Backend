@@ -90,21 +90,44 @@ A short, clean SLOP report beats a long one full of taste-policing. When in doub
 
 ## Suggested per-domain scope groups
 
+This is a **breadth lens**: in `--codebase` mode it maps the whole product surface,
+because dead code is only findable in files that were actually read. The groups below
+are for targeted manual runs; the full sweep map lives in `codebase_chunks()`.
+
 ### Group A — services (richest slop surface)
 ```
 --scope app/Services
+--scope app/Mail
 ```
 
-### Group B — controllers + resources
+### Group B — HTTP surface (controllers, requests, resources)
 ```
 --scope app/Http/Controllers
+--scope app/Http/Requests
 --scope app/Http/Resources
 ```
 
-### Group C — jobs + observers
+### Group C — jobs, observers, console
 ```
 --scope app/Jobs
 --scope app/Observers
+--scope app/Notifications
+--scope app/Console
+```
+
+### Group D — models, policies, support
+```
+--scope app/Models
+--scope app/Policies
+--scope app/Support
+--scope app/Rules
+```
+
+### Group E — wiring (where vestigial features hide in plain sight)
+```
+--scope routes
+--scope config
+--scope app/Providers
 ```
 
 ## Exhaustiveness directive
