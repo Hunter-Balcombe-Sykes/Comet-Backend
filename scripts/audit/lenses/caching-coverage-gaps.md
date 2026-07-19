@@ -82,7 +82,7 @@ Redis cache.
 ### (5) Config / reference data read per request
 
 Slow-changing reference data (feature-flag matrix, capability map, design kit
-column list, skeleton-id enum values, enum-like lookup tables) re-read from the
+column list, the architecture-id value, enum-like lookup tables) re-read from the
 database on every request instead of cached behind a version token. Canonical fix:
 `rememberLocked` with a long TTL + version-token bump on the (rare) write.
 

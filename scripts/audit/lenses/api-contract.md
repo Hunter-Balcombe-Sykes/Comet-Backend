@@ -4,7 +4,7 @@ Hunt **raw Eloquent models returned from API endpoints**, **Resource classes tha
 
 Partna returns all API responses through **Eloquent API Resource classes** (`app/Http/Resources/`). Raw model returns are a policy violation. The platform has five distinct API surfaces (User, PublicSite, Staff, Internal, Platforms) — a Resource used across surfaces may expose fields appropriate for Staff that are wrong for User or PublicSite callers. The clearest audience-confusion risk is the **PublicSite** surface: `IndividualProfileController` resolves a site by handle for unauthenticated visitors and must never expose PII (email, phone, internal flags, moderation state) or internal metadata. A single shared Resource class used on both authenticated and public endpoints is a finding.
 
-**Skeleton system contract instability:** The `GET /api/public/profiles/{handle}` payload is mid-reshape as part of the skeleton-system migration (spec §8). The in-progress changes drop `themeMode`, `accent`, `fontFamily` from the styling block and add `designKit` (partial — only stored non-null values) and `skeletonId` (one of `skeleton-1..skeleton-4`). Until this lands, the contract is unstable. Flag any `IndividualProfileResource` or `PublicSite`-surface Resource that still exposes `themeMode`, `accent`, `fontFamily`, or reads from `settings.design.*`, and any Resource that should be emitting `designKit`/`skeletonId` but is not.
+**Architecture system contract:** The `GET /api/public/profiles/{handle}` payload emits `designKit` (partial — only stored non-null values, factor-preset layer merged at read) and `architectureId` (always `'one'` — the platform is single-architecture). `IndividualProfileResource` ALSO emits a transitional `skeletonId` alias of the same value (to be dropped once the apps/pages deploy reading `architectureId` is confirmed) — do NOT flag that alias as dead code. The styling block no longer carries `themeMode`, `accent`, or `fontFamily`. Flag any `IndividualProfileResource` or `PublicSite`-surface Resource that still exposes `themeMode`, `accent`, `fontFamily`, or reads from `settings.design.*`, and any Resource that should be emitting `designKit`/`architectureId` but is not.
 
 ## Use the lens prefix `API` for findings
 
@@ -32,7 +32,7 @@ Number them `API-1`, `API-2`, … sequentially. **P1 for confirmed PII/sensitive
 
 - `with(['relation1', 'relation2'])` in a controller where the Resource only accesses `relation1` — `relation2` is fetched but discarded, wasting DB round-trips.
 - `with(['services'])` on a paginated endpoint where only `services_count` is shown — use `withCount` instead.
-- Nested eager loads (`with(['site.media', 'site.blocks'])`) where the Resource only reads `site.skeleton_id` — the extra joins bloat the query.
+- Nested eager loads (`with(['site.media', 'site.blocks'])`) where the Resource only reads `site.architecture_id` — the extra joins bloat the query.
 - `load()` called inside a Resource's `toArray()` — triggers a query per-item in a collection (N+1 disguised as a Resource method).
 
 ### (4) Missing or inconsistent pagination
@@ -56,7 +56,7 @@ Number them `API-1`, `API-2`, … sequentially. **P1 for confirmed PII/sensitive
 - Resource classes missing `created_at` / `updated_at` on resources where clients need to cache-bust or display "last updated".
 - Status fields omitted from Resources on state-machine models — clients can't render the correct UI without the current state.
 - Cursor / token fields missing from paginated responses — clients can't request the next page.
-- `IndividualProfileResource` (or its successor for the skeleton system) missing `skeletonId` — the frontend `partna-pages` dispatcher requires it to pick the correct skeleton; omission causes a runtime fallback or crash.
+- `IndividualProfileResource` missing `architectureId` — the frontend `partna-pages` dispatcher reads `architectureId ?? skeletonId` to pick the architecture; omission causes a runtime fallback or crash.
 - `designKit` absent or null-collapsed in the public profile payload — `partna-pages` must receive the partial object (non-null stored values only) and apply code-side defaults; a completely absent `designKit` key breaks the merge.
 
 ## Per-finding requirements

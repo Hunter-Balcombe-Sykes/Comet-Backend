@@ -41,7 +41,7 @@ Number them `SEM-1`, `SEM-2`, … sequentially. Tier by blast radius: **P1 when 
 
 - `authorize()` instead of `authorizeForUser($user, ...)` — under Supabase JWT `Auth::user()` is null, so `authorize()` silently passes. Type-valid, security-wrong. (Coordinate with the security lens; report here only if that lens would miss it.)
 - Returning `403` where the project standard mandates `404` for missing/not-owned resources on public endpoints (enumeration leak) — valid HTTP, wrong doctrine.
-- Writing to a path the architecture forbids (`site.themes`, `settings.design.*` post-skeleton-cleanup; `SUBDOMAIN_KV` from anywhere but `SyncSubdomainToKvJob`) — the code works but violates a single-writer / removed-surface invariant.
+- Writing to a path the architecture forbids (`site.themes`, `settings.design.*` — both removed in the architecture-system cleanup; `SUBDOMAIN_KV` from anywhere but `SyncSubdomainToKvJob`) — the code works but violates a single-writer / removed-surface invariant.
 - Querying the wrong schema or connection (a model not extending `BaseModel`, a job on the wrong Redis connection).
 
 ## Per-finding requirements

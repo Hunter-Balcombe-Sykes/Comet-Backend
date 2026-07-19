@@ -41,7 +41,7 @@ Partna's schemas: `public` (Laravel infra), `core` (users, staff, feature flags,
 
 ### (3) Constraint coverage
 
-- Status / enum columns backed by `VARCHAR` / `TEXT` without a `CHECK` constraint — the canonical pattern is the `site.sites.skeleton_id CHECK (skeleton_id IN ('skeleton-1','skeleton-2','skeleton-3','skeleton-4'))` constraint added in `20260527070000_skeleton_system_cleanup.sql` and validated in `20260603000002_validate_skeleton_id_check.sql`.
+- Status / enum columns backed by `VARCHAR` / `TEXT` without a `CHECK` constraint — the canonical pattern is a `CHECK` enum such as `site.sites.architecture_id CHECK (architecture_id = 'one')` (constraint `sites_architecture_id_check`, from `20260710230000_rename_skeleton_id_to_architecture_id.sql`) or the multi-value `site.site_media.pool` CHECK.
 - Idempotency-key columns without a `UNIQUE` constraint backing them — INSERT retry on event re-delivery produces duplicates.
 - Columns the app code treats as `NOT NULL` (no null-handling on the read path) but the schema allows null — runtime crash class.
 - Foreign keys without an explicit `ON DELETE` / `ON UPDATE` behavior — defaults to `NO ACTION`; `CASCADE` / `SET NULL` / `RESTRICT` should be the deliberate choice. Canonical example: `site.design_kits` uses `ON DELETE CASCADE` (1:1 with `site.sites`; removing a site cleans up its kit).
@@ -104,7 +104,7 @@ For detail on lock classes and the canonical safe patterns, see `docs/migration-
 - JSONB columns queried with `->>` / `@>` without a GIN index.
 - JSONB columns used as a substitute for a relation (one-to-many embedded as array) where a child table would scale better.
 - Lack of versioning on JSONB shapes that have changed — old rows in the old shape with no migration path.
-- `site.sites.settings` post-skeleton-cleanup: the `design` key was stripped via `20260527070000_skeleton_system_cleanup.sql`. Any code path that writes `settings.design.*` back into the column is a finding. Flag JSONB shapes that could reintroduce stripped keys.
+- `site.sites.settings` after the architecture-system cleanup: the `design` key was stripped. Any code path that writes `settings.design.*` back into the column is a finding. Flag JSONB shapes that could reintroduce stripped keys.
 
 ### (11) Append-only vs mutable
 
@@ -121,7 +121,7 @@ For every finding:
 - Cite the category number (1–11).
 - Name the canonical replacement pattern: `RLS policy with FORCE ROW LEVEL SECURITY`, `CHECK constraint (NOT VALID + VALIDATE split)`, `UNIQUE constraint`, `CREATE INDEX CONCURRENTLY`, `NOT VALID + VALIDATE`, `SECURITY DEFINER with SET search_path = ''`, `GIN on JSONB`, `gen_random_uuid() default`, etc.
 - Quote verbatim SQL evidence from the migration files.
-- Reference the house exemplar pattern where applicable: `site.design_kits` (1:1 CASCADE + auto-create trigger), `site.sites.skeleton_id` (CHECK enum), `20260606040000_pin_function_search_paths.sql` (search_path pinning), `20260608000000_backfill_subdomain_alias_lifecycle.sql` (idempotent data backfill).
+- Reference the house exemplar pattern where applicable: `site.design_kits` (1:1 CASCADE + auto-create trigger), `site.sites.architecture_id` (CHECK = 'one'), `20260606040000_pin_function_search_paths.sql` (search_path pinning), `20260608000000_backfill_subdomain_alias_lifecycle.sql` (idempotent data backfill).
 
 ## Out of scope — do NOT re-flag
 

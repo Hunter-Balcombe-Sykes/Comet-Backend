@@ -55,7 +55,7 @@ Number them `CCH-1`, `CCH-2`, … sequentially across the whole audit, regardles
 ### (5) Version-token gaps
 
 - Reads keyed off `Cache::get(CacheKeyGenerator::analyticsSummaryVersion($userId), 0)` are correct; reads keyed off raw `$userId` without a version-token component cannot be O(1)-busted on config flip.
-- Feature-flag flips (`SIDEST_*_ENABLED` env vars), capability matrix changes, or skeleton-system skeleton_id updates that should bust whole classes of cached reads — confirm a version token exists and is incremented on those events.
+- Feature-flag flips (`SIDEST_*_ENABLED` env vars), capability matrix changes, or design-kit column updates that should bust whole classes of cached reads — confirm a version token exists and is incremented on those events.
 - Multi-user boundaries: confirm the cache key composition includes a user identifier where applicable (user id, site id, subdomain) — cross-user leak risk if the key collapses.
 - Canonical fix: add a `*Version` integer in cache, increment it in the write path for the relevant event, include it in all reader keys.
 
@@ -72,7 +72,7 @@ Number them `CCH-1`, `CCH-2`, … sequentially across the whole audit, regardles
 
 - `Cache::rememberForever(...)` on user-mutable data — permanent caches require an explicit invalidation path; flag every site and confirm a corresponding write-path forget exists.
 - `Cache::put($key, $value, null)` / `Cache::put($key, $value, 0)` — flag as bugs.
-- TTLs measured in days/weeks on data that changes within hours (settings, capabilities, skeleton_id, design kit columns, integration connection status).
+- TTLs measured in days/weeks on data that changes within hours (settings, capabilities, design kit columns, integration connection status).
 - TTLs measured in milliseconds (almost certainly a unit bug — Laravel expects seconds in most cases).
 
 ### (8) Key generation drift

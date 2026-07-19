@@ -10,7 +10,7 @@ This lens is a **sibling** to `scaling-antipatterns.md`. That lens covers rebuil
 
 Pre-beta; no paying customers yet, but foundational code must be durable. Traffic shape:
 - **Hottest path:** public sitepage resolution — mostly served from Cloudflare edge (Worker + KV + Cache API); backend sees cache misses and cache-purge rebuilds. Keep `SiteCacheService` payloads cheap.
-- **Write-heavy path:** analytics ingest (skeleton sitepage events, sessions, regions, platform/product breakdowns) — fire-and-forget jobs on the `analytics` queue.
+- **Write-heavy path:** analytics ingest (sitepage events, sessions, regions, platform/product breakdowns) — fire-and-forget jobs on the `analytics` queue.
 - **Fan-out paths:** per-user cache invalidation, KV sync, notification dispatch, media/video variants, streaming live-status polling.
 
 Reason about "thousands of users × a single user's page going viral (public-traffic spike)" rather than order volume. Single Supabase Postgres primary, Redis, multi-instance Laravel Cloud (no in-process state survives deploys).
@@ -106,7 +106,7 @@ These are the patterns NOT covered by `scaling-antipatterns.md` (which focuses o
 - 1→N per-user invalidations dispatched as a synchronous `foreach` — must be jittered (the jittered 1→N invalidation shape).
 - Cache invalidation that targets individual keys when a version-key bump would be safer — flag any cache namespace invalidated key-by-key from more than three call sites; that is a signal it should be version-keyed.
 - `CacheLockService::rememberLocked` calls without a fallthrough on lock timeout — under contention, a single hot key becomes a single point of failure for the public sitepage resolution path.
-- Caches busted on "model saved" but not on the upstream config flip that changes the cached value (e.g. skeleton_id change should bust the public profile cache, but only `SiteObserver` does it).
+- Caches busted on "model saved" but not on the upstream config flip that changes the cached value (e.g. a `design_kits` column change should bust the public profile cache, but only `SiteObserver` does it).
 - `SiteCacheService` or `UserCacheService` writes that happen before the DB transaction commits — readers between the cache write and the rollback serve phantom state.
 
 ### (9) Notification fan-out & dedup
@@ -134,7 +134,7 @@ These are the patterns NOT covered by `scaling-antipatterns.md` (which focuses o
 - `site.site_subdomain_aliases` and `core.user_handle_aliases` — confirm both have the expected `UNIQUE` constraints and `CHECK` on `expires_at > reclaim_until`.
 - `site.design_kits` — confirm all columns are `NULLABLE` with no `DEFAULT` expression (defaults live in the design-system package, not the DB).
 - Indexes on hot-read paths missing for the joins introduced by current resolver logic (`PublicSiteResolver`, `SiteCacheService`).
-- `site.sites.skeleton_id` — confirm the `CHECK` constraint exactly enumerates `('skeleton-1','skeleton-2','skeleton-3','skeleton-4')` with no trailing/leading whitespace or fallback.
+- `site.sites.architecture_id` — confirm the `CHECK` constraint (`sites_architecture_id_check`) constrains it to exactly `'one'` (single-architecture) with no fallback.
 
 ## Per-finding requirements
 

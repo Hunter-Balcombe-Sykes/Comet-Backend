@@ -46,7 +46,7 @@ Number them `DINT-1`, `DINT-2`, … sequentially. **P1 for confirmed data corrup
 
 ### (4) Enum / CHECK constraint coverage
 
-- Status / type columns backed by `TEXT` without a `CHECK` constraint enumerating allowed values. The canonical pattern: `site.sites.skeleton_id CHECK (skeleton_id IN ('skeleton-1','skeleton-2','skeleton-3','skeleton-4'))` from `20260527070000_skeleton_system_cleanup.sql`.
+- Status / type columns backed by `TEXT` without a `CHECK` constraint enumerating allowed values. The canonical pattern: `site.sites.architecture_id CHECK (architecture_id = 'one')` (constraint `sites_architecture_id_check`, from `20260710230000_rename_skeleton_id_to_architecture_id.sql`), or the multi-value `site.site_media.pool` CHECK.
 - Application-side enums (`app/Enums/*`) without a matching DB CHECK — schema accepts values the app rejects.
 - Postgres ENUM types added without a corresponding application-side enum (drift risk — DB allows values the app can't handle).
 - Boolean-like columns stored as integer / varchar — flag any `is_*` or `has_*` column not typed as `BOOLEAN`.
@@ -64,7 +64,7 @@ Number them `DINT-1`, `DINT-2`, … sequentially. **P1 for confirmed data corrup
 - JSONB columns with documented shapes that don't match what the app code writes.
 - JSONB columns queried with `->>` / `@>` without a GIN index.
 - JSONB columns used as a substitute for a relation (one-to-many embedded as array) where a child table would scale better.
-- **`site.sites.settings` post-skeleton-cleanup:** the `design` key was stripped in `20260527070000_skeleton_system_cleanup.sql`. Any code path that writes `settings.design.*` back is a P1 finding (architectural regression). Check `app/Services/Site/`, `app/Http/Controllers/Api/User/SiteManagement/`, and any observer touching `site.settings` for forbidden key writes.
+- **`site.sites.settings` after the architecture-system cleanup:** the `design` key was stripped. Any code path that writes `settings.design.*` back is a P1 finding (architectural regression). Check `app/Services/Site/`, `app/Http/Controllers/Api/User/SiteManagement/`, and any observer touching `site.settings` for forbidden key writes.
 - Nullable JSONB fields that the application treats as always-present — `->get('key')` on null crashes at read time.
 - JSONB fields that should be promoted to columns (queried often, joined to, or indexed) — flag any `WHERE settings->>'foo' = ...` on a hot path.
 

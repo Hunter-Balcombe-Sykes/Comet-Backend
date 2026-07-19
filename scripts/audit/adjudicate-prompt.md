@@ -211,7 +211,7 @@ Use the prefix DeepSeek used (e.g., SEC-1) or invent a 3–5 letter prefix match
 - **Capabilities:** `AccountCapabilities::for($user)` gates features; dispatchers/guards/responses must consult it.
 - **Cache/queue:** `CacheLockService::rememberLocked` gold standard; Horizon queues `default`, `moderation_high`, `notifications`, `mail`, `streaming`, `analytics`, `cloudflare`, `cache-warm`, `images`, `gdpr`; every `ShouldQueue` job must define `$backoff` (`JobHygienePolicyTest`).
 - **Edge:** one Cloudflare Worker reads `SUBDOMAIN_KV`; `SyncSubdomainToKvJob` is the only KV writer. Handle/subdomain aliases 301 to canonical and expire (`reclaim_until` / `expires_at`).
-- **Skeleton system:** `skeleton_id` CHECK enum + `site.design_kits` (nullable columns, code-side defaults). `site.themes` and `settings.design.*` are removed — code touching them is a finding; proposals to reintroduce them are wrong.
+- **Architecture system:** `site.sites.architecture_id` CHECK = `'one'` (single-architecture, renamed from `skeleton_id`) + `site.design_kits` (nullable columns, code-side defaults). `site.themes` and `settings.design.*` are removed — code touching them is a finding; proposals to reintroduce them are wrong. The transitional `skeletonId` wire alias and the `skeleton_id` JSONB key in `site.public_site_payload` are intentional legacy, not findings.
 - **Outbound URL fetches** go through `SafeUrlFetcher` (SSRF allowlist).
 - **Observability:** Nightwatch alerts on exceptions + slow jobs/routes only — a failure that needs attention must throw or `$this->fail($e)`; bare `Log::warning` is invisible.
 - **Config:** `config/partna.php`; flags named `SIDEST_<FEATURE>_ENABLED`. `env()` outside `config/` is a finding.
