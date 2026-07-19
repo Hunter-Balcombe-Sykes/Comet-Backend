@@ -319,7 +319,7 @@ vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
-media-design|app/Services/Media app/Services/Design
+media-design|app/Services/Media app/Services/Design app/Services/WebsiteScan
 EOF
         ;;
         migration-safety) cat <<'EOF'
@@ -333,7 +333,7 @@ writers-jobs|app/Jobs app/Observers
 writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 writers-platforms-controllers|app/Http/Controllers/Api/Platforms
 services-platforms|app/Services/Platforms
-services-design-media|app/Services/Design app/Services/Media
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
 services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
@@ -351,7 +351,7 @@ config-files|config .env.example routes bootstrap/app.php bootstrap/providers.ph
 consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware
 services-platforms|app/Services/Platforms
-services-design-media|app/Services/Design app/Services/Media
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit
 services-rest|app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile
@@ -369,7 +369,7 @@ feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/F
 feature-site-staff|tests/Feature/Site tests/Feature/Staff
 feature-notif-moderation|tests/Feature/Notifications tests/Feature/Moderation
 feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics
-feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design
+feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design tests/Feature/WebsiteScan
 feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware
 feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
@@ -409,7 +409,7 @@ EOF
         ;;
         code-quality-slop) cat <<'EOF'
 services-platforms|app/Services/Platforms
-services-design-media|app/Services/Design app/Services/Media
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
@@ -425,7 +425,7 @@ EOF
         ;;
         semantic-correctness) cat <<'EOF'
 services-platforms|app/Services/Platforms
-services-design-media|app/Services/Design app/Services/Media
+services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
