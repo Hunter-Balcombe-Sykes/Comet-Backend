@@ -63,7 +63,11 @@ class WebsiteLinkHarvester
     /** Label => platform slug for BOOKING_HOSTS, used only by classify(). */
     private const BOOKING_PLATFORM = ['Fresha' => 'fresha', 'Square' => 'square'];
 
-    /** SOCIAL_HOSTS key => [platform slug, display label], used only by classify(). */
+    /**
+     * SOCIAL_HOSTS key => [platform slug, display label], used only by classify().
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
     private const SOCIAL_PLATFORM = [
         'instagram' => ['instagram', 'Instagram'],
         'facebook' => ['facebook', 'Facebook'],
@@ -172,7 +176,10 @@ class WebsiteLinkHarvester
         }
 
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
-            if (preg_match($pattern, $host) && isset(self::SOCIAL_PLATFORM[$key]) && $this->looksLikeProfile($key, $url)) {
+            // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with the
+            // exact same 7 keys as SOCIAL_HOSTS, so the lookup below can never
+            // miss for a $key drawn from this loop.
+            if (preg_match($pattern, $host) && $this->looksLikeProfile($key, $url)) {
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
 
                 return ['platform' => $platform, 'category' => 'social', 'label' => $label];
