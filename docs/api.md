@@ -699,30 +699,6 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
 - Response (201): `{ "ok": true, "customer_id": "uuid" }`
 - Common status codes: 201, 400 (cannot determine site), 404, 403, 422, 429
 
-### `POST /api/public/waitlist`
-
-- Purpose: collect pre-launch waitlist submissions for Partna account access
-- Auth: None
-- Rate limit: waitlist
-- Request body:
-  - `name` (required)
-  - `email` (required)
-  - `phone` (required)
-  - `type` (required): `influencer`, `professional`, `brand`, `other`
-  - `industry` (required): `mens_grooming`, `womens_haircare`, `beauty_products`, `vitamins_and_supplements`, `services_and_software`, `other`
-  - `pilot_program_opt_in` (required boolean)
-  - `type_other_text` (required when `type = other`)
-  - `industry_other_text` (required when `industry = other`)
-  - `number_of_team_members` (required when `type = brand`)
-  - `number_of_affiliates_ambassadors` (required when `type = brand`)
-  - `is_brand_partner_or_ambassador` (required when `type = influencer` or `professional`)
-  - `currently_sells_products` (required when `type = influencer` or `professional`)
-- Upsert semantics: submissions are deduplicated by normalized email (`email_lc`), then updated on re-submit.
-- Response:
-  - `201` for a new email submission: `{ "ok": true }`
-  - `200` for a repeat email submission (updated row): `{ "ok": true }`
-- Common status codes: 200, 201, 422, 429
-
 ### `POST /api/public/subscribe`
 
 - Purpose: subscribe an email address to a marketing list for the professional
