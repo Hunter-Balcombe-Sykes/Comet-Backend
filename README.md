@@ -51,7 +51,7 @@ Set at minimum:
 - Database connection variables
 - Supabase JWT verification variables (issuer/audience/JWKS)
 
-See the full env checklists in [docs/api.md](docs/api.md#12-frontend-env-var-checklist).
+See the full env checklists in [docs/api.md](docs/api.md#13-frontend-env-var-checklist).
 
 ### 3) Run
 ```bash

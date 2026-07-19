@@ -1,7 +1,7 @@
 {
-    "generated_at": "2026-07-17T07:32:35Z",
+    "generated_at": "2026-07-18T13:13:15+00:00",
     "project_ref": "glncumufgaqcmqhzwrxm",
-    "latest_migration": "20260717062901",
+    "latest_migration": "20260718131130",
     "columns": [
         {
             "schema": "analytics",
@@ -1601,6 +1601,90 @@
         },
         {
             "schema": "core",
+            "table": "pre_account_builds",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "source_type",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "source_ref",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "source_ref_lc",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "built_via",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "built_by_staff_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "build_state",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "failure_code",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "created_ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "expires_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "claimed_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
             "table": "supabase_email_events",
             "column": "id",
             "not_null": true
@@ -1843,7 +1927,7 @@
             "schema": "core",
             "table": "users",
             "column": "auth_user_id",
-            "not_null": true
+            "not_null": false
         },
         {
             "schema": "core",
@@ -1903,7 +1987,7 @@
             "schema": "core",
             "table": "users",
             "column": "primary_email",
-            "not_null": true
+            "not_null": false
         },
         {
             "schema": "core",
@@ -5335,6 +5419,24 @@
         },
         {
             "schema": "core",
+            "table": "pre_account_builds",
+            "name": "pre_account_builds_build_state_check",
+            "definition": "CHECK ((build_state = ANY (ARRAY['pending'::text, 'building'::text, 'ready'::text, 'failed'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "name": "pre_account_builds_built_via_check",
+            "definition": "CHECK ((built_via = ANY (ARRAY['signup'::text, 'staff'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "name": "pre_account_builds_source_type_check",
+            "definition": "CHECK ((source_type = ANY (ARRAY['instagram'::text, 'google_business'::text])))"
+        },
+        {
+            "schema": "core",
             "table": "supabase_email_events",
             "name": "supabase_email_events_status_check",
             "definition": "CHECK ((status = ANY (ARRAY['queued'::text, 'failed'::text, 'unhandled'::text])))"
@@ -5355,7 +5457,7 @@
             "schema": "core",
             "table": "users",
             "name": "users_status_check",
-            "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'disabled'::text, 'pending_deletion'::text])))"
+            "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'disabled'::text, 'pending_deletion'::text, 'unclaimed'::text])))"
         },
         {
             "schema": "core",

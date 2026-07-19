@@ -21,18 +21,25 @@ beforeEach(function () {
     setupSitesTable();
 })->group('bootstrap-waitlist-gate');
 
-it('blocks bootstrap for new users when waitlist mode is enabled', function () {
+// Task 14: WAITLIST_ONLY for a brand-new signup attempt moved off bootstrap —
+// it now lives on the build endpoint (PublicBuildEndpointsTest, Task 11). The
+// old WAITLIST_ONLY block here only ever fired for
+// `! hasExistingProfessional($uid)` callers, and such callers now 410 first
+// regardless of the waitlist config, which is exactly what this test proves:
+// the config toggle no longer changes the outcome for a new user.
+it('410s a new user even when waitlist mode is enabled (WAITLIST_ONLY block is dead — moved to POST /api/public/signup/build)', function () {
+    // partna.waitlist.enabled is already true from beforeEach.
     $controller = app(BootstrapController::class);
     $request = BootstrapRequest::create('/api/bootstrap', 'POST');
     $request->attributes->set('supabase_uid', 'new-user-uid');
-    // Verified email claim present so this isolates the waitlist gate from the
-    // new fail-closed EMAIL_VERIFICATION_REQUIRED guard.
+    // Verified email claim present so this isolates the retirement gate from the
+    // fail-closed EMAIL_VERIFICATION_REQUIRED guard.
     $request->attributes->set('supabase_claims', ['email' => 'newuser@example.com']);
 
     $response = $controller->bootstrap($request);
 
-    expect($response->getStatusCode())->toBe(403);
-    expect($response->getData(true)['errors']['code'] ?? null)->toBe('WAITLIST_ONLY');
+    expect($response->getStatusCode())->toBe(410);
+    expect($response->getData(true)['code'] ?? null)->toBe('SIGNUP_MOVED');
 });
 
 it('does not gate existing professionals when waitlist mode is enabled', function () {

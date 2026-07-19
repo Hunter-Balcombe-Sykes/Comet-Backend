@@ -24,7 +24,9 @@ class PublicSiteResolver
             ->where('is_published', true)
             ->with('user')
             ->whereHas('user', function ($q) {
-                $q->where('status', 'active');
+                // Unclaimed (pre-account) owners render when published — the
+                // publish knob, not claim state, controls visibility (spec §2).
+                $q->whereIn('status', ['active', 'unclaimed']);
             });
 
         // Direct (canonical) match — never an alias hit.

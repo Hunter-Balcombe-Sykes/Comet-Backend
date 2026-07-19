@@ -7,6 +7,8 @@ use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 use App\Services\Platforms\DoorDashMenuDriver;
 use App\Services\Platforms\UberEatsMenuDriver;
+use App\Services\PreAccount\Generators\GoogleBusinessSourceGenerator;
+use App\Services\PreAccount\Generators\InstagramSourceGenerator;
 
 // Canonical block-type registry — block_group => allowed block_types. Single
 // source of truth for the section/link type split. The 'sections' list is
@@ -826,6 +828,27 @@ return [
             'vitamins_and_supplements' => 'Vitamins and Supplements',
             'services_and_software' => 'Services and Software',
             'other' => 'Other',
+        ],
+    ],
+
+    // Pre-Account Sites (site-first signup + staff marketing builds).
+    'pre_account' => [
+        'expiry_days' => (int) env('PARTNA_PRE_ACCOUNT_EXPIRY_DAYS', 30),
+        'failed_prune_hours' => (int) env('PARTNA_PRE_ACCOUNT_FAILED_PRUNE_HOURS', 24),
+        'max_unclaimed_per_ip' => (int) env('PARTNA_PRE_ACCOUNT_MAX_UNCLAIMED_PER_IP', 3),
+
+        // account_type => allowed source_types. THE one pairing map (spec §4) —
+        // relaxing a pairing later is a config edit, not a validation hunt.
+        'sources' => [
+            'partna' => ['instagram'],
+            'business' => ['google_business'],
+        ],
+
+        // source_type => generator class (registry key; a third source is one
+        // class + one CHECK widening).
+        'generators' => [
+            'instagram' => InstagramSourceGenerator::class,
+            'google_business' => GoogleBusinessSourceGenerator::class,
         ],
     ],
 

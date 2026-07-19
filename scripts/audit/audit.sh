@@ -214,7 +214,7 @@ outbound-platforms|app/Services/Platforms
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
-account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
+account-site|app/Services/Site app/Services/PublicSite app/Services/User app/Services/Accounts app/Services/Segments app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Jobs/Account app/Jobs/Gdpr app/Http/Middleware/Context
 moderation-streaming|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Jobs/Moderation app/Jobs/Notifications app/Jobs/Streaming app/Jobs/Cloudflare
 connectors|app/Services/Platforms app/Jobs/Platforms
 EOF
@@ -271,7 +271,7 @@ feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/F
 feature-site-staff|tests/Feature/Site tests/Feature/Staff tests/Feature/Notifications tests/Feature/Moderation
 feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design
 feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware
-feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
+feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
 unit-suite|tests/Unit
 EOF

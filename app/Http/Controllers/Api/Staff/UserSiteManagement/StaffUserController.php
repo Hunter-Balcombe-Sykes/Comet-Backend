@@ -108,7 +108,11 @@ class StaffUserController extends ApiController
         $this->authorizeForUser($staff, 'staffView', $professional);
         $showPii = $staff && $staff->isAdmin();
 
-        $professional->load(['site']);
+        // Task 18: preAccountBuild is eager-loaded unconditionally (not just for
+        // status='unclaimed') so staff can see the marketing-pipeline origin record
+        // even after the professional has claimed and gone active — UserStaffResource
+        // gates the block on whether a build actually exists, not just on status.
+        $professional->load(['site', 'preAccountBuild']);
 
         $integrations = $professional->integrationConnections()
             ->orderBy('platform')

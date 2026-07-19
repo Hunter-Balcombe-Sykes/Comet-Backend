@@ -6,10 +6,10 @@ use App\Enums\AccountType;
 use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Requests\BaseFormRequest;
 use App\Models\Core\User\User;
+use App\Services\User\HandleAllocator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 // V2: Validates individual professional onboarding/bootstrap — display name, email, phone, handle generation.
@@ -157,21 +157,6 @@ class BootstrapRequest extends BaseFormRequest
 
     private function generateHandleFromDisplayName(string $displayName): string
     {
-        // Convert display name to slug (e.g., "Josh's Barbershop" -> "joshs-barbershop")
-        $base = Str::slug($displayName);
-
-        if ($base === '' || $base === '-') {
-            $base = 'professional';
-        }
-
-        // Check if handle is available, if not append numbers
-        $handle = $base;
-        $attempt = 1;
-        while (User::query()->where('handle_lc', strtolower($handle))->exists()) {
-            $handle = $base.$attempt;
-            $attempt++;
-        }
-
-        return $handle;
+        return app(HandleAllocator::class)->allocate($displayName)['handle'];
     }
 }

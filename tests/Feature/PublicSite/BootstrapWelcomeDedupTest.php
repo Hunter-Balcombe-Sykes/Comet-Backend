@@ -1,18 +1,18 @@
 <?php
 
 /**
- * LIFE-7 / DINT-12: UserBootstrapService::createWelcomeNotification() used to dedup via a
+ * LIFE-7 / DINT-12: createWelcomeNotification() used to dedup via a
  * racy firstOrCreate (SELECT-then-INSERT) with no DB-level backstop, so a concurrent
  * double-bootstrap could create two "Welcome to Partna" rows. The fix routes the write
  * through an atomic insertOrIgnore keyed on the notifications_dedupe_key_per_pro_uq unique
- * index (user_id, dedupe_key). These tests exercise the private method directly via
- * reflection — it only touches the Notification model and the passed User, so no HTTP
- * request or full bootstrap() call is needed.
+ * index (user_id, dedupe_key). Task 12 extracted the method (verbatim) out of
+ * UserBootstrapService into SignupSideEffects, shared with ClaimSiteService — these tests
+ * now exercise it directly there (public method, no reflection needed).
  */
 
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\User\User;
-use App\Services\User\UserBootstrapService;
+use App\Services\User\SignupSideEffects;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -48,14 +48,11 @@ function seedWelcomeDedupUser(string $id): User
 }
 
 /**
- * Invoke the private createWelcomeNotification() via reflection.
+ * Invoke SignupSideEffects::createWelcomeNotification() directly (public method).
  */
 function invokeCreateWelcomeNotification(User $professional): void
 {
-    $service = app(UserBootstrapService::class);
-    $method = new ReflectionMethod(UserBootstrapService::class, 'createWelcomeNotification');
-    $method->setAccessible(true);
-    $method->invoke($service, $professional);
+    app(SignupSideEffects::class)->createWelcomeNotification($professional);
 }
 
 it('writes exactly one welcome row carrying the dedupe_key (proves the atomic path, not the old firstOrCreate)', function () {

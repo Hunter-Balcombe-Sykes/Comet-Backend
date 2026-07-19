@@ -1,0 +1,328 @@
+<?php
+
+namespace App\Services\Platforms;
+
+use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Http\SafeUrlException;
+use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\Payloads\InstagramPayload;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
+
+// Extracted verbatim from InstagramConnectJob::handle() (lines 149-261) so
+// PreAccount\Generators\InstagramSourceGenerator can reuse the EXACT same
+// mirror + selection-build + auto-sync + row-update pipeline an authenticated
+// user's connect() gets — no forked/duplicated logic between the two callers.
+// InstagramConnectJob still owns the scrape (fetchProfile) and the async
+// dispatch/failure semantics; this class owns everything after a profile is
+// in hand.
+class InstagramConnectionSeeder
+{
+    // Instagram CDN hosts we'll fetch media from. URLs come from the scraper, but
+    // we still (1) restrict to known CDN hosts and (2) fetch with redirects
+    // DISABLED (withoutRedirecting below) so an allow-listed CDN URL can't
+    // 30x-redirect us to an internal address (SSRF guard).
+    private const ALLOWED_HOSTS = ['cdninstagram.com', 'fbcdn.net'];
+
+    // Per-image fetch timeout (IG CDN, usually fast).
+    private const IMAGE_TIMEOUT_SECONDS = 10;
+
+    // Reels are larger + slower than a still, so they get their own timeout.
+    private const VIDEO_TIMEOUT_SECONDS = 30;
+
+    // Hard cap on a mirrored reel (50 MB). Instagram reels are short, so this is
+    // generous; it stops a pathological file filling the temp disk / R2, and an
+    // oversized reel simply falls back to its poster (no autoplay).
+    private const MAX_VIDEO_BYTES = 52428800;
+
+    // Hard cap on a mirrored still image (15 MB). Instagram photos are tiny
+    // (<1 MB in practice); 15 MB is deliberately generous to future-proof against
+    // high-res uploads while still preventing a pathological response from
+    // buffering/storing a huge payload.
+    private const MAX_IMAGE_BYTES = 15728640;
+
+    public function __construct(
+        private readonly InstagramScraper $scraper,
+        private readonly InstagramAutoSync $autoSync,
+    ) {}
+
+    /**
+     * Mirror the profile's latest media to R2, auto-sync its bio links, and
+     * persist the selection onto $connection. Returns the persisted selection.
+     *
+     * @return array<string, mixed>
+     */
+    public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile): array
+    {
+        $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+
+        // The most-recent photo AND the most-recent reel, picked independently. The
+        // photo mirrors as the image; the reel mirrors its mp4 plus its own poster.
+        // An oversized / failed video mirror leaves videoUrl null so a skeleton falls
+        // back to the photo.
+        $media = $this->scraper->latestMedia($profile, $userId);
+
+        $images = [];
+        if ($media['photo'] && $media['photo']['thumbnailUrl']) {
+            $photo = $this->mirrorOne($media['photo']['thumbnailUrl'], "{$folder}/photo.jpg");
+            if ($photo) {
+                $images = [$photo];
+            }
+        }
+
+        $videoUrl = null;
+        $videoPoster = null;
+        if ($media['video'] && $media['video']['videoUrl']) {
+            $videoUrl = $this->mirrorVideo($media['video']['videoUrl'], "{$folder}/reel.mp4");
+            // Mirror the reel's poster only once its mp4 mirrored — it's the <video>'s
+            // poster frame, useless without the video.
+            if ($videoUrl && $media['video']['thumbnailUrl']) {
+                $videoPoster = $this->mirrorOne($media['video']['thumbnailUrl'], "{$folder}/reel-cover.jpg");
+            }
+        }
+
+        $picSrc = $this->scraper->profilePicUrl($profile);
+        $profilePic = $picSrc ? $this->mirrorOne($picSrc, "{$folder}/profile.jpg") : null;
+
+        // BE2: bio links — externalUrl + externalUrls[].url + URLs regexed out of
+        // biography, defensively (Apify actor field names vary by version; today's
+        // actor returns none of these at all, so bioLinks() safely returns []).
+        $bioLinks = $this->scraper->bioLinks($profile);
+        $website = data_get($profile, 'externalUrl');
+        $website = is_string($website) && preg_match('~^https?://~i', trim($website)) ? trim($website) : null;
+
+        // Reclaim stale mirrors of a media type no longer present this run (e.g. a
+        // prior reel + its cover when the account now leads with a photo, or a
+        // removed profile pic). The folder is stable per connection
+        // (created_at-derived) and the filenames are fixed, so a reconnect
+        // overwrites the live files in place — only the *complement* below (the
+        // fixed names NOT re-written this run) can linger. Deleting them here,
+        // in-job and AFTER the writes, is race-free: unlike a separately-queued
+        // delete it can never run after a fresh re-mirror and wipe it. $images is
+        // non-empty only when photo.jpg was written; Storage::delete on an absent
+        // key is a safe no-op.
+        $written = array_filter([
+            $images ? "{$folder}/photo.jpg" : null,
+            $videoUrl ? "{$folder}/reel.mp4" : null,
+            $videoPoster ? "{$folder}/reel-cover.jpg" : null,
+            $profilePic ? "{$folder}/profile.jpg" : null,
+        ]);
+        $stale = array_values(array_diff([
+            "{$folder}/photo.jpg",
+            "{$folder}/reel.mp4",
+            "{$folder}/reel-cover.jpg",
+            "{$folder}/profile.jpg",
+        ], $written));
+        if ($stale) {
+            Storage::disk('media')->delete($stale);
+        }
+
+        $selection = [
+            'username' => $username,
+            'fullName' => data_get($profile, 'fullName'),
+            'profilePicUrl' => $profilePic,
+            'businessCategory' => data_get($profile, 'businessCategoryName'),
+            'followersCount' => data_get($profile, 'followersCount'),
+            'postsCount' => data_get($profile, 'postsCount'),
+            'mode' => 'automatic',
+            // Single element: the most-recent photo, mirrored. Kept as a list so
+            // existing consumers (flow-skeleton fallback, dashboard) read images[0].
+            'images' => $images,
+            // The most-recent reel: its mp4 + poster, both on R2. null when the
+            // account has no reel (or the mp4 mirror was dropped). Skeletons go
+            // video-first, falling back to images[0].
+            'videoUrl' => $videoUrl,
+            'videoPoster' => $videoPoster,
+            // Internal: R2 prefix these mirrored files live under, so the observer
+            // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
+            // public endpoint by PublicIntegrationConnectionResource.
+            '_folder' => $folder,
+            // BE2: the profile's own "website" field + every bio link found (both
+            // internal — never emitted by InstagramConnectionResource).
+            'website' => $website,
+            'bioLinks' => $bioLinks,
+        ];
+
+        // Preserve the google-business origin tag across a re-scrape (it drives the
+        // /synced "Change to" flow). Read it typed; the scrape WRITE below stays literal.
+        if (($source = InstagramPayload::fromArray($connection->payload)->source) !== null) {
+            $selection['source'] = $source;
+        }
+
+        // BE2: harvest the bio links into social/booking connections the same way
+        // Google Business connect harvests its own found links — auto-add what's
+        // missing, flag conflicts, surface leftovers for "add as custom link".
+        // Best-effort: InstagramAutoSync isolates each link in its own try/catch,
+        // so a bad link can't fail this job. Findings persist alongside the profile
+        // in ONE write (not a follow-up save) so /synced never sees a half-written row.
+        $sync = $this->autoSync->seed($userId, $bioLinks);
+        $selection['syncFindings'] = $sync['findings'];
+        $selection['unmatched'] = $sync['unmatched'];
+
+        $connection->update([
+            'payload' => $selection,
+            'is_active' => true,
+            'last_refreshed_at' => now(),
+            'last_refresh_status' => 'ok',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ]);
+
+        return $selection;
+    }
+
+    // Mirror a single image (cover or profile pic) to R2.
+    //
+    // SSRF guard (layered):
+    //   1. CDN host allowlist — only cdninstagram.com / fbcdn.net subdomains pass.
+    //   2. IP-resolution check — even an allow-listed hostname must resolve to a
+    //      public address (defence-in-depth; the allowlist alone can't catch a
+    //      compromised CDN hostname). Routes through SafeUrlFetcher::assertSafe(),
+    //      the same guard used by every other outbound fetch in the subsystem.
+    //   3. Redirects refused — a 3xx response is dropped, not followed (withoutRedirecting).
+    //   4. Content-type enforced — only image/* is stored.
+    //   5. Byte cap — rejects before store if Content-Length signals an oversized
+    //      file, with a hard strlen check as fallback for absent/wrong headers.
+    private function mirrorOne(string $url, string $path): ?string
+    {
+        if (! $this->isAllowedHost($url)) {
+            return null;
+        }
+
+        // IP-resolution guard: cdninstagram.com / fbcdn.net always resolve to
+        // public IPs, so a SafeUrlException here is anomalous and worth surfacing.
+        try {
+            app(SafeUrlFetcher::class)->assertSafe($url);
+        } catch (SafeUrlException $e) {
+            report($e);
+
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(self::IMAGE_TIMEOUT_SECONDS)
+                ->withoutRedirecting()
+                ->withHeaders(['Accept' => 'image/*'])
+                ->get($url);
+
+            // Drop non-2xx, including 3xx redirects we refuse to follow (SSRF guard).
+            if ($response->status() >= 300) {
+                return null;
+            }
+
+            $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+            if (! str_starts_with($contentType, 'image/')) {
+                return null;
+            }
+
+            // Fast rejection when the server declares the size upfront.
+            $contentLength = $response->header('Content-Length');
+            if ($contentLength !== null && (int) $contentLength > self::MAX_IMAGE_BYTES) {
+                return null;
+            }
+
+            $body = $response->body();
+
+            // Hard cap enforced after buffering — covers absent or inaccurate
+            // Content-Length headers. Nothing over the limit reaches R2.
+            if (strlen($body) > self::MAX_IMAGE_BYTES) {
+                return null;
+            }
+
+            Storage::disk('media')->put($path, $body);
+
+            return Storage::disk('media')->url($path);
+        } catch (Throwable $e) {
+            // Report so a systemic mirror/R2 failure surfaces in Nightwatch (OBS-7).
+            report($e);
+
+            return null;
+        }
+    }
+
+    // Mirror a reel's mp4 to R2, STREAMED via a temp file so a large video never
+    // buffers fully in worker memory, and size-capped so a pathological file can't
+    // fill disk/R2. Same layered SSRF guard as mirrorOne (host allowlist +
+    // IP-resolution check + redirects refused). Returns null on any miss → the
+    // caller falls back to the poster.
+    private function mirrorVideo(string $url, string $path): ?string
+    {
+        if (! $this->isAllowedHost($url)) {
+            return null;
+        }
+
+        // IP-resolution guard matching mirrorOne — defence-in-depth.
+        try {
+            app(SafeUrlFetcher::class)->assertSafe($url);
+        } catch (SafeUrlException $e) {
+            report($e);
+
+            return null;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'igreel');
+        if ($tmp === false) {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(self::VIDEO_TIMEOUT_SECONDS)
+                ->withoutRedirecting()
+                ->withHeaders(['Accept' => 'video/*'])
+                ->sink($tmp)
+                ->get($url);
+
+            // Drop non-2xx, including 3xx redirects we refuse to follow (SSRF guard).
+            if ($response->status() >= 300) {
+                return null;
+            }
+
+            $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+            if (! str_starts_with($contentType, 'video/')) {
+                return null;
+            }
+
+            // Oversized reel → drop the video (the poster still renders).
+            if ((int) filesize($tmp) > self::MAX_VIDEO_BYTES) {
+                return null;
+            }
+
+            // Stream temp file → R2 (no second in-memory copy of the video).
+            $stream = fopen($tmp, 'r');
+            if ($stream === false) {
+                return null;
+            }
+            Storage::disk('media')->put($path, $stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+
+            return Storage::disk('media')->url($path);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        } finally {
+            if (file_exists($tmp)) {
+                @unlink($tmp);
+            }
+        }
+    }
+
+    private function isAllowedHost(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+
+        foreach (self::ALLOWED_HOSTS as $allowed) {
+            if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

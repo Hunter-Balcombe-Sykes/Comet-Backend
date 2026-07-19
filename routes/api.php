@@ -6,7 +6,9 @@ use App\Http\Controllers\Api\Internal\EnvCheckController;
 use App\Http\Controllers\Api\Internal\SupabaseEmailHookController;
 use App\Http\Controllers\Api\PublicSite\AnalyticsController;
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
+use App\Http\Controllers\Api\PublicSite\ClaimController;
 use App\Http\Controllers\Api\PublicSite\IndividualProfileController;
+use App\Http\Controllers\Api\PublicSite\PreAccountBuildController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicDocumentDownloadController;
@@ -47,6 +49,11 @@ Route::middleware('throttle:webhooks')->group(function () {
 
 // bootstrap uses ONLY JWT middleware
 Route::middleware(['supabase.jwt', 'throttle:bootstrap'])->post('/bootstrap', [BootstrapController::class, 'bootstrap']);
+
+// claim uses ONLY JWT middleware — same shape as bootstrap. Binds a Supabase
+// auth user with no core.users row yet to an unclaimed pre-account site
+// (first-come). Email is read exclusively from the verified JWT claim.
+Route::middleware(['supabase.jwt', 'throttle:claim'])->post('/claim', [ClaimController::class, 'store']);
 
 // Split route files (keeps api.php tidy)
 require __DIR__.'/api/user.php';
@@ -120,6 +127,16 @@ Route::post('/public/subscribe', [PublicEmailSubscriptionController::class, 'sub
 
 Route::post('/public/signup/availability', [PublicSignupAvailabilityController::class, 'check'])
     ->middleware(['throttle:signup-availability', 'bot.token:signup']);
+
+// Pre-account (site-first signup) build creation + poll. Kicks off real
+// scraping (Apify-billed) — dedicated tight throttle, not the shared
+// signup-availability bucket. The poll route is a cheap opaque-UUID read,
+// so it rides the generic public-site throttle like other public GETs.
+Route::post('/public/signup/build', [PreAccountBuildController::class, 'store'])
+    ->middleware(['throttle:pre-account-build', 'bot.token:pre-account-build']);
+Route::get('/public/signup/builds/{build}', [PreAccountBuildController::class, 'show'])
+    ->whereUuid('build')
+    ->middleware('throttle:public-site');
 Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
     ->middleware(['throttle:login-identifier', 'bot.token:login-identifier']);
 Route::post('/public/waitlist', [PublicWaitlistController::class, 'store'])
