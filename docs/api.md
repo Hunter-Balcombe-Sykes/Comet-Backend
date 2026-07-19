@@ -190,8 +190,7 @@ re-validates `account_type`/`source_type` pairing.
 {
   "build_id": "uuid",
   "build_state": "pending",
-  "account_type": "partna",
-  "failure_code": null
+  "account_type": "partna"
 }
 ```
 
@@ -203,7 +202,7 @@ re-validates `account_type`/`source_type` pairing.
 - `429 IP_BUILD_CAP` — this IP already has `partna.pre_account.max_unclaimed_per_ip` (default 3) outstanding unclaimed builds; claim one first
 - `403 WAITLIST_ONLY` — new-account creation is currently waitlist-gated (`SIDEST_WAITLIST_ENABLED`/`PARTNA_WAITLIST_ENABLED`)
 
-All three error bodies put the machine-readable code at the **top level**: `{ "message": "...", "code": "SOURCE_PAIRING_INVALID" }` (not nested under `errors`).
+All four error bodies put the machine-readable code at the **top level**: `{ "message": "...", "code": "SOURCE_PAIRING_INVALID" }` (not nested under `errors`).
 
 **Common status codes:** 202, 200, 403, 422, 429
 
