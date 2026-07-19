@@ -118,18 +118,21 @@ class WebsiteLinkHarvester
             foreach (self::SOCIAL_HOSTS as $key => $pattern) {
                 if (! isset($socials[$key]) && preg_match($pattern, $host) && $this->looksLikeProfile($key, $url)) {
                     $socials[$key] = $url;
+
                     continue 2;
                 }
             }
 
             if ($this->matchesAnyHost(self::RESERVATION_HOSTS, $host)) {
                 $reservationLinks[] = ['url' => $url];
+
                 continue;
             }
 
             foreach (self::ORDERING_HOSTS as $name => $pattern) {
                 if (preg_match($pattern, $host)) {
                     $orderProviders[] = ['name' => $name, 'url' => $url];
+
                     continue 2;
                 }
             }
