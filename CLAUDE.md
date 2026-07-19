@@ -242,6 +242,14 @@ before firing — don't ask "what lens?". Bundles: `core` (=`--full`, 8 lenses),
 `pre-merge`, `code-quality`, `pre-pilot` (12), `security` (5), `launch-readiness` (6), `scale-health`
 (6), `full-sweep` (all 21). Multi-lens scope → use a bundle, not repeated `--lens`.
 
+**Tiered campaigns — `scripts/audit/campaigns.md`.** For a themed sweep (security,
+scale-health, concurrency, data/privacy, code-quality) use the size-bounded tiered plans
+there rather than inventing scopes. Each tier is a ready-made prompt; every scope group is
+measured under 350KB because **scan recall degrades past ~100K tokens** (measured 2026-07-19:
+10/10 planted findings at 2KB vs 8/10 at 669KB). Narrow targeted runs find MORE than a
+`--codebase` sweep — sweeps are a coverage instrument, not a discovery one. After a baseline,
+audit the delta (`--changed-since <ref>`), not the repo.
+
 **Output is ALWAYS one folder per run, ALWAYS containing `CONSOLIDATED.md`:**
 - targeted → `audits/<category>/<date>-<name>/CONSOLIDATED.md`
 - bundle / codebase → `audits/sweeps/<date>-<name>/CONSOLIDATED.md`
