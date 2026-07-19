@@ -85,13 +85,14 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
         // exclusion was the original bug (deleted users left their KV live).
         $pro = User::withTrashed()->find($this->userId);
 
-        // Retire the routing entry whenever the profile is NOT publicly servable:
-        // the user is gone (hard/soft-deleted or no handle) OR the account is
-        // suspended/disabled/pending-deletion (status !== 'active'). A suspended
-        // user is NOT trashed, so without the isActive() gate a moderation
-        // takedown left the route — and the edge-cached page — live (EDGE-3).
-        // Mirrors the public read path (public_site_payload requires status='active').
-        if (! $pro || $pro->trashed() || ! $pro->handle || ! $pro->isActive()) {
+        // Routable = active OR unclaimed (pre-account build; publish is a separate
+        // knob — an unpublished site 404s at the payload layer, same as today).
+        // Otherwise retire: the user is gone (hard/soft-deleted or no handle) OR
+        // the account is suspended/disabled/pending-deletion. A suspended user is
+        // NOT trashed, so without this gate a moderation takedown left the route —
+        // and the edge-cached page — live (EDGE-3). Mirrors the public read path
+        // (public_site_payload requires status='active' OR 'unclaimed').
+        if (! $pro || $pro->trashed() || ! $pro->handle || ! ($pro->isActive() || $pro->isUnclaimed())) {
             $this->retire($kv, $pro);
 
             return;
@@ -116,9 +117,25 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // KV TTL defense-in-depth (spec §4): an unclaimed owner's entry expires at
+        // the edge in lockstep with the build, so a failed prune can't leave a
+        // routable orphan. Claiming re-dispatches this job with status=active,
+        // rewriting the entry permanent (null TTL).
+        $ttl = null;
+        if ($pro->isUnclaimed()) {
+            $expiresAt = $pro->preAccountBuild?->expires_at;
+            if (! $expiresAt || now()->gte($expiresAt)) {
+                $this->retire($kv, $pro); // expired (or buildless) unclaimed — treat as gone
+
+                return;
+            }
+            // Cloudflare KV enforces a 60s minimum TTL.
+            $ttl = max(60, (int) now()->diffInSeconds($expiresAt, false));
+        }
+
         // All accounts are individual. The Astro Worker reads this entry via
         // Service Binding and renders the public profile page.
-        $kv->put($current, ['type' => 'individual'], null);
+        $kv->put($current, ['type' => 'individual'], $ttl);
 
         // Publish an ACTIVE custom domain → handle route (Cloudflare for SaaS). The
         // router Worker reads `domain:<host>` and forwards to partna-pages with the

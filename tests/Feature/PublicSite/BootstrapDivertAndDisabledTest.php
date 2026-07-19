@@ -9,7 +9,16 @@ beforeEach(function () {
     setupWaitlistTable();
 })->group('bootstrap-divert-and-disabled');
 
-it('writes a clean divert row to core.waitlist_signups when individual_waitlist_enabled is on', function () {
+// Task 14: the individual-waitlist divert only ever fired for
+// `! hasExistingProfessional($uid)` callers — such callers now 410
+// SIGNUP_MOVED before the divert block is reached, so the block was removed
+// as dead code (no successor; the divert had no analogue on the build
+// endpoint and simply retires with the create branch). This single test
+// replaces the two former divert-specific tests (the "writes a clean divert
+// row" happy path and the "P1-A" no-clobber regression guard) — both are now
+// moot: a new signup attempt never reaches the waitlist_signups write at all,
+// pre-existing or not.
+it('no longer diverts a new signup attempt to the individual waitlist — 410s SIGNUP_MOVED and writes no row (divert block retired)', function () {
     config(['partna.individual_waitlist_enabled' => true]);
     config(['partna.waitlist.enabled' => false]);
 
@@ -24,62 +33,13 @@ it('writes a clean divert row to core.waitlist_signups when individual_waitlist_
 
     $response = $controller->bootstrap($request);
 
-    expect($response->getStatusCode())->toBe(403);
-    expect($response->getData(true)['errors']['code'] ?? null)->toBe('INDIVIDUAL_WAITLIST');
+    expect($response->getStatusCode())->toBe(410);
+    expect($response->getData(true)['code'] ?? null)->toBe('SIGNUP_MOVED');
 
     $row = DB::connection('pgsql')->table('core.waitlist_signups')
         ->where('email_lc', 'newdivert@example.com')->first();
 
-    expect($row)->not->toBeNull();
-    expect($row->email)->toBe('newdivert@example.com');
-    expect($row->email_lc)->toBe('newdivert@example.com');
-    expect($row->applicant_type)->toBe('individual');
-    expect($row->consent_source)->toBe('individual_waitlist_divert');
-    expect($row->name)->toBe('Casey Wright');
-});
-
-it('divert does not clobber an existing full-form waitlist row (P1-A regression guard)', function () {
-    config(['partna.individual_waitlist_enabled' => true]);
-    config(['partna.waitlist.enabled' => false]);
-
-    // Pre-existing row from the full PublicWaitlistController submission.
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
-        'id' => '00000000-0000-0000-0000-000000000bb1',
-        'email' => 'preexisting@example.com',
-        'email_lc' => 'preexisting@example.com',
-        'name' => 'Original Pro',
-        'phone' => '+61400000000',
-        'applicant_type' => 'professional',
-        'industry' => 'mens_grooming',
-        'consent_source' => 'waitlist_form',
-        'consent_ip_hash' => 'sha256-real-hash',
-        'last_submitted_at' => '2026-05-01 00:00:00',
-    ]);
-
-    $controller = app(BootstrapController::class);
-    $request = BootstrapRequest::create('/api/bootstrap', 'POST', [
-        'primary_email' => 'preexisting@example.com',
-        'first_name' => 'Should',
-        'last_name' => 'NotOverwrite',
-    ]);
-    $request->attributes->set('supabase_uid', 'divert-collision-uid');
-    $request->attributes->set('supabase_claims', ['email' => 'preexisting@example.com']);
-
-    $response = $controller->bootstrap($request);
-
-    expect($response->getStatusCode())->toBe(403);
-    expect($response->getData(true)['errors']['code'] ?? null)->toBe('INDIVIDUAL_WAITLIST');
-
-    $row = DB::connection('pgsql')->table('core.waitlist_signups')
-        ->where('email_lc', 'preexisting@example.com')->first();
-
-    // None of the original consent fields may have been overwritten.
-    expect($row->name)->toBe('Original Pro');
-    expect($row->phone)->toBe('+61400000000');
-    expect($row->applicant_type)->toBe('professional');
-    expect($row->industry)->toBe('mens_grooming');
-    expect($row->consent_source)->toBe('waitlist_form');
-    expect($row->consent_ip_hash)->toBe('sha256-real-hash');
+    expect($row)->toBeNull();
 });
 
 it('returns 403 ACCOUNT_DISABLED for disabled accounts (not 200 with empty body)', function () {

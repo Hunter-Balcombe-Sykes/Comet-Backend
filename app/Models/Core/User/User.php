@@ -102,8 +102,12 @@ class User extends BaseModel
         'deletion_mail_sent_at' => 'datetime',
     ];
 
-    /** Route mail notifications to the user's primary email address. */
-    public function routeNotificationForMail(): string
+    /**
+     * Mail-channel routing. Nullable: provisional (unclaimed) users have no email
+     * until claim — returning null makes the mail channel skip them instead of
+     * fataling (TypeError) inside any queued notification.
+     */
+    public function routeNotificationForMail(): ?string
     {
         return $this->primary_email;
     }
@@ -130,9 +134,20 @@ class User extends BaseModel
         return mb_strtolower(trim((string) ($this->status ?? ''))) === 'active';
     }
 
+    /** Canonical 'unclaimed' predicate (pre-account build; no auth user yet). */
+    public function isUnclaimed(): bool
+    {
+        return mb_strtolower(trim((string) $this->status)) === 'unclaimed';
+    }
+
     public function site(): HasOne
     {
         return $this->hasOne(Site::class, 'user_id');
+    }
+
+    public function preAccountBuild(): HasOne
+    {
+        return $this->hasOne(PreAccountBuild::class, 'user_id');
     }
 
     // Internal-staff link: a user MAY also be a Partna staff member (the two

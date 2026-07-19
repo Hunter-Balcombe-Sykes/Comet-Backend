@@ -10,6 +10,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
@@ -346,6 +347,74 @@ function setupUsersTable(): void
     // core.partna_staff link to expose is_staff, so the users-schema stub must
     // include that table too. Idempotent — no-op when already created.
     setupPartnaStaffTable();
+}
+
+/**
+ * Permissive core.pre_account_builds table — every column nullable except the
+ * load-bearing default. Mirrors migration 20260718200000_pre_account_sites.sql.
+ */
+function setupPreAccountBuildsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_builds (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        source_type TEXT NULL,
+        source_ref TEXT NULL,
+        source_ref_lc TEXT NULL,
+        built_via TEXT NULL,
+        built_by_staff_id TEXT NULL,
+        build_state TEXT NULL DEFAULT \'pending\',
+        failure_code TEXT NULL,
+        created_ip_hash TEXT NULL,
+        expires_at TEXT NULL,
+        claimed_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
+ * Alias for setupSitesTable() — ensures site.platform_connections
+ * (IntegrationConnection's table) exists. setupSitesTable() already creates it
+ * as part of the full sites stub; this named wrapper lets a test spell out the
+ * table it actually depends on (mirrors the setupSiteMediaTable() alias
+ * elsewhere in this file, which wraps setupMediaTables() the same way).
+ */
+function setupIntegrationConnectionsTable(): void
+{
+    setupSitesTable();
+}
+
+/**
+ * An unsaved User with just enough shape for actingAsUser() to derive JWT
+ * claims (sub + email) for a Supabase auth id with no core.users row — the
+ * pre-claim state ClaimSiteService expects. auth_user_id isn't fillable, so
+ * it's set directly. Suite-global: shared by ClaimEndpointTest and
+ * BootstrapRetirementTest.
+ */
+function claimJwtUser(string $uid, ?string $email): User
+{
+    $user = new User(['primary_email' => $email]);
+    $user->auth_user_id = $uid;
+
+    return $user;
+}
+
+/**
+ * Build a claim-ready pre-account site: an unclaimed User + Site + a READY
+ * PreAccountBuild linked via associate(). Returns [$user, $site, $build].
+ * Suite-global: shared by ClaimSiteServiceTest and ClaimEndpointTest.
+ */
+function makeReadyBuild(string $subdomain = 'janedoe'): array
+{
+    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
+    $site = Site::factory()->create(['user_id' => $user->id, 'subdomain' => $subdomain, 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
+    $build->user()->associate($user);
+    $build->save();
+
+    return [$user, $site, $build];
 }
 
 /**

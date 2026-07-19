@@ -29,6 +29,7 @@ use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
@@ -49,6 +50,7 @@ use App\Policies\GdprPolicy;
 use App\Policies\IntegrationConnectionPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
+use App\Policies\PreAccountBuildPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSegmentPolicy;
@@ -204,6 +206,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(ModerationCase::class, CasePolicy::class);
         Gate::policy(Decision::class, DecisionPolicy::class);
         Gate::policy(IntegrationConnection::class, IntegrationConnectionPolicy::class);
+        Gate::policy(PreAccountBuild::class, PreAccountBuildPolicy::class);
         // Menu carries user_id directly — generic owner policy.
         Gate::policy(Menu::class, SitePolicy::class);
         // FOUND-4: workplace card model. Owned via its parent Site so it maps
@@ -528,6 +531,29 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Pre-account build creation (site-first signup + staff marketing
+        // builds). CF-Connecting-IP preferred (SEC-2) — same rationale as
+        // public-site. Scraping is expensive (Apify-billed): tight per-minute
+        // + hourly ceiling, both keyed off the same IP so a burst can't
+        // exhaust one bucket while leaving the other untouched.
+        RateLimiter::for('pre-account-build', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $key = $request->header('CF-Connecting-IP') ?: $request->ip();
+
+            return [
+                Limit::perMinute(3)
+                    ->by('pab:m:'.$key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+
+                Limit::perHour(10)
+                    ->by('pab:h:'.$key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
         // Public waitlist submissions. CF-Connecting-IP preferred on the
         // IP-keyed bucket (SEC-2) — same rationale as public-site.
         RateLimiter::for('waitlist', function (Request $request) use ($throttleEnabled) {
@@ -705,6 +731,23 @@ class AppServiceProvider extends ServiceProvider
                         'message' => 'Too many account creation attempts. Please try again later.',
                     ], 429);
                 });
+        });
+
+        // Site claim (first-come binding of a Supabase auth user to an
+        // unclaimed pre-account site — see ClaimSiteService). Same per-uid
+        // shape as bootstrap; the limiter fails loudly if supabase.jwt didn't
+        // run first, rather than silently keying on an empty string.
+        RateLimiter::for('claim', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $uid = (string) $request->attributes->get('supabase_uid');
+            if ($uid === '') {
+                throw new \RuntimeException('claim limiter requires supabase_uid — check middleware order.');
+            }
+
+            return Limit::perMinute(5)->by('claim:'.$uid);
         });
 
         // Session-management write endpoints (logout, logout-others, revoke session).

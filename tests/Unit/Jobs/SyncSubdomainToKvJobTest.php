@@ -1,6 +1,9 @@
 <?php
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Models\Core\Site\Site;
+use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\User;
 use App\Services\Cloudflare\CloudflareKvService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Database\QueryException;
@@ -590,4 +593,97 @@ it('passes a permanent alias (null expires_at) with null expiration_ttl in bulkP
     app()->instance(CloudflareKvService::class, $kv);
 
     (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+// --- Task 15: unclaimed routability + TTL (spec §4) ---
+
+it('writes a TTL-bearing individual entry for an unclaimed owner with a live build', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    $user = User::factory()->create([
+        'status' => 'unclaimed',
+        'handle' => 'janedoe',
+        'handle_lc' => 'janedoe',
+        'auth_user_id' => null,
+        'primary_email' => null,
+    ]);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
+    $build = PreAccountBuild::factory()->make(['expires_at' => now()->addDays(30)]);
+    $build->user()->associate($user);
+    $build->save();
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    // TTL is build-aligned (max(60, seconds-to-expiry)) — not the permanent null
+    // that active owners get.
+    $kv->shouldReceive('put')->once()->withArgs(function (string $key, array $value, ?int $ttl) {
+        return $key === 'janedoe' && $value === ['type' => 'individual']
+            && $ttl !== null && $ttl > 60 && $ttl <= 30 * 86400;
+    });
+    $kv->shouldReceive('bulkPut')->once()->with([]);
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
+});
+
+it('retires an unclaimed owner whose build has expired', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'handle' => 'janedoe', 'handle_lc' => 'janedoe']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
+    $build = PreAccountBuild::factory()->make(['expires_at' => now()->subDay()]);
+    $build->user()->associate($user);
+    $build->save();
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldReceive('delete')->once()->with('janedoe');
+    $kv->shouldNotReceive('put');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
+});
+
+it('retires an unclaimed owner with no pre-account build row at all', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    // Unclaimed status but no build row (deleted / never created) — treat as
+    // gone rather than routing with no known expiry.
+    $user = User::factory()->create(['status' => 'unclaimed', 'handle' => 'nobuildact', 'handle_lc' => 'nobuildact']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'nobuildact']);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldReceive('delete')->once()->with('nobuildact');
+    $kv->shouldNotReceive('put');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
+});
+
+// Existing-behavior pin (already covered by "writes {type:"individual"} for an
+// individual professional (§28.6)" above, kept explicit here per the Task 15
+// brief): an active owner's individual entry keeps a permanent (null) TTL —
+// only unclaimed owners get a build-aligned expiry.
+it('still writes active owners with no TTL', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    $user = User::factory()->create(['status' => 'active', 'handle' => 'activepin', 'handle_lc' => 'activepin']);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    $kv->shouldReceive('put')->once()->with('activepin', ['type' => 'individual'], null);
+    $kv->shouldReceive('bulkPut')->once()->with([]);
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($user->id))->handle($kv);
 });

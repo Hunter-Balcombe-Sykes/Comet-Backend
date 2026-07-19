@@ -32,6 +32,8 @@ function requestAsStaff(string $role = PartnaStaff::ROLE_SUPPORT): Request
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Task 18: show() now also eager-loads preAccountBuild.
+    setupPreAccountBuildsTable();
 });
 
 /** Insert a professional + linked site row; returns the loaded User model. */

@@ -173,6 +173,21 @@ Resolvers (`PublicSiteResolver`, `ResolvesSiteFromRequest`, `SiteCacheService`) 
 
 Configurable via `config('partna.handle.*')`. Full spec: `docs/handle-redirects.md`.
 
+### Pre-account (site-first) signup — live 2026-07-19
+
+Signup is site-first. `POST /api/public/signup/build` creates a real but **provisional** `core.users` row (`status='unclaimed'`, `auth_user_id`/`primary_email` both NULL) + an **unpublished** `site.sites` row + a permanent `core.pre_account_builds` audit row (1:1, survives claim). `GeneratePreAccountSiteJob` (scraping lane) populates the site from the source through the EXISTING platform machinery — IG: `InstagramConnectionSeeder` (scrape → R2 mirror → connection payload); GBP: Places fetch + `IdentitySync` fold via `IntegrationConnectionObserver::saved` (never call `IdentitySync` directly). The visitor later claims the site with a Supabase email-OTP JWT (`POST /api/claim`, first-come — `ClaimSiteService` binds auth+email, flips `status='active'`, re-syncs KV to a permanent entry). Staff/ManyChat trigger **published** marketing builds via `POST /api/staff/builds`. `POST /api/bootstrap` no longer creates accounts: **410 `SIGNUP_MOVED`** for a JWT with no `core.users` row; the refresh path for existing users is unchanged; invite-token consumption is retired entirely.
+
+Hard rules:
+
+- `'unclaimed'` is a first-class user status. Public **read** paths deliberately render it when published (`PublicSiteResolver`, `site.public_site_payload` view, `SyncSubdomainToKvJob` — the KV entry carries a TTL aligned to `pre_account_builds.expires_at`, min 60s). Capability/notification/deletion gates stay fail-closed. Before widening or narrowing any status gate, decide which class it's in (decision log: `tests/Feature/PreAccount/UnclaimedGatingTest.php` header).
+- `config('partna.pre_account.*')` is the single registry: the account_type→source pairing map and the source_type→generator class map. Adding a source = one `SiteSourceGenerator` implementation + one config entry + widening the `source_type` CHECK in a migration.
+- `PreAccountBuildService::requestBuild` checks **dedupe before the pairing map** — deliberate (spec §4.1: a live build re-serves across account types; the reject path creates zero rows). Do not "fix" the order.
+- One LIVE build per source (`pre_account_builds_live_source_unique`, partial on `claimed_at IS NULL`); a failed live build resets and re-runs on the next request for the same source.
+- Expiry: `builds:prune-expired` (daily 03:40) hard-deletes expired unclaimed builds with observer-driven teardown (connections → media purge → cache/edge bust → `forceDelete`); claim-vs-prune races are settled by row locks + `FOR UPDATE SKIP LOCKED`.
+- Provisional users have NO email: `User::routeNotificationForMail()` is nullable — any new notification path must tolerate a null mail route.
+- `pre_account_builds.user_id`/`built_by_staff_id` are never fillable — `associate()` only.
+- Endpoint reference: `docs/api.md` §3. Spec: `docs/superpowers/specs/2026-07-18-pre-account-sites-design.md`. Plan (per-task commit SHAs): `docs/superpowers/plans/2026-07-18-pre-account-sites.md`.
+
 ## Development Commands
 
 ```bash

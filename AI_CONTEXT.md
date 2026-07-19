@@ -28,17 +28,40 @@ Individual professionals (barbers, hairdressers, stylists, etc.) need a polished
 
 ### Plain-English Explanation
 
-- An individual professional signs up and calls `POST /api/bootstrap`.
-- Partna creates a `core.users` row and a `site.sites` row with a subdomain.
+- Signup is **site-first** (Pre-Account Sites, 2026-07-18): a visitor gives a source (an Instagram
+  handle or a Google Business listing) and Partna builds a real, previewable site for them — an
+  auth-less **provisional** `core.users` row (`status='unclaimed'`, `auth_user_id`/`primary_email`
+  both `NULL`) plus an unpublished `site.sites` row — before any account exists.
+- A background job scrapes the source and populates the site; the frontend polls until it's ready.
+- The visitor then signs in with Supabase (email OTP) and **claims** the finished site — first-come —
+  which binds their `auth_user_id`/`primary_email` onto the provisional row and flips `status` to `active`.
+- `POST /api/bootstrap` no longer creates accounts — it only refreshes an existing user's profile
+  (410s a JWT with no matching row, pointing at the build/claim flow).
 - The user configures their site in the dashboard (bio, gallery, links, services, design tokens).
 - On publish, `SyncSubdomainToKvJob` writes `{type:"individual"}` to `SUBDOMAIN_KV`.
 - `<handle>.partna.au` hits the Cloudflare Worker → KV lookup → Astro app renders the page.
 - Visitors trigger analytics events (pageviews, clicks). Leads submit via the public API.
+- An unclaimed build that's never claimed expires (30 days by default) and is hard-deleted by the
+  `builds:prune-expired` command.
+- Staff (and ManyChat automation) can trigger the same builds via `POST /api/staff/builds` — these
+  publish immediately (the live site IS the marketing pitch) with a configurable expiry; the
+  Cloudflare KV routing entry for any unclaimed site carries a TTL aligned to the build's
+  `expires_at`, so an expired build stops routing at the edge even if pruning lags.
 
 ### How the System Works
 
 ```
-User signs up → POST /api/bootstrap (creates core.users + site.sites)
+Visitor picks a source (Instagram handle / Google Business listing)
+    ↓
+POST /api/public/signup/build → provisional core.users (status='unclaimed') + unpublished site.sites
+    + core.pre_account_builds row (build_state='pending')
+    ↓
+GeneratePreAccountSiteJob scrapes the source, populates the site → build_state='ready' (or 'failed')
+    ↓
+Frontend polls GET /api/public/signup/builds/{id} until ready
+    ↓
+Visitor signs in with Supabase (email OTP) → POST /api/claim (first-come)
+    → auth_user_id/primary_email bound, status='active', pre_account_builds.claimed_at set
     ↓
 User configures site (gallery, blocks, services, design, publish)
     ↓
@@ -47,6 +70,8 @@ SyncSubdomainToKvJob writes {type:"individual"} to SUBDOMAIN_KV
 <handle>.partna.au → Cloudflare Worker → KV lookup → Astro site render
     ↓
 Visitor analytics + lead capture → analytics.* tables
+
+(unclaimed, never built on: builds:prune-expired hard-deletes the user/site/build after 30 days)
 ```
 
 ---
@@ -62,7 +87,7 @@ Visitor analytics + lead capture → analytics.* tables
 ├── app/
 │   ├── Models/
 │   │   ├── Core/
-│   │   │   ├── User/          — User (class App\Models\Core\User\User, table core.users), Customer, Service, ServiceCategory, UserConfirmationPreference, UserDeletionAuditEntry
+│   │   │   ├── User/          — User (class App\Models\Core\User\User, table core.users), PreAccountBuild, Customer, Service, ServiceCategory, UserConfirmationPreference, UserDeletionAuditEntry
 │   │   │   ├── Site/          — Site, Block, SiteMedia, SiteSubdomainAlias, Theme
 │   │   │   ├── Notifications/ — Notification, NotificationReceipt, EmailSubscription, NotificationEmailPolicy, NotificationEmailPreference
 │   │   │   ├── Staff/         — PartnaStaff
@@ -88,12 +113,13 @@ Visitor analytics + lead capture → analytics.* tables
 │   │   ├── Notifications/     — Notification publishing, email dispatch
 │   │   ├── User/              — User onboarding, site provisioning, defaults
 │   │   ├── PublicSite/        — Public site resolution
-│   │   └── Site/              — Site content management
-│   ├── Jobs/                  — Analytics, Cache, Notifications + root-level media jobs
+│   │   ├── Site/              — Site content management
+│   │   └── PreAccount/        — Site-first signup: PreAccountBuildService, ClaimSiteService, source generators (Instagram, Google Business)
+│   ├── Jobs/                  — Analytics, Cache, Notifications, PreAccount (GeneratePreAccountSiteJob) + root-level media jobs
 │   ├── Observers/             — Cache invalidation, notification triggers
-│   └── Console/Commands/      — Analytics backfill/compact/purge, notification pruning, soft-delete purge
+│   └── Console/Commands/      — Analytics backfill/compact/purge, notification pruning, soft-delete purge, builds:prune-expired (pre-account builds)
 ├── routes/
-│   ├── api.php                — bootstrap, health
+│   ├── api.php                — bootstrap, claim, signup/build + poll, health
 │   ├── api/user.php           — User dashboard routes
 │   ├── api/publicSite.php     — Public mini-site routes (subdomain-scoped)
 │   └── api/staff.php          — Staff/admin routes
@@ -117,6 +143,7 @@ Visitor analytics + lead capture → analytics.* tables
 | `SiteMedia` | `App\Models\Core\Site\SiteMedia` | `site.site_media` | Images/videos with processing states |
 | `MediaVariant` | `App\Models\Core\MediaVariant` | `site.media_variants` | Processed variants (WebP, MP4, HLS, poster) |
 | `PartnaStaff` | `App\Models\Core\Staff\PartnaStaff` | `core.sidest_staff` | Staff/admin accounts |
+| `PreAccountBuild` | `App\Models\Core\User\PreAccountBuild` | `core.pre_account_builds` | Permanent origin record for a site-first signup build (source, build state, claimed_at); 1:1 with a provisional `User`, survives claim |
 | `Notification` | — | `notifications.notifications` | In-app notification records |
 | `EmailSubscription` | — | `notifications.email_subscriptions` | Marketing email opt-in per user |
 | `SiteSubdomainAlias` | — | `site.site_subdomain_aliases` | Subdomain alias management |
@@ -178,6 +205,7 @@ Public site payload: Redis via `CacheLockService::rememberLocked` (60s TTL + jit
 
 ## Surviving Domains
 
+- Site-first signup + claim flow (provisional/unclaimed users, `core.pre_account_builds`, staff marketing builds)
 - User accounts (profile, handle, bio, about, location)
 - Sites / sitepages (subdomain, publish state, design tokens)
 - Blocks + sections + links (site builder)
@@ -246,3 +274,4 @@ When another AI reads this file, it should:
 | 2026-05-22 | Stripped to individual-standalone-site essentials | Removing brand/affiliate/Shopify/Stripe/commerce for pilot; reintegrate post-pilot |
 | 2026-05-22 | Renamed Professional model to User | Cleaner terminology for individual-only platform |
 | 2026-05-22 | Consolidated 147 migrations to single baseline | Clean slate for the standalone pilot DB schema |
+| 2026-07-18 | Site-first signup (Pre-Account Sites): build a real site before any account exists, claim it after | Marketing conversion — a working preview site converts better than a signup form; `POST /api/bootstrap`'s create branch retired (410 for new JWTs) |
