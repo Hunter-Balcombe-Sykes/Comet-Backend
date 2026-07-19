@@ -4765,36 +4765,6 @@ parameters:
 			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
 
 		-
-			message: '#^Method App\\Mail\\Auth\\EmailChangeMail\:\:build\(\) should return App\\Mail\\Auth\\EmailChangeMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Auth/EmailChangeMail.php
-
-		-
-			message: '#^Method App\\Mail\\Auth\\EmailConfirmMail\:\:build\(\) should return App\\Mail\\Auth\\EmailConfirmMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Auth/EmailConfirmMail.php
-
-		-
-			message: '#^Method App\\Mail\\Auth\\InviteMail\:\:build\(\) should return App\\Mail\\Auth\\InviteMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Auth/InviteMail.php
-
-		-
-			message: '#^Method App\\Mail\\Auth\\MagicLinkMail\:\:build\(\) should return App\\Mail\\Auth\\MagicLinkMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Auth/MagicLinkMail.php
-
-		-
-			message: '#^Method App\\Mail\\Auth\\PasswordResetMail\:\:build\(\) should return App\\Mail\\Auth\\PasswordResetMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Auth/PasswordResetMail.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4819,42 +4789,6 @@ parameters:
 			path: app/Mail/FeedbackSubmittedMail.php
 
 		-
-			message: '#^Method App\\Mail\\FeedbackSubmittedMail\:\:build\(\) should return App\\Mail\\FeedbackSubmittedMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/FeedbackSubmittedMail.php
-
-		-
-			message: '#^Method App\\Mail\\Gdpr\\UserDataExportMail\:\:build\(\) should return static\(App\\Mail\\Gdpr\\UserDataExportMail\) but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Gdpr/UserDataExportMail.php
-
-		-
-			message: '#^Method App\\Mail\\HandleAliasExpiringMail\:\:build\(\) should return App\\Mail\\HandleAliasExpiringMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/HandleAliasExpiringMail.php
-
-		-
-			message: '#^Method App\\Mail\\Notifications\\AccountDeletionCancelledMail\:\:build\(\) should return App\\Mail\\Notifications\\AccountDeletionCancelledMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Notifications/AccountDeletionCancelledMail.php
-
-		-
-			message: '#^Method App\\Mail\\Notifications\\AccountDeletionRequestedMail\:\:build\(\) should return App\\Mail\\Notifications\\AccountDeletionRequestedMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Notifications/AccountDeletionRequestedMail.php
-
-		-
-			message: '#^Method App\\Mail\\Notifications\\AccountDeletionScheduledMail\:\:build\(\) should return App\\Mail\\Notifications\\AccountDeletionScheduledMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Notifications/AccountDeletionScheduledMail.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4867,20 +4801,8 @@ parameters:
 			path: app/Mail/Notifications/FeatureAnnouncementMail.php
 
 		-
-			message: '#^Method App\\Mail\\Notifications\\FeatureAnnouncementMail\:\:build\(\) should return App\\Mail\\Notifications\\FeatureAnnouncementMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Notifications/FeatureAnnouncementMail.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
 			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/IncidentMail.php
-
-		-
-			message: '#^Method App\\Mail\\Notifications\\IncidentMail\:\:build\(\) should return App\\Mail\\Notifications\\IncidentMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
 			count: 1
 			path: app/Mail/Notifications/IncidentMail.php
 
@@ -4891,20 +4813,8 @@ parameters:
 			path: app/Mail/Notifications/PolicyUpdateMail.php
 
 		-
-			message: '#^Method App\\Mail\\Notifications\\PolicyUpdateMail\:\:build\(\) should return App\\Mail\\Notifications\\PolicyUpdateMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Mail/Notifications/PolicyUpdateMail.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
 			identifier: property.notFound
-			count: 1
-			path: app/Mail/Notifications/ProfileTaskMail.php
-
-		-
-			message: '#^Method App\\Mail\\Notifications\\ProfileTaskMail\:\:build\(\) should return App\\Mail\\Notifications\\ProfileTaskMail but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
 			count: 1
 			path: app/Mail/Notifications/ProfileTaskMail.php
 
@@ -4917,12 +4827,6 @@ parameters:
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$subject\.$#'
 			identifier: property.notFound
-			count: 1
-			path: app/Mail/SiteEnquiryNotification.php
-
-		-
-			message: '#^Method App\\Mail\\SiteEnquiryNotification\:\:build\(\) should return App\\Mail\\SiteEnquiryNotification but returns App\\Mail\\BaseTransactionalMail\.$#'
-			identifier: return.type
 			count: 1
 			path: app/Mail/SiteEnquiryNotification.php
 

@@ -66,8 +66,13 @@ abstract class BaseTransactionalMail extends Mailable
 
     /**
      * Apply shared envelope defaults before any subclass build() chain runs.
+     *
+     * Declared `static` (not `self`): subclasses call this as the first link in
+     * their own build() chain and return the result directly, so the static
+     * analyser needs late static binding here to see the subclass type flow
+     * through, not the declaring class.
      */
-    public function buildEnvelope(): self
+    public function buildEnvelope(): static
     {
         return $this
             ->from(
