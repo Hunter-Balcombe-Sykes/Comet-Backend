@@ -35,6 +35,10 @@ class PreAccountBuild extends BaseModel
 
     protected $table = 'core.pre_account_builds';
 
+    public $incrementing = false;
+
+    protected $keyType = 'string';
+
     // user_id / built_by_staff_id deliberately NOT fillable — set via associate().
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',

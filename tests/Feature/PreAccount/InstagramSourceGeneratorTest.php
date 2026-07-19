@@ -40,7 +40,7 @@ it('scrapes, seeds a connection, and writes profile fields onto the provisional 
 
     app(InstagramSourceGenerator::class)->generate($user, $site, 'janedoe');
 
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeTrue()
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->where('resource_id', 'instagram')->exists())->toBeTrue()
         ->and($user->fresh()->display_name)->toBe('Jane Doe')
         ->and($user->fresh()->first_name)->toBe('Jane');
 });

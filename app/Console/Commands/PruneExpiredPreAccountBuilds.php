@@ -146,8 +146,11 @@ class PruneExpiredPreAccountBuilds extends Command
                 // The transaction has already rolled back by this point — report
                 // and move on so one candidate's transient fault (e.g. a Redis
                 // outage inside invalidateSite()) can't abort the whole sweep.
-                // This build is simply re-evaluated next run.
+                // This build is simply re-evaluated next run. build_id logged
+                // alongside report() (mirrors purge()'s catch-context discipline)
+                // so a Nightwatch alert points straight at the stuck candidate.
                 $failed++;
+                Log::warning('pre_account.prune.candidate_failed', ['build_id' => $buildId, 'error' => $e->getMessage()]);
                 report($e);
             }
         }

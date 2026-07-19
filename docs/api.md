@@ -14,6 +14,7 @@ This document is the single source of truth for backend so the frontend can buil
 - Recent Backend Changes (Commit Log Snapshot)
 - Environments and Base URLs
 - Authentication (Supabase JWT)
+- Site-first signup (pre-account builds)
 - Roles and permissions
 - Data Models
 - Conventions (headers, errors, pagination, rate limits)
@@ -65,21 +66,21 @@ All authenticated requests MUST include the Supabase access token:
 - Frontend signs in with Supabase Auth.
 - Frontend calls Partna API with the returned access_token.
 
-### Bootstrap required for new users
+### Signup is site-first — bootstrap only refreshes existing users
 
-A Supabase-authenticated user is not automatically a user in Partna.
+**Pre-Account Sites (2026-07-18):** signup no longer creates an account directly. A brand-new user
+builds a site first (from an Instagram handle or Google Business listing), then claims it with a
+Supabase email-OTP JWT. `POST /api/bootstrap` survives only as the idempotent profile-refresh call
+for users who already have a `core.users` row (JWT `sub` already bound via `auth_user_id`) — it no
+longer has a create branch. See "Site-first signup (pre-account builds)" below for the new flow.
 
-**For a new user, call:**
-
-- POST /api/bootstrap This creates/updates `core.users` and `site.sites` tied to the Supabase user id (sub in JWT).
-
-If you skip bootstrap, professional routes will return 403 with a message prompting bootstrap.
+If a Supabase JWT has no matching `core.users` row, `POST /api/bootstrap` now returns **410** — see below.
 
 ### `POST /api/bootstrap`
 
 ### Auth: Required (Supabase JWT)
 
-**Purpose:** Create or refresh the authenticated user profile + site in one call.
+**Purpose:** Refresh the authenticated user's profile + site. No longer creates an account — see above.
 
 **Request body:**
 
@@ -105,13 +106,13 @@ If you skip bootstrap, professional routes will return 403 with a message prompt
 - `country_code` (optional): 2-5 letter country code
 - `timezone` (optional): IANA timezone
 - `handle` (optional): Unique username/slug (if omitted, auto-generated from display_name)
+- `invite`: still accepted on the request but no longer consumed — an existing user sending a stale `invite` param now just refreshes normally (200) instead of erroring.
 
-**Waitlist mode behavior:**
-- If `SIDEST_WAITLIST_ENABLED=true`, bootstrap is blocked for users who do not already have a professional row.
-- Existing professionals can still call bootstrap normally.
-- Blocked response shape:
-  - Status: `403`
-  - Body: `{ "message": "New account creation is currently waitlist-only. Please join the waitlist.", "errors": { "code": "WAITLIST_ONLY" } }`
+**No row for this JWT sub (410):**
+- The create branch is retired. A Supabase JWT whose `sub` has no `core.users` row (`auth_user_id` match) gets:
+  - Status: `410`
+  - Body: `{ "message": "Signup now starts from your site. Build it first, then claim it.", "code": "SIGNUP_MOVED" }`
+- There is no invite-token bypass — invites retired with the create branch. The waitlist gate moved too: it's now a 403 on `POST /api/public/signup/build` (below), not on bootstrap.
 
 **Response (200):**
 
@@ -137,12 +138,126 @@ If you skip bootstrap, professional routes will return 403 with a message prompt
         "is_published": false
     }
 }
+```
 
-**Common status codes:** 200, 401 (invalid JWT), 403 (waitlist-only gate or disabled account), 422 (validation error)
+**Common status codes:** 200, 401 (invalid JWT), 403 (disabled account), 410 (no existing row — see above), 422 (validation error, or `EMAIL_VERIFICATION_REQUIRED` when the JWT carries no verified email claim)
 
-### Common status codes: 200, 201, 401, 422
+## 3) Site-first signup (pre-account builds)
 
-## 3) Roles and permissions
+New accounts are built from a public source before any auth exists. The flow: **build → poll → claim**.
+All three endpoints are unauthenticated except claim, which requires a Supabase email-OTP JWT (no
+`core.users` row needed yet — that's what claim creates).
+
+**Concept:** `POST /api/public/signup/build` creates a *provisional* `core.users` row
+(`status='unclaimed'`, `auth_user_id`/`primary_email` both `NULL`) plus an unpublished `site.sites`
+row, then dispatches a background job that scrapes the source and populates the site. The frontend
+polls `GET .../builds/{build_id}` until `build_state` is `ready`, then the visitor signs in with
+Supabase (email OTP) and calls `POST /api/claim` to bind their new auth identity to the site
+(first-come — whoever claims first wins).
+
+### `POST /api/public/signup/build`
+
+- Purpose: kick off (or re-serve) a pre-account site build from a typed source
+- Auth: None
+- Rate limit: `pre-account-build` (3/min + 10/hour per IP, keyed on `CF-Connecting-IP`)
+- Middleware: `bot.token:pre-account-build` — currently a no-op (`BOT_PROTECTION_MODE=off` by default); wiring `enforce` later is a config change, not a route change, and needs no frontend work until then.
+
+**Request body:**
+
+```json
+{
+  "account_type": "partna",
+  "source_type": "instagram",
+  "source_ref": "@janedoe",
+  "source_name": null
+}
+```
+
+- `account_type` (required): `partna` | `business` — must be a source this platform allows for that type (currently `partna` ⇄ `instagram`, `business` ⇄ `google_business`; see `config('partna.pre_account.sources')`)
+- `source_type` (required): `instagram` | `google_business`
+- `source_ref` (required, string, max 300): Instagram handle, or Google Places `place_id`
+- `source_name` (required when `source_type = google_business`, else ignored, max 120): the Places picker's business name — a `place_id` is opaque, so this seeds the subdomain/handle/display name
+
+**Response — new build (202):** same shape as the poll response below, `build_state: "pending"`.
+
+**Response — re-served existing live build (200):** one LIVE (unclaimed) build per source already
+exists for this `source_type`/`source_ref` — the existing build is returned as-is, **including its
+original `account_type`** (which may differ from what this request sent; reflect the returned value in
+the UI, not the request's). Dedupe is checked before the pairing validation, so re-serving never
+re-validates `account_type`/`source_type` pairing.
+
+```json
+{
+  "build_id": "uuid",
+  "build_state": "pending",
+  "account_type": "partna",
+  "failure_code": null
+}
+```
+
+`subdomain` and `site_url` are present only once `build_state` is `ready` (see poll endpoint). `failure_code` is omitted when null.
+
+**Errors:**
+- `422 SOURCE_PAIRING_INVALID` — `source_type` isn't configured for that `account_type` (or `source_type` isn't a known generator)
+- `422 SOURCE_REF_INVALID` — the ref failed source-specific normalization (e.g. not a valid Instagram handle shape)
+- `429 IP_BUILD_CAP` — this IP already has `partna.pre_account.max_unclaimed_per_ip` (default 3) outstanding unclaimed builds; claim one first
+- `403 WAITLIST_ONLY` — new-account creation is currently waitlist-gated (`SIDEST_WAITLIST_ENABLED`/`PARTNA_WAITLIST_ENABLED`)
+
+All three error bodies put the machine-readable code at the **top level**: `{ "message": "...", "code": "SOURCE_PAIRING_INVALID" }` (not nested under `errors`).
+
+**Common status codes:** 202, 200, 403, 422, 429
+
+### `GET /api/public/signup/builds/{build_id}`
+
+- Purpose: poll a build's progress
+- Auth: None
+- Rate limit: `public-site`
+- `build_id` is an opaque UUID (route-model-bound); persist it client-side so polling survives a refresh
+
+**Response (200):**
+
+```json
+{
+  "build_id": "uuid",
+  "build_state": "ready",
+  "account_type": "partna",
+  "subdomain": "jane-doe",
+  "site_url": "https://jane-doe.partna.au"
+}
+```
+
+- `build_state`: `pending` | `building` | `ready` | `failed`
+- `subdomain` / `site_url` appear **only** when `build_state = "ready"`
+- `failure_code` appears only when `build_state = "failed"` (e.g. `source_not_found`, `scrape_failed`)
+- No scraped content leaks through this endpoint — content is only visible via the normal public site payload once the build is ready
+
+**Common status codes:** 200, 404 (unknown `build_id`)
+
+### `POST /api/claim`
+
+- Purpose: bind a Supabase-authenticated visitor to an unclaimed pre-account site (first-come)
+- Auth: Required (Supabase JWT) — email read **only** from the verified JWT `email` claim, never the body (same OV-A hardening as bootstrap)
+- Rate limit: `claim` (5/min per Supabase `sub`)
+
+**Request body:**
+
+```json
+{ "subdomain": "jane-doe" }
+```
+
+**Response (200):** identical shape to `POST /api/bootstrap`'s success response — `{ "professional": {...}, "site": {...} }` — so the frontend can land straight in the dashboard. A retry with the same JWT after a successful claim replays the same 200 (idempotent), not a 409.
+
+**Errors** (all put `code` at the top level, same convention as the build endpoint):
+- `404 CLAIM_NOT_FOUND` — no site exists for that subdomain
+- `409 ALREADY_CLAIMED` — this site was claimed by someone else already
+- `409 BUILD_NOT_READY` — the build hasn't finished (`build_state != ready`)
+- `409 ACCOUNT_EXISTS` — this Supabase user already owns a different account
+- `409 EMAIL_ALREADY_REGISTERED` — the verified email is already bound to a different auth user
+- `422 EMAIL_VERIFICATION_REQUIRED` — the JWT carries no verified email claim
+
+**Common status codes:** 200, 401 (missing `supabase_uid`), 404, 409, 422, 429
+
+## 4) Roles and permissions
 
 - Public (anon): no token, can only access public mini-site routes and health routes.
 - User: valid Supabase JWT AND a core.users row where auth_user_id matches JWT sub.
@@ -156,7 +271,7 @@ Partna reads/writes Postgres through Laravel using the configured database user.
 - Database table RLS does not gate Partna API calls if the DB user bypasses RLS (typical for server-side roles).
 - Image uploads go through the Partna API (server-side), not through Supabase Storage. Supabase Storage is not used at all — all media is stored on Laravel Cloud Object Storage (Cloudflare R2).
 
-## 4) Data Models
+## 5) Data Models
 
 All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the API.
 
@@ -333,7 +448,7 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | block_id (click only) | uuid   | no       | `d5b0...`               | Must belong to the site, be active, and be trackable: `links/link` or `sections/{gallery,services,shop,booking,barbershop_info}` |
 
 
-## 5) Conventions (headers, errors, pagination, rate limits)
+## 6) Conventions (headers, errors, pagination, rate limits)
 
 ### Standard headers
 
@@ -443,7 +558,7 @@ Common status codes
 - analytics: 120 requests per minute
 - leads: 3 requests per minute per IP, plus 100 requests per minute per subdomain
 
-## 6) Public Mini-Site API
+## 7) Public Mini-Site API
 
 All routes below are unauthenticated.
 
@@ -712,7 +827,7 @@ For frontends that cannot use subdomain DNS routing, the following endpoints acc
 
 ---
 
-## 7) User Dashboard API
+## 8) User Dashboard API
 
 All routes below require: Authorization header AND a user profile (current.user middleware).
 
@@ -808,7 +923,7 @@ HTTP 423 Locked
 - `POST /api/me/feedback` — submit feedback. Request: `{ "type": "error|good|bad_ui|idea" (required), "area": "<free-form feature/page/tool string, ≤120 chars>" (required), "target": {...} (optional, ≤4KB encoded JSON, e.g. `{"area":"analytics","elementId":"x"}`), "message": "<1-5000 chars>" (required), "kind": null (optional legacy taxonomy — derived from `type` when omitted: error/bad_ui→bug, good→praise, idea→idea), "severity": null (only meaningful with kind=bug), "page_url", "user_agent", "viewport", "app_version", "request_id", "reply_email" (all optional, unchanged) }`. Response (201): `{ "feedback": { "id", "kind", "severity", "type", "area", "target", "message", "status", "page_url", "app_version", "created_at" } }`. Rate-limited (`throttle:feedback-submit`); `429` on an identical message resubmitted within the duplicate window; `422` on validation failure; exempt from the pending-deletion read-only lock.
 - `GET /api/me/feedback` — list the caller's own feedback, paginated (house envelope, key `feedback`).
 - `GET /api/me/feedback/{feedback}` — single row, owner-only (`404`, not `403`, for someone else's row).
-- `GET /api/staff/feedback?type=&area=&from=&to=&per_page=&page=` — staff triage list across ALL users (any staff role). See §8.
+- `GET /api/staff/feedback?type=&area=&from=&to=&per_page=&page=` — staff triage list across ALL users (any staff role). See §9.
 - Common status codes: 200, 401, 404
 
 ### `GET /api/site/google-business-profile`
@@ -1011,16 +1126,17 @@ Allowed section block types are defined in config: `gallery`, `services`, `shop`
 - GET /api/email-subscribers?list_key=marketing&status=subscribed&search=...
 - GET /api/email-subscribers/export?list_key=marketing&status=subscribed
 
-## 8) Staff API
+## 9) Staff API
 
 Staff routes are for internal staff tooling. They require a staff JWT (user must exist in core.sidest_staff).
 
 ### Staff (non-admin) routes
 
 - GET /api/staff/me
+- POST /api/staff/builds — marketing-pipeline build trigger; see "Pre-account builds (marketing pipeline)" below
 - GET /api/staff/sites/{subdomain}
-- GET /api/staff/professionals?q=...&status=...&per_page=...&page=...
-- GET /api/staff/professionals/{professional}
+- GET /api/staff/professionals?q=...&status=...&per_page=...&page=... — `status=unclaimed` filters to provisional (never-claimed) pre-account users
+- GET /api/staff/professionals/{professional} — for an unclaimed user, the response includes a `pre_account_build` block (absent entirely for normal users) — see below
 - DELETE /api/staff/professionals/{professional} (soft delete)
 - POST /api/staff/professionals/{professional}/restore
 - GET /api/staff/professionals/{professional}/customers
@@ -1063,6 +1179,38 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - POST /api/staff/professionals/{professional}/sections/reorder
 - DELETE /api/staff/professionals/{professional}/sections/{blockType}
 - POST /api/staff/notifications
+
+### Pre-account builds (marketing pipeline)
+
+`POST /api/staff/builds` — the ManyChat/marketing surface for staff-triggered pre-account builds. Same
+staff stack as every other staff route (`supabase.jwt`, `require.email_verified`, `staff`,
+`require.aal2`, `throttle:staff`, `staff.audit`). Any staff role may call it
+(`PreAccountBuildPolicy::staffCreate`) — it isn't admin-gated.
+
+**Request body:** same as `POST /api/public/signup/build` (§3) plus two staff-only knobs:
+
+```json
+{
+  "account_type": "business",
+  "source_type": "google_business",
+  "source_ref": "<place_id>",
+  "source_name": "Jane's Nails",
+  "publish": true,
+  "expires_days": 30
+}
+```
+
+- `publish` (optional boolean, default `true`) — staff builds go **live immediately** once the scrape
+  succeeds (the site IS the pitch); the public signup build endpoint never publishes pre-claim.
+- `expires_days` (optional integer, 1-365) — overrides `partna.pre_account.expiry_days` (default 30) for this build.
+
+**Response:** identical shape to the public build endpoint — 202 (new) / 200 (re-served existing live
+build). Unlike the public endpoint, there's no waitlist/IP-cap path: `requestBuild()` skips the
+per-IP cap entirely when called with a staff actor, so every thrown error here is a bad
+source/pairing and the controller always returns a flat `422` (not the public endpoint's
+429-for-cap/422-for-pairing split).
+
+**Common status codes:** 202, 200, 401, 403 (not staff / AAL2 required), 422
 
 ### Segments (OV-A)
 
@@ -1137,7 +1285,7 @@ The same `min: 0` rule applies to `ig_followers`, where it is a no-op in every s
 
 Free-text `location_state` / `location_city` matching is best-effort: users who left the field blank never match.
 
-## 9) Media uploads & processing (images + videos)
+## 10) Media uploads & processing (images + videos)
 
 Images and videos are uploaded through the Partna API and processed entirely server-side. No direct-to-storage uploads from the frontend.
 
@@ -1205,7 +1353,7 @@ Images and videos share the same per-pool cap.
 
 **Videos:** MP4, MOV, WebM, AVI — max `SIDEST_VIDEO_MAX_UPLOAD_KB` (default 500 MB), max duration `SIDEST_VIDEO_MAX_DURATION_SECONDS` (default 300s)
 
-## 10) Test users and getting tokens
+## 11) Test users and getting tokens
 
 Tokens come from Supabase Auth. Partna does not issue tokens.
 
@@ -1226,7 +1374,7 @@ Tokens come from Supabase Auth. Partna does not issue tokens.
 Response includes access_token. Use that token as the Authorization Bearer token when calling Partna.
 This flow is included in the Insomnia collection as Login requests.
 
-## 11) Insomnia collection
+## 12) Insomnia collection
 
 Import the provided Insomnia export JSON.
 It contains requests for all Stage 1-2 endpoints plus Supabase login requests.
@@ -1235,7 +1383,7 @@ It contains requests for all Stage 1-2 endpoints plus Supabase login requests.
 -
 - Set workspace environment variables first (api_base_url, public_api_base_url, supabase_url, supabase_anon_key, access_token, subdomain, ids).
 
-## 12) Frontend env var checklist
+## 13) Frontend env var checklist
 
 - SUPABASE_URL
 - SUPABASE_ANON_KEY
@@ -1245,7 +1393,7 @@ It contains requests for all Stage 1-2 endpoints plus Supabase login requests.
 
 Note: The frontend does not need any storage credentials — all image URLs come from the API `variants` map.
 
-## 13) Backend env var checklist
+## 14) Backend env var checklist
 
 ### Core Laravel
 
@@ -1302,7 +1450,7 @@ Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The imag
 - QUEUE_CONNECTION: `sync` (no worker needed — processes inline) | `database` | `redis` (worker required; recommended for scale)
 - MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS
 
-## 14) Known implementation gotchas
+## 15) Known implementation gotchas
 
 ### Domain-scoped public routes
 
