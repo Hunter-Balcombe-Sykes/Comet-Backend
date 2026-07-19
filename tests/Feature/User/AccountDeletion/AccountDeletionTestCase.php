@@ -269,15 +269,16 @@ class AccountDeletionTestCase
             completed_at TEXT NULL
         )");
 
-        // core.waitlist_signups — purge() deletes by email_lc.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
+        // core.early_access_signups — purge() deletes by email_lc.
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.early_access_signups (
             id TEXT PRIMARY KEY,
-            name TEXT NULL,
             email TEXT NULL,
             email_lc TEXT NULL,
-            phone TEXT NULL,
-            applicant_type TEXT NULL,
-            pilot_program_opt_in INTEGER NULL,
+            type TEXT NULL,
+            workplace_or_industry TEXT NULL,
+            platforms TEXT NULL,
+            status TEXT NULL,
+            source TEXT NULL,
             created_at TEXT NULL,
             updated_at TEXT NULL
         )');

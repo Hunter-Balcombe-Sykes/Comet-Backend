@@ -606,7 +606,7 @@ class AccountDeletionService
         // Step 3c–3g: erase PII from surfaces the DB cascade won't reach.
         // Each step is independently fault-tolerant — a failure must not block forceDelete.
         $this->purgeExportZips($professional);           // #P2-08: R2 export ZIPs
-        $this->purgeWaitlistSignup($lookupEmail);        // #P2-09: waitlist signup row
+        $this->purgeEarlyAccessSignup($lookupEmail);     // #P2-09: early access signup row
         $this->purgeFeedbackRows($professional);         // #P2-10: feedback (FK is SET NULL, not CASCADE)
         $this->purgeCaseSignalPii($professional);        // #P2-11: reporter PII on moderation signals
         $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
@@ -710,11 +710,11 @@ class AccountDeletionService
     }
 
     /**
-     * #P2-09: Delete core.waitlist_signups row matched by email_lc.
+     * #P2-09: Delete core.early_access_signups row matched by email_lc.
      *
-     * Waitlist rows are keyed on email, not user_id — no DB cascade reaches them.
+     * Early-access rows are keyed on email, not user_id — no DB cascade reaches them.
      */
-    private function purgeWaitlistSignup(?string $lookupEmail): void
+    private function purgeEarlyAccessSignup(?string $lookupEmail): void
     {
         if ($lookupEmail === null || trim($lookupEmail) === '') {
             return;
@@ -722,11 +722,11 @@ class AccountDeletionService
 
         try {
             DB::connection('pgsql')
-                ->table('core.waitlist_signups')
+                ->table('core.early_access_signups')
                 ->where('email_lc', mb_strtolower(trim($lookupEmail)))
                 ->delete();
         } catch (\Throwable $e) {
-            Log::error('Waitlist signup erasure failed during account purge', [
+            Log::error('Early access signup erasure failed during account purge', [
                 'error' => $e->getMessage(),
             ]);
         }
