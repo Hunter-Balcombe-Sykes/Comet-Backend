@@ -8,15 +8,19 @@
  * identity.
  *
  * Task 14 (Pre-Account Sites) retired the invite-token block, INVITE_INVALID /
- * INVITE_EMAIL_MISMATCH, and the WAITLIST_ONLY bypass entirely — they only
- * ever fired for `! hasExistingProfessional($uid)` callers, and such callers
- * now 410 SIGNUP_MOVED before reaching them. Early-access invite consumption
- * for account CREATION has no successor (POST /api/public/signup/build takes
- * no `invite` parameter) — signup is site-first now. The invite-completion
- * happy path and the three invite-deny tests that used to live here were
- * retired for that reason; equivalent "the retired block can't be reached"
- * coverage lives in BootstrapWaitlistGateTest + BootstrapRetirementTest
- * (tests/Feature/PreAccount).
+ * INVITE_EMAIL_MISMATCH, and the WAITLIST_ONLY bypass entirely. WAITLIST_ONLY
+ * was explicitly gated on `! hasExistingProfessional($uid)`, so it only ever
+ * fired for row-less callers, who now 410 SIGNUP_MOVED before reaching it.
+ * The invite-token block, unlike WAITLIST_ONLY, ran UNCONDITIONALLY (no
+ * row-less gate) — it's removed because bootstrap no longer consumes
+ * `invite` at all (POST /api/public/signup/build takes no `invite`
+ * parameter): an existing user's stale invite param now refreshes normally
+ * (200) instead of 422 INVITE_INVALID. Early-access invite consumption for
+ * account CREATION has no successor — signup is site-first now. The
+ * invite-completion happy path and the three invite-deny tests that used to
+ * live here were retired for that reason; equivalent "the retired block
+ * can't be reached" coverage lives in BootstrapWaitlistGateTest +
+ * BootstrapRetirementTest (tests/Feature/PreAccount).
  *
  * What survives here: the EMAIL_VERIFICATION_REQUIRED fail-closed guard fires
  * BEFORE the hasExistingProfessional check (it's the first thing bootstrap()
