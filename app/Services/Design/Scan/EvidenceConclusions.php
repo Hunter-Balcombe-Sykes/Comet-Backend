@@ -600,7 +600,7 @@ class EvidenceConclusions
         // rgb(a)(…) or a bare triplet ("255 255 255 / 1.0", "18, 18, 18").
         if (preg_match('/^(?:rgba?\(\s*)?(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})\s*(?:[,\/]\s*([\d.]+%?))?\s*\)?$/', $value, $m)) {
             $alpha = 1.0;
-            if (isset($m[4]) && $m[4] !== '') {
+            if (isset($m[4])) {
                 $alpha = str_ends_with($m[4], '%') ? ((float) $m[4]) / 100 : (float) $m[4];
             }
 

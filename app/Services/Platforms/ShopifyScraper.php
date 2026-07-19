@@ -184,7 +184,7 @@ class ShopifyScraper extends PlatformScraper
             return $featured['src'];
         }
 
-        if (isset($variant['image_id']) && $variant['image_id'] !== null) {
+        if (isset($variant['image_id'])) {
             return $imagesById[(string) $variant['image_id']] ?? null;
         }
 
