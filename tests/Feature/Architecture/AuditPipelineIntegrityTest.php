@@ -151,6 +151,7 @@ function auditUncoveredUnder(string $path, array $covered): array
 
     $missing = [];
     $anyCovered = false;
+    $anyAuditable = false;
     foreach (glob($abs.'/*') ?: [] as $childAbs) {
         $child = str_replace('\\', '/', str_replace(base_path().'/', '', $childAbs));
         if (in_array(basename($child), $skip, true)) {
@@ -160,12 +161,19 @@ function auditUncoveredUnder(string $path, array $covered): array
         if (! is_dir($childAbs) && ! str_ends_with($child, '.php')) {
             continue;
         }
+        $anyAuditable = true;
 
         $sub = auditUncoveredUnder($child, $covered);
         if ($sub === []) {
             $anyCovered = true;
         }
         $missing = array_merge($missing, $sub);
+    }
+
+    // A dir holding no auditable source (e.g. database/migrations, just a README)
+    // is vacuously covered — there is nothing there for a lens to miss.
+    if (! $anyAuditable) {
+        return [];
     }
 
     // Nothing inside is covered — report this root rather than every leaf under it.
@@ -470,6 +478,64 @@ it('every lens is reachable from a bundle', function () {
     expect($orphaned)->toBeEmpty(
         'These lens files are referenced by no bundle in scripts/audit/audit.sh — they can never '
         ."run in a sweep. Add each to the bundle(s) it belongs in:\n - ".implode("\n - ", $orphaned),
+    );
+});
+
+it('a full sweep reads every auditable file in the repo', function () {
+    // The invariant behind "run a full sweep and it covers the backend". Per-lens
+    // maps are each partial by design; what must hold is that the UNION of the
+    // full-sweep bundle's lenses leaves nothing unread. Without this, a new
+    // top-level file (or a whole dir like tests/Support) is silently never audited
+    // by anything — and nobody finds out, because a sweep that skipped it still
+    // reports success.
+    $src = (string) file_get_contents(base_path('scripts/audit/audit.sh'));
+
+    // The full-sweep arm's lens list. Anchored to the real `case` arm — the usage
+    // header also contains the string "full-sweep)", and matching that instead
+    // silently captures the WRONG bundle (caught in review: it grabbed core's 8).
+    if (preg_match('/^\s*full-sweep\)(.*?)META_PREFIXES/ms', $src, $m) !== 1) {
+        throw new RuntimeException('Could not locate the full-sweep bundle in scripts/audit/audit.sh');
+    }
+    preg_match_all('#lenses/([a-z0-9-]+)\.md#', $m[1], $lm);
+    $sweepLenses = array_unique($lm[1]);
+
+    $byLens = auditScopePathsByLens();
+    $covered = [];
+    foreach ($sweepLenses as $lens) {
+        foreach ($byLens[$lens] ?? [] as $p) {
+            $covered[$p] = true;
+        }
+    }
+
+    // Where auditable source lives. Mirrors the roots the sweep is expected to reach.
+    $roots = [
+        'app', 'routes', 'config', 'database', 'supabase/migrations',
+        'cloudflare-worker/src', 'tests', '.github/workflows', 'deploy',
+    ];
+
+    // Generated / vendored output that is correctly never audited.
+    $exempt = [
+        'bootstrap/cache' => 'framework-generated caches, not source',
+    ];
+
+    $unread = [];
+    foreach ($roots as $root) {
+        if (! file_exists(base_path($root))) {
+            continue;
+        }
+        foreach (auditUncoveredUnder($root, $covered) as $missing) {
+            if (! isset($exempt[$missing])) {
+                $unread[] = $missing;
+            }
+        }
+    }
+    sort($unread);
+
+    expect($unread)->toBeEmpty(
+        "These paths are read by NO lens in the full-sweep bundle — `--codebase --bundle full-sweep` \n".
+        "would silently skip them and still report success. Add each to the most relevant lens's arm \n".
+        "in codebase_chunks() (scripts/audit/audit.sh), or add a justified \$exempt entry:\n - "
+        .implode("\n - ", $unread),
     );
 });
 

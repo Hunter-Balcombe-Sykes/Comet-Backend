@@ -314,7 +314,7 @@ services-rest|app/Services/Notifications app/Services/Http app/Services/Auth app
 EOF
         ;;
         test-coverage) cat <<'EOF'
-sweep-conventions|tests/Pest.php tests/Feature/Security app/Policies
+sweep-conventions|tests/Pest.php tests/TestCase.php tests/Support tests/Feature/ExampleTest.php tests/Feature/MediaUploadBreadcrumbTest.php tests/Feature/MediaUploadFailureHandlingTest.php tests/Feature/SoftDeletePurgeCoverageTest.php tests/Feature/TrustProxiesTest.php tests/Feature/Security app/Policies
 prod-http|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Webhooks app/Http/Middleware/Auth app/Http/Resources
 prod-requests|app/Http/Requests
 prod-platforms-controllers|app/Http/Controllers/Api/Platforms
