@@ -28,6 +28,8 @@ use Illuminate\Notifications\Notifiable;
  * @property string $display_name
  * @property int $onboarding_step
  * @property string|null $partna_url Trigger-managed vanity URL — never mass-assignable.
+ * @property string|null $primary_email Nullable since the pre-account migration (20260718200000) — unset until claim.
+ * @property string $status One of 'active'|'suspended'|'disabled'|'pending_deletion'|'unclaimed' (users_status_check).
  */
 
 // Standalone user model — individual-only accounts. Owns site, services, customers.

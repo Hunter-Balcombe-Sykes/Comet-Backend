@@ -1063,12 +1063,6 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicSiteController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/SiteVisibilityController.php
-
-		-
 			message: '#^Negated boolean expression is always false\.$#'
 			identifier: booleanNot.alwaysFalse
 			count: 1
@@ -1184,12 +1178,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_requested_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffAccountDeletionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/Staff/StaffSite/StaffAccountDeletionController.php
@@ -1393,21 +1381,9 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_confirmed_at\.$#'
 			identifier: property.notFound
 			count: 1
-			path: app/Http/Controllers/Api/User/Account/UserAccountDeletionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 2
 			path: app/Http/Controllers/Api/User/Account/UserAccountDeletionController.php
 
 		-
@@ -4129,12 +4105,6 @@ parameters:
 			path: app/Jobs/Account/SendAccountDeletionRequestMailJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Account/SendAccountDeletionRequestMailJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4537,18 +4507,6 @@ parameters:
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
-
-		-
 			message: '#^Offset string on array\{\} on left side of \?\? does not exist\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -4667,12 +4625,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Platforms/RefreshConnectionJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$build_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/PreAccount/GeneratePreAccountSiteJob.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$claimed_at\.$#'
@@ -5090,18 +5042,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$account_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/User.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/User.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/User/User.php
@@ -5576,12 +5516,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Cache/UserCacheService.php
@@ -6703,12 +6637,6 @@ parameters:
 			path: app/Services/PreAccount/Generators/InstagramSourceGenerator.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$build_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PreAccount/PreAccountBuildService.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
 			identifier: property.notFound
 			count: 2
@@ -7339,18 +7267,6 @@ parameters:
 			path: app/Services/User/AccountDeletionService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/User/AccountDeletionService.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\Evidence\:\:\$payload\.$#'
 			identifier: property.notFound
 			count: 1
@@ -7363,21 +7279,9 @@ parameters:
 			path: app/Services/User/AccountDeletionService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/DataExport/DataExportPayloadBuilder.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$primary_email\.$#'
 			identifier: property.notFound
 			count: 1
-			path: app/Services/User/DataExport/DataExportService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 2
 			path: app/Services/User/DataExport/DataExportService.php
 
 		-
@@ -7424,18 +7328,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/UserBootstrapService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/User/UserBootstrapService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/User/UserBootstrapService.php

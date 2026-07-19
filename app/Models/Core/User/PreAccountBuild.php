@@ -13,6 +13,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // Permanent origin record for a pre-account (site-first) build. 1:1 with the
 // provisional user; survives claim. NOT a ledger of ongoing source interactions —
 // post-claim refreshes belong to platform_connections.
+/**
+ * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
+ */
 class PreAccountBuild extends BaseModel
 {
     use HasFactory, HasUuids;
