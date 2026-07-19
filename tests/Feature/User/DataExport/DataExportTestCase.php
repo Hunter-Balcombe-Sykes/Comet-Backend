@@ -95,22 +95,22 @@ class DataExportTestCase
         )');
 
         // No user_id FK — joined by email_lc only.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.waitlist_signups (
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.early_access_signups (
             id TEXT PRIMARY KEY,
-            name TEXT,
             email TEXT,
             email_lc TEXT,
-            phone TEXT,
-            applicant_type TEXT,
-            applicant_type_other TEXT,
-            industry TEXT,
-            industry_other TEXT,
-            pilot_program_opt_in INTEGER,
-            number_of_team_members INTEGER,
-            consent_source TEXT,
+            type TEXT,
+            workplace_or_industry TEXT,
+            platforms TEXT,
+            status TEXT,
+            source TEXT,
+            invited_at TEXT,
+            invite_token_hash TEXT,
+            invite_meta TEXT,
+            invited_by TEXT,
+            signed_up_at TEXT,
             consent_ip_hash TEXT,
             consent_user_agent TEXT,
-            last_submitted_at TEXT,
             created_at TEXT,
             updated_at TEXT
         )');

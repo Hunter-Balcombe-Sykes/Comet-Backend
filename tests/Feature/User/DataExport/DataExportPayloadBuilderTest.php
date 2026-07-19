@@ -28,35 +28,31 @@ function seedProForPayload(string $id, string $email = 'jane@example.com', ?stri
     return User::find($id);
 }
 
-it('exports waitlist signups matched by email_lc', function () {
+it('exports early access signups matched by email_lc', function () {
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         [
             'id' => (string) Str::uuid(),
-            'name' => 'Jane Owner',
             'email' => 'Jane@Example.com',     // mixed-case to prove email_lc match works
             'email_lc' => 'jane@example.com',
-            'phone' => '+61400000001',
-            'applicant_type' => 'professional',
-            'industry' => 'mens_grooming',
-            'pilot_program_opt_in' => 1,
-            'consent_source' => 'waitlist_form',
-            'last_submitted_at' => '2026-02-01T00:00:00Z',
+            'type' => 'partna',
+            'workplace_or_industry' => 'Jane Owner Studio',
+            'platforms' => '[]',
+            'status' => 'waitlist',
+            'source' => 'marketing',
             'created_at' => '2026-02-01T00:00:00Z',
             'updated_at' => '2026-02-01T00:00:00Z',
         ],
         [
             'id' => (string) Str::uuid(),
-            'name' => 'Someone Else',
             'email' => 'other@example.com',
             'email_lc' => 'other@example.com',
-            'phone' => '+61400000002',
-            'applicant_type' => 'professional',
-            'industry' => 'beauty_products',
-            'pilot_program_opt_in' => 0,
-            'consent_source' => 'waitlist_form',
-            'last_submitted_at' => '2026-02-02T00:00:00Z',
+            'type' => 'business',
+            'workplace_or_industry' => 'Someone Else Co',
+            'platforms' => '[]',
+            'status' => 'waitlist',
+            'source' => 'marketing',
             'created_at' => '2026-02-02T00:00:00Z',
             'updated_at' => '2026-02-02T00:00:00Z',
         ],
@@ -64,34 +60,32 @@ it('exports waitlist signups matched by email_lc', function () {
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
-    expect($payload['waitlist'])->toHaveCount(1);
-    expect($payload['waitlist'][0]['name'])->toBe('Jane Owner');
-    expect($payload['waitlist'][0]['email'])->toBe('Jane@Example.com');
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['workplace_or_industry'])->toBe('Jane Owner Studio');
+    expect($payload['early_access'][0]['email'])->toBe('Jane@Example.com');
 });
 
-it('waitlist lookup trims whitespace on primary_email before normalising', function () {
+it('early access lookup trims whitespace on primary_email before normalising', function () {
     // Defensive: if primary_email has stray whitespace (legacy import), the
     // DSAR must still match the trimmed email_lc that writers stored.
     $pro = seedProForPayload((string) Str::uuid(), '  Jane@Example.com  ');
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         'id' => (string) Str::uuid(),
-        'name' => 'Jane Owner',
         'email' => 'jane@example.com',
         'email_lc' => 'jane@example.com',
-        'phone' => '+61400000001',
-        'applicant_type' => 'professional',
-        'industry' => 'mens_grooming',
-        'pilot_program_opt_in' => 1,
-        'consent_source' => 'waitlist_form',
-        'last_submitted_at' => '2026-02-01T00:00:00Z',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
         'created_at' => '2026-02-01T00:00:00Z',
         'updated_at' => '2026-02-01T00:00:00Z',
     ]);
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
-    expect($payload['waitlist'])->toHaveCount(1);
+    expect($payload['early_access'])->toHaveCount(1);
 });
 
 it('exports owned, global, AND cross-professional email_subscriptions for the user (P1-15)', function () {
@@ -316,22 +310,21 @@ it('exports lead_submissions in the payload (P2-38 regression guard)', function 
     expect($outcomes)->toBe(['abandoned', 'submitted']);
 });
 
-it('redacts ip and user_agent fields from waitlist and handle_change_log rows', function () {
+it('redacts ip and user_agent fields from early access and handle_change_log rows', function () {
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         'id' => (string) Str::uuid(),
-        'name' => 'Jane Owner',
         'email' => 'jane@example.com',
         'email_lc' => 'jane@example.com',
-        'phone' => '+61400000001',
-        'applicant_type' => 'professional',
-        'industry' => 'mens_grooming',
-        'pilot_program_opt_in' => 1,
-        'consent_source' => 'waitlist_form',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
+        'invite_token_hash' => 'sha256-tokenhash',
         'consent_ip_hash' => 'sha256-abc',
         'consent_user_agent' => 'Mozilla/5.0',
-        'last_submitted_at' => '2026-02-01T00:00:00Z',
         'created_at' => '2026-02-01T00:00:00Z',
         'updated_at' => '2026-02-01T00:00:00Z',
     ]);
@@ -349,11 +342,13 @@ it('redacts ip and user_agent fields from waitlist and handle_change_log rows', 
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
-    $waitlistRow = $payload['waitlist'][0];
-    expect($waitlistRow)->not->toHaveKey('consent_ip_hash');
-    expect($waitlistRow)->not->toHaveKey('consent_user_agent');
-    expect($waitlistRow)->not->toHaveKey('email_lc');
-    expect($waitlistRow['name'])->toBe('Jane Owner');
+    $earlyAccessRow = $payload['early_access'][0];
+    expect($earlyAccessRow)->not->toHaveKey('consent_ip_hash');
+    expect($earlyAccessRow)->not->toHaveKey('consent_user_agent');
+    expect($earlyAccessRow)->not->toHaveKey('email_lc');
+    // Credential material — never exported.
+    expect($earlyAccessRow)->not->toHaveKey('invite_token_hash');
+    expect($earlyAccessRow['workplace_or_industry'])->toBe('Jane Owner Studio');
 
     $handleRow = $payload['audit']['handle_change_log'][0];
     expect($handleRow)->not->toHaveKey('ip_address');
@@ -364,8 +359,8 @@ it('redacts ip and user_agent fields from waitlist and handle_change_log rows', 
 it('falls back to deletion_audit email_snapshot when primary_email has been pseudonymised', function () {
     // After AccountDeletionService::pseudonymiseAccountPii() rewrites
     // primary_email to "deleted+{id}@partna.au", a DSAR must still be able to
-    // surface the user's pre-account waitlist + global subscriptions. We use
-    // the email snapshot in audit.user_deletion_audit (written BEFORE
+    // surface the user's pre-account early access signup + global subscriptions.
+    // We use the email snapshot in audit.user_deletion_audit (written BEFORE
     // pseudonymisation) as the fallback.
     $proId = (string) Str::uuid();
     $pro = seedProForPayload($proId, 'deleted+'.$proId.'@partna.au');
@@ -382,17 +377,15 @@ it('falls back to deletion_audit email_snapshot when primary_email has been pseu
         ],
     ]);
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         'id' => (string) Str::uuid(),
-        'name' => 'Jane Owner',
         'email' => 'jane@example.com',
         'email_lc' => 'jane@example.com',
-        'phone' => '+61400000001',
-        'applicant_type' => 'professional',
-        'industry' => 'mens_grooming',
-        'pilot_program_opt_in' => 1,
-        'consent_source' => 'waitlist_form',
-        'last_submitted_at' => '2026-02-01T00:00:00Z',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
         'created_at' => '2026-02-01T00:00:00Z',
         'updated_at' => '2026-02-01T00:00:00Z',
     ]);
@@ -400,9 +393,9 @@ it('falls back to deletion_audit email_snapshot when primary_email has been pseu
     $payload = app(DataExportPayloadBuilder::class)->build($proId);
 
     // Without the fallback, the lookup would be "deleted+{id}@partna.au" and
-    // the waitlist section would be empty.
-    expect($payload['waitlist'])->toHaveCount(1);
-    expect($payload['waitlist'][0]['email'])->toBe('jane@example.com');
+    // the early_access section would be empty.
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['email'])->toBe('jane@example.com');
 });
 
 // SEM-3 regression: the old resolveLookupEmail was missing EVENT_CONFIRMED and sorted ASC,
@@ -426,26 +419,24 @@ it('SEM-3: resolves email from confirmed-only audit row (admin-initiated deletio
         ],
     ]);
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         'id' => (string) Str::uuid(),
-        'name' => 'Jane Owner',
         'email' => 'jane@example.com',
         'email_lc' => 'jane@example.com',
-        'phone' => '+61400000001',
-        'applicant_type' => 'professional',
-        'industry' => 'mens_grooming',
-        'pilot_program_opt_in' => 1,
-        'consent_source' => 'waitlist_form',
-        'last_submitted_at' => '2026-02-01T00:00:00Z',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
         'created_at' => '2026-02-01T00:00:00Z',
         'updated_at' => '2026-02-01T00:00:00Z',
     ]);
 
     $payload = app(DataExportPayloadBuilder::class)->build($proId);
 
-    // If SEM-3 regresses, confirmed-only rows return null snapshot → empty waitlist.
-    expect($payload['waitlist'])->toHaveCount(1);
-    expect($payload['waitlist'][0]['email'])->toBe('jane@example.com');
+    // If SEM-3 regresses, confirmed-only rows return null snapshot → empty early_access.
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['email'])->toBe('jane@example.com');
 });
 
 it('SEM-3: resolveDeletedAccountEmail returns most-recent snapshot when multiple audit rows exist (DESC order)', function () {
@@ -477,32 +468,28 @@ it('SEM-3: resolveDeletedAccountEmail returns most-recent snapshot when multiple
         ],
     ]);
 
-    DB::connection('pgsql')->table('core.waitlist_signups')->insert([
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
         [
             'id' => (string) Str::uuid(),
-            'name' => 'Jane Final',
             'email' => 'jane@example.com',
             'email_lc' => 'jane@example.com',
-            'phone' => '+61400000001',
-            'applicant_type' => 'professional',
-            'industry' => 'mens_grooming',
-            'pilot_program_opt_in' => 1,
-            'consent_source' => 'waitlist_form',
-            'last_submitted_at' => '2026-02-01T00:00:00Z',
+            'type' => 'partna',
+            'workplace_or_industry' => 'Jane Final Studio',
+            'platforms' => '[]',
+            'status' => 'waitlist',
+            'source' => 'marketing',
             'created_at' => '2026-02-01T00:00:00Z',
             'updated_at' => '2026-02-01T00:00:00Z',
         ],
         [
             'id' => (string) Str::uuid(),
-            'name' => 'Jane Old',
             'email' => 'old-jane@example.com',
             'email_lc' => 'old-jane@example.com',
-            'phone' => '+61400000002',
-            'applicant_type' => 'professional',
-            'industry' => 'mens_grooming',
-            'pilot_program_opt_in' => 0,
-            'consent_source' => 'waitlist_form',
-            'last_submitted_at' => '2026-01-01T00:00:00Z',
+            'type' => 'partna',
+            'workplace_or_industry' => 'Jane Old Studio',
+            'platforms' => '[]',
+            'status' => 'waitlist',
+            'source' => 'marketing',
             'created_at' => '2026-01-01T00:00:00Z',
             'updated_at' => '2026-01-01T00:00:00Z',
         ],
@@ -511,10 +498,10 @@ it('SEM-3: resolveDeletedAccountEmail returns most-recent snapshot when multiple
     $payload = app(DataExportPayloadBuilder::class)->build($proId);
 
     // DESC order means the confirmed row (jane@example.com, 2026-04-12) wins.
-    // If ASC regresses, the waitlist would return 'old-jane@example.com' instead.
-    expect($payload['waitlist'])->toHaveCount(1);
-    expect($payload['waitlist'][0]['email'])->toBe('jane@example.com');
-    expect($payload['waitlist'][0]['name'])->toBe('Jane Final');
+    // If ASC regresses, the early_access lookup would return 'old-jane@example.com' instead.
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['email'])->toBe('jane@example.com');
+    expect($payload['early_access'][0]['workplace_or_industry'])->toBe('Jane Final Studio');
 });
 
 it('exports notifications.messages and notifications.receipts addressed to the user', function () {
