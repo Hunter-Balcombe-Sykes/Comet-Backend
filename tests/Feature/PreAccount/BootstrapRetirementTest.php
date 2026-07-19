@@ -101,22 +101,6 @@ it('still 410s a new user even with waitlist mode enabled (WAITLIST_ONLY block i
         ->assertJsonPath('code', 'SIGNUP_MOVED');
 });
 
-it('still 410s a new user even with the individual-waitlist divert enabled, and writes no divert row (divert block is dead)', function () {
-    setupWaitlistTable();
-    config(['partna.individual_waitlist_enabled' => true]);
-    config(['partna.waitlist.enabled' => false]);
-
-    actingAsUser(claimJwtUser('divert-new-uid', 'divert@example.com'));
-
-    $this->postJson('/api/bootstrap', ['display_name' => 'New Person', 'primary_email' => 'divert@example.com'])
-        ->assertStatus(410)
-        ->assertJsonPath('code', 'SIGNUP_MOVED');
-
-    expect(
-        DB::connection('pgsql')->table('core.waitlist_signups')->where('email_lc', 'divert@example.com')->exists()
-    )->toBeFalse();
-});
-
 it('still 410s a new user even with a would-be invite token in the body (invite block is dead)', function () {
     actingAsUser(claimJwtUser('invite-new-uid', 'invitee@example.com'));
 

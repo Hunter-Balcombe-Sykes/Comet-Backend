@@ -35,7 +35,7 @@ it('prefers CF-Connecting-IP over the resolved client IP for public limiters', f
     ]);
 
     // First entry is always the IP-keyed bucket for the array-returning
-    // limiters (leads, waitlist, public-subscribe); single-Limit limiters
+    // limiters (leads, early-access, public-subscribe); single-Limit limiters
     // (public-site, analytics) wrap cleanly via Arr::wrap.
     $keyed = (string) Arr::wrap($limiter($withHeader))[0]->key;
     $fallback = (string) Arr::wrap($limiter($withoutHeader))[0]->key;
@@ -47,4 +47,4 @@ it('prefers CF-Connecting-IP over the resolved client IP for public limiters', f
     expect($keyed)->toContain('203.0.113.9')
         ->and($keyed)->not->toContain('10.0.0.1')
         ->and($keyed)->toBe($fallback);
-})->with(['public-site', 'analytics', 'leads', 'waitlist', 'public-subscribe']);
+})->with(['public-site', 'analytics', 'leads', 'public-subscribe']);

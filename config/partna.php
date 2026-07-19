@@ -813,20 +813,10 @@ return [
     ],
 
     'waitlist' => [
+        // Signup kill-switch, NOT a waitlist capture path (retired 2026-07-19).
+        // Read by PreAccountBuildController (403 WAITLIST_ONLY) and
+        // PublicSignupAvailabilityController (waitlist_only flag).
         'enabled' => (bool) env('PARTNA_WAITLIST_ENABLED', env('SIDEST_WAITLIST_ENABLED', false)),
-        'types' => [
-            'influencer' => 'Influencer',
-            'professional' => 'Professional',
-            'other' => 'Other',
-        ],
-        'industries' => [
-            'mens_grooming' => 'Mens Grooming',
-            'womens_haircare' => 'Womens Haircare',
-            'beauty_products' => 'Beauty Products',
-            'vitamins_and_supplements' => 'Vitamins and Supplements',
-            'services_and_software' => 'Services and Software',
-            'other' => 'Other',
-        ],
     ],
 
     'early_access' => [
@@ -918,12 +908,6 @@ return [
         // 256 KB cache body cap (bigger payloads bypass cache).
         'max_body_bytes' => (int) env('PARTNA_IDEMPOTENCY_MAX_BODY_BYTES', 262_144),
     ],
-
-    // §28.14 CFG-1 — when true, individual signups (non-brand, no invite_token, no
-    // brand_signup_code) are diverted to a waitlist row instead of creating a
-    // Professional. Default false (fail-closed). Read via config() — never env()
-    // directly — so `php artisan config:cache` is respected.
-    'individual_waitlist_enabled' => (bool) env('SIDEST_INDIVIDUAL_WAITLIST_ENABLED', false),
 
     // Rate-limit config for the individual public profile endpoint (§28.8 CFG-3).
     // Tunable at runtime via env without redeploy. Values are per-IP per-minute.

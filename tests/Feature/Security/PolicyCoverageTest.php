@@ -16,7 +16,6 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Staff\StaffAuditEntry;
-use App\Models\Core\Waitlist\WaitlistSignup;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\AuditEvent;
 use App\Models\Moderation\CaseSignal;
@@ -39,7 +38,6 @@ use Symfony\Component\Finder\Finder;
 const POLICY_EXEMPT = [
     // Catalog & system tables — no tenant ownership; admin-only or read-only.
     MediaVariant::class,           // owned via parent SiteMedia
-    WaitlistSignup::class, // public submission, no actor
 
     // System-managed design-kit preset contributions — written only by the
     // server-side DesignPresetResolver (integration factors), never
