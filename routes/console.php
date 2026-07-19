@@ -239,15 +239,15 @@ Schedule::command('gdpr:sweep-purged-video-artifacts')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('gdpr:sweep-purged-video-artifacts'));
 
-// PRIV-8: weekly hard-delete of waitlist_signups rows from non-converting applicants older
-// than the retention window (default 730d). Staggered Sunday 04:30 UTC — last of the weekly
-// Sunday sweeps, after the 04:10 unsubscribed-subscriptions prune and the 04:20 video GC.
-Schedule::command('waitlist:prune-old-signups')
+// PRIV-8: weekly hard-delete of early_access_signups rows from non-converting applicants
+// older than the retention window (default 730d). Staggered Sunday 04:30 UTC — last of the
+// weekly Sunday sweeps, after the 04:10 unsubscribed-subscriptions prune and 04:20 video GC.
+Schedule::command('early-access:prune-old-signups')
     ->weeklyOn(0, '04:30')
     ->onOneServer()
     ->withoutOverlapping(60) // 60min lock — single bulk delete; completes in seconds.
     ->runInBackground()
-    ->onFailure($reportScheduledFailure('waitlist:prune-old-signups'));
+    ->onFailure($reportScheduledFailure('early-access:prune-old-signups'));
 
 // DINT-1 / PRIV-7 Gap 2: weekly hard-delete of unsubscribed email_subscriptions older than
 // the retention window (default 365d). The whole row is deleted — email and email_lc are both
@@ -289,7 +289,7 @@ Schedule::command('media:gc-orphaned-video-artifacts')
 // DINT-6: weekly erasure of non-account reporter PII (reporter_email, reason_details,
 // signal_data) on case_signals whose parent case resolved more than 90 days ago.
 // Account-reporter PII is handled at deletion time by AccountDeletionService::purgeCaseSignalPii().
-// Sunday 04:40 UTC — after the other Sunday weekly sweeps (04:00 KV, 04:10 subs, 04:20 video GC, 04:30 waitlist).
+// Sunday 04:40 UTC — after the other Sunday weekly sweeps (04:00 KV, 04:10 subs, 04:20 video GC, 04:30 early access).
 // withoutOverlapping(60) — single bulk update on a small T&S table; completes in seconds.
 Schedule::command('moderation:prune-resolved-signal-pii')
     ->weeklyOn(0, '04:40')

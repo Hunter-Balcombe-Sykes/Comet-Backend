@@ -814,8 +814,6 @@ return [
 
     'waitlist' => [
         'enabled' => (bool) env('PARTNA_WAITLIST_ENABLED', env('SIDEST_WAITLIST_ENABLED', false)),
-        // PRIV-8: hard-delete non-converting applicant rows older than this window.
-        'retention_days' => (int) env('PARTNA_WAITLIST_RETENTION_DAYS', 730),
         'types' => [
             'influencer' => 'Influencer',
             'professional' => 'Professional',
@@ -829,6 +827,12 @@ return [
             'services_and_software' => 'Services and Software',
             'other' => 'Other',
         ],
+    ],
+
+    'early_access' => [
+        // PRIV-8: hard-delete non-converting applicant rows older than this window.
+        // signed_up rows are excluded — those are governed by account deletion.
+        'retention_days' => (int) env('PARTNA_EARLY_ACCESS_RETENTION_DAYS', 730),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
