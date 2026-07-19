@@ -2,6 +2,7 @@
 
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
+use App\Services\User\AccountDeletionService;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Symfony\Component\Finder\Finder;
 
@@ -134,6 +135,54 @@ it('every COVERED_PII_TABLES entry is actually referenced by the builder', funct
             "COVERED_PII_TABLES lists {$table} but the builder never references it — the entry is stale."
         );
     }
+});
+
+/*
+| Erasure side of the same contract. Exporting a PII table is only half the
+| obligation — Article 17 also requires it be erasable. core.early_access_signups
+| shipped missing BOTH, so a guard that only checked export would still let the
+| next email-keyed table through with no erasure path.
+|
+| Every COVERED_PII_TABLES entry must fall into exactly one of three buckets:
+| an explicit purge (AccountDeletionService::PURGED_PII_TABLES), an FK cascade,
+| or a documented deliberate retention.
+*/
+
+/** Erased by FK ON DELETE CASCADE — no explicit purge call needed. */
+const CASCADE_ERASED = [
+    'site.customers',   // customers_user_fk -> core.users ON DELETE CASCADE
+    'site.enquiries',   // enquiries_professional_fk -> core.users ON DELETE CASCADE
+    'site.workplaces',  // site_id PK -> site.sites ON DELETE CASCADE (site dies with the user)
+];
+
+/*
+| Deliberately RETAINED after account deletion — not an erasure gap.
+|
+| Both are append-only compliance trails in the `audit` schema, where
+| app_backend holds only SELECT/INSERT (no DELETE grant), and both FKs are
+| ON DELETE SET NULL rather than CASCADE. Their email columns survive the
+| purge on purpose: you cannot evidence that an erasure request was honoured
+| if you delete the record of honouring it.
+|
+| NOTE: purgeExportZips() deletes the R2 export FILES but deliberately leaves
+| the audit ROW (and its recipient_email) in place — so these are retained,
+| NOT cascade-erased. Recording that distinction is the point of this bucket:
+| claiming they cascade would assert an erasure that does not happen.
+*/
+const RETAINED_BY_DESIGN = [
+    'audit.data_export_audit',    // recipient_email — evidences DSAR fulfilment
+    'audit.user_deletion_audit',  // professional_email_snapshot — IS the erasure record
+];
+
+it('every exported PII table has an erasure path or a documented retention', function () {
+    $unaccounted = array_values(array_diff(
+        DataExportPayloadBuilder::COVERED_PII_TABLES,
+        AccountDeletionService::PURGED_PII_TABLES,
+        CASCADE_ERASED,
+        RETAINED_BY_DESIGN,
+    ));
+
+    expect($unaccounted)->toBe([], "Exported PII tables with no erasure path:\n  - ".implode("\n  - ", $unaccounted)."\n\nEvery table in COVERED_PII_TABLES must be one of:\n  - purged explicitly -> add a purge*() call in AccountDeletionService::purge() and list it in PURGED_PII_TABLES\n  - erased by FK cascade -> add to CASCADE_ERASED in this test, naming the cascading parent\n  - deliberately retained -> add to RETAINED_BY_DESIGN in this test with the legal/architectural reason");
 });
 
 it('every EXPORT_EXEMPT entry resolves to a real model class', function () {

@@ -34,6 +34,26 @@ class AccountDeletionService
     use ResolvesDeletedEmail;
 
     /**
+     * PII tables this service erases by an EXPLICIT keyed delete, because no FK
+     * cascade reaches them — they are joined by email_lc or cleaned per-row, not
+     * by a user_id FK. Read by DataExportCoverageTest: anything exported must
+     * also be erasable, and these are the ones erasure has to do by hand.
+     *
+     * core.users is the deletion subject itself (forceDelete), which is what
+     * triggers every FK cascade — so it heads the list rather than sitting in
+     * the cascade category.
+     *
+     * Adding an email-keyed PII table? Add a purge*() call in purge() AND list
+     * the table here, or the coverage guard fails.
+     */
+    public const PURGED_PII_TABLES = [
+        'core.users',                          // forceDelete() — the subject row
+        'core.early_access_signups',           // purgeEarlyAccessSignup() — email_lc keyed
+        'core.feedback',                       // purgeFeedbackRows() — FK is SET NULL, not CASCADE
+        'notifications.email_subscriptions',   // purgeGlobalEmailSubscriptions() + purgeCrossTenantSubscriptions()
+    ];
+
+    /**
      * Initiate a deletion request. Checks preconditions, stores hashed token,
      * queues the confirmation email. Token write + job dispatch + audit log
      * commit atomically: if dispatch infrastructure fails, the token write
