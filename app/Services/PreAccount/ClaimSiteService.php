@@ -30,7 +30,7 @@ class ClaimSiteService
     /**
      * @return array{professional: User, site: Site}
      *
-     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_NOT_READY|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED
+     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED
      */
     public function claim(string $uid, string $verifiedEmail, string $subdomain): array
     {
@@ -55,9 +55,13 @@ class ClaimSiteService
                 throw new RuntimeException('ALREADY_CLAIMED');
             }
 
+            // Claiming no longer waits on the build reaching 'ready' — pending
+            // and building both claim fine; the dashboard (not this gate) is
+            // what shows a "still processing" state and polls until ready.
+            // Only a missing build row or a genuinely failed one blocks claim.
             $build = PreAccountBuild::query()->where('user_id', $professional->id)->lockForUpdate()->first();
-            if (! $build || $build->build_state !== PreAccountBuild::STATE_READY) {
-                throw new RuntimeException('BUILD_NOT_READY');
+            if (! $build || $build->build_state === PreAccountBuild::STATE_FAILED) {
+                throw new RuntimeException('BUILD_FAILED');
             }
 
             // One account, one site: the claimer must not already own a row.

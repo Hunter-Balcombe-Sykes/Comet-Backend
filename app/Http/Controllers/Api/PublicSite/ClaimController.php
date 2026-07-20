@@ -45,7 +45,7 @@ class ClaimController extends ApiController
             return match ($e->getMessage()) {
                 'CLAIM_NOT_FOUND' => $this->error('No site found for that address.', 404, [], ['code' => 'CLAIM_NOT_FOUND']),
                 'ALREADY_CLAIMED' => $this->error('This site has already been claimed.', 409, [], ['code' => 'ALREADY_CLAIMED']),
-                'BUILD_NOT_READY' => $this->error('This site is still being built.', 409, [], ['code' => 'BUILD_NOT_READY']),
+                'BUILD_FAILED' => $this->error("We couldn't finish building this site. Please try again.", 409, [], ['code' => 'BUILD_FAILED']),
                 'ACCOUNT_EXISTS' => $this->error('Your account already has a site.', 409, [], ['code' => 'ACCOUNT_EXISTS']),
                 'EMAIL_ALREADY_REGISTERED' => $this->error('This email is already registered.', 409, [], ['code' => 'EMAIL_ALREADY_REGISTERED']),
                 default => throw $e,
