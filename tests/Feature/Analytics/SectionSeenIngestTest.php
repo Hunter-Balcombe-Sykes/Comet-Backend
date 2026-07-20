@@ -16,7 +16,7 @@ beforeEach(function () {
 });
 
 it('records a section-seen event for a published site', function () {
-    $tenant = createBrandTenant('section-seen-happy');
+    $tenant = createTenant('section-seen-happy');
 
     $response = $this->withHeader('Origin', 'https://section-seen-happy.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/section-seen', [
@@ -36,7 +36,7 @@ it('records a section-seen event for a published site', function () {
 });
 
 it('deduplicates a repeat view of the same section by the same session within 5 minutes', function () {
-    $tenant = createBrandTenant('section-seen-dedup');
+    $tenant = createTenant('section-seen-dedup');
     $sessionId = (string) Str::uuid();
     $origin = 'https://section-seen-dedup.'.config('partna.public_domain');
 
@@ -53,7 +53,7 @@ it('deduplicates a repeat view of the same section by the same session within 5 
 });
 
 it('allows a second view after the 5-minute dedup window expires', function () {
-    $tenant = createBrandTenant('section-seen-window');
+    $tenant = createTenant('section-seen-window');
     $sessionId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('analytics.section_views')->insert([
@@ -78,7 +78,7 @@ it('allows a second view after the 5-minute dedup window expires', function () {
 });
 
 it('records different sections under the same session independently', function () {
-    $tenant = createBrandTenant('section-seen-multi-section');
+    $tenant = createTenant('section-seen-multi-section');
     $sessionId = (string) Str::uuid();
     $origin = 'https://section-seen-multi-section.'.config('partna.public_domain');
 
@@ -98,7 +98,7 @@ it('records different sections under the same session independently', function (
 });
 
 it('returns 404 when site is unpublished (does not leak existence)', function () {
-    $tenant = createBrandTenant('section-seen-unpublished');
+    $tenant = createTenant('section-seen-unpublished');
     DB::connection('pgsql')->table('site.sites')
         ->where('id', $tenant->site->id)
         ->update(['is_published' => 0]);
@@ -117,8 +117,8 @@ it('drops an optional block_id that belongs to another site (cross-site IDOR def
     // Full-decouple: the controller no longer cross-checks the block synchronously, so a
     // foreign block_id is accepted (201) and dropped by the writer. The security invariant
     // — NO cross-site row is ever written — is preserved at the writer.
-    $tenant = createBrandTenant('section-seen-block-valid');
-    $otherTenant = createBrandTenant('section-seen-other-tenant');
+    $tenant = createTenant('section-seen-block-valid');
+    $otherTenant = createTenant('section-seen-other-tenant');
     $foreignBlock = createLinkBlockFor($otherTenant);
 
     $response = $this->withHeader('Origin', 'https://section-seen-block-valid.'.config('partna.public_domain'))
@@ -134,7 +134,7 @@ it('drops an optional block_id that belongs to another site (cross-site IDOR def
 });
 
 it('silently ignores bot user-agents (200 not 201)', function () {
-    $tenant = createBrandTenant('section-seen-bot');
+    $tenant = createTenant('section-seen-bot');
 
     $response = $this->withHeaders([
         'User-Agent' => 'Googlebot/2.1 (+http://www.google.com/bot.html)',

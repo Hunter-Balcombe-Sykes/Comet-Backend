@@ -10,7 +10,7 @@ beforeEach(function () {
 });
 
 it('returns 401 with mfa_required code when the session is aal1', function () {
-    $pro = createAffiliateTenant('aal1-user');
+    $pro = createTenant('aal1-user');
 
     actingAsUser($pro) // default aal1
         ->getJson('/__test/aal2-gate')
@@ -22,7 +22,7 @@ it('returns 401 with mfa_required code when the session is aal1', function () {
 });
 
 it('passes through when the session is aal2', function () {
-    $pro = createAffiliateTenant('aal2-user');
+    $pro = createTenant('aal2-user');
 
     actingAsUser($pro, aal2ClaimsWithFreshTotp())
         ->getJson('/__test/aal2-gate')

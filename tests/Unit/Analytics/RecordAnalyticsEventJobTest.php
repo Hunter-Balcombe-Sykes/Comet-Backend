@@ -33,7 +33,7 @@ function pageviewPayload(string $userId, string $siteId): array
 }
 
 it('persists the event and bumps the analytics summary version', function () {
-    $t = createBrandTenant('job-happy');
+    $t = createTenant('job-happy');
     $payload = pageviewPayload($t->id, $t->site->id);
 
     (new RecordAnalyticsEventJob($payload))->handle(new PostgresEventWriter, app(AnalyticsCacheService::class));
@@ -43,7 +43,7 @@ it('persists the event and bumps the analytics summary version', function () {
 });
 
 it('is idempotent across an at-least-once retry (handle twice → one row)', function () {
-    $t = createBrandTenant('job-retry');
+    $t = createTenant('job-retry');
     $payload = pageviewPayload($t->id, $t->site->id);
     $writer = new PostgresEventWriter;
     $cache = app(AnalyticsCacheService::class);

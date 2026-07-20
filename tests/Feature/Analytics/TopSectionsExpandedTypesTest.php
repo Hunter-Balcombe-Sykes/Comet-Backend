@@ -27,7 +27,7 @@ it('exposes newsletter + documents in the section_block_types config', function 
 });
 
 it('records a click on a newsletter section block', function (): void {
-    $tenant = createBrandTenant('expanded-newsletter');
+    $tenant = createTenant('expanded-newsletter');
     $block = createLinkBlockFor($tenant, [
         'block_group' => 'sections',
         'block_type' => 'newsletter',
@@ -49,7 +49,7 @@ it('records a click on a newsletter section block', function (): void {
 });
 
 it('records a click on a documents section block', function (): void {
-    $tenant = createBrandTenant('expanded-documents');
+    $tenant = createTenant('expanded-documents');
     $block = createLinkBlockFor($tenant, [
         'block_group' => 'sections',
         'block_type' => 'documents',
@@ -75,7 +75,7 @@ it('accepts a click on a non-allowlisted section type (201) but writes no row �
     // block whose type is not in config('partna.section_block_types') is accepted (201) and
     // dropped by PostgresEventWriter. The invariant — no row for an untrackable block — is
     // preserved at the writer.
-    $tenant = createBrandTenant('expanded-rejected');
+    $tenant = createTenant('expanded-rejected');
     $block = createLinkBlockFor($tenant, [
         'block_group' => 'sections',
         'block_type' => 'totally_invented_type',

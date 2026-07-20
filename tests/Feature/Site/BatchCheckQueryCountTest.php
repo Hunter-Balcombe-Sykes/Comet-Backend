@@ -15,7 +15,7 @@ beforeEach(function () {
 });
 
 it('batchCheck issues exactly one SQL query regardless of section count', function () {
-    $pro = createBrandTenant('one-query-batch');
+    $pro = createTenant('one-query-batch');
 
     // Build a Block collection with all 6 requirement-bearing types (gallery,
     // documents, services, booking, contact, workplace).

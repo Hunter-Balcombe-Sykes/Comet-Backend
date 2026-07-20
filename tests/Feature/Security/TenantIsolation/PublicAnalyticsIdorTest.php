@@ -28,8 +28,8 @@ beforeEach(function () {
 // ── Pre-existing IDOR tests (subdomain cross-check path) ─────────────────────
 
 it('refuses to record a pageview when body site_id does not match the X-Site-Subdomain header', function () {
-    $victim = createBrandTenant('victim');
-    $attacker = createBrandTenant('attacker');
+    $victim = createTenant('victim');
+    $attacker = createTenant('attacker');
 
     // Attack: correct attacker subdomain in header, victim's site_id in body.
     // prepareForValidation() merges subdomain='attacker'. The cross-check must
@@ -46,7 +46,7 @@ it('refuses to record a pageview when body site_id does not match the X-Site-Sub
 });
 
 it('records a pageview when site_id matches the X-Site-Subdomain header', function () {
-    $tenant = createBrandTenant('legit');
+    $tenant = createTenant('legit');
 
     $response = $this->withHeaders(['X-Site-Subdomain' => 'legit'])
         ->postJson('/api/public/analytics/pageviews', [
@@ -65,8 +65,8 @@ it('records a pageview when site_id matches the X-Site-Subdomain header', functi
 
 // (a) site_id-only POST with an attacker Origin (wrong site) → 404, no event written.
 it('rejects a pageview when site_id-only POST carries an Origin from a different site', function () {
-    $victim = createBrandTenant('idor-victim-a');
-    $attacker = createBrandTenant('idor-attacker-a');
+    $victim = createTenant('idor-victim-a');
+    $attacker = createTenant('idor-attacker-a');
     $attackerOrigin = 'https://idor-attacker-a.'.config('partna.public_domain');
 
     $response = $this->withHeader('Origin', $attackerOrigin)
@@ -83,7 +83,7 @@ it('rejects a pageview when site_id-only POST carries an Origin from a different
 
 // (b) site_id-only POST with the CORRECT Origin (victim's own page) → success.
 it('accepts a pageview when site_id-only POST carries the correct Origin', function () {
-    $tenant = createBrandTenant('idor-legit-b');
+    $tenant = createTenant('idor-legit-b');
     $correctOrigin = 'https://idor-legit-b.'.config('partna.public_domain');
 
     $response = $this->withHeader('Origin', $correctOrigin)
@@ -100,8 +100,8 @@ it('accepts a pageview when site_id-only POST carries the correct Origin', funct
 
 // (c) site_id of site A + Origin of site B → rejected, no event.
 it('rejects a click when site_id belongs to site A but Origin is site B', function () {
-    $siteA = createBrandTenant('idor-site-a-c');
-    $siteB = createBrandTenant('idor-site-b-c');
+    $siteA = createTenant('idor-site-a-c');
+    $siteB = createTenant('idor-site-b-c');
     $siteBOrigin = 'https://idor-site-b-c.'.config('partna.public_domain');
 
     $response = $this->withHeader('Origin', $siteBOrigin)
@@ -117,7 +117,7 @@ it('rejects a click when site_id belongs to site A but Origin is site B', functi
 
 // (d) Legitimate subdomain-path request with matching Origin → success.
 it('accepts a pageview when subdomain is provided and Origin matches', function () {
-    $tenant = createBrandTenant('idor-sub-d');
+    $tenant = createTenant('idor-sub-d');
     $matchingOrigin = 'https://idor-sub-d.'.config('partna.public_domain');
 
     $response = $this->withHeader('Origin', $matchingOrigin)
@@ -133,7 +133,7 @@ it('accepts a pageview when subdomain is provided and Origin matches', function 
 
 // (e) No-Origin + no-Referer + both site_id and subdomain present and matching → allowed.
 it('allows a pageview with no Origin when both site_id and subdomain are present and match', function () {
-    $tenant = createBrandTenant('idor-both-e');
+    $tenant = createTenant('idor-both-e');
 
     // No Origin or Referer — server-side / synthetic caller. Both identifiers present.
     $response = $this->postJson('/api/public/analytics/pageviews', [
@@ -149,7 +149,7 @@ it('allows a pageview with no Origin when both site_id and subdomain are present
 
 // (f) No-Origin + no-Referer + site_id only → rejected (the core IDOR attack vector).
 it('rejects a pageview with no Origin when only site_id is provided (IDOR attack path)', function () {
-    $victim = createBrandTenant('idor-victim-f');
+    $victim = createTenant('idor-victim-f');
 
     // Attacker knows the victim's UUID (it's in every public page payload) but has
     // no browser page to generate a real Origin. Must be rejected.

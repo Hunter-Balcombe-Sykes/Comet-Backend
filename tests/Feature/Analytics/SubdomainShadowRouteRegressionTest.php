@@ -44,7 +44,7 @@ it('does not register a subdomain-scoped pageview or click route', function (): 
 });
 
 it('resolves the site from the payload subdomain on POST /api/public/analytics/pageviews', function (): void {
-    $tenant = createBrandTenant('hydrogen-affiliate');
+    $tenant = createTenant('hydrogen-affiliate');
 
     // Hydrogen proxy sends the subdomain in the body and must include an Origin header
     // matching the mini-site page it's serving (browser origin check). Server-side callers
@@ -61,7 +61,7 @@ it('resolves the site from the payload subdomain on POST /api/public/analytics/p
 });
 
 it('resolves the site from the payload subdomain on POST /api/public/analytics/clicks', function (): void {
-    $tenant = createBrandTenant('hydrogen-affiliate-2');
+    $tenant = createTenant('hydrogen-affiliate-2');
     $block = createLinkBlockFor($tenant);
 
     $response = $this->withHeaders([

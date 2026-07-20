@@ -14,7 +14,6 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\BotProtection\Providers\FakeProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -1035,33 +1034,6 @@ function createTenant(string $handle): User
     return User::query()->with('site')->findOrFail($proId);
 }
 
-function createBrandTenant(string $handle = 'brand-a'): User
-{
-    $pro = createTenant($handle);
-    DB::connection('pgsql')
-        ->table('core.users')
-        ->where('id', $pro->id)
-        ->update(['account_type' => 'brand']);
-    AccountCapabilities::flushCache();
-
-    return User::query()->findOrFail($pro->id);
-}
-
-function createAffiliateTenant(string $handle = 'affiliate-a'): User
-{
-    // A test "affiliate" is a partner (a brand-affiliated professional), not a
-    // generic professional. Set account_type='partner' so AccountCapabilities
-    // returns the partner capability set in dispatcher-gate tests.
-    $pro = createTenant($handle);
-    DB::connection('pgsql')
-        ->table('core.users')
-        ->where('id', $pro->id)
-        ->update(['account_type' => 'partner']);
-    AccountCapabilities::flushCache();
-
-    return User::query()->findOrFail($pro->id);
-}
-
 /**
  * Standard pair: two fully-independent tenants. Returns [$tenantA, $tenantB].
  *
@@ -1069,8 +1041,8 @@ function createAffiliateTenant(string $handle = 'affiliate-a'): User
  */
 function createTwoTenants(string $type = 'brand'): array
 {
-    $a = $type === 'brand' ? createBrandTenant('brand-a') : createAffiliateTenant('aff-a');
-    $b = $type === 'brand' ? createBrandTenant('brand-b') : createAffiliateTenant('aff-b');
+    $a = $type === 'brand' ? createTenant('brand-a') : createTenant('aff-a');
+    $b = $type === 'brand' ? createTenant('brand-b') : createTenant('aff-b');
 
     return [$a, $b];
 }

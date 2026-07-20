@@ -30,7 +30,7 @@ describe('JOB-1: queue payload referrer sanitisation', function () {
     });
 
     it('strips UTM-embedded PII from the referrer on the dispatched pageview job payload', function () {
-        $tenant = createBrandTenant('job1-pageview');
+        $tenant = createTenant('job1-pageview');
 
         $this->withHeader('Origin', 'https://job1-pageview.'.config('partna.public_domain'))
             ->postJson('/api/public/analytics/pageviews', [
@@ -44,7 +44,7 @@ describe('JOB-1: queue payload referrer sanitisation', function () {
     });
 
     it('strips UTM-embedded PII from the referrer on the dispatched click job payload', function () {
-        $tenant = createBrandTenant('job1-click');
+        $tenant = createTenant('job1-click');
         $block = createLinkBlockFor($tenant);
 
         $this->withHeader('Origin', 'https://job1-click.'.config('partna.public_domain'))
@@ -63,7 +63,7 @@ describe('JOB-1: queue payload referrer sanitisation', function () {
 // --- Characterisation: pageview's malformed-referrer storage is unchanged --------
 
 it('still stores a null referrer for pageview when the raw value is not a URL (characterisation)', function () {
-    $tenant = createBrandTenant('job1-pageview-malformed');
+    $tenant = createTenant('job1-pageview-malformed');
 
     $this->withHeader('Origin', 'https://job1-pageview-malformed.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/pageviews', [
@@ -80,7 +80,7 @@ it('still stores a null referrer for pageview when the raw value is not a URL (c
 
 describe('WHK-1: dedup fallback identifier', function () {
     it('dedups a repeat click that has neither visitor_id nor session_id (same IP)', function () {
-        $tenant = createBrandTenant('whk1-click-dedup');
+        $tenant = createTenant('whk1-click-dedup');
         $block = createLinkBlockFor($tenant);
         $origin = 'https://whk1-click-dedup.'.config('partna.public_domain');
         $payload = ['site_id' => $tenant->site->id, 'block_id' => $block->id];
@@ -92,7 +92,7 @@ describe('WHK-1: dedup fallback identifier', function () {
     });
 
     it('does NOT dedup identifier-less clicks from two different IPs', function () {
-        $tenant = createBrandTenant('whk1-click-diffip');
+        $tenant = createTenant('whk1-click-diffip');
         $block = createLinkBlockFor($tenant);
         $origin = 'https://whk1-click-diffip.'.config('partna.public_domain');
         $payload = ['site_id' => $tenant->site->id, 'block_id' => $block->id];
@@ -106,7 +106,7 @@ describe('WHK-1: dedup fallback identifier', function () {
     });
 
     it('dedups a repeat section-seen that has neither visitor_id nor session_id (same IP)', function () {
-        $tenant = createBrandTenant('whk1-section-dedup');
+        $tenant = createTenant('whk1-section-dedup');
         $origin = 'https://whk1-section-dedup.'.config('partna.public_domain');
         $payload = ['site_id' => $tenant->site->id, 'section_key' => 'about'];
 
@@ -117,7 +117,7 @@ describe('WHK-1: dedup fallback identifier', function () {
     });
 
     it('does NOT dedup identifier-less section-seen beacons from two different IPs', function () {
-        $tenant = createBrandTenant('whk1-section-diffip');
+        $tenant = createTenant('whk1-section-diffip');
         $origin = 'https://whk1-section-diffip.'.config('partna.public_domain');
         $payload = ['site_id' => $tenant->site->id, 'section_key' => 'about'];
 
@@ -130,7 +130,7 @@ describe('WHK-1: dedup fallback identifier', function () {
     });
 
     it('dedups a repeat item-seen that has neither visitor_id nor session_id (same IP)', function () {
-        $tenant = createBrandTenant('whk1-item-dedup');
+        $tenant = createTenant('whk1-item-dedup');
         $origin = 'https://whk1-item-dedup.'.config('partna.public_domain');
         $payload = ['site_id' => $tenant->site->id, 'item_type' => 'shop_product', 'item_id' => 'sku-1'];
 
@@ -141,7 +141,7 @@ describe('WHK-1: dedup fallback identifier', function () {
     });
 
     it('does NOT dedup identifier-less item-seen beacons from two different IPs', function () {
-        $tenant = createBrandTenant('whk1-item-diffip');
+        $tenant = createTenant('whk1-item-diffip');
         $origin = 'https://whk1-item-diffip.'.config('partna.public_domain');
         $payload = ['site_id' => $tenant->site->id, 'item_type' => 'shop_product', 'item_id' => 'sku-1'];
 
@@ -157,7 +157,7 @@ describe('WHK-1: dedup fallback identifier', function () {
 // --- SEM-1: click dedup key lowercases platform to match what buildEvent() stores ---
 
 it('dedups back-to-back clicks whose platform casing differs (Instagram vs instagram)', function () {
-    $tenant = createBrandTenant('sem1-platform-case');
+    $tenant = createTenant('sem1-platform-case');
     $visitorId = (string) Str::uuid();
     $origin = 'https://sem1-platform-case.'.config('partna.public_domain');
     $base = ['site_id' => $tenant->site->id, 'visitor_id' => $visitorId, 'url' => 'https://instagram.com/someone'];

@@ -28,7 +28,7 @@ beforeEach(function () {
 });
 
 it('customer list response contains canonical meta key with pagination fields', function () {
-    $pro = createAffiliateTenant('cust-pagination-a');
+    $pro = createTenant('cust-pagination-a');
 
     $req = tenantRequestAs($pro);
     $response = app(UserCustomerController::class)->index($req);
@@ -47,7 +47,7 @@ it('customer list response contains canonical meta key with pagination fields', 
 });
 
 it('customer list response does NOT contain the deprecated pagination key', function () {
-    $pro = createAffiliateTenant('cust-pagination-b');
+    $pro = createTenant('cust-pagination-b');
 
     $req = tenantRequestAs($pro);
     $response = app(UserCustomerController::class)->index($req);
@@ -58,7 +58,7 @@ it('customer list response does NOT contain the deprecated pagination key', func
 });
 
 it('customer list response meta reflects actual total count', function () {
-    $pro = createAffiliateTenant('cust-pagination-c');
+    $pro = createTenant('cust-pagination-c');
     $now = now()->toDateTimeString();
 
     DB::table('site.customers')->insert([

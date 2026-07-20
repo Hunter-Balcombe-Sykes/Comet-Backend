@@ -15,7 +15,7 @@ beforeEach(function () {
 });
 
 it('rejects unenroll when session is aal1', function () {
-    $pro = createAffiliateTenant();
+    $pro = createTenant('affiliate-a');
 
     actingAsUser($pro) // aal1
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
@@ -24,7 +24,7 @@ it('rejects unenroll when session is aal1', function () {
 });
 
 it('rejects unenroll when most-recent totp is older than 60s', function () {
-    $pro = createAffiliateTenant();
+    $pro = createTenant('affiliate-a');
 
     actingAsUser($pro, aal2ClaimsWithFreshTotp(90)) // 90s old
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
@@ -36,7 +36,7 @@ it('calls Supabase Admin API and records unenroll event when within 60s', functi
         'test.supabase.co/*' => Http::response(['ok' => true], 200),
     ]);
 
-    $pro = createAffiliateTenant();
+    $pro = createTenant('affiliate-a');
     $factorId = (string) Str::uuid();
 
     actingAsUser($pro, aal2ClaimsWithFreshTotp(30)) // 30s old, inside 60s
@@ -62,7 +62,7 @@ it('surfaces Supabase Admin API failure as 502', function () {
         'test.supabase.co/*' => Http::response(['error' => 'not found'], 404),
     ]);
 
-    $pro = createAffiliateTenant();
+    $pro = createTenant('affiliate-a');
 
     actingAsUser($pro, aal2ClaimsWithFreshTotp(30))
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
@@ -73,7 +73,7 @@ it('surfaces Supabase Admin API failure as 502', function () {
 // after routing through ApiController helpers.
 
 it('API-8 contract: fresh-AAL2 rejection returns 401 with code=mfa_fresh_required (aal1 session)', function () {
-    $pro = createAffiliateTenant('mfa-aal1-contract');
+    $pro = createTenant('mfa-aal1-contract');
 
     $response = actingAsUser($pro) // aal1 — no amr totp entry
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())
@@ -85,7 +85,7 @@ it('API-8 contract: fresh-AAL2 rejection returns 401 with code=mfa_fresh_require
 });
 
 it('API-8 contract: stale-AAL2 rejection returns 401 with code=mfa_fresh_required', function () {
-    $pro = createAffiliateTenant('mfa-stale-contract');
+    $pro = createTenant('mfa-stale-contract');
 
     $response = actingAsUser($pro, aal2ClaimsWithFreshTotp(90)) // 90s old, outside 60s window
         ->deleteJson('/api/account/mfa/factors/'.Str::uuid())

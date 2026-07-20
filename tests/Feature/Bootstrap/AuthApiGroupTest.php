@@ -20,7 +20,7 @@ it('rejects unauthenticated requests with 401', function () {
 });
 
 it('resolves the professional when a valid JWT is supplied', function () {
-    $pro = createAffiliateTenant('auth-api-group-user');
+    $pro = createTenant('auth-api-group-user');
 
     actingAsUser($pro)
         ->getJson('/__test/auth-api-group')
@@ -29,7 +29,7 @@ it('resolves the professional when a valid JWT is supplied', function () {
 });
 
 it('rejects a valid JWT when email is not verified', function () {
-    $pro = createAffiliateTenant('auth-api-group-unverified');
+    $pro = createTenant('auth-api-group-unverified');
 
     // Pass email_verified=false in claims — RequireEmailVerified reads this
     // from the supabase_claims request attribute set by the JWT stub.
