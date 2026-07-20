@@ -105,3 +105,18 @@ it('omits pre_account_build entirely when the relation is not loaded, regardless
     // staff clients can key off presence.
     expect($array)->not->toHaveKey('pre_account_build');
 });
+
+it('omits pre_account_build when the relation IS loaded but resolves to null', function () {
+    $pro = staffResourceTestUser();
+
+    // The case a bare whenLoaded() gets wrong: an eager-load that found no row
+    // leaves relationLoaded() true with a null value, so whenLoaded() would
+    // emit the key as null. UserStaffResource guards on the resolved value for
+    // exactly this reason — without setRelation(null) here the test never
+    // exercises it and passes against the buggy form.
+    $pro->setRelation('preAccountBuild', null);
+
+    $array = (new UserStaffResource($pro, showPii: true))->resolve(Request::create('/'));
+
+    expect($array)->not->toHaveKey('pre_account_build');
+});

@@ -2228,14 +2228,14 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **TEST-2** · P2 — Two observer tests mock the Eloquent `Site` model instead of using a real factory row
+- [x] **TEST-2** · P2 — Two observer tests mock the Eloquent `Site` model instead of using a real factory row
     - **Where:** `tests/Feature/User/UserObserverHandleChangeTest.php:121,199`, `tests/Feature/Core/ServiceObserverTouchSiteTest.php:26,63`
     - **Affects:** Confidence that `UserObserver`/`ServiceObserver` actually bump `site.sites.updated_at` — a real cache-busting dependency for `SiteCacheService`.
     - **Effort:** S (~0.5–1h)
@@ -2255,7 +2255,7 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
         $site->shouldReceive('touch')->once();
         ```
 
-- [ ] **TEST-3** · P2 — No full key-set snapshot test for `IndividualProfileResource` or `UserStaffResource`
+- [x] **TEST-3** · P2 — No full key-set snapshot test for `IndividualProfileResource` or `UserStaffResource`
     - **Where:** `app/Http/Resources/IndividualProfileResource.php`, `app/Http/Resources/UserStaffResource.php` — only `tests/Feature/Resources/UserPublicResourceTest.php` exists; `tests/Feature/Staff/StaffAdminNotesTest.php` spot-checks a single field (`admin_notes`), not the full shape
     - **Affects:** PII exposure on the public sitepage / audience confusion between the public and staff API surfaces — the highest-risk resource split in the platform.
     - **Effort:** M (~2–4h)
@@ -3958,7 +3958,7 @@ None — no finding in this audit is P0, touches auth/authorization or money, in
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -4033,7 +4033,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
         preview_id = "REPLACE_WITH_STAGING_KV_PREVIEW_ID"
         ```
 
-- [ ] **#EDGE-103** · P2 — No structural guard ties `suspend_site` to a KV/cache-retirement action in `ModerationActionDispatcher`
+- [x] **#EDGE-103** · P2 — No structural guard ties `suspend_site` to a KV/cache-retirement action in `ModerationActionDispatcher`
     - **Where:** app/Services/Moderation/ModerationActionDispatcher.php:26-44 (`ACTIONS_BY_DECISION`) + app/Jobs/Moderation/SuspendSiteJob.php:52-57
     - **Affects:** Any future moderation decision type added to `ACTIONS_BY_DECISION` that hides a site — the highest-stakes category of this lens (takedown correctness).
     - **Effort:** S (~0.5–1h)
@@ -4300,7 +4300,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 4 of 7 complete
+- P2 Medium: 7 of 7 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -4354,7 +4354,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **#TEST-103** · P2 — Singleton design-media replace has no concurrent-request test
+- [x] **#TEST-103** · P2 — Singleton design-media replace has no concurrent-request test
     - **Where:** `tests/Feature/Media/DesignSingletonMediaTest.php:151-189` (`it('replaces the existing singleton of the same purpose on re-upload')`)
     - **Affects:** Users uploading logos/cover images back-to-back or from two tabs/devices at once — a race between the soft-delete-old and insert-new steps could leave two "active" singleton rows for the same purpose.
     - **Effort:** M (~2–4h)
@@ -4411,7 +4411,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **#TEST-106** · P2 — `CustomDomainTest` never exercises a Cloudflare API failure response
+- [x] **#TEST-106** · P2 — `CustomDomainTest` never exercises a Cloudflare API failure response
     - **Where:** `tests/Feature/Site/CustomDomainTest.php` — all 7 tests fake either a `200 success` Cloudflare response or a missing-config `503`; none fakes a Cloudflare error/outage response.
     - **Affects:** Users connecting a custom domain when Cloudflare is degraded or rejects the request — the failure path from the vendor HTTP client into the controller is completely unverified.
     - **Effort:** S (~0.5–1h)
@@ -4435,7 +4435,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         });
         ```
 
-- [ ] **#TEST-107** · P2 — `LifestyleConnectionCleanup` observer test only covers the positive path; no test proves unrelated field updates don't trigger it
+- [x] **#TEST-107** · P2 — `LifestyleConnectionCleanup` observer test only covers the positive path; no test proves unrelated field updates don't trigger it
     - **Where:** `tests/Feature/Accounts/LifestyleConnectionCleanupTest.php:97-109`; guard lives in `app/Observers/User/UserObserver.php:99` (`if ($professional->wasChanged('account_type'))`)
     - **Affects:** Every user profile update — a regression that widens or drops the `wasChanged('account_type')` guard would silently soft-delete a user's active platform connections on an unrelated edit (e.g. changing their display name).
     - **Effort:** S (~0.5–1h)
