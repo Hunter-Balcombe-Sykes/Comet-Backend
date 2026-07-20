@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
@@ -10,6 +11,7 @@ use App\Services\Platforms\IdentitySync;
 use App\Services\PreAccount\Generators\GoogleBusinessSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Support\BusinessName;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupUsersTable();
@@ -63,6 +65,30 @@ it('word-trims an over-cap Google name onto display_name, mirroring GoogleBusine
         // The controller's maybeAdoptGoogleName never touches first_name — mirror
         // that exactly, so the generator must leave it alone too.
         ->and($user->first_name)->toBe('Old');
+});
+
+it('dispatches GoogleBusinessEnrichJob even with no Apify token configured, so the free website-harvest fallback still runs', function () {
+    config(['services.apify.token' => null]);
+
+    $svc = Mockery::mock(GoogleBusinessService::class);
+    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJnotoken')
+        ->andReturn(['name' => 'Jane Cafe']);
+    app()->instance(GoogleBusinessService::class, $svc);
+
+    Queue::fake();
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'account_type' => 'business', 'display_name' => 'Jane Cafe', 'first_name' => 'Jane Cafe']);
+    $site = Site::factory()->create(['user_id' => $user->id, 'is_published' => false]);
+
+    app(GoogleBusinessSourceGenerator::class)->generate($user, $site, 'ChIJnotoken');
+
+    Queue::assertPushed(GoogleBusinessEnrichJob::class, fn ($job) => $job->userId === (string) $user->id
+        && $job->placeId === 'ChIJnotoken');
+
+    // Starts 'pending' regardless of token — the job (not the generator) is
+    // what settles it to ok/unavailable via its own harvest-only fallback.
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'google-business')->value('apify_status'))
+        ->toBe('pending');
 });
 
 it('maps a null details response to source_not_found', function () {
