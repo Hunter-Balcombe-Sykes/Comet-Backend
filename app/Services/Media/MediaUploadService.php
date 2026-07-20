@@ -11,8 +11,10 @@ use App\Models\Core\User\User;
 use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
+use App\Services\Media\Exceptions\SingletonConflictException;
 use App\Services\Media\Exceptions\VideoDispatchFailedException;
 use App\Support\Concerns\NormalisesOptionalString;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -38,6 +40,7 @@ use Throwable;
  *   - InvalidVideoFileException      → 422
  *   - OriginalStoreFailedException   → 500
  *   - VideoDispatchFailedException   → 503 (DB row + original file already rolled back)
+ *   - SingletonConflictException     → 409 (uploadSingleton only — lost a concurrent-replace race)
  */
 class MediaUploadService
 {
@@ -171,7 +174,7 @@ class MediaUploadService
         // unique slot and purges its files before the new row is created.
         $this->purgeExistingSingleton($site, $purpose);
 
-        $media = $this->createSingletonRow($site, $purpose, $file);
+        $media = $this->createSingletonRowOrConflict($site, $purpose, $file);
 
         $basePath = "images/{$pro->id}/{$media->id}";
 
@@ -196,7 +199,29 @@ class MediaUploadService
         return $media;
     }
 
-    /** Soft-delete + purge files for the existing design singleton of this purpose, if any. */
+    /**
+     * Soft-delete + purge files for the existing design singleton of this purpose, if any.
+     *
+     * ⚠️ KNOWN UNFIXED RACE (pre-existing, tracked in
+     * docs/superpowers/plans/2026-07-20-singleton-upload-race-PROMPT.md).
+     * This runs OUTSIDE createSingletonRow()'s advisory lock. That is deliberate —
+     * the lock is site-wide and shared with the gallery path, and this method does
+     * remote R2 deletes, so holding the lock across it would serialize every upload
+     * to the site behind network I/O. The cost is a window: if request B's purge
+     * lands AFTER request A's INSERT commits but BEFORE A's final
+     * update(['path' => ...]), B soft-deletes A's row and A's update still succeeds
+     * — Eloquent's save() uses newModelQuery(), which carries no global scopes, so
+     * SoftDeletingScope does not block it. A ends up with a soft-deleted row holding
+     * a real R2 path and processed variants, invisible to every normal query, while
+     * the API returns 201. Silent data loss, reclaimed only by the 30-day
+     * PurgeSoftDeleted sweep. QUEUE_CONNECTION=sync widens the window, since image
+     * processing runs inline inside it.
+     *
+     * The unique-violation half of this race IS handled (see
+     * createSingletonRowOrConflict). This half needs an optimistic-concurrency token
+     * or a redesign — do not "simplify" this method into the lock without reading
+     * that plan first.
+     */
     private function purgeExistingSingleton(Site $site, string $purpose): void
     {
         $existing = SiteMedia::query()
@@ -209,6 +234,44 @@ class MediaUploadService
         foreach ($existing as $media) {
             $this->imageService->deleteVariants($media->id, $media->path);
             $media->delete();
+        }
+    }
+
+    /**
+     * createSingletonRow(), converting a lost concurrent-replace race into a
+     * typed 409 instead of an uncaught QueryException.
+     *
+     * purgeExistingSingleton() (above) runs with NO lock, before
+     * createSingletonRow() ever takes the per-site advisory lock. Two
+     * concurrent uploads for the same (site, purpose) can therefore both pass
+     * the purge before either commits its INSERT — the DB's partial unique
+     * index (site_media_design_singleton_purpose_uq) then rejects whichever
+     * INSERT lands second. That's expected under contention, not corruption:
+     * the winner's row stands as the singleton. Nothing has touched storage
+     * yet at this point — storeOriginal() only runs after this method returns
+     * successfully — so the loser leaves no orphaned file behind; it simply
+     * never wrote one. (We deliberately do NOT move the purge inside the
+     * advisory-locked transaction to close the window instead: that lock is
+     * site-wide, shared with the plain gallery upload path, and purging calls
+     * out to storage (deleteVariants) — holding the lock across that I/O would
+     * serialise every upload for the site behind a network round-trip, a worse
+     * trade than the narrow race this catch already resolves.)
+     */
+    private function createSingletonRowOrConflict(Site $site, string $purpose, UploadedFile $file): SiteMedia
+    {
+        try {
+            return $this->createSingletonRow($site, $purpose, $file);
+        } catch (UniqueConstraintViolationException $e) {
+            Log::warning('Singleton upload lost a concurrent-replace race', [
+                'site_id' => $site->id,
+                'purpose' => $purpose,
+            ]);
+
+            throw new SingletonConflictException(
+                'This image was just replaced by another upload. Please try again.',
+                0,
+                $e
+            );
         }
     }
 

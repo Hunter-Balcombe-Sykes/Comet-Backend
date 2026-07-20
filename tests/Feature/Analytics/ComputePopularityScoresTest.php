@@ -2,6 +2,7 @@
 
 use App\Console\Commands\ComputeContentPopularityScores;
 use App\Services\Analytics\RankedActionsComputer;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
@@ -290,7 +291,7 @@ it('processes a site with a recent event but skips a published site with none, i
 it('treats an event older than the recent-events window as no signal in a full sweep', function () {
     $stale = createTenant('scale3-stale');
 
-    // 90 minutes old — outside the 20-minute recent-events window, even though
+    // 90 minutes old — outside the 60-minute recent-events window, even though
     // it would still contribute a (heavily decayed) score if processed.
     DB::connection('pgsql')->table('analytics.link_clicks')->insert([
         'id' => (string) Str::uuid(),
@@ -338,4 +339,24 @@ it('declares an explicit, non-null $timeout ceiling', function () {
 
     expect($property->getDefaultValue())->not->toBeNull()
         ->and($property->getDefaultValue())->toBeGreaterThan(0);
+});
+
+// ── SCALE-3 follow-up (2026-07-20): pin the missed-tick margin invariant so a
+// future shrink of the window (or a cadence change) goes red instead of just
+// re-opening the gap silently. See routes/console.php's "missed-tick gap" note. ──
+
+it('keeps the recent-events lookback at least 2x the scheduled cadence', function () {
+    $events = collect(app(Schedule::class)->events());
+    $event = $events->first(fn ($e) => str_contains((string) $e->command, 'analytics:compute-popularity'));
+
+    expect($event)->not->toBeNull('analytics:compute-popularity is not registered in the scheduler')
+        ->and($event->expression)->toBe('*/15 * * * *'); // everyFifteenMinutes()
+
+    $cadenceMinutes = 15;
+    $window = (new ReflectionClass(ComputeContentPopularityScores::class))->getConstant('RECENT_EVENTS_WINDOW_MINUTES');
+
+    // 2x cadence is the bare minimum to survive even one missed tick
+    // (W >= (K+1) x cadence for K=1); the current 60min value is chosen to
+    // survive K=3, comfortably clearing this floor.
+    expect($window)->toBeGreaterThanOrEqual($cadenceMinutes * 2);
 });

@@ -68,6 +68,8 @@ class ComputeContentPopularityScores extends Command
     // Ceiling for a full sweep of every published site (routes/console.php runs
     // this every 15min with a 14min withoutOverlapping lock) — comfortably under
     // that lock so a hung run is flagged well before the next tick.
+    // Documentation only — Illuminate\Console\Command never reads $timeout (unlike
+    // the enforced, identically-named property on a ShouldQueue job).
     protected $timeout = 600;
 
     // Scoring weights + decay. Tune here — the only tuning surface.
@@ -101,12 +103,17 @@ class ComputeContentPopularityScores extends Command
 
     // SCALE-3: the scheduled (no --site) run used to full-sweep EVERY published
     // site every 15 minutes regardless of whether it had any recent activity.
-    // Now scoped to sites with a raw event since this window — sized a bit past
-    // the 15-min cadence so a slow/late tick still catches events from the gap
-    // since the previous run, without re-reading the whole event history. An
+    // Now scoped to sites with a raw event since this window. Widened 20->60min
+    // (2026-07-20): at the 15-min cadence, a W-minute window survives K
+    // consecutive missed ticks (deploy restart, scheduler blip) with zero gap
+    // only when W >= (K+1) x 15 — 20min didn't even survive K=1 (see
+    // routes/console.php's "missed-tick gap" note for that failure mode).
+    // 60min survives K=3 (a 45-min scheduler outage). Beyond that, the gap is
+    // mostly self-healing (a site recomputes from full raw history next time
+    // it's scoped in) — see routes/console.php for the remaining exposure. An
     // explicit --site always bypasses this (manual/targeted runs process the
     // named site unconditionally, matching the pre-existing contract).
-    private const RECENT_EVENTS_WINDOW_MINUTES = 20;
+    private const RECENT_EVENTS_WINDOW_MINUTES = 60;
 
     /**
      * link_clicks.section_key → scored item_type. Clicks self-describe their
@@ -250,8 +257,7 @@ class ComputeContentPopularityScores extends Command
                 DB::connection('pgsql')->table($table)
                     ->where('occurred_at', '>=', $since->toISOString())
                     ->distinct()
-                    ->pluck('site_id')
-                as $siteId
+                    ->pluck('site_id') as $siteId
             ) {
                 $ids[(string) $siteId] = true;
             }

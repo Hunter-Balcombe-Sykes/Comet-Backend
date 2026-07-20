@@ -365,20 +365,22 @@ it('never calls Cloudflare delete() when the ownership authorize denies before a
     Http::assertNothingSent();
 });
 
-// ── TEST-106: Cloudflare error handling on create() ────────────────────────
+// ── TEST-106: Cloudflare error handling on create()/get() ─────────────────
 //
-// The audit's proposed test (Http 500 -> assert 502) already passes against
-// current code — cf->create() is wrapped in try/catch(Throwable) (lines
-// 78-84 above) and CloudflareCustomHostnameService::create() calls ->throw(),
-// which fires on any 4xx/5xx. That's a fine regression guard but not the gap.
+// Cloudflare can return HTTP 200 with `success: false` in the body — a
+// genuine CF behaviour for validation errors (e.g. a hostname that already
+// exists elsewhere). ->throw() alone does NOT fire on a 2xx status, so this
+// USED TO sail through create() silently: `json('result', [])` returned [],
+// shape() turned that into all-null fields, and the controller proceeded as
+// if creation succeeded — the domain got written to the DB with status
+// 'pending' and a NULL custom_domain_cf_id, no real Cloudflare hostname
+// behind it, and no way for the user to know or retry (verify() 404s
+// immediately without a cf_id).
 //
-// THE REAL GAP: Cloudflare can return HTTP 200 with `success: false` in the
-// body — a genuine CF behaviour for validation errors (e.g. a hostname that
-// already exists elsewhere). ->throw() does NOT fire on a 2xx status, so
-// create() sails through, `json('result', [])` returns [], shape() turns
-// that into all-null fields, and the controller proceeds as if creation
-// succeeded: the domain gets written to the DB with status 'pending' and a
-// NULL custom_domain_cf_id — no real Cloudflare hostname exists behind it.
+// FIXED: CloudflareCustomHostnameService::assertSuccessful() now treats
+// success:false as a failure regardless of HTTP status, for create()/get()/
+// delete() alike — every caller's existing try/catch(Throwable){report($e)}
+// sees this as the same signal a real HTTP error already produced.
 
 it('returns 502 when Cloudflare create() responds with a real HTTP error status (regression guard)', function () {
     [$user] = domainUserWithSite('domucf500');
@@ -389,28 +391,70 @@ it('returns 502 when Cloudflare create() responds with a real HTTP error status 
         ->assertStatus(502);
 });
 
-it('silently stores a domain as pending with no CF id when Cloudflare returns HTTP 200 + success:false (TEST-106 gap)', function () {
+it('returns 502 and persists nothing when Cloudflare create() responds HTTP 200 + success:false (TEST-106, fixed)', function () {
     [$user, $site] = domainUserWithSite('domucfsoftfail');
 
-    // No "result" key at all — mirrors a real CF validation-error body.
-    Http::fake(['api.cloudflare.com/*' => Http::response([
-        'success' => false,
-        'errors' => [['code' => 1004, 'message' => 'Hostname already exists.']],
-    ], 200)]);
+    // First call: no "result" key at all — mirrors a real CF validation-error
+    // body. Second call (the user's retry once CF's conflict clears): a real
+    // success — queued as one sequence since Http::fake() stubs are matched
+    // first-registered-wins, so a second bare Http::fake() call wouldn't
+    // override the first for an overlapping URL pattern.
+    Http::fake(['api.cloudflare.com/*' => Http::sequence()
+        ->push([
+            'success' => false,
+            'errors' => [['code' => 1004, 'message' => 'Hostname already exists.']],
+        ], 200)
+        ->push([
+            'success' => true,
+            'result' => ['id' => 'ch_retry', 'status' => 'pending', 'ssl' => ['status' => 'pending_validation']],
+        ], 200),
+    ]);
     Queue::fake();
 
-    // KNOWN GAP: the 200 status means ->throw() never fires, so this request
-    // returns 200 OK — as if Cloudflare had accepted the hostname — even
-    // though nothing was actually created there.
-    $response = actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])
-        ->assertOk();
+    // The service now throws on success:false regardless of HTTP status, so
+    // the controller's existing try/catch(Throwable) returns 502 — the same
+    // path a real HTTP error takes — BEFORE $site->save() ever runs.
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])
+        ->assertStatus(502);
 
-    expect($response->json('status'))->toBe('pending');
+    // No half-written row: nothing was persisted, so nothing is stuck.
+    $site->refresh();
+    expect($site->custom_domain)->toBeNull();
+    expect($site->custom_domain_status)->toBeNull();
+    expect($site->custom_domain_cf_id)->toBeNull();
+    Queue::assertNotPushed(SyncSubdomainToKvJob::class);
+
+    // Proves the user isn't stuck: a follow-up attempt (e.g. once the CF-side
+    // conflict is resolved) is not blocked by any leftover state and succeeds.
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])
+        ->assertOk()
+        ->assertJsonPath('status', 'pending');
 
     $site->refresh();
     expect($site->custom_domain)->toBe('bookwith.me');
+    expect($site->custom_domain_cf_id)->toBe('ch_retry');
+});
+
+it('returns 502 and leaves the prior status untouched when verify()\'s Cloudflare get() responds HTTP 200 + success:false', function () {
+    [$user, $site] = domainUserWithSite('domucfsoftfail2');
+    $site->custom_domain = 'bookwith.me';
+    $site->custom_domain_cf_id = 'ch_1';
+    $site->custom_domain_status = 'pending';
+    $site->saveQuietly();
+
+    Http::fake(['api.cloudflare.com/*' => Http::response([
+        'success' => false,
+        'errors' => [['code' => 1003, 'message' => 'Hostname not found.']],
+    ], 200)]);
+    Queue::fake();
+
+    actingAsUser($user)->postJson('/api/site/custom-domain/verify')
+        ->assertStatus(502);
+
+    // The pre-existing pending state is untouched — the user isn't stuck,
+    // they can call verify() again once the underlying CF issue clears.
+    $site->refresh();
     expect($site->custom_domain_status)->toBe('pending');
-    // No real CF hostname was ever created — this id is fabricated as null,
-    // silently, with no signal to the caller that Cloudflare rejected it.
-    expect($site->custom_domain_cf_id)->toBeNull();
+    expect($site->custom_domain_cf_id)->toBe('ch_1');
+    Queue::assertNotPushed(SyncSubdomainToKvJob::class);
 });

@@ -30,6 +30,8 @@ class ResolveAllDesignPresetsCommand extends Command
     // (resolveForUser reads/writes design_kit_contributions, no external
     // network calls), so this is lighter than the palette backfill's
     // network-bound loop — a half-hour ceiling is generous for that shape.
+    // Documentation only — Illuminate\Console\Command never reads $timeout (unlike
+    // the enforced, identically-named property on a ShouldQueue job).
     protected $timeout = 1800;
 
     public function handle(DesignPresetResolver $resolver): int
