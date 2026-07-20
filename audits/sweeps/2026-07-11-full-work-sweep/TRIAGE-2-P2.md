@@ -1991,7 +1991,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#CFG-1** · P2 — Auth-adjacent secrets have no rotation runbook or dual-secret window
+- [x] **#CFG-1** · P2 — Auth-adjacent secrets have no rotation runbook or dual-secret window
     - **Where:** config/services.php:44,48,74,79 (`supabase.email_hook_secret`, `supabase.auth_hook_secret`, `cloudflare.api_token`, `cloudflare.cache_purge_token`); config/partna.php:1102 (`logo_removal.token`)
     - **Affects:** Ops — rotating `SUPABASE_AUTH_HOOK_SECRET`, `SUPABASE_EMAIL_HOOK_SECRET`, `CLOUDFLARE_API_TOKEN`, or `CLOUDFLARE_CACHE_PURGE_TOKEN` requires an atomic env+dashboard swap with no grace window; a deploy race between the two 503s every hook delivery until they line up.
     - **Effort:** M (~2–4h) — docs + optional dual-secret support in `VerifySupabaseHookSignature`
