@@ -30,7 +30,7 @@ function seedCategoryTestPro(): User
         'handle' => 'cat-pro',
         'handle_lc' => 'cat-pro',
         'display_name' => 'Cat Pro',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
     ]);
 

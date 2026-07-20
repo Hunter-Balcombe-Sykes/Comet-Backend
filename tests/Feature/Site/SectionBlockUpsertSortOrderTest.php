@@ -114,7 +114,7 @@ it('gap-safe regression (SEM-8): upsert assigns sort_order 2 not 1 after a hard-
     // Allow any section type in the upsert() allowlist check.
     Config::set('partna.section_block_types', ['services', 'newsletter', 'contacts_collection']);
 
-    $pro = createBrandTenant('upsert-gap-a');
+    $pro = createTenant('upsert-gap-a');
     $siteId = $pro->site->id;
 
     // Seed TWO section blocks: services at sort_order 0, newsletter at sort_order 1.
@@ -151,7 +151,7 @@ it('empty-set semantics: first block on a fresh tenant gets sort_order 0', funct
     // Verifies the null-coalescing guard works end-to-end through the controller.
     Config::set('partna.section_block_types', ['newsletter']);
 
-    $pro = createBrandTenant('upsert-empty-a');
+    $pro = createTenant('upsert-empty-a');
     $siteId = $pro->site->id;
 
     callUpsert($pro, 'newsletter');

@@ -24,7 +24,7 @@ function iv4User(string $h): User
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);

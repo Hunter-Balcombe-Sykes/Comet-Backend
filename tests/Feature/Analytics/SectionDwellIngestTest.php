@@ -35,7 +35,7 @@ function dwellSeedSectionView(object $tenant, string $sectionKey, string $visito
 }
 
 it('annotates the matching impression row with dwell', function () {
-    $tenant = createBrandTenant('dwell-happy');
+    $tenant = createTenant('dwell-happy');
     $visitorId = (string) Str::uuid();
     $rowId = dwellSeedSectionView($tenant, 'shop', $visitorId);
 
@@ -53,7 +53,7 @@ it('annotates the matching impression row with dwell', function () {
 });
 
 it('GREATEST-merges cumulative reports — a larger value raises, a smaller/stale one never lowers', function () {
-    $tenant = createBrandTenant('dwell-greatest');
+    $tenant = createTenant('dwell-greatest');
     $visitorId = (string) Str::uuid();
     $rowId = dwellSeedSectionView($tenant, 'listen', $visitorId);
     $origin = 'https://dwell-greatest.'.config('partna.public_domain');
@@ -75,7 +75,7 @@ it('GREATEST-merges cumulative reports — a larger value raises, a smaller/stal
 });
 
 it('drops a dwell with no matching impression row instead of inserting one', function () {
-    $tenant = createBrandTenant('dwell-orphan');
+    $tenant = createTenant('dwell-orphan');
 
     $response = $this->withHeader('Origin', 'https://dwell-orphan.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/section-dwell', [
@@ -91,8 +91,8 @@ it('drops a dwell with no matching impression row instead of inserting one', fun
 });
 
 it('never annotates another site\'s row (cross-site guard)', function () {
-    $tenant = createBrandTenant('dwell-own');
-    $otherTenant = createBrandTenant('dwell-other');
+    $tenant = createTenant('dwell-own');
+    $otherTenant = createTenant('dwell-other');
     $visitorId = (string) Str::uuid();
     // The only existing row for this section+visitor belongs to the OTHER site.
     $foreignRowId = dwellSeedSectionView($otherTenant, 'book', $visitorId);
@@ -110,7 +110,7 @@ it('never annotates another site\'s row (cross-site guard)', function () {
 });
 
 it('matches by session_id when no visitor_id is supplied', function () {
-    $tenant = createBrandTenant('dwell-session');
+    $tenant = createTenant('dwell-session');
     $sessionId = (string) Str::uuid();
     $rowId = (string) Str::uuid();
     DB::connection('pgsql')->table('analytics.section_views')->insert([
@@ -136,7 +136,7 @@ it('matches by session_id when no visitor_id is supplied', function () {
 });
 
 it('rejects a dwell with neither identifier (writer could never match a row)', function () {
-    $tenant = createBrandTenant('dwell-no-id');
+    $tenant = createTenant('dwell-no-id');
 
     $this->withHeader('Origin', 'https://dwell-no-id.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/section-dwell', [
@@ -147,7 +147,7 @@ it('rejects a dwell with neither identifier (writer could never match a row)', f
 });
 
 it('rejects out-of-bounds durations (sub-second noise + >10min inflation)', function () {
-    $tenant = createBrandTenant('dwell-bounds');
+    $tenant = createTenant('dwell-bounds');
     $origin = 'https://dwell-bounds.'.config('partna.public_domain');
     $base = [
         'site_id' => $tenant->site->id,
@@ -164,7 +164,7 @@ it('rejects out-of-bounds durations (sub-second noise + >10min inflation)', func
 });
 
 it('silently ignores bot user-agents (200, nothing written)', function () {
-    $tenant = createBrandTenant('dwell-bot');
+    $tenant = createTenant('dwell-bot');
     $visitorId = (string) Str::uuid();
     $rowId = dwellSeedSectionView($tenant, 'shop', $visitorId);
 

@@ -16,7 +16,7 @@ beforeEach(function () {
 });
 
 it('records an item-seen event for a published site', function () {
-    $tenant = createBrandTenant('item-seen-happy');
+    $tenant = createTenant('item-seen-happy');
 
     $response = $this->withHeader('Origin', 'https://item-seen-happy.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/item-seen', [
@@ -42,7 +42,7 @@ it('records an item-seen event for a published site', function () {
 });
 
 it('rejects an item_type outside the scored taxonomy', function () {
-    $tenant = createBrandTenant('item-seen-badtype');
+    $tenant = createTenant('item-seen-badtype');
 
     $this->withHeader('Origin', 'https://item-seen-badtype.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/item-seen', [
@@ -57,7 +57,7 @@ it('rejects an item_type outside the scored taxonomy', function () {
 });
 
 it('requires item_id', function () {
-    $tenant = createBrandTenant('item-seen-noid');
+    $tenant = createTenant('item-seen-noid');
 
     $this->withHeader('Origin', 'https://item-seen-noid.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/item-seen', [
@@ -69,7 +69,7 @@ it('requires item_id', function () {
 });
 
 it('deduplicates a repeat view of the same item by the same session within 5 minutes', function () {
-    $tenant = createBrandTenant('item-seen-dedup');
+    $tenant = createTenant('item-seen-dedup');
     $sessionId = (string) Str::uuid();
     $origin = 'https://item-seen-dedup.'.config('partna.public_domain');
 
@@ -87,7 +87,7 @@ it('deduplicates a repeat view of the same item by the same session within 5 min
 });
 
 it('records different items under the same session independently', function () {
-    $tenant = createBrandTenant('item-seen-multi');
+    $tenant = createTenant('item-seen-multi');
     $sessionId = (string) Str::uuid();
     $origin = 'https://item-seen-multi.'.config('partna.public_domain');
 
@@ -103,7 +103,7 @@ it('records different items under the same session independently', function () {
 });
 
 it('returns 404 when site is unpublished (does not leak existence)', function () {
-    $tenant = createBrandTenant('item-seen-unpub');
+    $tenant = createTenant('item-seen-unpub');
     DB::connection('pgsql')->table('site.sites')
         ->where('id', $tenant->site->id)
         ->update(['is_published' => 0]);
@@ -119,7 +119,7 @@ it('returns 404 when site is unpublished (does not leak existence)', function ()
 });
 
 it('silently ignores bot user-agents (200 not 201)', function () {
-    $tenant = createBrandTenant('item-seen-bot');
+    $tenant = createTenant('item-seen-bot');
 
     $this->withHeaders([
         'User-Agent' => 'Googlebot/2.1 (+http://www.google.com/bot.html)',

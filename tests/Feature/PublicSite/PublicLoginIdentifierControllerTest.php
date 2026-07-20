@@ -28,7 +28,7 @@ it('resolves a handle to the matching primary email', function () {
         'handle_lc' => 'tobias-balcombe-ehrlich',
         'display_name' => 'Tobias',
         'primary_email' => 'tobias@example.com',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'onboarding_step' => 0,
     ]);

@@ -14,7 +14,6 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\BotProtection\Providers\FakeProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -308,7 +307,11 @@ function setupUsersTable(): void
         last_name TEXT NULL,
         primary_email TEXT NULL,
         phone TEXT NULL,
-        account_type TEXT NULL,
+        -- Mirrors users_account_type_check in production. SQLite enforces CHECK,
+        -- so a test seeding a retired value (\'individual\', \'brand\', \'partner\')
+        -- fails at the INSERT rather than passing silently — enum casts are lazy,
+        -- so an invalid value otherwise only throws if something reads it back.
+        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NULL,
         bio TEXT NULL,
         country_code TEXT NULL,
@@ -1001,7 +1004,7 @@ function tenantHelpersEnsureTables(): void
  * with its Site eager-loaded. Handle namespaces records so sequential calls
  * never collide.
  */
-function createTenant(string $handle, string $type = 'professional'): User
+function createTenant(string $handle): User
 {
     tenantHelpersEnsureTables();
 
@@ -1016,7 +1019,7 @@ function createTenant(string $handle, string $type = 'professional'): User
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
         'primary_email' => $handle.'@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,
@@ -1035,33 +1038,6 @@ function createTenant(string $handle, string $type = 'professional'): User
     return User::query()->with('site')->findOrFail($proId);
 }
 
-function createBrandTenant(string $handle = 'brand-a'): User
-{
-    $pro = createTenant($handle, 'brand');
-    DB::connection('pgsql')
-        ->table('core.users')
-        ->where('id', $pro->id)
-        ->update(['account_type' => 'brand']);
-    AccountCapabilities::flushCache();
-
-    return User::query()->findOrFail($pro->id);
-}
-
-function createAffiliateTenant(string $handle = 'affiliate-a'): User
-{
-    // A test "affiliate" is a partner (a brand-affiliated professional), not a
-    // generic professional. Set account_type='partner' so AccountCapabilities
-    // returns the partner capability set in dispatcher-gate tests.
-    $pro = createTenant($handle, 'affiliate');
-    DB::connection('pgsql')
-        ->table('core.users')
-        ->where('id', $pro->id)
-        ->update(['account_type' => 'partner']);
-    AccountCapabilities::flushCache();
-
-    return User::query()->findOrFail($pro->id);
-}
-
 /**
  * Standard pair: two fully-independent tenants. Returns [$tenantA, $tenantB].
  *
@@ -1069,8 +1045,8 @@ function createAffiliateTenant(string $handle = 'affiliate-a'): User
  */
 function createTwoTenants(string $type = 'brand'): array
 {
-    $a = $type === 'brand' ? createBrandTenant('brand-a') : createAffiliateTenant('aff-a');
-    $b = $type === 'brand' ? createBrandTenant('brand-b') : createAffiliateTenant('aff-b');
+    $a = $type === 'brand' ? createTenant('brand-a') : createTenant('aff-a');
+    $b = $type === 'brand' ? createTenant('brand-b') : createTenant('aff-b');
 
     return [$a, $b];
 }

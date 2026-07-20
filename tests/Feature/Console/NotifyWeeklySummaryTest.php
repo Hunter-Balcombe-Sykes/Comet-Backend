@@ -27,7 +27,7 @@ function weeklyUser(string $status = 'active'): User
     return User::create([
         'id' => $id,
         'handle' => 'wk-'.substr($id, 0, 8), 'handle_lc' => 'wk-'.substr($id, 0, 8),
-        'display_name' => 'Weekly', 'account_type' => 'individual',
+        'display_name' => 'Weekly', 'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(), 'primary_email' => substr($id, 0, 8).'@example.com',
         'status' => $status,
     ]);

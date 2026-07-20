@@ -11,14 +11,16 @@ use Illuminate\Http\Request;
 
 function makeProForCapabilities(string $accountType, ?string $sector = null): User
 {
+    // Unsaved model — never hits the DB, so the users_account_type_check CHECK
+    // guard (tests/Pest.php) never fires here; validity relies on the enum cast.
     return new User(['account_type' => $accountType, 'sector' => $sector]);
 }
 
 beforeEach(fn () => AccountCapabilities::flushCache());
 
-describe('AccountCapabilities — individual', function () {
+describe('AccountCapabilities — partna', function () {
     beforeEach(function () {
-        $this->caps = AccountCapabilities::for(makeProForCapabilities('individual'));
+        $this->caps = AccountCapabilities::for(makeProForCapabilities('partna'));
     });
 
     it('keeps its own design editor', function () {
@@ -47,21 +49,21 @@ describe('AccountCapabilities — fallback', function () {
 
 describe('AccountCapabilities — per-instance memoization', function () {
     it('returns the same memoized set for repeated lookups on one Professional', function () {
-        $pro = makeProForCapabilities('individual');
+        $pro = makeProForCapabilities('partna');
 
         expect(AccountCapabilities::for($pro))->toBe(AccountCapabilities::for($pro));
     });
 
     it('keeps separate memo entries per Professional instance', function () {
-        $indA = makeProForCapabilities('individual');
-        $indB = makeProForCapabilities('individual');
+        $indA = makeProForCapabilities('partna');
+        $indB = makeProForCapabilities('partna');
 
         expect(AccountCapabilities::for($indA)->worker_kv_type)->toBe('individual');
         expect(AccountCapabilities::for($indB)->worker_kv_type)->toBe('individual');
     });
 
     it('flushCache() drops the memo so the next call rebuilds', function () {
-        $pro = makeProForCapabilities('individual');
+        $pro = makeProForCapabilities('partna');
         $stale = AccountCapabilities::for($pro);
         expect($stale->worker_kv_type)->toBe('individual');
 
@@ -82,10 +84,6 @@ describe('AccountCapabilities — storewide booking (Business Partna)', function
     it('withholds storewide booking from standard (partna) accounts', function () {
         expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_book_storewide)->toBeFalse();
     });
-
-    it('withholds storewide booking from legacy individual rows', function () {
-        expect(AccountCapabilities::for(makeProForCapabilities('individual'))->can_book_storewide)->toBeFalse();
-    });
 });
 
 describe('AccountCapabilities — Google Business (Business Partna)', function () {
@@ -100,21 +98,11 @@ describe('AccountCapabilities — Google Business (Business Partna)', function (
         expect($caps->google_business_full_sync)->toBeFalse();
         expect($caps->google_business_sets_display_name)->toBeFalse();
     });
-
-    it('treats legacy individual rows like standard accounts', function () {
-        $caps = AccountCapabilities::for(makeProForCapabilities('individual'));
-        expect($caps->google_business_full_sync)->toBeFalse();
-        expect($caps->google_business_sets_display_name)->toBeFalse();
-    });
 });
 
 describe('AccountCapabilities — lifestyle pages (standard only)', function () {
     it('grants the lifestyle/creator pages to standard (partna) accounts', function () {
         expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_use_lifestyle_pages)->toBeTrue();
-    });
-
-    it('treats legacy individual rows like standard accounts', function () {
-        expect(AccountCapabilities::for(makeProForCapabilities('individual'))->can_use_lifestyle_pages)->toBeTrue();
     });
 
     it('withholds the lifestyle/creator pages from Business accounts', function () {
@@ -151,7 +139,6 @@ describe('AccountCapabilities — sector-derived (2026-07-15 industry/sector gat
         'business × food (restaurant)' => ['business', 'restaurant', true, true, false, true],
         'business × non-food (barber)' => ['business', 'barber', false, false, true, false],
         'business × null sector (defaults not-food)' => ['business', null, false, false, true, false],
-        'individual (legacy) × food — treated like partna, never food-gated' => ['individual', 'restaurant', false, true, true, false],
     ]);
 
     it('isFood is false for every non-Food & Drink sector, true for exactly the Food & Drink group', function () {
@@ -200,22 +187,10 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
     });
 });
 
-describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
-    it('omits stripe_connect_status entirely for individual accounts', function () {
+describe('UserDashboardResource — stripe_connect_status absent for standard accounts', function () {
+    it('omits stripe_connect_status entirely for standard accounts', function () {
         $pro = new User([
-            'account_type' => 'individual',
-        ]);
-
-        $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
-
-        expect($payload)->not->toHaveKey('stripe_connect_status');
-    });
-});
-
-describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
-    it('omits stripe_connect_status for individuals', function () {
-        $pro = new User([
-            'account_type' => 'individual',
+            'account_type' => 'partna',
         ]);
 
         $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));

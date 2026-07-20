@@ -19,7 +19,7 @@ beforeEach(function () {
 });
 
 it('accepts a pageview, echoes a visit_id, and enqueues a job', function () {
-    $t = createBrandTenant('contract-pv');
+    $t = createTenant('contract-pv');
 
     $res = $this->withHeader('Origin', 'https://contract-pv.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/pageviews', ['site_id' => $t->site->id]);
@@ -29,7 +29,7 @@ it('accepts a pageview, echoes a visit_id, and enqueues a job', function () {
 });
 
 it('records a pageview even for a bot UA (no bot filter on pageview — preserved)', function () {
-    $t = createBrandTenant('contract-pv-bot');
+    $t = createTenant('contract-pv-bot');
 
     $this->withHeaders([
         'User-Agent' => 'Googlebot/2.1',
@@ -41,7 +41,7 @@ it('records a pageview even for a bot UA (no bot filter on pageview — preserve
 });
 
 it('accepts a click to a non-existent block (201, not 422) and enqueues — worker drops', function () {
-    $t = createBrandTenant('contract-click-missing');
+    $t = createTenant('contract-click-missing');
 
     $res = $this->withHeader('Origin', 'https://contract-click-missing.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/clicks', [
@@ -55,7 +55,7 @@ it('accepts a click to a non-existent block (201, not 422) and enqueues — work
 });
 
 it('bot click returns 200 with no click_id and enqueues nothing', function () {
-    $t = createBrandTenant('contract-click-bot');
+    $t = createTenant('contract-click-bot');
     $block = createLinkBlockFor($t);
 
     $res = $this->withHeaders([
@@ -70,7 +70,7 @@ it('bot click returns 200 with no click_id and enqueues nothing', function () {
 });
 
 it('dedups a repeat click, echoing the original id and enqueuing once', function () {
-    $t = createBrandTenant('contract-click-dedup');
+    $t = createTenant('contract-click-dedup');
     $block = createLinkBlockFor($t);
     $payload = ['site_id' => $t->site->id, 'block_id' => $block->id, 'visitor_id' => (string) Str::uuid()];
     $origin = 'https://contract-click-dedup.'.config('partna.public_domain');
@@ -85,7 +85,7 @@ it('dedups a repeat click, echoing the original id and enqueuing once', function
 });
 
 it('preserves the 422 IDOR signal when site_id is supplied with a mismatched subdomain', function () {
-    $t = createBrandTenant('contract-idor');
+    $t = createTenant('contract-idor');
 
     $res = $this->postJson('/api/public/analytics/pageviews', [
         'site_id' => $t->site->id,

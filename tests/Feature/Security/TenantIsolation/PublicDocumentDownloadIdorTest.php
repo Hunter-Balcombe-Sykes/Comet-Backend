@@ -12,8 +12,8 @@ beforeEach(function () {
 });
 
 it('refuses to download a document when its site does not match the request subdomain', function () {
-    $victim = createBrandTenant('victim-doc');
-    $attacker = createBrandTenant('attacker-doc');
+    $victim = createTenant('victim-doc');
+    $attacker = createTenant('attacker-doc');
 
     $docId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
@@ -37,7 +37,7 @@ it('refuses to download a document when its site does not match the request subd
 });
 
 it('allows download when subdomain matches the document site', function () {
-    $owner = createBrandTenant('owner-doc');
+    $owner = createTenant('owner-doc');
 
     $docId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([

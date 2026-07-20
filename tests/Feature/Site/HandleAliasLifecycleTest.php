@@ -161,7 +161,7 @@ it('writes alias KV entries with expirationTtl and a type=alias marker', functio
         'handle_lc' => 'newh',
         'status' => 'active',
         'primary_email' => 'newh@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'created_at' => $now,
         'updated_at' => $now,
     ]);

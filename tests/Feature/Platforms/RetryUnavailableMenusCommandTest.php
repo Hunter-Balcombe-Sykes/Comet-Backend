@@ -19,7 +19,7 @@ function retryMenuFor(string $handle): Menu
 {
     $user = User::create([
         'handle' => $handle, 'handle_lc' => $handle, 'display_name' => $handle,
-        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => $handle.'@example.com',
     ]);
     $menu = Menu::create(['user_id' => $user->id, 'last_fetched_at' => now()->subHour()]);

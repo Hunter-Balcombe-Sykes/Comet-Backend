@@ -12,7 +12,7 @@ beforeEach(function () {
 });
 
 it('deduplicates rapid double-clicks from the same visitor on the same block', function () {
-    $tenant = createBrandTenant('dedup-visitor');
+    $tenant = createTenant('dedup-visitor');
     $block = createLinkBlockFor($tenant);
     $visitorId = (string) Str::uuid();
     $origin = 'https://dedup-visitor.'.config('partna.public_domain');
@@ -33,7 +33,7 @@ it('deduplicates rapid double-clicks from the same visitor on the same block', f
 });
 
 it('deduplicates rapid double-clicks identified only by session_id', function () {
-    $tenant = createBrandTenant('dedup-session');
+    $tenant = createTenant('dedup-session');
     $block = createLinkBlockFor($tenant);
     $sessionId = (string) Str::uuid();
     $origin = 'https://dedup-session.'.config('partna.public_domain');
@@ -51,7 +51,7 @@ it('deduplicates rapid double-clicks identified only by session_id', function ()
 });
 
 it('allows a second click after the 3-second dedup window has expired', function () {
-    $tenant = createBrandTenant('dedup-window');
+    $tenant = createTenant('dedup-window');
     $block = createLinkBlockFor($tenant);
     $visitorId = (string) Str::uuid();
 
@@ -78,7 +78,7 @@ it('allows a second click after the 3-second dedup window has expired', function
 });
 
 it('records clicks from different visitors on the same block independently', function () {
-    $tenant = createBrandTenant('dedup-multi-visitor');
+    $tenant = createTenant('dedup-multi-visitor');
     $block = createLinkBlockFor($tenant);
     $origin = 'https://dedup-multi-visitor.'.config('partna.public_domain');
 

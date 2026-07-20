@@ -22,7 +22,7 @@ beforeEach(function () {
         handle TEXT,
         display_name TEXT,
         professional_type TEXT,
-        account_type TEXT NULL,
+        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT,
         admin_notes TEXT,
         deleted_at TEXT,

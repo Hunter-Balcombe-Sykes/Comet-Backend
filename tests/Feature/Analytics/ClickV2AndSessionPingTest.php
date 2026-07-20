@@ -13,7 +13,7 @@ beforeEach(function () {
 });
 
 it('records a blockless v2 click with url, platform, product and section labels', function () {
-    $tenant = createBrandTenant('v2-click');
+    $tenant = createTenant('v2-click');
 
     $this->withHeader('Origin', 'https://v2-click.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/clicks', [
@@ -37,7 +37,7 @@ it('records a blockless v2 click with url, platform, product and section labels'
 });
 
 it('rejects a click that has neither block_id nor url', function () {
-    $tenant = createBrandTenant('v2-click-invalid');
+    $tenant = createTenant('v2-click-invalid');
 
     // 422 is the validation rejection (no block_id or url) — origin check is irrelevant.
     $this->withHeader('Origin', 'https://v2-click-invalid.'.config('partna.public_domain'))
@@ -50,7 +50,7 @@ it('rejects a click that has neither block_id nor url', function () {
 });
 
 it('deduplicates rapid v2 clicks on the same destination from the same visitor', function () {
-    $tenant = createBrandTenant('v2-click-dedup');
+    $tenant = createTenant('v2-click-dedup');
     $visitorId = (string) Str::uuid();
     $origin = 'https://v2-click-dedup.'.config('partna.public_domain');
 
@@ -68,7 +68,7 @@ it('deduplicates rapid v2 clicks on the same destination from the same visitor',
 });
 
 it('upserts a session from pings — duration only grows (GREATEST semantics)', function () {
-    $tenant = createBrandTenant('ping-upsert');
+    $tenant = createTenant('ping-upsert');
     $sessionId = (string) Str::uuid();
     $origin = 'https://ping-upsert.'.config('partna.public_domain');
 
@@ -97,8 +97,8 @@ it('records independent session rows when two different sites receive a ping wit
     // PK, failed the WHERE guard, and Postgres skipped BOTH the UPDATE and the
     // blocked INSERT: the second site's heartbeat silently vanished. The fix keys
     // the conflict target on (id, site_id), so each site gets its own row.
-    $siteA = createBrandTenant('cross-site-a');
-    $siteB = createBrandTenant('cross-site-b');
+    $siteA = createTenant('cross-site-a');
+    $siteB = createTenant('cross-site-b');
     $sharedSessionId = (string) Str::uuid();
 
     $this->withHeader('Origin', 'https://cross-site-a.'.config('partna.public_domain'))
@@ -130,7 +130,7 @@ it('records independent session rows when two different sites receive a ping wit
 });
 
 it('silently accepts but does not record bot pings', function () {
-    $tenant = createBrandTenant('ping-bot');
+    $tenant = createTenant('ping-bot');
 
     $this->withHeaders([
         'User-Agent' => 'Googlebot/2.1',

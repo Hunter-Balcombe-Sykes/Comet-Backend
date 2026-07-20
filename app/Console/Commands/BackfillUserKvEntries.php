@@ -6,10 +6,13 @@ use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use Illuminate\Console\Command;
 
-// One-off backfill for individual (user) KV entries in the Cloudflare routing table.
-// All accounts are now individual — the query dispatches SyncSubdomainToKvJob for
+// One-off backfill for {type:"individual"} KV entries in the Cloudflare routing
+// table. "individual" here is the worker_kv_type routing discriminator every
+// account renders under (AccountCapabilities), unrelated to core.users.account_type
+// — which has not permitted 'individual' since migration 20260612120000 (see the
+// inline comment on the query below). The query dispatches SyncSubdomainToKvJob for
 // every user with a handle. Idempotent: the job's ShouldBeUnique lock plus the
-// deterministic KV value ({type:"individual"}) mean re-runs are safe.
+// deterministic KV value mean re-runs are safe.
 //
 // Local-env caveat: this command iterates the DB and dispatches jobs. Run via
 // Laravel Cloud / a host with the correct DB_* config, or invoke via Horizon's
@@ -29,10 +32,14 @@ class BackfillUserKvEntries extends Command
         $dryRun = (bool) $this->option('dry-run');
         $sync = (bool) $this->option('sync');
 
+        // No account_type filter: every account renders an individual sitepage,
+        // and 'individual' has not been a legal value since 20260612120000 — this
+        // filter matched zero rows and made the command a silent no-op at cutover.
+        // Cohort gates (moderation-hidden, unclaimed TTL, expiry) live in
+        // SyncSubdomainToKvJob, the single authority. Do not duplicate them here.
         $query = User::query()
             ->whereNotNull('handle')
-            ->where('handle', '!=', '')
-            ->where('account_type', 'individual');
+            ->where('handle', '!=', '');
 
         $total = (clone $query)->count();
         $this->info("Target cohort: {$total} user(s).");

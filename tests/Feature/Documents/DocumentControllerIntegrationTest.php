@@ -46,7 +46,7 @@ function seedUser(string $type = 'professional'): User
         'display_name' => 'Test Pro',
         'primary_email' => 'p-'.substr($proId, 0, 8).'@example.com',
         'status' => 'active',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
     ]);
 
     DB::connection('pgsql')->table('site.sites')->insert([

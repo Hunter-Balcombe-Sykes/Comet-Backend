@@ -40,7 +40,7 @@ beforeEach(function () {
         last_name TEXT NULL,
         primary_email TEXT NULL,
         phone TEXT NULL,
-        account_type TEXT NULL,
+        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NULL,
         onboarding_step INTEGER NULL,
         country_code TEXT NULL,

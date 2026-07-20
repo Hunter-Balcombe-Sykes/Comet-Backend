@@ -56,7 +56,7 @@ function bulkStatusTest_seedProfessional(): User
         'handle' => 'pro-'.Str::random(6),
         'display_name' => 'Bulk Pro',
         'primary_email' => 'bulk-'.Str::random(6).'@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

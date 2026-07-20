@@ -42,7 +42,7 @@ class DataExportTestCase
             primary_email TEXT,
             public_contact_email TEXT,
             professional_type TEXT DEFAULT "professional",
-            account_type TEXT NULL,
+            account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
             status TEXT DEFAULT "active",
             created_at TEXT,
             updated_at TEXT,

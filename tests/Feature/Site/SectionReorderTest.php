@@ -52,7 +52,7 @@ function callSectionReorder(User $pro, array $ids)
 }
 
 it('reorders sections owned by the authenticated professional', function () {
-    $pro = createBrandTenant('reorder-a');
+    $pro = createTenant('reorder-a');
     $gallery = seedSectionBlock($pro, 'gallery', 0);
     $shop = seedSectionBlock($pro, 'shop', 1);
     $newsletter = seedSectionBlock($pro, 'newsletter', 2);
@@ -65,7 +65,7 @@ it('reorders sections owned by the authenticated professional', function () {
 });
 
 it('preserves sections not in the ids list at the end of the order', function () {
-    $pro = createBrandTenant('reorder-b');
+    $pro = createTenant('reorder-b');
     $gallery = seedSectionBlock($pro, 'gallery', 0);
     $shop = seedSectionBlock($pro, 'shop', 1);
     $newsletter = seedSectionBlock($pro, 'newsletter', 2);
@@ -93,7 +93,7 @@ it('refuses to reorder a section belonging to another professional', function ()
 });
 
 it('ignores link blocks when reordering sections', function () {
-    $pro = createBrandTenant('reorder-c');
+    $pro = createTenant('reorder-c');
     $gallery = seedSectionBlock($pro, 'gallery', 0);
     $shop = seedSectionBlock($pro, 'shop', 1);
 

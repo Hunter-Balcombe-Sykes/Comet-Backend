@@ -18,7 +18,7 @@ it('touches the parent Site updated_at when video variant processing completes',
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId, 'handle' => 'touch-test', 'handle_lc' => 'touch-test',
-        'display_name' => 'Touch Test', 'account_type' => 'individual',
+        'display_name' => 'Touch Test', 'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->subHour()->toDateTimeString(),
         'updated_at' => now()->subHour()->toDateTimeString(),

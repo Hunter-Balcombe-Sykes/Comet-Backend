@@ -41,7 +41,7 @@ beforeEach(function () {
 });
 
 it('GET /me/notifications exposes the type field on each notification item', function () {
-    $pro = createBrandTenant('brand-type-test');
+    $pro = createTenant('brand-type-test');
 
     DB::table('notifications.notifications')->insert([
         'id' => (string) Str::uuid(),
@@ -70,7 +70,7 @@ it('GET /me/notifications exposes the type field on each notification item', fun
 });
 
 it('GET /me/notifications normalizes missing type to Info', function () {
-    $pro = createBrandTenant('brand-type-null');
+    $pro = createTenant('brand-type-null');
 
     DB::table('notifications.notifications')->insert([
         'id' => (string) Str::uuid(),

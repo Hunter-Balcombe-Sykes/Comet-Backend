@@ -25,7 +25,7 @@ function condUser(): User
 {
     return User::create([
         'handle' => 'cond', 'handle_lc' => 'cond', 'display_name' => 'Cond',
-        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'cond@example.com',
     ]);
 }

@@ -18,7 +18,7 @@ function loopUser(): User
         'handle' => 'pilot',
         'handle_lc' => 'pilot',
         'display_name' => 'Pilot',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'pilot@example.com',
     ]);

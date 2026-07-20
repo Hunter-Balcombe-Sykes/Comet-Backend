@@ -39,7 +39,7 @@ function seedUserObserverTouchFixture(): array
         'first_name' => 'Touch',
         'last_name' => 'Test',
         'phone' => '+61400000000',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

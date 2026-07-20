@@ -12,7 +12,7 @@ beforeEach(function () {
 });
 
 it('silently discards clicks with a known bot user agent', function () {
-    $tenant = createBrandTenant('bot-filter-basic');
+    $tenant = createTenant('bot-filter-basic');
     $block = createLinkBlockFor($tenant);
 
     $response = $this->withHeaders([
@@ -28,7 +28,7 @@ it('silently discards clicks with a known bot user agent', function () {
 });
 
 it('silently discards clicks from a headless browser', function () {
-    $tenant = createBrandTenant('bot-filter-headless');
+    $tenant = createTenant('bot-filter-headless');
     $block = createLinkBlockFor($tenant);
 
     $response = $this->withHeaders([
@@ -44,7 +44,7 @@ it('silently discards clicks from a headless browser', function () {
 });
 
 it('silently discards clicks from curl', function () {
-    $tenant = createBrandTenant('bot-filter-curl');
+    $tenant = createTenant('bot-filter-curl');
     $block = createLinkBlockFor($tenant);
 
     $response = $this->withHeaders([
@@ -60,7 +60,7 @@ it('silently discards clicks from curl', function () {
 });
 
 it('records clicks from a legitimate browser user agent', function () {
-    $tenant = createBrandTenant('bot-filter-legit');
+    $tenant = createTenant('bot-filter-legit');
     $block = createLinkBlockFor($tenant);
 
     $response = $this->withHeaders([
@@ -77,7 +77,7 @@ it('records clicks from a legitimate browser user agent', function () {
 });
 
 it('records the click but nulls out a malformed referrer', function () {
-    $tenant = createBrandTenant('bot-filter-referrer');
+    $tenant = createTenant('bot-filter-referrer');
     $block = createLinkBlockFor($tenant);
 
     $response = $this->withHeaders([
@@ -96,7 +96,7 @@ it('records the click but nulls out a malformed referrer', function () {
 });
 
 it('preserves a valid referrer URL', function () {
-    $tenant = createBrandTenant('bot-filter-referrer-valid');
+    $tenant = createTenant('bot-filter-referrer-valid');
     $block = createLinkBlockFor($tenant);
 
     $referrer = 'https://instagram.com/p/abc123';

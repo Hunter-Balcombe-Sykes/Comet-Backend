@@ -286,7 +286,7 @@ All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the A
 | display_name            | string   | no       | Josh Barber                              | Max 80                                                     |
 | bio                     | string   | yes      | Mobile Barber in Darwin                  | Max 2000, also mirrored from bio section when updated      |
 | about                   | object   | no       | `{ "credentials": [...], "experience": [...] }` | Structured about-me content. Empty state is `{}`. |
-| account_type            | string   | no       | individual                               | Always `individual`                                        |
+| account_type            | string   | no       | partna                                   | `partna` (default) or `business`                            |
 | primary_email           | email    | no       | josh@example.com                         | Max 255                                                    |
 | phone                   | string   | no       | +6140000000                              | Max 40                                                     |
 | first_name              | string   | no       | Josh                                     | Max 80                                                     |

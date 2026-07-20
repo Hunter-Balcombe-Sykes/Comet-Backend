@@ -107,7 +107,7 @@ it('accepts an existing user_id (targeted notification)', function () {
         'handle' => 'notif-target-'.Str::random(4),
         'display_name' => 'Target User',
         'primary_email' => 'target-'.Str::random(4).'@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

@@ -33,7 +33,7 @@ function seedServiceBustPro(): array
         'handle' => 'svc-bust-pro',
         'handle_lc' => 'svc-bust-pro',
         'display_name' => 'Svc Bust Pro',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
     ]);
 
