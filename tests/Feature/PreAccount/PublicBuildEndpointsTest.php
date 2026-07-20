@@ -44,16 +44,29 @@ it('403s with WAITLIST_ONLY when the waitlist gate is on (moved from bootstrap)'
         ->assertStatus(403)->assertJsonPath('code', 'WAITLIST_ONLY');
 });
 
-it('polls a build through its lifecycle and exposes subdomain only when ready', function () {
+it('polls a build through its lifecycle: subdomain available immediately (claim needs it before ready), site_url only once ready', function () {
     $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe']);
     $build = PreAccountBuild::firstOrFail();
+    $subdomain = $build->user->site->subdomain;
 
+    // Subdomain exists from creation (SiteProvisioningService::createSiteWithRetry
+    // runs synchronously in requestBuild(), long before build_state reaches
+    // 'ready') and is guessable-by-design per spec — no reason to withhold it.
+    // The frontend needs it here, pre-ready, to call POST /api/claim (Decision
+    // A: claim no longer waits for ready). site_url stays ready-gated — that's
+    // the "go visit a real site" signal, appropriately withheld until there's
+    // actual content.
     $this->getJson("/api/public/signup/builds/{$build->id}")
-        ->assertOk()->assertJsonPath('build_state', 'pending')->assertJsonMissingPath('subdomain');
+        ->assertOk()
+        ->assertJsonPath('build_state', 'pending')
+        ->assertJsonPath('subdomain', $subdomain)
+        ->assertJsonMissingPath('site_url');
 
     $build->update(['build_state' => PreAccountBuild::STATE_READY]);
     $this->getJson("/api/public/signup/builds/{$build->id}")
-        ->assertOk()->assertJsonPath('subdomain', $build->user->site->subdomain);
+        ->assertOk()
+        ->assertJsonPath('subdomain', $subdomain)
+        ->assertJsonPath('site_url', fn ($url) => is_string($url) && str_contains($url, $subdomain));
 });
 
 it('stays reachable and correct after the build has been claimed — no new authenticated endpoint needed', function () {
