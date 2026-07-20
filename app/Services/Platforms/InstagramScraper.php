@@ -35,7 +35,7 @@ class InstagramScraper extends PlatformScraper
                 ->timeout(110)
                 ->post(
                     'https://api.apify.com/v2/acts/'.config('partna.instagram.actor').'/run-sync-get-dataset-items',
-                    ['usernames' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
+                    ['profiles' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
                 );
         } catch (Throwable $e) {
             report($e);
