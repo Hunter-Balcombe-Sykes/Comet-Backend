@@ -45,17 +45,19 @@ every draft rather than the scan reading nothing.
 ## Progress
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
-- P1 High: 12 of 13 complete *(14 originally; WHK-1 re-tiered to P2 — see S3)*
+- P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
 - P2 Medium: 5 of 69 complete
-- P3 Low: 4 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 3 complete.*
+- P3 Low: 5 of 46 complete
+- *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
+
+**All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
 > **⚠️ The "Findings at a glance" table above is wrong as generated.** It claims P1 13 / P2 62 /
 > P3 51. Counting the actual finding lines gives **P0 2 / P1 14 / P2 68 / P3 44** — both sum to 128,
 > but the per-tier split does not match. The counts tracked here are the line-level ones, adjusted
 > for the three re-tiers recorded below.
 
-**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ (2026-07-20)
+**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -96,6 +98,11 @@ from clean.**
   - **What to do:** fold into **B19**. This is a *strictly stronger* instance of what `migrations-early/MIG-1` (S1) complains about — `site.blocks` IS on the repo's own `HOT_TABLES` list (`scripts/guard-no-unsafe-migrations.php:34`), whereas `site.site_media` and `site.enquiries` are not. Found while planning S1/S2; `migrations-early`'s scope never opened this file.
   - **Why the audit missed it:** the file sits outside the `migrations-early` scope group, and the guard script has no `DROP INDEX` check of any kind — so nothing in either the automated or the audited path was looking at it.
 
+- [ ] **`discovered/DISC-4`** · P3 · S — No test exercises the real `ffprobe` invocation chain that video-upload validation depends on
+  - **Where:** `app/Services/Media/VideoVariantService.php:75-79` (`probe()`) · every video test mocks `VideoVariantService` wholesale
+  - **What to do:** point `config('partna.ffprobe_binary')` at a stub script (one exiting non-zero, one emitting crafted bad JSON) so the real `Process` → `\RuntimeException` → `InvalidVideoFileException` → 422 chain is exercised without mocking the class.
+  - **Why it matters:** `requests-resources/SEC-2` was closed *because* this control is strictly stronger than the byte-sniff the audit asked for. But `MediaUploadFailureHandlingTest`, `MediaUploadBreadcrumbTest`, `GalleryMixedReorderTest`, `VideoUploadsFlagTest` and `MediaJobReliabilityTest` all `Mockery::mock(VideoVariantService::class)`, so **the control our closure relies on is verified by no automated test.** Its fail-closed behaviour was confirmed by manual experiment during review, not by CI. Someone narrowing the catch type, changing the ffprobe invocation, or a build script silently ceasing to install the binary would not be caught.
+  - Surfaced during B4 review, not by the original audit.
 - [ ] **`discovered/DISC-3`** · P3 · M — Three shared SQLite test stubs still declare columns that production dropped
   - **Where:** `tests/Pest.php:489-493` (`setupSitesTable()` — `hero_title`, `hero_subtitle`, `primary_button_text`, `primary_button_url`, `bio_text`, all dropped by `20260705120002_drop_dead_profile_columns_tables.sql`) · `tests/Pest.php:1189-1198` (`setupServicesTable()` — all 10 dropped `square_*`/`fresha_*` columns) · `tests/Feature/Security/TenantIsolation/ServicesIsolationTest.php:18` (`square_variation_id`, dropped pre-baseline)
   - **What to do:** own cleanup unit, NOT folded into an audit bundle. `setupSitesTable()` is used by **191 test files**, so the blast radius warrants its own plan and review.
@@ -325,9 +332,19 @@ genuinely doesn't and the security lens framed the gap as SSRF-adjacent. Grep th
 for `finfo`/magic-byte checks **before** implementing. If validation already exists downstream,
 close SEC-1 as `no_change_needed` and keep only SEC-2.
 
-- [ ] **`requests-resources/SEC-1`** · P1 · S — Document upload has no downstream content validation at any layer → `sources/requests-resources.md`
+- [x] **`requests-resources/SEC-1`** · P1 · S — Document upload has no downstream content validation at any layer → `sources/requests-resources.md`
   - `app/Http/Requests/Api/User/Documents/UploadDocumentRequest.php:14-19` — add a document MIME whitelist + byte-sniff assertion to `SniffsFileMimeType`, called via `withValidator()`.
-- [ ] **`requests-resources/SEC-2`** · P3 · S — Video upload path skips the Form-Request magic-byte check the image path already has → `sources/requests-resources.md`
+  - **`no_change_needed` — premise false.** `UserDocumentController::store():55-60` already byte-sniffs with `finfo(FILEINFO_MIME_TYPE)` against `['application/pdf','image/jpeg','image/png']` and returns **415** on mismatch. It runs **before** the `DB::transaction()` (:90) and before the R2 `Storage::put()` (:148), so a rejected file is never persisted. The stored extension is derived from the *sniffed* MIME (:82-86), never the client filename.
+  - **Verified as a genuinely pre-existing control, not a same-session fix:** `git blame` dates the check to `2134e544` (2026-04-22), five weeks before this branch, and `git diff origin/development` shows zero changes to that controller here.
+  - **No bypass exists.** Only two files construct a `SiteMedia` row anywhere in `app/`. `MediaUploadService`'s `$pool` is constrained by `Rule::in(config('partna.upload_pools'))`, and `config/partna.php:998` hardcodes `['gallery','content']` — not env-overridable, does not include `documents`. No staff, internal, pre-account, import or job path writes the documents pool.
+  - **Polyglot risk assessed and held:** a PNG-header polyglot would pass a header-bytes sniff, but `PublicDocumentDownloadController:45-51` forces `Content-Disposition: attachment` on every public document URL, defeating inline content-type confusion. The one non-forcing URL (`DocumentMediaResource::preview_url`) never appears in the public payload.
+  - Existing coverage is genuine, not vacuous: `DocumentControllerIntegrationTest:163-174` uploads PNG bytes named `fake.pdf` with a PDF `Content-Type` and asserts 415.
+- [x] **`requests-resources/SEC-2`** · P3 · S — Video upload path skips the Form-Request magic-byte check the image path already has → `sources/requests-resources.md`
+  - **`no_change_needed` — premise literally true but the control is redundant and weaker than what already runs.** `MediaUploadService::upload():100` calls `VideoVariantService::probeAndValidate()` synchronously **before** `createMediaRow()` — real `ffprobe`, requiring a decodable stream, codec allowlist (`h264`/`hevc`/`vp9`), resolution and duration ceilings. That is content *parsing*, strictly stronger than a `finfo` header sniff, and it runs earlier in the pipeline than the check the audit wanted to add.
+  - **The fail-open scenario was tested, not assumed.** With `ffprobe` genuinely absent locally, `Process::run()` returns without throwing (exit 127), `isSuccessful()` is false, and `probe():75-79` throws `\RuntimeException` → caught → 422. **Fails closed.** Production installs real binaries via `deploy/ffmpeg.sh`.
+  - Adding a shallow Form-Request byte-sniff would risk rejecting valid `.mov`/`.webm` uploads (which `finfo` can report as `application/octet-stream`) for no verified benefit.
+  - Video upload is opt-in — `config('partna.features')` defines no `video_uploads` key, so the flag resolves false absent a DB row, consistent with P3.
+  - ⚠️ See `discovered/DISC-4`: the control this closure relies on is covered by no automated test.
 
 ### Bundle B5 — Policy gate sweep: user API · **P2** · Effort S ×10
 
