@@ -59,11 +59,24 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             return;
         }
         $baseUrl = $response['finalUrl'] ?? $this->bioPageUrl;
+        $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
         $seenPlatforms = [];
         $findings = [];
         $unmatched = [];
         foreach ($harvester->allOutboundLinks($html, $baseUrl) as $url) {
+            // A curated bio-link page (Linktree et al) is itself a platform with
+            // its own site-wide chrome — pricing, blog, help centre — mixed into
+            // the same anchor soup as the 2-3 links the account owner actually
+            // put there. Confirmed live: every chrome link shares the bio page's
+            // own host, every real content link is on a different host. Without
+            // this, the "nothing vanishes" fallback below would seed every one
+            // of those chrome links as a custom link on the connecting user's
+            // site instead of just their own.
+            if ($ownHost !== '' && strtolower((string) parse_url($url, PHP_URL_HOST)) === $ownHost) {
+                continue;
+            }
+
             $classified = $harvester->classify($url);
             if ($classified === null) {
                 $seeder->seed($user, $url);
