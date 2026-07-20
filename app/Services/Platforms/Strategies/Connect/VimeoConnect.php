@@ -3,13 +3,13 @@
 namespace App\Services\Platforms\Strategies\Connect;
 
 use App\Services\Platforms\Strategies\Contracts\ConnectResult;
-use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
 use App\Services\Platforms\VimeoApi;
 
 // Vimeo connect: profile/channel URL → keyless Simple API provides name,
 // avatar, latest uploads. apiPath is the canonical account identity (urls vary
 // per input form) — passed as the accountKey. Moved verbatim from VimeoController.
-class VimeoConnect implements ConnectStrategy
+class VimeoConnect implements DeferredConnect
 {
     private const MAX_ITEMS = 12;
 
@@ -36,6 +36,28 @@ class VimeoConnect implements ConnectStrategy
             'link' => $profile['link'] ?? $source['link'],
             'latest' => $videos[0] ?? null,
             'items' => array_slice($videos, 0, self::MAX_ITEMS),
+            // Warm the picker's private snapshot at connect time (HighlightsPicker::
+            // SNAPSHOT_KEY) so the picker is fast on the very first open.
+            'recent' => $videos,
+        ], $source['apiPath']);
+    }
+
+    // DeferredConnect — no network. Writes exactly what VimeoFetch reads
+    // (apiPath), plus url/link derived purely from parseSource() (resolve()
+    // prefers the fetched profile's own link when present; here there is none
+    // yet, so the parsed link is the placeholder — VimeoFetch never touches
+    // url/link, so this value stands until a reconnect re-derives it).
+    public function identify(string $input): ConnectResult
+    {
+        $source = $this->vimeo->parseSource($input);
+        if (! $source) {
+            return ConnectResult::fail(); // same as resolve() — descriptor's parse-fail message
+        }
+
+        return ConnectResult::ok([
+            'url' => $source['link'],
+            'apiPath' => $source['apiPath'],
+            'link' => $source['link'],
         ], $source['apiPath']);
     }
 }

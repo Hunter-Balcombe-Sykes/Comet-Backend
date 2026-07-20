@@ -143,6 +143,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Strava's reads now go through FeedPayload too (it gained location/members).
             $r->get('strava')->connect(fn () => new StravaConnect(app(StravaClubScraper::class)), 'Enter your Strava club URL (strava.com/clubs/yourclub).');
             $r->get('strava')->payload(FeedPayload::class);
+            // Deferred-connect seam (Phase 2, W4) — StravaConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('strava')->deferredConnect()->connectFetchError('Could not read that Strava club page.');
 
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud'] as $key => $label) {
@@ -166,6 +170,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Connect strategies (FOUND-24) — parse-fail messages are the frozen
             // 422 contract, copied verbatim from the deleted controllers.
             $r->get('spotify')->connect(fn () => new SpotifyConnect(app(OEmbedService::class)), 'Enter a Spotify link (open.spotify.com/artist/...).');
+            // Deferred-connect seam (Phase 2, W4) — SpotifyConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('spotify')->deferredConnect()->connectFetchError('Could not load that Spotify link.');
             $r->get('soundcloud')->connect(fn () => new SoundcloudConnect(app(OEmbedService::class)), 'Enter your SoundCloud link (soundcloud.com/yourname).');
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
@@ -181,6 +189,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // 422 contract.
             $r->get('youtube')->connect(fn () => new YoutubeConnect(app(YoutubeScraper::class)), 'Enter your YouTube channel.');
             $r->get('youtube')->highlights(fn () => new YoutubeHighlights(app(YoutubeScraper::class)));
+            // Deferred-connect seam (Phase 2, W4) — YoutubeConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('youtube')->deferredConnect()->connectFetchError('Could not find that YouTube channel or its latest video.');
             $r->register(PD::make('youtube-music')->label('YouTube Music')->category(Cat::Music)->resource(YoutubeMusicConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -192,6 +204,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // contract.
             $r->get('youtube-music')->connect(fn () => new YoutubeMusicConnect(app(YoutubeScraper::class)), 'Enter your YouTube Music artist URL (music.youtube.com/channel/…) or your channel @handle.');
             $r->get('youtube-music')->highlights(fn () => new YoutubeMusicHighlights(app(YoutubeScraper::class)));
+            // Deferred-connect seam (Phase 2, W4) — YoutubeMusicConnect
+            // implements DeferredConnect. Message copied verbatim from
+            // resolve()'s fetch-stage failure.
+            $r->get('youtube-music')->deferredConnect()->connectFetchError('Could not load releases for that channel.');
             $r->register(PD::make('vimeo')->label('Vimeo')->category(Cat::Content)->resource(VimeoConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -202,6 +218,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // the deleted VimeoController; parse-fail message is the frozen 422 contract.
             $r->get('vimeo')->connect(fn () => new VimeoConnect(app(VimeoApi::class)), 'Enter your Vimeo profile or channel URL (vimeo.com/yourname).');
             $r->get('vimeo')->highlights(fn () => new VimeoHighlights(app(VimeoApi::class)));
+            // Deferred-connect seam (Phase 2, W4) — VimeoConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('vimeo')->deferredConnect()->connectFetchError('Could not find that Vimeo profile.');
             $r->register(PD::make('twitch')->label('Twitch')->category(Cat::Streaming)->resource(TwitchConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 6). Consumed by Plan 6's registry-driven refresher.
@@ -211,6 +231,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Connect strategy (FOUND-24) — parse-fail message is the frozen 422
             // contract, copied verbatim from the deleted TwitchController.
             $r->get('twitch')->connect(fn () => new TwitchConnect(app(TwitchScraper::class)), 'Enter your Twitch channel (twitch.tv/yourname).');
+            // Deferred-connect seam (Phase 2, W4) — TwitchConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('twitch')->deferredConnect()->connectFetchError('Could not find that Twitch channel.');
             $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 7). Consumed by Plan 6's registry-driven refresher.
@@ -220,6 +244,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Connect strategy (FOUND-24) — parse-fail message is the frozen 422
             // contract, copied verbatim from the deleted PinterestController.
             $r->get('pinterest')->connect(fn () => new PinterestConnect(app(PinterestScraper::class)), 'Enter your Pinterest profile (pinterest.com/yourname).');
+            // Deferred-connect seam (Phase 2, W4) — PinterestConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('pinterest')->deferredConnect()->connectFetchError('Could not find that Pinterest profile.');
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -230,6 +258,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // moved verbatim from the deleted BandcampController.
             $r->get('bandcamp')->connect(fn () => new BandcampConnect(app(BandcampScraper::class)), 'Enter your Bandcamp page URL (yourname.bandcamp.com).');
             $r->get('bandcamp')->highlights(fn () => new BandcampHighlights(app(BandcampScraper::class)));
+            // Deferred-connect seam (Phase 2, W4) — BandcampConnect implements
+            // DeferredConnect. Message copied verbatim from resolve()'s
+            // fetch-stage failure.
+            $r->get('bandcamp')->deferredConnect()->connectFetchError('Could not find releases on that Bandcamp page.');
             $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.

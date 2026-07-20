@@ -287,11 +287,18 @@ Ranked by impact:
 - **Request-scoped state:** no job reads `request()`, `Auth::`, `session()`, or `auth()->` in
   `handle()` or its constructor.
 - **Inline job invocation:** no `(new SomeJob(...))->handle()` pattern exists anywhere.
-- **Queue coverage:** all 13 dispatched queue names — `default`, `images`, `scraping`,
-  `platform_refresh`, `cache-warm`, `cloudflare`, `videos`, `gdpr`, `notifications`, `mail`,
-  `analytics`, `moderation_high`, `streaming` — have a Horizon supervisor in `defaults` and in
-  all three `environments` blocks. Asserted generically by `HorizonQueueCoverageTest`, so it
-  cannot drift.
+- **Queue coverage:** all 14 dispatched queue names — `default`, `images`, `scraping`,
+  `platform_refresh`, `platform_connect`, `cache-warm`, `cloudflare`, `videos`, `gdpr`,
+  `notifications`, `mail`, `analytics`, `moderation_high`, `streaming` — have a Horizon
+  supervisor in `defaults` and in all three `environments` blocks. **Verified by hand, and it
+  CAN drift** — corrected 2026-07-21. An earlier revision of this line claimed
+  `HorizonQueueCoverageTest` asserted this generically. It does not: that file is a
+  hand-enumerated set of per-queue `it()` blocks plus a hardcoded `$jobs` array, so a queue
+  name with no supervisor passes CI green. That matters more here than a normal doc error,
+  because the failure it hides is the one §B1 calls out as strictly worse than running sync —
+  jobs enqueue to a lane nobody drains, a silent unbounded backlog rather than inline
+  execution. **When you add a queue, add its supervisor by hand and check it; nothing will
+  tell you.**
 - **`redis_video`:** correctly reserved for `ProcessVideoVariantsJob` and
   `DeleteMediaArtifactsJob`, both calling `onConnection()` explicitly rather than only
   `onQueue()`. `retry_after` 3600s covers long ffmpeg encodes; dedicated `supervisor-videos`

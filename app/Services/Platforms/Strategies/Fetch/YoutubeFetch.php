@@ -35,6 +35,10 @@ final readonly class YoutubeFetch implements FetchStrategy
             'description' => $latest['description'],
             'link' => $latest['link'],
             'thumbnail' => $latest['thumbnail'],
+            // Private picker snapshot (HighlightsPicker::SNAPSHOT_KEY) — up to 15,
+            // matching YoutubeHighlights' picker width. Refreshed every 12h so the
+            // picker rarely needs a live re-fetch.
+            'recent' => array_slice($videos, 0, 15),
         ];
     }
 }

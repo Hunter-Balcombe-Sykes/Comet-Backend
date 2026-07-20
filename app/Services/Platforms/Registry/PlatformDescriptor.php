@@ -44,6 +44,22 @@ class PlatformDescriptor
 
     private ?string $connectErrorMessage = null;
 
+    /**
+     * Whether this platform's connect strategy implements DeferredConnect and
+     * may run its content fetch on the queue (Phase 2 of
+     * docs/superpowers/plans/2026-07-20-platform-connect-async.md). A DECLARED
+     * flag, deliberately NEVER derived via `connectStrategy() instanceof
+     * DeferredConnect` — see deferredConnect()'s docblock for why.
+     */
+    private bool $deferredConnect = false;
+
+    /**
+     * The user-facing message for a DEFERRED content-fetch failure (as opposed
+     * to connectErrorMessage(), which is the parse-fail message). See
+     * connectFetchError()'s docblock.
+     */
+    private ?string $connectFetchErrorMessage = null;
+
     private ?string $connectField = null;
 
     /** @var array<int, mixed> */
@@ -276,6 +292,54 @@ class PlatformDescriptor
     public function connectErrorMessage(): ?string
     {
         return $this->connectErrorMessage;
+    }
+
+    /**
+     * Declare that this platform's connect strategy implements DeferredConnect
+     * and may run its content fetch on the queue. BOOT-SAFE BY CONSTRUCTION: a
+     * route loop iterating the registry at boot to decide whether to emit a
+     * connect-status route CANNOT call connectStrategy() to find out — that
+     * resolves the lazy factory and bakes a real scraper into the descriptor
+     * before any test can mock it (the same reason hasHighlights() is a flag
+     * rather than a null-check/instanceof on the resolved strategy — see that
+     * method's docblock). This is a declared flag, never an `instanceof`.
+     *
+     * RegistryConnectCoverageTest asserts flag ⇔ instanceof for every
+     * descriptor, so a descriptor can't declare deferredConnect() without its
+     * strategy actually implementing the interface (or vice versa).
+     */
+    public function deferredConnect(bool $enabled = true): self
+    {
+        $this->deferredConnect = $enabled;
+
+        return $this;
+    }
+
+    /** Boot-safe: never resolves connectStrategy() — see deferredConnect(). */
+    public function supportsDeferredConnect(): bool
+    {
+        return $this->deferredConnect;
+    }
+
+    /**
+     * The user-facing message shown when the DEFERRED content fetch fails —
+     * the exact string this platform's resolve() returns today for the
+     * equivalent fetch-stage failure. Under async connect that message can no
+     * longer be delivered as a 422 response body (the request already returned
+     * 202 before the fetch ran), so it is stored here and surfaced verbatim by
+     * the eventual connect-status endpoint. Contract-preserving by
+     * construction: same words, different transport.
+     */
+    public function connectFetchError(string $message): self
+    {
+        $this->connectFetchErrorMessage = $message;
+
+        return $this;
+    }
+
+    public function connectFetchErrorMessage(): ?string
+    {
+        return $this->connectFetchErrorMessage;
     }
 
     /**

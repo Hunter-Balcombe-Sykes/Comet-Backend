@@ -1255,6 +1255,11 @@ return [
         'scraping' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
         // Platform refresh fan-out (RefreshConnectionJob, dispatched by integrations:refresh).
         'platform_refresh' => env('PARTNA_QUEUE_PLATFORM_REFRESH', 'platform_refresh'),
+        // Deferred-connect content fetch (ConnectFetchJob — Unit 11 W5 / LIFE-13..20).
+        // Isolated from 'scraping': that lane carries ~110s Apify Instagram jobs on
+        // two workers, and connects are interactive (a user is watching the modal) —
+        // sharing the lane would put a user-visible spinner behind an Apify backlog.
+        'platform_connect' => env('PARTNA_QUEUE_PLATFORM_CONNECT', 'platform_connect'),
     ],
 
     // Platform connection CONNECT-time throttle (Seam 5 / strategy §5 step 4). The
@@ -1272,6 +1277,17 @@ return [
             'default' => (int) env('PARTNA_CONNECT_RATE_DEFAULT', 20),
             // e.g. 'menu' => 10,
         ],
+
+        // Deferred-connect rollout flag (Unit 11 W6 / LIFE-13..20 Phase 2,
+        // docs/superpowers/plans/2026-07-20-platform-connect-async.md §2f).
+        // Comma-separated platform slugs — ConnectResolver takes the async
+        // (identify()+ConnectFetchJob) path for a platform ONLY when it is
+        // named here AND the platform's descriptor declares
+        // supportsDeferredConnect(). Default '' → array_filter(explode(...))
+        // yields [] → async is off everywhere on merge; every connect()
+        // response stays byte-identical. Per-platform, per-environment via
+        // env, no deploy — the same lever is the kill switch.
+        'deferred' => array_filter(explode(',', (string) env('PARTNA_CONNECT_DEFERRED', ''))),
     ],
 
     // Platform connection refresh (SCALE-1). The dispatcher (integrations:refresh)
@@ -1282,6 +1298,23 @@ return [
         // Default re-fetch cadence when a platform declares no descriptor override.
         // 86400 preserves the previous daily cadence.
         'default_ttl_seconds' => (int) env('PARTNA_REFRESH_DEFAULT_TTL', 86400),
+
+        // Highlights picker snapshot freshness (LIFE-21..24 / Phase 1b). The picker
+        // (HighlightsPicker) reads a private `recent` snapshot off the payload
+        // instead of live-scraping the vendor on every modal open; this is how old
+        // that snapshot is allowed to be before the picker falls back to a live
+        // fetch. Deliberately 2x the 12h refreshEvery() cadence shared by
+        // youtube/vimeo/youtube-music/bandcamp, so a healthy connection's snapshot
+        // is always fresh by the time anyone opens the picker, and only TWO
+        // consecutive missed/failed refreshes let it go stale. Lives here (not a
+        // third top-level 'platforms' config array — this file already has two,
+        // limits.platforms above (per-platform Apify cost knobs) and
+        // menu.platforms above that (the menu-scraper registry); neither is a
+        // fit for a scalar TTL) because it's a refresh-cadence concern through
+        // and through. 0 makes every open fail the freshness check and go
+        // straight to a live fetch (the stored snapshot still backstops a
+        // failed live fetch — see HighlightsPicker::items()).
+        'highlights_snapshot_ttl' => (int) env('PARTNA_HIGHLIGHTS_SNAPSHOT_TTL', 24 * 3600),
 
         // Circuit breaker: skip connections at/above this many consecutive failures
         // (a dead account stops consuming refresh capacity). Reset to 0 on any

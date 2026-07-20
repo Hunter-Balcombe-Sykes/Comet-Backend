@@ -49,6 +49,8 @@ it('YoutubeFetch produces the same success payload as the refresher (preserves h
     expect($result)->toEqual($refresherRow->fresh()->payload);
     expect($result['highlights'])->toBe([['videoId' => 'h1']]); // curated highlights preserved
     expect($result['latest'])->toBe($videos[0]);
+    // Private picker snapshot (LIFE-21..24): up to 15, matching the picker width.
+    expect($result['recent'])->toBe(array_slice($videos, 0, 15));
 });
 
 it('YoutubeFetch throws FetchShapeException when handle is missing (refresher status=error)', function () {
@@ -80,7 +82,9 @@ it('YoutubeMusicFetch produces the same success payload as the refresher', funct
         ['videoId' => 'v1', 'name' => 'Track 1', 'thumbnail' => 't1', 'link' => 'l1', 'date' => '2026-03-03T00:00:00+00:00'],
         ['videoId' => 'v2', 'name' => 'Track 2', 'thumbnail' => 't2', 'link' => 'l2', 'date' => '2026-02-02T00:00:00+00:00'],
     ];
-    $this->mock(YoutubeScraper::class, fn ($m) => $m->shouldReceive('fetchUploadsFeed')->with('UC123', 12, Mockery::any())
+    // 15, not 12 — YoutubeMusicFetch widened its uploads-feed pull to 15 to
+    // match the `recent` picker-snapshot width it now also stores.
+    $this->mock(YoutubeScraper::class, fn ($m) => $m->shouldReceive('fetchUploadsFeed')->with('UC123', 15, Mockery::any())
         ->andReturn(['title' => 'Artist - Topic', 'videos' => $videos]));
 
     $stored = ['url' => 'https://music.youtube.com/channel/UC123', 'channelId' => 'UC123', 'name' => 'Old', 'highlights' => [['itemId' => 'h1']]];
@@ -94,6 +98,8 @@ it('YoutubeMusicFetch produces the same success payload as the refresher', funct
     expect($result)->toEqual($refresherRow->fresh()->payload);
     expect($result['name'])->toBe('Artist'); // "- Topic" stripped
     expect($result['items'])->toBe(array_slice(YoutubeMusicItems::map($videos), 0, 12));
+    // Private picker snapshot: the full (up-to-15) feed, not the 12-item public slice.
+    expect($result['recent'])->toBe(YoutubeMusicItems::map($videos));
 });
 
 it('YoutubeMusicFetch throws FetchShapeException when channelId is missing', function () {
@@ -134,6 +140,8 @@ it('VimeoFetch produces the same success payload as the refresher', function () 
     expect($result)->toEqual($refresherRow->fresh()->payload);
     expect($result['items'])->toHaveCount(12); // sliced
     expect($result['latest'])->toBe($videos[0]);
+    // Private picker snapshot: unsliced (Vimeo's picker wants more than 12).
+    expect($result['recent'])->toBe($videos);
 });
 
 it('VimeoFetch throws FetchShapeException when apiPath is missing', function () {
@@ -177,6 +185,8 @@ it('BandcampFetch produces the same success payload as the refresher (preserves 
     expect($result['highlights'])->toBe([['itemId' => 'h1']]); // curated highlights preserved
     // Full releases grid captured from the same fetch (show_all_releases source).
     expect($result['releases'])->toBe($profile['items']);
+    // Private picker snapshot: up to 15 (here just the 1 seeded release).
+    expect($result['recent'])->toBe(array_slice($profile['items'], 0, 15));
 });
 
 it('BandcampFetch freezes the stored payload (quiet ok) when auto_sync_latest is off', function () {

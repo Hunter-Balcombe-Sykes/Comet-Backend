@@ -47,6 +47,11 @@ class VimeoHighlights implements HighlightsStrategy
             ->values()
             ->all();
 
+        // Keep the picker's private snapshot (HighlightsPicker::SNAPSHOT_KEY)
+        // warm with the items this save was handed, so the picker stays fast
+        // even between scheduled refreshes.
+        $selection['recent'] = $items;
+
         return $selection;
     }
 
