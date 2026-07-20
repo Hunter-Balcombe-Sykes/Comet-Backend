@@ -5,12 +5,12 @@ namespace App\Services\Platforms\Strategies\Connect;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\Concerns\RefreshesLatestTile;
 use App\Services\Platforms\Strategies\Contracts\ConnectResult;
-use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
 
 // Bandcamp connect: artist-page URL → latest release tile (price-enriched) +
 // artist profile. accountKey is the canonical page origin. Moved verbatim from
 // BandcampController.
-class BandcampConnect implements ConnectStrategy
+class BandcampConnect implements DeferredConnect
 {
     use RefreshesLatestTile;
 
@@ -53,5 +53,18 @@ class BandcampConnect implements ConnectStrategy
         $selection['thumbnail'] ??= $profile['thumbnail'];
 
         return ConnectResult::ok($selection, $origin);
+    }
+
+    // DeferredConnect — no network. Writes exactly what BandcampFetch reads
+    // (url); accountKey mirrors resolve()'s so the eventual pending row dedupes
+    // onto the same canonical_key as a synchronous connect would.
+    public function identify(string $input): ConnectResult
+    {
+        $origin = $this->scraper->normalizeOrigin($input);
+        if (! $origin) {
+            return ConnectResult::fail(); // same as resolve() — descriptor's parse-fail message
+        }
+
+        return ConnectResult::ok(['url' => $origin], $origin);
     }
 }

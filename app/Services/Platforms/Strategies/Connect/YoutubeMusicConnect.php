@@ -3,7 +3,7 @@
 namespace App\Services\Platforms\Strategies\Connect;
 
 use App\Services\Platforms\Strategies\Contracts\ConnectResult;
-use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
 use App\Services\Platforms\YoutubeMusicItems;
 use App\Services\Platforms\YoutubeScraper;
 
@@ -11,7 +11,7 @@ use App\Services\Platforms\YoutubeScraper;
 // RSS provides the releases, rewritten onto music.youtube.com. channelId is the
 // canonical artist identity — passed as the accountKey. Moved verbatim from
 // YoutubeMusicController.
-class YoutubeMusicConnect implements ConnectStrategy
+class YoutubeMusicConnect implements DeferredConnect
 {
     // PUBLIC render width (the `items` grid served to /selection, /accounts) —
     // NOT the picker/fetch width. Kept separate from the 15 below so widening
@@ -52,6 +52,30 @@ class YoutubeMusicConnect implements ConnectStrategy
             // SNAPSHOT_KEY) so the picker is fast on the very first open, at the
             // same width the Fetch/Highlights writers use.
             'recent' => $items,
+        ], $channelId);
+    }
+
+    // DeferredConnect — DELIBERATE EXCEPTION to "no network": channelIdFrom()
+    // is pure only for a direct /channel/UC… input; an @handle form costs one
+    // page fetch to resolve. Kept inline (not deferred to the job) because that
+    // fetch IS the validation for the @handle form — deferring it would accept
+    // any string and write a channelId-less row that YoutubeMusicFetch would
+    // throw FetchShapeException on. Still halves the connect's total fetch
+    // count (2 -> 1) and is bounded by ConnectResolver's wall-clock budget
+    // (Phase 1). Writes exactly what YoutubeMusicFetch reads (channelId), plus
+    // the deterministic url.
+    public function identify(string $input): ConnectResult
+    {
+        $channelId = $this->scraper->channelIdFrom($input);
+        if (! $channelId) {
+            return ConnectResult::fail(); // same as resolve() — descriptor's parse-fail message
+        }
+        $url = 'https://music.youtube.com/channel/'.$channelId;
+
+        return ConnectResult::ok([
+            'url' => $url,
+            'channelId' => $channelId,
+            'link' => $url,
         ], $channelId);
     }
 }
