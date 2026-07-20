@@ -183,7 +183,8 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
                 'user_id' => $this->userId,
                 'place_id' => $this->placeId,
                 'apify_attempted' => $apifyAttempted,
-                'apify_returned_null' => $enrichment === null,
+                // Constant true by construction: we're inside the $enrichment === null branch above.
+                'apify_returned_null' => true,
                 'apify_result_reused' => $reusedCachedResult,
                 'apify_orphaned_run' => $orphanedRun,
                 'harvest_empty' => true,
