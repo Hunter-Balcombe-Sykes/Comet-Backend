@@ -215,7 +215,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 3 complete
-- P2 Medium: 0 of 25 complete
+- P2 Medium: 2 of 25 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -543,7 +543,7 @@
         }
         ```
 
-- [ ] **LIFE-25** · P2 — `YoutubeScraper::resolveChannelId()` returns null on every failure path with zero logging
+- [x] **LIFE-25** · P2 — `YoutubeScraper::resolveChannelId()` returns null on every failure path with zero logging
     - **Where:** app/Services/Platforms/YoutubeScraper.php:158-172
     - **Affects:** Every YouTube connect/refresh that depends on handle-to-channel-id resolution — a sustained YouTube-side block or layout change silently degrades every affected user's YouTube integration with no operational signal.
     - **Effort:** S (~0.5–1h)
@@ -566,7 +566,7 @@
             }
         ```
 
-- [ ] **LIFE-26** · P2 — `YoutubeScraper::fetchUploadsFeed()` returns null on three distinct failure paths with zero logging
+- [x] **LIFE-26** · P2 — `YoutubeScraper::fetchUploadsFeed()` returns null on three distinct failure paths with zero logging
     - **Where:** app/Services/Platforms/YoutubeScraper.php:76-97
     - **Affects:** Periodic refresh keeping a user's YouTube/YouTube Music highlights current — a silent feed failure leaves the sitepage showing stale videos indefinitely with no operational signal.
     - **Effort:** S (~0.5–1h)

@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Log;
 
 // Scrapes a YouTube channel's recent uploads with no API key. Two
 // unauthenticated fetches: the channel page (to resolve the channel's own ID)
@@ -85,14 +86,21 @@ class YoutubeScraper extends PlatformScraper
         $uploadsPlaylistId = 'UU'.substr($channelId, 2);
         $rss = $this->fetcher->tryFetch('https://www.youtube.com/feeds/videos.xml?playlist_id='.$uploadsPlaylistId, $headers);
         if ($rss === null) {
+            // LIFE-26: transport-level failure (SSRF/timeout/DNS) reaching the feed.
+            Log::warning('youtube.uploads_feed_failed', ['channelId' => $channelId, 'reason' => 'fetch_null']);
+
             return null;
         }
         // 304 Not Modified → let the caller (a fetch strategy) short-circuit. On a
-        // 200, capture the fresh ETag/Last-Modified for next time.
+        // 200, capture the fresh ETag/Last-Modified for next time. Normal on every
+        // healthy poll — deliberately NOT logged (LIFE-26: would be pure noise).
         if ($cond !== null && $cond->handle($rss)) {
             return null;
         }
         if ($rss['status'] !== 200) {
+            // LIFE-26: reachable but an explicit non-200 (e.g. 403/404/5xx).
+            Log::warning('youtube.uploads_feed_failed', ['channelId' => $channelId, 'reason' => 'non_200:'.$rss['status']]);
+
             return null;
         }
 
@@ -159,12 +167,26 @@ class YoutubeScraper extends PlatformScraper
     {
         $page = $this->fetcher->tryFetch('https://www.youtube.com/@'.rawurlencode($handle), $headers);
         if ($page === null || $page['status'] !== 200) {
+            // LIFE-25: distinguish a transport failure (SSRF/timeout/DNS — $page
+            // null) from an explicit non-200 so the two show up differently in logs.
+            Log::warning('youtube.channel_resolve_failed', [
+                'handle' => $handle,
+                'reason' => $page === null ? 'fetch_failed' : 'non_200:'.$page['status'],
+            ]);
+
             return null;
         }
 
         if (! preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)
             && ! preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $page['body'], $m)
             && ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)) {
+            // LIFE-25: page fetched fine (200) but none of the three id patterns
+            // matched — a page-layout change, not a transport failure.
+            Log::warning('youtube.channel_resolve_failed', [
+                'handle' => $handle,
+                'reason' => 'no_channel_id_match',
+            ]);
+
             return null;
         }
 
