@@ -6,12 +6,13 @@
 -- Enquiry Inbox foundation (2026-05-27)
 --
 -- Adds status enum, customer/notification linkage, status audit timestamps,
--- and a redacted_at column to site.enquiries. Drops the now-redundant
--- enquiries_user_created_idx (its (user_id, created_at DESC) prefix is
--- covered by the new composite (user_id, status, created_at DESC)).
+-- and a redacted_at column to site.enquiries.
 --
--- Indexes (CONCURRENTLY, outside transaction) live in:
+-- Indexes (CONCURRENTLY, outside transaction) — including the drop of
+-- enquiries_user_created_idx — live in:
 --   20260527160001_enquiry_inbox_indexes.sql
+-- That file documents why the new composite does NOT fully replace the
+-- dropped index's access path.
 --
 -- Spec: docs/superpowers/specs/2026-05-26-enquiry-inbox-design.md
 -- ==========================================================================
@@ -72,9 +73,9 @@ END $$;
 
 -- 7. Indexes moved to sibling file 20260527160001_enquiry_inbox_indexes.sql.
 --    CREATE INDEX CONCURRENTLY cannot run inside a transaction; the sibling runs
---    immediately after this file on a fresh build (CONVENTIONS.md §1).
-
--- 8. Drop the redundant index (covered by the new composite).
-DROP INDEX IF EXISTS site.enquiries_user_created_idx;
+--    immediately after this file on a fresh build (CONVENTIONS.md §1). The drop
+--    of enquiries_user_created_idx also lives there, as DROP INDEX CONCURRENTLY,
+--    run after the replacement indexes are built. See that file for why the
+--    composite is not a full substitute for the dropped index.
 
 COMMIT;

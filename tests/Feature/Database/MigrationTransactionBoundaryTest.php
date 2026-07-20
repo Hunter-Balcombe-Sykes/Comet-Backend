@@ -203,3 +203,58 @@ foreach ($mig3UpdateBeforeDropFiles as $file) {
         expect($between)->not->toMatch('/COMMIT\s*;/i');
     });
 }
+
+// ─── MIG-1/MIG-2 (Gate A): DROP INDEX must use CONCURRENTLY, or not run at all ─
+//
+// site.site_media and site.enquiries are both live-traffic tables. A bare
+// DROP INDEX takes ACCESS EXCLUSIVE for the duration of the catalog write,
+// blocking every writer until it completes -- the same class of risk
+// CONCURRENTLY already protects the CREATE INDEX side against in these files.
+
+$dropIndexMustBeConcurrentFiles = [
+    '20260527000000_fix_sort_order_unique_constraints.sql',
+    '20260527160001_enquiry_inbox_indexes.sql',
+];
+
+foreach ($dropIndexMustBeConcurrentFiles as $file) {
+    it("only drops indexes CONCURRENTLY in {$file}", function () use ($file) {
+        $sql = migrationBoundaryStripComments(migrationBoundaryReadSql($file));
+
+        // Every DROP INDEX must be immediately followed by CONCURRENTLY --
+        // a bare match here (not consumed by the CONCURRENTLY-qualified
+        // pattern) means an unsafe drop slipped back in.
+        $bareDrops = preg_match_all('/\bDROP\s+INDEX\s+(?!CONCURRENTLY\b)/i', $sql);
+
+        expect($bareDrops)->toBe(0,
+            "Expected every DROP INDEX in [$file] to be DROP INDEX CONCURRENTLY, ".
+            "found {$bareDrops} bare DROP INDEX statement(s) -- a bare drop takes ".
+            'ACCESS EXCLUSIVE and blocks writes for its duration.'
+        );
+    });
+}
+
+it('never drops an index in 20260527160000_enquiry_inbox.sql -- that responsibility moved to the sibling CONCURRENTLY file', function () {
+    $sql = migrationBoundaryStripComments(migrationBoundaryReadSql('20260527160000_enquiry_inbox.sql'));
+
+    expect($sql)->not->toMatch('/\bDROP\s+INDEX\b/i',
+        'This file runs inside BEGIN/COMMIT, so DROP INDEX CONCURRENTLY is not even legal here -- '.
+        'the drop of enquiries_user_created_idx belongs in 20260527160001_enquiry_inbox_indexes.sql.'
+    );
+});
+
+it('drops enquiries_user_created_idx AFTER its replacement index is built in 20260527160001_enquiry_inbox_indexes.sql', function () {
+    $sql = migrationBoundaryStripComments(migrationBoundaryReadSql('20260527160001_enquiry_inbox_indexes.sql'));
+
+    expect(preg_match_all('/\bCREATE\s+INDEX\s+CONCURRENTLY\b/i', $sql, $createMatches, PREG_OFFSET_CAPTURE))->toBe(3);
+    expect(preg_match('/\bDROP\s+INDEX\s+CONCURRENTLY\b/i', $sql, $dropMatch, PREG_OFFSET_CAPTURE))->toBe(1);
+
+    $lastCreateOffset = end($createMatches[0])[1];
+
+    // Deliberately AFTER the last CREATE, not before: dropping first would
+    // open a window with neither the old nor the new index in place.
+    expect($dropMatch[0][1])->toBeGreaterThan($lastCreateOffset,
+        'Expected DROP INDEX CONCURRENTLY for enquiries_user_created_idx to come after all three '.
+        'CREATE INDEX CONCURRENTLY statements -- dropping first would leave a window with no index '.
+        'coverage on this access path.'
+    );
+});

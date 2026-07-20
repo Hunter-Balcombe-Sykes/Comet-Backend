@@ -44,12 +44,13 @@ every draft rather than the scan reading nothing.
 
 ## Progress
 
-- P0 Blocker: 0 of 2 complete
+- P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: 4 of 13 complete
 - P2 Medium: 0 of 62 complete
-- P3 Low: 0 of 51 complete
+- P3 Low: 2 of 53 complete
+- *Discovered during execution (outside the original 128): 1 of 2 complete*
 
-**Units worked:** B2 ✅ (2026-07-20)
+**Units worked:** B2 ✅ · S1+S2 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -78,13 +79,44 @@ Never merge on ID alone.
 
 ---
 
+## Discovered during execution — not in the original 23 runs
+
+Found while working the units below. Each is recorded here because the audit's own scope
+never opened the file, which is the failure mode `CLAUDE.md`'s audit-integrity guards exist
+to catch: **a lens reports nothing for files it never reads, and that is indistinguishable
+from clean.**
+
+- [ ] **`discovered/DISC-1`** · P2 · S — `DROP INDEX` without `CONCURRENTLY` on `site.blocks`, inside a transaction alongside a full-table `UPDATE site.blocks`
+  - **Where:** `supabase/migrations/20260701180000_strip_block_settings_keys_and_views.sql:19`
+  - **What to do:** fold into **B19**. This is a *strictly stronger* instance of what `migrations-early/MIG-1` (S1) complains about — `site.blocks` IS on the repo's own `HOT_TABLES` list (`scripts/guard-no-unsafe-migrations.php:34`), whereas `site.site_media` and `site.enquiries` are not. Found while planning S1/S2; `migrations-early`'s scope never opened this file.
+  - **Why the audit missed it:** the file sits outside the `migrations-early` scope group, and the guard script has no `DROP INDEX` check of any kind — so nothing in either the automated or the audited path was looking at it.
+
+- [x] **`discovered/DISC-2`** · P3 · S — `site.enquiries` loses index coverage for the `(user_id, created_at DESC)` access path
+  - **Where:** `supabase/migrations/20260527160001_enquiry_inbox_indexes.sql` (drop) · consumers `StaffEnquiryController::index`, `UserEnquiryController::index`
+  - **What to do:** no action now — documented and accepted in the migration file. If the staff enquiry inbox ever gets slow, add `(user_id, created_at DESC) INCLUDE (status)`.
+  - **Technical:** `enquiries_user_created_idx (user_id, created_at DESC)` is dropped in favour of `idx_enquiries_user_status_created (user_id, status, created_at DESC)`. These are NOT equivalent: `status` sits between the two columns, so `(user_id, created_at)` is not a leading-contiguous prefix. A query filtering `user_id` alone and ordering by `created_at DESC` can use the composite for the filter but must then Sort, losing LIMIT early-termination. `StaffEnquiryController::index` issues exactly that query with no `status` predicate.
+  - **Plain English:** the new index was assumed to be a drop-in replacement for the old one. It isn't quite — it works for the filter but not for the sort, so the staff inbox listing has to sort results in memory instead of reading them already-ordered. Harmless at 5 rows; worth revisiting if enquiry volume grows.
+  - **Not a regression from this run** — the drop pre-existed; S1/S2 only moved it so it could run `CONCURRENTLY`. What this run fixed was the *comment* that wrongly claimed full coverage.
+
+---
+
 ## Standalone — do NOT bundle
 
 Each of these needs its own plan, its own sign-off, and its own commit.
 
-### S1: `migrations-early/MIG-1` · **P0** · Effort S · → `sources/migrations-early.md`
+### S1: `migrations-early/MIG-1` · ~~**P0**~~ → **P3** · Effort S · → `sources/migrations-early.md`
 
-- [ ] **`migrations-early/MIG-1`** · P0 — `DROP INDEX` without `CONCURRENTLY` on hot table `site.site_media`
+> **Re-tiered P0 → P3 (2026-07-20, Josh signed off).** The audit's own escalation is conditional on
+> "these migrations ever replaying against a populated, serving database." Josh confirmed the prod
+> cutover collapses migration history into a fresh baseline, so that replay never happens — the
+> remaining surfaces are local `db reset`, preview branches and DR, all of which start empty. Further,
+> `site.site_media` is **not** a hot table by the repo's own definition: `HOT_TABLES` in
+> `scripts/guard-no-unsafe-migrations.php:34` and `docs/migration-guidelines.md:51` both list only
+> `site.design_kits`, `site.sites`, `site.blocks`, `core.users`. Dev row count: **82**. The table is
+> created by the baseline one migration-day *before* this file runs. There was no outage to prevent.
+> Fixed anyway because it costs one keyword and restores consistency with four sibling files.
+
+- [x] **`migrations-early/MIG-1`** · ~~P0~~ P3 — `DROP INDEX` without `CONCURRENTLY` on hot table `site.site_media`
   - **Where:** `supabase/migrations/20260527000000_fix_sort_order_unique_constraints.sql`
   - **What to do:** change both `DROP INDEX` statements to `CONCURRENTLY`; the file already lacks a transaction wrapper.
 
@@ -98,11 +130,24 @@ that will not run at all under `db push`. Resolve that interaction as part of th
 near-empty tables, so the lock has nothing to block. Severity is real but conditional on these
 migrations ever replaying against a populated, serving database.
 
-### S2: `migrations-early/MIG-2` · **P0** · Effort S · → `sources/migrations-early.md`
+### S2: `migrations-early/MIG-2` · ~~**P0**~~ → **P3** · Effort S · → `sources/migrations-early.md`
 
-- [ ] **`migrations-early/MIG-2`** · P0 — `DROP INDEX` without `CONCURRENTLY` on `site.enquiries`, inside a data-writing transaction
+> **Re-tiered P0 → P3** for the same reasons as S1. `site.enquiries` is not on `HOT_TABLES`; dev row
+> count: **5**; table created by the baseline before this file runs.
+
+- [x] **`migrations-early/MIG-2`** · ~~P0~~ P3 — `DROP INDEX` without `CONCURRENTLY` on `site.enquiries`, inside a data-writing transaction
   - **Where:** `supabase/migrations/20260527160000_enquiry_inbox.sql`
   - **What to do:** move the `DROP INDEX` into the sibling CONCURRENTLY file as `DROP INDEX CONCURRENTLY IF EXISTS`.
+  - **Done, with one deliberate deviation:** the drop was placed **after** the three `CREATE INDEX
+    CONCURRENTLY` in the sibling, not before as the audit text says. Before would open a window with
+    neither the old nor the new index present.
+  - **The "CONCURRENTLY/CLI incompatibility" question that gated both S1 and S2 was a non-question.**
+    Both target files already contain `CONCURRENTLY` statements, and four other files in
+    `supabase/migrations/` already ship `DROP INDEX CONCURRENTLY`. Whether the CLI's implicit
+    transaction blocks `CONCURRENTLY` is a pre-existing, folder-wide property — adding the keyword
+    cannot make these files un-pushable because they are already in that class.
+  - Review round 1 caught that the new comment claimed `(user_id, created_at)` is a prefix of
+    `(user_id, status, created_at)`. It is not — see `discovered/DISC-2` above.
 
 **Risk gate: DB/migration + P0.** Structurally worse than S1: `DROP INDEX CONCURRENTLY` **cannot
 run inside a transaction block** — Postgres rejects it outright — so the one-keyword fix is
