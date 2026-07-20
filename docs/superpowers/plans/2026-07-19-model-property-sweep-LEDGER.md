@@ -51,7 +51,10 @@ across 23 properties).
 
 | Unit | Models | Entries deleted | Suppressed before → after | Commit |
 |---|---|---|---|---|
-| M1 | `User`, `PartnaStaff` | 53 deleted / 4 added (net −49) | 1682 → **1618** (−64) | _see commit_ |
+| M1 | `User`, `PartnaStaff` | 53 deleted / 4 added (net −49) | 1682 → **1618** (−64) | `f176260d` |
+| M2–M4 | `IntegrationConnection`, `Site`, `PreAccountBuild`, `SiteMedia`, `Block`, `Workplace`, `EmailSubscription`, `MenuItem`, `ModerationCase` | 510 deleted / 31 added (net −479) | 1618 → **913** (−705) | _see commit_ |
+
+**Running total: 1682 → 913 — a 46% reduction**, with the Resource `@mixin` pass still outstanding.
 
 ### M1 verification (all five completion criteria)
 
@@ -89,6 +92,71 @@ inference is precisely the change that bites when the inference rests on a bad a
 All four carry provenance comments. They are narrowing consequences of the new annotations
 (2× redundant `?->`/`??` on the now-non-null `account_type`, 1× `instanceof` on the now-typed
 `Carbon|null` deletion timestamps), plus one genuine gap — see below.
+
+### M2–M4 verification
+
+Three independent adversarial reviewers, one per unit, each re-querying live DDL rather than
+trusting the implementer. Verdicts: M2 **PASS**, M4 **PASS**, M3 **FAIL → fixed → clean**.
+
+Reviews did exact column reconciliation to rule out hallucinated properties (22/22, 25/25, 14/14,
+19/19, 25/25, 21/21, 17/17, 21/21, 16/16) and checked CHECK-constraint names against `pg_constraint`
+and partial unique indexes against `pg_indexes`.
+
+Confirmed real (not implementer error), each verified against DDL:
+- `site.platform_connections.created_at/updated_at` are genuinely **nullable** (only `DEFAULT now()`);
+  `site.sites` and `core.pre_account_builds` have them **NOT NULL**. The annotations differ per table
+  because the schema does.
+- `site.workplaces.created_at/updated_at` are nullable **with no default at all** — unique among the
+  tables checked.
+- `site.platform_connections.payload` is `jsonb NOT NULL DEFAULT '{}'` in Postgres. The SQLite test
+  mirror's nullable version is the drifted one. The annotation correctly follows Postgres — this is
+  the exact drift behind two prior Instagram production incidents.
+- `PreAccountBuild::created_at/updated_at` carry no explicit `$casts` entry yet are still `Carbon`:
+  Eloquent auto-casts timestamp columns regardless of `$casts` unless `$timestamps` is disabled.
+
+### The `Workplace::$previous_website_analysis` correction — worth reading before annotating any jsonb
+
+Caught by review, then corrected twice. Both errors are instructive:
+
+1. **First error — trusted the migration comment.** The shape was transcribed from
+   `20260701220001_workplace_previous_website_analysis.sql`, which documents the **v1** analyser.
+   `WebsiteStyleAnalyzer` is now `VERSION = 2` and writes a different shape: no `tiers` (it is
+   `signals`), no top-level `logoCandidates` (it is `logo.candidates`), plus `finalUrl`/`mode`/
+   `failure`/`notes` absent from the annotation entirely.
+   **Rule: for a jsonb column, the authoritative source is the code that writes it, not the migration
+   comment.** Comments describe intent at migration time and drift silently as the writer evolves.
+
+2. **Second error — conflated "what the writer produces" with "what the column can contain."** The
+   corrected shape marked every key *required*, which is right for `WebsiteStyleAnalyzer::doc()`'s
+   return type but wrong for the persisted column. No migration ever backfilled or cleared it, so
+   v1-era blobs are still readable. Evidence it matters: `PreviousWebsiteFactor.php:58` gates on
+   `($analysis['v'] ?? null) !== WebsiteStyleAnalyzer::VERSION` — explicit version-guarding that only
+   makes sense if non-v2 rows exist. Required keys would have marked that guard dead and invited its
+   removal; the 11 resulting `nullCoalesce.offset` errors would then have been baselined, suppressing
+   a live guard.
+   **Fix: every key optional**, with the reasoning recorded in the class comment. All 11 errors
+   cleared naturally — nothing baselined.
+
+**Generalisation for the remaining tail:** a jsonb `@property` describes *accumulated persisted state
+across schema versions*, not the current writer's return type. Prefer optional keys unless a migration
+proves the column was backfilled.
+
+### Known inconsistency, accepted deliberately
+
+`created_at`/`updated_at` are annotated `Carbon|null` on `User`, `PartnaStaff`, `EmailSubscription`
+(by the convention in the orchestrator prompt) but non-null `Carbon` on `Site`, `Block`, `SiteMedia`,
+`PreAccountBuild` (following DDL NOT NULL). Both are defensible: `Carbon|null` is strictly more
+truthful, since an unsaved `new Model()` genuinely has null timestamps; non-null is more precise for
+the read paths that dominate here and let ~4 more entries be deleted. **Not unified**, because moving
+the non-null ones to nullable would only re-add baseline entries, and moving the nullable ones to
+non-null would over-assert on unsaved instances. Erring toward `Carbon|null` is the safe direction if
+this is ever revisited.
+
+### Stale artifact worth fixing separately (not touched — applied migration)
+
+`supabase/migrations/20260701220001_workplace_previous_website_analysis.sql`'s column comment
+documents the dead v1 shape and actively misled an implementer here. The migration is applied and is a
+historical record, so it was left alone — but anything reading that comment as current will be wrong.
 
 ## New findings surfaced (real signal, triaged)
 

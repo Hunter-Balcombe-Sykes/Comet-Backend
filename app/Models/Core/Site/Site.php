@@ -7,15 +7,47 @@ use App\Models\Analytics\SiteVisit;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
 use Database\Factories\Core\Site\SiteFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * @property mixed $id
+ * @property string $id
+ * @property string $user_id Not fillable — set via ->user()->associate() (tenancy FK).
+ * @property string $subdomain
+ * @property bool $is_published Raw column backing the published accessor/mutator below.
+ * @property bool $published Virtual alias for is_published (see getPublishedAttribute/setPublishedAttribute below) — same storage, tolerant boolean parsing on write.
+ * @property array<string, mixed> $settings Free-form bag; the 5 FOUND-16 keys (show_branding, charlie_enabled, services_auto_sync_enabled, booking_mode, manual_booking_url) were promoted to real columns and are re-merged at read time (SiteResource) rather than read from here. Known remaining keys: privacy, manual_page_order, manual_actions. settings.design.* is REJECTED on write (site.design_kits is the design-var store).
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ * @property Carbon|null $subdomain_changed_at
+ * @property Carbon|null $unpublished_at
+ * @property string $architecture_id Vestigial single-value column, CHECK-constrained to 'staple' (sites_architecture_id_check) — plain string, NOT an enum (see class comment below).
+ * @property string $moderation_state One of 'active'|'warned'|'hidden' (sites_moderation_state_check).
+ * @property string|null $custom_domain Lowercase-unique connected FQDN (Cloudflare for SaaS).
+ * @property string|null $custom_domain_status One of 'pending'|'active'|'error', or NULL (sites_custom_domain_status_check).
+ * @property Carbon|null $custom_domain_verified_at
+ * @property string|null $custom_domain_cf_id Cloudflare custom-hostname id (status polling + teardown).
+ * @property bool $custom_domain_primary
+ * @property bool|null $show_branding FOUND-16 promoted toggle; null == off (mirrors the other toggles below).
+ * @property bool|null $charlie_enabled FOUND-16 promoted toggle; null == off.
+ * @property bool|null $services_auto_sync_enabled FOUND-16 promoted toggle; null == off.
+ * @property string|null $booking_mode One of BOOKING_MODES ('manual'|'none'), or NULL (sites_booking_mode_check) — no DB CHECK enforces the NULL branch's meaning, validated at the request layer.
+ * @property string|null $manual_booking_url
+ * @property bool|null $content_instagram_auto_enabled Reserves gallery slots 1-2 for the latest IG reel + post; null == off.
+ * @property string $shop_link_mode One of SHOP_LINK_MODES ('checkout'|'product'); DEFAULT 'checkout'. Applied to every connected store — no per-brand override.
+ * @property bool $shop_auto_latest Global auto-latest toggle for every non-individual connected store; DEFAULT true.
+ * @property-read User|null $user
+ * @property-read Workplace|null $workplace 1:1 workplace card (FOUND-4); see workplace() below.
+ * @property-read Collection<int, Block> $blocks
+ * @property-read Collection<int, SiteVisit> $visits
+ * @property-read Collection<int, LinkClick> $clicks
+ * @property-read Collection<int, SiteMedia> $siteMedia
  */
 // A user's public-facing site. Owns blocks, media, architecture selection, and publish state. One site per user.
 // `architecture_id` is a TEXT enum. An "architecture" is how the sitepage is

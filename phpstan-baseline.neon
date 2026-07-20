@@ -1,94 +1,10 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillMediaPaletteCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$handle\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$icon_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillWebsiteAnalysesCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillWebsiteAnalysesCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillWebsiteAnalysesCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website_analysis\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/BackfillWebsiteAnalysesCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/CleanupStuckMediaProcessingCommand.php
-
-		-
 			message: '#^Offset ''dwell_ms'' on array\{clicks\: float, impressions\: float, dwell_ms\: float\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Console/Commands/ComputeContentPopularityScores.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/EnforcePlatformLinkCapCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/EnforcePlatformLinkCapCommand.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$case_id\.$#'
@@ -97,40 +13,10 @@ parameters:
 			path: app/Console/Commands/Moderation/ModerationReverseDecisionCommand.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$severity\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/Moderation/ModerationSlaScanCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$sla_due_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/Moderation/ModerationSlaScanCommand.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$file_path\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Console/Commands/PruneCompletedExportsCommand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$claimed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/PruneExpiredPreAccountBuilds.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/PruneExpiredPreAccountBuilds.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/RefreshIntegrationConnectionsCommand.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$user_id\.$#'
@@ -151,30 +37,6 @@ parameters:
 			path: app/Http/Controllers/Api/Internal/CspReportController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/AppleController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 6
-			path: app/Http/Controllers/Api/Platforms/AppleController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/Platforms/AppleController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/AppleController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>payload" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 2
@@ -187,26 +49,8 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/AppleController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/BookingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/Platforms/BookingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/BookingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
+			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/BookingController.php
 
@@ -214,43 +58,7 @@ parameters:
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
-			path: app/Http/Controllers/Api/Platforms/BookingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/DisplaySettingsController.php
 
 		-
 			message: '#^Offset ''default'' on array\{key\: string, label\: string, description\: string, siteColumn\?\: string\} on left side of \?\? does not exist\.$#'
@@ -283,88 +91,16 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/EventsController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 6
-			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 6
-			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/FreshaController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/FreshaController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/FreshaController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/FreshaController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/FreshaController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
 
 		-
 			message: '#^Using nullsafe property access "\?\-\>payload" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
@@ -379,38 +115,8 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$apify_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
+			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
 
@@ -418,55 +124,7 @@ parameters:
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_error\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/IntegrationsMetaController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/IntegrationsMetaController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$name\.$#'
@@ -478,30 +136,6 @@ parameters:
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$source_platform\.$#'
 			identifier: property.notFound
 			count: 3
-			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$category_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$is_manual\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$menu_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
 
 		-
@@ -517,26 +151,8 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/MenuController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 7
-			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
+			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
 
@@ -544,79 +160,7 @@ parameters:
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
-			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/OpenTableController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/RefreshController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/RefreshController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$discount_code\.$#'
@@ -661,26 +205,8 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/ShopController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/SkoolController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/SkoolController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/SkoolController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
+			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/SkoolController.php
 
@@ -688,61 +214,7 @@ parameters:
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
-			path: app/Http/Controllers/Api/Platforms/SkoolController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/AnalyticsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/AnalyticsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/AnalyticsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/AnalyticsController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
@@ -751,88 +223,16 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/AnalyticsController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>timestamp" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 2
 			path: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribe_token\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
 			identifier: property.notFound
 			count: 2
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$deleted_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_filename\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\Site\>\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\Site\>\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicDocumentDownloadController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$status\.$#'
@@ -851,48 +251,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicEarlyAccessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$confirmation_sent_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email_lc\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribe_token\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$email\.$#'
@@ -917,24 +275,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailUnsubscribeController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 6
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$email\.$#'
@@ -965,48 +305,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$content_instagram_auto_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$shop_link_mode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicMarketingPreferenceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicMarketingPreferenceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribe_token\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMarketingPreferenceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$store_name\.$#'
@@ -1048,12 +346,6 @@ parameters:
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
 			identifier: property.notFound
 			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicSiteController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\|Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\Site\>\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 3
 			path: app/Http/Controllers/Api/PublicSite/PublicSiteController.php
 
 		-
@@ -1156,36 +448,6 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$subscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$category\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1204,72 +466,6 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationEmailPolicyController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$address\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$address_line1\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$latitude\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$longitude\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$postcode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffWorkplaceController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$recipient_email\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1286,60 +482,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffDataExportController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffIntegrationManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffIntegrationManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_group\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffLinkBlockManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffLinkBlockManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffLinkBlockManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffLinkBlockManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\ServiceCategory\:\:\$sort_order\.$#'
@@ -1364,42 +506,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/User/Account/UserDataExportController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/User/Account/UserDocumentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/Account/UserDocumentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$content_instagram_auto_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Content/ContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Content/ContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Content/ContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Content/ContentController.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$marketing_opt_in_cached\.$#'
@@ -1468,144 +574,6 @@ parameters:
 			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$subscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_cf_id\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_primary\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_status\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_verified_at\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$alt_text\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserGalleryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserGalleryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserGalleryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_group\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_enabled\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 2
@@ -1652,54 +620,6 @@ parameters:
 			identifier: arrayValues.list
 			count: 1
 			path: app/Http/Controllers/Api/User/SiteManagement/UserServiceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$field_sources\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$media_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
 
 		-
 			# Surfaced by the M1 property sweep: account_type is now known non-nullable
@@ -1757,36 +677,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/ApiResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$alt_text\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$media_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\CustomerResource\:\:\$created_at\.$#'
@@ -1853,72 +743,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/CustomerResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DesignMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$purpose\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DesignMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$alt_text\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_filename\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_mime\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_size_bytes\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/DocumentMediaResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\EnquiryDetailResource\:\:\$customer\.$#'
@@ -2891,66 +1715,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$alt_text\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$duration_ms\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$media_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_error\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteMediaResource.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$artifact_type\.$#'
@@ -4021,48 +2785,6 @@ parameters:
 			path: app/Http/Resources/WorkplaceResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Cloudflare/CloudflareCachePurgeJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Cloudflare/CloudflareCachePurgeJob.php
-
-		-
-			# Surfaced by the M1 property sweep: annotating User::$preAccountBuild as
-			# PreAccountBuild|null (was a generic Eloquent Model before) resolved this
-			# access to the correct target class. PreAccountBuild.php itself still lacks
-			# a full @property block (only $build_state is documented) — real gap, but
-			# PreAccountBuild.php is out of scope for M1 (User/PartnaStaff only). Follow-up
-			# model-property-sweep unit should cover it.
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$expires_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Cloudflare/SyncSubdomainToKvJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$style_analysis\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4073,24 +2795,6 @@ parameters:
 			identifier: property.notFound
 			count: 2
 			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website_analysis\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
 
 		-
 			message: '#^Offset ''candidates'' on array\{candidates\: list\<array\>\} on left side of \?\? always exists and is not nullable\.$#'
@@ -4159,12 +2863,6 @@ parameters:
 			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$case_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$decision_type\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4184,12 +2882,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_owner_user_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Moderation/NotifyReportedUserJob.php
@@ -4237,19 +2929,7 @@ parameters:
 			path: app/Jobs/Moderation/NotifyReporterJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$signal_count\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyStaffOfCaseUpdateJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/PurgeModerationCacheJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_owner_user_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Moderation/PurgeModerationCacheJob.php
@@ -4261,37 +2941,13 @@ parameters:
 			path: app/Jobs/Moderation/QuarantineMediaJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/QuarantineMediaJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Moderation/SuspendSiteJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Moderation/SuspendSiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/SuspendSiteJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/SuspendUserJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_owner_user_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Moderation/SuspendUserJob.php
@@ -4313,12 +2969,6 @@ parameters:
 			identifier: property.notFound
 			count: 2
 			path: app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendEnquiryConfirmationJob.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$confirmation_sent_at\.$#'
@@ -4345,12 +2995,6 @@ parameters:
 			path: app/Jobs/Notifications/SendEnquiryConfirmationJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendEnquiryNotificationJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$email_sent_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4367,66 +3011,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Notifications/SendFeedbackEmailJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendStaffBroadcastEmailToSubscriberJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendStaffBroadcastEmailToSubscriberJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribe_token\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendStaffBroadcastEmailToSubscriberJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$confirmation_sent_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribe_token\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$site\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Notifications/SendSubscriptionConfirmationJob.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$email_sent_at\.$#'
@@ -4447,58 +3031,10 @@ parameters:
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$marketing_opt_in_cached\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/EnrichLinkCardJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/GoogleBusinessEnrichJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Platforms/GoogleBusinessEnrichJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/GoogleMenuPhotoScanJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$consecutive_failures\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/InstagramConnectJob.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$fetch_status\.$#'
@@ -4525,66 +3061,12 @@ parameters:
 			path: app/Jobs/Platforms/MenuFetchJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$category_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Platforms/MenuFetchJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Platforms/MenuFetchJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuPlatformLink\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Platforms/MenuFetchJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/ReconcilePlatformTakedownJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/RefreshConnectionJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$claimed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/PreAccount/GeneratePreAccountSiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$source_ref\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/PreAccount/GeneratePreAccountSiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$source_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/PreAccount/GeneratePreAccountSiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/ProcessImageVariantsJob.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/ProcessImageVariantsJob.php
-
-		-
 			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
 			identifier: argument.type
 			count: 1
@@ -4597,30 +3079,6 @@ parameters:
 			path: app/Jobs/ProcessImageVariantsJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/ProcessLogoVariantsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$purpose\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/ProcessLogoVariantsJob.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/ProcessLogoVariantsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/ProcessVideoVariantsJob.php
-
-		-
 			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
 			identifier: argument.type
 			count: 1
@@ -4631,30 +3089,6 @@ parameters:
 			identifier: arguments.count
 			count: 1
 			path: app/Jobs/ProcessVideoVariantsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Branding/ProEmailBrandResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/Branding/ProEmailBrandResolver.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$kind\.$#'
@@ -4747,76 +3181,10 @@ parameters:
 			path: app/Models/Core/Gdpr/DataExportAudit.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$consent_ip_hash\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$consent_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$consent_user_agent\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$list_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$subscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$unsubscribed_at\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Notifications/EmailSubscription.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$notification_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/Site/Enquiry.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/IntegrationConnection.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Core/Site/IntegrationConnection.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
@@ -4885,18 +3253,6 @@ parameters:
 			path: app/Models/Core/Site/ShopBrand.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_mime\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/SiteMedia.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Core/Site/SiteMedia.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$disk\.$#'
 			identifier: property.notFound
 			count: 2
@@ -4909,26 +3265,8 @@ parameters:
 			path: app/Models/Core/Site/SiteMedia.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Core/Site/SiteMedia.php
-
-		-
 			message: '#^Parameter \#1 \$array \(list\<non\-falsy\-string\>\) of array_values is already a list, call has no effect\.$#'
 			identifier: arrayValues.list
-			count: 1
-			path: app/Models/Core/Site/SiteMedia.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:mapWithKeys\(\) expects callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: array\<string, string\>, Closure\(App\\Models\\Core\\MediaVariant\)\: non\-empty\-array\<string, string\> given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Models/Core/Site/SiteMedia.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,Illuminate\\Database\\Eloquent\\Model\>\:\:filter\(\) expects \(callable\(Illuminate\\Database\\Eloquent\\Model, int\)\: bool\)\|null, Closure\(App\\Models\\Core\\MediaVariant\)\: bool given\.$#'
-			identifier: argument.type
 			count: 1
 			path: app/Models/Core/Site/SiteMedia.php
 
@@ -4940,12 +3278,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property \$this\(App\\Models\\Core\\User\\Customer\)\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/Customer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/User/Customer.php
@@ -5005,30 +3337,6 @@ parameters:
 			path: app/Notifications/Moderation/AccountSuspendedNotification.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$case_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Notifications/Moderation/CaseCreatedStaffNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$reportable_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/CaseCreatedStaffNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$severity\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Notifications/Moderation/CaseCreatedStaffNotification.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$signal_count\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Notifications/Moderation/CaseCreatedStaffNotification.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$case_id\.$#'
 			identifier: property.notFound
 			count: 2
@@ -5059,118 +3367,16 @@ parameters:
 			path: app/Notifications/Moderation/ContentHiddenNotification.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$case_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Notifications/Moderation/CsamAutoActionStaffNotification.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\Decision\:\:\$decision_type\.$#'
 			identifier: property.notFound
 			count: 2
 			path: app/Notifications/Moderation/ReportOutcomeNotification.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/BlockObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Observers/Core/IntegrationConnectionObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Observers/Core/IntegrationConnectionObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Observers/Core/IntegrationConnectionObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$content_instagram_auto_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/IntegrationConnectionObserver.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 7
 			path: app/Observers/Core/ServiceObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Observers/Core/SiteMediaObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Observers/Core/SiteMediaObserver.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/SiteMediaObserver.php
-
-		-
-			message: '#^Using nullsafe property access on non\-nullable type Illuminate\\Database\\Eloquent\\Model\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Observers/Core/SiteMediaObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Observers/Core/SiteObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Observers/Core/SiteObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/SiteObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Observers/Core/SiteObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Observers/Core/SiteObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/WorkplaceObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website_analysis\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/WorkplaceObserver.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$user_id\.$#'
@@ -5209,46 +3415,10 @@ parameters:
 			path: app/Services/Accounts/LifestyleConnectionCleanup.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Analytics/AnalyticsCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Analytics/AnalyticsCacheService.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>visitors" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 4
 			path: app/Services/Analytics/AnalyticsQueryService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Analytics/ContentFreshness.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Analytics/ContentFreshness.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Analytics/ContentFreshness.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Analytics/ContentFreshness.php
 
 		-
 			message: '#^Offset ''dwell_n'' on array\{title\: string, dwell_sum_ms\: int, dwell_n\: int\} on left side of \?\? always exists and is not nullable\.$#'
@@ -5287,30 +3457,6 @@ parameters:
 			path: app/Services/Analytics/InsightEngine.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_group\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Analytics/Writers/PostgresEventWriter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$block_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Analytics/Writers/PostgresEventWriter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Analytics/Writers/PostgresEventWriter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Analytics/Writers/PostgresEventWriter.php
-
-		-
 			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Http\\Request\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -5321,12 +3467,6 @@ parameters:
 			identifier: arguments.count
 			count: 1
 			path: app/Services/BotProtection/CircuitBreaker.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/SiteCacheService.php
 
 		-
 			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
@@ -5407,42 +3547,6 @@ parameters:
 			path: app/Services/Design/Presets/DesignPresetResolver.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/GoogleBusinessAttributesFactor.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/GoogleBusinessTypeFactor.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/InstagramCategoryFactor.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 2
@@ -5461,18 +3565,6 @@ parameters:
 			path: app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/PreviousWebsiteFactor.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website_analysis\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/Factors/PreviousWebsiteFactor.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>previous_website" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -5489,36 +3581,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$opening_hours\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/IntegrationConnectionFactorAdapter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/RecipeSignals.php
 
 		-
 			message: '#^Offset ''a'' on array\{r\: int, g\: int, b\: int, a\: float\} on left side of \?\? always exists and is not nullable\.$#'
@@ -5623,40 +3685,10 @@ parameters:
 			path: app/Services/Media/ImageVariantService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Media/MediaUploadService.php
-
-		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
 			count: 1
 			path: app/Services/Media/MediaUploadService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$duration_ms\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Media/VideoVariantService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$poster_path\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Media/VideoVariantService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_error\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Media/VideoVariantService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$processing_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Media/VideoVariantService.php
 
 		-
 			message: '#^Method App\\Services\\Media\\VideoVariantService\:\:runCommand\(\) never assigns null to &\$exitCode so it can be removed from the by\-ref type\.$#'
@@ -5671,38 +3703,14 @@ parameters:
 			path: app/Services/Media/VideoVariantService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Moderation/CaseStateMachine.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\CaseSignal\:\:\$case_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Moderation/ContentReportService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$signal_count\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Moderation/ContentReportService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/EvidenceSnapshotService.php
-
-		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
-			count: 2
-			path: app/Services/Moderation/EvidenceSnapshotService.php
-
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Database\\Eloquent\\Collection\<int, Illuminate\\Database\\Eloquent\\Model\>\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
 			count: 2
 			path: app/Services/Moderation/EvidenceSnapshotService.php
 
@@ -5737,60 +3745,6 @@ parameters:
 			path: app/Services/Moderation/ModerationActionDispatcher.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$priority\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Moderation/ModerationCaseService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationCaseService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$triaged_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationCaseService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$triaged_by_staff_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationCaseService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$auto_actioned\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationDecisionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$case_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationDecisionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$resolved_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationDecisionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ModerationCase\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Moderation/ModerationDecisionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Adapters/EmailEnquiryNotificationAdapter.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 1
@@ -5813,30 +3767,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Notifications/Adapters/InAppEnquiryNotificationAdapter.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$consecutive_failures\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Notifications/EnquiryNotificationDispatcher.php
 
 		-
 			message: '#^Parameter \#2 \$start of static method Redis\:\:zRemRangeByScore\(\) expects string, int given\.$#'
@@ -5905,58 +3835,10 @@ parameters:
 			path: app/Services/Platforms/BandcampScraper.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$refresh_etag\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/ConditionalContext.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$refresh_last_modified\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/ConditionalContext.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/EventsCatalog.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$resource_kind\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Services/Platforms/EventsCatalog.php
-
-		-
 			message: '#^Parameter \#1 \$array \(list\<non\-empty\-array\<string, mixed\>\>\) of array_values is already a list, call has no effect\.$#'
 			identifier: arrayValues.list
 			count: 1
 			path: app/Services/Platforms/EventsPayload.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/GoogleBusinessAutoSync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/GoogleBusinessAutoSync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/GoogleBusinessAutoSync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/GoogleBusinessAutoSync.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -5975,90 +3857,6 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/Platforms/GoogleBusinessService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$address\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$field_sources\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$latitude\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$longitude\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$opening_hours\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$website\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/InstagramAutoSync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/InstagramConnectionSeeder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/InstagramConnectionSeeder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/IntegrationConnectionCacheRefresher.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Services/Platforms/IntegrationConnectionCacheRefresher.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -6157,96 +3955,6 @@ parameters:
 			path: app/Services/Platforms/MenuPayloadComposer.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$badges\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$base_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$dd_external_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$delivery_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$delivery_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$image_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$images\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$is_manual\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$pickup_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$pickup_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$rating\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$rating_count\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$delivery_price\.$#'
 			identifier: property.notFound
 			count: 1
@@ -6283,112 +3991,16 @@ parameters:
 			path: app/Services/Platforms/MenuScanApplier.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$badges\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$base_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$is_manual\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/MenuScanApplier.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuSource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuSource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Workplace\:\:\$state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/MenuSource.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/PlatformRefresher.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$url\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Platforms/ShopCatalog.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Fetch/BandcampFetch.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Fetch/EventbriteFetch.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Fetch/GoogleBusinessFetch.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Fetch/HumanitixFetch.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Fetch/ShopFetch.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$refresh_etag\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Refresh/ScheduledRefresh.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$refresh_last_modified\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/Strategies/Refresh/ScheduledRefresh.php
 
 		-
 			message: '#^Parameter \#1 \$array \(non\-empty\-list\<non\-empty\-string\>\) of array_values is already a list, call has no effect\.$#'
@@ -6413,42 +4025,6 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/WooCommerceScraper.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PreAccount/ClaimSiteService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_enabled\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$architecture_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
 
 		-
 			message: '#^Offset ''category'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
@@ -6499,40 +4075,10 @@ parameters:
 			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/PublicSiteResolver.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/PublicSite/PublicSiteResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
 
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
@@ -6565,126 +4111,6 @@ parameters:
 			path: app/Services/PublicSite/SiteActionsService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_enabled\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$booking_mode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$manual_booking_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$alt_text\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$duration_ms\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$media_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_mime\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$original_size_bytes\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$purpose\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$currency_code\.$#'
 			identifier: property.notFound
 			count: 1
@@ -6715,91 +4141,7 @@ parameters:
 			path: app/Services/PublicSite/SitepageDataResolverService.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$address\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$address_line1\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$artifact_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$latitude\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$longitude\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$postcode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$variant_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$website\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/PublicSite/SitepageDataResolverService.php
@@ -6883,30 +4225,6 @@ parameters:
 			path: app/Services/Site/ContentSelectionService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$content_instagram_auto_enabled\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
 			message: '#^Offset ''type'' on array\{type\: string, mediaId\?\: string\|null, ref\?\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -6923,24 +4241,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Site/ReclaimHandleAction.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Site/RenameSubdomainAction.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain_changed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/RenameSubdomainAction.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/SitePolicyResolver.php
 
 		-
 			message: '#^Offset ''handle_location'' on array\{display_name\: string, icon_key\: string, placeholder\: string, handle_pattern\: string, url_template\: string, host_allowlist\: array\<int, string\>, url_path_extractor\: string, default_category\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
@@ -6997,36 +4297,6 @@ parameters:
 			path: app/Services/Streaming/TwitchApiClient.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$unpublished_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$media_type\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$path\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/AccountDeletionService.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\Evidence\:\:\$payload\.$#'
 			identifier: property.notFound
 			count: 1
@@ -7055,54 +4325,6 @@ parameters:
 			path: app/Services/User/DataExport/DataExportZipWriter.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_enabled\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/User/SectionVisibilityService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/SiteProvisioningService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/Visibility/Rules/BookingVisibility.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/Visibility/Rules/ContactVisibility.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/PruneExpiredPreAccountBuilds.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Console/Commands/PruneExpiredPreAccountBuilds.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$phone\.$#'
 			identifier: property.notFound
 			count: 1
@@ -7127,12 +4349,6 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
 
 		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItem\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
 			identifier: argument.unresolvableType
 			count: 1
@@ -7145,184 +4361,10 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$image_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$images\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$base_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$pickup_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$delivery_price\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$rating\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$rating_count\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$badges\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItem\:\:\$dd_external_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/QrCodeController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$last_refresh_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$architecture_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain_changed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Account/UserSelfController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/Account/UserSelfController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/User/Content/ContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Content/ContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/PurgeModerationCacheJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/PurgeModerationCacheJob.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Support\\HigherOrderCollectionProxy\<string, App\\Models\\Core\\Site\\ShopProduct, Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\ShopProduct\>\>\:\:\$data\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Observers/Core/ServiceCategoryObserver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$style_analysis\.$#'
@@ -7331,19 +4373,7 @@ parameters:
 			path: app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/IntegrationConnectionCacheRefresher.php
-
-		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuCategory\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItem\>\:\:map\(\) contains unresolvable type\.$#'
 			identifier: argument.unresolvableType
 			count: 1
 			path: app/Services/Platforms/MenuPayloadComposer.php
@@ -7366,102 +4396,6 @@ parameters:
 		# removing the explicit param type made it strictly worse (39->52), so the annotation is
 		# load-bearing. 46 of 61 typed-closure map() sites are unaffected. Same shape as the 7
 		# entries already baselined in eca70112.
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/AppleController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/BookingController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/CustomLinksController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/EventsPlatformController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/FreshaController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GoogleBusinessController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/InstagramController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/OnlineOrderingController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/SkoolController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\IntegrationConnection\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/SubdomainAvailabilityService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain_changed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/SubdomainAvailabilityService.php
-
 		-
 			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
 			identifier: argument.type
@@ -7591,3 +4525,219 @@ parameters:
 			count: 1
 			path: app/Services/Platforms/UberEatsMenuDriver.php
 
+		# Model-property sweep 2026-07-20: Workplace::$field_sources now typed array<string, array{source:string, at:string}>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
+
+		# Model-property sweep 2026-07-20: Workplace::$field_sources now typed array<string, array{source:string, at:string}>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/IdentitySync.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Console/Commands/BackfillSocialLinksCommand.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Console/Commands/BackfillWebsiteAnalysesCommand.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Analytics/ContentFreshness.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Cache/UserCacheService.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Services/Design/Presets/IdentityEvidence.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Design/Presets/RecipeSignals.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 3
+			path: app/Services/PublicSite/SitepageDataResolverService.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/User/Visibility/Rules/BookingVisibility.php
+
+		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/User/Visibility/Rules/ContactVisibility.php
+
+		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period; is_array() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\{open\: string, close\: string\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Design/Presets/IdentityEvidence.php
+
+		# Model-property sweep 2026-07-20: SiteMedia::$path now typed non-nullable string; is_string() guard kept defensive. R9.
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
+
+		# Model-property sweep 2026-07-20: known case — IntegrationConnection::booted() is_string($platform) now redundant, kept defensive. R9.
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Models/Core/Site/IntegrationConnection.php
+
+		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period to a fixed open/close shape; ?? kept defensive. R9.
+		-
+			message: '#^Offset ''close'' on array\{open\: string, close\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/Design/Presets/IdentityEvidence.php
+
+		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period to a fixed open/close shape; ?? kept defensive. R9.
+		-
+			message: '#^Offset ''open'' on array\{open\: string, close\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/Design/Presets/IdentityEvidence.php
+
+		# Model-property sweep 2026-07-20: known case — Site::$user_id is NOT NULL, so the null comparison is now provably constant; guard kept defensive. R9.
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Services/PublicSite/SitepageDataResolverService.php
+
+		# Model-property sweep 2026-07-20: known case — Site::$user_id is NOT NULL, so the null comparison is now provably constant; guard kept defensive. R9.
+		-
+			message: '#^Strict comparison using \=\=\= between string and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Services/Site/ContentSelectionService.php
+
+		# Model-property sweep 2026-07-20: Site::$blocks relation now typed non-nullable Collection; nullsafe kept defensive. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\Block\>\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Services/Moderation/EvidenceSnapshotService.php
+
+		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Console/Commands/CleanupStuckMediaProcessingCommand.php
+
+		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
+
+		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/DocumentMediaResource.php
+
+		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/SiteMediaResource.php
+
+		# Model-property sweep 2026-07-20: known case — nullsafe on a non-nullable Site, kept defensive. R9.
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Models\\Core\\Site\\Site\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Observers/Core/SiteMediaObserver.php
+
+		# Model-property sweep 2026-07-20: Block::$platform now typed ?string, narrowing $platformKey and proving $normalized is always set here; the isset() guard is defensive, not dead. R9.
+		-
+			message: '#^Variable \$normalized in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: app/Console/Commands/BackfillSocialLinksCommand.php
