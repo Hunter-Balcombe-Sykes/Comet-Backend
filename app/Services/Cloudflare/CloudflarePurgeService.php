@@ -131,9 +131,17 @@ class CloudflarePurgeService
                 $this->microsecondsPacedSoFar += self::CHUNK_PACING_MICROSECONDS;
             }
 
+            // cache-edge-reconcile/LIFE-1 residual: bound each call explicitly —
+            // without this, Laravel's blanket defaults (connect 10s / total 30s)
+            // apply, and a handful of slow-but-not-hung chunks can exhaust the
+            // whole job timeout while the rest of the catalog goes unpurged. 10s
+            // (not 5s) — we have no p99 latency data for this endpoint, and 5s
+            // risks failing purges that currently succeed.
             Http::withToken($this->apiToken)
                 ->asJson()
                 ->acceptJson()
+                ->timeout(10)
+                ->connectTimeout(3)
                 ->post($this->url(), ['files' => $chunk])
                 ->throw();
         }
@@ -337,6 +345,18 @@ class CloudflarePurgeService
             // Its own fetch is `cacheTtl: 0`, so this is belt-and-braces — but it
             // guarantees a display-toggle flip never leaves a stale card wire.
             $urls[] = "{$apiBase}/api/public/profiles/{$h}/integrations";
+        }
+
+        // cache-edge-reconcile/LIFE-1 residual: surface a catalog approaching the
+        // practical purge ceiling (chunking + job timeout budget) BEFORE it starts
+        // failing outright, rather than only finding out via failed purges.
+        $volumeThreshold = (int) config('partna.cache.purge_url_volume_warning_threshold', 900);
+        if (count($urls) > $volumeThreshold) {
+            Log::warning('cloudflare.purge.url_volume_high', [
+                'handle' => $h,
+                'url_count' => count($urls),
+                'threshold' => $volumeThreshold,
+            ]);
         }
 
         $this->purgeUrls($urls);

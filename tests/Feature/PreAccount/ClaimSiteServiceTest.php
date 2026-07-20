@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimSiteService;
@@ -27,6 +28,47 @@ it('claims: binds auth + email, activates, stamps claimed_at, runs side effects'
         ->and($fresh->primary_email)->toBe('jane@example.com')
         ->and($fresh->status)->toBe('active')
         ->and($build->fresh()->claimed_at)->not->toBeNull();
+});
+
+// EDGE-1: the claim's status flip ('unclaimed' -> 'active') never reaches
+// SiteObserver's own purge (PUBLIC_PROFILE_USER_FIELDS excludes 'status'), so
+// ClaimSiteService must dispatch the edge purge itself.
+it('EDGE-1: purges the Cloudflare edge cache on claim', function () {
+    [$user, $site, $build] = makeReadyBuild();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'janedoe' && $job->customDomain === null;
+    });
+});
+
+it('EDGE-1: includes the active custom domain in the claim-time edge purge', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    // custom_domain/custom_domain_status are NOT fillable (Site::$fillable) —
+    // direct property assignment, matching the codebase's own convention.
+    $site->custom_domain = 'mysite.example';
+    $site->custom_domain_status = 'active';
+    $site->save();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'janedoe' && $job->customDomain === 'mysite.example';
+    });
+});
+
+it('EDGE-1: omits a non-active custom domain from the claim-time edge purge', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $site->custom_domain = 'pending.example';
+    $site->custom_domain_status = 'pending';
+    $site->save();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'janedoe' && $job->customDomain === null;
+    });
 });
 
 it('is idempotent for the rightful claimer (double-tap returns success, not 409)', function () {

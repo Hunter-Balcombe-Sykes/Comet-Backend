@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Services\ReorderServiceLayoutRequest;
 use App\Http\Requests\Api\User\Services\ReorderServiceRequest;
@@ -23,6 +24,7 @@ use Illuminate\Support\Facades\Log;
 // V2: Service CRUD + reorder for professional's mini-site.
 class UserServiceController extends ApiController
 {
+    use ResolveCurrentSite;
     use ResolveCurrentUser;
 
     public function index(Request $request): JsonResponse
@@ -199,11 +201,17 @@ class UserServiceController extends ApiController
     public function reorder(ReorderServiceRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $site = $this->currentSite($pro);
 
+        // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
+        // events, so ServiceObserver never touches the site. Touch explicitly in
+        // afterCommit to fire SiteObserver — Redis invalidation + Cloudflare edge
+        // purge + cache warm (mirrors UserGalleryController::reorder).
         app(ReorderService::class)->reorder(
             $request->input('ids', []),
             Service::query()->where('user_id', $pro->id),
             "services:{$pro->id}",
+            fn () => $site->touch(),
         );
 
         return $this->success(['ok' => true]);
@@ -213,6 +221,7 @@ class UserServiceController extends ApiController
     public function reorderLayout(ReorderServiceLayoutRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $site = $this->currentSite($pro);
         $payload = $request->validated();
 
         DB::transaction(function () use ($pro, $payload) {
@@ -328,6 +337,12 @@ class UserServiceController extends ApiController
                     ]);
             }
         });
+
+        // EDGE-1 (audit): reorderLayout bypasses ReorderService entirely (raw
+        // DB::transaction + per-row query-builder update()), so no observer ever
+        // fires here either — touch explicitly after commit, same reasoning as
+        // reorder() above.
+        $site->touch();
 
         return $this->success(['ok' => true]);
     }

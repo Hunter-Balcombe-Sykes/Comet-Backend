@@ -10,6 +10,7 @@ use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Database\QueryException;
 use Illuminate\Queue\CallQueuedHandler;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -52,6 +53,45 @@ it('is ShouldBeUniqueUntilProcessing so the dedupe lock survives backoff retries
     $method->setAccessible(true);
 
     expect($method->invoke($handler, $job))->toBeTrue();
+});
+
+// --- WHK-1: a delete-triggered retire dispatch must not be deduped away by a
+// concurrent plain sync for the same user. ---
+
+it('gives a plain sync and a delete-triggered retire dispatch DIFFERENT unique ids (WHK-1)', function () {
+    $proId = (string) Str::uuid();
+
+    $plain = new SyncSubdomainToKvJob($proId);
+    $retireHandle = new SyncSubdomainToKvJob($proId, 'oldhandle');
+    $retireDomain = new SyncSubdomainToKvJob($proId, null, 'old.example');
+
+    // Pre-fix, $plain->uniqueId() === $retireHandle->uniqueId() (both bare
+    // $userId) — a plain sync in flight would silently swallow the retire.
+    expect($plain->uniqueId())->not->toBe($retireHandle->uniqueId())
+        ->and($plain->uniqueId())->not->toBe($retireDomain->uniqueId())
+        ->and($retireHandle->uniqueId())->not->toBe($retireDomain->uniqueId());
+});
+
+it('does not collapse a delete-triggered retire dispatch into an in-flight plain sync (WHK-1)', function () {
+    // Queue::fake() is required here — under the deployed sync connection the
+    // unique lock releases before dispatch() returns (ShouldBeUniqueUntilProcessing),
+    // so the race this test guards against isn't reproducible without faking
+    // the queue to keep both dispatches "in flight" at once.
+    Queue::fake();
+
+    $proId = (string) Str::uuid();
+
+    // A routine handle-change/restore sync (UserObserver::updated/restored) —
+    // no capturedHandle, no retireCustomDomain.
+    SyncSubdomainToKvJob::dispatch($proId);
+    // A delete-triggered retire dispatch for the SAME user, arriving while the
+    // plain sync's unique lock window is still open (UserObserver::deleted).
+    SyncSubdomainToKvJob::dispatch($proId, 'oldhandle');
+
+    // Pre-fix: uniqueId() collapses both to the bare $userId, so Laravel's
+    // unique-job dispatch silently drops the second push — only 1 job lands.
+    Queue::assertPushed(SyncSubdomainToKvJob::class, 2);
+    Queue::assertPushed(SyncSubdomainToKvJob::class, fn (SyncSubdomainToKvJob $job) => $job->capturedHandle === 'oldhandle');
 });
 
 it('writes {type:"individual"} for an individual professional (§28.6)', function () {

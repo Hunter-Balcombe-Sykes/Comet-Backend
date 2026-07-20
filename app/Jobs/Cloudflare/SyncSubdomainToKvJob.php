@@ -70,11 +70,20 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
         $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
     }
 
-    // Include the retire-domain in the unique key so a domain-removal sync is not
-    // collapsed into a concurrent plain sync (which would drop the deletion).
+    // Fold both retire signals into the unique key so a delete-triggered retire
+    // dispatch (capturedHandle set — UserObserver::deleted) or a domain-removal
+    // sync (retireCustomDomain set) is never collapsed into a concurrent plain
+    // sync (handle-change/restore, which dispatches with neither set) — that
+    // collapse would silently drop the retire (WHK-1). This job is
+    // ShouldBeUniqueUntilProcessing, not plain ShouldBeUnique (see the class
+    // docblock above): the dedup lock only guards the "queued but not yet
+    // picked up by a worker" window, releasing the moment a worker starts
+    // handle(), not after it completes.
     public function uniqueId(): string
     {
-        return $this->userId.($this->retireCustomDomain ? ':retire:'.strtolower(trim($this->retireCustomDomain)) : '');
+        return $this->userId
+            .($this->capturedHandle ? ':retire-handle:'.strtolower(trim($this->capturedHandle)) : '')
+            .($this->retireCustomDomain ? ':retire:'.strtolower(trim($this->retireCustomDomain)) : '');
     }
 
     public function handle(CloudflareKvService $kv): void

@@ -51,7 +51,29 @@ it('301s to the canonical host when an active alias resolves and the canonical p
 
     $this->get('http://oldhandle.'.$domain.'/api/public/site')
         ->assertStatus(301)
-        ->assertRedirect('http://newhandle.'.$domain.'/api/public/site');
+        ->assertRedirect('http://newhandle.'.$domain.'/api/public/site')
+        // EDGE-1: previously shipped with no Cache-Control at all — several
+        // browsers cache an un-timed 301 heuristically "forever", stranding a
+        // returning visitor on a since-renamed/reclaimed subdomain.
+        ->assertHeader('Cache-Control', 'max-age=300, public');
+});
+
+it('CFG-3: honours a configured alias_redirect_max_age on the show() 301', function () {
+    $domain = config('partna.public_domain');
+    config(['partna.cache.alias_redirect_max_age' => 60]);
+    seedCanonicalSiteWithAlias('oldhandle2', 'newhandle2', fn () => [
+        'reclaim_until' => now()->addDays(5),
+        'expires_at' => now()->addDays(60),
+    ]);
+
+    $cache = Mockery::mock(SiteCacheService::class);
+    $cache->shouldReceive('getPublicSitePayload')->with('oldhandle2')->andReturn(null);
+    $cache->shouldReceive('getPublicSitePayload')->with('newhandle2')->andReturn(['site' => ['id' => 'x']]);
+    app()->instance(SiteCacheService::class, $cache);
+
+    $this->get('http://oldhandle2.'.$domain.'/api/public/site')
+        ->assertStatus(301)
+        ->assertHeader('Cache-Control', 'max-age=60, public');
 });
 
 it('returns 404 (not a redirect) when an active alias resolves but the canonical payload is evicted', function () {

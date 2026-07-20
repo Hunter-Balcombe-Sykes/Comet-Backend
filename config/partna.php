@@ -1588,11 +1588,24 @@ return [
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
 
+        // CFG-3 (public-surface audit): Cache-Control max-age for the alias→
+        // canonical 301 redirects in PublicSiteController::show()/showByHeader().
+        // An un-timed 301 is cached heuristically (often "forever") by several
+        // browsers, which can strand a returning visitor on a since-renamed or
+        // later-reclaimed subdomain — this bounds the redirect to a re-check window.
+        'alias_redirect_max_age' => (int) env('PARTNA_CACHE_ALIAS_REDIRECT_MAX_AGE', 300), // 5 min
+
         // Delay before CloudflareCachePurgeJob's follow-up purge. Must exceed the
         // sum of the payload staleness windows (Laravel Cloud edge s-maxage +
         // Worker subrequest cacheTtl) so the follow-up is guaranteed to evict any
         // stale HTML re-pinned by a visitor who raced the primary purge.
         'purge_followup_seconds' => (int) env('PARTNA_CACHE_PURGE_FOLLOWUP_SECONDS', 120),
+
+        // cache-edge-reconcile/LIFE-1 residual: purgeHandle() enumerated URL count
+        // above which CloudflarePurgeService logs a warning — makes a catalog
+        // (shop/menu/events) approaching the practical purge ceiling (chunking +
+        // job timeout budget) visible before it starts failing outright.
+        'purge_url_volume_warning_threshold' => (int) env('PARTNA_CACHE_PURGE_URL_VOLUME_WARNING_THRESHOLD', 900),
 
         'ttls' => [
             'public_payload' => (int) env('PARTNA_CACHE_TTL_PUBLIC_PAYLOAD', env('CACHE_TTL_PUBLIC_PAYLOAD', 900)),                                 // 15m

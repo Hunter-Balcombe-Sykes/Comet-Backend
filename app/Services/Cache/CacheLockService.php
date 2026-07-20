@@ -104,7 +104,23 @@ class CacheLockService
                         return $fresh;
                     }
 
-                    $value = $callback();
+                    try {
+                        $value = $callback();
+                    } catch (Throwable $e) {
+                        // CCH-3: recompute failed but a known-good stale value is
+                        // already in hand (SWR's whole purpose) — report and serve
+                        // it instead of failing this one unlucky lock-winner's
+                        // request. Every other concurrent request in this window
+                        // already takes the "another worker refreshing" branch
+                        // below and gets $stale too — this just extends the same
+                        // treatment to the winner. $stale is guaranteed non-null
+                        // here (we're inside the `if ($stale !== null)` branch);
+                        // a genuinely cold miss with no stale copy is a different
+                        // code path further down and still propagates.
+                        report($e);
+
+                        return $stale;
+                    }
                     $this->writeWithJitter($key, $staleKey, $value, $ttl);
 
                     return $value;

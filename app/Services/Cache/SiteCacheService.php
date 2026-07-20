@@ -239,17 +239,31 @@ class SiteCacheService
                     }
 
                     return $this->buildPayloadFromDb($subdomain, $key);
+                } catch (Throwable $e) {
+                    // CCH-3: recompute failed but a known-good stale value is
+                    // already in hand — report and fall through to the SAME
+                    // stale-serving/healing ladder below used for "another
+                    // worker is refreshing", instead of failing this one
+                    // unlucky lock-winner's request. $stale is guaranteed
+                    // non-null here (we're inside `if ($stale !== null)`
+                    // above). This does not mask a genuinely broken cache: if
+                    // $stale itself turns out unusable (old shape), the ladder
+                    // below re-invokes buildPayloadFromDb and that failure
+                    // still propagates normally.
+                    report($e);
                 } finally {
                     $this->releaseLockQuiet($fillLock);
                 }
             }
 
-            // Another worker holds the fill lock — serve the last-good copy without
-            // blocking. Apply the same backward-compat healing as the primary-hit path:
-            // stale copies may hold a pre-V2 payload shape (missing `services`, `legal`,
-            // or unsplit links/sections). If healing fails (old shape), fall through to
-            // buildPayloadFromDb — the fill-lock winner is already doing this, and the
-            // bounded extra DB hit is safer than serving a broken response.
+            // Reached when another worker holds the fill lock, OR the lock-winner's
+            // own recompute just failed above (CCH-3) — either way, serve the
+            // last-good copy without blocking. Apply the same backward-compat
+            // healing as the primary-hit path: stale copies may hold a pre-V2
+            // payload shape (missing `services`, `legal`, or unsplit links/
+            // sections). If healing fails (old shape), fall through to
+            // buildPayloadFromDb — the fill-lock winner is already doing this, and
+            // the bounded extra DB hit is safer than serving a broken response.
             if ($stale === self::MISS_SENTINEL) {
                 return null;
             }

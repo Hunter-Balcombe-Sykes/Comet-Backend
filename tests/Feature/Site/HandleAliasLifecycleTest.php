@@ -140,7 +140,45 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
     $response = $this->withHeaders(['X-Site-Subdomain' => 'oldhandle'])
         ->get('/api/public/site-by-slug');
 
-    $response->assertStatus(301);
+    $response->assertStatus(301)
+        ->assertHeader('Cache-Control', 'max-age=300, public');
+});
+
+it('CFG-3: honours a configured alias_redirect_max_age on the showByHeader() 301', function () {
+    setupSitesTable();
+    setupSubdomainAliasesTable();
+    config(['partna.cache.alias_redirect_max_age' => 60]);
+
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => null,
+        'subdomain' => 'newhandle2',
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    SiteSubdomainAlias::create([
+        'site_id' => $siteId,
+        'subdomain' => 'oldhandle2',
+        'reclaim_until' => now()->addDays(5),
+        'expires_at' => now()->addDays(60),
+        'created_at' => now(),
+    ]);
+
+    $mockCache = Mockery::mock(SiteCacheService::class);
+    $mockCache->shouldReceive('getPublicSitePayload')->andReturn(null);
+    app()->instance(SiteCacheService::class, $mockCache);
+
+    $response = $this->withHeaders(['X-Site-Subdomain' => 'oldhandle2'])
+        ->get('/api/public/site-by-slug');
+
+    $response->assertStatus(301)
+        ->assertHeader('Cache-Control', 'max-age=60, public');
 });
 
 it('writes alias KV entries with expirationTtl and a type=alias marker', function () {

@@ -35,13 +35,20 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     // Short-circuit permanent failures (e.g. revoked token) so failed()/Nightwatch fires after 2 attempts, not 3.
     public int $maxExceptions = 2;
 
-    // Derived worst case (2026-07-20, complements SCALE-101 in CloudflarePurgeService):
-    // purgeHandle() chunks up to ~1,480 URLs at 30/chunk = ~50 sequential blocking
-    // Http::post()->throw() calls to Cloudflare, none of which set an explicit
-    // ->timeout() (unlike CloudflareCustomHostnameService's calls). Assuming ~3s/call
-    // under a slow-but-not-hung Cloudflare API (well under Laravel's blanket 30s
-    // per-request ceiling) — 50 x 3s = 150s, + the pacing budget's 2s hard ceiling =
-    // ~152s worst case. 180s leaves real margin above that.
+    // Derived worst case (2026-07-20, complements SCALE-101 in CloudflarePurgeService,
+    // updated for the cache-edge-reconcile/LIFE-1 residual fix): purgeHandle() chunks
+    // up to ~1,480 URLs at 30/chunk = ~50 sequential blocking Http::post()->throw()
+    // calls to Cloudflare, each now explicitly bounded to timeout(10)+connectTimeout(3)
+    // (previously unbounded — Laravel's blanket 30s default applied). Typical case:
+    // ~3s/call under a healthy Cloudflare API — 50 x 3s = 150s, + the pacing budget's
+    // 2s hard ceiling = ~152s, leaving real margin under 180s. The per-call bound
+    // narrows (doesn't eliminate) the pathological case: it now takes 18+ chunks
+    // hitting the full 10s ceiling to exhaust the 180s budget, vs. 6 at the old
+    // unbounded ~30s default — a broadly degraded Cloudflare API can still exhaust it
+    // and get the job killed mid-purge. That residual is accepted scope (a
+    // retry ledger / resumable purge was explicitly declined as a follow-up); the
+    // volume-signal log in CloudflarePurgeService::purgeHandle() is the mitigation —
+    // it surfaces an oversized catalog before it starts failing outright.
     // Sanity-checked against the queue: the job's OWN $timeout wins over Horizon's
     // supervisor-level timeout (Illuminate\Queue\Worker::timeoutForJob() prefers
     // $job->timeout() over $options->timeout), so config/horizon.php's

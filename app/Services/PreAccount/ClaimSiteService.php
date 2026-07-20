@@ -2,6 +2,7 @@
 
 namespace App\Services\PreAccount;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
@@ -104,6 +105,24 @@ class ClaimSiteService
         $this->userCache->invalidateUser($result['professional']);
         $this->siteCache->invalidateSite($result['site']);
         SyncSubdomainToKvJob::dispatch((string) $result['professional']->id);
+
+        // EDGE-1: also purge the Cloudflare edge cache — invalidateSite() above
+        // only busts Redis, so without this a claim's status flip never reaches
+        // the edge (UserObserver::PUBLIC_PROFILE_USER_FIELDS deliberately excludes
+        // 'status', so SiteObserver's own purge never fires for a claim). Mirrors
+        // SiteObserver::saved()'s exact pattern: lowercased handle, custom domain
+        // only when actually served. ->afterCommit() is a no-op here — we're
+        // already outside the transaction closure — kept for convention
+        // consistency with the observer. invalidateSite() (Redis-only) is not
+        // touchSite() (which fires SiteObserver's own purge), so this does not
+        // double-dispatch the purge job.
+        $handle = strtolower(trim((string) $result['site']->subdomain));
+        $customDomain = $result['site']->custom_domain_status === 'active' && $result['site']->custom_domain
+            ? (string) $result['site']->custom_domain
+            : null;
+        if ($handle !== '') {
+            CloudflareCachePurgeJob::dispatch($handle, $customDomain)->afterCommit();
+        }
 
         return $result;
     }

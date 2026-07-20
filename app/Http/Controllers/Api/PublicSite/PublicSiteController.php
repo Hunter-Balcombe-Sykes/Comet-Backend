@@ -46,7 +46,19 @@ class PublicSiteController extends ApiController
                     $host = $site->subdomain.'.'.config('partna.public_domain');
                     $url = $request->getScheme().'://'.$host.$request->getRequestUri();
 
-                    return redirect()->to($url, 301);
+                    // EDGE-1/CFG-3 (audit): explicit Cache-Control so browsers
+                    // re-check after the TTL instead of heuristically caching this
+                    // 301 "forever" — an un-timed redirect can strand a visitor on
+                    // a later-renamed/reclaimed subdomain indefinitely.
+                    //
+                    // EDGE-2 (audit): deliberately preserves the visited path/query
+                    // (unlike showByHeader() below, which always redirects to the
+                    // homepage) — this endpoint is bound to the fixed /public/site
+                    // path on the subdomain host and serves a JSON API client, not
+                    // the Next.js proxy's path-based routing. Do not "unify" these;
+                    // they legitimately serve different consumers.
+                    return redirect()->to($url, 301)
+                        ->header('Cache-Control', 'public, max-age='.(int) config('partna.cache.alias_redirect_max_age', 300));
                 }
             }
         }
@@ -91,7 +103,14 @@ class PublicSiteController extends ApiController
                 $host = $site->subdomain.'.'.config('partna.public_domain');
                 $url = $request->getScheme().'://'.$host.'/';
 
-                return redirect()->to($url, 301)->header('Cache-Control', 'public, max-age=300');
+                // EDGE-2 (audit): always redirects to the homepage rather than the
+                // visited path — this is the Next.js proxy's path-based routing
+                // fallback, where the canonical request that follows will populate/
+                // serve the right page itself. show() above preserves the full path
+                // because it serves a different (fixed-path, JSON) consumer. Do not
+                // "unify" these; see the matching comment there.
+                return redirect()->to($url, 301)
+                    ->header('Cache-Control', 'public, max-age='.(int) config('partna.cache.alias_redirect_max_age', 300));
             }
         }
 

@@ -45,12 +45,17 @@ every draft rather than the scan reading nothing.
 ## Progress
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
-- P1 High: 4 of 12 complete *(WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 1 of 63 complete
-- P3 Low: 2 of 53 complete
-- *Total still reconciles to 128. Discovered during execution (outside the 128): 1 of 2 complete.*
+- P1 High: 10 of 13 complete *(14 originally; WHK-1 re-tiered to P2 — see S3)*
+- P2 Medium: 3 of 69 complete
+- P3 Low: 3 of 46 complete
+- *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 2 complete.*
 
-**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ (2026-07-20)
+> **⚠️ The "Findings at a glance" table above is wrong as generated.** It claims P1 13 / P2 62 /
+> P3 51. Counting the actual finding lines gives **P0 2 / P1 14 / P2 68 / P3 44** — both sum to 128,
+> but the per-tier split does not match. The counts tracked here are the line-level ones, adjusted
+> for the three re-tiers recorded below.
+
+**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -206,21 +211,43 @@ are cleanup that will silently regress.
 
 `edge-worker` returned no P0/P1, so **the Worker needs no change**; this is entirely Laravel-side.
 
-- [ ] **`cache-edge-reconcile/LIFE-1`** · P1 · M — Cloudflare purge job can time out mid-purge for large catalogs, **permanently** stalling edge invalidation → `sources/cache-edge-reconcile.md`
+> **⚠️ The "fix LIFE-1 first" sequencing constraint was DROPPED — it rests on a false dependency.**
+> The four real bugs here are all *missing-dispatch* defects: a purge or sync that is never queued.
+> A recovery path for *failed* purges does nothing for a purge that was never dispatched. There is
+> no ordering dependency between them.
+>
+> **⚠️ 3 of 9 findings were already closed or false.** LIFE-1 and LIFE-3 were fixed by a *previous*
+> audit-fix run (`3f41d147`, `f5cdcd99`) before Gate A ever ran — both are ancestors of this branch.
+> This is the staleness class CLAUDE.md warns about: *"After a baseline, audit the delta
+> (`--changed-since <ref>`), not the repo."* Gate A audited the repo.
+
+- [x] **`cache-edge-reconcile/LIFE-1`** · P1 · M — Cloudflare purge job can time out mid-purge for large catalogs, **permanently** stalling edge invalidation → `sources/cache-edge-reconcile.md`
   - `app/Services/Cloudflare/CloudflarePurgeService.php:66-72,147-149,163-165,207` — split the purge URL list across multiple delayed dispatches, or raise the timeout with bounded limits.
-- [ ] **`cache-invalidation/WHK-1`** · P1 · S — `SyncSubdomainToKvJob::uniqueId()` doesn't discriminate a delete-triggered retire from a routine sync; the retire is silently dropped → `sources/cache-invalidation.md`
+  - **`no_change_needed` as written — already fixed by `f5cdcd99`.** Both load-bearing claims are false at HEAD: `$timeout` is **180**, not the 15 the finding quotes (with a documented derivation and a test sweep pinning the `uniqueFor > timeout` invariant), and chunk pacing is budget-capped.
+  - **A genuine residual was fixed:** the outbound Cloudflare calls set no explicit HTTP timeout, so Laravel's 30s default meant ~6 stalled chunks could consume the whole 180s job budget while ~44 went unpurged. Added `->timeout(10)->connectTimeout(3)` (10 not 5 — 5 risks failing purges that currently succeed, and there is no p99 latency data). This **narrows** the hole from 6 chunks to 18; it does not close it, and the derivation comment says so rather than claiming immunity. Also added the URL-volume warning the finding asked for and which was never implemented.
+  - The proposed retry ledger + scheduled re-dispatch was **declined** as scope expansion (Josh, 2026-07-20) — LIFE-1 as written is closed, and a deterministic failure (revoked token) is bounded by the Worker's 24h TTL with any later edit re-purging.
+- [x] **`cache-invalidation/WHK-1`** · P1 · S — `SyncSubdomainToKvJob::uniqueId()` doesn't discriminate a delete-triggered retire from a routine sync; the retire is silently dropped → `sources/cache-invalidation.md`
   - `SyncSubdomainToKvJob.php:66-71`, `UserObserver.php:77,178,203` — fold `capturedHandle` into the `uniqueId()` discriminator; add a concurrent sync+retire regression test.
-- [ ] **`cache-invalidation/CCH-3`** · P1 · M — SWR recompute failures propagate instead of falling back to the known-good stale value → `sources/cache-invalidation.md`
+  - **Confirmed, and worse than written.** The job implements `ShouldBeUniqueUntilProcessing`, not `ShouldBeUnique` (audit text is wrong), so the drop window is "queued but not yet started". The full trace: a hard delete's retire is deduped away by an in-flight plain sync; the surviving job's `withTrashed()->find()` returns null, and with `capturedHandle` null the handle resolves to `''` — so **no KV delete happens at all** and the entry stays live indefinitely. The weekly `partna:backfill-subdomain-kv` cannot repair it because the user row is gone.
+  - Fixed with a `:retire-handle:` discriminator. Over-fixing was the real risk (the bare `$userId` key deliberately coalesces ~45s observer storms); review enumerated every dispatch site and confirmed plain syncs still collapse.
+- [x] **`cache-invalidation/CCH-3`** · P1 · M — SWR recompute failures propagate instead of falling back to the known-good stale value → `sources/cache-invalidation.md`
   - `CacheLockService.php:97-119`, `SiteCacheService.php:227-245` — wrap recompute in try/catch; on failure `report()` and return the stale value.
-- [ ] **`preaccount-claim/EDGE-1`** · P1 · S — Claim transition never purges the edge cache; stale pre-claim content served up to 7 days → `sources/preaccount-claim.md`
+  - Fixed at both sites. **The catch is scoped inside the `if ($stale !== null)` guard**, so the cold-miss path is untouched and a genuine failure with nothing to fall back on still propagates — a silent "serve stale forever" would be worse than a 500. `SiteCacheService` falls through into its existing healing ladder rather than duplicating it. Masking is bounded: the stale key's TTL is not refreshed on a failed recompute, so it self-corrects within one TTL window.
+- [x] **`preaccount-claim/EDGE-1`** · P1 · S — Claim transition never purges the edge cache; stale pre-claim content served up to 7 days → `sources/preaccount-claim.md`
   - `app/Services/PreAccount/ClaimSiteService.php:76-84` — dispatch `CloudflareCachePurgeJob` afterCommit as `SiteObserver` does; assert the dispatch in a test.
-- [ ] **`user-api/EDGE-1`** · P1 · M — Reordering services or service categories never purges the edge cache → `sources/user-api.md`
+  - Confirmed: `UserObserver::PUBLIC_PROFILE_USER_FIELDS` excludes `status`, so the claim's status flip never reaches `SiteObserver::saved()`. Purges by `$site->subdomain` (not `$professional->handle`) to match `SiteObserver` exactly. No double-purge — claim uses `invalidateSite()` (pure cache deletes), not `touchSite()`.
+- [x] **`user-api/EDGE-1`** · P1 · M — Reordering services or service categories never purges the edge cache → `sources/user-api.md`
   - `app/Services/Site/ReorderService.php` + both reorder controllers — pass `fn() => $site->touch()` as the afterCommit arg; touch the site in `reorderLayout` too.
-- [ ] **`public-surface/EDGE-1`** · P1 · S — Alias 301 in `show()` ships no `Cache-Control`, unlike sibling `showByHeader()` → `sources/public-surface.md`
-- [ ] **`public-surface/EDGE-2`** · P2 · S — `show()` and `showByHeader()` handle the same alias redirect differently: one preserves the path, the other goes to homepage → `sources/public-surface.md`
-- [ ] **`public-surface/CFG-3`** · P3 · S — Alias-redirect `Cache-Control` TTL hardcoded as a string literal → `sources/public-surface.md`
+  - Confirmed at all three call sites (`ReorderService` writes via a query-builder mass update, so no model events fire). **Gap the audit missed:** neither controller used `ResolveCurrentSite` — the trait was added, matching the `UserGalleryController` convention. Burst safety verified: `CloudflareCachePurgeJob::uniqueId()` doesn't vary per invocation, so a drag-and-drop burst coalesces under its 240s lock.
+- [x] **`public-surface/EDGE-1`** · P1 · S — Alias 301 in `show()` ships no `Cache-Control`, unlike sibling `showByHeader()` → `sources/public-surface.md`
+  - Fixed. Impact is lower than the finding implies — `show()` is a JSON API endpoint, not the HTML page, so the "visitor stranded permanently" narrative doesn't apply. TTL confirmed safe against alias expiry: 5 minutes is far inside the 14d `reclaim_until` / 90d `expires_at` windows.
+- [x] **`public-surface/EDGE-2`** · P2 · S — `show()` and `showByHeader()` handle the same alias redirect differently: one preserves the path, the other goes to homepage → `sources/public-surface.md`
+  - **`no_change_needed` — premise false.** `show()` cannot "preserve the visited path": it is bound to the fixed path `/public/site` on the subdomain host. And the two methods sit on **different hosts serving different clients** — `showByHeader()` is on the API host for the Next.js proxy. Unifying them is actively harmful in both directions: one would send a JSON client to an HTML homepage; the other would build a URL on the wrong host with the required `X-Site-Subdomain` header lost (→ 400). Replaced with explanatory comments on both methods.
+- [x] **`public-surface/CFG-3`** · P3 · S — Alias-redirect `Cache-Control` TTL hardcoded as a string literal → `sources/public-surface.md`
   - The source file states EDGE-1 / EDGE-2 / CFG-3 should be fixed together; keep them in one commit.
-- [ ] **`cache-edge-reconcile/LIFE-3`** · P2 · S — Purge product/menu/event lookup failures log at `debug`, invisible to Nightwatch at production log level → `sources/cache-edge-reconcile.md`
+  - Extracted to `partna.cache.alias_redirect_max_age`. **The audit's suggested key was wrong** — `partna.public_site.*` does not exist and there is no such namespace; used the existing `partna.cache` block.
+- [x] **`cache-edge-reconcile/LIFE-3`** · P2 · S — Purge product/menu/event lookup failures log at `debug`, invisible to Nightwatch at production log level → `sources/cache-edge-reconcile.md`
+  - **`no_change_needed` — already fixed by `3f41d147`** (OBS-101). The three catch blocks already pair `report($e)` with `Log::warning`, with a covering test.
 
 ### Bundle B2 — Migration atomicity, ahead of the cutover · **P1** · Effort M
 

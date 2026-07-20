@@ -184,6 +184,73 @@ it('purgeHandle composes page URLs against the configured public domain (non-pro
         ->not->toContain('https://jane.partna.au/');
 });
 
+// --- cache-edge-reconcile/LIFE-1 residual: bounded per-call HTTP timeout ---
+
+it('bounds each purge_cache POST with an explicit timeout + connect timeout (LIFE-1 residual)', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+
+    $capturedOptions = [];
+    // Http::fake's callback form receives the raw Guzzle transfer options as the
+    // 2nd arg — the only place PendingRequest::timeout()/connectTimeout() are
+    // observable, since they aren't part of the PSR request Http::recorded() exposes.
+    Http::fake(function ($request, $options) use (&$capturedOptions) {
+        $capturedOptions[] = $options;
+
+        return Http::response(['success' => true], 200);
+    });
+
+    (new CloudflarePurgeService)->purgeUrls(['https://h1.partna.au/']);
+
+    expect($capturedOptions)->toHaveCount(1)
+        ->and($capturedOptions[0]['timeout'] ?? null)->toBe(10)
+        ->and($capturedOptions[0]['connect_timeout'] ?? null)->toBe(3);
+});
+
+// --- cache-edge-reconcile/LIFE-1 residual: volume-signal log ---
+
+it('logs a volume-warning when purgeHandle enumerates more URLs than the configured threshold (LIFE-1 residual)', function () {
+    // Seed the tables the product/menu/event enrichment lookups join against so
+    // they resolve to empty result sets instead of throwing "no such table" —
+    // otherwise the unrelated OBS-101 lookup-failure warnings pollute the count.
+    setupUsersTable();
+    setupSitesTable();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', 'https://dev-api.partna.au');
+    Config::set('partna.public_domain', 'partna.au');
+    Config::set('partna.cache.purge_url_volume_warning_threshold', 10);
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+    Log::spy();
+
+    (new CloudflarePurgeService)->purgeHandle('bigcatalog');
+
+    $expectedCount = 3 + 2 * count(cfDeepLinkSubPages()) + 2;
+    Log::shouldHaveReceived('warning')->times(1);
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $msg, array $ctx) => $msg === 'cloudflare.purge.url_volume_high'
+            && ($ctx['handle'] ?? null) === 'bigcatalog'
+            && ($ctx['url_count'] ?? null) === $expectedCount
+            && ($ctx['threshold'] ?? null) === 10
+    );
+});
+
+it('does not log a volume-warning when the URL count is at or below the configured threshold (LIFE-1 residual)', function () {
+    setupUsersTable();
+    setupSitesTable();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
+    Config::set('partna.cache.purge_url_volume_warning_threshold', 100_000);
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+    Log::spy();
+
+    (new CloudflarePurgeService)->purgeHandle('smallcatalog');
+
+    Log::shouldNotHaveReceived('warning');
+});
+
 it('purgeHandle ignores empty handles', function () {
     Config::set('services.cloudflare.zone_id', 'zoneXYZ');
     Config::set('services.cloudflare.cache_purge_token', 'tok');

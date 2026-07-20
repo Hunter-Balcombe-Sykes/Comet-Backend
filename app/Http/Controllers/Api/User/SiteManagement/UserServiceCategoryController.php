@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\User\SiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Services\ReorderServiceCategoryRequest;
 use App\Http\Requests\Api\User\Services\StoreServiceCategoryRequest;
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 // V2: Full CRUD + reorder for service categories. Deleting a category moves its services to uncategorized.
 class UserServiceCategoryController extends ApiController
 {
+    use ResolveCurrentSite;
     use ResolveCurrentUser;
 
     public function index(Request $request): JsonResponse
@@ -151,11 +153,17 @@ class UserServiceCategoryController extends ApiController
     public function reorder(ReorderServiceCategoryRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
+        $site = $this->currentSite($pro);
 
+        // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
+        // events, so ServiceCategoryObserver never touches the site. Touch
+        // explicitly in afterCommit to fire SiteObserver — Redis invalidation +
+        // Cloudflare edge purge + cache warm (mirrors UserGalleryController::reorder).
         app(ReorderService::class)->reorder(
             $request->input('ids', []),
             ServiceCategory::query()->where('user_id', $pro->id),
             "service-categories:{$pro->id}",
+            fn () => $site->touch(),
         );
 
         return $this->success(['ok' => true]);
