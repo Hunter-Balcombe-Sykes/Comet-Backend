@@ -84,6 +84,22 @@ it('returns an empty array when there is no Menu JSON-LD at all', function () {
     expect(app(MenuTextExtractor::class)->extract('<html><body>No menu here</body></html>', 'https://venue.example'))->toBe([]);
 });
 
+it('decodes HTML entities left over from a JSON-LD block that double-escaped its own text', function () {
+    $html = <<<'HTML'
+    <script type="application/ld+json">
+    {"@type": "Menu", "hasMenuSection": [{"name": "Mains &amp; More", "hasMenuItem": [
+      {"name": "Fish &amp; Chips", "description": "Beer-battered &amp; served with tartare"}
+    ]}]}
+    </script>
+    HTML;
+
+    $items = app(MenuTextExtractor::class)->extract($html, 'https://venue.example');
+
+    expect($items[0]['name'])->toBe('Fish & Chips');
+    expect($items[0]['description'])->toBe('Beer-battered & served with tartare');
+    expect($items[0]['category'])->toBe('Mains & More');
+});
+
 it('offers as a list picks the first numeric price', function () {
     $html = <<<'HTML'
     <script type="application/ld+json">

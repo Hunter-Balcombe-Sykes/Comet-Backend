@@ -26,12 +26,21 @@ class AboutTextExtractor
             $node = $parsed->jsonLdOfType($type);
             $description = is_string($node['description'] ?? null) ? trim($node['description']) : '';
             if ($description !== '') {
-                return $description;
+                return $this->decode($description);
             }
         }
 
         $meta = trim((string) ($parsed->meta['description'] ?? ''));
 
-        return $meta !== '' ? $meta : null;
+        return $meta !== '' ? $this->decode($meta) : null;
+    }
+
+    // <script> content isn't HTML-entity-decoded by the DOM parser, so a
+    // JSON-LD block that (incorrectly) HTML-escaped its own text — real sites
+    // do this — comes through json_decode() with literal "&amp;" etc. still in
+    // it. Decode defensively; a site with no such bug round-trips unchanged.
+    private function decode(string $text): string
+    {
+        return html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
     }
 }

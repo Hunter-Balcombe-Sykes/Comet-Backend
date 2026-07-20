@@ -47,3 +47,19 @@ it('trims whitespace from the extracted text', function () {
     $html = '<meta name="description" content="  Padded text.  ">';
     expect(app(AboutTextExtractor::class)->extract($html, 'https://venue.example'))->toBe('Padded text.');
 });
+
+it('decodes HTML entities left over from a JSON-LD block that double-escaped its own text', function () {
+    // Reproduced live 2026-07-20 (errols.com.au): the site's own JSON-LD
+    // literally contains "&amp;" as text inside the description string —
+    // <script> content isn't HTML-entity-decoded by the DOM parser, so
+    // json_decode() faithfully preserves it. Left undecoded, this would show
+    // up verbatim ("Restaurant &amp; Bar") on the user's live site.
+    $html = <<<'HTML'
+    <script type="application/ld+json">
+    {"@type": "LocalBusiness", "description": "Restaurant &amp; Bar, North Melbourne"}
+    </script>
+    HTML;
+
+    expect(app(AboutTextExtractor::class)->extract($html, 'https://venue.example'))
+        ->toBe('Restaurant & Bar, North Melbourne');
+});

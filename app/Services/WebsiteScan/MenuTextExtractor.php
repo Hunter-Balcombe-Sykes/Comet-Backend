@@ -48,10 +48,10 @@ class MenuTextExtractor
             $description = is_string($item['description'] ?? null) ? trim($item['description']) : '';
 
             $items[] = [
-                'name' => $name,
-                'description' => $description !== '' ? $description : null,
+                'name' => $this->decode($name),
+                'description' => $description !== '' ? $this->decode($description) : null,
                 'price' => $this->firstPrice($item['offers'] ?? null),
-                'category' => $sectionName,
+                'category' => $sectionName !== null ? $this->decode($sectionName) : null,
             ];
         }
 
@@ -72,6 +72,15 @@ class MenuTextExtractor
         }
 
         return array_is_list($value) ? $value : [$value];
+    }
+
+    // <script> content isn't HTML-entity-decoded by the DOM parser, so a
+    // JSON-LD block that (incorrectly) HTML-escaped its own text — real sites
+    // do this — comes through json_decode() with literal "&amp;" etc. still in
+    // it. Decode defensively; a site with no such bug round-trips unchanged.
+    private function decode(string $text): string
+    {
+        return html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
     }
 
     private function firstPrice(mixed $offers): ?float
