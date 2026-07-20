@@ -1147,40 +1147,13 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$account_type\.$#'
-			identifier: property.notFound
+			# Surfaced by the M1 property sweep: account_type is now known non-nullable
+			# AccountType, so ?->value here is a redundant nullsafe access. Real, harmless
+			# — a code cleanup, not a bug. Out of scope for M1 (touch-list is model files only).
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_confirmed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffAccountDeletionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_previous_status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffAccountDeletionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_requested_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/StaffSite/StaffAccountDeletionController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\EmailSubscription\:\:\$email\.$#'
@@ -1381,12 +1354,6 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_confirmed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Account/UserAccountDeletionController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$recipient_email\.$#'
 			identifier: property.notFound
 			count: 2
@@ -1529,30 +1496,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/User/Notifications/UserEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/Profile/SectorController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Profile/SectorController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Profile/SectorOptionsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Profile/SectorOptionsController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
@@ -1735,18 +1678,6 @@ parameters:
 			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_email\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteMedia\:\:\$is_active\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1771,8 +1702,11 @@ parameters:
 			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>value" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
+			# Surfaced by the M1 property sweep: account_type is now known non-nullable
+			# AccountType, so account_type?->value is provably never null and the ?? '' is
+			# dead. Real, harmless — a code cleanup, not a bug. Out of scope for M1.
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
 			count: 1
 			path: app/Http/Middleware/Context/LoadCurrentUser.php
 
@@ -4093,18 +4027,6 @@ parameters:
 			path: app/Http/Resources/WorkplaceResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_mail_sent_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Account/SendAccountDeletionRequestMailJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_token_hash\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Account/SendAccountDeletionRequestMailJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$custom_domain\.$#'
 			identifier: property.notFound
 			count: 1
@@ -4117,7 +4039,13 @@ parameters:
 			path: app/Jobs/Cloudflare/CloudflareCachePurgeJob.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$expires_at\.$#'
+			# Surfaced by the M1 property sweep: annotating User::$preAccountBuild as
+			# PreAccountBuild|null (was a generic Eloquent Model before) resolved this
+			# access to the correct target class. PreAccountBuild.php itself still lacks
+			# a full @property block (only $build_state is documented) — real gap, but
+			# PreAccountBuild.php is out of scope for M1 (User/PartnaStaff only). Follow-up
+			# model-property-sweep unit should cover it.
+			message: '#^Access to an undefined property App\\Models\\Core\\User\\PreAccountBuild\:\:\$expires_at\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Cloudflare/SyncSubdomainToKvJob.php
@@ -5005,12 +4933,6 @@ parameters:
 			path: app/Models/Core/Site/SiteMedia.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$role\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Models/Core/Staff/PartnaStaff.php
-
-		-
 			message: '#^Access to an undefined property \$this\(App\\Models\\Core\\User\\Customer\)\:\:\$marketing_opt_in_cached\.$#'
 			identifier: property.notFound
 			count: 1
@@ -5039,12 +4961,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/User/Customer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$account_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/User.php
 
 		-
 			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:withTrashed\(\)\.$#'
@@ -5263,33 +5179,15 @@ parameters:
 			path: app/Policies/CustomerPolicy.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$role\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Policies/EarlyAccessSignupPolicy.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 2
 			path: app/Policies/EnquiryPolicy.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$role\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Policies/FeatureAvailabilityPolicy.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 3
-			path: app/Policies/FeedbackPolicy.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$role\.$#'
-			identifier: property.notFound
-			count: 2
 			path: app/Policies/FeedbackPolicy.php
 
 		-
@@ -5303,18 +5201,6 @@ parameters:
 			identifier: property.notFound
 			count: 3
 			path: app/Policies/ServicePolicy.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$role\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Policies/UserSegmentPolicy.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Accounts/AccountCapabilities.php
 
 		-
 			message: '#^Parameter \#1 \$array \(array\{''spotify'', ''soundcloud'', ''apple\-music'', ''apple\-podcast'', ''youtube\-music'', ''tidal'', ''mixcloud'', ''pinterest'', \.\.\.\}\) of array_values is already a list, call has no effect\.$#'
@@ -5425,12 +5311,6 @@ parameters:
 			path: app/Services/Analytics/Writers/PostgresEventWriter.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Audit/StaffAuditService.php
-
-		-
 			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Http\\Request\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -5459,78 +5339,6 @@ parameters:
 			identifier: arrayValues.list
 			count: 1
 			path: app/Services/Cache/SiteCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$country_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$handle_lc\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$location_city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$location_country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$location_postcode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$location_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$location_street_address\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$timezone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
 
 		-
 			message: '#^Parameter \#1 \$array \(non\-empty\-list\<string\>\) of array_values is already a list, call has no effect\.$#'
@@ -6223,24 +6031,6 @@ parameters:
 			path: app/Services/Platforms/IdentitySync.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$sector_source\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/Platforms/IdentitySync.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\IntegrationConnection\:\:\$payload\.$#'
 			identifier: property.notFound
 			count: 1
@@ -6629,12 +6419,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/PreAccount/ClaimSiteService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$first_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PreAccount/Generators/InstagramSourceGenerator.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$is_active\.$#'
@@ -7243,30 +7027,6 @@ parameters:
 			path: app/Services/User/AccountDeletionService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_confirmed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_previous_status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_requested_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/AccountDeletionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$deletion_token_hash\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/AccountDeletionService.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Moderation\\Evidence\:\:\$payload\.$#'
 			identifier: property.notFound
 			count: 1
@@ -7279,16 +7039,14 @@ parameters:
 			path: app/Services/User/AccountDeletionService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Staff\\PartnaStaff\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/DataExport/DataExportService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$public_contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/DataExport/DataExportService.php
+			# Surfaced by the M1 property sweep: deletion_requested_at/deletion_confirmed_at
+			# are now known Carbon|null, so `instanceof \DateTimeInterface` on them (defensive
+			# code guarding against a raw un-cast string) is provably always true. Real,
+			# harmless — a simplification opportunity, not a bug. Out of scope for M1.
+			message: '#^Instanceof between Illuminate\\Support\\Carbon and DateTimeInterface will always evaluate to true\.$#'
+			identifier: instanceof.alwaysTrue
+			count: 2
+			path: app/Services/User/AccountDeletionService.php
 
 		-
 			message: '#^Parameter &\$csvHandles by\-ref type of method App\\Services\\User\\DataExport\\DataExportZipWriter\:\:writeCsvRow\(\) expects array\<string, array\{path\: string, fp\: resource, columns\: array\<string\>\}\>, non\-empty\-array\<string, array\{path\: string, fp\: resource, columns\: array\}\> given\.$#'
@@ -7307,36 +7065,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/User/SiteProvisioningService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$country_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/UserBootstrapService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$first_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/UserBootstrapService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$last_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/UserBootstrapService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/UserBootstrapService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\User\:\:\$timezone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/User/UserBootstrapService.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Block\:\:\$settings\.$#'
@@ -7721,12 +7449,6 @@ parameters:
 			identifier: argument.unresolvableType
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/SquareController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,App\\Models\\Core\\User\\User\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Site\:\:\$subdomain\.$#'
