@@ -1,0 +1,524 @@
+# Gate A — pre-pilot audit set (CONSOLIDATED)
+
+Merged from **23 audit runs** executed sequentially 2026-07-19 → 2026-07-20 per
+`scripts/audit/campaigns.md` § *Running Gate A end to end*. Each finding keeps a pointer to
+its source file under `sources/`, which holds the full **Where / Technical / Plain English /
+Evidence** for that finding. This file is the orchestration layer: tiers, effort, bundles,
+and cross-run root causes.
+
+**Scope** — ranks 1–7 of the Gate A table: Security T1 (8 runs) · Concurrency T1 (3) ·
+Security T2a (3) · Lifecycle T1 (2) · Cutover T1 (3) · Cutover T2 (2) · Data & privacy T1 (2).
+Lenses: `security`, `schema-rls`, `configuration-hygiene`, `edge-worker`, `privacy-compliance`,
+`caching-gold-standard`, `webhook-idempotency`, `transaction-boundaries`,
+`lifecycle-correctness`, `migration-safety`, `test-prod-parity`.
+
+## Findings at a glance
+
+| Tier | Count |
+|---|---|
+| P0 — blocker | 2 |
+| P1 — high | 13 |
+| P2 — medium | 62 |
+| P3 — low | 51 |
+| **Total** | **128** |
+
+Two runs (`parity-models`, `parity-services`) returned **zero findings**; both were verified
+as genuine — payloads of 226 KB and 315 KB reached the scanner, so the adjudicator rejected
+every draft rather than the scan reading nothing.
+
+## Execution policy
+
+- **Plan:** Opus · **Implement:** Sonnet · **Review:** a *separate* Sonnet instance
+- **Combine plan+impl:** YES for S/XS effort · NO for P0/P1 or L/XL (plan first, then implement)
+- **Blocker gate — present the plan and wait for sign-off before implementing:** every item
+  under `## Standalone — do NOT bundle`, plus anything P0, auth-touching, DB/migration, or L/XL.
+- Runbook: `scripts/audit/fix-flow.md`. Branch: `audit-fix/gate-a-2026-07-20`.
+- **Every finding below carries only its `Where` and `What to do`.** The full
+  **Technical / Plain English / Evidence** for a finding lives in the `sources/<run>.md` file
+  named at the end of its line. **The planning instance for a unit MUST open every source file
+  its findings point at** before writing a plan — the one-line summaries here are an index, not
+  the finding. A plan written from this file alone is working from a third of the evidence.
+- This file is **not** in the format `PROMPT-consolidated-fix-runner.md` expects (no per-bundle
+  completion checkbox, no embedded four-prompt blocks). Drive it with `execute audit` /
+  `fix-flow.md`, not the autonomous runner.
+
+## Progress
+
+- P0 Blocker: 0 of 2 complete
+- P1 High: 0 of 13 complete
+- P2 Medium: 0 of 62 complete
+- P3 Low: 0 of 51 complete
+
+## Cross-run root causes
+
+Findings that surfaced independently in multiple runs. Agreement across runs is a confidence
+signal — these are the ones least likely to be adjudication noise.
+
+| Root cause | Findings | Runs that found it |
+|---|---|---|
+| **Edge-cache invalidation has no safety net** — three ways to lose an invalidation (never dispatched / deduped away / timed out) and no reconcile loop under any of them | 8 | preaccount-claim · public-surface · user-api · cache-invalidation · cache-edge-reconcile |
+| **Policy gate omitted on write endpoints** — the `authorizeForUser` convention applied inconsistently | 16 | user-api · staff-api |
+| **PII written to logs / audit rows without minimisation** | 10 | public-surface · authz-core · webhooks-internal · requests-resources · edge-worker · outbound-ssrf |
+| **Migration transaction convention is inconsistent** — backfills wrapped that shouldn't be, DDL pairs unwrapped that should be | 6 | migrations-early · migrations-recent |
+| **`$fillable` doctrine not applied** — server-only lifecycle fields mass-assignable | 5 | preaccount-claim · models-data |
+| **Retention windows declared but never pruned** | 4 | models-data · wiring · gdpr-deletion-export |
+| **Bare `DB::transaction()` not pinned to the `pgsql` connection** | 6 | claim-and-provision · state-machines |
+
+**Note on IDs:** finding IDs are per-run and collide across runs (three unrelated `EDGE-1`s,
+two unrelated `WHK-1`s, two unrelated `PRIV-1`s). Every ID below is namespaced `run/ID`.
+Never merge on ID alone.
+
+---
+
+## Standalone — do NOT bundle
+
+Each of these needs its own plan, its own sign-off, and its own commit.
+
+### S1: `migrations-early/MIG-1` · **P0** · Effort S · → `sources/migrations-early.md`
+
+- [ ] **`migrations-early/MIG-1`** · P0 — `DROP INDEX` without `CONCURRENTLY` on hot table `site.site_media`
+  - **Where:** `supabase/migrations/20260527000000_fix_sort_order_unique_constraints.sql`
+  - **What to do:** change both `DROP INDEX` statements to `CONCURRENTLY`; the file already lacks a transaction wrapper.
+
+**Risk gate: DB/migration + P0.** A plain `DROP INDEX` takes `ACCESS EXCLUSIVE`, blocking every
+read and write on the table while it waits for in-flight queries. ⚠️ **Verify before fixing:**
+CLAUDE.md records a known "CONCURRENTLY/pipeline CLI incompatibility" that already breaks
+`supabase db reset` on a fresh DB — adding `CONCURRENTLY` may trade a lock stall for a migration
+that will not run at all under `db push`. Resolve that interaction as part of this fix.
+
+**Mitigating context:** at cutover the target is a freshly re-baselined DB with no traffic and
+near-empty tables, so the lock has nothing to block. Severity is real but conditional on these
+migrations ever replaying against a populated, serving database.
+
+### S2: `migrations-early/MIG-2` · **P0** · Effort S · → `sources/migrations-early.md`
+
+- [ ] **`migrations-early/MIG-2`** · P0 — `DROP INDEX` without `CONCURRENTLY` on `site.enquiries`, inside a data-writing transaction
+  - **Where:** `supabase/migrations/20260527160000_enquiry_inbox.sql`
+  - **What to do:** move the `DROP INDEX` into the sibling CONCURRENTLY file as `DROP INDEX CONCURRENTLY IF EXISTS`.
+
+**Risk gate: DB/migration + P0.** Structurally worse than S1: `DROP INDEX CONCURRENTLY` **cannot
+run inside a transaction block** — Postgres rejects it outright — so the one-keyword fix is
+unavailable here. The migration must be split first. Plan S1 and S2 as **one unit**; they share
+the CLI-incompatibility question above.
+
+### S3: `webhooks-idempotency/WHK-1` · **P1** · Effort M · → `sources/webhooks-idempotency.md`
+
+- [ ] **`webhooks-idempotency/WHK-1`** · P1 — Auth-hook idempotency short-circuit always replays `continue`, silently converting a lost REJECT into an allow on Supabase's retry
+  - **Where:** `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:53-59,108-123`
+  - **What to do:** store the decision alongside the dedup anchor; return the stored decision, not a hardcoded `continue`, on replay.
+
+**Risk gate: auth.** The only finding in the gate that makes the system *less* safe under retry
+than under normal operation. Idempotency caching is meant to be safety-preserving; replaying a
+hardcoded `continue` inverts it, so a legitimate REJECT becomes an allow. It sits at the Supabase
+auth boundary — every correct authorization check downstream is irrelevant if the wrong identity
+gets an account — and it is invisible in the happy path, so no amount of pilot usage surfaces it.
+
+### S4: `models-data/SEC-1` · **P2** · Effort **L** · → `sources/models-data.md`
+
+- [ ] **`models-data/SEC-1`** · P2 — Eleven models declare permissive mass-assignment, deviating from the codebase's own `$fillable` doctrine
+  - **Where:** `app/Models/Moderation/*`, `app/Models/Core/Site/*`, `User.php`, `app/Models/Views/*`
+  - **What to do:** replace with explicit `$fillable` allowlists; migrate skeleton-pattern call sites to explicit assignment.
+
+**Risk gate: L effort.** Do NOT attempt alongside B5. Per the *Fillable Tenancy-FK → associate()*
+rule, removing a tenancy FK from `$fillable` is not a one-liner — trusted paths must move to
+`->relation()->associate()` first or creation silently breaks.
+
+---
+
+## Suggested Bundled Sessions
+
+### Bundle B1 — Edge-cache invalidation: close all four holes · **P1** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+
+The highest-confidence finding in the gate: five independent runs, three lens bundles, one
+missing architectural piece. There are three ways to lose an invalidation and no recovery path
+under any of them. Fix the reconcile loop **first** — without it the three dispatch-site fixes
+are cleanup that will silently regress.
+
+`edge-worker` returned no P0/P1, so **the Worker needs no change**; this is entirely Laravel-side.
+
+- [ ] **`cache-edge-reconcile/LIFE-1`** · P1 · M — Cloudflare purge job can time out mid-purge for large catalogs, **permanently** stalling edge invalidation → `sources/cache-edge-reconcile.md`
+  - `app/Services/Cloudflare/CloudflarePurgeService.php:66-72,147-149,163-165,207` — split the purge URL list across multiple delayed dispatches, or raise the timeout with bounded limits.
+- [ ] **`cache-invalidation/WHK-1`** · P1 · S — `SyncSubdomainToKvJob::uniqueId()` doesn't discriminate a delete-triggered retire from a routine sync; the retire is silently dropped → `sources/cache-invalidation.md`
+  - `SyncSubdomainToKvJob.php:66-71`, `UserObserver.php:77,178,203` — fold `capturedHandle` into the `uniqueId()` discriminator; add a concurrent sync+retire regression test.
+- [ ] **`cache-invalidation/CCH-3`** · P1 · M — SWR recompute failures propagate instead of falling back to the known-good stale value → `sources/cache-invalidation.md`
+  - `CacheLockService.php:97-119`, `SiteCacheService.php:227-245` — wrap recompute in try/catch; on failure `report()` and return the stale value.
+- [ ] **`preaccount-claim/EDGE-1`** · P1 · S — Claim transition never purges the edge cache; stale pre-claim content served up to 7 days → `sources/preaccount-claim.md`
+  - `app/Services/PreAccount/ClaimSiteService.php:76-84` — dispatch `CloudflareCachePurgeJob` afterCommit as `SiteObserver` does; assert the dispatch in a test.
+- [ ] **`user-api/EDGE-1`** · P1 · M — Reordering services or service categories never purges the edge cache → `sources/user-api.md`
+  - `app/Services/Site/ReorderService.php` + both reorder controllers — pass `fn() => $site->touch()` as the afterCommit arg; touch the site in `reorderLayout` too.
+- [ ] **`public-surface/EDGE-1`** · P1 · S — Alias 301 in `show()` ships no `Cache-Control`, unlike sibling `showByHeader()` → `sources/public-surface.md`
+- [ ] **`public-surface/EDGE-2`** · P2 · S — `show()` and `showByHeader()` handle the same alias redirect differently: one preserves the path, the other goes to homepage → `sources/public-surface.md`
+- [ ] **`public-surface/CFG-3`** · P3 · S — Alias-redirect `Cache-Control` TTL hardcoded as a string literal → `sources/public-surface.md`
+  - The source file states EDGE-1 / EDGE-2 / CFG-3 should be fixed together; keep them in one commit.
+- [ ] **`cache-edge-reconcile/LIFE-3`** · P2 · S — Purge product/menu/event lookup failures log at `debug`, invisible to Nightwatch at production log level → `sources/cache-edge-reconcile.md`
+
+### Bundle B2 — Migration atomicity, ahead of the cutover · **P1** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+**Risk gate: DB/migration — sign-off required.**
+
+⚠️ **Sequence these ahead of S1/S2 despite the lower tier.** The P0s are lock stalls that need a
+populated, serving table to hurt — at cutover the target is fresh and idle, so their real-world
+severity is near zero *for this operation*. These P1s don't care about table size: a backfill
+that commits before its `DROP COLUMN` fails leaves a state that is neither the old schema nor
+the new one, where re-running and rolling back are both unsafe. That is the failure mode that
+turns a one-shot operation into an unrecoverable one.
+
+Note B2 contains **opposite** errors — MIG-1/2/3 are under-wrapped, MIG-4 is over-wrapped. The
+rule: **backfills want to be split, DDL pairs want to be atomic.**
+
+- [ ] **`migrations-recent/MIG-3`** · P1 · S — `DROP CONSTRAINT` + `ADD CONSTRAINT ... NOT VALID` auto-commit separately; momentary window with no CHECK active on `site.sites` and `core.users` → `sources/migrations-recent.md`
+  - 6 files incl. `20260711000000_staff_account_type.sql` — wrap both statements in one transaction per file.
+- [ ] **`migrations-recent/MIG-1`** · P1 · S — Backfill INSERT and `DROP COLUMN` auto-commit separately; half-applied risk on `site.menu_items` → `sources/migrations-recent.md`
+  - `20260701140100_menu_item_platforms_table.sql` — wrap in one transaction; add `SET LOCAL lock_timeout` before the drop.
+- [ ] **`migrations-recent/MIG-2`** · P1 · S — Same non-atomic backfill/drop pattern on `site.menus` → `sources/migrations-recent.md`
+- [ ] **`migrations-recent/MIG-4`** · P1 · M — `ADD COLUMN` + full-table `UPDATE` + `ADD CONSTRAINT`/`VALIDATE` combined in one transaction on `site.sites`; violates the repo's own written convention → `sources/migrations-recent.md`
+  - Split into: DDL · backfill outside the transaction · `ADD CONSTRAINT NOT VALID` · `VALIDATE`.
+
+### Bundle B3 — PII that survives redaction or leaks on export · **P1** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+
+Legal risk, not technical debt — pilot means real visitor and staff PII. Note the two `PRIV-1`s
+here are **unrelated defects** from different runs.
+
+- [ ] **`models-data/PRIV-1`** · P1 · S — `Customer::redact()` cascade skips `LeadSubmission`, leaving visitor PII behind after a redaction → `sources/models-data.md`
+  - Bulk-UPDATE `LeadSubmission` to null `ip_hash`/`user_agent`/`referrer`; add a coverage test.
+  - Scope note: `state-machines` and `gdpr-deletion-export` both audited the *deletion* cascade and found no equivalent gap, so this is **one missed table, not a systemic cascade problem**.
+- [ ] **`gdpr-deletion-export/PRIV-1`** · P1 · S — GDPR deletion-audit export discloses **staff** IP address and browser fingerprint to the data subject → `sources/gdpr-deletion-export.md`
+  - Redact `ip_address`/`user_agent` for non-professional `actor_type` rows in `streamDeletionAudit()`, as `streamHandleChangeLog()` already does. Honouring the subject's Article 15 right currently breaches the staff member's.
+- [ ] **`preaccount-claim/PRIV-3`** · P2 · S — `Customer::redact()` erases contact PII but leaves the third-party POS `external_id` intact → `sources/preaccount-claim.md`
+- [ ] **`models-data/PRIV-4`** · P3 · S — `Enquiry::redact()` leaves `subject` unscrubbed → `sources/models-data.md`
+- [ ] **`gdpr-deletion-export/PRIV-2`** · P2 · M — Nine GDPR export sections stream unfiltered table columns with no explicit allowlist → `sources/gdpr-deletion-export.md`
+  - Add explicit `->select()` allowlists; add a `SELECT *` guard test. This is what let PRIV-1 happen.
+
+### Bundle B4 — Upload content validation · **P1** · Effort S
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+
+⚠️ **VERIFY THE PREMISE FIRST.** SEC-1 claims there is no validation "at any layer", but the
+`outbound-ssrf` run scoped `app/Services/Media` — where magic-byte sniffing would live — and
+found nothing. Either the check exists downstream and SEC-1 is scoped too narrowly, or it
+genuinely doesn't and the security lens framed the gap as SSRF-adjacent. Grep the media pipeline
+for `finfo`/magic-byte checks **before** implementing. If validation already exists downstream,
+close SEC-1 as `no_change_needed` and keep only SEC-2.
+
+- [ ] **`requests-resources/SEC-1`** · P1 · S — Document upload has no downstream content validation at any layer → `sources/requests-resources.md`
+  - `app/Http/Requests/Api/User/Documents/UploadDocumentRequest.php:14-19` — add a document MIME whitelist + byte-sniff assertion to `SniffsFileMimeType`, called via `withValidator()`.
+- [ ] **`requests-resources/SEC-2`** · P3 · S — Video upload path skips the Form-Request magic-byte check the image path already has → `sources/requests-resources.md`
+
+### Bundle B5 — Policy gate sweep: user API · **P2** · Effort S ×10
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet *(combine plan+impl — all S)*
+
+One mechanical theme: write endpoints that skip `authorizeForUser`. Under Supabase JWT
+`Auth::user()` is always null, so a missing gate fails **open**, not closed. `authz-core`
+returned zero P0/P1, so the policy *layer* is sound — these are call sites that never invoke it.
+
+- [ ] **`user-api/SEC-1`** · P2 · S — `UserDocumentController::store` writes without a Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-2`** · P2 · S — `UserSectionBlockController` write endpoints skip the Policy gate (upsert, reorder, remove) → `sources/user-api.md`
+- [ ] **`user-api/SEC-3`** · P2 · S — `UserWorkplaceController` write endpoints skip the Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-4`** · P2 · S — `CustomDomainController` write endpoints skip the Policy gate (store, verify, setPrimary, destroy) → `sources/user-api.md`
+- [ ] **`user-api/SEC-5`** · P2 · S — `UserServiceCategoryController::reorder` skips the Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-6`** · P2 · S — `UserServiceController::reorder` / `reorderLayout` skip the Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-7`** · P2 · S — `SectorController::update` skips the Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-8`** · P2 · S — `HandleReclaimController::store` skips the Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-9`** · P2 · S — `UserEnquiryController::destroy` skips the Policy gate → `sources/user-api.md`
+- [ ] **`user-api/SEC-10`** · P2 · S — `ContentController::destroyUpload` uses an inline ownership check instead of the Policy → `sources/user-api.md`
+  - CI already fails the build on inline 403 aborts in controllers; this one predates or evades that check.
+
+### Bundle B6 — Policy gate + PII gating: staff API · **P2** · Effort S–M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
+
+Same theme as B5 on the staff surface, plus staff-visible third-party PII with no admin gate.
+All of this sits behind `require.aal2` + a `core.partna_staff` row, which is why it caps at P2.
+
+- [ ] **`staff-api/SEC-5`** · P2 · M — Eleven endpoints across eight staff controllers omit the Policy-layer role gate the route group's own convention requires → `sources/staff-api.md`
+- [ ] **`staff-api/SEC-2`** · P2 · M — Customer/Service/ServiceCategory staff controllers authorize the *professional*, not the *staff actor* → `sources/staff-api.md`
+- [ ] **`staff-api/SEC-1`** · P2 · S — `StaffNotificationEmailPolicyController` has zero Policy-layer authorization on all four methods → `sources/staff-api.md`
+- [ ] **`staff-api/SEC-3`** · P2 · S — `StaffAccountDeletionController` reads raw `input()` instead of `validated()`; `initiate()`/`cancel()` have no Policy gate → `sources/staff-api.md`
+- [ ] **`staff-api/SEC-4`** · P2 · S — `StaffLinkBlockManagementController::index()/store()` lack authorization while siblings have it → `sources/staff-api.md`
+- [ ] **`staff-api/PRIV-2`** · P2 · S — Staff email-subscriber list and CSV export expose third-party PII to any staff member, no admin gate → `sources/staff-api.md`
+- [ ] **`staff-api/PRIV-1`** · P2 · S — `StaffWorkplaceController` returns phone and address to all staff, no admin PII gate → `sources/staff-api.md`
+- [ ] **`requests-resources/PRIV-1`** · P2 · S — `StaffFeedbackResource` exposes the submitting professional's email to every staff member, bypassing the `$showPii` gate pattern → `sources/requests-resources.md`
+- [ ] **`staff-api/SEC-6`** · P3 · S — `StaffMeController::show()` returns `supabase_uid` without a Policy gate (self-referential, low value) → `sources/staff-api.md`
+
+### Bundle B7 — PII minimisation in logs and audit rows · **P2** · Effort S–M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
+
+Ten findings, six runs, one theme: identifiers written to logs or audit tables raw where the
+codebase's own hash-before-log pattern exists elsewhere in the same file.
+
+- [ ] **`webhooks-internal/PRIV-1`** · P2 · M — CSP report sink logs raw IP/UA/URL to Nightwatch with no redaction, on an unauthenticated internet-reachable endpoint → `sources/webhooks-internal.md`
+- [ ] **`authz-core/PRIV-1`** · P2 · M — Auth-factor audit log stores raw IP and User-Agent with no minimisation → `sources/authz-core.md`
+  - Extract a shared minimiser used by both `TokenRevocationService` and `AuthFactorEventRepository`; HMAC-SHA256 the IP.
+- [ ] **`outbound-ssrf/PRIV-1`** · P2 · M — Original image/video uploads stored verbatim without EXIF/GPS stripping → `sources/outbound-ssrf.md`
+- [ ] **`public-surface/PRIV-4`** · P2 · S — Bootstrap collision path logs a real user's raw email to persistent structured logs → `sources/public-surface.md`
+- [ ] **`public-surface/PRIV-1`** · P2 · S — Newsletter signup infers and stores a subscriber's real name from their email address without consent → `sources/public-surface.md`
+- [ ] **`public-surface/PRIV-2`** · P2 · S — `PublicCustomerLeadController` stores a raw unbounded User-Agent, inconsistent with its own `logLead()` → `sources/public-surface.md`
+- [ ] **`public-surface/PRIV-3`** · P2 · S — RUM beacon logs a professional's handle unhashed while hashing every other identifying field in the same call → `sources/public-surface.md`
+- [ ] **`requests-resources/PRIV-2`** · P3 · S — Analytics endpoints store the raw referrer URL with no query-string minimisation → `sources/requests-resources.md`
+- [ ] **`requests-resources/PRIV-3`** · P3 · S — `PublicCustomerLeadRequest` trims but doesn't `strip_tags` the notes field, unlike the sibling public-form pattern → `sources/requests-resources.md`
+- [ ] **`edge-worker/PRIV-1`** · P3 · S — Worker error logs include the raw handle/hostname/URL in structured fields → `sources/edge-worker.md`
+
+### Bundle B8 — Retention windows that never prune · **P2** · Effort M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
+
+The *Waitlist retirement* work (2026-07-19) established the pattern: a table with PII needs a
+scheduled prune **and** export/purge wiring, guarded by `DataExportCoverageTest`. These are the
+tables that still lack it.
+
+- [ ] **`models-data/PRIV-2`** · P2 · M — `UserDeletionAuditEntry.professional_email_snapshot` has no retention bound or scheduled purge → `sources/models-data.md`
+- [ ] **`models-data/PRIV-3`** · P2 · M — `DataExportAudit.professional_email_snapshot` / `recipient_email` have no retention bound or scheduled purge → `sources/models-data.md`
+- [ ] **`wiring/PRIV-1`** · P2 · S — Feedback PII (email, handle, ip_hash) has no retention window or cleanup for non-deleted rows → `sources/wiring.md`
+- [ ] **`gdpr-deletion-export/PRIV-3`** · P2 · S — `analytics.item_views` has no FK to `core.users`, so visitor IP/UA rows outlive an account by up to 90 days → `sources/gdpr-deletion-export.md`
+  - Add `purgeItemViewsPii()` to `AccountDeletionService::purge()`; add `item_views` to `PURGED_PII_TABLES`.
+  - ⚠️ **Schema change** — see the schema-change list below.
+
+### Bundle B9 — Pre-account lifecycle: races and stuck builds · **P2** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+
+`claim-and-provision` found **nothing above P3** — the claim race itself is well defended
+(pinned transaction, `lockForUpdate`, savepoint-wrapped 23505 recovery, unique partial index).
+These are the adjacent paths that lack the same rigour.
+
+- [ ] **`state-machines/LIFE-4`** · P2 · M — `PreAccountBuild` has no reconcile path for a build stuck in `pending`/`building`; only `failed` or 30-day expiry get swept → `sources/state-machines.md`
+- [ ] **`state-machines/LIFE-3`** · P2 · M — `HandleAllocator::allocate()` has a check-then-insert race on `handle_lc`; the catch can't disambiguate the collision cause → `sources/state-machines.md`
+- [ ] **`state-machines/LIFE-2`** · P2 · S — Pre-account build IP abuse-cap is a check-then-act race with no lock → `sources/state-machines.md`
+- [ ] **`cache-edge-reconcile/LIFE-2`** · P2 · S — Subdomain-rename lock covers `subdomain_changed_at` but not `subdomain` itself, letting a rapid double-rename drop an alias hop → `sources/cache-edge-reconcile.md`
+
+### Bundle B10 — Nightwatch blind spots: swallowed failures · **P2** · Effort S
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet *(combine plan+impl)*
+
+`Log::error` without `report()` never reaches Nightwatch, and per the *Nightwatch Alert Model*
+note alerts fire on **issues**, not log queries — so these failures are currently invisible.
+All of them are on PII-erasure or deletion paths, where silent failure is the worst kind.
+
+- [ ] **`state-machines/LIFE-5`** · P2 · S — Seven PII-erasure sub-methods in `AccountDeletionService::purge()` log failures but never `report()` them → `sources/state-machines.md`
+- [ ] **`state-machines/LIFE-1`** · P2 · S — `AccountDeletionService::request()` swallows a transaction failure without `report()` → `sources/state-machines.md`
+
+### Bundle B11 — `$fillable` doctrine on tenant-owned models · **P2** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+
+⚠️ Do NOT bundle with S4 (the L-effort eleven-model sweep). Per the *Fillable Tenancy-FK →
+associate()* rule, trusted creation paths must move to `->relation()->associate()` **before** the
+FK leaves `$fillable`, or creation silently breaks. `pre_account_builds.user_id` /
+`built_by_staff_id` are already correctly non-fillable — follow that precedent.
+
+- [ ] **`preaccount-claim/SEC-2`** · P2 · M — `User::$fillable` includes server/staff-only lifecycle fields (status, deletion tokens, handle) → `sources/preaccount-claim.md`
+- [ ] **`preaccount-claim/SEC-1`** · P2 · M — `user_id` is mass-assignable on four tenant-owned models → `sources/preaccount-claim.md`
+- [ ] **`preaccount-claim/SEC-3`** · P2 · S — `UserDeletionAuditEntry::$fillable` includes spoofable actor/IP fields on an append-only compliance table → `sources/preaccount-claim.md`
+- [ ] **`preaccount-claim/SEC-4`** · P2 · S — `PreAccountBuild::$fillable` includes state-machine fields the app never mass-assigns → `sources/preaccount-claim.md`
+
+### Bundle B12 — Pre-claim scraping stores more third-party data than it renders · **P2** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+
+Provisional (`unclaimed`) users have not consented to anything. Both generators persist the full
+vendor payload when the unclaimed sitepage renders only a few fields.
+
+- [ ] **`preaccount-claim/PRIV-1`** · P2 · M — Google Business generator spreads full mapped Place Details (including reviewer names/photos) into a provisional user's payload → `sources/preaccount-claim.md`
+- [ ] **`preaccount-claim/PRIV-2`** · P2 · M — Instagram scraper stores third-party profile data for a not-yet-consenting provisional user → `sources/preaccount-claim.md`
+  - Keep the `IdentitySync`-via-observer contract intact; narrow what the seeder writes, don't bypass the machinery.
+
+### Bundle B13 — Cloudflare Worker hardening · **P2** · Effort S–M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
+**Risk gate: Cloudflare Worker / KV — sign-off required.**
+
+The Worker returned no P0/P1 — its read path is sound. These are defence-in-depth.
+
+- [ ] **`edge-worker/EDGE-2`** · P2 · S — Visitor `Cookie`/`Authorization` headers forwarded unfiltered to the sitepage origin → `sources/edge-worker.md`
+- [ ] **`edge-worker/EDGE-1`** · P2 · S — `Vary` header from origin isn't sanitized before the response is written to the edge cache → `sources/edge-worker.md`
+- [ ] **`edge-worker/CFG-3`** · P2 · M — Reserved-subdomain list is a manual, unenforced mirror of `config/partna.php` → `sources/edge-worker.md`
+  - Add a CI diff check between the config list and the JS `RESERVED` set; no runtime fetch.
+- [ ] **`edge-worker/CFG-1`** · P3 · S — Cache TTLs are hardcoded constants, not environment-configurable → `sources/edge-worker.md`
+- [ ] **`edge-worker/CFG-2`** · P3 · S — Production domain hardcoded with a half-wired staging env already in the repo → `sources/edge-worker.md`
+
+### Bundle B14 — Public route and ingest hardening · **P2** · Effort S–M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
+
+- [ ] **`wiring/SEC-2`** · P2 · M — Analytics ingest endpoints validate no site/subdomain ownership, only rate limit → `sources/wiring.md`
+- [ ] **`wiring/SEC-1`** · P2 · S — Early-access marketing form is the only public mutation route with no bot-token gate → `sources/wiring.md`
+- [ ] **`public-surface/SEC-1`** · P2 · S — Public unauthenticated endpoint returns the Google Maps API key, relying solely on provider-side referrer restriction → `sources/public-surface.md`
+- [ ] **`wiring/CFG-1`** · P2 · S — Nightwatch enabled by default but the token has no explicit fallback or production guard → `sources/wiring.md`
+- [ ] **`wiring/CFG-2`** · P3 · S — Horizon dashboard domain unset, so `/horizon` is reachable from every visitor subdomain → `sources/wiring.md`
+
+### Bundle B15 — Outbound HTTP hardening · **P2** · Effort S–M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
+
+The June 3rd SSRF fix (`SafeUrlFetcher` + host allowlist + image-only content-type) **held** —
+this run found no regression. These are the remaining rough edges.
+
+- [ ] **`outbound-ssrf/EDGE-1`** · P2 · M — Outbound Cloudflare and streaming-API calls have no explicit HTTP timeout (six `Http::` calls) → `sources/outbound-ssrf.md`
+- [ ] **`outbound-ssrf/SEC-1`** · P3 · S — `CloudflarePurgeService` interpolates handle and product-handle into purge URLs without URL-encoding → `sources/outbound-ssrf.md`
+- [ ] **`outbound-ssrf/CFG-1`** · P3 · S — OAuth token URLs hardcoded in `StreamingTokenManager` while sibling clients use config → `sources/outbound-ssrf.md`
+- [ ] **`outbound-ssrf/CFG-2`** · P3 · S — `SafeUrlFetcher` User-Agent strings hardcoded with no config override → `sources/outbound-ssrf.md`
+- [ ] **`outbound-ssrf/CFG-3`** · P3 · S — `CloudflarePurgeService` hardcodes deep-link enumeration caps as literals → `sources/outbound-ssrf.md`
+
+### Bundle B16 — Pin bare `DB::transaction()` to the pgsql connection · **P3** · Effort S ×6
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet *(combine plan+impl — mechanical)*
+
+Six sites, one mechanical change. `BaseModel` forces the pgsql connection for models, but a bare
+`DB::transaction()` resolves the *default* connection — which is SQLite under test. Cheap to fix,
+and it removes a whole class of test-vs-prod divergence.
+
+- [ ] **`claim-and-provision/TXN-4`** · P3 · S — `RenameSubdomainAction`'s concurrent-rename row lock reads the default connection, not the pinned one its own contract requires → `sources/claim-and-provision.md`
+- [ ] **`claim-and-provision/TXN-1`** · P3 · S — `ConfirmationPreferenceService:58-70` → `sources/claim-and-provision.md`
+- [ ] **`claim-and-provision/TXN-2`** · P3 · S — `InsertWithSortOrder:21-31` (advisory-lock insert) → `sources/claim-and-provision.md`
+- [ ] **`claim-and-provision/TXN-3`** · P3 · S — `ReorderService:24-50` (advisory-lock reorder) → `sources/claim-and-provision.md`
+- [ ] **`state-machines/LIFE-6`** · P3 · S — `SendAccountDeletionRequestMailJob:65-83` dedup check → `sources/state-machines.md`
+- [ ] **`state-machines/LIFE-7`** · P3 · S — `ExportUserDataJob:111-115` email-dedup check → `sources/state-machines.md`
+
+### Bundle B17 — Cache-layer helper hygiene · **P3** · Effort S
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet *(combine plan+impl)*
+
+Do **after** B1 — B1 changes the invalidation call sites these helpers would wrap.
+
+- [ ] **`cache-invalidation/CCH-2`** · P3 · S — No shared `:stale`-key helper; the suffix is hand-concatenated at every invalidation site → `sources/cache-invalidation.md`
+- [ ] **`cache-invalidation/CCH-1`** · P3 · S — `ServiceCategoryObserver` bypasses the cache-service layer for services-key invalidation → `sources/cache-invalidation.md`
+- [ ] **`cache-invalidation/TXN-1`** · P3 · S — Inconsistent `->afterCommit()` usage on job dispatches inside `SiteObserver::saved()` → `sources/cache-invalidation.md`
+- [ ] **`claim-and-provision/CCH-1`** · P3 · S — Idempotency purge index key duplicated as a hardcoded string instead of a shared helper → `sources/claim-and-provision.md`
+- [ ] **`webhooks-idempotency/CCH-1`** · P2 · S — JWKS-outage throttle lock relies on the default cache store instead of pinning `cache_locks` → `sources/webhooks-idempotency.md`
+- [ ] **`webhooks-idempotency/WHK-2`** · P2 · S — Email-hook dedup TTL hardcoded 300s, duplicated rather than shared with the verifier's replay window → `sources/webhooks-idempotency.md`
+- [ ] **`webhooks-internal/CFG-1`** · P3 · S — Coupled hardcoded webhook timestamp tolerance not sourced from shared config (two 300 literals) → `sources/webhooks-internal.md`
+- [ ] **`webhooks-internal/CFG-2`** · P3 · S — Idempotency-cache TTL config read has no inline fallback, inconsistent with siblings in the same controller → `sources/webhooks-internal.md`
+
+### Bundle B18 — Config extraction sweep · **P3** · Effort S–M
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet *(combine plan+impl)*
+
+`config/partna.php` is the canonical home for all Partna limits and flags. These are literals
+that should live there. Purely mechanical — do last.
+
+- [ ] **`authz-core/SEC-1`** · P3 · S — `EnsurePartnaAdmin`'s staff-lookup fallback is dead code given the app's fixed middleware order → `sources/authz-core.md`
+  - Delete the fallback query; treat a missing `partna_staff` attribute as a hard failure. Verify the middleware ordering claim against `bootstrap/app.php` before deleting.
+- [ ] **`authz-core/CFG-1`** · P3 · S — Hardcoded HTTP timeouts in `SupabaseAdminService` instead of the existing shared config key → `sources/authz-core.md`
+- [ ] **`authz-core/CFG-2`** · P3 · M — Rate limits hardcoded in `AppServiceProvider::configureRateLimiting()` → `sources/authz-core.md`
+- [ ] **`authz-core/CFG-3`** · P3 · M — Platform refresh intervals hardcoded in `PlatformRegistryServiceProvider` → `sources/authz-core.md`
+- [ ] **`user-api/CFG-1`** · P3 · S — Analytics date-range clamping constants hardcoded → `sources/user-api.md`
+- [ ] **`user-api/CFG-2`** · P3 · S — `SERIES_DAYS` hardcoded in the dev-insights controller → `sources/user-api.md`
+- [ ] **`user-api/CFG-3`** · P3 · M — Pagination and query-limit defaults hardcoded across dashboard list endpoints → `sources/user-api.md`
+- [ ] **`staff-api/CFG-1`** · P3 · S — Hardcoded cache TTL in `StaffAggregateAnalyticsController` → `sources/staff-api.md`
+- [ ] **`staff-api/CFG-2`** · P3 · S — Hardcoded cache TTL in `StaffStatsController` → `sources/staff-api.md`
+- [ ] **`staff-api/CFG-3`** · P3 · S — Magic number for user-agent truncation in `StaffSiteManagementController` → `sources/staff-api.md`
+- [ ] **`public-surface/CFG-1`** · P3 · S — Public subscription list-key allowlist lives in `config/subscriptions.php` instead of `config/partna.php` → `sources/public-surface.md`
+- [ ] **`public-surface/CFG-2`** · P3 · S — QR code size, margin, and cache lifetime hardcoded → `sources/public-surface.md`
+
+### Bundle B19 — Migration hygiene (non-blocking) · **P2/P3** · Effort M
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+**Risk gate: DB/migration — sign-off required.** Do **after** S1/S2 and B2.
+
+Several of these are explicitly "accept the exemption, apply the pattern going forward" rather
+than edits — read each source entry before changing anything.
+
+- [ ] **`migrations-early/MIG-3`** · P2 · M — Inline CHECK on `site.sites.skeleton_id` validates existing rows under `ACCESS EXCLUSIVE` → `sources/migrations-early.md`
+- [ ] **`migrations-early/MIG-4`** · P2 · S — Unqualified `DROP FUNCTION` leaves an orphaned trigger referencing a dropped column → `sources/migrations-early.md`
+- [ ] **`migrations-early/MIG-5`** · P2 · M — Full-table `UPDATE` backfills run inside migration transactions instead of being extracted (5 files) → `sources/migrations-early.md`
+- [ ] **`migrations-early/MIG-6`** · P2 · S — `NOT VALID` + `VALIDATE` bundled into one long transaction spanning six unrelated fixes, including hot table `site.site_media` → `sources/migrations-early.md`
+- [ ] **`migrations-recent/MIG-6`** · P2 · S — Non-CONCURRENTLY unique index build justified only by dev's row count, not the prod re-baseline → `sources/migrations-recent.md`
+- [ ] **`migrations-recent/MIG-7`** · P2 · S — Design-kit rework migrations drop hot-table columns with no transaction wrapper and no documented rollback (5 files) → `sources/migrations-recent.md`
+- [ ] **`migrations-recent/MIG-5`** · P2 · S — `VALIDATE CONSTRAINT` in the same transaction as `ADD CONSTRAINT NOT VALID`, wasting the two-step optimisation → `sources/migrations-recent.md`
+- [ ] **`migrations-early/MIG-7`** · P3 · M — Missing `SET LOCAL lock_timeout`/`statement_timeout` guards on DDL touching live-traffic tables (~50 files) → `sources/migrations-early.md`
+- [ ] **`migrations-recent/MIG-8`** · P3 · M — Same guard gap across 30+ recent files; consider a runner-level default → `sources/migrations-recent.md`
+- [ ] **`pii-schema/SCHEMA-4`** · P3 · S — `CREATE UNIQUE INDEX` without CONCURRENTLY on live `site.platform_connections` (accept exemption) → `sources/pii-schema.md`
+- [ ] **`pii-schema/SCHEMA-5`** · P3 · S — `ADD CONSTRAINT CHECK` without `NOT VALID` + separate `VALIDATE` on two pre-beta tables (accept exemption) → `sources/pii-schema.md`
+- [ ] **`pii-schema/SCHEMA-6`** · P3 · S — `core.users` unique-index rebuild without CONCURRENTLY (accept as-is) → `sources/pii-schema.md`
+
+### Bundle B20 — Schema: RLS gaps and column defaults · **P2** · Effort S
+
+**Models:** plan=Opus · impl=Sonnet · review=Sonnet
+**Risk gate: RLS + migration — sign-off required.** ⚠️ **Schema change** — see list below.
+
+- [ ] **`pii-schema/SCHEMA-1`** · P2 · S — `site.workplaces` tenant-data table created without RLS → `sources/pii-schema.md`
+- [ ] **`pii-schema/SCHEMA-2`** · P2 · S — `site.content_selection` tenant-data table created without RLS → `sources/pii-schema.md`
+- [ ] **`pii-schema/SCHEMA-3`** · P2 · S — `site.menu_platform_links` and `site.menu_item_platforms` UUID PKs lack a DB-side `gen_random_uuid()` default → `sources/pii-schema.md`
+- [ ] **`user-api/SCHEMA-1`** · P2 · M — `updateOrInsert` on `site.design_kits` is not atomic; a missing row can still race under concurrent first-time writes → `sources/user-api.md`
+  - The `trg_create_empty_design_kit` trigger should make this unreachable — verify the premise before adding a backfill migration.
+- [ ] **`staff-api/SCHEMA-1`** · P3 · M — `core.users` staff search lacks `pg_trgm` indexes for `ILIKE '%term%'` queries → `sources/staff-api.md`
+
+### Bundle B21 — Test/prod parity · **P2** · Effort S
+
+**Models:** plan=Sonnet · impl=Sonnet · review=Sonnet *(combine plan+impl)*
+
+The single parity finding from three runs over ~700 KB. All three parity runs came back
+essentially clean, which is the verdict on the defect class behind both Instagram incidents.
+
+- [ ] **`parity-jobs/PARITY-1`** · P2 · S — `pre_account_builds.user_id` is NOT NULL in prod but nullable in the SQLite test seed, and the factory never sets it → `sources/parity-jobs.md`
+  - Change `user_id TEXT NULL` to NOT NULL in `tests/Pest.php`'s stub table.
+
+---
+
+## Requires a schema change — lead time before cutover
+
+These cannot be shipped as code alone. Migration edits must land **before** the replay;
+new-migration items should be authored and reviewed before the cutover window opens.
+
+| Item | Kind | Note |
+|---|---|---|
+| `migrations-early/MIG-1`, `MIG-2` (S1, S2) | **Edit unapplied migration** | Must land before replay. MIG-2 needs the file split; both blocked on the CONCURRENTLY/CLI question. |
+| `migrations-recent/MIG-1`–`MIG-4` (B2) | **Edit unapplied migration** | Must land before replay. Half-applied risk is the unrecoverable failure mode. |
+| B19 — all items | **Edit unapplied migration** | Non-blocking, but same window. |
+| `pii-schema/SCHEMA-1`, `-2`, `-3` (B20) | **New migration** | RLS enablement + column defaults. |
+| `user-api/SCHEMA-1` (B20) | **New migration** | Backfill for missing `design_kits` rows — verify the trigger premise first. |
+| `staff-api/SCHEMA-1` (B20) | **New migration** | `pg_trgm` extension + GIN indexes, `CONCURRENTLY`. |
+| `gdpr-deletion-export/PRIV-3` (B8) | **New migration or purge step** | `analytics.item_views` has no FK to `core.users`. |
+
+## Known limits of this gate
+
+Recorded so a future reader doesn't over-read the clean results.
+
+1. **`pii-schema` breached the recall threshold.** 415 KB / ~104K tokens, and the scanner emitted
+   `WARNING: payload exceeds ~100K tokens — scan recall degrades`. Its clean P0/P1 result is the
+   least trustworthy in the set. `campaigns.md` claims every scope group is measured under
+   350 KB; that one is not, and the scope should be split before it is re-run.
+2. **Zero-finding results are weaker evidence than positive ones.** Payloads were verified as
+   genuinely scanned, but "no constructible failure found" is not "correct".
+3. **Gate B is untouched.** The parity verdict is well-supported for core write paths and
+   **unproven** for the scraper write paths in `app/Services/Platforms/` — where both Instagram
+   incidents actually happened. `platforms-svc-a`/`-b` are deferred to pre-launch.
+4. **Large scopes detect less.** `authz-core` (274 KB) and `wiring` (262 KB) both returned clean
+   at P0/P1; per the measured recall curve, a clean result on a large scope is weaker evidence
+   than one on a small scope. Read those as "no obvious hole", not "proven correct".
+
+## Source runs
+
+| Run | Findings | P0 | P1 | Source |
+|---|---|---|---|---|
+| preaccount-claim | 8 | 0 | 1 | `sources/preaccount-claim.md` |
+| public-surface | 10 | 0 | 1 | `sources/public-surface.md` |
+| authz-core | 5 | 0 | 0 | `sources/authz-core.md` |
+| user-api | 15 | 0 | 1 | `sources/user-api.md` |
+| requests-resources | 5 | 0 | 1 | `sources/requests-resources.md` |
+| staff-api | 12 | 0 | 0 | `sources/staff-api.md` |
+| webhooks-internal | 3 | 0 | 0 | `sources/webhooks-internal.md` |
+| models-data | 5 | 0 | 1 | `sources/models-data.md` |
+| claim-and-provision | 5 | 0 | 0 | `sources/claim-and-provision.md` |
+| cache-invalidation | 5 | 0 | 2 | `sources/cache-invalidation.md` |
+| webhooks-idempotency | 3 | 0 | 1 | `sources/webhooks-idempotency.md` |
+| edge-worker | 6 | 0 | 0 | `sources/edge-worker.md` |
+| wiring | 5 | 0 | 0 | `sources/wiring.md` |
+| outbound-ssrf | 6 | 0 | 0 | `sources/outbound-ssrf.md` |
+| state-machines | 7 | 0 | 0 | `sources/state-machines.md` |
+| cache-edge-reconcile | 3 | 0 | 1 | `sources/cache-edge-reconcile.md` |
+| migrations-early | 7 | 2 | 0 | `sources/migrations-early.md` |
+| migrations-recent | 8 | 0 | 4 | `sources/migrations-recent.md` |
+| parity-models | 0 | 0 | 0 | `sources/parity-models.md` |
+| parity-services | 0 | 0 | 0 | `sources/parity-services.md` |
+| parity-jobs | 1 | 0 | 0 | `sources/parity-jobs.md` |
+| gdpr-deletion-export | 3 | 0 | 1 | `sources/gdpr-deletion-export.md` |
+| pii-schema | 6 | 0 | 0 | `sources/pii-schema.md` |
+| **Total** | **128** | **2** | **13** | |
