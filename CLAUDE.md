@@ -367,7 +367,7 @@ because a silent scope hole is indistinguishable from a passing audit.
 
 Partna is an individual-user-only platform. The model is `App\Models\Core\User\User`
 (DB table `core.users`; FK columns on other tables use `user_id`).
-`account_type` is one of `'partna'` (standard) or `'business'` ("Business Partna"), chosen at signup (migration `20260612120000`). The `AccountType` enum keeps a legacy `Individual` case for safe casting only — it is not user-selectable. The two types behave identically EXCEPT where a capability says otherwise; never branch on `account_type` directly outside `AccountCapabilities`.
+`account_type` is one of `'partna'` (standard) or `'business'` ("Business Partna"), chosen at signup (migration `20260612120000`). The `AccountType` enum has exactly two cases (`Partna`, `Business`), mirroring the `users_account_type_check` constraint. The two types behave identically EXCEPT where a capability says otherwise; never branch on `account_type` directly outside `AccountCapabilities`.
 
 All `<handle>.partna.au` requests route through one Cloudflare Worker
 (`cloudflare-worker/` in this repo) that reads `SUBDOMAIN_KV` and uses
