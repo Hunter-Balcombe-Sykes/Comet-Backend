@@ -31,6 +31,12 @@ class StaffAuditService
         try {
             return StaffAuditEntry::query()->create([
                 'staff_id' => $staff?->id,
+                // PRIV-7: snapshots are intentional, not redundant with the FK — all
+                // three FKs are ON DELETE SET NULL and core.users rows ARE force-deleted
+                // 30 days post-deletion, so read-time resolution would lose who was
+                // affected. Same pattern as audit.user_deletion_audit /
+                // audit.data_export_audit (see DataExportPayloadBuilder). Table is
+                // append-only (no UPDATE/DELETE grant), so nothing can be backfilled.
                 'staff_email_snapshot' => $staff?->primary_email,
                 'impersonator_staff_id' => $impersonator?->id,
                 'impersonator_email_snapshot' => $impersonator?->primary_email,

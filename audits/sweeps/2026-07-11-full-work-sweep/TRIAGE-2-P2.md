@@ -1698,7 +1698,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 4 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 2 of 5 complete
 - P3 Low: 0 of 4 complete
 
 ---
@@ -1753,7 +1753,14 @@ None.
             ADD COLUMN target jsonb NULL;
         ```
 
-- [ ] **PRIV-7** · P2 — Staff audit log duplicates staff/user email and handle into the append-only audit schema
+- [x] **PRIV-7** · P2 — Staff audit log duplicates staff/user email and handle into the append-only audit schema
+    - **⛔ REJECTED 2026-07-20 — the prescribed fix is WRONG and would destroy the audit trail. Closed as "no code change, comment added".**
+        - The premise (snapshots are written unconditionally into an append-only table) is TRUE. The remedy ("drop the snapshots, resolve email/handle from the FK at read time") is not.
+        - All three FKs — `staff_id`, `impersonator_staff_id`, `user_id` — are `ON DELETE SET NULL` (baseline DDL lines 604-625), and `core.users` rows really are hard `forceDelete()`d ~30 days after a deletion request via `AccountDeletionService::purge()` on a daily schedule. Read-time FK resolution therefore loses *who was affected* the moment an account completes its ordinary lifecycle — that is the routine end state of every deleted account, not an edge case.
+        - Nothing could repair it afterwards: `app_backend` holds SELECT/INSERT only on `audit.staff_audit_log` (UPDATE/DELETE revoked at baseline and again in `20260527010000_reorganize_schemas.sql`), and a DB trigger `core.reject_staff_audit_log_mutation()` independently rejects mutation. There is no backfill path.
+        - The snapshot-beside-a-SET-NULL-FK shape is used **deliberately** by both sibling tables, `audit.user_deletion_audit` and `audit.data_export_audit`, with the rationale already written down in `DataExportPayloadBuilder.php` (~line 692). Treating this one as a bug while its two siblings are correct is internally inconsistent.
+        - This is the mirror image of the PRIV-102 rejection in unit 5: that one wrongly assumed new PII could be safely written *into* append-only audit; this one wrongly assumes the referent will still exist to read *back*. Both fail because these rows outlive their referents by design.
+        - Action taken: a short comment in `StaffAuditService::record()` recording why the snapshots are intentional, so this is not "fixed" again. Any genuine minimisation (e.g. dropping only `impersonator_email_snapshot`) must first prove `core.partna_staff` rows are never hard-deleted, and needs the same append-only-schema sign-off gate PRIV-102 went through.
     - **Where:** `app/Services/Audit/StaffAuditService.php:33-38`
     - **Affects:** Every staff member whose action is logged, every impersonation event, and every professional whose data staff access — their emails/handle become permanently undeletable once written into `audit.staff_audit_log`.
     - **Effort:** M (~2–4h)
@@ -1798,7 +1805,7 @@ None.
         // no retention_days key; routes/console.php has no feedback-related Schedule::command entry
         ```
 
-- [ ] **PRIV-9** · P2 — Analytics visitor coordinates stored as raw, untruncated `double precision` with no minimisation
+- [x] **PRIV-9** · P2 — Analytics visitor coordinates stored as raw, untruncated `double precision` with no minimisation
     - **Where:** `supabase/migrations/20260707020000_site_visits_lat_lon.sql:12-14`, `app/Services/Analytics/Writers/PostgresEventWriter.php:126-127`, `app/Http/Controllers/Concerns/DetectsClientInfo.php:165-187`
     - **Affects:** Every visitor to any Partna sitepage — edge-resolved lat/lon is persisted at full floating-point precision alongside the already-sufficient `city`/`region_code`/`country_code`.
     - **Effort:** S (~0.5–1h)
@@ -4291,7 +4298,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 7 complete
+- P2 Medium: 2 of 7 complete
 - P3 Low: 0 of 3 complete
 
 ---
@@ -4365,7 +4372,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         expect($active)->toHaveCount(1);
         ```
 
-- [ ] **#TEST-104** · P2 — Staff user search `q` parameter path has zero automated test coverage
+- [x] **#TEST-104** · P2 — Staff user search `q` parameter path has zero automated test coverage
     - **Where:** `tests/Feature/Staff/StaffUserSearchFiltersTest.php:63-65` (explicit code comment acknowledging the gap)
     - **Affects:** Staff dashboard user search — every operator searching by handle, email, display name, or sector text via the `q` parameter.
     - **Effort:** M (~2–4h)
@@ -4381,7 +4388,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         // handle/email ILIKE branches, so it stays covered by prod behaviour only.
         ```
 
-- [ ] **#TEST-105** · P2 — Staff search filter tests bypass the HTTP stack entirely
+- [x] **#TEST-105** · P2 — Staff search filter tests bypass the HTTP stack entirely
     - **Where:** `tests/Feature/Staff/StaffUserSearchFiltersTest.php:35-41` (`ovaSearchIds()` helper)
     - **Affects:** Staff-only search endpoint — authorization enforcement, `staff`/`require.aal2` middleware, and response formatting are never exercised by these tests.
     - **Effort:** M (~2–4h)
