@@ -44,6 +44,9 @@ class BandcampConnect implements ConnectStrategy
             // publicly ONLY when the owner's show_all_releases toggle is on
             // (DisplaySettingsFilter suppresses it otherwise).
             'releases' => $profile['items'],
+            // Warm the picker's private snapshot at connect time (HighlightsPicker::
+            // SNAPSHOT_KEY) so the picker is fast on the very first open.
+            'recent' => array_slice($profile['items'], 0, 15),
         ];
         // Prefer the latest release art for the tile; fall back to the page's
         // own og:image (artist avatar) when the release has none.

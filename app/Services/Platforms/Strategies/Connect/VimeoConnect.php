@@ -36,6 +36,9 @@ class VimeoConnect implements ConnectStrategy
             'link' => $profile['link'] ?? $source['link'],
             'latest' => $videos[0] ?? null,
             'items' => array_slice($videos, 0, self::MAX_ITEMS),
+            // Warm the picker's private snapshot at connect time (HighlightsPicker::
+            // SNAPSHOT_KEY) so the picker is fast on the very first open.
+            'recent' => $videos,
         ], $source['apiPath']);
     }
 }

@@ -26,7 +26,10 @@ final readonly class YoutubeMusicFetch implements FetchStrategy
         }
 
         $cond = ConditionalContext::for($connection);
-        $feed = $this->youtube->fetchUploadsFeed((string) $channelId, 12, $cond);
+        // 15, not 12 — matches the picker snapshot width below (`recent`) so a
+        // save made right after a scheduled refresh sees the exact same set the
+        // picker showed. The public `items` key is still sliced to 12 further down.
+        $feed = $this->youtube->fetchUploadsFeed((string) $channelId, 15, $cond);
         if ($cond?->notModified) {
             throw new FetchNotModifiedException('youtube-music');
         }
@@ -44,6 +47,9 @@ final readonly class YoutubeMusicFetch implements FetchStrategy
             'thumbnail' => $items[0]['thumbnail'] ?? ($payload['thumbnail'] ?? null),
             'latest' => $items[0],
             'items' => array_slice($items, 0, 12),
+            // Private picker snapshot (HighlightsPicker::SNAPSHOT_KEY) — the full
+            // 15-item feed above, wider than the public `items` slice.
+            'recent' => $items,
         ];
     }
 }

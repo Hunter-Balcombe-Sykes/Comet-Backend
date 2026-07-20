@@ -54,6 +54,13 @@ class BandcampHighlights implements HighlightsStrategy
         // Buy price for each curated highlight (bounded concurrent fetch).
         $selection['highlights'] = $this->scraper->enrichPrices($chosen, self::MAX_HIGHLIGHTS);
 
+        // Keep the picker's private snapshot (HighlightsPicker::SNAPSHOT_KEY)
+        // warm with the items this save was handed, so the picker stays fast
+        // even between scheduled refreshes. NOT price-enriched (same as the
+        // Fetch/Connect snapshots) — only the curated highlights above pay
+        // that cost.
+        $selection['recent'] = array_slice($items, 0, 15);
+
         return $selection;
     }
 

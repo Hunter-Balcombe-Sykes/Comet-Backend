@@ -48,6 +48,9 @@ final readonly class BandcampFetch implements FetchStrategy
             // Keep the stored releases grid current (same fetch, no extra cost) —
             // pre-capture rows gain it on their first refresh after this shipped.
             'releases' => $profile['items'],
+            // Private picker snapshot (HighlightsPicker::SNAPSHOT_KEY) — up to 15,
+            // matching BandcampHighlights' picker width.
+            'recent' => array_slice($profile['items'], 0, 15),
         ];
     }
 }

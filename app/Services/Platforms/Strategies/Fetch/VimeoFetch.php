@@ -34,6 +34,10 @@ final readonly class VimeoFetch implements FetchStrategy
             'thumbnail' => $profile['thumbnail'] ?? ($payload['thumbnail'] ?? null),
             'latest' => $videos[0],
             'items' => array_slice($videos, 0, 12),
+            // Private picker snapshot (HighlightsPicker::SNAPSHOT_KEY) — the full
+            // page, wider than the public `items` slice above (picker width !=
+            // render width; VimeoHighlights::recentItems returns up to 20).
+            'recent' => $videos,
         ];
     }
 }

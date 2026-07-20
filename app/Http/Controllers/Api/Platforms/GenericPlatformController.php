@@ -10,6 +10,7 @@ use App\Http\Requests\Platforms\PlatformHighlightsRequest;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\ConnectResolver;
+use App\Services\Platforms\HighlightsPicker;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -33,6 +34,7 @@ class GenericPlatformController extends ApiController
     public function __construct(
         private readonly PlatformRegistry $registry,
         private readonly ConnectResolver $connectResolver,
+        private readonly HighlightsPicker $picker,
     ) {}
 
     // The platform key for the ManagesIntegrationConnection trait. Read from the
@@ -107,20 +109,27 @@ class GenericPlatformController extends ApiController
         return $this->success((new $resourceClass($selection))->resolve());
     }
 
-    // GET /api/platforms/{platform}/recent?account={id} — fresh picker items for
-    // the requested account (first account when no id is given).
+    // GET /api/platforms/{platform}/recent?account={id} — picker items for the
+    // requested account (first account when no id is given). Served from the
+    // connection's `recent` snapshot when fresh (HighlightsPicker), so opening
+    // the modal repeatedly no longer live-scrapes the vendor every time
+    // (LIFE-21..24).
     public function recent(Request $request): JsonResponse
     {
         $strategy = $this->descriptor()->highlightsStrategy();
         abort_if($strategy === null, 404);
 
         $row = $this->requestedAccountRow($this->currentUser($request), $request->query('account'));
-        $identity = $strategy->identity($row?->payload ?? []);
+        if ($row === null) {
+            return $this->error($strategy->notConnectedMessage(), 404);
+        }
+
+        $identity = $strategy->identity($row->payload);
         if ($identity === null) {
             return $this->error($strategy->notConnectedMessage(), 404);
         }
 
-        $items = $strategy->recentItems($identity);
+        $items = $this->picker->items($strategy, $row, $identity);
         if ($items === null) {
             return $this->error($strategy->loadErrorMessage(), 422);
         }

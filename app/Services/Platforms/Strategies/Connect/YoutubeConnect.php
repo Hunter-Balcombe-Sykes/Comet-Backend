@@ -37,6 +37,10 @@ class YoutubeConnect implements ConnectStrategy
             // `latest` is the canonical shape.
             ...$this->flatTileFields($latest, self::FLAT_TILE_FIELDS),
             'latest' => $latest,
+            // Warm the picker's private snapshot at connect time (HighlightsPicker::
+            // SNAPSHOT_KEY) so the picker is fast on the very first open, not just
+            // after the first 12h refresh.
+            'recent' => array_slice($videos, 0, 15),
         ], $handle);
     }
 }

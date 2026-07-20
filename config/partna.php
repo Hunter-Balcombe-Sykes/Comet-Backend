@@ -1283,6 +1283,23 @@ return [
         // 86400 preserves the previous daily cadence.
         'default_ttl_seconds' => (int) env('PARTNA_REFRESH_DEFAULT_TTL', 86400),
 
+        // Highlights picker snapshot freshness (LIFE-21..24 / Phase 1b). The picker
+        // (HighlightsPicker) reads a private `recent` snapshot off the payload
+        // instead of live-scraping the vendor on every modal open; this is how old
+        // that snapshot is allowed to be before the picker falls back to a live
+        // fetch. Deliberately 2x the 12h refreshEvery() cadence shared by
+        // youtube/vimeo/youtube-music/bandcamp, so a healthy connection's snapshot
+        // is always fresh by the time anyone opens the picker, and only TWO
+        // consecutive missed/failed refreshes let it go stale. Lives here (not a
+        // third top-level 'platforms' config array — this file already has two,
+        // limits.platforms above (per-platform Apify cost knobs) and
+        // menu.platforms above that (the menu-scraper registry); neither is a
+        // fit for a scalar TTL) because it's a refresh-cadence concern through
+        // and through. 0 makes every open fail the freshness check and go
+        // straight to a live fetch (the stored snapshot still backstops a
+        // failed live fetch — see HighlightsPicker::items()).
+        'highlights_snapshot_ttl' => (int) env('PARTNA_HIGHLIGHTS_SNAPSHOT_TTL', 24 * 3600),
+
         // Circuit breaker: skip connections at/above this many consecutive failures
         // (a dead account stops consuming refresh capacity). Reset to 0 on any
         // successful refresh by ScheduledRefresh::run().
