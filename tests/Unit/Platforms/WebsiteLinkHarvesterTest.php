@@ -135,6 +135,11 @@ it('classifies ordering hosts to the generic online-ordering platform, keeping t
         ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'Uber Eats']);
     expect(classifierHarvester()->classify('https://www.doordash.com/store/doc-pizza'))
         ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'DoorDash']);
+    // Found live 2026-07-20 directly on a real AU restaurant's homepage
+    // (errols.com.au's "Order Now" button) — a real AU/NZ ordering platform
+    // this list didn't cover yet.
+    expect(classifierHarvester()->classify('https://ordermate.online/errols/menu'))
+        ->toBe(['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => 'OrderMate']);
 });
 
 it('returns null for an unrecognised host', function () {

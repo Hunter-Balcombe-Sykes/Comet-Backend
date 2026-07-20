@@ -52,6 +52,7 @@ class WebsiteLinkHarvester
         'Menulog' => '~(^|\.)menulog\.com\.au$~',
         'Deliveroo' => '~(^|\.)deliveroo\.[a-z.]+$~',
         'Order Online' => '~(^|\.)order\.online$~',
+        'OrderMate' => '~(^|\.)ordermate\.online$~',
     ];
 
     /** Booking provider hosts (Fresha / Square), keyed by label — see RESERVATION_HOSTS note. */
