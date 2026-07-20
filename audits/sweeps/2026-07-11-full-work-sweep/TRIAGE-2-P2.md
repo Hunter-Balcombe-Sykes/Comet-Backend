@@ -1175,7 +1175,17 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#WHK-2** · P2 — `idempotent` middleware runs after `throttle:authenticated` on the account-deletion route group, so lock-contended 409s consume rate-limit budget
+- [x] **#WHK-2** · P2 — `idempotent` middleware runs after `throttle:authenticated` on the acco
+      **REJECTED — NOT IMPLEMENTED (2026-07-20).** The premise is wrong. It reasons from route-group
+      merge order, but `bootstrap/app.php:76-88` already pins the order explicitly with
+      `prependToPriorityList(ThrottleRequests::class, IdempotencyKey::class)`, and Laravel's
+      `SortedMiddleware` re-sorts the merged stack by that list regardless of textual group nesting.
+      The documented contract ("a successful replay must not consume rate-limit budget") is already
+      enforced. Worse, the suggested one-line group reorder would risk moving `idempotent` OUTSIDE the
+      group that sets `supabase_uid`, where the middleware self-disables (`IdempotencyKey.php:56-58`) —
+      silently turning idempotency off entirely. Only a clarifying comment was added to
+      `routes/api/user.php` so the next reader does not re-file this. The real double-submit gap on this
+      route is `WHK-102`, which IS fixed (domain-layer locked guard in `AccountDeletionService::request()`).unt-deletion route group, so lock-contended 409s consume rate-limit budget
     - **Where:** routes/api/user.php:41-65, app/Http/Middleware/IdempotencyKey.php:95-102
     - **Affects:** Authenticated users hitting `/me/deletion/*` with concurrent identical `Idempotency-Key` requests — the losing request gets a 409 but has already been counted against the per-user `authenticated` rate limit.
     - **Effort:** S (~0.5–1h)
@@ -2639,7 +2649,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-102** · P2 — `purgeWaitlistSignup` error log carries no user identifier
+- [x] **#LIFE-102** · P2 — `purgeWaitlistSignup` error log carries no user identifier
     - **Where:** app/Services/User/AccountDeletionService.php:717-733
     - **Affects:** GDPR-erasure audit trail during the daily `purge()` sweep — support can't correlate a failed waitlist-row erasure back to the account that triggered it.
     - **Effort:** S (~0.5h)
@@ -2668,7 +2678,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-103** · P2 — `purgeGlobalEmailSubscriptions` error log carries no user identifier
+- [x] **#LIFE-103** · P2 — `purgeGlobalEmailSubscriptions` error log carries no user identifier
     - **Where:** app/Services/User/AccountDeletionService.php:846-863
     - **Affects:** Same GDPR-erasure audit trail as #LIFE-102 — global (platform-marketing) subscription rows keyed only by email have no user_id trail on failure.
     - **Effort:** S (~0.5h)
@@ -3265,7 +3275,7 @@ None.
         }
         ```
 
-- [ ] **#WHK-102** · P2 — `IdempotencyKey` is opt-in on `/me/deletion/*`; the double-submit race it's meant to close has no server-side enforcement and no test for the header-omitted path
+- [x] **#WHK-102** · P2 — `IdempotencyKey` is opt-in on `/me/deletion/*`; the double-submit race it's meant to close has no server-side enforcement and no test for the header-omitted path
     - **Where:** `app/Http/Middleware/IdempotencyKey.php:44-47`, `routes/api/user.php:54-59`, `app/Services/User/AccountDeletionService.php:48-113` (`request()`)
     - **Affects:** `POST /api/me/deletion/request` — a browser double-tap, refresh, or client retry without the `Idempotency-Key` header sends two deletion-confirmation emails and writes two `UserDeletionAuditEntry` rows for one user action.
     - **Effort:** M (~2-4h) — add a `lockForUpdate`-style guard to `AccountDeletionService::request()` matching the pattern already used in `confirm()`, plus a test for the missing-header path.
@@ -3402,7 +3412,7 @@ None — the two surviving findings touch unrelated files and subsystems (auth-h
         $this->persist($menu, $contentSource, $merged, $now);
         ```
 
-- [ ] **#TXN-102** · P2 — `AccountDeletionService::request()`'s docblock claims the deletion-token write "rolls back automatically" on dispatch failure — it does not, because the job's `afterCommit` flag defers the Redis push past the point of no return
+- [x] **#TXN-102** · P2 — `AccountDeletionService::request()`'s docblock claims the deletion-token write "rolls back automatically" on dispatch failure — it does not, because the job's `afterCommit` flag defers the Redis push past the point of no return
     - **Where:** app/Services/User/AccountDeletionService.php:36-40, 78-98; app/Jobs/Account/SendAccountDeletionRequestMailJob.php:53-58
     - **Affects:** Users initiating self-service account deletion during a Redis outage. The DB commit (token hash + `EVENT_REQUESTED` audit row) already succeeds before the deferred queue push is attempted, so a push failure at that point cannot roll anything back — the request-handling code nonetheless returns the same 503 "please try again" it uses for genuine DB failures, telling the user nothing happened when in fact a live, unconfirmed deletion token now sits on their row with no email ever sent.
     - **Effort:** S (~0.5–1h)
@@ -3866,7 +3876,7 @@ None.
         }
         ```
 
-- [ ] **PRIV-102** · P2 — Staff `admin_notes` freetext survives pseudonymisation for the full 30-day deletion grace period
+- [x] **PRIV-102** · P2 — Staff `admin_notes` freetext survives pseudonymisation for the full 30-day deletion grace period
     - **Where:** app/Services/User/AccountDeletionService.php:299-314 (`pseudonymiseAccountPii()`)
     - **Affects:** Any individual whose account enters `pending_deletion` — freetext support/identity-verification notes staff previously wrote about them remain live and staff-readable in cleartext for up to 30 days after the user pseudonymised their own account.
     - **Effort:** S (~0.5–1h)

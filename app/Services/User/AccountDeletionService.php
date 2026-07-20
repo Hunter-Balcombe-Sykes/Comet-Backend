@@ -55,9 +55,10 @@ class AccountDeletionService
 
     /**
      * Initiate a deletion request. Checks preconditions, stores hashed token,
-     * queues the confirmation email. Token write + job dispatch + audit log
-     * commit atomically: if dispatch infrastructure fails, the token write
-     * rolls back automatically — no manual cleanup, no DEL-2 race window.
+     * queues the confirmation email. Token write, job dispatch, and audit log
+     * commit atomically in the same transaction; afterCommit on the job class
+     * defers the actual queue push until after that commit — see the in-closure
+     * comment below for what that does and does not guarantee.
      *
      * The "user holds an active token IFF the confirmation email was sent"
      * invariant is preserved by SendAccountDeletionRequestMailJob::failed(),
@@ -96,6 +97,29 @@ class AccountDeletionService
             // connection, which is 'sqlite' in feature tests — making the wrapper
             // a no-op and breaking rollback.
             DB::connection('pgsql')->transaction(function () use ($professional, $tokenHash, $confirmationUrl, $request) {
+                // WHK-102: idempotency guard against a double-submit race (double-click /
+                // mobile double-tap with no Idempotency-Key header, or two identical keys
+                // racing before either commits). Re-read under lockForUpdate; whoever wins
+                // the lock mints the token, and the loser — seeing an unexpired token already
+                // on the row — no-ops (no duplicate confirmation email, no duplicate audit
+                // row). The 24h window mirrors confirm()'s own expiry check exactly (see the
+                // `$requestedAt->lt(now()->subHours(24))` guard in confirm()), so the two
+                // halves cannot drift: a token this guard treats as "still active" is never
+                // one confirm() would treat as expired, and vice versa.
+                $locked = User::query()->lockForUpdate()->find($professional->id);
+
+                if ($locked
+                    && $locked->deletion_token_hash !== null
+                    && $locked->deletion_requested_at !== null
+                    && ! Carbon::parse((string) $locked->deletion_requested_at)->lt(now()->subHours(24))
+                ) {
+                    // Loser of the race (or a legitimate re-tap while a live token is still
+                    // valid): skip the write/dispatch/log entirely. The caller still gets the
+                    // same success-shaped 200 as the winner — a double-tap must never surface
+                    // an error to the user.
+                    return;
+                }
+
                 $professional->update([
                     'deletion_token_hash' => $tokenHash,
                     'deletion_requested_at' => now(),
@@ -104,10 +128,15 @@ class AccountDeletionService
                     'deletion_mail_sent_at' => null,
                 ]);
 
-                // Job dispatch runs inside the transaction so a dispatch infrastructure
-                // failure (e.g., Redis down) throws and rolls back the token write —
-                // no orphaned token left on the row. afterCommit on the job class then
-                // delays the worker pickup until this transaction commits.
+                // TXN-102: this call only REGISTERS the dispatch — it does not push to Redis
+                // here. The job sets $this->afterCommit = true, so Laravel defers the actual
+                // queue push (and the sync-queue driver's immediate execution of it) until
+                // AFTER this transaction commits. The token write and the audit row below
+                // commit atomically with each other, but the queue push is NOT part of that
+                // atomicity — it happens strictly later. A push failure at that point leaves a
+                // durable, committed token that was never mailed; that state self-corrects via
+                // SendAccountDeletionRequestMailJob::failed() (clears the token so the user can
+                // retry immediately) and, as a backstop, the 24h expiry in confirm().
                 SendAccountDeletionRequestMailJob::dispatch(
                     $professional->id,
                     $confirmationUrl,
@@ -315,6 +344,15 @@ class AccountDeletionService
      * keep the "undo deletion" recovery path working; the original email is preserved
      * in audit.user_deletion_audit.professional_email_snapshot so support can
      * re-identify the user if they email to cancel.
+     *
+     * PRIV-102: admin_notes (staff-only freetext) is nulled here, not snapshotted.
+     * Unlike primary_email, it is deliberately NOT preserved anywhere else — copying
+     * staff freetext into audit.user_deletion_audit.metadata would convert a 30-day
+     * exposure into permanent, structurally unerasable PII, because that audit table
+     * grants app_backend SELECT/INSERT only (no UPDATE/DELETE) and its FK is
+     * ON DELETE SET NULL, so its rows deliberately outlive the day-30 forceDelete
+     * forever. Accepted tradeoff: if a user cancels during the grace period, any
+     * admin_notes content is unrecoverable — deliberate, not a bug.
      */
     protected function pseudonymiseAccountPii(User $professional): void
     {
@@ -330,6 +368,7 @@ class AccountDeletionService
             'location_city' => null,
             'location_state' => null,
             'location_country' => null,
+            'admin_notes' => null,
         ])->save();
     }
 
@@ -626,11 +665,11 @@ class AccountDeletionService
         // Step 3c–3g: erase PII from surfaces the DB cascade won't reach.
         // Each step is independently fault-tolerant — a failure must not block forceDelete.
         $this->purgeExportZips($professional);           // #P2-08: R2 export ZIPs
-        $this->purgeEarlyAccessSignup($lookupEmail);     // #P2-09: early access signup row
+        $this->purgeEarlyAccessSignup($professional, $lookupEmail);     // #P2-09: early access signup row
         $this->purgeFeedbackRows($professional);         // #P2-10: feedback (FK is SET NULL, not CASCADE)
         $this->purgeCaseSignalPii($professional);        // #P2-11: reporter PII on moderation signals
         $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
-        $this->purgeGlobalEmailSubscriptions($lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
+        $this->purgeGlobalEmailSubscriptions($professional, $lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
 
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
@@ -734,7 +773,7 @@ class AccountDeletionService
      *
      * Early-access rows are keyed on email, not user_id — no DB cascade reaches them.
      */
-    private function purgeEarlyAccessSignup(?string $lookupEmail): void
+    private function purgeEarlyAccessSignup(User $professional, ?string $lookupEmail): void
     {
         if ($lookupEmail === null || trim($lookupEmail) === '') {
             return;
@@ -746,7 +785,10 @@ class AccountDeletionService
                 ->where('email_lc', mb_strtolower(trim($lookupEmail)))
                 ->delete();
         } catch (\Throwable $e) {
+            // LIFE-102: the failure log must carry the acting user_id — without it,
+            // a purge failure here is unattributable in the log stream.
             Log::error('Early access signup erasure failed during account purge', [
+                'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -863,7 +905,7 @@ class AccountDeletionService
      * Global rows (platform marketing list signups) are keyed only on email_lc and
      * require explicit deletion.
      */
-    private function purgeGlobalEmailSubscriptions(?string $lookupEmail): void
+    private function purgeGlobalEmailSubscriptions(User $professional, ?string $lookupEmail): void
     {
         if ($lookupEmail === null || trim($lookupEmail) === '') {
             return;
@@ -876,7 +918,11 @@ class AccountDeletionService
                 ->where('email_lc', mb_strtolower(trim($lookupEmail)))
                 ->delete();
         } catch (\Throwable $e) {
+            // LIFE-103: same identifiability fix as purgeEarlyAccessSignup() (LIFE-102) —
+            // the row being deleted has no user_id (it's the global/marketing-list row),
+            // so the acting user must be logged explicitly.
             Log::error('Global email subscription erasure failed during account purge', [
+                'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
         }

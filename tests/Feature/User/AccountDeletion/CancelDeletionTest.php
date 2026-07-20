@@ -134,3 +134,38 @@ it('does not re-publish a site that was manually unpublished before deletion was
     // Site stays offline — we don't own manually-unpublished state.
     expect((bool) $site->is_published)->toBeFalse();
 });
+
+it('leaves admin_notes null after cancel, pinning the accepted-loss semantics as deliberate (PRIV-102)', function () {
+    $rawToken = 'raw-token-'.Str::random(54);
+    $sentinel = 'SENTINEL-STAFF-NOTE-'.Str::random(12);
+    $id = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $id,
+        'auth_user_id' => (string) Str::uuid(),
+        'handle' => 'pro-'.substr($id, 0, 6),
+        'handle_lc' => 'pro-'.substr($id, 0, 6),
+        'display_name' => 'Pro',
+        'primary_email' => 'pro-'.substr($id, 0, 6).'@example.com',
+        'status' => 'active',
+        'admin_notes' => $sentinel,
+        'deletion_token_hash' => hash('sha256', $rawToken),
+        'deletion_requested_at' => now()->toIso8601String(),
+    ]);
+    $pro = User::query()->where('id', $id)->first();
+
+    $service = new AccountDeletionService;
+    $confirmResult = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
+    expect($confirmResult['success'])->toBeTrue();
+
+    $pro->refresh();
+    expect($pro->admin_notes)->toBeNull(); // pseudonymised at confirm time
+
+    $service->cancel($pro, Request::create('/', 'POST'));
+
+    $pro->refresh();
+    // Cancel restores status/email but NOT admin_notes — an accepted, documented
+    // tradeoff (see AccountDeletionService::pseudonymiseAccountPii docblock), not
+    // a bug: the value was never preserved anywhere to restore it from.
+    expect($pro->status)->toBe('active')
+        ->and($pro->admin_notes)->toBeNull();
+});
