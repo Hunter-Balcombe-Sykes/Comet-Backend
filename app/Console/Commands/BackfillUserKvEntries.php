@@ -29,10 +29,14 @@ class BackfillUserKvEntries extends Command
         $dryRun = (bool) $this->option('dry-run');
         $sync = (bool) $this->option('sync');
 
+        // No account_type filter: every account renders an individual sitepage,
+        // and 'individual' has not been a legal value since 20260612120000 — this
+        // filter matched zero rows and made the command a silent no-op at cutover.
+        // Cohort gates (moderation-hidden, unclaimed TTL, expiry) live in
+        // SyncSubdomainToKvJob, the single authority. Do not duplicate them here.
         $query = User::query()
             ->whereNotNull('handle')
-            ->where('handle', '!=', '')
-            ->where('account_type', 'individual');
+            ->where('handle', '!=', '');
 
         $total = (clone $query)->count();
         $this->info("Target cohort: {$total} user(s).");
