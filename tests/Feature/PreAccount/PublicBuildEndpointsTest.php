@@ -56,6 +56,27 @@ it('polls a build through its lifecycle and exposes subdomain only when ready', 
         ->assertOk()->assertJsonPath('subdomain', $build->user->site->subdomain);
 });
 
+it('stays reachable and correct after the build has been claimed — no new authenticated endpoint needed', function () {
+    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe']);
+    $build = PreAccountBuild::firstOrFail();
+    $build->update(['build_state' => PreAccountBuild::STATE_READY]);
+
+    setupEmailSubscriptionsTable();
+    setupNotificationsTable();
+    setupSubdomainAliasesTable();
+    $subdomain = $build->user->site->subdomain;
+    app(App\Services\PreAccount\ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', $subdomain);
+
+    // Same opaque-UUID, unauthenticated response shape as pre-claim — the
+    // dashboard can keep polling this exact endpoint by the build_id it
+    // already holds from step 2 of signup instead of needing a new
+    // authenticated status endpoint.
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('build_state', 'ready')
+        ->assertJsonPath('subdomain', $subdomain);
+});
+
 it('404s an unknown build id (public enumeration-safe)', function () {
     $this->getJson('/api/public/signup/builds/'.Str::uuid())->assertStatus(404);
 });
