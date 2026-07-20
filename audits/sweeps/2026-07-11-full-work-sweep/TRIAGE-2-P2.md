@@ -2649,7 +2649,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 6 of 9 complete
+- P2 Medium: 7 of 9 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2717,7 +2717,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-104** · P2 — `safeQuery` presence-probe failures log with no correlation context or per-probe discriminator
+- [x] **#LIFE-104** · P2 — `safeQuery` presence-probe failures log with no correlation context or per-probe discriminator
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:355-364
     - **Affects:** Public sitepage resolution — `presentPageIds()` calls `safeQuery` 8 times per resolve; every failure (transient DB blip, partial-env missing table) logs the identical string with no `user_id`/`site_id` and no indication which of the 8 probes failed.
     - **Effort:** S (~0.5–1h)
@@ -2949,7 +2949,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2980,7 +2980,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-102** · P2 — `InstagramConnectJob::mirrorOne` buffers the full image body in memory instead of streaming, unlike the sibling `mirrorVideo` path in the same file
+- [x] **#SCALE-102** · P2 — `InstagramConnectJob::mirrorOne` buffers the full image body in memory instead of streaming, unlike the sibling `mirrorVideo` path in the same file
     - **Where:** app/Jobs/Platforms/InstagramConnectJob.php:330-338
     - **Affects:** The `scraping` Horizon queue worker (`supervisor-scraping`, `memory: 256`, `maxProcesses: 2`) during Instagram auto-connect. Each connect can mirror up to three images (photo, reel poster, profile pic) at up to 15MB each.
     - **Effort:** S (~0.5–1h)

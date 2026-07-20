@@ -172,7 +172,10 @@ class InstagramConnectionSeeder
         return $selection;
     }
 
-    // Mirror a single image (cover or profile pic) to R2.
+    // Mirror a single image (cover or profile pic) to R2, STREAMED via a temp
+    // file — same pattern as mirrorVideo below — so a large response never
+    // buffers fully in worker memory (SCALE-102: the old body()/strlen() path
+    // held the whole image in a PHP string before the size check even ran).
     //
     // SSRF guard (layered):
     //   1. CDN host allowlist — only cdninstagram.com / fbcdn.net subdomains pass.
@@ -183,7 +186,9 @@ class InstagramConnectionSeeder
     //   3. Redirects refused — a 3xx response is dropped, not followed (withoutRedirecting).
     //   4. Content-type enforced — only image/* is stored.
     //   5. Byte cap — rejects before store if Content-Length signals an oversized
-    //      file, with a hard strlen check as fallback for absent/wrong headers.
+    //      file, with a check on the sunk temp file's actual on-disk size as a
+    //      backstop for absent/inaccurate headers (replaces the old strlen check
+    //      — same guarantee, now against a file instead of an in-memory string).
     private function mirrorOne(string $url, string $path): ?string
     {
         if (! $this->isAllowedHost($url)) {
@@ -200,10 +205,16 @@ class InstagramConnectionSeeder
             return null;
         }
 
+        $tmp = tempnam(sys_get_temp_dir(), 'igimg');
+        if ($tmp === false) {
+            return null;
+        }
+
         try {
             $response = Http::timeout(self::IMAGE_TIMEOUT_SECONDS)
                 ->withoutRedirecting()
                 ->withHeaders(['Accept' => 'image/*'])
+                ->sink($tmp)
                 ->get($url);
 
             // Drop non-2xx, including 3xx redirects we refuse to follow (SSRF guard).
@@ -222,15 +233,22 @@ class InstagramConnectionSeeder
                 return null;
             }
 
-            $body = $response->body();
-
-            // Hard cap enforced after buffering — covers absent or inaccurate
-            // Content-Length headers. Nothing over the limit reaches R2.
-            if (strlen($body) > self::MAX_IMAGE_BYTES) {
+            // Hard cap enforced on what actually landed on disk — covers absent
+            // or inaccurate Content-Length headers. Nothing over the limit
+            // reaches R2.
+            if ((int) filesize($tmp) > self::MAX_IMAGE_BYTES) {
                 return null;
             }
 
-            Storage::disk('media')->put($path, $body);
+            // Stream temp file → R2 (no in-memory copy of the image body).
+            $stream = fopen($tmp, 'r');
+            if ($stream === false) {
+                return null;
+            }
+            Storage::disk('media')->put($path, $stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
 
             return Storage::disk('media')->url($path);
         } catch (Throwable $e) {
@@ -238,6 +256,10 @@ class InstagramConnectionSeeder
             report($e);
 
             return null;
+        } finally {
+            if (file_exists($tmp)) {
+                @unlink($tmp);
+            }
         }
     }
 
