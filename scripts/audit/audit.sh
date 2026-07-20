@@ -297,7 +297,7 @@ read-user-mw|app/Services/User app/Http/Middleware
 read-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Jobs/Notifications app/Services/Analytics app/Services/Notifications app/Services/Streaming
-platforms-services|app/Services/Platforms
+platforms-services|app/Services/Platforms app/Jobs/Platforms
 platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
 design|app/Services/Design
 EOF
@@ -314,7 +314,7 @@ callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal ap
 EOF
         ;;
         transaction-boundaries) cat <<'EOF'
-domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Observers app/Http/Controllers/Api/Internal
+domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Services/EarlyAccess app/Observers app/Http/Controllers/Api/Internal
 vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app/Jobs app/Listeners
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User

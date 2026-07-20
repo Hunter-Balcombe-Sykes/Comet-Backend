@@ -65,6 +65,11 @@ class ComputeContentPopularityScores extends Command
 
     protected $description = 'Recompute content_popularity_scores (pages + scored items) from raw analytics events.';
 
+    // Ceiling for a full sweep of every published site (routes/console.php runs
+    // this every 15min with a 14min withoutOverlapping lock) — comfortably under
+    // that lock so a hung run is flagged well before the next tick.
+    protected $timeout = 600;
+
     // Scoring weights + decay. Tune here — the only tuning surface.
     private const W_CLICK = 3.0;
 
@@ -93,6 +98,15 @@ class ComputeContentPopularityScores extends Command
     private const RANK_SWAP_THRESHOLD = 0.10; // must beat the incumbent above by >10%
 
     private const SITE_CHUNK = 200;
+
+    // SCALE-3: the scheduled (no --site) run used to full-sweep EVERY published
+    // site every 15 minutes regardless of whether it had any recent activity.
+    // Now scoped to sites with a raw event since this window — sized a bit past
+    // the 15-min cadence so a slow/late tick still catches events from the gap
+    // since the previous run, without re-reading the whole event history. An
+    // explicit --site always bypasses this (manual/targeted runs process the
+    // named site unconditionally, matching the pre-existing contract).
+    private const RECENT_EVENTS_WINDOW_MINUTES = 20;
 
     /**
      * link_clicks.section_key → scored item_type. Clicks self-describe their
@@ -148,6 +162,11 @@ class ComputeContentPopularityScores extends Command
         $query = Site::query()->where('is_published', true)->with('user');
         if (is_string($siteOpt) && $siteOpt !== '') {
             $query->where('id', $siteOpt);
+        } else {
+            // SCALE-3: scope the periodic full sweep to sites with events since
+            // the last window — see RECENT_EVENTS_WINDOW_MINUTES above.
+            $since = now()->subMinutes(self::RECENT_EVENTS_WINDOW_MINUTES);
+            $query->whereIn('id', $this->siteIdsWithRecentEvents($since));
         }
 
         $sitesProcessed = 0;
@@ -215,6 +234,33 @@ class ComputeContentPopularityScores extends Command
     }
 
     /**
+     * Distinct site ids with at least one raw event since $since, across the same
+     * three tables this command already reads (section_views/link_clicks/item_views
+     * — see the class docblock). PHP-side union of three DISTINCT plucks rather
+     * than a cross-table SQL UNION so the query stays a plain per-table filter,
+     * identical on Postgres and the SQLite test schema.
+     *
+     * @return list<string>
+     */
+    private function siteIdsWithRecentEvents(Carbon $since): array
+    {
+        $ids = [];
+        foreach (['analytics.section_views', 'analytics.link_clicks', 'analytics.item_views'] as $table) {
+            foreach (
+                DB::connection('pgsql')->table($table)
+                    ->where('occurred_at', '>=', $since->toISOString())
+                    ->distinct()
+                    ->pluck('site_id')
+                as $siteId
+            ) {
+                $ids[(string) $siteId] = true;
+            }
+        }
+
+        return array_keys($ids);
+    }
+
+    /**
      * Compute every upsert row + faded-key deletion for one site. Content types
      * come from the UNION of live aggregates and already-stored rows — a type
      * whose events were all purged must still fade its stored keys out.
@@ -279,6 +325,10 @@ class ComputeContentPopularityScores extends Command
                 $deletes[RankedActionsComputer::CONTENT_TYPE] = $actionResult['deletes'];
             }
         } catch (\Throwable $e) {
+            // report() surfaces this to Nightwatch — Log::warning alone is
+            // breadcrumb-only and raises no alert. Fail-open is preserved:
+            // page/item scores above are already computed and still get written.
+            report($e);
             Log::warning('analytics.ranked_actions_failed', [
                 'site_id' => $site->id,
                 'error' => $e->getMessage(),

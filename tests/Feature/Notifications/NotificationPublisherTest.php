@@ -6,6 +6,9 @@ use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Models\Core\Notifications\Notification;
 use App\Services\Notifications\NotificationPublisher;
+use Illuminate\Bus\Batchable;
+use Illuminate\Bus\PendingBatch;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -204,4 +207,105 @@ it('skips email dispatch when category maps to null (in-app only)', function () 
     (new SendTransactionalNotificationEmailJob('n-x', 'in_app_only_demo', 'pro-1'))->handle();
 
     Mail::assertNothingSent();
+});
+
+// CACHE-2: publishMany() is currently uncalled anywhere in the app, but its email
+// fan-out must not regress to one dispatch()/Redis-write per recipient once a caller
+// lands. These assert the Bus::batch() + array_chunk() replacement chunks correctly
+// and that batching drops nobody.
+it('CACHE-2: publishMany batches email dispatch in chunks instead of one job per recipient', function () {
+    Bus::fake();
+    Config::set('partna.notifications.email_enabled', true);
+    Config::set('partna.notifications.batch_chunk_size', 3);
+
+    $publisher = new NotificationPublisher;
+
+    $items = [];
+    for ($i = 0; $i < 5; $i++) {
+        $items[] = [
+            'userId' => "pro-{$i}",
+            'frontendType' => 'Warning',
+            'category' => 'policy_update',
+            'title' => 'T',
+            'body' => 'B',
+            'dedupeKey' => "cache2-batch:{$i}",
+            'critical' => true,
+        ];
+    }
+
+    $publisher->publishMany($items);
+
+    // 5 recipients / chunk size 3 → two batches (3 + 2), never one dispatch per item.
+    Bus::assertBatchCount(2);
+
+    $batchSizes = collect(Bus::dispatchedBatches())
+        ->map(fn (PendingBatch $b) => $b->jobs->count())
+        ->sort()->values()->all();
+    expect($batchSizes)->toBe([2, 3]);
+
+    // Every recipient gets exactly one job — batching must drop nobody and duplicate nobody.
+    $jobUserIds = collect(Bus::dispatchedBatches())
+        ->flatMap(fn (PendingBatch $b) => $b->jobs->map(fn ($j) => $j->userId))
+        ->sort()->values()->all();
+    expect($jobUserIds)->toBe(['pro-0', 'pro-1', 'pro-2', 'pro-3', 'pro-4']);
+});
+
+it('publishMany only batches the critical items and skips non-critical ones (matches publish())', function () {
+    Bus::fake();
+    Config::set('partna.notifications.email_enabled', true);
+
+    $publisher = new NotificationPublisher;
+
+    $publisher->publishMany([
+        ['userId' => 'pro-a', 'frontendType' => 'Warning', 'category' => 'policy_update', 'title' => 'T', 'body' => 'B', 'dedupeKey' => 'cache2-nc-a', 'critical' => false],
+        ['userId' => 'pro-b', 'frontendType' => 'Warning', 'category' => 'policy_update', 'title' => 'T', 'body' => 'B', 'dedupeKey' => 'cache2-nc-b', 'critical' => true],
+    ]);
+
+    Bus::assertBatchCount(1);
+    Bus::assertBatched(fn (PendingBatch $batch) => $batch->jobs->count() === 1 && $batch->jobs->first()->userId === 'pro-b');
+});
+
+it('publishMany dispatches no batch when email is disabled or nothing is critical', function () {
+    Bus::fake();
+    Config::set('partna.notifications.email_enabled', true);
+
+    $publisher = new NotificationPublisher;
+
+    // All non-critical — rows land, but nothing should hit the mail batch.
+    $publisher->publishMany([
+        ['userId' => 'pro-c', 'frontendType' => 'Warning', 'category' => 'policy_update', 'title' => 'T', 'body' => 'B', 'dedupeKey' => 'cache2-nc-c', 'critical' => false],
+    ]);
+
+    Bus::assertNothingBatched();
+});
+
+// CACHE-2 regression: the tests above all run under Bus::fake(), which swaps in
+// PendingBatchFake — a subclass that overrides __construct() and never calls
+// PendingBatch::ensureJobIsBatchable(). That means NONE of the faked tests above can
+// detect a job missing the Batchable trait; they'd stay green even if the trait were
+// dropped. The two tests below deliberately avoid Bus::fake() so they exercise the
+// real Illuminate\Bus\PendingBatch constructor, where Laravel throws
+// `RuntimeException('Attempted to batch job [...], but it does not use the Batchable
+// trait.')` synchronously, before any queue/dispatch, on every driver.
+it('CACHE-2 regression: SendTransactionalNotificationEmailJob uses the Batchable trait', function () {
+    // Cheap, always-on proof: this is a static fact about the class, independent of
+    // Bus faking or queue config. It would have caught the trait being dropped in the
+    // copy from SendStaffBroadcastEmailToSubscriberJob (the sibling this pattern came
+    // from) the moment this test ran, on any CI driver.
+    expect(class_uses_recursive(SendTransactionalNotificationEmailJob::class))
+        ->toContain(Batchable::class);
+});
+
+it('CACHE-2 regression: Bus::batch() accepts the job for real, without Bus::fake()', function () {
+    // Behavioural proof, not just a structural one: constructs a REAL PendingBatch
+    // (Bus::batch() is `new PendingBatch($container, $jobs)` — see
+    // Illuminate\Bus\Dispatcher::batch()) and asserts construction doesn't throw.
+    // Deliberately does NOT call ->dispatch() — that would need a real queue
+    // connection and batch repository, which is unrelated to what this bug is about.
+    // The Batchable check runs inside the constructor itself, so just building the
+    // batch is enough to prove NotificationPublisher::publishMany()'s real Bus::batch()
+    // call (no Bus::fake() in production) will not blow up on first real invocation.
+    $job = new SendTransactionalNotificationEmailJob('n-batch-proof', 'policy_update', 'pro-batch-proof');
+
+    expect(fn () => Bus::batch([$job]))->not->toThrow(RuntimeException::class);
 });

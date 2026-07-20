@@ -7,6 +7,7 @@
  * with no active connection, and is idempotent.
  */
 
+use App\Console\Commands\ResolveAllDesignPresetsCommand;
 use App\Models\Core\Site\DesignKitContribution;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
@@ -119,4 +120,14 @@ it('reports a clean no-op when no site has an active connection', function () {
 it('fails cleanly for an unknown --user', function () {
     $this->artisan('design:resolve-all', ['--user' => 'nobody-here'])
         ->assertExitCode(1);
+});
+
+// ── OBS-5: an explicit $timeout ceiling on this manual backfill sweep ──
+
+it('declares an explicit, non-null $timeout ceiling', function () {
+    $property = (new ReflectionClass(ResolveAllDesignPresetsCommand::class))->getProperty('timeout');
+    $property->setAccessible(true);
+
+    expect($property->getDefaultValue())->not->toBeNull()
+        ->and($property->getDefaultValue())->toBeGreaterThan(0);
 });

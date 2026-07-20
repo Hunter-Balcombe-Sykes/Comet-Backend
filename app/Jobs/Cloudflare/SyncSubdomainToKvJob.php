@@ -7,7 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Cloudflare\CloudflareKvService;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -34,8 +34,15 @@ use Throwable;
 //                hard-deleted row is no longer findable; for a soft-delete we
 //                fall back to reading it via withTrashed().
 //
-// `ShouldBeUnique` with a 45s window collapses observer storms to a single KV write per 45s.
-class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
+// `ShouldBeUniqueUntilProcessing` with a 45s window collapses observer storms to a
+// single KV write per 45s. "UntilProcessing" (not plain ShouldBeUnique) matters
+// because HasCloudflareRetryPolicy's backoff ([10,30,60]) can span ~100s worst-case
+// — longer than uniqueFor — so a plain ShouldBeUnique lock would still be held (or
+// have expired mid-retry and collided) during a legitimate re-dispatch. Releasing
+// the lock the moment a worker picks the job up (rather than after handle()
+// completes) is safe here because handle() re-reads all state fresh from the DB —
+// there's no dispatch-time snapshot to go stale.
+class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable, HasCloudflareRetryPolicy, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -251,6 +258,22 @@ class SyncSubdomainToKvJob implements ShouldBeUnique, ShouldQueue
             // this point mean we must guard here too. Aligns with the resolver
             // ->active() scope which also filters expires_at > now().
             if ($ttl !== null && $ttl <= 0) {
+                continue;
+            }
+
+            // LIFE-109 (revised): skip a genuinely-future-but-sub-60s TTL rather than
+            // flooring it to Cloudflare's 60s minimum. Flooring would extend a
+            // reclaimable alias past its real expiry: SubdomainAvailabilityService
+            // treats the handle as free the instant expires_at passes (no grace
+            // period), so a different user can register it immediately, while the
+            // new owner's KV overwrite is only dispatched async from
+            // UserObserver::updated(). Any resync landing in that final sub-60s window
+            // would floor the OLD owner's entry to outlive expires_at by up to 60s —
+            // 301'ing a visitor to a superseded owner's site. Skipping costs nothing
+            // in practice: every prior sync already wrote a TTL computed from the
+            // same expires_at, so KV already carries a close-to-correct expiry; this
+            // only declines a write, never invalidates one.
+            if ($ttl !== null && $ttl < 60) {
                 continue;
             }
 

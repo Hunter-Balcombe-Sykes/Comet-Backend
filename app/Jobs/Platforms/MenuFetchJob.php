@@ -186,18 +186,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
         $now = now();
 
-        // Per-platform sync status, independent of the merge outcome — only for
-        // connected platforms (those with a store link).
-        foreach ($storeLinks as $platform => $link) {
-            MenuPlatformLink::updateOrCreate(
-                ['menu_id' => $menu->id, 'platform' => $platform],
-                ['synced_at' => $now, 'status' => ($menus[$platform] ?? null) !== null ? 'ok' : 'unavailable'],
-            );
-        }
-
         // Nothing usable from ANY connected platform — keep the last menu, mark
         // unavailable so the dashboard stops polling. A manual refresh retries.
+        // No persist() risk on this branch (content is untouched), so the
+        // per-platform sync status is safe to write right here.
         if (array_filter($menus) === []) {
+            $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
             $menu->forceFill(['fetch_status' => 'unavailable', 'last_fetched_at' => $now])->save();
 
             return;
@@ -217,6 +211,16 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $merged = $merger->merge($menus, $contentSource, $storeLinks, $this->previousCategoryOrder($existing));
 
         $this->persist($menu, $contentSource, $merged, $now);
+
+        // TXN-101: per-platform sync status is written ONLY after persist() has
+        // committed successfully. It used to be written right after the scrape
+        // (before persist()), which meant a persist() failure left
+        // menu_platform_links claiming 'ok, synced just now' for content that
+        // was never actually written — misleading the dashboard AND hiding the
+        // platform from menu:retry-unavailable's self-heal query (which selects
+        // on status = 'unavailable'), so a genuine failure could get stuck
+        // forever without a manual "Refresh menu" click.
+        $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
 
         // Re-apply the persisted Google-photos scan enrichment (menus.scan_items,
         // written by GoogleMenuPhotoScanJob) over the freshly rebuilt rows —
@@ -287,12 +291,39 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
+     * Per-platform sync status (ok/unavailable) + timestamp, independent of
+     * the merge outcome — only for connected platforms (those with a store
+     * link). Callers must only invoke this once the associated content write
+     * has actually landed (persist() returned, or the nothing-usable branch
+     * that never touches content) — see the TXN-101 note at both call sites
+     * in handle().
+     *
+     * @param  array<string, mixed>  $storeLinks
+     * @param  array<string, mixed|null>  $menus
+     */
+    private function writePlatformSyncStatus(array $storeLinks, array $menus, Menu $menu, Carbon $now): void
+    {
+        foreach ($storeLinks as $platform => $link) {
+            MenuPlatformLink::updateOrCreate(
+                ['menu_id' => $menu->id, 'platform' => $platform],
+                ['synced_at' => $now, 'status' => ($menus[$platform] ?? null) !== null ? 'ok' : 'unavailable'],
+            );
+        }
+    }
+
+    /**
      * Replace the menu's categories + items + per-platform availability wholesale
      * within a transaction, and write the resolved store-level fields.
      *
+     * Protected (not private) so a test can subclass and override it to force
+     * a deterministic failure — proving TXN-101's ordering guarantee (the
+     * per-platform sync status must never be written before this succeeds)
+     * without having to engineer a real DB-level exception through the
+     * collision-safe identity-reuse logic below.
+     *
      * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}  $merged
      */
-    private function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
+    protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
     {
         DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now) {
             // Wholesale rebuild (delete children → reinsert) is intentional, not a perf gap:

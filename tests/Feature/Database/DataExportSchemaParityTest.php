@@ -70,9 +70,10 @@ it('every column the data export reads exists in the live schema', function () {
     // sweep without testing anything.
     //
     // Known limit: site() early-returns when the dummy user owns no site, so its
-    // nested site.blocks / site.workplaces reads are not exercised here. Both use
-    // select * (no column list to drift) and filter on site_id, so the exposure is
-    // limited to that one filter column.
+    // nested site.blocks / site.workplaces reads are not exercised here.
+    // site.blocks uses select * (no column list to drift); site.workplaces uses
+    // an explicit allow-list (PRIV-5) so a future column rename there could drift
+    // undetected until this early return is addressed.
     $methods = array_values(array_filter(
         $reflection->getMethods(),
         fn (ReflectionMethod $m) => (str_starts_with($m->getName(), 'stream') && $m->getName() !== 'stream')

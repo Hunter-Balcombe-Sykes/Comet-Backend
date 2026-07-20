@@ -9,6 +9,7 @@ use App\Services\Cache\UserCacheService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
@@ -138,6 +139,49 @@ it('syncs primary_email when claim differs and is verified', function () {
 
     $updated = DB::connection('pgsql')->table('core.users')->where('id', $proId)->value('primary_email');
     expect($updated)->toBe('new@example.com');
+});
+
+// #LIFE-7 — invalidateUser() must NOT share the save()/UniqueConstraintViolationException
+// catch. A Redis blip here is a different failure mode from an email collision — the DB
+// write has already committed, so the request must still return 200, and the fault must
+// be reported to Nightwatch (not just logged) rather than 500ing on a healthy write.
+it('returns 200 and keeps the saved email when invalidateUser() throws after save() already committed', function () {
+    setupUsersTable();
+    Exceptions::fake();
+
+    $uid = '550e8400-e29b-41d4-a716-446655440000';
+    $proId = '00000000-0000-0000-0000-0000000000cc';
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'auth_user_id' => $uid,
+        'primary_email' => 'old@example.com',
+        'status' => 'active',
+    ]);
+
+    $pro = User::query()->where('id', $proId)->first();
+
+    $request = Request::create('/test', 'GET');
+    $request->attributes->set('supabase_uid', $uid);
+    $request->attributes->set('supabase_claims', [
+        'email' => 'new@example.com',
+        'email_verified' => true,
+    ]);
+
+    $this->cache->shouldReceive('getByAuthId')->with($uid)->once()->andReturn($pro);
+    // A Redis blip, not a DB collision — narrow UniqueConstraintViolationException
+    // catch on save() must not swallow this; it needs its own try/catch.
+    $this->cache->shouldReceive('invalidateUser')->once()->andThrow(new RuntimeException('redis down'));
+
+    $response = $this->middleware->handle($request, $this->next);
+
+    expect($response->getStatusCode())->toBe(200);
+
+    // The write already committed before invalidateUser() ran — it must survive.
+    $updated = DB::connection('pgsql')->table('core.users')->where('id', $proId)->value('primary_email');
+    expect($updated)->toBe('new@example.com');
+
+    Exceptions::assertReported(RuntimeException::class);
 });
 
 it('swallows a UniqueConstraintViolationException on email collision, leaves the row unchanged, and logs a hashed email', function () {

@@ -63,6 +63,9 @@ class UserObserver
                 'user_id' => $professional->id,
                 'message' => $e->getMessage(),
             ]));
+            // CCH-101: Log::warning alone raises no Nightwatch issue — report() so a
+            // stale cache after a write doesn't go unnoticed until a user complains.
+            report($e);
         }
 
         $this->touchParentSiteIfPublicFieldChanged($professional);
@@ -164,6 +167,8 @@ class UserObserver
                 'user_id' => $professional->id,
                 'message' => $e->getMessage(),
             ]));
+            // CCH-101: see updated() — report() so Nightwatch sees the failure.
+            report($e);
         }
 
         // Remove the subdomain routing entry so <handle>.partna.au stops
@@ -194,6 +199,8 @@ class UserObserver
                 'user_id' => $professional->id,
                 'message' => $e->getMessage(),
             ]));
+            // CCH-101: see updated() — report() so Nightwatch sees the failure.
+            report($e);
         }
 
         // Restore re-adds the routing entry that deleted() removed — the same

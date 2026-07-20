@@ -6,7 +6,9 @@ use App\Models\Core\User\User;
 use App\Policies\SitePolicy;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -177,6 +179,95 @@ it('cleans up the orphaned Cloudflare hostname and returns 422 when a concurrent
     expect($site->fresh()->custom_domain)->toBeNull();
 });
 
+// ── EDGE-101: CloudflareCustomHostnameService::delete() now throws on an error
+// response, so these try/catch(Throwable){report($e)} sites are no longer dead
+// code. Each proves report() actually fires AND the fail-open contract holds —
+// the local DB write still proceeds even though the CF teardown call failed.
+
+it('reports (does not silently swallow) when the previous-hostname teardown delete fails during store() (EDGE-101)', function () {
+    [$user, $site] = domainUserWithSite('domuedge101a');
+    $site->custom_domain = 'oldbook.me';
+    $site->custom_domain_cf_id = 'ch_old';
+    $site->custom_domain_status = 'active';
+    $site->saveQuietly();
+
+    Exceptions::fake();
+    Http::fake([
+        // DELETE (previous-hostname teardown) fails...
+        'api.cloudflare.com/*/custom_hostnames/ch_old' => Http::response(['success' => false], 500),
+        // ...but create() for the NEW domain still succeeds.
+        'api.cloudflare.com/*' => Http::response([
+            'success' => true,
+            'result' => ['id' => 'ch_new', 'status' => 'pending', 'ssl' => ['status' => 'pending_validation']],
+        ], 200),
+    ]);
+    Queue::fake();
+
+    // Fail-open: the teardown failure must not block connecting the new domain.
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'newbook.me'])
+        ->assertOk()
+        ->assertJsonPath('domain', 'newbook.me');
+
+    expect($site->fresh()->custom_domain)->toBe('newbook.me');
+    Exceptions::assertReported(RequestException::class);
+});
+
+it('reports (does not silently swallow) when the Cloudflare delete fails during destroy() (EDGE-101)', function () {
+    [$user, $site] = domainUserWithSite('domuedge101b');
+    $site->custom_domain = 'bookwith.me';
+    $site->custom_domain_cf_id = 'ch_gone';
+    $site->custom_domain_status = 'active';
+    $site->saveQuietly();
+
+    Exceptions::fake();
+    Http::fake(['api.cloudflare.com/*' => Http::response(['success' => false], 500)]);
+    Queue::fake();
+
+    // Fail-open: the CF-side teardown failing must not block the local disconnect.
+    actingAsUser($user)->deleteJson('/api/site/custom-domain')
+        ->assertOk()
+        ->assertJsonPath('domain', null);
+
+    expect($site->fresh()->custom_domain)->toBeNull();
+    Exceptions::assertReported(RequestException::class);
+});
+
+it('reports when the orphan-cleanup delete itself fails after losing the unique-domain race (EDGE-101)', function () {
+    [$user, $site] = domainUserWithSite('racer2');
+    [, $rivalSite] = domainUserWithSite('rival2');
+
+    DB::connection('pgsql')->statement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS site.sites_custom_domain_unique '.
+        'ON sites (lower(custom_domain)) WHERE custom_domain IS NOT NULL'
+    );
+
+    Exceptions::fake();
+    Http::fake(['api.cloudflare.com/*' => Http::sequence()
+        // create() for the racer's attempted domain succeeds...
+        ->push(['success' => true, 'result' => ['id' => 'ch_orphan2', 'status' => 'pending', 'ssl' => ['status' => 'pending_validation']]], 200)
+        // ...but the orphan-cleanup delete() (triggered by the lost race) fails.
+        ->push(['success' => false], 500),
+    ]);
+    Queue::fake();
+
+    $fired = false;
+    Site::saving(function (Site $s) use (&$fired, $rivalSite) {
+        if (! $fired && $s->custom_domain === 'race2.com') {
+            $fired = true;
+            DB::connection('pgsql')->table('site.sites')
+                ->where('id', $rivalSite->id)
+                ->update(['custom_domain' => 'race2.com', 'custom_domain_status' => 'active']);
+        }
+    });
+
+    // The 422 conflict response still lands — the cleanup failure doesn't change
+    // the caller-facing outcome, it just no longer vanishes silently server-side.
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'race2.com'])
+        ->assertStatus(422);
+
+    Exceptions::assertReported(RequestException::class);
+});
+
 // ── SEC-108: ownership gates on every read/mutator ─────────────────────────
 // siteOrFail() now authorizes 'view' (covers show() + every mutator's entry
 // point), and each mutator additionally authorizes 'update' immediately
@@ -272,4 +363,54 @@ it('never calls Cloudflare delete() when the ownership authorize denies before a
         ->assertStatus(404);
 
     Http::assertNothingSent();
+});
+
+// ── TEST-106: Cloudflare error handling on create() ────────────────────────
+//
+// The audit's proposed test (Http 500 -> assert 502) already passes against
+// current code — cf->create() is wrapped in try/catch(Throwable) (lines
+// 78-84 above) and CloudflareCustomHostnameService::create() calls ->throw(),
+// which fires on any 4xx/5xx. That's a fine regression guard but not the gap.
+//
+// THE REAL GAP: Cloudflare can return HTTP 200 with `success: false` in the
+// body — a genuine CF behaviour for validation errors (e.g. a hostname that
+// already exists elsewhere). ->throw() does NOT fire on a 2xx status, so
+// create() sails through, `json('result', [])` returns [], shape() turns
+// that into all-null fields, and the controller proceeds as if creation
+// succeeded: the domain gets written to the DB with status 'pending' and a
+// NULL custom_domain_cf_id — no real Cloudflare hostname exists behind it.
+
+it('returns 502 when Cloudflare create() responds with a real HTTP error status (regression guard)', function () {
+    [$user] = domainUserWithSite('domucf500');
+
+    Http::fake(['api.cloudflare.com/*' => Http::response(['success' => false], 500)]);
+
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])
+        ->assertStatus(502);
+});
+
+it('silently stores a domain as pending with no CF id when Cloudflare returns HTTP 200 + success:false (TEST-106 gap)', function () {
+    [$user, $site] = domainUserWithSite('domucfsoftfail');
+
+    // No "result" key at all — mirrors a real CF validation-error body.
+    Http::fake(['api.cloudflare.com/*' => Http::response([
+        'success' => false,
+        'errors' => [['code' => 1004, 'message' => 'Hostname already exists.']],
+    ], 200)]);
+    Queue::fake();
+
+    // KNOWN GAP: the 200 status means ->throw() never fires, so this request
+    // returns 200 OK — as if Cloudflare had accepted the hostname — even
+    // though nothing was actually created there.
+    $response = actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])
+        ->assertOk();
+
+    expect($response->json('status'))->toBe('pending');
+
+    $site->refresh();
+    expect($site->custom_domain)->toBe('bookwith.me');
+    expect($site->custom_domain_status)->toBe('pending');
+    // No real CF hostname was ever created — this id is fabricated as null,
+    // silently, with no signal to the caller that Cloudflare rejected it.
+    expect($site->custom_domain_cf_id)->toBeNull();
 });

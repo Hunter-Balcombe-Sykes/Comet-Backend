@@ -36,8 +36,10 @@ class ClaimController extends ApiController
             );
         }
 
+        $validated = $request->validated();
+
         try {
-            $result = $this->claims->claim($uid, $verifiedEmail, $request->validated()['subdomain']);
+            $result = $this->claims->claim($uid, $verifiedEmail, $validated['subdomain'], (bool) $validated['marketing_opt_in']);
         } catch (RuntimeException $e) {
             // $extra (not $errors) puts `code` at the TOP level of the response
             // body — matching this branch's discriminator contract (see

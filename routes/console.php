@@ -74,12 +74,29 @@ Schedule::command('partna:analytics:purge-raw-events')
 // Reads only section_views / link_clicks / item_views.
 //
 // CADENCE (2026-07-09): every 15 min while validating the ONE theme, so page +
-// item scores reflect real browsing without a manual trigger. ⚠️ REVISIT before
-// real prod scale — this full-sweeps EVERY published site each run (wasteful at
-// scale; should scope to sites with recent events), and the 0.7/0.3 hysteresis
-// blend + 90-day half-life were tuned for a DAILY cadence (at 15-min the blend
-// barely smooths). Was: ->dailyAt('02:40'). The daily 03:00 purge still bounds
-// the retained window this reads.
+// item scores reflect real browsing without a manual trigger. Was:
+// ->dailyAt('02:40'). The daily 03:00 purge still bounds the retained window
+// this reads.
+//
+// SCALE-3 (2026-07-20): the "full-sweeps EVERY published site each run" half of
+// the earlier REVISIT is fixed — ComputeContentPopularityScores now scopes the
+// no-(--site) sweep to sites with a raw event in the last
+// RECENT_EVENTS_WINDOW_MINUTES (20min). ⚠️ STILL OPEN: the 0.7/0.3 hysteresis
+// blend + 90-day half-life were tuned for a DAILY cadence — at 15-min the blend
+// barely smooths. Revisit before real prod scale.
+//
+// ⚠️ ALSO OPEN — missed-tick gap introduced by that scoping: a 20min lookback
+// against a 15min cadence leaves only a 5min margin. Skip ONE tick (deploy
+// restart, scheduler blip) and the gap between successful runs is 30min, so
+// events in the middle ~10min slice fall outside BOTH runs' windows and that
+// site is never scoped in for them. Mostly self-healing — the score recomputes
+// from full raw history the next time the site IS scoped in — so it only
+// becomes permanent for a site whose last-ever activity lands in a missed-tick
+// gap before going dormant. Bounded further by the 90-day raw retention, and
+// it degrades a cosmetic ranking, not money/auth. Proper fix is a persisted
+// last-successful-run watermark instead of a fixed lookback; the cheap
+// mitigation is widening the window to ~45-60min. `--site` is the manual
+// escape hatch meanwhile.
 Schedule::command('analytics:compute-popularity')
     ->everyFifteenMinutes()
     ->onOneServer()
@@ -297,6 +314,17 @@ Schedule::command('moderation:prune-resolved-signal-pii')
     ->withoutOverlapping(60)
     ->runInBackground()
     ->onFailure($reportScheduledFailure('moderation:prune-resolved-signal-pii'));
+
+// PRIV-8: weekly hard-delete of core.feedback submissions older than the retention
+// window (default 365d, any triage status) — nothing else ages this table out.
+// Sunday 04:50 UTC — last of the Sunday weekly sweeps. withoutOverlapping(60) —
+// batched delete on a small T&S-adjacent table; expected to complete in seconds.
+Schedule::command('feedback:prune-old-submissions')
+    ->weeklyOn(0, '04:50')
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('feedback:prune-old-submissions'));
 
 // Scan open/triaged/under_review moderation cases and log warnings for any approaching
 // their SLA deadline. Threshold defaults to 120 min; configurable via

@@ -32,9 +32,9 @@ class ClaimSiteService
      *
      * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_NOT_READY|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED
      */
-    public function claim(string $uid, string $verifiedEmail, string $subdomain): array
+    public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false): array
     {
-        $result = DB::connection('pgsql')->transaction(function () use ($uid, $verifiedEmail, $subdomain) {
+        $result = DB::connection('pgsql')->transaction(function () use ($uid, $verifiedEmail, $subdomain, $marketingOptIn) {
             $site = Site::query()->whereRaw('lower(subdomain) = ?', [strtolower(trim($subdomain))])->first();
             if (! $site) {
                 throw new RuntimeException('CLAIM_NOT_FOUND');
@@ -90,7 +90,9 @@ class ClaimSiteService
             $build->update(['claimed_at' => now()]);
 
             // Claim-time side effects moved from the retired bootstrap create branch.
-            $this->sideEffects->ensureSidestUpdatesSubscription($professional->primary_email);
+            // PRIV-101: subscription is opt-in only — $marketingOptIn comes straight
+            // from the claim request and defaults to false (fail-closed) upstream.
+            $this->sideEffects->ensureSidestUpdatesSubscription($professional->primary_email, $marketingOptIn, 'claim');
             $this->sideEffects->createWelcomeNotification($professional);
 
             return ['professional' => $professional->fresh(), 'site' => $site->fresh()];

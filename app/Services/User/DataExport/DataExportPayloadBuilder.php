@@ -244,8 +244,18 @@ class DataExportPayloadBuilder
         );
 
         // Include workplace from the child table (FOUND-4 — promoted from settings JSONB).
+        // Explicit allow-list (PRIV-5): previous_website_analysis (WebsiteStyleAnalyzer
+        // output) is excluded — WorkplaceResource deliberately withholds it as internal
+        // brand-signal detail, not part of the user-facing workplace-card contract, and
+        // a `select(['*'])`-shaped `first()` was disclosing it anyway.
         $workplaceRow = DB::connection('pgsql')
             ->table('site.workplaces')
+            ->select([
+                'site_id', 'name', 'address', 'address_line1', 'city', 'state', 'postcode',
+                'country', 'latitude', 'longitude', 'phone', 'website', 'previous_website',
+                'category', 'description', 'opening_hours', 'contact_email', 'field_sources',
+                'created_at', 'updated_at',
+            ])
             ->where('site_id', $site->id)
             ->first();
 
@@ -464,10 +474,13 @@ class DataExportPayloadBuilder
      */
     private function streamFeedback(string $userId): Generator
     {
+        // PRIV-6: type/area/target (OV-D taxonomy — which feature/page/tool the
+        // feedback concerns) were missing from the allow-list even though the
+        // columns are live and NULLABLE; the user is entitled to see them.
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('core.feedback')
-                ->select(['id', 'user_id', 'reply_email', 'kind', 'severity', 'message', 'page_url', 'viewport', 'app_version', 'request_id', 'status', 'source', 'tags', 'internal_notes', 'created_at', 'updated_at'])
+                ->select(['id', 'user_id', 'reply_email', 'kind', 'severity', 'type', 'area', 'target', 'message', 'page_url', 'viewport', 'app_version', 'request_id', 'status', 'source', 'tags', 'internal_notes', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
         );
     }

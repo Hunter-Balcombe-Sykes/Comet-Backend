@@ -7,6 +7,7 @@ use App\Models\Core\Notifications\Notification;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Notifications\NotificationPublisher;
+use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -22,7 +23,12 @@ use Illuminate\Support\Facades\Mail;
 // (e.g. analytics_weekly, profile_tasks) — they have no account_type restriction.
 class SendTransactionalNotificationEmailJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    // Batchable is required by NotificationPublisher::publishMany() (CACHE-2), which
+    // fans this job out via Bus::batch() — PendingBatch::ensureJobIsBatchable() throws
+    // a RuntimeException at batch-construction time (synchronously, on every driver) for
+    // any job missing the trait. Mirrors SendStaffBroadcastEmailToSubscriberJob, the
+    // sibling job Bus::batch() was already proven against.
+    use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
      * Category → AccountCapabilitySet property name. Categories absent from this map

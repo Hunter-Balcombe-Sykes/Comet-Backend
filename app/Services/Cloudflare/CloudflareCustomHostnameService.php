@@ -87,14 +87,19 @@ class CloudflareCustomHostnameService
         return $this->shape($result);
     }
 
-    /** Delete a custom hostname (best-effort — a missing id is a no-op). */
+    /**
+     * Delete a custom hostname. A missing id / unconfigured service is a no-op,
+     * but a real error response THROWS (EDGE-101 — unlike create()/get(), this
+     * previously swallowed failures silently even though every call site wraps
+     * it in try/catch(Throwable){report($e)} expecting exactly that signal).
+     */
     public function delete(string $id): void
     {
         if (! $this->configured || $id === '') {
             return;
         }
 
-        Http::withToken($this->apiToken)->timeout(5)->delete($this->base()."/{$id}");
+        Http::withToken($this->apiToken)->timeout(5)->delete($this->base()."/{$id}")->throw();
     }
 
     /**

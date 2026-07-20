@@ -13,8 +13,19 @@ use Illuminate\Support\Str;
 // same idempotent insertOrIgnore semantics.
 class SignupSideEffects
 {
-    public function ensureSidestUpdatesSubscription(?string $email): void
+    /**
+     * PRIV-101: $consented defaults to false so a caller that forgets to pass
+     * it fails CLOSED (no subscription created) rather than silently opting
+     * someone in. $consentSource records which live flow captured the opt-in —
+     * the old hardcoded 'bootstrap' literal was misleading once ClaimSiteService
+     * (the "claim" flow) became the only live caller.
+     */
+    public function ensureSidestUpdatesSubscription(?string $email, bool $consented = false, string $consentSource = 'bootstrap'): void
     {
+        if (! $consented) {
+            return;
+        }
+
         $email = is_string($email) ? strtolower(trim($email)) : '';
         if ($email === '') {
             return;
@@ -30,7 +41,7 @@ class SignupSideEffects
             'email_lc' => $email,
             'status' => 'subscribed',
             'subscribed_at' => $now,
-            'consent_source' => 'bootstrap',
+            'consent_source' => $consentSource,
             'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
             'created_at' => $now,
             'updated_at' => $now,

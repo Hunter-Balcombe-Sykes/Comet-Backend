@@ -194,6 +194,9 @@ trait DetectsClientInfo
             return null;
         }
 
-        return $parsed;
+        // PRIV-9: round to city-block precision (~11m) at ingest rather than storing
+        // raw GPS-grade coordinates. Matches the 4dp rounding AnalyticsQueryService::cities()
+        // already applies at read time, so this only closes the raw-precision-at-rest gap.
+        return round($parsed, 4);
     }
 }

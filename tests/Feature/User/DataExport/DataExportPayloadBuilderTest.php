@@ -85,6 +85,46 @@ it('exports site media scoped through the user site, not a user_id column', func
     expect($payload['media']['site_media'][0]['original_filename'])->toBe('holiday-headshot.jpg');
 });
 
+it('excludes previous_website_analysis from the exported workplace, keeping other fields intact (PRIV-5)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $siteId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $pro->id,
+        'subdomain' => 'jane',
+        'created_at' => '2026-01-01T00:00:00Z',
+    ]);
+
+    DB::connection('pgsql')->table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => "Jane's Salon",
+        'address' => '123 Example St',
+        'city' => 'Sydney',
+        'phone' => '+61 2 5550 1234',
+        'website' => 'https://janes-salon.example.com',
+        'category' => 'Hair Salon',
+        // WebsiteStyleAnalyzer output — internal brand-signal detail, never exported.
+        'previous_website_analysis' => json_encode(['v' => 1, 'accent' => '#ff0000']),
+        'created_at' => '2026-03-01T00:00:00Z',
+        'updated_at' => '2026-03-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['site']['workplace'])->not->toBeNull();
+    // The internal field must be gone...
+    expect($payload['site']['workplace'])->not->toHaveKey('previous_website_analysis');
+    // ...but every other user-visible field must still round-trip correctly, so an
+    // over-broad fix (stripping the whole row, or `unset`ting the wrong key) fails this.
+    expect($payload['site']['workplace']['name'])->toBe("Jane's Salon")
+        ->and($payload['site']['workplace']['address'])->toBe('123 Example St')
+        ->and($payload['site']['workplace']['city'])->toBe('Sydney')
+        ->and($payload['site']['workplace']['phone'])->toBe('+61 2 5550 1234')
+        ->and($payload['site']['workplace']['website'])->toBe('https://janes-salon.example.com')
+        ->and($payload['site']['workplace']['category'])->toBe('Hair Salon');
+});
+
 it('exports early access signups matched by email_lc', function () {
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
 
@@ -846,6 +886,61 @@ it('exports feedback submissions excluding ip_hash and user_agent fingerprints (
     // Technical fingerprints must be redacted.
     expect($payload['feedback'][0])->not->toHaveKey('ip_hash');
     expect($payload['feedback'][0])->not->toHaveKey('user_agent');
+});
+
+it('exports feedback type/area/target, including the NULL case (PRIV-6)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('core.feedback')->insert([
+        [
+            // Fully populated — the OV-D dashboard taxonomy fields.
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'kind' => 'bug',
+            'severity' => 'high',
+            'type' => 'error',
+            'area' => 'dashboard',
+            'target' => json_encode(['page' => 'site-editor']),
+            'message' => 'The save button is broken.',
+            'status' => 'new',
+            'source' => 'dashboard',
+            'internal_notes' => '[]',
+            'tags' => '[]',
+            'created_at' => '2026-04-01T00:00:00Z',
+            'updated_at' => '2026-04-01T00:00:00Z',
+        ],
+        [
+            // All three columns are nullable — a legacy row predating OV-D has them NULL.
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'kind' => 'idea',
+            'severity' => null,
+            'type' => null,
+            'area' => null,
+            'target' => null,
+            'message' => 'Legacy submission with no taxonomy.',
+            'status' => 'new',
+            'source' => 'dashboard',
+            'internal_notes' => '[]',
+            'tags' => '[]',
+            'created_at' => '2026-04-02T00:00:00Z',
+            'updated_at' => '2026-04-02T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['feedback'])->toHaveCount(2);
+
+    $withTaxonomy = collect($payload['feedback'])->firstWhere('type', 'error');
+    expect($withTaxonomy)->not->toBeNull()
+        ->and($withTaxonomy['area'])->toBe('dashboard')
+        ->and($withTaxonomy['target'])->toBe(json_encode(['page' => 'site-editor']));
+
+    $legacy = collect($payload['feedback'])->firstWhere('kind', 'idea');
+    expect($legacy['type'])->toBeNull()
+        ->and($legacy['area'])->toBeNull()
+        ->and($legacy['target'])->toBeNull();
 });
 
 it('exports content_reports (cases against user and signals filed by user) excluding reporter_ip_hash (#P1-07)', function () {

@@ -29,6 +29,12 @@ class BackfillMediaPaletteCommand extends Command
 
     protected $description = 'Extract + store colour-palette metadata for existing gallery images (backfills the ImageryPaletteFactor source)';
 
+    // One-off manual backfill, not scheduled. Per-row work is a network fetch
+    // (stream the original from R2/S3) plus image decode + palette extraction —
+    // heavier than a DB-only sweep — and the backlog is unbounded unless
+    // --limit caps it, so this gets a generous hour-long ceiling.
+    protected $timeout = 3600;
+
     public function handle(ImagePaletteExtractor $extractor): int
     {
         $dryRun = (bool) $this->option('dry-run');

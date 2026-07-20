@@ -1,11 +1,14 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Observers\Core\ServiceObserver;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 use function Pest\Laravel\mock;
@@ -22,18 +25,55 @@ function invokeTouchParentSite(ServiceObserver $observer, Service $service, ?Use
     $method->invoke($observer, $service, $pro);
 }
 
-it('touchParentSite calls touch() on the professional\'s site', function () {
-    $site = Mockery::mock(Site::class);
-    $site->shouldReceive('touch')->once();
+// TEST-2: real User + Site rows (not a mocked Site) for the happy-path
+// assertion — proves touch() actually propagates to the observable outcome
+// (CloudflareCachePurgeJob via SiteObserver::saved), mirroring
+// tests/Feature/Observers/BlockAndMediaTouchSiteTest.php.
+function seedServiceObserverTouchFixture(): array
+{
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
 
-    $pro = new User;
-    $pro->setRawAttributes(['id' => (string) Str::uuid()]);
-    $pro->setRelation('site', $site);
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'servicetouch',
+        'handle_lc' => 'servicetouch',
+        'display_name' => 'Service Touch',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $proId,
+        'subdomain' => 'servicetouch',
+        'is_published' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    return ['pro_id' => $proId, 'site_id' => $siteId];
+}
+
+it('touchParentSite calls touch() on the professional\'s site', function () {
+    setupUsersTable();
+    setupSitesTable();
+    Queue::fake();
+
+    $fixture = seedServiceObserverTouchFixture();
+    $pro = User::with('site')->find($fixture['pro_id']);
 
     $service = new Service;
     $service->setRawAttributes(['id' => (string) Str::uuid(), 'user_id' => $pro->id]);
 
     invokeTouchParentSite(app(ServiceObserver::class), $service, $pro);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'servicetouch';
+    });
 });
 
 it('touchParentSite no-ops when the professional has no site', function () {

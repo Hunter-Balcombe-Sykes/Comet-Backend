@@ -408,6 +408,118 @@ it('clears the menu when no ordering source remains', function () {
     expect(Menu::query()->where('user_id', $user->id)->exists())->toBeFalse();
 });
 
+// ── TXN-101: sync status must never claim success before persist() lands ──
+// Pre-fix, the per-platform menu_platform_links status/synced_at write ran
+// BEFORE persist() (the actual content write) — so a persist() failure left
+// the platform link claiming "ok, synced just now" for content that was
+// never actually written. That both misleads the dashboard and hides the
+// platform from menu:retry-unavailable's self-heal query (status = 'unavailable'),
+// so a genuine failure could get stuck forever without a manual refresh.
+
+it('does not mark the platform sync status ok when persist() fails after a successful scrape', function () {
+    $user = menuUser('txn101');
+    ordering($user, 'https://www.ubereats.com/store/txn101', null, '2026-06-17 10:00:00');
+
+    // A prior link already sitting at 'unavailable' — pre-fix code would
+    // clobber this with a false 'ok' + a fresh synced_at even though this
+    // run's content never lands. Re-read the row after create() so the
+    // baseline is the DB-round-tripped value (the datetime cast truncates to
+    // second precision) — comparing against the in-memory Carbon instead
+    // would spuriously fail on microseconds nothing in this test touches.
+    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
+    MenuPlatformLink::create([
+        'menu_id' => $menu->id, 'platform' => 'uber-eats',
+        'store_url' => 'https://www.ubereats.com/store/txn101',
+        'status' => 'unavailable', 'synced_at' => now()->subDay(),
+    ]);
+    $priorSyncedAt = MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->firstOrFail()->synced_at;
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
+        ]]);
+    });
+
+    // Subclass forces persist() (the content write) to fail deterministically
+    // — everything else in handle() runs for real, including whatever writes
+    // the fix orders around persist().
+    $job = new class((string) $user->id) extends MenuFetchJob
+    {
+        protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
+        {
+            throw new RuntimeException('simulated persist failure');
+        }
+    };
+
+    expect(fn () => $job->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)))
+        ->toThrow(RuntimeException::class, 'simulated persist failure');
+
+    $link = MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->firstOrFail();
+    // Neither field may have advanced — both would falsely claim a sync that
+    // never actually completed.
+    expect($link->status)->toBe('unavailable');
+    expect($link->synced_at->equalTo($priorSyncedAt))->toBeTrue();
+});
+
+it('still marks the platform sync status ok when persist() succeeds (control)', function () {
+    $user = menuUser('txn101ok');
+    ordering($user, 'https://www.ubereats.com/store/txn101ok', null, '2026-06-17 10:00:00');
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
+        ]]);
+    });
+
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $link = MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->firstOrFail();
+    expect($link->status)->toBe('ok');
+    expect($link->synced_at)->not->toBeNull();
+});
+
+// ── DINT-102: a menu with live categories can never be deleted ────────────
+// MenuFetchJob::clearScrapedContent() only ever calls $menu->delete() after
+// checking `! $menu->categories()->exists()` — this MenuObserver makes that
+// invariant a model-level guarantee (not just a convention at one call site)
+// so a future delete path can't silently orphan menu_categories/menu_items
+// rows under a vanished menu.
+
+it('blocks deleting a menu that still has live categories, and the categories survive', function () {
+    $user = menuUser('dint102');
+    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
+    MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
+
+    expect(fn () => $menu->delete())->toThrow(RuntimeException::class);
+
+    // Blocked — both the menu row (no soft-delete) and its category survive.
+    expect(Menu::query()->whereKey($menu->id)->whereNull('deleted_at')->exists())->toBeTrue();
+    expect(MenuCategory::query()->where('menu_id', $menu->id)->exists())->toBeTrue();
+});
+
+it('blocks force-deleting a menu that still has live categories (PurgeSoftDeleted path)', function () {
+    $user = menuUser('dint102fd');
+    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
+    MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
+
+    expect(fn () => $menu->forceDelete())->toThrow(RuntimeException::class);
+
+    expect(Menu::query()->whereKey($menu->id)->exists())->toBeTrue();
+    expect(MenuCategory::query()->where('menu_id', $menu->id)->exists())->toBeTrue();
+});
+
+it('allows deleting a menu with no live categories (the legitimate clearScrapedContent path stays unblocked)', function () {
+    $user = menuUser('dint102ok');
+    $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
+
+    $menu->delete();
+
+    expect(Menu::onlyTrashed()->whereKey($menu->id)->exists())->toBeTrue();
+});
+
 // ── MenuController ────────────────────────────────────────────────────
 
 it('reports menu status with item count and source', function () {

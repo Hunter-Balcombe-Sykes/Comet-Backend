@@ -6,7 +6,9 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Cloudflare\CloudflareKvService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Database\QueryException;
+use Illuminate\Queue\CallQueuedHandler;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -29,6 +31,27 @@ it('implements ShouldBeUnique with a 45s window keyed by user_id (§28.6a)', fun
     expect($job)->toBeInstanceOf(ShouldBeUnique::class)
         ->and($job->uniqueFor)->toBe(45)
         ->and($job->uniqueId())->toBe($proId);
+});
+
+// LIFE-110: HasCloudflareRetryPolicy's backoff ([10,30,60]) can span ~100s
+// worst-case, longer than uniqueFor=45 — a plain ShouldBeUnique lock would
+// already be gone (or collide) by the time a legitimate retry re-dispatches.
+it('is ShouldBeUniqueUntilProcessing so the dedupe lock survives backoff retries (LIFE-110)', function () {
+    $job = new SyncSubdomainToKvJob((string) Str::uuid());
+
+    // Binds the actual interface the framework's dispatch/queue code checks.
+    expect($job)->toBeInstanceOf(ShouldBeUniqueUntilProcessing::class);
+
+    // Behavioural consequence, asserted via the framework's own decision point
+    // (not a reimplementation): CallQueuedHandler releases the unique lock BEFORE
+    // handle() runs for ShouldBeUniqueUntilProcessing jobs, vs only after handle()
+    // completes for plain ShouldBeUnique. This is exactly the check that decides
+    // whether a re-dispatch during backoff gets deduped.
+    $handler = app(CallQueuedHandler::class);
+    $method = new ReflectionMethod($handler, 'commandShouldBeUniqueUntilProcessing');
+    $method->setAccessible(true);
+
+    expect($method->invoke($handler, $job))->toBeTrue();
 });
 
 it('writes {type:"individual"} for an individual professional (§28.6)', function () {
@@ -440,6 +463,105 @@ it('batches N future aliases into a single bulkPut call (SCALE-6)', function () 
         }
 
         return true;
+    }));
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+// LIFE-109 (revised): an alias just seconds from expiry computes a
+// positive-but-sub-60s raw TTL. Flooring it to Cloudflare's 60s minimum (the
+// original fix) would extend a reclaimable handle's stale KV entry past its
+// real DB expiry — SubdomainAvailabilityService frees the handle the instant
+// expires_at passes (no grace period) and the new owner's KV overwrite is
+// only dispatched async, so a floored write can 301 a visitor to the
+// superseded owner for up to 60s. Skip the write instead — the alias keeps
+// whatever close-to-correct TTL a prior sync already wrote.
+it('excludes a sub-60s alias TTL from bulkPut instead of flooring it (LIFE-109)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'aboutexpire',
+        'handle_lc' => 'aboutexpire',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'primary_email' => 'ae@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    // 45s out: passes the DB query's `expires_at > now()` filter (still future)
+    // but computes a raw TTL well under Cloudflare's 60s floor.
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'handle' => 'soonhandle',
+        'reclaim_until' => now()->subDays(14)->toDateTimeString(),
+        'expires_at' => now()->addSeconds(45)->toDateTimeString(),
+        'created_at' => now()->subDays(90)->toDateTimeString(),
+        'updated_at' => now()->subDays(90)->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    $kv->shouldReceive('put')->once()->with('aboutexpire', ['type' => 'individual'], null);
+    // The exact assertion this fix is about: a sub-60s-but-future alias must be
+    // excluded from bulkPut entirely — never floored, never written. Pre-fix
+    // (raw pass-through) sent it with a ~45s TTL; the flooring fix sent it with
+    // exactly 60. Both are wrong: this asserts it's absent altogether.
+    $kv->shouldReceive('bulkPut')->once()->with([]);
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+// LIFE-109 regression guard: a normal long-TTL alias must NOT be clamped down
+// to the 60s floor — only genuinely sub-60s TTLs are floored. Guards against a
+// broken fix that floors (or flattens) every TTL regardless of value.
+it('leaves a normal long-TTL alias unfloored (LIFE-109 regression guard)', function () {
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'longlived',
+        'handle_lc' => 'longlived',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'primary_email' => 'll@example.test',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $future = now()->addDays(30);
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $proId,
+        'handle' => 'oldlonghandle',
+        'reclaim_until' => now()->addDays(14)->toDateTimeString(),
+        'expires_at' => $future->toDateTimeString(),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    $kv->shouldReceive('put')->once()->with('longlived', ['type' => 'individual'], null);
+    $kv->shouldReceive('bulkPut')->once()->with(Mockery::on(function (array $entries) {
+        if (count($entries) !== 1 || $entries[0]['key'] !== 'oldlonghandle') {
+            return false;
+        }
+        // ~30 days in seconds, comfortably clear of the 60s floor — proves the
+        // floor is conditional, not an across-the-board clamp/flatten.
+        $ttl = $entries[0]['expiration_ttl'];
+
+        return $ttl !== null && $ttl > 86400;
     }));
     app()->instance(CloudflareKvService::class, $kv);
 

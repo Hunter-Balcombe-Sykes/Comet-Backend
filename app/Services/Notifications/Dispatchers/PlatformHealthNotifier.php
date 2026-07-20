@@ -35,13 +35,23 @@ class PlatformHealthNotifier
 
         $label = $this->platformLabel($connection->platform);
 
+        // LIFE-9: the dedupe key is scoped to the current failure EPISODE, not the
+        // connection's whole lifetime. Every path that resets consecutive_failures to 0
+        // (PlatformRefresher::recordNotModified, the refresh strategies' success paths,
+        // the platform auto-sync writers) also bumps last_refreshed_at, so it's a stable
+        // boundary marker: unchanged while an episode is ongoing (recordFailure() never
+        // touches it), new on every recovery. Without this, critical rows never expire
+        // (see NotificationPublisher::publish — critical => ends_at null), so the FIRST
+        // trip's dedupe row would silently swallow every later, genuine re-failure.
+        $episode = $connection->last_refreshed_at?->toISOString() ?? 'never';
+
         $this->safePublish(
             userId: (string) $connection->user_id,
             frontendType: 'Warning',
             category: 'platform_connection',
             title: "Reconnect your {$label}",
             body: "We couldn't refresh your {$label} connection after several attempts, so your page may be showing outdated content. Reconnect it to start syncing again.",
-            dedupeKey: "platform_connection_failed:{$connection->id}",
+            dedupeKey: "platform_connection_failed:{$connection->id}:{$episode}",
             ctaUrl: '/account/integrations',
             critical: true,
             retentionConfigKey: null,

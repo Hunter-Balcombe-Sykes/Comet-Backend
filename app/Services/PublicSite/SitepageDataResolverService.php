@@ -199,6 +199,8 @@ class SitepageDataResolverService
                         ->pluck('platform')
                         ->all(),
                     [],
+                    'active_integration_connections',
+                    $site,
                 );
                 foreach ($platforms as $platform) {
                     $platform = strtolower((string) $platform);
@@ -224,6 +226,8 @@ class SitepageDataResolverService
                             ))
                             ->exists(),
                         false,
+                        'shop_active_product_exists',
+                        $site,
                     )) {
                         continue;
                     }
@@ -236,22 +240,27 @@ class SitepageDataResolverService
                 // the section's data but the page still advertises itself and renders
                 // empty. Absent/true = shown, explicit false hides — same read as
                 // PublicMenuController. first() (not value()) so the array cast applies.
-                $gbConn = $this->safeQuery(fn () => IntegrationConnection::query()
-                    ->where('user_id', $userId)
-                    ->where('platform', 'google-business')
-                    ->where('is_active', true)
-                    ->first(['display_settings']), null);
+                $gbConn = $this->safeQuery(
+                    fn () => IntegrationConnection::query()
+                        ->where('user_id', $userId)
+                        ->where('platform', 'google-business')
+                        ->where('is_active', true)
+                        ->first(['display_settings']),
+                    null,
+                    'google_business_connection_display_settings',
+                    $site,
+                );
                 $gbDisplay = (array) ($gbConn?->display_settings ?? []);
 
                 // A fetched Menu (Google-Business-sourced) → the Menu page, unless
                 // the owner switched the Menu section off.
                 if (($gbDisplay['menu'] ?? true) !== false
-                    && $this->safeQuery(fn () => Menu::query()->where('user_id', $userId)->whereNotNull('last_fetched_at')->exists(), false)) {
+                    && $this->safeQuery(fn () => Menu::query()->where('user_id', $userId)->whereNotNull('last_fetched_at')->exists(), false, 'fetched_menu_exists', $site)) {
                     $present['menu'] = true;
                 }
 
                 // Active services → the Services page.
-                if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->where('is_active', true)->whereNull('deleted_at')->exists(), false)) {
+                if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->where('is_active', true)->whereNull('deleted_at')->exists(), false, 'active_services_exists', $site)) {
                     $present['services'] = true;
                 }
 
@@ -265,7 +274,7 @@ class SitepageDataResolverService
                 ->where('block_group', 'links')
                 ->where('is_active', true)
                 ->whereNull('deleted_at')
-                ->exists(), false)) {
+                ->exists(), false, 'live_link_block_exists', $site)) {
                 $present['links'] = true;
             }
 
@@ -275,7 +284,7 @@ class SitepageDataResolverService
                 ->where('pool', SiteMedia::POOL_GALLERY)
                 ->where('is_active', true)
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-                ->exists(), false)) {
+                ->exists(), false, 'ready_gallery_media_exists', $site)) {
                 $present['gallery'] = true;
             }
         }
@@ -346,18 +355,27 @@ class SitepageDataResolverService
      * (missing table in a partial test env, transient DB error) so presence
      * detection degrades gracefully instead of 500ing the public payload.
      *
+     * $probe is a stable, greppable discriminator (LIFE-104) — there are 8
+     * call sites and the bare event name alone can't say which one faulted or
+     * for which site, so every caller passes a distinct label + the site.
+     *
      * @template T
      *
      * @param  \Closure(): T  $query
      * @param  T  $default
      * @return T
      */
-    private function safeQuery(\Closure $query, mixed $default): mixed
+    private function safeQuery(\Closure $query, mixed $default, ?string $probe = null, ?Site $site = null): mixed
     {
         try {
             return $query();
         } catch (QueryException $e) {
-            Log::warning('sitepage.presence_probe_failed', ['error' => $e->getMessage()]);
+            Log::warning('sitepage.presence_probe_failed', [
+                'probe' => $probe,
+                'site_id' => $site?->id,
+                'user_id' => $site?->user_id,
+                'error' => $e->getMessage(),
+            ]);
 
             return $default;
         }
@@ -389,7 +407,7 @@ class SitepageDataResolverService
         // Resilient: a missing content_selection table (partial test env) / a
         // platform-payload read fault degrades to an empty curated gallery rather
         // than failing the whole public payload.
-        return $this->safeQuery(fn () => app(ContentSelectionService::class)->resolve($site), []);
+        return $this->safeQuery(fn () => app(ContentSelectionService::class)->resolve($site), [], 'curated_gallery_resolve', $site);
     }
 
     // ── Gallery ──────────────────────────────────────────────────────────

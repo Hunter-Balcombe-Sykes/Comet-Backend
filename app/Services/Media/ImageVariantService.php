@@ -378,6 +378,14 @@ class ImageVariantService
         }
 
         if ($failures !== []) {
+            // report() surfaces this to Nightwatch — Log::error alone raises no
+            // alert. DB rows are already cleared above regardless of this branch;
+            // this only flags that orphaned storage objects may remain.
+            report(new \RuntimeException(sprintf(
+                'ImageVariantService::deleteVariants: %d storage delete failure(s) for image %s',
+                count($failures),
+                $imageId,
+            )));
             Log::error('ImageVariantService::deleteVariants: storage delete failures; DB rows cleared, orphans may remain.', [
                 'image_id' => $imageId,
                 'failure_count' => count($failures),
