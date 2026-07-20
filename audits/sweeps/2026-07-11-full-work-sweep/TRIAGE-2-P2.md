@@ -146,7 +146,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P2 — Applicant email logged unhashed on the bootstrap account-conflict path
+- [x] **#SEC-5** · P2 — Applicant email logged unhashed on the bootstrap account-conflict path
     - **Where:** app/Http/Controllers/Api/PublicSite/BootstrapController.php:160-164
     - **Affects:** Users whose email is already registered — their raw email address persists in Nightwatch / the log aggregator beyond the request lifecycle.
     - **Effort:** S (~0.5–1h)
@@ -2395,7 +2395,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 
 ## P2 — Should fix
 
-- [ ] **#SEC-102** · P2 — `InstagramScraper` logs Instagram usernames alongside internal `user_id` in warning/info breadcrumbs
+- [x] **#SEC-102** · P2 — `InstagramScraper` logs Instagram usernames alongside internal `user_id` in warning/info breadcrumbs
     - **Where:** app/Services/Platforms/InstagramScraper.php:45, 57-61, 68-73, 210-216
     - **Affects:** Nightwatch/log-aggregator storage builds a persistent, plaintext join between a public Instagram handle and an internal Partna user UUID.
     - **Effort:** S (~0.5–1h)

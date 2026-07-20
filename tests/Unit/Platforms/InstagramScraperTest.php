@@ -1,7 +1,10 @@
 <?php
 
 use App\Services\Platforms\InstagramScraper;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 // Http::fake needs the Laravel test framework bootstrapped (mirrors
@@ -39,7 +42,7 @@ it('tolerates externalUrls as a plain list of URL strings (actor version varianc
 
 it('regex-extracts URLs out of the biography text', function () {
     $links = (new InstagramScraper)->bioLinks([
-        'biography' => "Book now: https://fresha.com/a/x and DM me for collabs!",
+        'biography' => 'Book now: https://fresha.com/a/x and DM me for collabs!',
     ]);
 
     expect($links)->toBe(['https://fresha.com/a/x']);
@@ -53,7 +56,7 @@ it('strips trailing sentence punctuation off a biography URL', function () {
 
 it('extracts multiple biography URLs in order', function () {
     $links = (new InstagramScraper)->bioLinks([
-        'biography' => "Shop https://shop.example.com or book https://fresha.com/a/x",
+        'biography' => 'Shop https://shop.example.com or book https://fresha.com/a/x',
     ]);
 
     expect($links)->toBe(['https://shop.example.com', 'https://fresha.com/a/x']);
@@ -122,7 +125,7 @@ function igScraperItem(array $overrides = []): array
         'businessCategoryName' => 'Restaurant',
         'followersCount' => 500,
         'postsCount' => 42,
-        'biography' => "Wood-fired pizza. Book a table: https://www.opentable.com.au/r/doc-pizza",
+        'biography' => 'Wood-fired pizza. Book a table: https://www.opentable.com.au/r/doc-pizza',
         'externalUrl' => 'https://docpizza.example.com',
         'externalUrls' => [
             ['url' => 'https://www.facebook.com/docpizzabar'],
@@ -165,4 +168,38 @@ it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (olde
 
     expect($profile)->not->toBeNull();
     expect($scraper->bioLinks($profile))->toBe([]);
+});
+
+// ── fetchProfile() failure logging: hashed + case-normalised username, never raw ──
+// SEC-102: the log context must never carry the raw Instagram handle, and the
+// hash must be computed from the LOWERCASED username so "DocPizza" and "docpizza"
+// (the same real account) correlate to the same hash in the logs.
+
+it('logs a lowercase-normalised username hash — never the raw username — when the Apify call throws', function () {
+    Exceptions::fake(); // the catch block also calls report($e); don't let that hit the real handler
+    Log::spy();
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => fn () => throw new ConnectionException('timeout')]);
+
+    // Mixed case is the point: if the hash were computed from the raw (unlowered)
+    // username, this would not equal hash('sha256', mb_strtolower($username)) below
+    // — that's what makes this test fail on a revert of the Defect 1 fix.
+    $username = 'DocPizza';
+    $result = (new InstagramScraper)->fetchProfile($username, 'user-123');
+
+    expect($result)->toBeNull();
+
+    $expectedHash = hash('sha256', mb_strtolower($username));
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(function (string $message, array $context) use ($expectedHash, $username) {
+            return $message === 'instagram.apify.threw'
+                && ($context['username_hash'] ?? null) === $expectedHash
+                && ($context['user_id'] ?? null) === 'user-123'
+                && ! array_key_exists('username', $context)
+                // Belt-and-braces: the raw handle must not appear anywhere in the
+                // logged context, under any key.
+                && ! in_array($username, $context, true);
+        });
 });
