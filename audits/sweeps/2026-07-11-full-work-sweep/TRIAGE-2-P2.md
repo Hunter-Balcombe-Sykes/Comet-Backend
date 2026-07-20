@@ -3377,14 +3377,14 @@ None — the two surviving findings touch unrelated files and subsystems (auth-h
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#TXN-101** · P2 — `MenuFetchJob` writes platform sync-status metadata ("ok"/"unavailable" + `synced_at`) before the content-rebuild transaction, so a rolled-back rebuild leaves a false "synced" marker
+- [x] **#TXN-101** · P2 — `MenuFetchJob` writes platform sync-status metadata ("ok"/"unavailable" + `synced_at`) before the content-rebuild transaction, so a rolled-back rebuild leaves a false "synced" marker
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:163-173 (store-URL upsert), 188-193 (sync-status upsert), 216 (call into `persist()`), 265-364 (`persist()`'s `DB::transaction`)
     - **Affects:** The per-platform `MenuPlatformLink` rows a user's dashboard reads to show "synced" status. A `persist()` failure (constraint violation, deadlock) between two menu-content rebuilds leaves `status='ok'`/`'unavailable'` and `synced_at` pointing at content that was never actually written, until the next scheduled/forced re-fetch corrects it.
     - **Effort:** S (~0.5–1h)
@@ -3512,7 +3512,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -3539,7 +3539,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
             ADD COLUMN IF NOT EXISTS weight_heading TEXT NULL;
         ```
 
-- [ ] **#DINT-102** · P2 — `Menu`'s only soft-delete is safe today, but nothing in the schema or model layer stops a future call site from soft-deleting it without first clearing `MenuItem`/`MenuCategory` children
+- [x] **#DINT-102** · P2 — `Menu`'s only soft-delete is safe today, but nothing in the schema or model layer stops a future call site from soft-deleting it without first clearing `MenuItem`/`MenuCategory` children
     - **Where:** app/Models/Core/Site/MenuItem.php (class body), app/Models/Core/Site/MenuCategory.php (class body), app/Jobs/Platforms/MenuFetchJob.php:400-421
     - **Affects:** Any future code path that calls `$menu->delete()`. Today there is exactly one such call site (`MenuFetchJob::clearScrapedContent()`), and it explicitly hard-deletes every `MenuItemPlatform`/`MenuItem`/`MenuCategory` row before soft-deleting the parent `Menu` — so no orphans exist in production today. But `site.menu_items` and `site.menu_categories` reference `site.menus` with `ON DELETE CASCADE`, which only fires on a hard `DELETE`, never on the `UPDATE ... SET deleted_at` that `SoftDeletes` performs. If a second soft-delete path is ever added (admin tooling, a new lifecycle hook) without replicating `clearScrapedContent()`'s manual cleanup, `MenuItem`/`MenuCategory` rows will silently orphan under a `deleted_at`-stamped `Menu`, since neither child model has a `deleted_at` column to mark itself as belonging to a trashed parent.
     - **Effort:** M (~2–4h)
