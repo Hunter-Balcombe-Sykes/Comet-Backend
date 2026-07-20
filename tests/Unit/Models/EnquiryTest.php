@@ -128,6 +128,7 @@ it('redact() nulls PII and scrubs the linked notification', function () {
     $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid(), [
         'name' => 'Jane Doe',
         'email' => 'jane@example.com',
+        'subject' => "Hi, it's Sarah",
         'message' => 'Sensitive content',
         'notification_id' => $notificationId,
     ]);
@@ -138,6 +139,10 @@ it('redact() nulls PII and scrubs the linked notification', function () {
     $fresh = Enquiry::find($enquiryId);
     expect($fresh->name)->toBeNull();
     expect($fresh->email)->toBeNull();
+    // models-data/PRIV-4: subject is free text that can carry the submitter's
+    // name (e.g. "Hi, it's Sarah") — must be scrubbed like the other fields.
+    // '[redacted]', not null: site.enquiries.subject is NOT NULL in Postgres.
+    expect($fresh->subject)->toBe('[redacted]');
     expect($fresh->message)->toBeNull();
     expect($fresh->redacted_at)->not->toBeNull();
 

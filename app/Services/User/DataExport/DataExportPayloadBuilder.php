@@ -3,6 +3,7 @@
 namespace App\Services\User\DataExport;
 
 use App\Models\Core\User\User;
+use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Generator;
 use Illuminate\Database\Query\Builder;
@@ -225,8 +226,23 @@ class DataExportPayloadBuilder
 
     private function site(string $userId): array
     {
+        // PRIV-2: explicit allow-list, equal to site.sites' current full
+        // column set (behaviour-neutral — no column stops being exported).
+        // This is the highest-churn table in the schema, which is exactly
+        // why it needs the guard: a future internal-only column is more
+        // likely to land here than anywhere else.
         $site = DB::connection('pgsql')
             ->table('site.sites')
+            ->select([
+                'id', 'user_id', 'subdomain', 'is_published', 'settings',
+                'created_at', 'updated_at', 'subdomain_changed_at', 'unpublished_at',
+                'architecture_id', 'moderation_state',
+                'custom_domain', 'custom_domain_status', 'custom_domain_verified_at',
+                'custom_domain_cf_id', 'custom_domain_primary',
+                'show_branding', 'charlie_enabled', 'services_auto_sync_enabled',
+                'booking_mode', 'manual_booking_url', 'content_instagram_auto_enabled',
+                'shop_link_mode', 'shop_auto_latest',
+            ])
             ->where('user_id', $userId)
             ->first();
 
@@ -234,10 +250,16 @@ class DataExportPayloadBuilder
             return ['site' => null, 'blocks' => [], 'workplace' => null];
         }
 
+        // PRIV-2: explicit allow-list, equal to site.blocks' current full column set.
         $blocks = $this->collect(
             $this->lazyRows(
                 DB::connection('pgsql')
                     ->table('site.blocks')
+                    ->select([
+                        'id', 'site_id', 'user_id', 'block_group', 'block_type', 'title', 'url',
+                        'sort_order', 'is_active', 'live_check_enabled', 'category', 'platform',
+                        'handle', 'icon_key', 'is_enabled', 'settings', 'created_at', 'updated_at', 'deleted_at',
+                    ])
                     ->where('site_id', $site->id)
                     ->orderBy('sort_order')
             )
@@ -425,29 +447,52 @@ class DataExportPayloadBuilder
         return json_decode((string) $value, true);
     }
 
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column
+     * set (behaviour-neutral — no column stops being exported). external_id
+     * is a third-party POS reconciliation key the user set themselves via
+     * their own POS integration, not internal bookkeeping — kept.
+     */
     private function streamCustomers(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.customers')
+                ->select([
+                    'id', 'user_id', 'email', 'phone', 'full_name', 'source', 'notes',
+                    'external_id', 'marketing_opt_in_cached', 'redacted_at',
+                    'created_at', 'updated_at', 'deleted_at',
+                ])
                 ->where('user_id', $userId)
         );
     }
 
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     */
     private function streamServices(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.services')
+                ->select([
+                    'id', 'user_id', 'title', 'description', 'category', 'price_cents',
+                    'currency_code', 'duration_minutes', 'is_active', 'sort_order',
+                    'category_id', 'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
+                ])
                 ->where('user_id', $userId)
         );
     }
 
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     */
     private function streamServiceCategories(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.service_categories')
+                ->select(['id', 'user_id', 'title', 'sort_order', 'created_at', 'updated_at', 'deleted_at'])
                 ->where('user_id', $userId)
         );
     }
@@ -636,22 +681,30 @@ class DataExportPayloadBuilder
      * (right of access) — users must be able to see every preference we store
      * about them, not just the marketing subscription list.
      */
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     */
     private function streamNotificationPreferences(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('notifications.notification_email_preferences')
+                ->select(['id', 'user_id', 'category_key', 'enabled', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
         );
     }
 
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     * Per-professional policy overrides only — global policies apply to
+     * every user and are not personal data.
+     */
     private function streamNotificationPolicies(string $userId): Generator
     {
-        // Per-professional policy overrides only — global policies apply to
-        // every user and are not personal data.
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('notifications.notification_email_policies')
+                ->select(['id', 'user_id', 'category_key', 'mode', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
         );
     }
@@ -763,14 +816,24 @@ class DataExportPayloadBuilder
 
     /**
      * Deletion lifecycle events the user (or staff) triggered against this
-     * account. Includes the user's IP/UA from `requested`/`confirmed` events
-     * and the reason text from staff-initiated events. FK is ON DELETE SET
-     * NULL — rows outlive the user, so disclosure must happen while the user
-     * can still request a DSAR.
+     * account. Includes the user's own IP/UA from `requested`/`confirmed`/
+     * `cancelled` events (actor_type='professional') and the reason text from
+     * staff-initiated events. PRIV-1: ip_address/user_agent are redacted for
+     * any row NOT authored by the subject — logAuditEvent() captures
+     * $request->ip()/userAgent() unconditionally, so an admin_initiated or
+     * admin_cancelled row carries the ACTING STAFF MEMBER's IP/UA, not the
+     * subject's; exporting it would disclose a third party's PII in the
+     * subject's own Article-15 export. `reason` is deliberately kept even on
+     * staff rows — it's about the subject, and Article 15 covers it. Mirrors
+     * streamHandleChangeLog()'s actor_id -> actor_kind pattern one method
+     * above (self/staff/system), keyed here off the already-present actor_type
+     * column rather than a raw actor id. FK is ON DELETE SET NULL — rows
+     * outlive the user, so disclosure must happen while the user can still
+     * request a DSAR.
      */
     private function streamDeletionAudit(string $userId): Generator
     {
-        return $this->lazyRows(
+        foreach ($this->lazyRows(
             DB::connection('pgsql')
                 ->table('audit.user_deletion_audit')
                 ->select([
@@ -782,7 +845,22 @@ class DataExportPayloadBuilder
                 ])
                 ->where('user_id', $userId)
                 ->orderBy('created_at')
-        );
+        ) as $row) {
+            $actorType = $row['actor_type'] ?? null;
+
+            $row['actor_kind'] = match ($actorType) {
+                UserDeletionAuditEntry::ACTOR_TYPE_PROFESSIONAL => 'self',
+                UserDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN => 'staff',
+                default => 'system',
+            };
+
+            if ($actorType !== UserDeletionAuditEntry::ACTOR_TYPE_PROFESSIONAL) {
+                $row['ip_address'] = null;
+                $row['user_agent'] = null;
+            }
+
+            yield $row;
+        }
     }
 
     /**
@@ -792,11 +870,20 @@ class DataExportPayloadBuilder
      * (user_id IS NULL) are NOT included — they're sent to every user
      * and contain no personal data.
      */
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     */
     private function streamNotifications(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('notifications.notifications')
+                ->select([
+                    'id', 'user_id', 'type', 'title', 'body', 'cta_url', 'severity', 'critical',
+                    'starts_at', 'ends_at', 'primary_action_label', 'secondary_action_label',
+                    'secondary_action_url', 'category', 'dedupe_key', 'email_sent_at',
+                    'created_at', 'updated_at',
+                ])
                 ->where('user_id', $userId)
                 ->orderBy('created_at')
         );
@@ -807,11 +894,15 @@ class DataExportPayloadBuilder
      * identified user — EDPB Guidelines 01/2022 treats this as in-scope for
      * Article 15.
      */
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     */
     private function streamNotificationReceipts(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('notifications.notification_receipts')
+                ->select(['id', 'notification_id', 'user_id', 'read_at', 'dismissed_at', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
                 ->orderBy('updated_at')
         );
@@ -822,11 +913,15 @@ class DataExportPayloadBuilder
      * notification_email_preferences (which is already exported); structural
      * symmetry makes inclusion the consistent choice.
      */
+    /**
+     * PRIV-2: explicit allow-list, equal to the table's current full column set.
+     */
     private function streamConfirmationPreferences(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('core.user_confirmation_preferences')
+                ->select(['id', 'user_id', 'action_key', 'skip_confirmation', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
         );
     }

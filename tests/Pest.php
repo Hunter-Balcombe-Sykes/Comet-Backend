@@ -2295,8 +2295,6 @@ function setupDesignKitsTable(): void
         color_text TEXT NULL,
         color_text_muted TEXT NULL,
         border_radius TEXT NULL,
-        button_primary_bg TEXT NULL,
-        button_primary_text TEXT NULL,
         text_caption TEXT NULL,
         text_body TEXT NULL,
         text_h3 TEXT NULL,

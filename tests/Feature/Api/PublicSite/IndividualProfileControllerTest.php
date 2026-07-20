@@ -34,12 +34,15 @@ beforeEach(function () {
     } catch (Throwable $e) {
         // Column already exists from a prior test in the same process.
     }
+    // typography_font_heading/typography_font_body were DROPPED by
+    // 20260603000001_drop_orphan_design_kit_typography_cols.sql — not present
+    // in production. typography_font_family (added 20260527090000, never
+    // dropped) stands in for exercising the typography prefix-group path.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
         color_text TEXT NULL,
-        typography_font_heading TEXT NULL,
-        typography_font_body TEXT NULL,
+        typography_font_family TEXT NULL,
         icons_xl_size TEXT NULL,
         icons_xxl_size TEXT NULL,
         icons_stroke_width TEXT NULL,
@@ -186,8 +189,8 @@ it('returns the user-selected architecture_id (with skeletonId transition alias)
 });
 
 it('groups stored design_kit columns into nested camelCase wire shape', function () {
-    // Stored: flat snake_case columns (color_accent, typography_font_heading).
-    // Wire:   nested camelCase under group keys (colors.accent, typography.fontHeading).
+    // Stored: flat snake_case columns (color_accent, typography_font_family).
+    // Wire:   nested camelCase under group keys (colors.accent, typography.fontFamily).
     $pro = seedIndividualProfile('solo-dk');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -196,14 +199,14 @@ it('groups stored design_kit columns into nested camelCase wire shape', function
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $siteId,
         'color_accent' => '#ff0080',
-        'typography_font_heading' => 'inter',
+        'typography_font_family' => 'inter',
     ]);
 
     $data = $this->getJson('/api/public/profiles/solo-dk')->assertOk()->json('data');
 
     expect($data['designKit'])->toEqual([
         'colors' => ['accent' => '#ff0080'],
-        'typography' => ['fontHeading' => 'inter'],
+        'typography' => ['fontFamily' => 'inter'],
     ]);
 });
 

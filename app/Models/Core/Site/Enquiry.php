@@ -131,6 +131,13 @@ class Enquiry extends BaseModel
     /**
      * Scrub all submitter PII from this enquiry and null out the linked
      * notification body/title. Safe to call on enquiries with no notification.
+     *
+     * subject is '[redacted]', not null (models-data/PRIV-4) — two reasons:
+     * it's free text that can carry the submitter's name ("Hi, it's Sarah"),
+     * so it must be scrubbed like the other fields; and site.enquiries.subject
+     * is NOT NULL in Postgres (supabase/migrations/20260526000000_baseline_standalone_user.sql:974),
+     * so `'subject' => null` would pass on SQLite and throw 23502 in production.
+     * Mirrors the Notification title/body idiom below.
      */
     public function redact(): void
     {
@@ -138,6 +145,7 @@ class Enquiry extends BaseModel
             'name' => null,
             'email' => null,
             'phone' => null,
+            'subject' => '[redacted]',
             'message' => null,
             'ip_hash' => null,
             'user_agent' => null,

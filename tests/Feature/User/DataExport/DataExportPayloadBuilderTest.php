@@ -768,6 +768,85 @@ it('exports user_deletion_audit rows for the user', function () {
         ->toBe(['cancelled', 'requested']);
 });
 
+it('redacts staff IP/UA from deletion_audit but keeps the subject\'s own (gdpr-deletion-export/PRIV-1)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'event' => 'requested',
+            'actor_type' => 'professional',
+            'reason' => null,
+            'ip_address' => '1.1.1.1',
+            'user_agent' => 'ProBrowser/1.0',
+            'created_at' => '2026-04-10T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'event' => 'confirmed',
+            'actor_type' => 'professional',
+            'reason' => null,
+            'ip_address' => '1.1.1.1',
+            'user_agent' => 'ProBrowser/1.0',
+            'created_at' => '2026-04-11T00:00:00Z',
+        ],
+        // Admin-initiated: ip_address/user_agent here belong to the STAFF
+        // member's own request, not the data subject's — must be redacted.
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'event' => 'admin_initiated',
+            'actor_type' => 'staff_admin',
+            'reason' => 'GDPR erasure request, ticket #4821',
+            'ip_address' => '9.9.9.9',
+            'user_agent' => 'StaffBrowser/1.0',
+            'created_at' => '2026-04-12T00:00:00Z',
+        ],
+        [
+            'id' => (string) Str::uuid(),
+            'user_id' => $pro->id,
+            'professional_handle_snapshot' => 'jane',
+            'professional_email_snapshot' => 'jane@example.com',
+            'event' => 'purge_failed',
+            'actor_type' => 'system',
+            'reason' => null,
+            'ip_address' => null,
+            'user_agent' => null,
+            'created_at' => '2026-04-13T00:00:00Z',
+        ],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+    $rows = collect($payload['audit']['deletion_audit'])->keyBy('event');
+
+    // Self-service rows: the subject's own IP/UA, kept.
+    expect($rows['requested']['ip_address'])->toBe('1.1.1.1');
+    expect($rows['confirmed']['ip_address'])->toBe('1.1.1.1');
+    expect($rows['requested']['actor_kind'])->toBe('self');
+
+    // Staff row: redacted, but `reason` (about the subject, Article 15
+    // relevant) is kept.
+    expect($rows['admin_initiated']['ip_address'])->toBeNull();
+    expect($rows['admin_initiated']['user_agent'])->toBeNull();
+    expect($rows['admin_initiated']['actor_kind'])->toBe('staff');
+    expect($rows['admin_initiated']['reason'])->toBe('GDPR erasure request, ticket #4821');
+
+    // System row.
+    expect($rows['purge_failed']['actor_kind'])->toBe('system');
+
+    // The strongest assertion: the staff member's IP must not leak through
+    // ANY section of the export, not just this one.
+    expect(json_encode($payload))->not->toContain('9.9.9.9');
+});
+
 it('exports auth.factor_events joined by auth_user_id', function () {
     $authUserId = (string) Str::uuid();
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com', $authUserId);
@@ -1064,10 +1143,13 @@ it('exports design_kit for the user\'s site, yielding an empty result when no si
         'created_at' => '2026-01-01T00:00:00Z',
     ]);
 
+    // typography_font_family is a live column (typography_font_heading/_body were
+    // dropped by 20260603000001 — see the site.design_kits DDL drift note in
+    // DataExportTestCase::boot()).
     DB::connection('pgsql')->table('site.design_kits')->insert([
         'site_id' => $siteId,
         'color_accent' => '#FF5733',
-        'typography_font_heading' => 'Playfair Display',
+        'typography_font_family' => 'Playfair Display',
     ]);
 
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
@@ -1076,7 +1158,7 @@ it('exports design_kit for the user\'s site, yielding an empty result when no si
     expect($payload['design_kit'])->toHaveCount(1);
     expect($payload['design_kit'][0]['site_id'])->toBe($siteId);
     expect($payload['design_kit'][0]['color_accent'])->toBe('#FF5733');
-    expect($payload['design_kit'][0]['typography_font_heading'])->toBe('Playfair Display');
+    expect($payload['design_kit'][0]['typography_font_family'])->toBe('Playfair Display');
 
     // User with no site — design_kit should be empty, not an error.
     $pro2 = seedProForPayload((string) Str::uuid(), 'other@example.com');

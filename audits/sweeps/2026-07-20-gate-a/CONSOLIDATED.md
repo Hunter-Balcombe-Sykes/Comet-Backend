@@ -45,17 +45,17 @@ every draft rather than the scan reading nothing.
 ## Progress
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
-- P1 High: 10 of 13 complete *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 3 of 69 complete
-- P3 Low: 3 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 2 complete.*
+- P1 High: 12 of 13 complete *(14 originally; WHK-1 re-tiered to P2 — see S3)*
+- P2 Medium: 5 of 69 complete
+- P3 Low: 4 of 46 complete
+- *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 3 complete.*
 
 > **⚠️ The "Findings at a glance" table above is wrong as generated.** It claims P1 13 / P2 62 /
 > P3 51. Counting the actual finding lines gives **P0 2 / P1 14 / P2 68 / P3 44** — both sum to 128,
 > but the per-tier split does not match. The counts tracked here are the line-level ones, adjusted
 > for the three re-tiers recorded below.
 
-**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ (2026-07-20)
+**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -96,6 +96,11 @@ from clean.**
   - **What to do:** fold into **B19**. This is a *strictly stronger* instance of what `migrations-early/MIG-1` (S1) complains about — `site.blocks` IS on the repo's own `HOT_TABLES` list (`scripts/guard-no-unsafe-migrations.php:34`), whereas `site.site_media` and `site.enquiries` are not. Found while planning S1/S2; `migrations-early`'s scope never opened this file.
   - **Why the audit missed it:** the file sits outside the `migrations-early` scope group, and the guard script has no `DROP INDEX` check of any kind — so nothing in either the automated or the audited path was looking at it.
 
+- [ ] **`discovered/DISC-3`** · P3 · M — Three shared SQLite test stubs still declare columns that production dropped
+  - **Where:** `tests/Pest.php:489-493` (`setupSitesTable()` — `hero_title`, `hero_subtitle`, `primary_button_text`, `primary_button_url`, `bio_text`, all dropped by `20260705120002_drop_dead_profile_columns_tables.sql`) · `tests/Pest.php:1189-1198` (`setupServicesTable()` — all 10 dropped `square_*`/`fresha_*` columns) · `tests/Feature/Security/TenantIsolation/ServicesIsolationTest.php:18` (`square_variation_id`, dropped pre-baseline)
+  - **What to do:** own cleanup unit, NOT folded into an audit bundle. `setupSitesTable()` is used by **191 test files**, so the blast radius warrants its own plan and review.
+  - **Why this is lower severity than the B3 drift:** these are the *inverse* hazard — extra dead columns **present** in the stub, rather than real columns **missing** from it. Nothing in `app/` selects these names (verified by grep), so no query silently receives a string literal. It is schema drift, not a masked live bug.
+  - **Bonus finding:** `ServicesIsolationTest.php:18`'s own comment claims "the controller adds `whereNull('square_variation_id')`". Grepping `app/` for `square_variation_id` returns zero hits — the justifying comment is false and the column is dead cruft from the removed Square integration.
 - [x] **`discovered/DISC-2`** · P3 · S — `site.enquiries` loses index coverage for the `(user_id, created_at DESC)` access path
   - **Where:** `supabase/migrations/20260527160001_enquiry_inbox_indexes.sql` (drop) · consumers `StaffEnquiryController::index`, `UserEnquiryController::index`
   - **What to do:** no action now — documented and accepted in the migration file. If the staff enquiry inbox ever gets slow, add `(user_id, created_at DESC) INCLUDE (status)`.
@@ -283,15 +288,31 @@ rule: **backfills want to be split, DDL pairs want to be atomic.**
 Legal risk, not technical debt — pilot means real visitor and staff PII. Note the two `PRIV-1`s
 here are **unrelated defects** from different runs.
 
-- [ ] **`models-data/PRIV-1`** · P1 · S — `Customer::redact()` cascade skips `LeadSubmission`, leaving visitor PII behind after a redaction → `sources/models-data.md`
+> **⚠️ Framing correction: `Customer::redact()` and `Enquiry::redact()` are DEAD CODE.**
+> `grep -rn -e "->redact()" app/ tests/` returns only test files — no controller, route, job, command,
+> service or observer calls either method; the destroy endpoint soft-deletes. So the audit's
+> *"Affects: every customer a professional redacts"* describes a flow that does not exist. PRIV-1,
+> PRIV-3 and PRIV-4 are **forward-looking hygiene, not active leaks**. `gdpr-deletion-export/PRIV-1`
+> is the only live legal exposure in this bundle.
+
+- [x] **`models-data/PRIV-1`** · P1 · S — `Customer::redact()` cascade skips `LeadSubmission`, leaving visitor PII behind after a redaction → `sources/models-data.md`
   - Bulk-UPDATE `LeadSubmission` to null `ip_hash`/`user_agent`/`referrer`; add a coverage test.
   - Scope note: `state-machines` and `gdpr-deletion-export` both audited the *deletion* cascade and found no equivalent gap, so this is **one missed table, not a systemic cascade problem**.
-- [ ] **`gdpr-deletion-export/PRIV-1`** · P1 · S — GDPR deletion-audit export discloses **staff** IP address and browser fingerprint to the data subject → `sources/gdpr-deletion-export.md`
+  - Fixed via the Eloquent model (pinned to `pgsql` by `BaseModel` — a raw `DB::table()` would resolve SQLite under test), scoped strictly to `where('customer_id', $this->id)`. Grant safety verified: `20260607000000_restrict_app_backend_append_only_grants.sql:25-30` excludes the analytics tables from the UPDATE/DELETE revocation by name. **Irreversible**, so the test asserts a *second* customer's rows survive untouched.
+- [x] **`gdpr-deletion-export/PRIV-1`** · P1 · S — GDPR deletion-audit export discloses **staff** IP address and browser fingerprint to the data subject → `sources/gdpr-deletion-export.md`
   - Redact `ip_address`/`user_agent` for non-professional `actor_type` rows in `streamDeletionAudit()`, as `streamHandleChangeLog()` already does. Honouring the subject's Article 15 right currently breaches the staff member's.
-- [ ] **`preaccount-claim/PRIV-3`** · P2 · S — `Customer::redact()` erases contact PII but leaves the third-party POS `external_id` intact → `sources/preaccount-claim.md`
-- [ ] **`models-data/PRIV-4`** · P3 · S — `Enquiry::redact()` leaves `subject` unscrubbed → `sources/models-data.md`
-- [ ] **`gdpr-deletion-export/PRIV-2`** · P2 · M — Nine GDPR export sections stream unfiltered table columns with no explicit allowlist → `sources/gdpr-deletion-export.md`
+  - Confirmed on all three legs. Affected rows are exactly `actor_type = 'staff_admin'` (events `admin_initiated`/`admin_cancelled`); `system` rows already carry null ip/ua, and the `purged` row has `user_id => null` so it never matches the export query. Self-service rows keep the subject's own IP — legitimately theirs. Taxonomy is provably exhaustive: `UserDeletionAuditEntry` defines exactly three `actor_type` values and the production CHECK constraint enforces the same three. `reason` deliberately retained (it is *about* the subject; Article 15 arguably requires it). Test asserts the staff IP appears **nowhere** in the serialised payload, not merely that the field is null.
+- [x] **`preaccount-claim/PRIV-3`** · P2 · S — `Customer::redact()` erases contact PII but leaves the third-party POS `external_id` intact → `sources/preaccount-claim.md`
+  - **Skipped by decision (Josh, 2026-07-20) — the prescribed fix is unsafe.** `external_id` is load-bearing in two live paths the audit did not check: `UserEnquiryController:221` uses `empty($customer->external_id)` as a **delete guard**, so nulling it would make redacted customers deletable as spam artefacts; and `PublicCustomerLeadController:106` deliberately re-populates it on the next lead submission, so the erasure would not even be durable. Recorded instead as a docblock: `external_id` is retained as a third-party reconciliation key this routine cannot authoritatively sever (the POS is system-of-record), and such a row is **contact-erased**, not fully erased. Both cited call sites verified verbatim in review.
+- [x] **`models-data/PRIV-4`** · P3 · S — `Enquiry::redact()` leaves `subject` unscrubbed → `sources/models-data.md`
+  - `site.enquiries.subject` is **`varchar(100) NOT NULL`** (baseline `20260526000000:974`; no later migration relaxes it), so `null` would throw 23502 on Postgres while passing on SQLite. Used `'[redacted]'`, matching the existing Notification title/body idiom — applied identically in both `Enquiry::redact()` and `Customer::redact()`'s bulk cascade, so the two paths cannot diverge.
+- [x] **`gdpr-deletion-export/PRIV-2`** · P2 · M — Nine GDPR export sections stream unfiltered table columns with no explicit allowlist → `sources/gdpr-deletion-export.md`
   - Add explicit `->select()` allowlists; add a `SELECT *` guard test. This is what let PRIV-1 happen.
+  - **The audit undercounted: eleven, not nine** — it missed two bare `SELECT *` inside `site()` (`site.sites` and `site.blocks`), and `site.sites` is the highest-churn table in the schema.
+  - **The dangerous part was never the `->select()` — it was where the column names come from.** Ten SQLite stubs were already drifted from production DDL (`site.services` stubbed `name` where prod has `title`; `site.sites` stubbed 5 columns against a real 24; `site.blocks` stubbed `type` vs `block_type`; `design_kits` stubbed columns that were *dropped*). Because SQLite treats an unknown quoted identifier as a **string literal**, allowlists written from those stubs would pass CI and return literal text instead of data — the 2026-07-19 `streamMedia` incident, eleven times over. All stubs repaired against real DDL.
+  - Each allowlist is set to the table's **current full column set**, so the change is provably behaviour-neutral (no column stops being exported) and the guard is purely forward-looking.
+  - **Two new guards** in `DataExportCoverageTest`: a `SELECT *` check, and a column-existence check that derives each table's true column set by replaying every `ADD`/`DROP`/`RENAME COLUMN` across `supabase/migrations/`. The latter is DB-independent, so SQLite cannot mask a bad name — it is the actual prevention. It found **zero** pre-existing mismatches across the 20 already-disciplined sections, so the 2026-07-19 incident was isolated rather than symptomatic.
+  - `site.design_kits` exempted from the allowlist rather than enumerated: 67 token columns across 27 churn migrations, zero PII by construction (verified column by column in review). A hand-maintained 67-name list is a stale-name hazard, not a safeguard.
 
 ### Bundle B4 — Upload content validation · **P1** · Effort S
 

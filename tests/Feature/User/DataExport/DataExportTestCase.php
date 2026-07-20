@@ -80,6 +80,12 @@ class DataExportTestCase
             email_delivery_status TEXT
         )');
 
+        // Column list mirrors PRODUCTION (baseline :401-416 + external_id/
+        // marketing_opt_in_cached present since baseline, redacted_at added by
+        // 20260527160000). external_id/marketing_opt_in_cached were previously
+        // missing here — a SELECT naming them would silently return the column
+        // NAME as a string literal on SQLite rather than erroring (see file-level
+        // trap note in the task prompt), masking a real Postgres 42703.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.customers (
             id TEXT PRIMARY KEY,
             user_id TEXT,
@@ -88,6 +94,8 @@ class DataExportTestCase
             full_name TEXT,
             source TEXT,
             notes TEXT,
+            external_id TEXT,
+            marketing_opt_in_cached INTEGER,
             created_at TEXT,
             updated_at TEXT,
             deleted_at TEXT,
@@ -197,29 +205,73 @@ class DataExportTestCase
             updated_at TEXT
         )');
 
+        // Column list mirrors PRODUCTION (baseline :930-955; professional_id
+        // renamed to user_id by 20260527030000:44). streamServices()'s
+        // ->select() allowlist (PRIV-2) names all 15 columns explicitly, so a
+        // stub gap here would silently return the column NAME as a string
+        // literal on SQLite rather than erroring.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.services (
             id TEXT PRIMARY KEY,
             user_id TEXT,
-            name TEXT,
-            duration_minutes INTEGER,
+            title TEXT,
+            description TEXT,
+            category TEXT,
             price_cents INTEGER,
+            currency_code TEXT,
+            duration_minutes INTEGER,
+            is_active INTEGER,
+            sort_order INTEGER,
             created_at TEXT,
-            deleted_at TEXT
+            updated_at TEXT,
+            deleted_at TEXT,
+            category_id TEXT,
+            deleted_origin TEXT
         )');
 
+        // Column list mirrors PRODUCTION (baseline :905-917; professional_id
+        // renamed to user_id by 20260527030000:43). streamServiceCategories()'s
+        // ->select() allowlist (PRIV-2) names all 7 columns explicitly.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.service_categories (
             id TEXT PRIMARY KEY,
             user_id TEXT,
-            name TEXT,
-            created_at TEXT
+            title TEXT,
+            sort_order INTEGER,
+            created_at TEXT,
+            updated_at TEXT,
+            deleted_at TEXT
         )');
 
+        // Column list mirrors PRODUCTION (baseline :707-721 + the additions
+        // enumerated in site()'s ->select() allowlist). This table is the
+        // highest-churn table in the schema (PRIV-2) — the export now names
+        // every column explicitly, so a stub missing one would silently
+        // return the column NAME as a string literal on SQLite (the
+        // 2026-07-19 GDPR-export trap) rather than erroring.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             subdomain TEXT,
+            is_published INTEGER,
             settings TEXT,
-            created_at TEXT
+            created_at TEXT,
+            updated_at TEXT,
+            subdomain_changed_at TEXT,
+            unpublished_at TEXT,
+            architecture_id TEXT,
+            moderation_state TEXT,
+            custom_domain TEXT,
+            custom_domain_status TEXT,
+            custom_domain_verified_at TEXT,
+            custom_domain_cf_id TEXT,
+            custom_domain_primary INTEGER,
+            show_branding INTEGER,
+            charlie_enabled INTEGER,
+            services_auto_sync_enabled INTEGER,
+            booking_mode TEXT,
+            manual_booking_url TEXT,
+            content_instagram_auto_enabled INTEGER,
+            shop_link_mode TEXT,
+            shop_auto_latest INTEGER
         )');
 
         // Joined to user via site_id → sites.user_id.
@@ -243,13 +295,31 @@ class DataExportTestCase
             updated_at TEXT
         )');
 
+        // Column list mirrors PRODUCTION (baseline creates the table with
+        // `block_type`, not `type` — the previous stub used the wrong name).
+        // site()'s ->select() allowlist (PRIV-2) now names every column
+        // explicitly, so any stub gap here would silently return the column
+        // NAME as a string literal on SQLite rather than erroring.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.blocks (
             id TEXT PRIMARY KEY,
             site_id TEXT,
-            type TEXT,
+            user_id TEXT,
+            block_group TEXT,
+            block_type TEXT,
+            title TEXT,
+            url TEXT,
             sort_order INTEGER,
+            is_active INTEGER,
+            live_check_enabled INTEGER,
+            category TEXT,
+            platform TEXT,
+            handle TEXT,
+            icon_key TEXT,
+            is_enabled INTEGER,
             settings TEXT,
-            created_at TEXT
+            created_at TEXT,
+            updated_at TEXT,
+            deleted_at TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS site.enquiries (
@@ -303,6 +373,7 @@ class DataExportTestCase
         )');
 
         // Targeted dashboard messages — body text contains user-specific content.
+        // critical (delivery-escalation flag) added by 20260711000400:12.
         $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
             id TEXT PRIMARY KEY,
             user_id TEXT,
@@ -311,6 +382,7 @@ class DataExportTestCase
             body TEXT,
             cta_url TEXT,
             severity TEXT,
+            critical INTEGER,
             starts_at TEXT,
             ends_at TEXT,
             primary_action_label TEXT,
@@ -334,20 +406,24 @@ class DataExportTestCase
             updated_at TEXT
         )');
 
+        // Columns are category_key/enabled, not category/opted_in (baseline :1054-1063;
+        // rename 20260527030000:58 — the rename touched the column NAME, not just the FK).
         $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (
             id TEXT PRIMARY KEY,
             user_id TEXT,
-            category TEXT,
-            opted_in INTEGER,
+            category_key TEXT,
+            enabled INTEGER,
             created_at TEXT,
             updated_at TEXT
         )');
 
+        // Columns are category_key/mode, not category/policy (baseline :1067-1078;
+        // rename 20260527030000:57).
         $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (
             id TEXT PRIMARY KEY,
             user_id TEXT,
-            category TEXT,
-            policy TEXT,
+            category_key TEXT,
+            mode TEXT,
             created_at TEXT,
             updated_at TEXT
         )');
@@ -367,17 +443,24 @@ class DataExportTestCase
             created_at TEXT
         )');
 
+        // Column list mirrors PRODUCTION (baseline :1189-1205; professional_id
+        // renamed to user_id by 20260527030000). No created_at column exists on
+        // this table — a prior version of this stub carried a spurious one.
+        // ip_hash/user_agent are required here: Customer::redact() (PRIV-1
+        // cascade) UPDATEs both on this exact table. Cross-checked against the
+        // real-DDL stub in tests/Unit/Models/CustomerRedactTest.php — the two agree.
         $conn->statement('CREATE TABLE IF NOT EXISTS analytics.lead_submissions (
             id TEXT PRIMARY KEY,
-            user_id TEXT,
-            customer_id TEXT,
             occurred_at TEXT,
-            outcome TEXT,
-            form_started_at_ms INTEGER,
             subdomain TEXT,
             site_id TEXT,
+            user_id TEXT,
+            customer_id TEXT,
+            ip_hash TEXT,
+            user_agent TEXT,
             referrer TEXT,
-            created_at TEXT
+            outcome TEXT,
+            form_started_at_ms INTEGER
         )');
 
         // In-app feedback submissions. ip_hash and user_agent stored separately — excluded from DSAR.
@@ -443,12 +526,16 @@ class DataExportTestCase
         )');
 
         // Per-site design kit (1:1 with site.sites). All var columns NULLABLE.
+        // typography_font_heading/typography_font_body DROPPED by
+        // 20260603000001_drop_orphan_design_kit_typography_cols.sql — not present
+        // in production. This table is exempt from the T2 column-existence guard
+        // (SELECT_STAR_EXEMPT), so this stub only needs to stay non-hostile, not
+        // exhaustive.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
             site_id TEXT PRIMARY KEY,
             color_accent TEXT,
             color_text TEXT,
-            typography_font_heading TEXT,
-            typography_font_body TEXT
+            typography_font_family TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS billing.subscriptions (

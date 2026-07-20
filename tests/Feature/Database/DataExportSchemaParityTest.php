@@ -70,10 +70,12 @@ it('every column the data export reads exists in the live schema', function () {
     // sweep without testing anything.
     //
     // Known limit: site() early-returns when the dummy user owns no site, so its
-    // nested site.blocks / site.workplaces reads are not exercised here.
-    // site.blocks uses select * (no column list to drift); site.workplaces uses
-    // an explicit allow-list (PRIV-5) so a future column rename there could drift
-    // undetected until this early return is addressed.
+    // nested site.blocks / site.workplaces reads are not exercised here. Both now
+    // use an explicit allow-list (site.blocks: PRIV-2; site.workplaces: PRIV-5),
+    // so a future column rename in either could drift undetected until this
+    // early return is addressed. (T2 in DataExportCoverageTest.php covers both
+    // via migration replay regardless of this early return — that guard is
+    // DB-independent and doesn't need a seeded site to run.)
     $methods = array_values(array_filter(
         $reflection->getMethods(),
         fn (ReflectionMethod $m) => (str_starts_with($m->getName(), 'stream') && $m->getName() !== 'stream')
