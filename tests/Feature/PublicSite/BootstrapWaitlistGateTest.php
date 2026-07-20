@@ -49,7 +49,7 @@ it('does not gate existing professionals when waitlist mode is enabled', functio
         'display_name' => 'Existing User',
         'primary_email' => 'existing@example.com',
         'status' => 'active',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
     ]);
     $existing->id = '00000000-0000-0000-0000-000000000001';
 
@@ -61,7 +61,7 @@ it('does not gate existing professionals when waitlist mode is enabled', functio
         'handle_lc' => 'existing',
         'display_name' => 'Existing User',
         'status' => 'active',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
     ]);
 
     // Stub the service — this test only verifies the gate predicate, not the

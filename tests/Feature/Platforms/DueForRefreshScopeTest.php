@@ -13,7 +13,7 @@ function scopeUser(): User
 {
     return User::create([
         'handle' => 'scope', 'handle_lc' => 'scope', 'display_name' => 'Scope',
-        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'scope@example.com',
     ]);
 }

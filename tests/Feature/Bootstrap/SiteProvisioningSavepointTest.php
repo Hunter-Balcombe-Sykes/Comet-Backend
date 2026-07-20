@@ -200,7 +200,7 @@ if (! function_exists('insertSavepointTestUser')) {
             'display_name' => 'Savepoint Test',
             'primary_email' => $handle.'@savepoint.test',
             'first_name' => 'Save',
-            'account_type' => 'individual',
+            'account_type' => 'partna',
             'status' => 'active',
         ]);
     }

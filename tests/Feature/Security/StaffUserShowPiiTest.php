@@ -80,7 +80,7 @@ function staffPiiTest_seedProfessional(): User
         'location_postcode' => '2000',
         'location_country' => 'AU',
         'admin_notes' => 'VIP — handle with care',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

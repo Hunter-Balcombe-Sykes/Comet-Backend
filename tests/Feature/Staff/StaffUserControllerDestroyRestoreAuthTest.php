@@ -52,7 +52,7 @@ function destroyRestoreTest_seedProfessional(): User
         'handle' => 'pro-'.Str::random(6),
         'display_name' => 'Test Pro',
         'primary_email' => 'pro-'.Str::random(6).'@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

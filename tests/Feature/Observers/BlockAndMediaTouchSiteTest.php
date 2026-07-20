@@ -40,7 +40,7 @@ function seedTouchFixture(): array
         'handle' => 'touchtest',
         'handle_lc' => 'touchtest',
         'display_name' => 'Touch Test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => '2020-01-01 00:00:00',
         'updated_at' => '2020-01-01 00:00:00',

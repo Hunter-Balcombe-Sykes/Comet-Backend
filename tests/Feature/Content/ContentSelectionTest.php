@@ -50,7 +50,7 @@ function contentUserWithSite(string $handle): array
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$handle}@example.com",
     ]);
@@ -375,11 +375,11 @@ it('instagram-auto toggle rolls back the flag when slot rebuild fails', function
     // Force persist()'s create loop to fail — schema-agnostic across SQLite
     // (tests) and Postgres (prod), unlike relying on a specific constraint.
     ContentSelection::creating(function () {
-        throw new \RuntimeException('boom');
+        throw new RuntimeException('boom');
     });
 
     expect(fn () => app(ContentSelectionService::class)->setInstagramAuto($site, true))
-        ->toThrow(\RuntimeException::class);
+        ->toThrow(RuntimeException::class);
 
     // The flag flip and the slot rebuild are one transaction — a persist()
     // failure must roll back the flag too, not leave it durably true.

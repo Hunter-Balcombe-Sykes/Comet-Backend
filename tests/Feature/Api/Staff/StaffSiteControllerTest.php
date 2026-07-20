@@ -57,7 +57,7 @@ function seedAllSiteData(array $overrides = []): array
         'is_published' => 1,
         'handle' => 'alpha',
         'display_name' => 'Alpha Pro',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'blocks' => json_encode([['block_type' => 'link', 'title' => 'My link']]),
     ], $overrides));
 
@@ -130,7 +130,7 @@ function makeStaffSiteProfessional(): User
         'handle_lc' => 'pro-'.substr($id, 0, 8),
         'display_name' => 'Staff-Viewed Pro',
         'primary_email' => 'pro-'.substr($id, 0, 8).'@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
     ]);
 

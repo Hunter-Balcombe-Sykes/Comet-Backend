@@ -83,7 +83,7 @@ it('projects is_staff=true when a partna_staff relation is present, account_type
     // role is intentionally not $fillable on PartnaStaff — presence alone (the
     // relation being non-null) is what is_staff keys on, so an empty instance
     // stands in for "this user has a staff record".
-    $user->setRelation('partnaStaff', new PartnaStaff());
+    $user->setRelation('partnaStaff', new PartnaStaff);
 
     $data = (new UserDashboardResource($user))->resolve(request());
 

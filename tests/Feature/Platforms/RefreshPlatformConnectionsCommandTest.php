@@ -16,7 +16,7 @@ function dispatchUser(): User
 {
     return User::create([
         'handle' => 'cron', 'handle_lc' => 'cron', 'display_name' => 'Cron',
-        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'cron@example.com',
     ]);
 }

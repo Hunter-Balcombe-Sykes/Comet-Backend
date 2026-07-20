@@ -203,7 +203,7 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
 describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status entirely for individual accounts', function () {
         $pro = new User([
-            'account_type' => 'individual',
+            'account_type' => 'partna',
         ]);
 
         $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
@@ -215,7 +215,7 @@ describe('UserDashboardResource — stripe_connect_status absent for individuals
 describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
     it('omits stripe_connect_status for individuals', function () {
         $pro = new User([
-            'account_type' => 'individual',
+            'account_type' => 'partna',
         ]);
 
         $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));

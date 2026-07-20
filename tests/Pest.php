@@ -1001,7 +1001,7 @@ function tenantHelpersEnsureTables(): void
  * with its Site eager-loaded. Handle namespaces records so sequential calls
  * never collide.
  */
-function createTenant(string $handle, string $type = 'professional'): User
+function createTenant(string $handle): User
 {
     tenantHelpersEnsureTables();
 
@@ -1016,7 +1016,7 @@ function createTenant(string $handle, string $type = 'professional'): User
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
         'primary_email' => $handle.'@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,
@@ -1037,7 +1037,7 @@ function createTenant(string $handle, string $type = 'professional'): User
 
 function createBrandTenant(string $handle = 'brand-a'): User
 {
-    $pro = createTenant($handle, 'brand');
+    $pro = createTenant($handle);
     DB::connection('pgsql')
         ->table('core.users')
         ->where('id', $pro->id)
@@ -1052,7 +1052,7 @@ function createAffiliateTenant(string $handle = 'affiliate-a'): User
     // A test "affiliate" is a partner (a brand-affiliated professional), not a
     // generic professional. Set account_type='partner' so AccountCapabilities
     // returns the partner capability set in dispatcher-gate tests.
-    $pro = createTenant($handle, 'affiliate');
+    $pro = createTenant($handle);
     DB::connection('pgsql')
         ->table('core.users')
         ->where('id', $pro->id)

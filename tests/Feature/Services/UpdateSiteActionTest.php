@@ -53,7 +53,7 @@ function makeSiteOwner(array $userOverrides = [], array $siteOverrides = []): Us
         'handle_lc' => 'alpha',
         'display_name' => 'Alpha Pro',
         'primary_email' => 'alpha@example.test',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

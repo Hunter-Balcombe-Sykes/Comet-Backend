@@ -35,7 +35,7 @@ it('attributes a staff rename to the acting staff with reason, ip and user agent
         'display_name' => 'Pro',
         'primary_email' => 'pro@example.test',
         'status' => 'active',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'created_at' => $now,
         'updated_at' => $now,
     ]);

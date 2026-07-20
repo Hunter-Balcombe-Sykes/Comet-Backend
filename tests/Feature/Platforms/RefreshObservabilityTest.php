@@ -54,7 +54,7 @@ function obsUser(): User
 {
     return User::create([
         'handle' => 'obs', 'handle_lc' => 'obs', 'display_name' => 'Obs',
-        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'obs@example.com',
     ]);
 }

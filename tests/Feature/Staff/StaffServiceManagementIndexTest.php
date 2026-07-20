@@ -27,7 +27,7 @@ function makeStaffServicePro(): User
         'handle_lc' => 'svc-'.substr($id, 0, 8),
         'display_name' => 'Service Pro',
         'primary_email' => 'svc-'.substr($id, 0, 8).'@example.com',
-        'account_type' => 'individual',
+        'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),

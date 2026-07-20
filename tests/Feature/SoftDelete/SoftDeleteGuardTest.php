@@ -158,10 +158,10 @@ it('whereNull deleted_at query excludes soft-deleted users from account_type cou
     $now = now()->toDateTimeString();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'account_type' => 'individual', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
     ]);
 
     $typeCounts = DB::connection('pgsql')
@@ -171,5 +171,5 @@ it('whereNull deleted_at query excludes soft-deleted users from account_type cou
         ->groupBy('account_type')
         ->pluck('total', 'account_type');
 
-    expect((int) $typeCounts->get('individual'))->toBe(3);
+    expect((int) $typeCounts->get('partna'))->toBe(3);
 });
