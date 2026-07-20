@@ -1880,7 +1880,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1889,7 +1889,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **EDGE-2** · P2 — No automated check keeps the Worker's `RESERVED` set in sync with `reserved_subdomains` (Category 1)
+- [x] **EDGE-2** · P2 — No automated check keeps the Worker's `RESERVED` set in sync with `reserved_subdomains` (Category 1)
     - **Where:** `cloudflare-worker/src/index.js:44-110` (`RESERVED`) vs `config/partna.php:71-143` (`reserved_subdomains`)
     - **Affects:** Public routing — a future edit that adds/removes an entry on only one side goes undetected until a real handle collision or 404 surfaces in production.
     - **Effort:** S (~0.5–1h)
@@ -1915,7 +1915,7 @@ None.
         ]
         ```
 
-- [ ] **EDGE-3** · P2 — Hardcoded `PARTNA_DOMAIN` / cache TTLs carry no `@sync` comment pointing at the backend config that assumes them (Category 7)
+- [x] **EDGE-3** · P2 — Hardcoded `PARTNA_DOMAIN` / cache TTLs carry no `@sync` comment pointing at the backend config that assumes them (Category 7)
     - **Where:** `cloudflare-worker/src/index.js:42,112-118` vs `config/partna.php` (`public_domain`, `cache.purge_followup_seconds`)
     - **Affects:** Deploy correctness — a backend-side change to `PARTNA_PUBLIC_DOMAIN` or to the purge follow-up delay silently stops matching the Worker's hardcoded assumptions.
     - **Effort:** S (~0.5–1h)
@@ -1939,7 +1939,7 @@ None.
         )
         ```
 
-- [ ] **EDGE-4** · P2 — KV lookup failure for a `<handle>.partna.au` host falls through to `passThrough(request)`, an unconfirmed origin destination (Category 1/6)
+- [x] **EDGE-4** · P2 — KV lookup failure for a `<handle>.partna.au` host falls through to `passThrough(request)`, an unconfirmed origin destination (Category 1/6)
     - **Where:** `cloudflare-worker/src/index.js` — `catch (err)` block in the subdomain KV lookup, inside the default `fetch` handler
     - **Affects:** Every visitor to any `<handle>.partna.au` page during a transient KV outage.
     - **Effort:** S (~0.5–1h)
@@ -2954,14 +2954,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SCALE-101** · P2 — `CloudflarePurgeService::purgeUrls` fires unbounded sequential Cloudflare API calls with no inter-chunk delay
+- [x] **#SCALE-101** · P2 — `CloudflarePurgeService::purgeUrls` fires unbounded sequential Cloudflare API calls with no inter-chunk delay
     - **Where:** app/Services/Cloudflare/CloudflarePurgeService.php:66-73
     - **Affects:** Every profile-edit / image-upload / design-kit-change cache purge (`CloudflareCachePurgeJob` → `purgeHandle`). The method's own docblock documents that a full sitepage purge (root + 15 deep-link sub-pages + their SWR shadows + API subrequest, per host, plus up to 100 shop product handles) routinely exceeds the 30-URL-per-request limit, so most real purges already fire multiple sequential POSTs — this isn't a rare bulk-admin edge case, it's the common path.
     - **Effort:** S (~0.5–1h)
@@ -3685,14 +3685,14 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **OBS-101** · P2 — `CloudflarePurgeService` logs a product-purge degradation at `debug`, a level Nightwatch's own log filter drops by default
+- [x] **OBS-101** · P2 — `CloudflarePurgeService` logs a product-purge degradation at `debug`, a level Nightwatch's own log filter drops by default
     - **Where:** app/Services/Cloudflare/CloudflarePurgeService.php:129-146 (`purgeHandle`'s product-handle lookup)
     - **Affects:** Shop product-detail edge-cache invalidation for every Partna storefront — a sustained DB/schema failure on the product-handle join silently degrades every purge to "pages only," and product pages never get busted again until their natural edge TTL, with nothing surfacing to on-call.
     - **Effort:** S (~0.5–1h)
@@ -3963,7 +3963,7 @@ None — no finding in this audit is P0, touches auth/authorization or money, in
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -3982,7 +3982,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
 
 ## P2 — Should fix
 
-- [ ] **#EDGE-101** · P2 — `CloudflareCustomHostnameService::delete()` silently swallows Cloudflare API failures its own caller already expects it to throw
+- [x] **#EDGE-101** · P2 — `CloudflareCustomHostnameService::delete()` silently swallows Cloudflare API failures its own caller already expects it to throw
     - **Where:** app/Services/Cloudflare/CloudflareCustomHostnameService.php:91-98
     - **Affects:** Cloudflare for SaaS zone hygiene — users disconnecting or replacing a custom domain during a token expiry, rate limit, or transient 5xx.
     - **Effort:** S (~0.5–1h)
@@ -4013,7 +4013,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
         }
         ```
 
-- [ ] **#EDGE-102** · P2 — Cloudflare Worker `staging` environment KV namespace is an unresolved placeholder
+- [x] **#EDGE-102** · P2 — Cloudflare Worker `staging` environment KV namespace is an unresolved placeholder
     - **Where:** cloudflare-worker/wrangler.toml:42-53
     - **Affects:** Any future `wrangler deploy --env staging`; the prod-poisoning failure mode the file's own comment describes, if this override is ever removed or misapplied without the placeholder being noticed.
     - **Effort:** S (~0.5–1h)

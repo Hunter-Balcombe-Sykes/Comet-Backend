@@ -19,15 +19,63 @@ use Illuminate\Support\Facades\Log;
 // Gracefully no-ops when unconfigured (local dev without CF credentials).
 class CloudflarePurgeService
 {
-    // SCALE-101: gap between chunk POSTs on a multi-chunk purgeUrls() call. A full
-    // purgeHandle() can fan out to 20+ chunks once products/menu items/events are
-    // all folded in (each bounded: 100 products + 150 menu items + 30 events, times
-    // up to 2 hosts) — firing them back-to-back with zero pacing bursts Cloudflare's
-    // purge_cache endpoint. 150ms keeps a worst-case ~20-chunk purge under ~3s,
-    // comfortably inside CloudflareCachePurgeJob's 15s job timeout, while smoothing
-    // the burst. Plain usleep (not a pool) because purgeUrls' chunk order matters
-    // for nothing and the volumes here don't justify Http::pool's added complexity.
-    private const CHUNK_PACING_MICROSECONDS = 150_000;
+    // SCALE-101: gap between chunk POSTs on a multi-chunk purgeUrls() call, so a
+    // burst of chunks doesn't slam Cloudflare's purge_cache endpoint back-to-back.
+    //
+    // Worst-case URL count for ONE purgeHandle() call (re-derived 2026-07-20,
+    // verified against source — the previous "~20 chunks ~3s" claim here was
+    // wrong by ~2.5x):
+    //   subpages : SitepageId::canonicalOrder() = 16 cases - 'home' (it's the
+    //              root) = 15, + privacy/terms/about = 18 pages x 2
+    //              (page + SWR shadow) + 3 root urls (base/, base, root
+    //              shadow)                                              =  39 / host
+    //   products : ->limit(100) x 2 (page + shadow)                     = 200 / host
+    //   menu     : ->limit(150) x 2                                     = 300 / host
+    //   events   : ->limit(30) connection rows, each contributing up to
+    //              5 events (EventbriteFetch/HumanitixFetch -> *Scraper
+    //              ::fetchEvents() default $limit=5) into one deduped id
+    //              set, final set capped at 100 by array_slice(...,0,100),
+    //              x 2                                                  = 200 / host
+    //   -------------------------------------------------------------------------
+    //   (39+200+300+200) x 2 hosts (canonical + optional custom domain)
+    //   + 2 API urls (profile + integrations)                          = 1,480 URLs
+    //   chunked at 30/request (Cloudflare's `files` limit)              =    50 chunks
+    //                                                                       (49 gaps)
+    //
+    // At the OLD flat 150ms/chunk pacing that's 49 x 150ms = 7.35s of GUARANTEED
+    // sleep alone — 49% of CloudflareCachePurgeJob::$timeout=15 — before any of
+    // the 50 sequential blocking Http::post()->throw() round trips to Cloudflare.
+    // A power-user profile (shop + menu + events populated, plus a custom domain)
+    // could plausibly exceed the job timeout on sleep + network combined, with no
+    // partial-progress recovery on a mid-purge kill.
+    //
+    // Two changes close the SLEEP side of that gap:
+    //   1. Pacing cut to 50ms/chunk — still enough gap to smooth the burst.
+    //   2. A hard ceiling on TOTAL pacing time per purgeUrls() call
+    //      (PACING_BUDGET_MICROSECONDS): once hit, remaining chunks fire with no
+    //      further sleep. This bounds guaranteed sleep at 2s NO MATTER how large
+    //      the URL set grows — a future limit increase (e.g. raising the product
+    //      or menu-item cap) can't silently re-inflate guaranteed sleep in
+    //      lockstep with chunk count the way a flat per-chunk delay does — and
+    //      leaves >=13s of the 15s timeout for the HTTP round trips themselves.
+    // This only bounds the sleep contribution. The dominant remaining risk at max
+    // volume is the ~50 sequential blocking HTTP calls' own network time; raising
+    // CloudflareCachePurgeJob::$timeout with real margin is the complementary fix
+    // and is recommended as a follow-up (that file is out of scope here).
+    //
+    // Plain usleep (not a pool) because purgeUrls' chunk order matters for
+    // nothing and the volumes here don't justify Http::pool's added complexity.
+    private const CHUNK_PACING_MICROSECONDS = 50_000;
+
+    // Hard ceiling on total time slept across one purgeUrls() call — see the
+    // derivation above. floor(2_000_000 / 50_000) = 40 real sleeps max, however
+    // many chunks the call has.
+    private const PACING_BUDGET_MICROSECONDS = 2_000_000;
+
+    // Running total of microseconds actually paced THIS purgeUrls() call; reset
+    // at the top of purgeUrls() so budget never bleeds across calls even if a
+    // single instance is (re)used for more than one purge.
+    private int $microsecondsPacedSoFar = 0;
 
     private readonly string $zoneId;
 
@@ -69,13 +117,18 @@ class CloudflarePurgeService
             return;
         }
 
+        // Fresh budget per call (see the microsecondsPacedSoFar docblock above).
+        $this->microsecondsPacedSoFar = 0;
+
         // Cloudflare's purge_cache `files` accepts at most 30 URLs per request on
         // non-Enterprise plans. A full sitepage purge (root + 15 deep-link
         // sub-paths + each one's SWR shadow + the API subrequest) exceeds that, so
-        // chunk into <=30-URL batches — one POST each, paced (SCALE-101).
+        // chunk into <=30-URL batches — one POST each, paced up to a bounded
+        // total budget (SCALE-101).
         foreach (array_chunk(array_values($urls), 30) as $i => $chunk) {
-            if ($i > 0) {
+            if ($i > 0 && $this->microsecondsPacedSoFar < self::PACING_BUDGET_MICROSECONDS) {
                 $this->paceBetweenChunks();
+                $this->microsecondsPacedSoFar += self::CHUNK_PACING_MICROSECONDS;
             }
 
             Http::withToken($this->apiToken)

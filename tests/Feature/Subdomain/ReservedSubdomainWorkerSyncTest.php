@@ -21,7 +21,21 @@
 /** Parse the `const RESERVED = new Set([...]);` literal out of the Worker
  *  source and return its string entries. Throws if the literal can't be
  *  found — a rename/restructure of that block must not silently stop this
- *  guard from checking anything. */
+ *  guard from checking anything.
+ *
+ *  Comments are stripped BEFORE extracting quoted strings. Without that, a
+ *  commented-out entry still counted as present — the most plausible real
+ *  edit to that file, and a drift detector that silently stops detecting is
+ *  worse than none.
+ *
+ *  Known limitation (deliberate): the block-comment pass runs first and can't
+ *  tell a real block comment from the characters `/*` and `*​/` appearing as
+ *  plain text inside two separate `//` comments — it would strip everything
+ *  between them and report live entries as missing. That needs an edit this
+ *  file's style (single-slash `// --- Section ---` headers) would never
+ *  organically produce, and it fails LOUD rather than silently passing, so
+ *  it's left as-is. Fix by only honouring `/*` outside a `//`-stripped span
+ *  if it ever bites. */
 function extractWorkerReservedSubdomains(): array
 {
     $path = base_path('cloudflare-worker/src/index.js');
@@ -38,7 +52,16 @@ function extractWorkerReservedSubdomains(): array
         );
     }
 
-    preg_match_all('/"([a-z0-9-]+)"/', $match[1], $entries);
+    // Strip comments BEFORE extracting quoted strings — otherwise a functionally
+    // removed entry (commented out, e.g. `// "dashboard",`) still counts as
+    // present and this guard silently stops detecting drift (EDGE-2). Block
+    // comments first (non-greedy, so one `/* */` can't eat past its own close),
+    // then line comments — the section-header comments already in this file
+    // (`// --- Platform infrastructure / DNS ---`) are exactly this shape.
+    $withoutComments = preg_replace('#/\*.*?\*/#s', '', $match[1]);
+    $withoutComments = preg_replace('#//[^\n]*#', '', $withoutComments);
+
+    preg_match_all('/"([a-z0-9-]+)"/', $withoutComments, $entries);
 
     return $entries[1];
 }
