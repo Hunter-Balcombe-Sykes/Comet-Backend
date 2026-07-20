@@ -1255,6 +1255,11 @@ return [
         'scraping' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
         // Platform refresh fan-out (RefreshConnectionJob, dispatched by integrations:refresh).
         'platform_refresh' => env('PARTNA_QUEUE_PLATFORM_REFRESH', 'platform_refresh'),
+        // Deferred-connect content fetch (ConnectFetchJob — Unit 11 W5 / LIFE-13..20).
+        // Isolated from 'scraping': that lane carries ~110s Apify Instagram jobs on
+        // two workers, and connects are interactive (a user is watching the modal) —
+        // sharing the lane would put a user-visible spinner behind an Apify backlog.
+        'platform_connect' => env('PARTNA_QUEUE_PLATFORM_CONNECT', 'platform_connect'),
     ],
 
     // Platform connection CONNECT-time throttle (Seam 5 / strategy §5 step 4). The

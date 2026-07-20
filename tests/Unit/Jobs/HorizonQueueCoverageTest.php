@@ -3,6 +3,7 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
@@ -219,6 +220,7 @@ it('every ShouldBeUnique job holds its lock at least as long as it can run', fun
         CloudflareCachePurgeJob::class => [['some-handle'], null],
         SyncSubdomainToKvJob::class => [['00000000-0000-0000-0000-000000000001'], null],
         InstagramConnectJob::class => [['u', 'someuser', 'c'], null],
+        ConnectFetchJob::class => [['00000000-0000-0000-0000-000000000001', 'bandcamp'], null],
     ];
 
     $violations = [];
