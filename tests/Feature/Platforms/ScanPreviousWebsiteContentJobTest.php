@@ -159,6 +159,40 @@ it('dispatches WebsiteMenuPdfScanJob when a PDF menu link is found, for a food-B
         && $job->documentUrl === 'https://example.com/menu.pdf');
 });
 
+it('follows a one-hop same-site link to a dedicated menu page when the homepage itself has no menu data', function () {
+    // Reproduced live 2026-07-20 (errols.com.au, a real restaurant site): the
+    // homepage carried neither a JSON-LD menu nor a PDF link — both lived one
+    // hop away on the site's own /menu page. Without following that link,
+    // this job extracts nothing for what's a common real-world pattern.
+    Queue::fake();
+    [$user, $site] = spwcjUser('spwcj9', 'business', 'restaurant');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake([
+        'example.com/menu*' => Http::response('<a href="/menu/breakfast.pdf">Breakfast Menu</a>', 200),
+        'example.com' => Http::response('<a href="/menu/">View Menu</a><a href="/book-now/">Book</a>', 200),
+    ]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Queue::assertPushed(WebsiteMenuPdfScanJob::class, fn ($job) => $job->userId === (string) $user->id
+        && $job->documentUrl === 'https://example.com/menu/breakfast.pdf');
+});
+
+it('does not follow the one-hop menu link when the homepage already has menu data', function () {
+    Queue::fake();
+    [$user, $site] = spwcjUser('spwcj9b', 'business', 'restaurant');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    // If the homepage already has a PDF, the /menu page must never be
+    // fetched — FaviconFetcher's own separate request is expected either way.
+    Http::fake(['example.com' => Http::response('<a href="/menu.pdf">Menu</a><a href="/menu/">View Menu</a>', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/menu/'));
+});
+
 it('fills the design_kits accent colour off the same fetch', function () {
     [$user, $site] = spwcjUser('spwcj7', 'partna');
     Workplace::create(['site_id' => (string) $site->id]);

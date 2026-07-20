@@ -104,11 +104,32 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // Menu (HTML) — food-Business only.
         if (AccountCapabilities::for($user)->can_use_menu) {
             $items = $menuText->extract($html, $baseUrl);
+            $pdfs = $pdfLinks->find($html, $baseUrl);
+
+            // Nothing on the homepage itself — a dedicated "/menu" page one hop
+            // away is a common real-world pattern (confirmed live: a real
+            // restaurant's homepage had neither a JSON-LD menu nor a PDF link,
+            // while its own /menu page carried two clean PDFs). One bounded
+            // extra same-site fetch, only when the homepage came up empty —
+            // not a crawl.
+            if ($items === [] && $pdfs === []) {
+                $menuPageUrl = $this->findMenuPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl);
+                if ($menuPageUrl !== null) {
+                    $menuResponse = $fetcher->tryFetch($menuPageUrl);
+                    $menuHtml = is_array($menuResponse) && ($menuResponse['status'] ?? 0) === 200
+                        ? (string) ($menuResponse['body'] ?? '') : '';
+                    if ($menuHtml !== '') {
+                        $menuBaseUrl = $menuResponse['finalUrl'] ?? $menuPageUrl;
+                        $items = $menuText->extract($menuHtml, $menuBaseUrl);
+                        $pdfs = $pdfLinks->find($menuHtml, $menuBaseUrl);
+                    }
+                }
+            }
+
             if ($items !== []) {
                 $menuApplier->apply($user, $items, enrichOnly: true, source: 'website-scan');
             }
             // Menu (PDF) — separate job, don't OCR inline.
-            $pdfs = $pdfLinks->find($html, $baseUrl);
             if ($pdfs !== []) {
                 WebsiteMenuPdfScanJob::dispatch($this->userId, $pdfs[0])->delay(now()->addSeconds(30));
             }
@@ -136,5 +157,33 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         if ($logoCandidates !== []) {
             $logoAutoGrabber->grabIfEmpty($user, $site, $logoCandidates);
         }
+    }
+
+    /**
+     * First same-site link whose path looks like a menu page — a bounded
+     * single hop, not a crawl. Same-site only: a third-party ordering
+     * platform's own "menu" page (e.g. an OrderMate/UberEats deep link) isn't
+     * the business's own content and is already captured separately by the
+     * general link-harvesting below.
+     *
+     * @param  list<string>  $links
+     */
+    private function findMenuPageLink(array $links, string $baseUrl): ?string
+    {
+        $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
+        if ($ownHost === '') {
+            return null;
+        }
+
+        foreach ($links as $url) {
+            if (strtolower((string) parse_url($url, PHP_URL_HOST)) !== $ownHost) {
+                continue;
+            }
+            if (preg_match('~menu~i', (string) parse_url($url, PHP_URL_PATH)) === 1) {
+                return $url;
+            }
+        }
+
+        return null;
     }
 }
