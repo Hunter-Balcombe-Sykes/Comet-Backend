@@ -254,3 +254,149 @@ it('WHK-2: fails closed (400) when the webhook-id header is absent', function ()
 
     expect($response->getStatusCode())->toBe(400);
 });
+
+it('WHK-1: a stored reject replays as a reject on redelivery — not the hardcoded continue', function () {
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+    $webhookId = 'msg_'.Str::uuid();
+    $repo = app(AuthFactorEventRepository::class);
+
+    // Seed 5 prior failures so the very first delivery already trips the
+    // lockout threshold (mirrors the existing "returns reject on the 6th
+    // failed attempt" test above).
+    foreach (range(1, 5) as $_) {
+        $repo->record($userId, 'verify_failed', $factorId, 'totp');
+    }
+
+    $payload = [
+        'user_id' => $userId,
+        'factor_id' => $factorId,
+        'factor_type' => 'totp',
+        'valid' => false,
+    ];
+
+    // First delivery: computed fresh, rejected and recorded.
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'reject']);
+
+    // Redelivery with the SAME webhook-id hits the dedup anchor. The
+    // pre-fix controller hardcoded {"decision":"continue"} here — this must
+    // instead replay the reject that actually happened.
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()
+        ->assertJson(['decision' => 'reject'])
+        ->assertJsonStructure(['decision', 'message']);
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'verify_rejected_by_hook')->count();
+    expect($count)->toBe(1);
+});
+
+it('WHK-1: a reject still resolves correctly on redelivery after a full cache flush', function () {
+    // This is the scenario the audit's proposed fix (a second Cache::put
+    // beside the dedup anchor) would fail: that second key lives on the same
+    // default cache store as the anchor, so a Cache::flush() — a raw FLUSHDB —
+    // wipes it too, and the audit's "default to continue when none is found"
+    // fallback would fire on the very path this fix exists to close. Our fix
+    // has no second cache key at all — the decision is recoverable from
+    // Postgres — so it is immune to this class of cache loss by construction.
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+    $webhookId = 'msg_'.Str::uuid();
+    $repo = app(AuthFactorEventRepository::class);
+
+    foreach (range(1, 5) as $_) {
+        $repo->record($userId, 'verify_failed', $factorId, 'totp');
+    }
+
+    $payload = [
+        'user_id' => $userId,
+        'factor_id' => $factorId,
+        'factor_type' => 'totp',
+        'valid' => false,
+    ];
+
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'reject']);
+
+    Cache::flush();
+
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'reject']);
+
+    // No double-count either way — WHK-101's webhook_id unique index backstops
+    // this even when the flush also drops the Redis dedup anchor, forcing a
+    // full recompute rather than a cache-served replay.
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'verify_rejected_by_hook')->count();
+    expect($count)->toBe(1);
+});
+
+it('WHK-1: fails closed (not continue) when the cache store is unavailable', function () {
+    // Do NOT wrap Cache::add in a try/catch to "fail open" — an uncaught
+    // exception here is already correct (500, verification fails). This
+    // guards against a future regression that would soften it.
+    Cache::partialMock();
+    Cache::shouldReceive('add')->once()->andThrow(new RuntimeException('redis unreachable'));
+
+    $response = postSignedHook([
+        'user_id' => (string) Str::uuid(),
+        'factor_id' => (string) Str::uuid(),
+        'factor_type' => 'totp',
+        'valid' => true,
+    ]);
+
+    $response->assertStatus(500);
+    expect($response->json('decision'))->not->toBe('continue');
+});
+
+it('WHK-1: a dedup hit with no durable row recomputes instead of replaying continue', function () {
+    $webhookId = 'msg_'.Str::uuid();
+
+    // Pre-seed the anchor directly so the controller sees this as a dedup
+    // hit on the very first request we send it.
+    Cache::add("supabase:auth-hook:{$webhookId}", true, 60);
+
+    // The repository has no row for this webhook-id (e.g. it was never
+    // durably recorded, or the lookup itself is flaky) — replayDecision()
+    // must return null and the controller must recompute, NOT assume continue.
+    $this->mock(AuthFactorEventRepository::class, function ($mock) {
+        $mock->shouldReceive('findByWebhookId')->once()->andReturn(null);
+        $mock->shouldReceive('countRecentFailures')->andReturn(5);
+        $mock->shouldReceive('record')->andReturn((string) Str::uuid());
+    });
+
+    postSignedHook([
+        'user_id' => (string) Str::uuid(),
+        'factor_id' => (string) Str::uuid(),
+        'factor_type' => 'totp',
+        'valid' => false,
+    ], null, $webhookId)
+        ->assertOk()
+        ->assertJson(['decision' => 'reject']);
+});
+
+it('WHK-1: a stored continue (verify_success) replays as continue — does not over-reject', function () {
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+    $webhookId = 'msg_'.Str::uuid();
+
+    $payload = [
+        'user_id' => $userId,
+        'factor_id' => $factorId,
+        'factor_type' => 'totp',
+        'valid' => true,
+    ];
+
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'continue']);
+
+    // Redelivery must replay 'continue', not flip to reject — over-rejecting
+    // a legitimately-verified user is its own failure mode.
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'continue']);
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'verify_success')->count();
+    expect($count)->toBe(1);
+});

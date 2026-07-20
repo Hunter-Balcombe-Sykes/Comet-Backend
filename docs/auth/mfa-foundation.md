@@ -86,7 +86,7 @@ This endpoint is registered in Supabase as an **Auth Hook** (MFA Verification). 
 1. Verifies the Standard Webhooks HMAC-SHA256 signature (supports multi-sig rotation)
 2. Checks brute-force window (default: 5 failures in 300s via `core.auth_factor_events`)
 3. Records the event to `core.auth_factor_events`
-4. Returns `{ "decision": "continue" | "reject" }` with an optional `message`
+4. Returns `{ "decision": "continue" | "reject" }` with an optional `message` — a plain `continue` on a failed attempt already fails that attempt (Supabase's default behaviour for `valid: false`); `reject` additionally denies the attempt and logs the user out of all active sessions
 
 ### Signature verification
 

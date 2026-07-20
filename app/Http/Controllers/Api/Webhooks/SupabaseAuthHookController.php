@@ -18,9 +18,12 @@ use Illuminate\Support\Facades\Log;
  * or {decision: "reject", message: "..."} to refuse.
  *
  * Brute-force defense: after N failed verifies in the rolling window
- * (configurable in partna.mfa.*), we reject further attempts and record
+ * (configurable in partna.mfa.*), we return {decision: "reject"} and record
  * the rejection so subsequent window queries keep flagging the user as
- * in-cooldown.
+ * in-cooldown. Note that a plain "continue" on a failed attempt already
+ * fails that attempt — that's Supabase's own default behaviour for
+ * {valid: false}. What "reject" actually adds is denying the attempt AND
+ * logging the user out of all active sessions.
  *
  * Signature verification is handled by the supabase.auth-hook middleware
  * — this controller only runs for requests that have already been authenticated.
@@ -46,21 +49,33 @@ class SupabaseAuthHookController extends Controller
         // WEBHOOK-3: dedup retried hook deliveries. Without this, a redelivered
         // verification announcement double-records the auth-factor event —
         // inflating the brute-force failure counter (or the success log). On a
-        // duplicate we return the permissive decision: the first delivery
-        // already recorded the outcome, and Supabase acts on whichever response
-        // reaches it first. Runs AFTER signature verification so an unsigned
+        // duplicate we replay the decision that was ACTUALLY made on the first
+        // delivery (see replayDecision()) rather than assuming 'continue' — a
+        // lost reject response must not be promoted to an allow just because
+        // Supabase retried. Runs AFTER signature verification so an unsigned
         // caller cannot probe which webhook IDs have been seen.
         //
         // WHK-101: this Cache::add anchor is the fast path; the partial unique
         // index auth_factor_events_webhook_id_uk (audit.auth_factor_events,
         // via $id passed into every record() call below) is the durable backstop
-        // for when Redis has already forgotten the key.
+        // for when Redis has already forgotten the key — and also what
+        // replayDecision() reads to recover the original decision.
         if (! Cache::add(
             "supabase:auth-hook:{$id}",
             true,
             (int) config('partna.cache.ttls.webhook_idempotency'),
         )) {
-            return response()->json(['decision' => 'continue']);
+            $replay = $this->replayDecision($id);
+            if ($replay !== null) {
+                Log::info('supabase.auth_hook.decision_replayed', [
+                    'webhook_id' => $id, 'decision' => $replay['decision'],
+                ]);
+
+                return response()->json($replay);
+            }
+            // No durable record of a prior decision — do NOT assume 'continue'.
+            // Fall through and recompute. record() is idempotent on webhook_id
+            // (auth_factor_events_webhook_id_uk), so recomputation cannot double-record.
         }
 
         // WHK-1: the dedup anchor above is set BEFORE any repository work. If a
@@ -125,7 +140,7 @@ class SupabaseAuthHookController extends Controller
 
                 return response()->json([
                     'decision' => 'reject',
-                    'message' => 'Too many failed verification attempts. Try again in '.ceil($windowSeconds / 60).' minutes.',
+                    'message' => $this->lockoutMessage($windowSeconds),
                 ]);
             }
 
@@ -154,5 +169,59 @@ class SupabaseAuthHookController extends Controller
 
             throw $e;
         }
+    }
+
+    /**
+     * Resolve what was actually decided for a previously-seen webhook-id, so a
+     * redelivery replays the ORIGINAL decision instead of assuming 'continue'.
+     * Returns null when there's no durable record to replay — DB lookup
+     * failure, or an event_type this hook never produced — and the caller
+     * falls through to recompute rather than guess.
+     *
+     * @return array{decision: string, message?: string}|null
+     */
+    private function replayDecision(string $id): ?array
+    {
+        try {
+            $row = $this->repo->findByWebhookId($id);
+        } catch (\Throwable $e) {
+            Log::warning('supabase.auth_hook.replay_lookup_failed', [
+                'webhook_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($row === null) {
+            return null;
+        }
+
+        if ($row->event_type === 'verify_success' || $row->event_type === 'verify_failed') {
+            return ['decision' => 'continue'];
+        }
+
+        if ($row->event_type !== 'verify_rejected_by_hook') {
+            return null;
+        }
+
+        // metadata is jsonb in Postgres (the pgsql driver hands it back as a
+        // JSON string, not pre-decoded) and TEXT in the SQLite test schema —
+        // decode defensively either way and guard a malformed/non-array result.
+        $metadata = json_decode((string) ($row->metadata ?? '{}'), true);
+        $windowSeconds = is_array($metadata) && isset($metadata['window_seconds'])
+            ? (int) $metadata['window_seconds']
+            : (int) config('partna.mfa.verify_failure_window_seconds', 300);
+
+        return [
+            'decision' => 'reject',
+            'message' => $this->lockoutMessage($windowSeconds),
+        ];
+    }
+
+    /** Byte-identical lockout copy for both the original reject and any replay of it. */
+    private function lockoutMessage(int $windowSeconds): string
+    {
+        return 'Too many failed verification attempts. Try again in '.ceil($windowSeconds / 60).' minutes.';
     }
 }

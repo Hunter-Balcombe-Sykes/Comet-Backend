@@ -103,4 +103,20 @@ class AuthFactorEventRepository
             ->where('created_at', '>=', now()->subSeconds($windowSeconds)->toIso8601String())
             ->count();
     }
+
+    /**
+     * Look up the row recorded for a given webhook delivery, if any.
+     *
+     * WHK-1: used by SupabaseAuthHookController to replay the ORIGINAL
+     * decision on a redelivered webhook-id instead of assuming 'continue'
+     * when the Redis dedup anchor already exists — the anchor only proves a
+     * delivery was *seen*, not what was *decided*. Served by the partial
+     * unique index auth_factor_events_webhook_id_uk.
+     */
+    public function findByWebhookId(string $webhookId): ?object
+    {
+        return DB::connection('pgsql')->table(self::TABLE)
+            ->where('webhook_id', $webhookId)
+            ->first(['event_type', 'metadata']);
+    }
 }

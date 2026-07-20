@@ -45,12 +45,12 @@ every draft rather than the scan reading nothing.
 ## Progress
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
-- P1 High: 4 of 13 complete
-- P2 Medium: 0 of 62 complete
+- P1 High: 4 of 12 complete *(WHK-1 re-tiered to P2 — see S3)*
+- P2 Medium: 1 of 63 complete
 - P3 Low: 2 of 53 complete
-- *Discovered during execution (outside the original 128): 1 of 2 complete*
+- *Total still reconciles to 128. Discovered during execution (outside the 128): 1 of 2 complete.*
 
-**Units worked:** B2 ✅ · S1+S2 ✅ (2026-07-20)
+**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -154,11 +154,26 @@ run inside a transaction block** — Postgres rejects it outright — so the one
 unavailable here. The migration must be split first. Plan S1 and S2 as **one unit**; they share
 the CLI-incompatibility question above.
 
-### S3: `webhooks-idempotency/WHK-1` · **P1** · Effort M · → `sources/webhooks-idempotency.md`
+### S3: `webhooks-idempotency/WHK-1` · ~~**P1**~~ → **P2** · Effort ~~M~~ S · → `sources/webhooks-idempotency.md`
 
-- [ ] **`webhooks-idempotency/WHK-1`** · P1 — Auth-hook idempotency short-circuit always replays `continue`, silently converting a lost REJECT into an allow on Supabase's retry
-  - **Where:** `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:53-59,108-123`
+- [x] **`webhooks-idempotency/WHK-1`** · ~~P1~~ P2 — Auth-hook idempotency short-circuit always replays `continue`, silently converting a lost REJECT into an allow on Supabase's retry
+  - **Where:** `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:53-59,108-123` — **line numbers stale**, WHK-101 shifted them ~5; the short-circuit is at :63-64.
   - **What to do:** store the decision alongside the dedup anchor; return the stored decision, not a hardcoded `continue`, on replay.
+
+  **Mechanism confirmed; impact analysis corrected; re-tiered P1 → P2 (Josh signed off).** Three of the audit's claims did not survive checking:
+  - **It cannot promote anyone to AAL2.** `reject` is only ever computed when `valid === false` — the handler returns `continue` early on success. A replayed `continue` on an already-failed attempt yields Supabase's default behaviour for `valid: false`, which is to fail it. What a lost `reject` actually costs is the **session revocation** it triggers (log out of all active sessions). Real, but not the described breach.
+  - **There is no mandatory retry.** Supabase HTTP hooks retry only on `429`/`503` with a non-empty `retry-after`, inside a 5s budget. This controller emits `200`/`400`/`500` — none in the retry set.
+  - **The hook cannot fire today.** MFA Verification Attempt is a Teams/Enterprise-plan hook; both Partna orgs are on **free**, and `supabase/config.toml` has no hook block. This is latent hardening ahead of enabling MFA, not a live fail-open.
+
+  **The audit's prescribed fix was rejected and NOT implemented.** It says to store the decision in a second cache key and *"default to `continue` when no stored decision is found"*. Two independent keys on the same store can be evicted independently (LRU / TTL skew), so an anchor surviving while the decision key is evicted lands on that `continue` default — a fail-open on exactly the path the fix exists to close. *(A full `Cache::flush()` is NOT the hazard: it wipes the anchor too, so the request recomputes cleanly. Partial eviction is.)*
+
+  **Implemented instead:** resolve the replay from Postgres, where the decision is already durably recorded — WHK-101's `audit.auth_factor_events.webhook_id` + partial unique index, with `event_type` mapping 1:1 onto the wire decision. The cache anchor degrades to a pure latency optimisation whose loss is always safe. No migration, no grant, no config change. Mapping verified exhaustive over reachable rows (`unenroll` always writes a NULL `webhook_id`).
+
+  **Fail-closed in every enumerated mode**, including a strict improvement: today a failed crash-path `Cache::forget` leaves a hardcoded `continue`; now no row was written, so it recomputes. Accepted deliberate change: a replay can recompute to `reject` where the original returned `continue`, because the first delivery's own failure row now counts — fail-closed, and the attempt had already failed.
+
+  **Docs corrected** (class docblock + `docs/auth/mfa-foundation.md`): the old "we reject further attempts" overstated the code, and is plausibly what led the audit to misread the impact.
+
+  **Test honesty note:** 5 tests added; only 2 are genuine fail-before/pass-after regression tests (stored-reject-replays-as-reject, and dedup-hit-with-no-durable-row). The other 3 pass against pre-fix code too — verified empirically by the implementer and independently by the reviewer, and kept as robustness guards rather than claimed as differentiators.
 
 **Risk gate: auth.** The only finding in the gate that makes the system *less* safe under retry
 than under normal operation. Idempotency caching is meant to be safety-preserving; replaying a
