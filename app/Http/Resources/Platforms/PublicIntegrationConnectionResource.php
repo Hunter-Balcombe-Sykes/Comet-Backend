@@ -4,6 +4,7 @@ namespace App\Http\Resources\Platforms;
 
 use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Http\Resources\ApiResource;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\DisplaySettingsFilter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Log;
  * canonical public contract. Anything not listed (internal storage paths like
  * Instagram's `_folder`, future scraper metadata) never reaches the wire until
  * a developer deliberately adds it here.
+ *
+ * @mixin IntegrationConnection
  */
 class PublicIntegrationConnectionResource extends ApiResource
 {

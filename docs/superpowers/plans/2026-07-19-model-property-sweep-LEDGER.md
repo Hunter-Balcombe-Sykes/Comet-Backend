@@ -54,7 +54,29 @@ across 23 properties).
 | M1 | `User`, `PartnaStaff` | 53 deleted / 4 added (net −49) | 1682 → **1618** (−64) | `f176260d` |
 | M2–M4 | `IntegrationConnection`, `Site`, `PreAccountBuild`, `SiteMedia`, `Block`, `Workplace`, `EmailSubscription`, `MenuItem`, `ModerationCase` | 510 deleted / 31 added (net −479) | 1618 → **913** (−705) | _see commit_ |
 
-**Running total: 1682 → 913 — a 46% reduction**, with the Resource `@mixin` pass still outstanding.
+| M5 | 14 Resource classes (`@mixin`, not `@property`) | 176 deleted / 10 added (net −166) | 913 → **741** (−172) | _see commit_ |
+
+**Final total: 1682 → 741 — a 56% reduction** (1309 → 615 entries).
+
+### M5 — the Resource `@mixin` pass
+
+`JsonResource::__get()` proxies unknown property reads to the wrapped model, which PHPStan does not
+model. A class-level `@mixin <Model>` makes it resolve those reads through the model's (now accurate)
+`@property` block. 14 one-line annotations cleared 172 findings — the best ratio in the run, and only
+possible because the models were annotated first.
+
+Every mapping was confirmed by call-site grep before annotating, independently of the mapping survey
+that proposed it. All 14 held up.
+
+**Deliberately excluded: `Staff/StaffSiteResource.php`** (15 findings, left baselined). It wraps
+`App\Models\Views\AllSiteData` — a read-only DB **view** model whose denormalised columns
+(`site_settings`, `blocks`, aggregated across tables) do not match `site.sites`. A `@mixin Site` there
+would have been a lie. Annotating view-backed Resources needs `AllSiteData` annotated from the view
+definition first, which is a separate job.
+
+**Rule for any future `@mixin`:** never add one to a Resource that is polymorphic across call sites,
+constructed from an array, or wraps a `app/Models/Views/` model. A wrong `@mixin` is the same class of
+error as a wrong `@property` — it makes every consumer validate against a lie.
 
 ### M1 verification (all five completion criteria)
 
@@ -170,3 +192,33 @@ historical record, so it was left alone — but anything reading that comment as
 3. **`instanceof \DateTimeInterface` always true** ×2 (`AccountDeletionService.php:149,240`) —
    defensive guard against a raw un-cast string, now provably redundant. Baselined per §R9,
    which names these bounds/type guards explicitly as things NOT to delete.
+4. **`ShopBrand` has zero `@property` annotations** — surfaced when the `IntegrationConnection` mixin
+   correctly typed `$this->shopBrands` as `Collection<int, ShopBrand>` in
+   `PublicIntegrationConnectionResource.php:210`, exposing that the element class is undocumented.
+   `brand_id` is a real fillable column, so this is a pre-existing annotation gap, not a bug.
+   Baselined. **`ShopBrand`/`ShopProduct` are the obvious next unit if this resumes.**
+5. **`SiteMedia.scanned_at` is absent from `$casts`** unlike every other timestamp on that model, so
+   Eloquent returns a raw driver string rather than `Carbon`. **Inert** — verified never read via
+   Eloquent in `app/` (only raw DB in tests). Annotated honestly as `string|null`; adding the cast
+   would be an unrequested behaviour change.
+6. **`SiteMedia.product_gid`** — real indexed column, referenced nowhere in `app/`. Vestigial Shopify
+   leftover from the standalone strip-down. Annotated with a note.
+7. **`SiteMedia.processing_state` CHECK allows `scanning`/`quarantined`** with no matching class
+   constants. **Intentional** — the CSAM pipeline was removed but the moderation foundation and its
+   vocabulary were deliberately kept. Not cleaned up, per that standing decision.
+8. **`email_subscriptions.unsubscribe_token` is NOT NULL with no DB default** — callers must set it via
+   `newUnsubscribeToken()` before `create()` or the Postgres insert fails. The SQLite test schema would
+   not catch a violation. Worth knowing; no action taken.
+9. **`email_subscriptions.qr_slug`** — real UNIQUE column, zero reads or writes anywhere in `app/`.
+   Dormant, not broken.
+10. **`UserPublicResource` has zero production call sites** — confirmed dead code (already flagged in a
+    2026-07-08 audit; its only construction site is its own test). Annotated rather than deleted, since
+    deletion is out of scope here. **Candidate for removal.**
+
+## If this resumes — highest-value remaining work
+
+1. `ShopBrand` + `ShopProduct` (finding 4 above) — unblocks the `IntegrationConnection` shop lane.
+2. `AllSiteData` (a `app/Models/Views/` model) annotated from the **view definition**, which would then
+   unblock a `@mixin` on `StaffSiteResource` (15 findings).
+3. The ~40-model tail averaging ~7 findings each — deliberately left baselined; worst cost per finding
+   in the run. Revisit only if the residual 741 becomes a problem.

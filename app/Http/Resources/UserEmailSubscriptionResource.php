@@ -2,12 +2,16 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\Notifications\EmailSubscription;
 use Illuminate\Http\Request;
 
 // Wire-format gate for /api/email-subscribers (brand-side). Explicit allowlist
 // so adding a column to the EmailSubscription model never auto-exposes it to
 // the brand. Mirrors StaffEmailSubscriptionResource — diverge here when a
 // field should ship to brands but not staff (or vice versa).
+/**
+ * @mixin EmailSubscription
+ */
 class UserEmailSubscriptionResource extends ApiResource
 {
     /**

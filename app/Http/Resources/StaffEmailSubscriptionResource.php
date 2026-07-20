@@ -2,12 +2,16 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\Notifications\EmailSubscription;
 use Illuminate\Http\Request;
 
 // Wire-format gate for /staff/professionals/{p}/email-subscribers. Currently
 // identical to UserEmailSubscriptionResource — the value is the
 // architectural separation so a future staff-only field (e.g. admin_notes,
 // suppression source) has an obvious home without leaking to brands.
+/**
+ * @mixin EmailSubscription
+ */
 class StaffEmailSubscriptionResource extends ApiResource
 {
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\Site\Block;
 use Illuminate\Http\Request;
 
 // V2: API resource for site.blocks rows where block_group='sections'.
@@ -11,6 +12,9 @@ use Illuminate\Http\Request;
 // Visibility tuple (from SectionVisibilityService::batchCheck or checkVisibilityRequirements)
 // can be supplied via the constructor — index() passes it per-section; upsert/remove
 // pass null (the post-mutation response doesn't need to expose the gate).
+/**
+ * @mixin Block
+ */
 class SectionBlockResource extends ApiResource
 {
     /**

@@ -991,228 +991,6 @@ parameters:
 			path: app/Http/Resources/FeedbackResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$alt_text\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$caption\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$pool\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\GalleryImageResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Call to an undefined method App\\Http\\Resources\\GalleryImageResource\:\:variantUrls\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Http/Resources/GalleryImageResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$block_group\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$block_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$icon_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$is_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$live_check_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\LinkBlockResource\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/LinkBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$auto_actioned\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$case_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$priority\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$reportable_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$reportable_owner_user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$reportable_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$resolved_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$severity\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$signal_count\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseResource\:\:\$triaged_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Moderation/CaseResource.php
-
-		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseSignalResource\:\:\$created_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1417,66 +1195,6 @@ parameters:
 			path: app/Http/Resources/NotificationListingResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Platforms\\PublicIntegrationConnectionResource\:\:\$display_settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Platforms\\PublicIntegrationConnectionResource\:\:\$last_refreshed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Platforms\\PublicIntegrationConnectionResource\:\:\$payload\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Platforms\\PublicIntegrationConnectionResource\:\:\$platform\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Platforms\\PublicIntegrationConnectionResource\:\:\$resource_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Platforms\\PublicIntegrationConnectionResource\:\:\$shopBrands\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\PreAccountBuildStatusResource\:\:\$build_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/PreAccountBuildStatusResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\PreAccountBuildStatusResource\:\:\$failure_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/PreAccountBuildStatusResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\PreAccountBuildStatusResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/PreAccountBuildStatusResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\PreAccountBuildStatusResource\:\:\$user\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Resources/PreAccountBuildStatusResource.php
-
-		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\PublicSite\\IndividualProfileResource\:\:\$account_type\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1517,84 +1235,6 @@ parameters:
 			identifier: identical.alwaysTrue
 			count: 1
 			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$block_group\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$block_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$icon_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$is_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SectionBlockResource\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SectionBlockResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$created_at\.$#'
@@ -1735,96 +1375,6 @@ parameters:
 			path: app/Http/Resources/SiteMediaResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$architecture_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$booking_mode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$charlie_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$is_published\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$manual_booking_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$services_auto_sync_enabled\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$settings\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$show_branding\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$subdomain\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$subdomain_changed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$unpublished_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\SiteResource\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$created_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1925,30 +1475,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/Staff/FeatureAvailabilityRuleResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\PartnaStaffResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/PartnaStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\PartnaStaffResource\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/PartnaStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\PartnaStaffResource\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/PartnaStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\PartnaStaffResource\:\:\$role\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/PartnaStaffResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\StaffFeedbackResource\:\:\$app_version\.$#'
@@ -2197,592 +1723,10 @@ parameters:
 			path: app/Http/Resources/Staff/UserSegmentResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$consent_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$list_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$subscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$unsubscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\StaffEmailSubscriptionResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/StaffEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$account_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$auth_user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$country_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$display_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$first_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$last_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$location_city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$location_country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$location_postcode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$location_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$location_street_address\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$onboarding_step\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$partnaStaff\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$partna_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$public_contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$sector\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$sector_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$site\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$timezone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserDashboardResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>custom_domain_primary" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Resources/UserDashboardResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$consent_source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$list_key\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$subscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$unsubscribed_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserEmailSubscriptionResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserEmailSubscriptionResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$account_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$display_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$location_city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$location_country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$location_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$partna_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$public_contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserPublicResource\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$account_type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$admin_notes\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$auth_user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$country_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$display_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$first_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$last_name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$location_city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$location_country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$location_postcode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$location_state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$location_street_address\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$onboarding_step\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$partna_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$preAccountBuild\.$#'
-			identifier: property.notFound
-			count: 8
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$primary_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$public_contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$public_contact_number\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$timezone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\UserStaffResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Call to an undefined method App\\Http\\Resources\\UserStaffResource\:\:relationLoaded\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Call to an undefined method App\\Http\\Resources\\UserStaffResource\:\:trashed\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$address\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$address_line1\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$category\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$city\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$contact_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$country\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$latitude\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$longitude\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$opening_hours\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$postcode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$previous_website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$state\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\WorkplaceResource\:\:\$website\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/WorkplaceResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$style_analysis\.$#'
@@ -4741,3 +3685,93 @@ parameters:
 			identifier: isset.variable
 			count: 1
 			path: app/Console/Commands/BackfillSocialLinksCommand.php
+
+		# Model-property sweep 2026-07-20 (M5, Resource @mixin pass): SiteMedia::$created_at/$updated_at
+		# are non-null Carbon (Postgres NOT NULL), so the ?-> here is a redundant nullsafe. Real, harmless
+		# — a code cleanup, not a bug. Out of scope for M5 (touch-list is Resource @mixin lines only). R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/GalleryImageResource.php
+
+		# Model-property sweep 2026-07-20 (M5): Block::$created_at/$updated_at are non-null Carbon
+		# (Postgres NOT NULL). Same redundant-nullsafe narrowing as GalleryImageResource above. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/LinkBlockResource.php
+
+		# Model-property sweep 2026-07-20 (M5): same Block::$created_at/$updated_at narrowing as
+		# LinkBlockResource — SectionBlockResource wraps the same Block model. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/SectionBlockResource.php
+
+		# Model-property sweep 2026-07-20 (M5): Site::$created_at/$updated_at are non-null Carbon
+		# (Postgres NOT NULL). Same redundant-nullsafe narrowing as the Resources above. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/SiteResource.php
+
+		# Model-property sweep 2026-07-20 (M5): $this->settings is now typed array<string, mixed>
+		# (non-nullable) via the SiteResource @mixin, so the is_array() defensive guard is provably
+		# redundant. Real, harmless — a code cleanup, not a bug. Out of scope for M5. R9.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Resources/SiteResource.php
+
+		# Model-property sweep 2026-07-20 (M5): User::$account_type is non-null AccountType, so
+		# ?->value here is a redundant nullsafe — same narrowing M1 already baselined at
+		# StaffSegmentController/LoadCurrentUser.php, now surfaced in the Resource itself via @mixin. R9.
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserDashboardResource.php
+
+		# Model-property sweep 2026-07-20 (M5): same User::$account_type non-null narrowing as
+		# UserDashboardResource above. R9.
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserPublicResource.php
+
+		# Model-property sweep 2026-07-20 (M5): same User::$account_type non-null narrowing as
+		# UserDashboardResource above.
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserStaffResource.php
+
+		# Model-property sweep 2026-07-20 (M5): PreAccountBuild::$expires_at is non-null Carbon
+		# (irrelevant-once-claimed, but always set) — ?-> is redundant. $claimed_at (nullable) is
+		# correctly NOT flagged here, confirming the annotation's nullability split is accurate. R9.
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserStaffResource.php
+
+		# Model-property sweep 2026-07-20 (M5): the IntegrationConnection @mixin now correctly types
+		# $this->shopBrands as Collection<int, ShopBrand>, so $b->brand_id here resolves against the
+		# ShopBrand model — which carries NO @property block at all (out of scope for M5's model list;
+		# it's neither one of the 9 M2-M4 models nor a target of any Resource in this unit). brand_id is
+		# a real, fillable column (see ShopBrand::$fillable and its own toBrandArray()), not a bug — a
+		# pre-existing gap in ShopBrand's own annotations, now visible through improved Resource typing.
+		# A matching baseline entry already exists for this exact message scoped to ShopBrand.php itself
+		# (line ~3190); this is the same underlying gap surfacing at a second call site.
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
