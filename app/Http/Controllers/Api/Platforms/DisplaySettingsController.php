@@ -109,10 +109,27 @@ class DisplaySettingsController extends ApiController
             $defaultByKey[$def['key']] = (bool) ($def['default'] ?? true);
         }
 
+        $site = $this->needsSite($defs) ? $user->site()->first() : null;
+
+        // Authorize EVERY row this request could write, up front, before any
+        // write happens (SEC-107). Ownership is already structurally
+        // guaranteed here (both $connections and $site are queried scoped to
+        // $user->id), so this is defence-in-depth, not a reachable
+        // authorization bypass fix. The ordering is load-bearing: $site saves
+        // FIRST below and its observer fires an edge-cache purge that can't
+        // be rolled back — authorizing inline inside the write loop would
+        // risk a half-applied write (site purged, connections never
+        // touched), so every gate runs before the first save.
+        foreach ($connections as $connection) {
+            $this->authorizeForUser($user, 'update', $connection);
+        }
+        if ($site !== null) {
+            $this->authorizeForUser($user, 'update', $site);
+        }
+
         // Site-column-backed toggles write boolean columns on the owner's site;
         // a single save fires SiteObserver (backend cache bust + edge purge +
         // re-warm), so the unified Instagram switch reflects everywhere at once.
-        $site = $this->needsSite($defs) ? $user->site()->first() : null;
         foreach ($incoming as $key => $enabled) {
             $column = $columnByKey[$key] ?? null;
             if ($column !== null && $site !== null) {

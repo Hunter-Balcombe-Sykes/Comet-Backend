@@ -2,10 +2,12 @@
 
 use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
 use App\Http\Requests\Api\User\ImageGallery\UpdateGalleryImageRequest;
+use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -115,4 +117,42 @@ it('blocks a pending-deletion owner from updating a gallery image with 423', fun
         expect($e->status())->toBe(423);
         expect($e->getMessage())->toBe('Account is pending deletion.');
     }
+});
+
+// ── SEC-106: Menu as a SitePolicy resource ─────────────────────────────
+// Menu now carries an explicit authorizeForUser('update', ...) call in
+// MenuController (refresh + applyScan). Same three cases as the gallery-image
+// coverage above, asserted directly at the Gate/policy layer since Menu has
+// no route-model-bound controller action to drive through directly.
+
+it('allows the owner to update their own Menu via SitePolicy', function () {
+    $owner = createTenant('menu-policy-owner');
+    $menu = Menu::create(['user_id' => $owner->id, 'content_source' => 'scan']);
+
+    expect(Gate::forUser($owner)->allows('update', $menu))->toBeTrue();
+});
+
+it('blocks a non-owner from updating another user\'s Menu with 404', function () {
+    $owner = createTenant('menu-policy-owner-2');
+    $intruder = createTenant('menu-policy-intruder');
+    $menu = Menu::create(['user_id' => $owner->id, 'content_source' => 'scan']);
+
+    $response = Gate::forUser($intruder)->inspect('update', $menu);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+});
+
+it('blocks a pending-deletion owner from updating their own Menu with 423', function () {
+    $owner = createTenant('menu-policy-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $owner->refresh();
+    $menu = Menu::create(['user_id' => $owner->id, 'content_source' => 'scan']);
+
+    $response = Gate::forUser($owner)->inspect('update', $menu);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(423);
 });

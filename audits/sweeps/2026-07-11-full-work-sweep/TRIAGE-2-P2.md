@@ -2422,7 +2422,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             'posts' => count($posts)
         ```
 
-- [ ] **#SEC-103** · P2 — `GoogleBusinessAutoSync::seed()` / `InstagramAutoSync::seed()` accept a bare `$userId` string with no internal tenant guard
+- [x] **#SEC-103** · P2 — `GoogleBusinessAutoSync::seed()` / `InstagramAutoSync::seed()` accept a bare `$userId` string with no internal tenant guard
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:57 (`seed()`), app/Services/Platforms/InstagramAutoSync.php:63 (`seed()`)
     - **Affects:** Currently safe — both call sites (`GoogleBusinessEnrichJob.php:137`, `InstagramConnectJob.php:250`) derive `$userId` from the queued job's own stored state, never from request input. No confirmed exploit path exists today.
     - **Effort:** S (~0.5–1h)
@@ -2447,7 +2447,17 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             $user = User::find($userId);
         ```
 
-- [ ] **#SEC-104** · P2 — `StaffUserController::index()` queries and returns every professional with no `authorizeForUser` call
+- [x] **#SEC-104** · P2 — `StaffUserController::index()` queries and returns every professional with no `authorizeForUser` call
+      **REJECTED — NOT IMPLEMENTED (2026-07-20).** This finding prescribes exactly the change a prior
+      signed-off finding deliberately rejected. Commit `6311a1a1` ("SEC-101 — gate staff-detail PII to
+      admin tier") added the `staffView` seam to `UserSelfPolicy` (line 116) and intentionally did NOT
+      wire it into `index()`. The rationale is still in the docblock at `StaffUserController.php:34-38`:
+      it authorizes against a single User target while this is a paginated collection, so per-row
+      authorize calls would be N gate evaluations for a currently-unconditional ability; the PII gate
+      (`$showPii`) is the enforcement point for this endpoint, same as `show()`. Implementing SEC-104
+      would silently undo a deliberate decision. If the `staffView` ability should become conditional,
+      that is a separate design conversation, not a P2 gate insertion. `StaffUserController.php` left
+      untouched.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:35-89
     - **Affects:** Structural doctrine gap only — the list endpoint already gates raw PII behind `isAdmin()` inline (see ); this finding is the missing formal Policy seam underneath that inline check.
     - **Effort:** S (~0.5–1h)
@@ -2469,7 +2479,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
                 ->orderByDesc('created_at');
         ```
 
-- [ ] **#SEC-105** · P2 — `SectorController::update()` mutates the User model without an `authorizeForUser` gate
+- [x] **#SEC-105** · P2 — `SectorController::update()` mutates the User model without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/User/Profile/SectorController.php:22-38
     - **Affects:** Authenticated user updating their own sector — tenant-safe today (actor resolved via `currentUser`), but bypasses `UserSelfPolicy`'s pending-deletion block and (if `partna.mfa.require_fresh_aal2_for_profile_update` is ever enabled) its fresh-AAL2 requirement.
     - **Effort:** S (~0.5–1h)
@@ -2491,7 +2501,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             $user->save();
         ```
 
-- [ ] **#SEC-106** · P2 — `MenuController::refresh()` and `applyScan()` mutate the Menu model without an `authorizeForUser` gate
+- [x] **#SEC-106** · P2 — `MenuController::refresh()` and `applyScan()` mutate the Menu model without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/Platforms/MenuController.php:93-115 (`refresh()`), :121-133 (`applyScan()`); write path app/Services/Platforms/MenuScanApplier.php:166-182 (`resolveMenu()`)
     - **Affects:** Authenticated user re-triggering a menu scrape or applying an AI-scanned menu — tenant-safe today via inline `where('user_id', $user->id)`, but bypasses `SitePolicy`'s pending-deletion block on the `Menu` model.
     - **Effort:** S (~0.5–1h)
@@ -2519,7 +2529,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             }
         ```
 
-- [ ] **#SEC-107** · P2 — `DisplaySettingsController::update()` mutates `IntegrationConnection` and `Site` rows without an `authorizeForUser` gate
+- [x] **#SEC-107** · P2 — `DisplaySettingsController::update()` mutates `IntegrationConnection` and `Site` rows without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/Platforms/DisplaySettingsController.php:64-143
     - **Affects:** Authenticated user toggling public-display switches for their own platform connections — tenant-safe today via inline `where('user_id', $user->id)`, but bypasses both `IntegrationConnectionPolicy` and `SitePolicy`'s pending-deletion blocks.
     - **Evidence:**
@@ -2545,7 +2555,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
     - **Technical:** `update()` fetches `IntegrationConnection` rows and (conditionally) a `Site` row scoped by `where('user_id', $user->id)`, then saves both directly — neither path routes through the registered Policy for either model. This is the one platform controller that bypasses `ManagesIntegrationConnection`'s built-in authorization (verified by reading the trait: every `writeConnection`/`writePendingLinkCard`/`forgetConnection`/`forgetAllConnections` call already resolves create-vs-update and calls `authorizeForUser` before touching the row), because it manages toggle state across multiple connections at once rather than one row via the trait's helpers.
     - **Plain English:** Flipping a "show this on my public page" switch updates the database directly, protected only by a filter baked into the query ("only rows that belong to me") rather than the platform's standard permission check. Every sibling integration controller in this same folder DOES go through that standard check via a shared helper — this is the one exception, likely missed because it works with several connections at once instead of the usual "one connection" pattern the helper was built for.
 
-- [ ] **#SEC-108** · P2 — `CustomDomainController` mutates the `Site` model on all four write paths without an `authorizeForUser` gate
+- [x] **#SEC-108** · P2 — `CustomDomainController` mutates the `Site` model on all four write paths without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php:38-104 (`store()`), :106-144 (`verify()`), :150-163 (`setPrimary()`), :165-190 (`destroy()`); shared resolver :192-198 (`siteOrFail()`)
     - **Affects:** Authenticated user configuring their own custom domain (Cloudflare for SaaS) — tenant-safe today (site resolved via the `$user->site` Eloquent relationship), but bypasses `SitePolicy`'s pending-deletion block on every domain-configuration write, including CNAME/hostname creation and destruction.
     - **Effort:** S (~0.5–1h)
