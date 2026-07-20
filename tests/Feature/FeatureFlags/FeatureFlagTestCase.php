@@ -32,7 +32,7 @@ class FeatureFlagTestCase
             primary_email TEXT,
             status TEXT DEFAULT "active",
             professional_type TEXT DEFAULT "professional",
-            account_type TEXT NULL,
+            account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
             created_at TEXT,
             updated_at TEXT,
             deleted_at TEXT

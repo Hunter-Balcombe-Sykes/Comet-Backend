@@ -307,7 +307,11 @@ function setupUsersTable(): void
         last_name TEXT NULL,
         primary_email TEXT NULL,
         phone TEXT NULL,
-        account_type TEXT NULL,
+        -- Mirrors users_account_type_check in production. SQLite enforces CHECK,
+        -- so a test seeding a retired value (\'individual\', \'brand\', \'partner\')
+        -- fails at the INSERT rather than passing silently — enum casts are lazy,
+        -- so an invalid value otherwise only throws if something reads it back.
+        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NULL,
         bio TEXT NULL,
         country_code TEXT NULL,

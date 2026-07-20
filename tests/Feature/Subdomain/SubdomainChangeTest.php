@@ -198,7 +198,7 @@ function setupCoreSchema(): void
             display_name TEXT NULL,
             handle TEXT NULL,
             handle_lc TEXT NULL,
-            account_type TEXT NULL,
+            account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
             status TEXT NULL,
             deleted_at TEXT NULL,
             created_at TEXT NULL,
