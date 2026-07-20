@@ -220,7 +220,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 7 of 20 complete
+- P2 Medium: 8 of 20 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -254,7 +254,8 @@
             $signup->save();
         ```
 
-- [ ] **LIFE-6** · P2 — Instagram-auto flag commits outside the content-selection transaction — a mid-operation DB failure leaves the flag on with no reserved slots
+- [x] **LIFE-6** · P2 — Instagram-auto flag commits outside the content-selection transaction — a mid-operation DB failure leaves the flag on with no reserved slots
+    - **✅ ALREADY FIXED (verified firsthand 2026-07-20, no code change).** `ContentSelectionService::setInstagramAuto()` already wraps the flag flip and the `persist()` call in one `DB::connection('pgsql')->transaction()` — see `app/Services/Site/ContentSelectionService.php:228`, whose comment describes exactly this failure ("Without this wrap a persist() failure left the flag durably flipped with no slots reserved/cleared to match"). Shipped 2026-07-18 in commit `6c23e3c4` (SEM-1/TXN-1), which predates this file's write-up — a duplicate under a reused ID from a different audit pass.
     - **Where:** app/Services/Site/ContentSelectionService.php:222-284
     - **Affects:** Dashboard "auto-fill from Instagram" toggle — if `persist()` throws after `$site->save()` already committed, the site advertises auto-fill as enabled with no ig-reel/ig-post rows behind it.
     - **Effort:** S (~0.5–1h)
