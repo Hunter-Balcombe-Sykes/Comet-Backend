@@ -6,6 +6,7 @@ use App\Jobs\Notifications\SendTransactionalNotificationEmailJob;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Models\Core\Notifications\Notification;
 use App\Services\Notifications\NotificationPublisher;
+use Illuminate\Bus\Batchable;
 use Illuminate\Bus\PendingBatch;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Config;
@@ -276,4 +277,35 @@ it('publishMany dispatches no batch when email is disabled or nothing is critica
     ]);
 
     Bus::assertNothingBatched();
+});
+
+// CACHE-2 regression: the tests above all run under Bus::fake(), which swaps in
+// PendingBatchFake — a subclass that overrides __construct() and never calls
+// PendingBatch::ensureJobIsBatchable(). That means NONE of the faked tests above can
+// detect a job missing the Batchable trait; they'd stay green even if the trait were
+// dropped. The two tests below deliberately avoid Bus::fake() so they exercise the
+// real Illuminate\Bus\PendingBatch constructor, where Laravel throws
+// `RuntimeException('Attempted to batch job [...], but it does not use the Batchable
+// trait.')` synchronously, before any queue/dispatch, on every driver.
+it('CACHE-2 regression: SendTransactionalNotificationEmailJob uses the Batchable trait', function () {
+    // Cheap, always-on proof: this is a static fact about the class, independent of
+    // Bus faking or queue config. It would have caught the trait being dropped in the
+    // copy from SendStaffBroadcastEmailToSubscriberJob (the sibling this pattern came
+    // from) the moment this test ran, on any CI driver.
+    expect(class_uses_recursive(SendTransactionalNotificationEmailJob::class))
+        ->toContain(Batchable::class);
+});
+
+it('CACHE-2 regression: Bus::batch() accepts the job for real, without Bus::fake()', function () {
+    // Behavioural proof, not just a structural one: constructs a REAL PendingBatch
+    // (Bus::batch() is `new PendingBatch($container, $jobs)` — see
+    // Illuminate\Bus\Dispatcher::batch()) and asserts construction doesn't throw.
+    // Deliberately does NOT call ->dispatch() — that would need a real queue
+    // connection and batch repository, which is unrelated to what this bug is about.
+    // The Batchable check runs inside the constructor itself, so just building the
+    // batch is enough to prove NotificationPublisher::publishMany()'s real Bus::batch()
+    // call (no Bus::fake() in production) will not blow up on first real invocation.
+    $job = new SendTransactionalNotificationEmailJob('n-batch-proof', 'policy_update', 'pro-batch-proof');
+
+    expect(fn () => Bus::batch([$job]))->not->toThrow(RuntimeException::class);
 });

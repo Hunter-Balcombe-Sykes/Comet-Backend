@@ -220,7 +220,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 6 of 20 complete
+- P2 Medium: 7 of 20 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -310,7 +310,7 @@
         }
         ```
 
-- [ ] **LIFE-9** · P2 — Platform-health critical-notification dedup key is permanent — a user who reconnects and later fails again is never warned twice
+- [x] **LIFE-9** · P2 — Platform-health critical-notification dedup key is permanent — a user who reconnects and later fails again is never warned twice
     - **Where:** app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php:26-49
     - **Affects:** Users whose platform connection trips the failure breaker, reconnects it, and later has it fail again — the second failure episode produces no notification at all.
     - **Effort:** S (~0.5–1h)
@@ -653,7 +653,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -677,7 +677,7 @@
         }
         ```
 
-- [ ] **CACHE-2** · P2 — `NotificationPublisher::publishMany()` fans out one email job per recipient with no batching — currently unreachable (zero callers)
+- [x] **CACHE-2** · P2 — `NotificationPublisher::publishMany()` fans out one email job per recipient with no batching — currently unreachable (zero callers)
     - **Where:** app/Services/Notifications/NotificationPublisher.php:273-281
     - **Affects:** Any future caller of `publishMany()` for bulk in-app + email delivery (staff broadcasts, segment-targeted announcements). As of this audit `publishMany()` has zero callers anywhere in `app/` or `tests/` (verified by repo-wide grep) — the fan-out risk described here does not manifest in production today.
     - **Effort:** M (~2–4h)
