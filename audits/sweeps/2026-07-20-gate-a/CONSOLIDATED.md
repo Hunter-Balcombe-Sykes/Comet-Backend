@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 15 of 69 complete
+- P2 Medium: 24 of 69 complete
 - P3 Low: 5 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -57,7 +57,7 @@ every draft rather than the scan reading nothing.
 > but the per-tier split does not match. The counts tracked here are the line-level ones, adjusted
 > for the three re-tiers recorded below.
 
-**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ (2026-07-20)
+**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -98,6 +98,12 @@ from clean.**
   - **What to do:** fold into **B19**. This is a *strictly stronger* instance of what `migrations-early/MIG-1` (S1) complains about — `site.blocks` IS on the repo's own `HOT_TABLES` list (`scripts/guard-no-unsafe-migrations.php:34`), whereas `site.site_media` and `site.enquiries` are not. Found while planning S1/S2; `migrations-early`'s scope never opened this file.
   - **Why the audit missed it:** the file sits outside the `migrations-early` scope group, and the guard script has no `DROP INDEX` check of any kind — so nothing in either the automated or the audited path was looking at it.
 
+- [ ] **`discovered/DISC-5`** · P2 · S — Staff `{category}` routes 500 in production (broken scoped route-model binding)
+  - **Where:** `routes/api/staff.php` — every staff route with a `{category}` segment (service-category show/update/destroy/restore/forceDestroy, both route groups) · `app/Models/Core/User/User.php`
+  - **What to do:** own commit + review, not folded into B6. Fix is one of: rename the route parameter `{category}` → `{serviceCategory}`, or add a `categories()` alias relation on `User`.
+  - **Technical:** Laravel's `scopeBindings()` resolves the parent relation for a `{category}` child as `Str::plural(Str::camel('category'))` = `categories()`, but `User` defines the relation as `serviceCategories()`. So `User::categories()` does not exist and every such route 500s with "Call to undefined method". Independently reproduced in review with a probe request.
+  - **Why it matters:** the entire staff service-category management surface beyond `index()`/`store()` is currently broken in production. No audit lens found this — it surfaced only when B6 tried to write an HTTP-level test against the route (which is why `StaffOwnedRecordActorGateTest` tests those via `Gate` directly, not HTTP).
+  - Surfaced during B6, not by the original audit.
 - [ ] **`discovered/DISC-4`** · P3 · S — No test exercises the real `ffprobe` invocation chain that video-upload validation depends on
   - **Where:** `app/Services/Media/VideoVariantService.php:75-79` (`probe()`) · every video test mocks `VideoVariantService` wholesale
   - **What to do:** point `config('partna.ffprobe_binary')` at a stub script (one exiting non-zero, one emitting crafted bad JSON) so the real `Process` → `\RuntimeException` → `InvalidVideoFileException` → 422 chain is exercised without mocking the class.
@@ -403,15 +409,33 @@ returned zero P0/P1, so the policy *layer* is sound — these are call sites tha
 Same theme as B5 on the staff surface, plus staff-visible third-party PII with no admin gate.
 All of this sits behind `require.aal2` + a `core.partna_staff` row, which is why it caps at P2.
 
-- [ ] **`staff-api/SEC-5`** · P2 · M — Eleven endpoints across eight staff controllers omit the Policy-layer role gate the route group's own convention requires → `sources/staff-api.md`
-- [ ] **`staff-api/SEC-2`** · P2 · M — Customer/Service/ServiceCategory staff controllers authorize the *professional*, not the *staff actor* → `sources/staff-api.md`
-- [ ] **`staff-api/SEC-1`** · P2 · S — `StaffNotificationEmailPolicyController` has zero Policy-layer authorization on all four methods → `sources/staff-api.md`
-- [ ] **`staff-api/SEC-3`** · P2 · S — `StaffAccountDeletionController` reads raw `input()` instead of `validated()`; `initiate()`/`cancel()` have no Policy gate → `sources/staff-api.md`
-- [ ] **`staff-api/SEC-4`** · P2 · S — `StaffLinkBlockManagementController::index()/store()` lack authorization while siblings have it → `sources/staff-api.md`
-- [ ] **`staff-api/PRIV-2`** · P2 · S — Staff email-subscriber list and CSV export expose third-party PII to any staff member, no admin gate → `sources/staff-api.md`
-- [ ] **`staff-api/PRIV-1`** · P2 · S — `StaffWorkplaceController` returns phone and address to all staff, no admin PII gate → `sources/staff-api.md`
-- [ ] **`requests-resources/PRIV-1`** · P2 · S — `StaffFeedbackResource` exposes the submitting professional's email to every staff member, bypassing the `$showPii` gate pattern → `sources/requests-resources.md`
-- [ ] **`staff-api/SEC-6`** · P3 · S — `StaffMeController::show()` returns `supabase_uid` without a Policy gate (self-referential, low value) → `sources/staff-api.md`
+> **Honest enforcement summary (from review).** The gates that deny something *new*: `staffManage`
+> on the customer/service/category staff mutations (SEC-2), `StaffNotificationEmailPolicyController`
+> writes (SEC-1), `StaffAccountDeletionController::initiate/cancel` (SEC-3), `StaffLinkBlockManagement
+> ::store/reorder` (SEC-4), `StaffEmailSubscriberController::export` (PRIV-2), the workplace PII
+> redaction (PRIV-1), and — after a review FAIL — `StaffSiteManagementController::update` (SEC-5). The
+> eleven `staffView` additions (SEC-5) are audit seams only: `staffView` is a `return true` no-op, so
+> they deny nobody today and exist so a future Policy-layer change applies here automatically. All the
+> real gates have support-vs-admin tests; review proved they catch the `authorize()` no-op trap.
+
+- [x] **`staff-api/SEC-5`** · P2 · M — Eleven endpoints across eight staff controllers omit the Policy-layer role gate the route group's own convention requires → `sources/staff-api.md`
+  - Eleven `staffView` seams added (deny nobody — audit-trail consistency). **Review caught one genuine defect:** `StaffSiteManagementController::update` (a mutating admin action — rename with force-publish + subdomain override) was gated with the `staffView` no-op instead of `staffManage`, so at the Policy layer a support actor passed as readily as an admin. No live bypass (the `staff.admin` middleware still blocked it), but it silently opted out of the defence-in-depth every sibling mutation has. Fixed to `staffManage` + a support-vs-admin denial test.
+- [x] **`staff-api/SEC-2`** · P2 · M — Customer/Service/ServiceCategory staff controllers authorize the *professional*, not the *staff actor* → `sources/staff-api.md`
+  - The gate answered the wrong question — a professional always owns their own rows, so authorizing the professional was tautologically true. Now gates the staff *actor* via `staffManage` on all mutations; reads (`show`/`index`) stay on `staffView` so support staff aren't blocked from records they can see today.
+- [x] **`staff-api/SEC-1`** · P2 · S — `StaffNotificationEmailPolicyController` has zero Policy-layer authorization on all four methods → `sources/staff-api.md`
+  - Added `staffView`/`staffManage`; added a `NotificationPolicy::staffView` ability (policy was already registered).
+- [x] **`staff-api/SEC-3`** · P2 · S — `StaffAccountDeletionController` reads raw `input()` instead of `validated()`; `initiate()`/`cancel()` have no Policy gate → `sources/staff-api.md`
+  - Gated `initiate`/`cancel` on `staffManage`; `input()` → `validated()` verified to drop no field; added a `StaffCancelDeletionRequest` rather than blind-casting a plain `Request`.
+- [x] **`staff-api/SEC-4`** · P2 · S — `StaffLinkBlockManagementController::index()/store()` lack authorization while siblings have it → `sources/staff-api.md`
+  - `index` → `staffView`, `store`/`reorder` → `staffManageBlock`. Also caught that `reorder()` had *no* gate (the audit claimed it matched its siblings — it didn't).
+- [x] **`staff-api/PRIV-2`** · P2 · S — Staff email-subscriber list and CSV export expose third-party PII to any staff member, no admin gate → `sources/staff-api.md`
+  - `export()` (unbounded CSV dump) gated admin-only; `index()` (paginated, individually audit-logged) left ungated. Both routes are already in `RecordStaffAuditEntry::PII_READ_ROUTE_NAMES`.
+- [x] **`staff-api/PRIV-1`** · P2 · S — `StaffWorkplaceController` returns phone and address to all staff, no admin PII gate → `sources/staff-api.md`
+  - All nine address/geo/phone fields redacted for support, visible for admin. (Weaker PII than it sounds — once the workplace section is published, these fields are already public on the sitepage; the gate matters for the unpublished case.)
+- [x] **`requests-resources/PRIV-1`** · P2 · S — `StaffFeedbackResource` exposes the submitting professional's email to every staff member, bypassing the `$showPii` gate pattern → `sources/requests-resources.md`
+  - **Declined — won't-fix (Josh, 2026-07-20). Product decision, not a code fix.** Support needs the submitter's email to follow up on a bug report when the separate `reply_email` field is blank. An existing test (`StaffFeedbackListTest`) asserts a *support*-role staffer sees this email, and the resource docblock says staff need full context across all users' submissions. Redacting it would break a documented, tested workflow with no replacement mechanism.
+- [x] **`staff-api/SEC-6`** · P3 · S — `StaffMeController::show()` returns `supabase_uid` without a Policy gate (self-referential, low value) → `sources/staff-api.md`
+  - Trivial `PartnaStaffPolicy::view` gate.
 
 ### Bundle B7 — PII minimisation in logs and audit rows · **P2** · Effort S–M
 

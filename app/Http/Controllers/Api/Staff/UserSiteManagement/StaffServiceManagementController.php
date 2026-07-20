@@ -23,6 +23,10 @@ class StaffServiceManagementController extends ApiController
 {
     public function index(Request $request, User $professional): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
         $grouped = $request->boolean('grouped');
@@ -88,7 +92,9 @@ class StaffServiceManagementController extends ApiController
 
     public function store(StaffStoreServiceRequest $request, User $professional): JsonResponse
     {
-        $this->authorizeForUser($professional, 'create', new Service(['user_id' => $professional->id]));
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
         $data = $request->validated();
 
         $this->assertCategoryBelongsToProfessional($professional->id, $data['category_id'] ?? null);
@@ -120,7 +126,9 @@ class StaffServiceManagementController extends ApiController
 
     public function show(Request $request, User $professional, Service $service): JsonResponse
     {
-        $this->authorizeForUser($professional, 'view', $service);
+        // #SEC-2: gate the STAFF ACTOR (staffView, any role), not the professional.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
 
         $includeArchived = $request->boolean('include_archived');
         if (! $includeArchived && $service->trashed()) {
@@ -132,7 +140,9 @@ class StaffServiceManagementController extends ApiController
 
     public function update(StaffUpdateServiceRequest $request, User $professional, Service $service): JsonResponse
     {
-        $this->authorizeForUser($professional, 'update', $service);
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
         if ($service->trashed()) {
             abort(404);
         }
@@ -159,9 +169,11 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['service' => new ServiceResource($service->fresh())]);
     }
 
-    public function destroy(User $professional, Service $service): JsonResponse
+    public function destroy(Request $request, User $professional, Service $service): JsonResponse
     {
-        $this->authorizeForUser($professional, 'delete', $service);
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
         if ($service->trashed()) {
             abort(404);
         }
@@ -173,6 +185,10 @@ class StaffServiceManagementController extends ApiController
 
     public function reorder(StaffReorderServiceRequest $request, User $professional): JsonResponse
     {
+        // #SEC-2: previously had zero authorization at all.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         app(ReorderService::class)->reorder(
             $request->input('ids', []),
             Service::query()->where('user_id', $professional->id),
@@ -185,6 +201,10 @@ class StaffServiceManagementController extends ApiController
     // NEW: full layout reorder (categories + services)
     public function reorderLayout(StaffReorderServiceLayoutRequest $request, User $professional): JsonResponse
     {
+        // #SEC-2: previously had zero authorization at all.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         $payload = $request->validated();
 
         DB::transaction(function () use ($professional, $payload) {
@@ -268,18 +288,24 @@ class StaffServiceManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function forceDestroy(User $professional, Service $service): JsonResponse
+    public function forceDestroy(Request $request, User $professional, Service $service): JsonResponse
     {
-        $this->authorizeForUser($professional, 'delete', $service);
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         $service->forceDelete();
 
         return $this->success(['deleted' => true, 'hard' => true]);
     }
 
-    public function restore(User $professional, Service $service): JsonResponse
+    public function restore(Request $request, User $professional, Service $service): JsonResponse
     {
-        $this->authorizeForUser($professional, 'update', $service);
+        // #SEC-2: staffManage (admin-only). restore() lives in the non-admin
+        // route group — the policy is the actual enforcement point here,
+        // mirroring UserSelfPolicy's destroy/restore precedent for the User model.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         if ($service->trashed()) {
             $service->restore();

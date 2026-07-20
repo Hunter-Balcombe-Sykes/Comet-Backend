@@ -21,6 +21,11 @@ class StaffSiteManagementController extends ApiController
         // the user with no IP/UA, defeating the impersonation/fraud trail.
         /** @var PartnaStaff|null $staff */
         $staff = $request->attributes->get('partna_staff');
+        // #SEC-5: a mutating admin action (staff rename with force-publish +
+        // subdomain override). Gate on staffManage (admin-only), matching every
+        // sibling staff mutation — co-locating the admin check here so it holds
+        // even if the staff.admin route middleware is ever removed/misconfigured.
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         $site = $action->execute(
             $professional,

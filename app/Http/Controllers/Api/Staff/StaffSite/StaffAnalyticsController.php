@@ -26,6 +26,10 @@ class StaffAnalyticsController extends ApiController
      */
     public function summary(Request $request, User $professional): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         $days = (int) $request->query('days', 30);
         $days = max(1, min(365, $days));
 

@@ -77,10 +77,19 @@ class StaffEmailSubscriberController extends ApiController
 
     /**
      * GET /staff/professionals/{professional}/email-subscribers/export
-     * Any-staff. CSV stream matching the brand-side export verbatim.
+     * Admin-only (#PRIV-2) — a bulk CSV of a professional's subscribers is
+     * third-party PII (their customers' emails/names, not the professional's
+     * own data) at a materially larger exposure than the paginated index()
+     * above, which stays any-staff for routine "did this subscriber bounce"
+     * support work.
      */
     public function export(Request $request, User $professional): StreamedResponse
     {
+        // Reuses UserSelfPolicy::staffManage (admin-only) — the same predicate
+        // every other admin-gated staff action on a professional's data uses.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         $listKey = $request->query('list_key', 'marketing');
         $listKey = is_string($listKey) ? trim($listKey) : 'marketing';
         if ($listKey === '') {

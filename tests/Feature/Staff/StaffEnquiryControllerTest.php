@@ -1,10 +1,23 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEnquiryController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+
+/** Builds a Request carrying a partna_staff attribute — #SEC-5 gates index(). */
+function staffEnquiryTest_request(string $method, string $uri = '/'): Request
+{
+    $request = Request::create($uri, $method);
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     setupUsersTable();
@@ -68,7 +81,7 @@ it('returns newest-first enquiries scoped to the route-bound professional', func
     seedStaffEnquiry($otherPro->id, ['name' => 'Not mine']);
 
     $controller = new StaffEnquiryController;
-    $response = $controller->index(Request::create('/', 'GET'), $pro);
+    $response = $controller->index(staffEnquiryTest_request('GET'), $pro);
     $body = $response->getData(true);
 
     expect($response->getStatusCode())->toBe(200)
@@ -86,7 +99,7 @@ it('respects per_page when provided', function () {
     }
 
     $controller = new StaffEnquiryController;
-    $response = $controller->index(Request::create('/?per_page=2', 'GET'), $pro);
+    $response = $controller->index(staffEnquiryTest_request('GET', '/?per_page=2'), $pro);
     $body = $response->getData(true);
 
     expect($body['data'])->toHaveCount(2)

@@ -1,10 +1,24 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+
+/** Builds a Request carrying a partna_staff attribute of the given role. */
+function staffSubscriberTest_request(string $role): Request
+{
+    $request = Request::create('/', 'GET');
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = $role;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     setupUsersTable();
@@ -74,12 +88,12 @@ it('filters by status when ?status=unsubscribed is provided', function () {
         ->and($body['subscriptions'][0]['status'])->toBe('unsubscribed');
 });
 
-it('streams a CSV export with the canonical header row', function () {
+it('streams a CSV export with the canonical header row for admin staff', function () {
     $pro = makeStaffSubscriberUser();
     seedSubscription($pro->id, ['email' => 'csv@example.com', 'email_lc' => 'csv@example.com', 'full_name' => 'CSV Person']);
 
     $controller = new StaffEmailSubscriberController;
-    $response = $controller->export(Request::create('/', 'GET'), $pro);
+    $response = $controller->export(staffSubscriberTest_request(PartnaStaff::ROLE_ADMIN), $pro);
 
     ob_start();
     $response->sendContent();
@@ -89,4 +103,27 @@ it('streams a CSV export with the canonical header row', function () {
         ->and($csv)->toContain('email,full_name,status,subscribed_at,unsubscribed_at')
         ->and($csv)->toContain('csv@example.com')
         ->and($csv)->toContain('CSV Person');
+});
+
+// #PRIV-2: bulk CSV export of a professional's subscriber list is third-party
+// PII at a materially larger exposure than the paginated index() above —
+// admin-only, unlike index() which stays any-staff for routine support work.
+it('denies CSV export for support-tier staff', function () {
+    $pro = makeStaffSubscriberUser();
+    seedSubscription($pro->id, ['email' => 'csv@example.com', 'email_lc' => 'csv@example.com']);
+
+    $controller = new StaffEmailSubscriberController;
+
+    expect(fn () => $controller->export(staffSubscriberTest_request(PartnaStaff::ROLE_SUPPORT), $pro))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('denies CSV export for a request with no staff actor at all', function () {
+    $pro = makeStaffSubscriberUser();
+    seedSubscription($pro->id, ['email' => 'csv@example.com', 'email_lc' => 'csv@example.com']);
+
+    $controller = new StaffEmailSubscriberController;
+
+    expect(fn () => $controller->export(Request::create('/', 'GET'), $pro))
+        ->toThrow(AuthorizationException::class);
 });

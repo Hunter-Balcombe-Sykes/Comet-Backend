@@ -4,6 +4,7 @@
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffNotificationController;
 use App\Models\Core\Notifications\Notification;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
 use App\Services\Segments\SegmentResolver;
@@ -11,6 +12,21 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+
+/**
+ * Builds a Request carrying a partna_staff attribute — #SEC-5 gates
+ * indexForProfessional() with staffView.
+ */
+function staffNotifOnBehalf_request(string $method): Request
+{
+    $request = Request::create('/', $method);
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     attachTestSchemas();
@@ -94,7 +110,7 @@ it('indexForProfessional returns the same payload shape as the self-service endp
     staffNotif_seedGlobalNotification('Global');
 
     $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
-    $response = $controller->indexForProfessional(Request::create('/', 'GET'), $pro);
+    $response = $controller->indexForProfessional(staffNotifOnBehalf_request('GET'), $pro);
 
     expect($response->status())->toBe(200);
 
@@ -114,7 +130,7 @@ it('markReadForProfessional writes a receipt and the next index call no longer f
     $controller = new StaffNotificationController($listing, app(SegmentResolver::class));
 
     // before: 1 unread
-    $before = json_decode($controller->indexForProfessional(Request::create('/', 'GET'), $pro)->getContent(), true);
+    $before = json_decode($controller->indexForProfessional(staffNotifOnBehalf_request('GET'), $pro)->getContent(), true);
     expect($before['unread_count'])->toBe(1);
 
     // staff marks read on the pro's behalf
@@ -124,7 +140,7 @@ it('markReadForProfessional writes a receipt and the next index call no longer f
     // after: still in list, but no longer counted as unread (no cache assertion —
     // the service busts the same key the index path uses, so the next call sees
     // the fresh receipt row)
-    $after = json_decode($controller->indexForProfessional(Request::create('/', 'GET'), $pro)->getContent(), true);
+    $after = json_decode($controller->indexForProfessional(staffNotifOnBehalf_request('GET'), $pro)->getContent(), true);
     expect($after['unread_count'])->toBe(0);
 });
 
@@ -137,7 +153,7 @@ it('dismissForProfessional hides the notification from the default index variant
     $controller->dismissForProfessional(Request::create('/', 'POST'), $pro, $notification);
 
     $after = json_decode(
-        $controller->indexForProfessional(Request::create('/', 'GET'), $pro)->getContent(),
+        $controller->indexForProfessional(staffNotifOnBehalf_request('GET'), $pro)->getContent(),
         true
     );
     expect($after['unread_count'])->toBe(0);

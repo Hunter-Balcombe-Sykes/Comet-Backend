@@ -2,10 +2,23 @@
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+
+/** Builds a Request carrying an admin partna_staff attribute — export() is admin-gated (#PRIV-2). */
+function exportCapTest_adminRequest(): Request
+{
+    $request = Request::create('/', 'GET');
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     setupUsersTable();
@@ -60,7 +73,7 @@ it('caps the staff export at the configured row limit and flags truncation', fun
     seedSub($pro->id, 'b@example.com');
     seedSub($pro->id, 'c@example.com');
 
-    $response = (new StaffEmailSubscriberController)->export(Request::create('/', 'GET'), $pro);
+    $response = (new StaffEmailSubscriberController)->export(exportCapTest_adminRequest(), $pro);
     $csv = streamCsv($response);
 
     expect($response->headers->get('X-Export-Truncated'))->toBe('1')
@@ -75,7 +88,7 @@ it('does not flag truncation when the staff export fits under the cap', function
     seedSub($pro->id, 'a@example.com');
     seedSub($pro->id, 'b@example.com');
 
-    $response = (new StaffEmailSubscriberController)->export(Request::create('/', 'GET'), $pro);
+    $response = (new StaffEmailSubscriberController)->export(exportCapTest_adminRequest(), $pro);
     $csv = streamCsv($response);
 
     expect($response->headers->get('X-Export-Truncated'))->toBeNull()

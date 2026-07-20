@@ -28,6 +28,10 @@ class StaffDataExportController extends ApiController
         /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');
 
+        // #SEC-5: staff-dashboard read surface — any staff role. The
+        // send_to=staff branch below adds its own admin-only check on top.
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         // send_to is validated by RequestStaffDataExportRequest; default is 'professional'.
         $sendTo = (string) $request->query('send_to', 'professional');
 

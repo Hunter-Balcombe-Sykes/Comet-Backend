@@ -156,6 +156,11 @@ class StaffNotificationController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role. Global scope
+        // (no single professional target) — authorize against Notification::class.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', Notification::class);
+
         $limit = max(1, min((int) $request->query('limit', 50), 200));
 
         $query = Notification::query()->orderByDesc('created_at')->limit($limit);
@@ -181,6 +186,10 @@ class StaffNotificationController extends ApiController
      */
     public function indexForProfessional(Request $request, User $professional): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         $limit = (int) $request->query('limit', 50);
         $limit = max(1, min($limit, 200));
 

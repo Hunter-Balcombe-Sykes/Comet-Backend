@@ -21,6 +21,10 @@ class StaffServiceCategoryManagementController extends ApiController
 {
     public function index(Request $request, User $professional): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         $includeArchived = $request->boolean('include_archived');
         $onlyArchived = $request->boolean('only_archived');
 
@@ -46,7 +50,9 @@ class StaffServiceCategoryManagementController extends ApiController
 
     public function store(StaffStoreServiceCategoryRequest $request, User $professional): JsonResponse
     {
-        $this->authorizeForUser($professional, 'create', new ServiceCategory(['user_id' => $professional->id]));
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
         $data = $request->validated();
 
         $category = InsertWithSortOrder::run(
@@ -68,7 +74,9 @@ class StaffServiceCategoryManagementController extends ApiController
 
     public function show(Request $request, User $professional, ServiceCategory $category): JsonResponse
     {
-        $this->authorizeForUser($professional, 'view', $category);
+        // #SEC-2: gate the STAFF ACTOR (staffView, any role), not the professional.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
 
         $includeArchived = $request->boolean('include_archived');
         if (! $includeArchived && $category->trashed()) {
@@ -80,7 +88,9 @@ class StaffServiceCategoryManagementController extends ApiController
 
     public function update(StaffUpdateServiceCategoryRequest $request, User $professional, ServiceCategory $category): JsonResponse
     {
-        $this->authorizeForUser($professional, 'update', $category);
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
         if ($category->trashed()) {
             abort(404);
         }
@@ -91,9 +101,11 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['category' => new ServiceCategoryResource($category->fresh())]);
     }
 
-    public function destroy(User $professional, ServiceCategory $category): JsonResponse
+    public function destroy(Request $request, User $professional, ServiceCategory $category): JsonResponse
     {
-        $this->authorizeForUser($professional, 'delete', $category);
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
         if ($category->trashed()) {
             abort(404);
         }
@@ -137,6 +149,10 @@ class StaffServiceCategoryManagementController extends ApiController
 
     public function reorder(StaffReorderServiceCategoryRequest $request, User $professional): JsonResponse
     {
+        // #SEC-2: previously had zero authorization at all.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
         app(ReorderService::class)->reorder(
             $request->input('ids', []),
             ServiceCategory::query()->where('user_id', $professional->id),
@@ -146,9 +162,11 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function forceDestroy(User $professional, ServiceCategory $category): JsonResponse
+    public function forceDestroy(Request $request, User $professional, ServiceCategory $category): JsonResponse
     {
-        $this->authorizeForUser($professional, 'delete', $category);
+        // #SEC-2: staffManage (admin-only) — gates the staff actor.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         // Optional: also uncategorise services on hard delete (FK ON DELETE SET NULL handles it if in DB)
         $category->forceDelete();
@@ -156,9 +174,13 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['deleted' => true, 'hard' => true]);
     }
 
-    public function restore(User $professional, ServiceCategory $category): JsonResponse
+    public function restore(Request $request, User $professional, ServiceCategory $category): JsonResponse
     {
-        $this->authorizeForUser($professional, 'update', $category);
+        // #SEC-2: staffManage (admin-only). restore() lives in the non-admin
+        // route group — the policy is the actual enforcement point here,
+        // mirroring UserSelfPolicy's destroy/restore precedent for the User model.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         if ($category->trashed()) {
             $category->restore();

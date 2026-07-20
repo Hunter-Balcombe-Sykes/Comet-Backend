@@ -21,8 +21,12 @@ class StaffSectionManagementController extends ApiController
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
-    public function index(User $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         // Return ALL section blocks (active + inactive) so staff can toggle
         $sections = Block::query()
             ->where('user_id', $professional->id)

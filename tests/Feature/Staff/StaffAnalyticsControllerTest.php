@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffAnalyticsController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Analytics\AnalyticsCacheService;
 use App\Services\Analytics\AnalyticsQueryService;
@@ -10,6 +11,23 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Mockery\MockInterface;
+
+/**
+ * Builds a Request carrying a `partna_staff` attribute, as the staff
+ * middleware would — needed since #SEC-5 added a staffView gate to
+ * summary() and these tests call the controller directly, bypassing the
+ * middleware stack.
+ */
+function staffAnalyticsTest_request(string $method = 'GET', array $query = []): Request
+{
+    $request = Request::create('/api/staff/professionals/{pro}/analytics', $method, $query);
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     Cache::flush();
@@ -65,7 +83,7 @@ it('summary() returns correct shape and zero-data totals', function () {
 
     $controller = app(StaffAnalyticsController::class);
     $response = $controller->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 7]),
+        staffAnalyticsTest_request('GET', ['days' => 7]),
         $this->user
     );
 
@@ -102,7 +120,7 @@ it('staffSummary() wraps the composed payload in CacheLockService::rememberLocke
     });
 
     $response = app(StaffAnalyticsController::class)->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 30]),
+        staffAnalyticsTest_request('GET', ['days' => 30]),
         $this->user
     );
 
@@ -122,7 +140,7 @@ it('summary() returns 404 when professional has no site', function () {
     $professional = User::find($userId);
     $controller = new StaffAnalyticsController(app(AnalyticsCacheService::class));
     $response = $controller->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET'),
+        staffAnalyticsTest_request('GET'),
         $professional
     );
 
@@ -133,7 +151,7 @@ it('summary() returns 404 when professional has no site', function () {
 it('summary() returns 422 for an invalid date format', function () {
     $controller = new StaffAnalyticsController(app(AnalyticsCacheService::class));
     $response = $controller->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['from' => 'not-a-date']),
+        staffAnalyticsTest_request('GET', ['from' => 'not-a-date']),
         $this->user
     );
 
@@ -143,7 +161,7 @@ it('summary() returns 422 for an invalid date format', function () {
 it('summary() returns 422 when from is after to', function () {
     $controller = new StaffAnalyticsController(app(AnalyticsCacheService::class));
     $response = $controller->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', [
+        staffAnalyticsTest_request('GET', [
             'from' => '2026-05-17',
             'to' => '2026-04-01',
         ]),
@@ -176,7 +194,7 @@ it('summary() routes visit and click aggregates through AnalyticsQueryService sc
     });
 
     $response = app(StaffAnalyticsController::class)->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 7]),
+        staffAnalyticsTest_request('GET', ['days' => 7]),
         $this->user
     );
 
@@ -214,7 +232,7 @@ it('summary() surfaces v2 url-based top_links via AnalyticsQueryService::topLink
     });
 
     $response = app(StaffAnalyticsController::class)->summary(
-        Request::create('/api/staff/professionals/{pro}/analytics', 'GET', ['days' => 7]),
+        staffAnalyticsTest_request('GET', ['days' => 7]),
         $this->user
     );
 

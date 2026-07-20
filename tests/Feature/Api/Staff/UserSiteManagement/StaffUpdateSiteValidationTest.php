@@ -145,3 +145,33 @@ it('accepts a valid ordering payload on the staff endpoint (not over-rejecting)'
         ],
     ]])->assertOk();
 });
+
+// ── B6/SEC-5: this is a mutating admin action (staff rename with force-publish
+// + subdomain override). It must be gated by UserSelfPolicy::staffManage
+// (admin-only) at the Policy layer, not the staffView no-op — so the check
+// holds even if the staff.admin route middleware is ever removed. Without the
+// gate, a support-role staffer's request passes the Policy check as readily as
+// an admin's; these two tests fail if the gate reverts to staffView. ─────────
+
+it('denies a support-role staffer the site edit (staffManage is admin-only)', function () {
+    // The factory default role is ROLE_SUPPORT (see PartnaStaffFactory) — no
+    // ->support() state exists; the bare factory IS the support role.
+    $staff = PartnaStaff::factory()->create();
+    $pro = createTenant('staff-site-support');
+
+    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])
+        ->assertStatus(403);
+
+    // The write must not have landed — architecture_id stays at its seeded
+    // value (the SQLite stub seeds no default, so it is still null). An admin
+    // edit in the sibling test collapses 'dock' to 'staple'; this one must not.
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBeNull();
+});
+
+it('allows an admin-role staffer the site edit', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-site-admin');
+
+    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])->assertOk();
+});

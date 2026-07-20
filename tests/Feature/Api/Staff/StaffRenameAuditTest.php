@@ -52,8 +52,13 @@ it('attributes a staff rename to the acting staff with reason, ip and user agent
     $pro = User::query()->findOrFail($proId);
     $site = Site::query()->findOrFail($siteId);
 
+    // Admin role: the staff site-edit endpoint is now gated by
+    // UserSelfPolicy::staffManage (admin-only, #B6/SEC-5). This test exercises a
+    // SUCCESSFUL rename to assert its audit attribution, so the actor must be an
+    // admin — a support-role staffer is correctly denied 403.
     $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
 
     // Capture the options the controller forwards to the action.
     $captured = null;

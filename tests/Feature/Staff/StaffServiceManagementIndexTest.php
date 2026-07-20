@@ -8,10 +8,23 @@
  */
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffServiceManagementController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+
+/** Builds a Request carrying a partna_staff attribute — #SEC-5 gates index(). */
+function staffServiceIndexTest_request(string $uri): Request
+{
+    $request = Request::create($uri, 'GET');
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 beforeEach(function () {
     setupUsersTable();
@@ -83,7 +96,7 @@ it('caps the flat services list at 500 even when more than 500 exist', function 
     bulkSeedServices($pro->id, 510);
 
     $controller = new StaffServiceManagementController;
-    $response = $controller->index(Request::create('/', 'GET'), $pro);
+    $response = $controller->index(staffServiceIndexTest_request('/'), $pro);
     $body = $response->getData(true);
 
     expect($response->getStatusCode())->toBe(200);
@@ -99,6 +112,7 @@ it('caps the grouped services list at 500 even when more than 500 exist', functi
     $controller = new StaffServiceManagementController;
     // Pass grouped as a query parameter so $request->boolean('grouped') resolves to true.
     $request = Request::create('/', 'GET', ['grouped' => '1']);
+    $request->attributes->set('partna_staff', tap(new PartnaStaff, fn ($s) => $s->role = PartnaStaff::ROLE_ADMIN));
     $response = $controller->index($request, $pro);
     $body = $response->getData(true);
 
@@ -118,6 +132,7 @@ it('caps the grouped categories list at 200 even when more than 200 exist', func
 
     $controller = new StaffServiceManagementController;
     $request = Request::create('/', 'GET', ['grouped' => '1']);
+    $request->attributes->set('partna_staff', tap(new PartnaStaff, fn ($s) => $s->role = PartnaStaff::ROLE_ADMIN));
     $response = $controller->index($request, $pro);
     $body = $response->getData(true);
 

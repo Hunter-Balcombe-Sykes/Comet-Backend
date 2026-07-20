@@ -10,7 +10,9 @@
 // behaviour under test is the lookup + resource shaping, not the route guard.
 
 use App\Http\Controllers\Api\Staff\StaffSite\StaffSiteController;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,6 +20,18 @@ beforeEach(function () {
     setupUsersTable();
     setupAllSiteDataTable();
 });
+
+/** Builds a Request carrying a partna_staff attribute — #SEC-5 gates both actions. */
+function staffSiteControllerTest_request(): Request
+{
+    $request = Request::create('/', 'GET');
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $request->attributes->set('partna_staff', $staff);
+
+    return $request;
+}
 
 /** Stand-in for the site.all_site_data view — only the columns StaffSiteResource reads. */
 function setupAllSiteDataTable(): void
@@ -67,7 +81,7 @@ function seedAllSiteData(array $overrides = []): array
 it('returns site data for a given subdomain', function () {
     [$siteId] = seedAllSiteData(['subdomain' => 'alpha']);
 
-    $response = (new StaffSiteController)->show('alpha');
+    $response = (new StaffSiteController)->show(staffSiteControllerTest_request(), 'alpha');
     $body = $response->getData(true);
 
     // API-3: responses are wrapped in ['site' => StaffSiteResource] to match the
@@ -86,7 +100,7 @@ it('returns site data for a given subdomain', function () {
 it('matches the subdomain case-insensitively', function () {
     seedAllSiteData(['subdomain' => 'alpha']);
 
-    $response = (new StaffSiteController)->show('ALPHA');
+    $response = (new StaffSiteController)->show(staffSiteControllerTest_request(), 'ALPHA');
 
     expect($response->getStatusCode())->toBe(200);
 });
@@ -94,7 +108,7 @@ it('matches the subdomain case-insensitively', function () {
 it('returns 404 when the subdomain is not found', function () {
     seedAllSiteData(['subdomain' => 'alpha']);
 
-    $response = (new StaffSiteController)->show('ghost');
+    $response = (new StaffSiteController)->show(staffSiteControllerTest_request(), 'ghost');
 
     expect($response->getStatusCode())->toBe(404);
 });
@@ -103,7 +117,7 @@ it('returns site data for a given professional', function () {
     $pro = makeStaffSiteProfessional();
     seedAllSiteData(['user_id' => $pro->id, 'subdomain' => 'by-pro']);
 
-    $response = (new StaffSiteController)->showByProfessional($pro);
+    $response = (new StaffSiteController)->showByProfessional(staffSiteControllerTest_request(), $pro);
     $body = $response->getData(true);
 
     expect($response->getStatusCode())->toBe(200)
@@ -115,7 +129,7 @@ it('returns 404 for a professional with no site row', function () {
     $pro = makeStaffSiteProfessional();
     // No all_site_data row for this professional.
 
-    $response = (new StaffSiteController)->showByProfessional($pro);
+    $response = (new StaffSiteController)->showByProfessional(staffSiteControllerTest_request(), $pro);
 
     expect($response->getStatusCode())->toBe(404);
 });

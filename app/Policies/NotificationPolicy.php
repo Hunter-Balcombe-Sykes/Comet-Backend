@@ -68,4 +68,18 @@ class NotificationPolicy extends BasePolicy
     {
         return $actor->isAdmin();
     }
+
+    /**
+     * Read-access seam for staff notification surfaces (#SEC-1/#SEC-5) — any
+     * staff role. Mirrors UserSelfPolicy::staffView exactly: there is no PII
+     * gate to enforce here (notification bodies aren't PII), this ability
+     * exists purely so every staff read has an explicit, auditable
+     * authorization point instead of none at all. Accepts the class-string
+     * form for the two global-scope reads (notification list, email policies)
+     * that have no single target row.
+     */
+    public function staffView(PartnaStaff $actor, Notification|string|null $notification = null): bool
+    {
+        return true;
+    }
 }

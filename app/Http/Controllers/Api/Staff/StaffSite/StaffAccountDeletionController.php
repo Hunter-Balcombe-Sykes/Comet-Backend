@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\Api\Staff\StaffSite;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Requests\Api\Staff\StaffCancelDeletionRequest;
 use App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 // V2: Admin-side counterpart to UserAccountDeletionController.
@@ -31,13 +31,16 @@ class StaffAccountDeletionController extends ApiController
     ): JsonResponse {
         /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');
+        // #SEC-3: staffManage (admin-only) — defence-in-depth on top of the
+        // staff.admin route middleware for this destructive, GDPR-flow action.
+        $this->authorizeForUser($staff, 'staffManage', $professional);
 
         $result = $this->deletionService->adminInitiate(
             professional: $professional,
             staffActorId: (string) $staff->id,
             staffActorHandle: (string) ($staff->name ?? $staff->primary_email ?? ''),
-            reason: (string) $request->input('reason'),
-            overrideObligations: (bool) $request->input('override_obligations', false),
+            reason: (string) $request->validated('reason'),
+            overrideObligations: (bool) $request->validated('override_obligations', false),
             request: $request,
         );
 
@@ -56,16 +59,21 @@ class StaffAccountDeletionController extends ApiController
     /**
      * POST /staff/professionals/{professional}/deletion/cancel
      */
-    public function cancel(Request $request, User $professional): JsonResponse
+    public function cancel(StaffCancelDeletionRequest $request, User $professional): JsonResponse
     {
         /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');
+        // #SEC-3: staffManage (admin-only) — defence-in-depth on top of the
+        // staff.admin route middleware for this destructive, GDPR-flow action.
+        $this->authorizeForUser($staff, 'staffManage', $professional);
+
+        $reason = $request->validated('reason');
 
         $result = $this->deletionService->adminCancel(
             professional: $professional,
             staffActorId: (string) $staff->id,
             staffActorHandle: (string) ($staff->name ?? $staff->primary_email ?? ''),
-            reason: $request->input('reason') ? (string) $request->input('reason') : null,
+            reason: $reason !== null ? (string) $reason : null,
             request: $request,
         );
 

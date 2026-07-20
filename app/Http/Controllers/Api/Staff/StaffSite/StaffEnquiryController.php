@@ -22,6 +22,10 @@ class StaffEnquiryController extends ApiController
      */
     public function index(Request $request, User $professional): JsonResponse
     {
+        // #SEC-5: staff-dashboard read surface — any staff role.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         $page = Enquiry::query()
             ->where('user_id', $professional->id)
             ->orderByDesc('created_at')

@@ -20,8 +20,13 @@ class StaffLinkBlockManagementController extends ApiController
 {
     use ResolveCurrentSite;
 
-    public function index(User $professional): JsonResponse
+    public function index(Request $request, User $professional): JsonResponse
     {
+        // #SEC-4: staff-dashboard read surface — any staff role (link blocks
+        // are already public on the professional's sitepage).
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffView', $professional);
+
         return $this->success([
             'blocks' => LinkBlockResource::collection(
                 $professional->linkBlocks()->orderBy('sort_order')->get()
@@ -31,6 +36,10 @@ class StaffLinkBlockManagementController extends ApiController
 
     public function store(StaffStoreLinkRequest $request, User $professional): JsonResponse
     {
+        // #SEC-4: staffManageBlock (admin-only), matching update()/destroy()/reorder().
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
         $professional->loadMissing('site');
         $site = $this->currentSite($professional);
 
@@ -103,6 +112,12 @@ class StaffLinkBlockManagementController extends ApiController
 
     public function reorder(StaffReorderLinkRequest $request, User $professional): JsonResponse
     {
+        // #SEC-4 premise correction: the audit finding claimed reorder() already
+        // had this gate (matching update()/destroy()) — it did not. Adding it
+        // for consistency with its three siblings in this file.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManageBlock', $professional);
+
         $site = $this->currentSite($professional);
 
         app(ReorderService::class)->reorder(

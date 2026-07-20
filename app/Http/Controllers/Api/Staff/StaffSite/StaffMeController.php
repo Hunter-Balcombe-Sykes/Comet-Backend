@@ -11,9 +11,15 @@ class StaffMeController extends ApiController
 {
     public function show(Request $request)
     {
+        // #SEC-6 (P3): consistency-only — the resource IS the actor, so there's
+        // no privilege-escalation path either way. PartnaStaffPolicy::view
+        // already allows a staff member to view their own record.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'view', $staff);
+
         return $this->success([
             'uid' => $request->attributes->get('supabase_uid'),
-            'staff' => new PartnaStaffResource($request->attributes->get('partna_staff')),
+            'staff' => new PartnaStaffResource($staff),
         ]);
     }
 }
