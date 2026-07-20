@@ -872,14 +872,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 5 of 5 complete
 - P3 Low: 0 of 8 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SCHEMA-1** · P2 — `analytics.item_views.item_type` has a documented 7-value taxonomy but no `CHECK` constraint
+- [x] **#SCHEMA-1** · P2 — `analytics.item_views.item_type` has a documented 7-value taxonomy but no `CHECK` constraint
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql:13
     - **Affects:** Data integrity for popularity scoring — a mistyped `item_type` from the item-seen telemetry endpoint silently pollutes `analytics:compute-popularity` input.
     - **Effort:** S (~0.5–1h)
@@ -892,7 +892,7 @@ None.
         item_type    text NOT NULL,    -- shop_product|menu_item|menu_category|service|block|gallery_item|engine_item
         ```
 
-- [ ] **#SCHEMA-2** · P2 — `analytics.content_popularity_scores.content_type` has a documented 8-value taxonomy but no `CHECK` constraint
+- [x] **#SCHEMA-2** · P2 — `analytics.content_popularity_scores.content_type` has a documented 8-value taxonomy but no `CHECK` constraint
     - **Where:** supabase/migrations/20260709042716_create_content_popularity_scores.sql:10
     - **Affects:** The read-side popularity table the public payload builder (`IndividualProfilePayloadBuilder`) and `RankedActionsComputer` read directly — a bad `content_type` from a buggy upsert in `analytics:compute-popularity` surfaces wrong ranks in the sitepage payload.
     - **Effort:** S (~0.5–1h)
@@ -905,7 +905,7 @@ None.
         content_type text NOT NULL,   -- page|shop_product|menu_item|menu_category|service|block|gallery_item|engine_item
         ```
 
-- [ ] **#SCHEMA-3** · P2 — `analytics.item_views` and `analytics.content_popularity_scores` have no foreign key on `site_id` (or `user_id`), unlike their sibling `analytics.section_views` — orphan rows never clean up after site deletion
+- [x] **#SCHEMA-3** · P2 — `analytics.item_views` and `analytics.content_popularity_scores` have no foreign key on `site_id` (or `user_id`), unlike their sibling `analytics.section_views` — orphan rows never clean up after site deletion
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql:10-12; supabase/migrations/20260709042716_create_content_popularity_scores.sql:9
     - **Affects:** `AccountDeletionService::forceDelete()` relies on `ON DELETE CASCADE` FK chains to clean up user/site-linked rows (per its own comments: "user_id-linked rows are cascade-deleted by forceDelete via FK ON DELETE CASCADE"). Neither table has that FK, so a force-deleted site/user leaves permanently dangling `site_id`/`user_id` values. `analytics.item_views` self-heals via the 90-day `partna:analytics:purge-raw-events` retention purge; `analytics.content_popularity_scores` is **not** in that command's table list at all, so its orphan rows persist forever.
     - **Effort:** M (~2–4h)
@@ -927,7 +927,7 @@ None.
             site_id      uuid NOT NULL
         ```
 
-- [ ] **#SCHEMA-4** · P2 — `site.shop_brands.selection_mode` and `.link_mode` are two-value enum columns without a `CHECK` constraint
+- [x] **#SCHEMA-4** · P2 — `site.shop_brands.selection_mode` and `.link_mode` are two-value enum columns without a `CHECK` constraint
     - **Where:** supabase/migrations/20260707030000_shop_brand_modes.sql:19-22
     - **Affects:** Data integrity for per-brand store rendering — a raw INSERT or direct DB fix could write an invalid `selection_mode`/`link_mode`; `UpdateShopBrandRequest` is the only guard today.
     - **Effort:** S (~0.5–1h)
@@ -944,7 +944,7 @@ None.
             ADD COLUMN IF NOT EXISTS referral_query text NOT NULL DEFAULT '';
         ```
 
-- [ ] **#SCHEMA-5** · P2 — `site.sites.shop_link_mode` is a two-value GLOBAL enum column without a `CHECK` constraint, unlike the sibling `booking_mode` column on the same table
+- [x] **#SCHEMA-5** · P2 — `site.sites.shop_link_mode` is a two-value GLOBAL enum column without a `CHECK` constraint, unlike the sibling `booking_mode` column on the same table
     - **Where:** supabase/migrations/20260708120000_sites_shop_global_settings.sql:28
     - **Affects:** Every connected store on every site — `shop_link_mode` is the single global switch the public payload builder (`PublicIntegrationConnectionResource`) stamps onto every brand's `linkMode` at read time. An invalid value here has the largest blast radius of any finding in this audit (site-wide, not per-brand).
     - **Effort:** S (~0.5–1h)
@@ -3031,7 +3031,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 4 complete
 
 ---
@@ -3071,7 +3071,7 @@ None.
           AND display_settings ? 'gallery';
         ```
 
-- [ ] **SCHEMA-102** · P2 — `site.sites.shop_link_mode` is an enum-like `text` column with no `CHECK` constraint (recurring, previously flagged)
+- [x] **SCHEMA-102** · P2 — `site.sites.shop_link_mode` is an enum-like `text` column with no `CHECK` constraint (recurring, previously flagged)
     - **Where:** app/Models/Core/Site/Site.php:34-42
     - **Affects:** Any write path setting `shop_link_mode` — the column accepts any string, not just `'checkout'`/`'product'`; a bad value would silently corrupt the public shop-link behavior for every connected store on that site.
     - **Effort:** S (~0.5–1h)
@@ -3505,14 +3505,14 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#DINT-101** · P2 — `typography_tracking` / `theme_contrast` design-kit columns have no DB CHECK backing their fixed vocabulary
+- [x] **#DINT-101** · P2 — `typography_tracking` / `theme_contrast` design-kit columns have no DB CHECK backing their fixed vocabulary
     - **Where:** supabase/migrations/20260714220000_add_aesthetic_axes.sql:15-18
     - **Affects:** `site.design_kits` rows written by any path that bypasses `UpdateSiteRequest`/`DesignKitValidationRules` — direct DB fixes, restore/import tooling, seeders, or a future admin script. A bad value renders as broken/missing CSS on the public sitepage since `@partnaau/design-system` trusts the DB to hold only valid selections.
     - **Effort:** S (~0.5–1h)
