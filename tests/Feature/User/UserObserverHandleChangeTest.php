@@ -6,6 +6,8 @@ use App\Models\Core\User\User;
 use App\Observers\User\UserObserver;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\SectionVisibilityService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -213,4 +215,91 @@ it('skips both site touch and public_contact reeval when only a non-public field
     $pro->setRelation('site', $site);
 
     app(UserObserver::class)->updated($pro);
+});
+
+// ── Cache-invalidation faults are reported to Nightwatch, not just logged (#CCH-101) ─
+//
+// Log::warning alone raises no Nightwatch issue (breadcrumb-only) — report() is
+// what surfaces a stuck/degraded cache to on-call. All three tests below use a
+// REAL Eloquent write (not the setRawAttributes() shortcut used above) so the
+// "swallow survives" assertion is meaningful: the DB write must commit even
+// though the cache invalidation throws.
+
+it('reports (but swallows) a cache invalidation failure on update, and the write still commits', function () {
+    setupUsersTable();
+    Exceptions::fake();
+
+    mock(UserCacheService::class)
+        ->shouldReceive('invalidateUser')
+        ->once()
+        ->andThrow(new RuntimeException('redis down'));
+
+    $pro = User::create([
+        'handle' => 'cchupdatepro', 'handle_lc' => 'cchupdatepro', 'display_name' => 'Cch Update',
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(), 'phone' => '+61400000000',
+    ]);
+
+    // A non-public field so touchParentSiteIfPublicFieldChanged() short-circuits
+    // before touching a site relation — isolates the invalidateUser() catch.
+    $pro->update(['phone' => '+61400000001']);
+
+    Exceptions::assertReported(RuntimeException::class);
+
+    $updated = DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->value('phone');
+    expect($updated)->toBe('+61400000001');
+});
+
+it('reports (but swallows) a cache invalidation failure on delete, and the soft-delete still commits', function () {
+    setupUsersTable();
+    Queue::fake();
+    Exceptions::fake();
+
+    mock(UserCacheService::class)
+        ->shouldReceive('invalidateUser')
+        ->once()
+        ->andThrow(new RuntimeException('redis down'));
+
+    $pro = User::create([
+        'handle' => 'cchdeletepro', 'handle_lc' => 'cchdeletepro', 'display_name' => 'Cch Delete',
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
+    ]);
+
+    $pro->delete();
+
+    Exceptions::assertReported(RuntimeException::class);
+
+    $deletedAt = DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->value('deleted_at');
+    expect($deletedAt)->not->toBeNull();
+});
+
+it('reports (but swallows) a cache invalidation failure on restore, and the restore still commits', function () {
+    setupUsersTable();
+    Queue::fake();
+    Exceptions::fake();
+
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'cchrestorepro',
+        'handle_lc' => 'cchrestorepro',
+        'account_type' => 'partna',
+        'auth_user_id' => (string) Str::uuid(),
+        'deleted_at' => now()->toDateTimeString(),
+    ]);
+
+    // TWICE: SoftDeletes::restore() does a full save() (firing updated()) AND
+    // separately fires restored() — both independently catch+report the same
+    // cache fault, so both must swallow it.
+    mock(UserCacheService::class)
+        ->shouldReceive('invalidateUser')
+        ->twice()
+        ->andThrow(new RuntimeException('redis down'));
+
+    $pro = User::withTrashed()->where('id', $proId)->first();
+    $pro->restore();
+
+    Exceptions::assertReported(RuntimeException::class);
+
+    $deletedAt = DB::connection('pgsql')->table('core.users')->where('id', $proId)->value('deleted_at');
+    expect($deletedAt)->toBeNull();
 });

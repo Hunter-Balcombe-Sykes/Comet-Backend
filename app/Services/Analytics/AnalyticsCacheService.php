@@ -121,6 +121,12 @@ class AnalyticsCacheService
      * engine emits nothing below threshold, and this wrapper backstops any
      * surprise to [] — insights can never break the analytics response.
      *
+     * CCH-4: computeInsights() distinguishes "genuinely no insights this
+     * window" ([]) from "compute blew up" (null) so a transient fault doesn't
+     * squat on the same 3600s key a healthy [] result would use — null gets a
+     * short 60s nullTtl via rememberLockedNullable, so the next request retries
+     * soon instead of fleet-wide caching an empty panel for up to an hour.
+     *
      * @return list<array{id:string, kind:string, headline:string, supporting_stat:array<string,mixed>, period:array<string,mixed>}>
      */
     public function insights(User $professional, Site $site): array
@@ -128,7 +134,14 @@ class AnalyticsCacheService
         $version = (int) Cache::get(CacheKeyGenerator::analyticsSummaryVersion($professional->id), 0);
         $cacheKey = CacheKeyGenerator::analyticsInsights($professional->id).":v{$version}";
 
-        return $this->cacheLock->rememberLocked($cacheKey, 3600, fn (): array => $this->computeInsights($professional));
+        $result = $this->cacheLock->rememberLockedNullable(
+            $cacheKey,
+            3600,
+            fn (): ?array => $this->computeInsights($professional),
+            nullTtl: 60,
+        );
+
+        return $result ?? [];
     }
 
     /**
@@ -137,9 +150,14 @@ class AnalyticsCacheService
      * INSIGHT_WINDOW_DAYS window; page riser-faller + source shift compare the
      * current 7-day week against the prior 7-day week.
      *
-     * @return list<array<string, mixed>>
+     * Returns null (not []) on failure so insights() can cache the fail-open
+     * result under its own short TTL instead of the normal 3600s success TTL —
+     * [] is a legitimate "nothing rose above threshold" result and must not be
+     * conflated with "the compute threw".
+     *
+     * @return list<array<string, mixed>>|null
      */
-    private function computeInsights(User $professional): array
+    private function computeInsights(User $professional): ?array
     {
         try {
             $proId = $professional->id;
@@ -205,7 +223,11 @@ class AnalyticsCacheService
         } catch (Throwable $e) {
             Log::warning('analytics.insights_failed', ['user_id' => $professional->id, 'error' => $e->getMessage()]);
 
-            return [];
+            // CCH-4: mirrors bumpVersion() — a single blip stays a breadcrumb,
+            // a sustained run (Redis/DB genuinely down) escalates to Nightwatch.
+            self::escalateIfSustained($e, 'insights_compute');
+
+            return null;
         }
     }
 

@@ -33,6 +33,8 @@ uses(TestCase::class)->in(__FILE__);
 // silent cross-test leak.
 beforeEach(function () {
     RateLimiter::clear('analytics:fault:cache_bump');
+    // Same boot-order rationale as above, for computeInsights()'s own label (CCH-4).
+    RateLimiter::clear('analytics:fault:insights_compute');
 });
 
 it('fails open — a cache-store fault degrades to a breadcrumb and returns void, never throws', function () {
@@ -187,4 +189,116 @@ it('summary() reuses the cached payload for a repeat call, and bumpVersion() bet
     // fresh compose() even though (user, range, granularity) are unchanged —
     // visible here as visits ticking over to the second real invocation.
     expect($third['totals']['visits'])->toBe(2);
+});
+
+// #CCH-4 — computeInsights()'s fail-open catch must stay silent on a single
+// blip and only escalate to Nightwatch on a sustained run, mirroring
+// bumpVersion() above. Also proves insights() never breaks the caller and
+// that a compute fault is cached only briefly, not for the full success TTL.
+
+it('insights() fails open — a compute fault returns [] and never throws, logging a breadcrumb only', function () {
+    Exceptions::fake();
+    Log::spy();
+
+    $professional = (new User)->forceFill(['id' => 'user-insights-1']);
+    $site = (new Site)->forceFill(['id' => 'site-insights-1']);
+
+    $queries = Mockery::mock(AnalyticsQueryService::class);
+    $queries->shouldReceive('hourlyClickBuckets')->once()->andThrow(new RuntimeException('db down'));
+
+    $service = new AnalyticsCacheService(new CacheLockService, $queries, new InsightEngine);
+
+    $result = $service->insights($professional, $site);
+
+    // The swallow survives: the analytics response gets [], not a 500.
+    expect($result)->toBe([]);
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $msg, array $ctx) => $msg === 'analytics.insights_failed' && $ctx['user_id'] === 'user-insights-1');
+
+    // A single blip is a quiet breadcrumb — it must NOT reach Nightwatch.
+    Exceptions::assertNothingReported();
+});
+
+it('escalates to Nightwatch once a sustained run of insights compute faults crosses the threshold', function () {
+    Exceptions::fake();
+    Log::spy();
+
+    $threshold = AnalyticsCacheService::FAULT_THRESHOLD;
+
+    $queries = Mockery::mock(AnalyticsQueryService::class);
+    $queries->shouldReceive('hourlyClickBuckets')->times($threshold)->andThrow(new RuntimeException('db down'));
+
+    $service = new AnalyticsCacheService(new CacheLockService, $queries, new InsightEngine);
+
+    // A distinct (user, site) pair per iteration — a distinct cache key each
+    // time — so every call genuinely reaches computeInsights() instead of
+    // being short-circuited by the null-result cache under test below. This
+    // test is about the RateLimiter escalation, not the cache layer.
+    for ($i = 1; $i <= $threshold; $i++) {
+        $professional = (new User)->forceFill(['id' => "user-insights-fault-{$i}"]);
+        $site = (new Site)->forceFill(['id' => "site-insights-fault-{$i}"]);
+
+        $service->insights($professional, $site);
+
+        if ($i < $threshold) {
+            Exceptions::assertNothingReported();
+        }
+    }
+
+    // The threshold-th consecutive failure inside the window escalates.
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+it('caches a compute failure only briefly, not the full success TTL, so a sustained fault self-heals fast', function () {
+    Carbon::setTestNow(Carbon::now());
+
+    $professional = (new User)->forceFill(['id' => 'user-insights-ttl-1']);
+    $site = (new Site)->forceFill(['id' => 'site-insights-ttl-1']);
+
+    // Exactly TWICE: once for the initial failure, once again after the short
+    // null TTL (60s) has elapsed. If the failure were cached for the full
+    // 3600s success TTL (the pre-fix bug CCH-4 describes), the second call
+    // would be served from cache and this expectation would fail — Mockery
+    // verifies exact call counts at test teardown.
+    $queries = Mockery::mock(AnalyticsQueryService::class);
+    $queries->shouldReceive('hourlyClickBuckets')->twice()->andThrow(new RuntimeException('db down'));
+
+    $service = new AnalyticsCacheService(new CacheLockService, $queries, new InsightEngine);
+
+    $first = $service->insights($professional, $site);
+
+    // Past the 60s null TTL, nowhere near the 3600s success TTL.
+    Carbon::setTestNow(Carbon::now()->addSeconds(90));
+
+    $second = $service->insights($professional, $site);
+
+    expect($first)->toBe([])->and($second)->toBe([]);
+});
+
+it('caches a genuinely-empty (no insights found) result for the full success TTL, not the short null TTL', function () {
+    Carbon::setTestNow(Carbon::now());
+
+    $professional = (new User)->forceFill(['id' => 'user-insights-empty-1']);
+    $site = (new Site)->forceFill(['id' => 'site-insights-empty-1']);
+
+    // A real (non-throwing) empty result — every provider returns an empty
+    // array, no insight clears threshold. Each called ONCE: the second
+    // insights() call (90s later, well past the 60s null TTL but inside the
+    // 3600s success TTL) must be served from cache, proving a genuine []
+    // isn't conflated with the fail-open null path's short TTL.
+    $queries = Mockery::mock(AnalyticsQueryService::class);
+    $queries->shouldReceive('hourlyClickBuckets')->once()->andReturn([]);
+    $queries->shouldReceive('weekdayVisitBuckets')->once()->andReturn([]);
+    $queries->shouldReceive('pageViewsWeekOverWeek')->once()->andReturn([]);
+    $queries->shouldReceive('sourceCountsForWindow')->twice()->andReturn([]);
+    $queries->shouldReceive('pageDwellStats')->once()->andReturn([]);
+
+    $service = new AnalyticsCacheService(new CacheLockService, $queries, new InsightEngine);
+
+    $first = $service->insights($professional, $site);
+    Carbon::setTestNow(Carbon::now()->addSeconds(90));
+    $second = $service->insights($professional, $site);
+
+    expect($first)->toBe([])->and($second)->toBe([]);
 });

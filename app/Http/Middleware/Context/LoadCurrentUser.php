@@ -122,7 +122,6 @@ class LoadCurrentUser
         try {
             $professional->primary_email = $claimedEmail;
             $professional->save();
-            $this->userCache->invalidateUser($professional);
         } catch (UniqueConstraintViolationException $e) {
             // Hash before logging — Nightwatch records must never carry a raw
             // email. Same HMAC-SHA256 scheme as SupabaseEmailEventService::hashEmail
@@ -133,6 +132,19 @@ class LoadCurrentUser
                 'attempted_email_hash' => hash_hmac('sha256', strtolower($claimedEmail), config('app.key')),
                 'reason' => $e->getMessage(),
             ]);
+
+            return;
+        }
+
+        // LIFE-7: separate try/catch from the save() above — a cache blip here
+        // must not 500 a request whose DB write already committed. Narrow
+        // UniqueConstraintViolationException handling above stays untouched;
+        // this is deliberately \Throwable since invalidateUser()'s failure
+        // modes (Redis down, etc.) aren't a single known exception type.
+        try {
+            $this->userCache->invalidateUser($professional);
+        } catch (\Throwable $e) {
+            report($e);
         }
     }
 }

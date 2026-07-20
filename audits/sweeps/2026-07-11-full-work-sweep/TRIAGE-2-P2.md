@@ -215,7 +215,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 3 complete
-- P2 Medium: 2 of 25 complete
+- P2 Medium: 3 of 25 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -270,7 +270,7 @@
                 ->get();
         ```
 
-- [ ] **LIFE-7** · P2 — Cache invalidation sits inside a catch clause scoped to a different exception type — a Redis hiccup 500s an otherwise-successful email sync
+- [x] **LIFE-7** · P2 — Cache invalidation sits inside a catch clause scoped to a different exception type — a Redis hiccup 500s an otherwise-successful email sync
     - **Where:** app/Http/Middleware/Context/LoadCurrentUser.php:93-137
     - **Affects:** Every authenticated request where the JWT's verified email differs from the stored `primary_email` (rare per-user, but hits every affected request during any Redis blip on that path).
     - **Effort:** S (~0.5–1h)
@@ -1027,7 +1027,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 1 of 4 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -1073,7 +1073,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
         // No :stale companion written anywhere.
         ```
 
-- [ ] **#CCH-4** · P2 — `AnalyticsCacheService::computeInsights` swallows exceptions and caches an empty result for the full 1h TTL
+- [x] **#CCH-4** · P2 — `AnalyticsCacheService::computeInsights` swallows exceptions and caches an empty result for the full 1h TTL
     - **Where:** app/Services/Analytics/AnalyticsCacheService.php:131, 142-209 (`insights()` / `computeInsights()`)
     - **Affects:** Every professional viewing the analytics dashboard "Insights" card — a transient DB blip produces an empty insights panel that `rememberLocked` then caches fleet-wide for up to an hour, self-healing only on TTL expiry, with no Nightwatch signal.
     - **Effort:** S (~0.5–1h)
@@ -3134,14 +3134,14 @@ None — every finding in this audit is a direct DB migration/schema change, whi
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCH-101** · P2 — Cache-invalidation failures on all UserObserver lifecycle hooks are swallowed into an invisible `Log::warning`
+- [x] **#CCH-101** · P2 — Cache-invalidation failures on all UserObserver lifecycle hooks are swallowed into an invisible `Log::warning`
     - **Where:** app/Observers/User/UserObserver.php:59-66 (`updated`), 160-167 (`deleted`), 190-197 (`restored`)
     - **Affects:** Every profile edit, soft-delete, and restore. If `UserCacheService::invalidateUser()` throws (e.g. a transient Redis blip), the DB mutation still commits but the ~10-key push-invalidation fan-out (primary + `:stale` SWR companions for the professional payload, services, dashboard services, customer count, plus the id/handle/auth-id lookup keys) silently doesn't happen — no alert fires, no compensating action runs, and the stale set survives until natural TTL/SWR expiry.
     - **Effort:** S (~0.5–1h)
