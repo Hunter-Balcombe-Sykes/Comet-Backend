@@ -5,9 +5,12 @@ namespace App\Services\FeatureAvailability;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\User\User;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Cache\CacheLockService;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Read side for core.feature_availability — answers "is feature X available to
@@ -28,26 +31,73 @@ use Illuminate\Support\Facades\Cache;
  *
  * The whole rule table is small and staff-curated, so the per-user snapshot is
  * computed in one pass and cached for 60s; staff CRUD calls flush().
+ *
+ * Fail-open on a DB fault is deliberate and load-bearing (public submit
+ * endpoints, platform-connect middleware, the "my site" payload all read
+ * through this) — never make it fail-closed. The fault sentinel is kept OFF
+ * the primary (jittered + stale-while-revalidate) cache key though: see
+ * for()'s catch block.
  */
 final class FeatureAvailability
 {
+    use EscalatesRepeatedFaults;
+
     private const CACHE_TTL_SECONDS = 60;
 
     private const CACHE_VERSION_KEY = 'feature-availability:version';
 
+    /**
+     * TTL for the fail-open sentinel written when resolveOverrides() faults.
+     * Deliberately short and on its OWN key, never the primary one: the
+     * primary path is jittered (~48-72s) with a 10x stale-while-revalidate
+     * copy (CacheLockService), so a transient DB fault cached there would
+     * silently open every feature gate for up to ~10 minutes. A short,
+     * dedicated key single-flights a request storm during the blip and
+     * retries the DB again within seconds of it clearing.
+     */
+    private const FAILOPEN_TTL_SECONDS = 5;
+
     public static function for(User $user): UserFeatureAvailability
     {
+        $lock = app(CacheLockService::class);
+        $failopenKey = "feature-availability:failopen:{$user->id}";
+
+        // A DB fault very recently parked a short-lived sentinel here (see the
+        // catch below) — skip straight to fail-open instead of re-attempting
+        // (and re-faulting on) the same query on every request during a blip.
+        if (Cache::get($failopenKey) !== null) {
+            return new UserFeatureAvailability([]);
+        }
+
         $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
 
         // Single-flight via CacheLockService — without this, a staff flush() bumping
         // the version token cold-misses every concurrent reader at once and they all
         // race to recompute (`for()` is static, so the lock service is resolved from
         // the container rather than injected).
-        $overrides = app(CacheLockService::class)->rememberLocked(
-            "feature-availability:user:{$user->id}:v{$version}",
-            self::CACHE_TTL_SECONDS,
-            fn () => self::resolveOverrides($user),
-        );
+        try {
+            $overrides = $lock->rememberLocked(
+                "feature-availability:user:{$user->id}:v{$version}",
+                self::CACHE_TTL_SECONDS,
+                fn () => self::resolveOverrides($user),
+            );
+        } catch (Throwable $e) {
+            // resolveOverrides() lets DB faults bubble (see its docblock) instead of
+            // swallowing them into an "everything available" array that rememberLocked
+            // can't distinguish from real data and would cache for the full primary
+            // TTL. Fail open here too — same absence-=-enabled contract — but via the
+            // dedicated short-TTL sentinel above, never the primary key. Escalate on a
+            // sustained run (a single blip stays a Log::warning breadcrumb).
+            Log::warning('feature_availability.resolve_overrides_failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+            self::escalateIfSustained($e, 'resolve_overrides');
+
+            $lock->rememberLockedNullable($failopenKey, self::FAILOPEN_TTL_SECONDS, fn () => null);
+
+            return new UserFeatureAvailability([]);
+        }
 
         return new UserFeatureAvailability($overrides);
     }
@@ -62,17 +112,17 @@ final class FeatureAvailability
      * Compute the user's non-default availability map. Only keys with an
      * applicable rule appear; everything else defaults to available.
      *
+     * Deliberately does NOT catch here (CCH-5): a DB fault must bubble to
+     * for()'s caller so it can fail open via the dedicated short-TTL sentinel
+     * instead of getting cached as valid data on the primary (jittered + SWR)
+     * key for the full TTL. This also covers SQLite test mirrors without the
+     * table — same bubble-and-fail-open path.
+     *
      * @return array<string, bool> feature_key => allowed
      */
     private static function resolveOverrides(User $user): array
     {
-        try {
-            $rules = FeatureAvailabilityRule::query()->get(['feature_key', 'mode', 'segment_id']);
-        } catch (\Throwable) {
-            // Fail-open to "everything available" — matches the absence-=-enabled
-            // contract. Also covers SQLite test mirrors without the table.
-            return [];
-        }
+        $rules = FeatureAvailabilityRule::query()->get(['feature_key', 'mode', 'segment_id']);
 
         if ($rules->isEmpty()) {
             return [];

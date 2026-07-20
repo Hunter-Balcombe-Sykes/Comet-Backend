@@ -112,9 +112,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 4 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 2 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -214,9 +214,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
-- P2 Medium: 3 of 25 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 3 of 20 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -738,7 +738,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -873,7 +873,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 5 of 5 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -1026,9 +1026,9 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 1 of 4 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 4 of 4 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -1036,7 +1036,8 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 
 ## P2 — Should fix
 
-- [ ] **#CCH-2** · P2 — `FeatureAvailability::for()` writes with a hardcoded, unjittered 60s TTL
+- [x] **#CCH-2** · P2 — `FeatureAvailability::for()` writes with a hardcoded, unjittered 60s TTL
+    - **✅ ALREADY FIXED (verified 2026-07-20).** Commit `d211fb34` routed `FeatureAvailability::for()` through `CacheLockService::rememberLocked`, and `writeWithJitter()` applies ±20% jitter to every int TTL write (`CacheLockService.php:186`). No code change needed.
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:33, 43
     - **Affects:** Every user whose feature-availability entry was written in the same second (post-flush stampede, deploy restart) — all expire on the same tick.
     - **Effort:** S (~0.5–1h)
@@ -1055,7 +1056,8 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
         );
         ```
 
-- [ ] **#CCH-3** · P2 — `FeatureAvailability::for()` has no stale-while-revalidate companion
+- [x] **#CCH-3** · P2 — `FeatureAvailability::for()` has no stale-while-revalidate companion
+    - **✅ ALREADY FIXED (verified 2026-07-20).** Same commit `d211fb34`: `rememberLocked` unconditionally writes a `:stale` companion key at 10× TTL (`CacheLockService.php:190`), giving `for()` SWR semantics. No code change needed.
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:41-45
     - **Affects:** Any caller whose per-user entry expired — blocks on the DB query + segment resolution instead of getting last-good immediately.
     - **Effort:** S (~0.5–1h)
@@ -1101,7 +1103,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
         }
         ```
 
-- [ ] **#CCH-5** · P2 — `FeatureAvailability::resolveOverrides()` swallows DB exceptions and caches the empty ("all features available") sentinel for the full TTL
+- [x] **#CCH-5** · P2 — `FeatureAvailability::resolveOverrides()` swallows DB exceptions and caches the empty ("all features available") sentinel for the full TTL
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:62-70
     - **Affects:** All users for up to 60 seconds after any transient DB error — the fail-open empty map ("all features available," including gated integrations) gets cached fleet-wide via the enclosing `Cache::remember`, even after the DB recovers seconds later.
     - **Effort:** S (~0.5–1h)
@@ -1165,8 +1167,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1307,8 +1309,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 0 of 0 complete
 
 ---
 
@@ -1357,9 +1359,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 0 of 0 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -1401,9 +1403,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 0 of 1 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -1491,8 +1493,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
-- P2 Medium: 3 of 5 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 3 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1697,9 +1699,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 4 complete
+- P1 High: 0 of 0 complete
 - P2 Medium: 2 of 5 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -1872,9 +1874,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 0 of 0 complete
 - P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2001,8 +2003,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 5 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2084,10 +2086,10 @@ None.
 
 ## Progress
 
-- P0 Blockers: 0 of 1 complete
-- P1 High: 0 of 1 complete
+- P0 Blockers: 0 of 0 complete
+- P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2182,7 +2184,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 9 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2226,8 +2228,8 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 4 complete
+- P2 Medium: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2307,8 +2309,8 @@ None — no P0, auth/money/migration-touching, or L/XL-effort findings survived 
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 5 complete
+- P2 Medium: 0 of 0 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2358,9 +2360,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2402,8 +2404,8 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 7 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 7 of 7 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2646,9 +2648,9 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 9 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 2 of 9 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -2948,7 +2950,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 2 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -3039,7 +3041,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -3225,7 +3227,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -3377,7 +3379,7 @@ None — the two surviving findings touch unrelated files and subsystems (auth-h
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -3513,7 +3515,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -3625,7 +3627,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -3679,7 +3681,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -3745,7 +3747,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -3834,8 +3836,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
-- P3 Low: 0 of 1 complete
+- P2 Medium: 1 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -3957,7 +3959,7 @@ None — no finding in this audit is P0, touches auth/authorization or money, in
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -4102,7 +4104,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -4140,7 +4142,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -4252,9 +4254,9 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -4299,7 +4301,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 4 of 7 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -4524,7 +4526,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
@@ -4621,7 +4623,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
