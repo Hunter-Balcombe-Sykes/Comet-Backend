@@ -122,7 +122,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-2** · P2 — JWT revocation gate skipped when a token carries no `session_id` claim
+- [x] **#SEC-2** · P2 — JWT revocation gate skipped when a token carries no `session_id` claim
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php:86-96 (and the mirrored fallback path at :180-189)
     - **Affects:** "Sign out everywhere" / admin-forced-logout correctness — a cryptographically valid but un-revocable token, if one were ever issued without `session_id`, would keep working until natural expiry.
     - **Effort:** S (~0.5–1h)

@@ -66,6 +66,12 @@ it('exposes aal, amr, and session_id on the request attributes when the JWKS pat
     // the auth-server fallback (no claims) sets safe defaults, and separately
     // verify the JWKS path by monkeypatching via a subclass.
 
+    // This test's purpose is attribute-defaulting, not the SEC-2 revocation
+    // gate — the token below deliberately carries no session_id. Disable the
+    // gate so the request still reaches $next and we can assert the defaults;
+    // the gate itself is covered by VerifySupabaseJwtSessionIdGateTest.
+    config(['supabase.require_session_id' => false]);
+
     // For the auth-server (no-claims) fallback: aal and amr should default to aal1 / [].
     $uid = $this->uid;
     $jwt = makeMfaTestJwt([
@@ -97,6 +103,12 @@ it('exposes aal, amr, and session_id on the request attributes when the JWKS pat
 });
 
 it('defaults aal to aal1 and amr to empty array when no claims are available (auth-server path)', function () {
+    // This test's purpose is attribute-defaulting, not the SEC-2 revocation
+    // gate — the token below deliberately carries no session_id. Disable the
+    // gate so the request still reaches $next and we can assert the defaults;
+    // the gate itself is covered by VerifySupabaseJwtSessionIdGateTest.
+    config(['supabase.require_session_id' => false]);
+
     $uid = $this->uid;
     $jwt = makeMfaTestJwt([
         'sub' => $uid,

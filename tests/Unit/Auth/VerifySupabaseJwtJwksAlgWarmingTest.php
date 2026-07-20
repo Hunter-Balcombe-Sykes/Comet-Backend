@@ -106,6 +106,9 @@ it('warms a TRUE mixed-alg JWKS (RS256 + ES256) with each kid carrying its own a
         'aud' => 'authenticated',
         'iat' => time(),
         'exp' => time() + 3600,
+        // session_id present — this test targets JWKS key-warming (SEC-3), not
+        // the SEC-2 no-session_id gate (covered in VerifySupabaseJwtSessionIdGateTest).
+        'session_id' => 'sess-alg-warming',
     ]);
 
     $cacheLock = Mockery::mock(CacheLockService::class);
@@ -153,6 +156,9 @@ it('warms self::$keysByKid with each parsed Key having its OWN declared algorith
         'aud' => 'authenticated',
         'iat' => time(),
         'exp' => time() + 3600,
+        // session_id present — this test targets JWKS key-warming (SEC-3), not
+        // the SEC-2 no-session_id gate (covered in VerifySupabaseJwtSessionIdGateTest).
+        'session_id' => 'sess-alg-warming',
     ]);
 
     $cacheLock = Mockery::mock(CacheLockService::class);

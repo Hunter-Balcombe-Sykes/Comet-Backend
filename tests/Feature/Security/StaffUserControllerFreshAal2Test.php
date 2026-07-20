@@ -290,7 +290,7 @@ describe('VerifySupabaseJwt — missing session_id warning (#P2-01)', function (
 
         Log::spy();
 
-        $this->middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
+        $response = $this->middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
 
         // The JWKS failure also emits a warning — we assert ours fired at least once.
         Log::shouldHaveReceived('warning')
@@ -299,5 +299,52 @@ describe('VerifySupabaseJwt — missing session_id warning (#P2-01)', function (
                 && isset($context['uid'])
                 && $context['uid'] === $uid
             );
+
+        // SEC-2: the warning above is now paired with a 401 rejection — a
+        // session_id-less token can never be revoked, so it must not reach
+        // $next(). require_session_id defaults true (not overridden here).
+        expect($response->getStatusCode())->toBe(401)
+            ->and($response->getData(true))->toMatchArray([
+                'error' => 'unauthenticated',
+                'code' => 'session_id_missing',
+            ]);
+    });
+
+    it('passes through when require_session_id is disabled (incident kill-switch)', function () {
+        config(['supabase.require_session_id' => false]);
+
+        $uid = (string) Str::uuid();
+
+        $header = rtrim(strtr(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
+        $payload = rtrim(strtr(base64_encode(json_encode([
+            'sub' => $uid,
+            'iss' => 'https://proj.supabase.co/auth/v1',
+            'aud' => 'authenticated',
+            // Deliberately no 'session_id' key
+        ])), '+/', '-_'), '=');
+        $jwt = $header.'.'.$payload.'.fakesignature';
+
+        Http::fake([
+            'https://proj.supabase.co/auth/v1/user' => Http::response(['id' => $uid], 200),
+        ]);
+
+        $request = Request::create('/test', 'GET', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer '.$jwt,
+        ]);
+
+        Log::spy();
+
+        $response = $this->middleware->handle($request, fn ($req) => response()->json(['ok' => true]));
+
+        // The warning still fires — the flag only changes whether we reject,
+        // never whether we log.
+        Log::shouldHaveReceived('warning')
+            ->atLeast()->once()
+            ->withArgs(fn ($message, $context = []) => $message === 'jwt.missing_session_id'
+                && isset($context['uid'])
+                && $context['uid'] === $uid
+            );
+
+        expect($response->getStatusCode())->toBe(200);
     });
 });
