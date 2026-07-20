@@ -273,6 +273,46 @@ it('keys public popularityRank by product HANDLE, matching the scoring pipeline'
     expect($productIdKeyed['products'][0]['popularityRank'])->toBeNull();
 });
 
+// ── CCG-102: shop-product popularity ranks are single-flight cached ────────
+
+it('serves the second public platforms request from cache — one DB read, identical shop payload', function () {
+    setupContentPopularityScoresTable();
+    $user = shopStorageUserWithSite('pubshopcache');
+    $site = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->first();
+
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $brand = ShopBrand::create(['connection_id' => $conn->id, 'brand_id' => 'cache-brand', 'provider' => 'shopify', 'url' => 'https://cache.example.com', 'position' => 0]);
+    ShopProduct::create([
+        'brand_id' => $brand->id, 'product_id' => 'p1', 'position' => 0,
+        'data' => ['productId' => 'p1', 'handle' => 'mug', 'title' => 'Mug', 'url' => 'https://cache.example.com/p1'],
+    ]);
+
+    // content_popularity_scores keys shop_product by product HANDLE (test at
+    // "keys public popularityRank by product HANDLE" above pins this).
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $site->id, 'content_type' => 'shop_product',
+        'content_key' => 'mug', 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
+    ]);
+
+    DB::connection('pgsql')->enableQueryLog();
+    $first = $this->getJson('/api/public/profiles/pubshopcache/platforms')->assertOk();
+    $second = $this->getJson('/api/public/profiles/pubshopcache/platforms')->assertOk();
+    $log = DB::connection('pgsql')->getQueryLog();
+    DB::connection('pgsql')->disableQueryLog();
+
+    // Both requests see the same rank — the cache didn't change the answer.
+    expect($first->json('data.platforms.shop.0.payload.cache-brand.products.0.popularityRank'))->toBe(1);
+    expect($second->json())->toEqual($first->json());
+
+    // The actual "not re-read per request" proof: only ONE query touches
+    // content_popularity_scores across both HTTP calls.
+    $rankQueries = array_filter($log, fn ($q) => str_contains($q['query'], 'content_popularity_scores'));
+    expect(count($rankQueries))->toBe(1);
+});
+
 // ── FOUND-25 regression: edge-cache purge must survive past the first write ──
 //
 // IntegrationConnectionObserver only purges on wasRecentlyCreated / a

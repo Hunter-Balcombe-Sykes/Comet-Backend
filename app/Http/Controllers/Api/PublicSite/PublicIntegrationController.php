@@ -25,10 +25,15 @@ use Illuminate\Http\JsonResponse;
  * Deliberately SEPARATE from the profile payload (IndividualProfileController) —
  * platforms is an additive, self-contained feature.
  *
- * No backend Redis cache here: the Cloudflare edge cache does the heavy lifting
- * and is purged on every write by IntegrationConnectionObserver, so a backend
- * cache would only re-introduce the staleness we just fixed. The query is a
- * single indexed lookup (idx_platform_connections_user_platform_sort).
+ * The connections list itself is NOT backend-cached: the Cloudflare edge cache
+ * does the heavy lifting and is purged on every write by
+ * IntegrationConnectionObserver, so caching it would only re-introduce the
+ * staleness we just fixed. The query is a single indexed lookup
+ * (idx_platform_connections_user_platform_sort).
+ *
+ * CCG-102 is the one exception: the popularity-rank sub-read IS wrapped in
+ * rememberLocked, because it recomputes on a 15-minute cadence rather than
+ * changing on write, so edge purging does nothing to bound its cost.
  */
 class PublicIntegrationController extends ApiController
 {

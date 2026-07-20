@@ -653,14 +653,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **CACHE-1** · P2 — `PostgresEventWriter::writeMany()` loops session-ping upserts one row at a time — latent because the only caller dispatches one event per job
+- [x] **CACHE-1** · P2 — `PostgresEventWriter::writeMany()` loops session-ping upserts one row at a time — latent because the only caller dispatches one event per job
     - **Where:** app/Services/Analytics/Writers/PostgresEventWriter.php:75-77
     - **Affects:** Analytics ingest throughput under burst ingest. Not active today: `QueuedIngestor::ingest()` (app/Services/Analytics/Ingestors/QueuedIngestor.php) dispatches exactly one `RecordAnalyticsEventJob` per HTTP ping, and `RecordAnalyticsEventJob::handle()` calls `$writer->write($event)`, which is `writeMany([$event])` — so `$sessionEvents` here never holds more than one item under the current architecture.
     - **Effort:** M (~2–4h)
@@ -742,14 +742,14 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCALE-1** · P2 — `PruneNotifications` issues one unbounded `DELETE` per run instead of batching like its sibling purge command
+- [x] **SCALE-1** · P2 — `PruneNotifications` issues one unbounded `DELETE` per run instead of batching like its sibling purge command
     - **Where:** app/Console/Commands/PruneNotifications.php:36
     - **Affects:** The `notifications.notifications` table (and cascaded `notification_receipts` rows) on every professional. Runs daily at 03:25 automatically — not an opt-in operator action.
     - **Effort:** S (~0.5–1h)
@@ -769,7 +769,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         $deleted = $q->delete(); // relies ON DELETE CASCADE to remove receipts
         ```
 
-- [ ] **SCALE-2** · P2 — Unbounded `->get()` in `BackfillWebsiteAnalysesCommand` when `--retry-failures` is used
+- [x] **SCALE-2** · P2 — Unbounded `->get()` in `BackfillWebsiteAnalysesCommand` when `--retry-failures` is used
     - **Where:** app/Console/Commands/BackfillWebsiteAnalysesCommand.php:78
     - **Affects:** Operators running `design:backfill-website-analyses --retry-failures`. At scale (thousands of active shop/custom connections), this loads every matching row into memory at once before looping.
     - **Effort:** S (~0.5–1h)
@@ -801,7 +801,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         }
         ```
 
-- [ ] **SCALE-3** · P2 — `analytics:compute-popularity` full-sweeps every published site every 15 minutes
+- [x] **SCALE-3** · P2 — `analytics:compute-popularity` full-sweeps every published site every 15 minutes
     - **Where:** routes/console.php:73-88, app/Console/Commands/ComputeContentPopularityScores.php:148-157
     - **Affects:** Scheduler runtime and Postgres load, automatically every 15 minutes. The command re-computes popularity for EVERY published site each tick regardless of whether it received any new analytics events.
     - **Effort:** M (~2–4h)
@@ -3751,14 +3751,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCG-102** · P2 — Popularity-rank read is cached on the profile payload path but hits Postgres uncached on two sibling public endpoints
+- [x] **#CCG-102** · P2 — Popularity-rank read is cached on the profile payload path but hits Postgres uncached on two sibling public endpoints
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:105, app/Http/Controllers/Api/PublicSite/PublicMenuController.php:70-73, app/Services/Analytics/ContentPopularityReader.php:33-46
     - **Affects:** Every unauthenticated viewer of a professional's `/platforms` (shop-product ranks) and `/menu` (menu-item/category ranks) subpages — a Postgres round-trip on every single request, with no TTL or memoisation, for a value that only changes every ~15 minutes.
     - **Effort:** M (~2–4h)
