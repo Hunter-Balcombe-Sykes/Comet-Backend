@@ -4298,14 +4298,14 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 2 of 7 complete
+- P2 Medium: 4 of 7 complete
 - P3 Low: 0 of 3 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#TEST-101** · P2 — `ContentSelectionPolicy` has zero test coverage
+- [x] **#TEST-101** · P2 — `ContentSelectionPolicy` has zero test coverage
     - **Where:** `app/Policies/ContentSelectionPolicy.php` — no test file anywhere under `tests/` references this class.
     - **Affects:** The sitepage background-content-picker mutation surface (`replace`/`toggle`/`upload`/`delete` all authorize through `manage`). A regression that drops the `denyIfPendingDeletion` guard or the owner check would go undetected.
     - **Effort:** S (~0.5–1h)
@@ -4329,7 +4329,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **#TEST-102** · P2 — `FeatureAvailabilityPolicy` and `UserSegmentPolicy` staff abilities have no dedicated ability tests
+- [x] **#TEST-102** · P2 — `FeatureAvailabilityPolicy` and `UserSegmentPolicy` staff abilities have no dedicated ability tests
     - **Where:** `app/Policies/FeatureAvailabilityPolicy.php`, `app/Policies/UserSegmentPolicy.php` — no test file references either class name anywhere in `tests/`.
     - **Affects:** Staff tooling for feature-availability rule management and user-segment management. `staffManage` (admin-only, create/update/delete rules or segments) and `staffView` (support+admin read) have no regression test proving the role split is enforced.
     - **Effort:** M (~2–4h)
