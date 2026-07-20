@@ -30,8 +30,24 @@ it('has its own retry policy and queue (not the KV trait — see §28.7)', funct
 
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([5, 15, 60])
-        ->and($job->timeout)->toBe(15)
+        ->and($job->timeout)->toBe(180)
         ->and($job->queue)->toBe('cloudflare');
+});
+
+// 2026-07-20 follow-up: raised from 15 -> 180 with real margin over the derived
+// worst case (~152s: ~50 sequential purge_cache HTTP calls + the 2s pacing
+// ceiling — see the property's docblock). Pinned as a floor (not an exact
+// value) so a future accidental reduction below the derived-safe minimum goes
+// red, while still leaving room to tune upward without breaking this test.
+it('keeps the purge job timeout at or above the derived worst-case floor', function () {
+    $job = new CloudflareCachePurgeJob('h');
+
+    // Floor = 50 sequential calls x 3s/call + the 2s pacing ceiling, rounded down.
+    expect($job->timeout)->toBeGreaterThanOrEqual(150)
+        // And must stay clear of the 'redis' queue connection's retry_after
+        // (config/queue.php, default 360s) so Redis can't re-reserve this job to
+        // a second worker mid-purge — duplicating purges.
+        ->and($job->timeout)->toBeLessThan((int) config('queue.connections.redis.retry_after'));
 });
 
 it('delegates to CloudflarePurgeService::purgeHandle with the lowered handle', function () {
@@ -73,7 +89,20 @@ it('is unique per lowered handle so a burst of site touches coalesces to one pur
 
     expect($job)->toBeInstanceOf(ShouldBeUnique::class)
         ->and($job->uniqueId())->toBe('mixed-case|')
-        ->and($job->uniqueFor)->toBe(120);
+        ->and($job->uniqueFor)->toBe(240);
+});
+
+// The invariant behind that 240, pinned separately from the literal so a future
+// $timeout bump can't silently break it again. ShouldBeUnique's lock is a cache
+// lock with TTL = $uniqueFor, force-released only on CLEAN completion — a
+// timeout-kill leaves it to expire on its own. So uniqueFor <= timeout means a
+// slow purge loses dedupe protection while still running and a duplicate slips
+// through. This exact regression shipped when $timeout went 15 -> 180 while
+// uniqueFor stayed at 120.
+it('keeps the primary purge lock longer than the job can run, so a slow purge never loses dedupe mid-flight', function () {
+    $job = new CloudflareCachePurgeJob('somehandle');
+
+    expect($job->uniqueFor)->toBeGreaterThan($job->timeout);
 });
 
 it('passes the custom domain through to the service and into uniqueId', function () {

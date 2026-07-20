@@ -35,20 +35,43 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     // Short-circuit permanent failures (e.g. revoked token) so failed()/Nightwatch fires after 2 attempts, not 3.
     public int $maxExceptions = 2;
 
-    public int $timeout = 15;
+    // Derived worst case (2026-07-20, complements SCALE-101 in CloudflarePurgeService):
+    // purgeHandle() chunks up to ~1,480 URLs at 30/chunk = ~50 sequential blocking
+    // Http::post()->throw() calls to Cloudflare, none of which set an explicit
+    // ->timeout() (unlike CloudflareCustomHostnameService's calls). Assuming ~3s/call
+    // under a slow-but-not-hung Cloudflare API (well under Laravel's blanket 30s
+    // per-request ceiling) — 50 x 3s = 150s, + the pacing budget's 2s hard ceiling =
+    // ~152s worst case. 180s leaves real margin above that.
+    // Sanity-checked against the queue: the job's OWN $timeout wins over Horizon's
+    // supervisor-level timeout (Illuminate\Queue\Worker::timeoutForJob() prefers
+    // $job->timeout() over $options->timeout), so config/horizon.php's
+    // supervisor-cloudflare timeout=60 doesn't cap this. What DOES matter is the
+    // 'cloudflare' queue's connection — config/queue.php 'redis' has
+    // retry_after=360 (default) — 180 stays comfortably under that so Redis can't
+    // re-reserve this job to a second worker while the first is still purging
+    // (which would duplicate purges).
+    public int $timeout = 180;
 
     /**
      * Coalesce window: while a purge for this handle is queued/running, duplicate
      * dispatches from the same request's observer cascade (or a rapid burst of
-     * edits) are dropped. Exceeds $timeout so a slow purge can't release the lock
-     * early and let a duplicate through.
+     * edits) are dropped. MUST exceed $timeout — ShouldBeUnique's lock is a cache
+     * lock with TTL = $uniqueFor, and it is only force-released on CLEAN
+     * completion; a timeout-kill leaves it to expire on its own TTL. If
+     * $uniqueFor < $timeout, a purge still running past the TTL loses its dedupe
+     * protection mid-flight and a genuine duplicate slips through. Raised 120->240
+     * alongside the $timeout 15->180 bump for exactly that reason; 240 also stays
+     * under redis retry_after=360. Pinned by a test — do not raise $timeout without
+     * raising this too.
      *
      * Follow-ups keep a SHORT 30s lock instead: their dispatch delay (120s)
      * exceeds any lock we'd want, and a lock outliving the delay would coalesce
      * away the follow-up owed to a LATER edit — leaving that edit's stale re-pin
-     * window uncovered for the router's 24h HTML TTL.
+     * window uncovered for the router's 24h HTML TTL. A follow-up does the same
+     * ~50-chunk work, but its lock is deliberately shorter than $timeout: dropping
+     * a redundant follow-up is cheap, dropping a later edit's follow-up is not.
      */
-    public int $uniqueFor = 120;
+    public int $uniqueFor = 240;
 
     public function uniqueId(): string
     {
@@ -79,7 +102,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // Isolated from user-facing work so a burst of site mutations can't
         // delay notifications or mail delivery.
         $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
-        $this->uniqueFor = $followUp ? 30 : 120;
+        $this->uniqueFor = $followUp ? 30 : 240;
     }
 
     public function handle(CloudflarePurgeService $purge): void

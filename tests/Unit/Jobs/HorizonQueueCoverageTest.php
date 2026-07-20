@@ -200,3 +200,66 @@ function envCoversQueue(string $env, string $queue): bool
 
     return false;
 }
+
+// Sweep: every ShouldBeUnique job whose run can outlast its own dedupe lock is a
+// duplicate waiting to happen. ShouldBeUnique's lock is a cache lock with
+// TTL = $uniqueFor, force-released only on CLEAN completion — a timeout-kill or
+// uncaught throw leaves it to expire on its own TTL. So uniqueFor <= timeout
+// means a slow job loses dedupe protection while still running.
+//
+// This invariant was previously asserted for exactly ONE job (InstagramConnectJob)
+// while the same rule silently broke on CloudflareCachePurgeJob when its $timeout
+// was raised 15 -> 180 against an unchanged uniqueFor of 120. A codebase-wide rule
+// pinned in one place is not pinned.
+//
+// Exemptions carry a justification, mirroring PolicyCoverageTest's allowlist shape.
+it('every ShouldBeUnique job holds its lock at least as long as it can run', function () {
+    // job class => [constructor args, why it is exempt (or null if it must comply)]
+    $jobs = [
+        CloudflareCachePurgeJob::class => [['some-handle'], null],
+        SyncSubdomainToKvJob::class => [['00000000-0000-0000-0000-000000000001'], null],
+        InstagramConnectJob::class => [['u', 'someuser', 'c'], null],
+    ];
+
+    $violations = [];
+
+    foreach ($jobs as $class => [$args, $exemptReason]) {
+        if ($exemptReason !== null) {
+            continue;
+        }
+
+        $job = new $class(...$args);
+
+        // Only meaningful when the job declares both knobs.
+        if (! property_exists($job, 'uniqueFor') || ! property_exists($job, 'timeout')) {
+            continue;
+        }
+
+        if ($job->uniqueFor <= $job->timeout) {
+            $violations[] = sprintf(
+                '%s: uniqueFor=%d must exceed timeout=%d',
+                class_basename($class),
+                $job->uniqueFor,
+                $job->timeout
+            );
+        }
+    }
+
+    expect($violations)->toBeEmpty(
+        "A ShouldBeUnique job can outrun its own dedupe lock, so a duplicate can slip in mid-run:\n - "
+        .implode("\n - ", $violations)
+    );
+});
+
+// The deliberate exception, pinned so it reads as intentional rather than as a
+// miss: a FOLLOW-UP purge keeps a SHORT lock (30s) on purpose, well under its own
+// timeout. Its dispatch delay is 120s, and a lock outliving that delay would
+// coalesce away the follow-up owed to a LATER edit — leaving that edit's stale
+// re-pin uncovered for the router's 24h HTML TTL. Dropping a redundant follow-up
+// is cheap; dropping a later edit's follow-up is not.
+it('exempts the follow-up purge from that rule on purpose, because a stale lock would swallow a later edit', function () {
+    $followUp = new CloudflareCachePurgeJob('some-handle', null, followUp: true);
+
+    expect($followUp->uniqueFor)->toBeLessThan($followUp->timeout)
+        ->and($followUp->uniqueFor)->toBeLessThan((int) config('partna.cache.purge_followup_seconds', 120));
+});

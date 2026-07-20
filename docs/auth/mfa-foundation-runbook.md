@@ -13,11 +13,16 @@
 ## Rollout sequence (do these in order)
 
 1. ✅ Merge this PR.
-2. ✅ Confirm `/api/webhooks/supabase/auth/mfa-verification` is reachable on dev:
+2. ✅ Confirm `/api/webhooks/supabase/auth/mfa-verification` is reachable on dev.
+   The route is POST-only (`routes/api.php`) — a bare `curl -i` defaults to GET and
+   dies at routing with 405 before ever reaching the signature check, so it proves
+   nothing about the auth gate. Use `-X POST` with no body/signature headers:
    ```bash
-   curl -i https://dev-api.partna.au/api/webhooks/supabase/auth/mfa-verification
+   curl -i -X POST https://dev-api.partna.au/api/webhooks/supabase/auth/mfa-verification
    ```
-   Expected: 401 with `Invalid signature` (NOT 404 — the route exists, it's just unsigned).
+   Expected: `401 {"error":"invalid_signature","message":"Invalid webhook signature."}`
+   (NOT 404 — the route exists; NOT 405 — POST is required to reach
+   `VerifySupabaseHookSignature` rather than dying at routing).
 3. ✅ In Supabase Dashboard for the dev project (`glncumufgaqcmqhzwrxm`):
    - Authentication → Hooks → enable **MFA Verification Hook**.
    - URL: `https://dev-api.partna.au/api/webhooks/supabase/auth/mfa-verification`.

@@ -81,22 +81,25 @@ Schedule::command('partna:analytics:purge-raw-events')
 // SCALE-3 (2026-07-20): the "full-sweeps EVERY published site each run" half of
 // the earlier REVISIT is fixed — ComputeContentPopularityScores now scopes the
 // no-(--site) sweep to sites with a raw event in the last
-// RECENT_EVENTS_WINDOW_MINUTES (20min). ⚠️ STILL OPEN: the 0.7/0.3 hysteresis
+// RECENT_EVENTS_WINDOW_MINUTES. ⚠️ STILL OPEN: the 0.7/0.3 hysteresis
 // blend + 90-day half-life were tuned for a DAILY cadence — at 15-min the blend
 // barely smooths. Revisit before real prod scale.
 //
-// ⚠️ ALSO OPEN — missed-tick gap introduced by that scoping: a 20min lookback
-// against a 15min cadence leaves only a 5min margin. Skip ONE tick (deploy
-// restart, scheduler blip) and the gap between successful runs is 30min, so
-// events in the middle ~10min slice fall outside BOTH runs' windows and that
-// site is never scoped in for them. Mostly self-healing — the score recomputes
-// from full raw history the next time the site IS scoped in — so it only
-// becomes permanent for a site whose last-ever activity lands in a missed-tick
-// gap before going dormant. Bounded further by the 90-day raw retention, and
-// it degrades a cosmetic ranking, not money/auth. Proper fix is a persisted
-// last-successful-run watermark instead of a fixed lookback; the cheap
-// mitigation is widening the window to ~45-60min. `--site` is the manual
-// escape hatch meanwhile.
+// ⚠️ ALSO OPEN (mitigated, not fixed) — missed-tick gap introduced by that
+// scoping: at the 15-min cadence, a W-minute lookback survives K consecutive
+// missed ticks (deploy restart, scheduler blip) with zero gap only when
+// W >= (K+1) x 15. Widened 20->60min (2026-07-20): the old 20min didn't even
+// survive K=1 (a single skipped tick left a ~10min slice outside every run's
+// window); 60min survives K=3 (a 45-min scheduler outage) before that happens.
+// Beyond K=3, events in the gap still fall outside every run's window and are
+// lost unless the site is scoped in again later for an unrelated reason.
+// Mostly self-healing — the score recomputes from full raw history the next
+// time the site IS scoped in — so it only becomes permanent for a site whose
+// last-ever activity lands in a missed-tick gap before going dormant. Bounded
+// further by the 90-day raw retention, and it degrades a cosmetic ranking, not
+// money/auth. Proper fix is a persisted last-successful-run watermark instead
+// of a fixed lookback — larger work, likely a schema change, deferred.
+// `--site` is the manual escape hatch meanwhile.
 Schedule::command('analytics:compute-popularity')
     ->everyFifteenMinutes()
     ->onOneServer()

@@ -33,6 +33,8 @@ class BackfillMediaPaletteCommand extends Command
     // (stream the original from R2/S3) plus image decode + palette extraction —
     // heavier than a DB-only sweep — and the backlog is unbounded unless
     // --limit caps it, so this gets a generous hour-long ceiling.
+    // Documentation only — Illuminate\Console\Command never reads $timeout (unlike
+    // the enforced, identically-named property on a ShouldQueue job).
     protected $timeout = 3600;
 
     public function handle(ImagePaletteExtractor $extractor): int
