@@ -9,6 +9,7 @@ use App\Http\Requests\Api\User\Uploads\UploadDesignMediaRequest;
 use App\Http\Resources\DesignMediaResource;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
+use App\Services\Media\Exceptions\SingletonConflictException;
 use App\Services\Media\MediaUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -81,6 +82,11 @@ class UserDesignMediaController extends ApiController
             );
         } catch (OriginalStoreFailedException $e) {
             return $this->error($e->getMessage(), 500);
+        } catch (SingletonConflictException $e) {
+            // Lost a concurrent-replace race for this purpose — another
+            // upload for the same slot won. Nothing of this request's was
+            // ever written to storage; the client can just resubmit.
+            return $this->error($e->getMessage(), 409, [], ['code' => 'SINGLETON_UPLOAD_CONFLICT']);
         }
 
         return $this->success((new DesignMediaResource($media))->toArray(request()), 201);
