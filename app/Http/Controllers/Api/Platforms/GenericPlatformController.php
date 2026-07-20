@@ -9,6 +9,7 @@ use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\PlatformHighlightsRequest;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\ConnectResolver;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -29,7 +30,10 @@ class GenericPlatformController extends ApiController
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
-    public function __construct(private readonly PlatformRegistry $registry) {}
+    public function __construct(
+        private readonly PlatformRegistry $registry,
+        private readonly ConnectResolver $connectResolver,
+    ) {}
 
     // The platform key for the ManagesIntegrationConnection trait. Read from the
     // route default the integrations group sets per migrated platform.
@@ -60,7 +64,13 @@ class GenericPlatformController extends ApiController
         $strategy = $descriptor->connectStrategy();
         abort_if($strategy === null, 404);
 
-        $result = $strategy->resolve($request->validated()[$descriptor->connectField()]);
+        // ConnectResolver opens a shared FetchBudget
+        // (config('partna.http_fetch.connect_budget_seconds')) around the whole
+        // resolve, so EVERY collaborator that fetches during it is bounded —
+        // not just the ones routing through SafeUrlFetcher. Exhaustion surfaces
+        // as the platform's existing failure message, so everything below is
+        // unchanged.
+        $result = $this->connectResolver->resolve($descriptor, $request->validated()[$descriptor->connectField()]);
         if ($result->failed()) {
             return $this->error($result->error ?? $descriptor->connectErrorMessage() ?? 'Enter a valid link.', $result->status);
         }
