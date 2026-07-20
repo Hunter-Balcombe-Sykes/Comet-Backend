@@ -13,11 +13,10 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-// Defaults to 'individual' (booking/reservations are unconditional for
-// partna/individual — 2026-07-15 sector gating). Online ordering is
-// food-business-only, so the two online-ordering tests below override to
-// business + a food sector.
-function catUser(string $h, string $accountType = 'individual', ?string $sector = null): User
+// Defaults to 'partna' (booking/reservations are unconditional for partna —
+// 2026-07-15 sector gating). Online ordering is food-business-only, so the
+// two online-ordering tests below override to business + a food sector.
+function catUser(string $h, string $accountType = 'partna', ?string $sector = null): User
 {
     return User::create([
         'handle' => $h,

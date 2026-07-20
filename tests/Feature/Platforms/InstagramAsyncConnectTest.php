@@ -17,11 +17,11 @@ beforeEach(function () {
     setupSitesTable();
 });
 
-// Default stays the legacy 'individual' type (these tests predate the
-// partna/business split and don't exercise capability-gated paths). Pass
-// 'business' when the test asserts the bio-social auto-sync seeding path —
-// social seeds are gated on google_business_full_sync (RULING 1).
-function igAsyncUser(string $h, string $accountType = 'individual'): User
+// Defaults to 'partna' (these tests predate the partna/business split and
+// don't exercise capability-gated paths). Pass 'business' when the test
+// asserts the bio-social auto-sync seeding path — social seeds are gated on
+// google_business_full_sync (RULING 1).
+function igAsyncUser(string $h, string $accountType = 'partna'): User
 {
     return User::create([
         'handle' => $h,
