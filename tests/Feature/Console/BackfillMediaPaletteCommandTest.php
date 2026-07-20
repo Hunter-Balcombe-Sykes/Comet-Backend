@@ -7,6 +7,7 @@
  * asserts the palette + dominant_color land (and that --dry-run writes nothing).
  */
 
+use App\Console\Commands\BackfillMediaPaletteCommand;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -88,4 +89,14 @@ it('skips rows that already have a palette (idempotent)', function () {
 
     // Untouched — still the seeded sentinel, not re-extracted.
     expect(SiteMedia::find($id)->dominant_color)->toBe('#abcabc');
+});
+
+// ── OBS-5: an explicit $timeout ceiling on this manual backfill sweep ──
+
+it('declares an explicit, non-null $timeout ceiling', function () {
+    $property = (new ReflectionClass(BackfillMediaPaletteCommand::class))->getProperty('timeout');
+    $property->setAccessible(true);
+
+    expect($property->getDefaultValue())->not->toBeNull()
+        ->and($property->getDefaultValue())->toBeGreaterThan(0);
 });

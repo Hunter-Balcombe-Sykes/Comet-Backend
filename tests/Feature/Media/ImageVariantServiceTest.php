@@ -5,8 +5,10 @@
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -279,4 +281,41 @@ it('storeOriginal rejects files whose bytes are not an allowed image MIME', func
 
     // Sniff rejection must occur BEFORE any disk write.
     expect(Storage::disk('local')->allFiles($basePath))->toBeEmpty();
+});
+
+// ── OBS-4: deleteVariants' failure branch reports() before logging ──
+
+it('reports (but does not throw) when a variant storage delete fails, and still clears the DB rows', function () {
+    Exceptions::fake();
+
+    $imageId = (string) Str::uuid();
+    $variantPath = "images/test/{$imageId}/optimized_abc.webp";
+
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $imageId,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'webp',
+        'disk' => 'local',
+        'path' => $variantPath,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $brokenDisk = Mockery::mock(Filesystem::class);
+    $brokenDisk->shouldReceive('delete')->with($variantPath)->andThrow(new RuntimeException('disk exploded'));
+    Storage::shouldReceive('disk')->with('local')->andReturn($brokenDisk);
+
+    $service = new ImageVariantService;
+
+    expect(fn () => $service->deleteVariants($imageId))->not->toThrow(Throwable::class);
+
+    // assertReported() matches on the closure's exact parameter type — the
+    // mocked disk throws RuntimeException, wrapped by deleteVariants' report().
+    Exceptions::assertReported(fn (RuntimeException $e) => str_contains($e->getMessage(), $imageId)
+        && str_contains($e->getMessage(), '1 storage delete failure'));
+
+    // DB rows are cleared regardless of the storage failure ("DB rows always
+    // clear, orphans may remain" — the reported failure only flags storage).
+    expect(DB::connection('pgsql')->table('site.media_variants')->where('media_id', $imageId)->count())->toBe(0);
 });

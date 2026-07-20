@@ -1,6 +1,9 @@
 <?php
 
+use App\Console\Commands\ComputeContentPopularityScores;
+use App\Services\Analytics\RankedActionsComputer;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 
 // analytics:compute-popularity — first regression coverage for the scoring
@@ -200,4 +203,53 @@ it('adds the dwell term to the page score (0.05 per second)', function () {
     expect($home)->not->toBeNull()
         ->and((float) $home->score)->toBeGreaterThan(3.9)
         ->and((float) $home->score)->toBeLessThanOrEqual(4.0);
+});
+
+// ── OBS-3: the ranked-actions catch block reports() before logging ──
+
+it('reports (but does not throw) when the ranked-actions layer fails, and still writes page/item scores', function () {
+    Exceptions::fake();
+
+    $tenant = createTenant('cmd-obs3');
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $tenant->id,
+        'platform' => 'custom',
+        'resource_id' => 'link-'.Str::random(8),
+        'resource_kind' => 'link',
+        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/obs3']),
+        'is_active' => 1,
+        'created_at' => now()->toISOString(),
+        'updated_at' => now()->toISOString(),
+    ]);
+
+    // Force the action layer (RankedActionsComputer::computeForSite) to blow up
+    // AFTER page/item scores have already been computed for this run.
+    $brokenRankedActions = Mockery::mock(RankedActionsComputer::class);
+    $brokenRankedActions->shouldReceive('computeForSite')
+        ->andThrow(new RuntimeException('ranked actions exploded'));
+    app()->instance(RankedActionsComputer::class, $brokenRankedActions);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
+        ->assertExitCode(0);
+
+    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'ranked actions exploded');
+
+    // Fail-open survives: page + link-item scores computed BEFORE the action
+    // layer still land, even though computeActions() blew up.
+    expect(popularityScoreRow($tenant->site->id, 'page', 'links'))->not->toBeNull();
+    expect(popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/obs3'))->not->toBeNull();
+
+    // The action layer itself produced nothing — it exploded before writing.
+    expect(popularityScoreRow($tenant->site->id, 'action', 'page:links'))->toBeNull();
+});
+
+// ── OBS-5: an explicit $timeout ceiling on this every-15-min sweep ──
+
+it('declares an explicit, non-null $timeout ceiling', function () {
+    $property = (new ReflectionClass(ComputeContentPopularityScores::class))->getProperty('timeout');
+    $property->setAccessible(true);
+
+    expect($property->getDefaultValue())->not->toBeNull()
+        ->and($property->getDefaultValue())->toBeGreaterThan(0);
 });

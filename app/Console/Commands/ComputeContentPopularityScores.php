@@ -65,6 +65,11 @@ class ComputeContentPopularityScores extends Command
 
     protected $description = 'Recompute content_popularity_scores (pages + scored items) from raw analytics events.';
 
+    // Ceiling for a full sweep of every published site (routes/console.php runs
+    // this every 15min with a 14min withoutOverlapping lock) — comfortably under
+    // that lock so a hung run is flagged well before the next tick.
+    protected $timeout = 600;
+
     // Scoring weights + decay. Tune here — the only tuning surface.
     private const W_CLICK = 3.0;
 
@@ -279,6 +284,10 @@ class ComputeContentPopularityScores extends Command
                 $deletes[RankedActionsComputer::CONTENT_TYPE] = $actionResult['deletes'];
             }
         } catch (\Throwable $e) {
+            // report() surfaces this to Nightwatch — Log::warning alone is
+            // breadcrumb-only and raises no alert. Fail-open is preserved:
+            // page/item scores above are already computed and still get written.
+            report($e);
             Log::warning('analytics.ranked_actions_failed', [
                 'site_id' => $site->id,
                 'error' => $e->getMessage(),

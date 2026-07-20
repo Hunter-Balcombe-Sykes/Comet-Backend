@@ -1492,7 +1492,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 2 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 3 of 5 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1501,7 +1501,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **OBS-3** · P2 — Ranked-actions computation failure in the popularity-score command is caught and only logged, never reported to Nightwatch
+- [x] **OBS-3** · P2 — Ranked-actions computation failure in the popularity-score command is caught and only logged, never reported to Nightwatch
     - **Where:** app/Console/Commands/ComputeContentPopularityScores.php:275-286
     - **Affects:** The derived "ranked actions" ordering layer used by the dashboard — a broken computation goes stale with no alert, though core page/item scores are unaffected (the fail-open is intentional and correct there).
     - **Effort:** S (~0.5–1h)
@@ -1527,7 +1527,7 @@ None.
         ```
     - `[Adjudicated: jobs-hooks DeepSeek draft OBS-1 (P1, confidence 0.9); re-tiered P2 — fail-open is intentional/documented and scoped to a secondary derived layer, not routing/auth/irreversible-work]`
 
-- [ ] **OBS-4** · P2 — ImageVariantService::deleteVariants logs storage-delete failures with good structured context but never escalates to Nightwatch
+- [x] **OBS-4** · P2 — ImageVariantService::deleteVariants logs storage-delete failures with good structured context but never escalates to Nightwatch
     - **Where:** app/Services/Media/ImageVariantService.php:345-386
     - **Affects:** Media cleanup on delete/reprocess — a sustained R2/S3 delete failure accumulates orphaned storage objects indefinitely with no operator alert (DB rows are correctly cleared regardless).
     - **Effort:** S (~0.5–1h)
@@ -1547,7 +1547,7 @@ None.
         ```
     - `[Adjudicated: vendor-services-1 DeepSeek draft OBS-4 (P2, confidence 0.7); confirmed verbatim, tier retained]`
 
-- [ ] **OBS-5** · P2 — Multiple long-running artisan commands lack a `$timeout` property, so a hung run is invisible to Nightwatch's slow-command detection
+- [x] **OBS-5** · P2 — Multiple long-running artisan commands lack a `$timeout` property, so a hung run is invisible to Nightwatch's slow-command detection
     - **Where:** app/Console/Commands/ComputeContentPopularityScores.php, app/Console/Commands/BackfillMediaPaletteCommand.php, app/Console/Commands/ResolveAllDesignPresetsCommand.php
     - **Affects:** Nightwatch operators — none of these commands declare a `$timeout`, so Nightwatch's auto-slow-detection has no baseline to compare against; a hung DB query or stuck GD palette extraction blocks a scheduler slot silently.
     - **Effort:** S (~1h)

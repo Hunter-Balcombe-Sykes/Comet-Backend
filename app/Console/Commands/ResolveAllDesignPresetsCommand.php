@@ -26,6 +26,12 @@ class ResolveAllDesignPresetsCommand extends Command
 
     protected $description = 'Re-resolve design-kit preset contributions for every site with an active connection (backfills existing users after adding factors/recipes)';
 
+    // One-off manual backfill, not scheduled. Per-user work is DB-only
+    // (resolveForUser reads/writes design_kit_contributions, no external
+    // network calls), so this is lighter than the palette backfill's
+    // network-bound loop — a half-hour ceiling is generous for that shape.
+    protected $timeout = 1800;
+
     public function handle(DesignPresetResolver $resolver): int
     {
         $dryRun = (bool) $this->option('dry-run');
