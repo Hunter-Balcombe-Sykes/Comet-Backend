@@ -224,6 +224,21 @@ it('delete returns 404 for a non-content or wrong-site upload', function () {
         ->assertStatus(404);
 });
 
+// SEC-10: ownership of $upload is now enforced via SiteMedia's own SitePolicy
+// (setRelation('site', $site) + authorizeForUser('delete', $upload)) rather
+// than an inline site_id comparison. This proves the Policy-routed check
+// still correctly denies a cross-tenant upload.
+it('delete returns 404 for another professionals content upload', function () {
+    [, $ownerSite] = contentUserWithSite('up4-owner');
+    [$intruder] = contentUserWithSite('up4-intruder');
+    $media = contentUpload($ownerSite);
+
+    actingAsUser($intruder)->deleteJson("/api/content/uploads/{$media->id}")
+        ->assertStatus(404);
+
+    expect(SiteMedia::query()->where('id', $media->id)->exists())->toBeTrue();
+});
+
 // ── Selection replace ────────────────────────────────────────────────────────
 
 it('PUT selection persists the ordered entries', function () {

@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 5 of 69 complete
+- P2 Medium: 15 of 69 complete
 - P3 Low: 5 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -57,7 +57,7 @@ every draft rather than the scan reading nothing.
 > but the per-tier split does not match. The counts tracked here are the line-level ones, adjusted
 > for the three re-tiers recorded below.
 
-**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ (2026-07-20)
+**Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ (2026-07-20)
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -354,17 +354,47 @@ One mechanical theme: write endpoints that skip `authorizeForUser`. Under Supaba
 `Auth::user()` is always null, so a missing gate fails **open**, not closed. `authz-core`
 returned zero P0/P1, so the policy *layer* is sound — these are call sites that never invoke it.
 
-- [ ] **`user-api/SEC-1`** · P2 · S — `UserDocumentController::store` writes without a Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-2`** · P2 · S — `UserSectionBlockController` write endpoints skip the Policy gate (upsert, reorder, remove) → `sources/user-api.md`
-- [ ] **`user-api/SEC-3`** · P2 · S — `UserWorkplaceController` write endpoints skip the Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-4`** · P2 · S — `CustomDomainController` write endpoints skip the Policy gate (store, verify, setPrimary, destroy) → `sources/user-api.md`
-- [ ] **`user-api/SEC-5`** · P2 · S — `UserServiceCategoryController::reorder` skips the Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-6`** · P2 · S — `UserServiceController::reorder` / `reorderLayout` skip the Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-7`** · P2 · S — `SectorController::update` skips the Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-8`** · P2 · S — `HandleReclaimController::store` skips the Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-9`** · P2 · S — `UserEnquiryController::destroy` skips the Policy gate → `sources/user-api.md`
-- [ ] **`user-api/SEC-10`** · P2 · S — `ContentController::destroyUpload` uses an inline ownership check instead of the Policy → `sources/user-api.md`
+> **⚠️ None of these ten closed a live, exploitable authorization hole.** In every case the write was
+> already unreachable by a wrong-tenant actor — the target resource was resolved from the verified
+> JWT's own site/user relation rather than a client-supplied id, or the query was already scoped
+> `where('user_id', $actor->id)`, or (SEC-10) a working-but-inline check already returned the correct
+> 404. Verified per finding in review: for 8 of the 10 a cross-tenant test is *structurally impossible
+> to write*, because there is no client-controlled id to attack.
+>
+> What the bundle buys is **defence-in-depth and doctrine consistency**: these call sites now run
+> through the same Policy layer as every sibling action, so a future Policy-layer change (the dormant
+> fresh-AAL2 gate, a future staff or by-UUID access path) applies here automatically instead of
+> silently exempting ten actions — and the codebase no longer has "looks gated, isn't" methods sitting
+> beside properly gated ones, which is what produces a real bug the next time someone copies the wrong
+> sibling as a template.
+>
+> **The trap this unit had to avoid:** `$this->authorize(...)` calls `Gate::forUser(null)` under
+> Supabase JWT and **silently passes** — a gate written that way looks exactly like a fix and enforces
+> nothing. All eight gates use `authorizeForUser($pro, ...)` with the JWT-resolved user. Review proved
+> the tests catch the trap by temporarily swapping one gate to `authorize()` and confirming the test
+> then failed.
+
+- [x] **`user-api/SEC-1`** · P2 · S — `UserDocumentController::store` writes without a Policy gate → `sources/user-api.md`
+  - Fixed — skeleton `SitePolicy::create` via `(new SiteMedia)->site()->associate($site)`, which sets both the `site_id` attribute and the relation the policy cross-checks.
+- [x] **`user-api/SEC-2`** · P2 · S — `UserSectionBlockController` write endpoints skip the Policy gate (upsert, reorder, remove) → `sources/user-api.md`
+  - Fixed on all three — `Block` skeleton carrying `user_id` + `site_id` (both verified `$fillable`).
+- [x] **`user-api/SEC-3`** · P2 · S — `UserWorkplaceController` write endpoints skip the Policy gate → `sources/user-api.md`
+  - Fixed on all three (upsert/destroy/setPreviousWebsite) by gating the parent `$site`. **This indirection is required, not a shortcut:** `Workplace` has no `user_id` column at all — its PK is `site_id`, so `SitePolicy::resolveOwnerId()` against a bare `Workplace` returns null and always denies. Workplace ownership *is* Site ownership.
+- [x] **`user-api/SEC-4`** · P2 · S — `CustomDomainController` write endpoints skip the Policy gate (store, verify, setPrimary, destroy) → `sources/user-api.md`
+  - **`no_change_needed` — already fixed by commit `7b68bda5` ("SEC-108") earlier the same day, from a different audit run.** All five call sites verified gated in current code. Third independent confirmation that Gate A scanned a stale snapshot.
+- [x] **`user-api/SEC-5`** · P2 · S — `UserServiceCategoryController::reorder` skips the Policy gate → `sources/user-api.md`
+  - Fixed — `ServicePolicy::update`, integrated cleanly with the `ResolveCurrentSite` + `$site->touch()` closure this method gained in B1.
+- [x] **`user-api/SEC-6`** · P2 · S — `UserServiceController::reorder` / `reorderLayout` skip the Policy gate → `sources/user-api.md`
+  - Fixed on both, same integration with B1's changes. Review confirmed the gate runs *before* the write and the touch closure still fires.
+- [x] **`user-api/SEC-7`** · P2 · S — `SectorController::update` skips the Policy gate → `sources/user-api.md`
+  - **`no_change_needed` — already fixed by `7b68bda5` ("SEC-105").** Same stale-snapshot cause as SEC-4.
+- [x] **`user-api/SEC-8`** · P2 · S — `HandleReclaimController::store` skips the Policy gate → `sources/user-api.md`
+  - Fixed — added `ResolveCurrentSite` + `SitePolicy::update`.
+- [x] **`user-api/SEC-9`** · P2 · S — `UserEnquiryController::destroy` skips the Policy gate → `sources/user-api.md`
+  - Fixed — `EnquiryPolicy::delete`. This was the one method in the file that bypassed the `transition()` helper's own gate.
+- [x] **`user-api/SEC-10`** · P2 · S — `ContentController::destroyUpload` uses an inline ownership check instead of the Policy → `sources/user-api.md`
   - CI already fails the build on inline 403 aborts in controllers; this one predates or evades that check.
+  - Fixed — inline `site_id` comparison replaced by `authorizeForUser($pro, 'delete', $upload)`. **The only one of the ten with a real IDOR vector to test**, and it has an end-to-end cross-tenant 404 test. Review confirmed `setRelation` cannot inject a wrong site: the policy independently cross-checks the route-bound model's real `site_id`. The retained inline pool check is a genuine business rule (which media bucket the endpoint serves), not disguised ownership.
 
 ### Bundle B6 — Policy gate + PII gating: staff API · **P2** · Effort S–M
 

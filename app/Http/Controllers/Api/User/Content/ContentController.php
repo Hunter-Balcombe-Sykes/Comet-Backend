@@ -114,10 +114,15 @@ class ContentController extends ApiController
         $site = $this->currentSite($pro);
         $this->authorizeForUser($pro, 'manage', $this->skeleton($site));
 
-        // 404 (not 403) for a row that isn't this site's content upload — the
-        // 403-vs-404 standard. Covers wrong-site, wrong-pool, and already-deleted.
-        if ((string) $upload->site_id !== (string) $site->id
-            || $upload->pool !== SiteMedia::POOL_CONTENT) {
+        // SEC-10: ownership of $upload itself is enforced via SiteMedia's own
+        // SitePolicy (not an inline site_id comparison) — denyAsNotFound() gives
+        // the same 404 the 403-vs-404 standard requires for a wrong-site upload.
+        // Pool stays a separate inline check: it's a business rule (which media
+        // pool this endpoint operates on), not an ownership concern.
+        $upload->setRelation('site', $site);
+        $this->authorizeForUser($pro, 'delete', $upload);
+
+        if ($upload->pool !== SiteMedia::POOL_CONTENT) {
             return $this->error('Not found.', 404);
         }
 

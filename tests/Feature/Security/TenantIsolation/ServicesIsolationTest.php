@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
+use App\Http\Requests\Api\User\Services\ReorderServiceLayoutRequest;
+use App\Http\Requests\Api\User\Services\ReorderServiceRequest;
 use App\Models\Core\User\Service;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -69,4 +71,52 @@ it('service index only returns services belonging to the authenticated professio
     $titles = collect($payload['services'] ?? [])->pluck('title')->all();
     expect($titles)->toContain('B Service');
     expect($titles)->not->toContain('A Service');
+});
+
+// SEC-6: reorder()/reorderLayout() previously never called authorizeForUser,
+// relying solely on the HTTP-layer EnforcePendingDeletionReadOnly middleware.
+// Direct controller invocation bypasses that middleware so these actually
+// exercise the new ServicePolicy::update gate.
+it('blocks a pending-deletion professional from reordering services (423)', function () {
+    $pro = createTenant('svc-reorder-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro = $pro->fresh()->load('site');
+
+    $req = tenantRequestAs($pro, ['ids' => [(string) Str::uuid()]], 'POST');
+    $formReq = ReorderServiceRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    try {
+        app(UserServiceController::class)->reorder($formReq);
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
+});
+
+it('blocks a pending-deletion professional from reordering the full service layout (423)', function () {
+    $pro = createTenant('svc-layout-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro = $pro->fresh()->load('site');
+
+    $req = tenantRequestAs($pro, [
+        'categories' => [
+            ['id' => null, 'service_ids' => [(string) Str::uuid()]],
+        ],
+    ], 'POST');
+    $formReq = ReorderServiceLayoutRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    try {
+        app(UserServiceController::class)->reorderLayout($formReq);
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
 });

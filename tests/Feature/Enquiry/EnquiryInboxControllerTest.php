@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
 use App\Models\Core\Site\Enquiry;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -144,4 +146,31 @@ it('?status=archived returns only archived enquiries', function () {
 
     $response = actingAsUser($user)->getJson('/api/enquiries?status=archived')->assertOk();
     expect(count($response->json('data')))->toBe(2);
+});
+
+// SEC-9: destroy() previously never called authorizeForUser — every sibling
+// status-transition action (markRead/markReplied/archive/restore/markSpam)
+// routes through the shared transition() helper's authorizeForUser('update', ...)
+// call, but destroy() didn't. Direct controller invocation bypasses the
+// HTTP-layer EnforcePendingDeletionReadOnly middleware so this actually
+// exercises the new EnquiryPolicy::delete gate.
+it('blocks a pending-deletion professional from deleting their own enquiry (423)', function () {
+    $user = makeInboxUser();
+    DB::connection('pgsql')->table('core.users')->where('id', $user->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $user = $user->fresh();
+
+    $enquiryId = seedInboxEnquiry($user->id, (string) Str::uuid());
+    $req = requestAs($user, 'DELETE', "/api/enquiries/{$enquiryId}");
+
+    try {
+        app(UserEnquiryController::class)->destroy($req, $enquiryId);
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
+
+    // Enquiry must still exist — the deny happened before delete().
+    expect(Enquiry::find($enquiryId))->not->toBeNull();
 });

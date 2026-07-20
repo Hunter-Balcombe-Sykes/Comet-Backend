@@ -43,6 +43,10 @@ class UserWorkplaceController extends ApiController
     {
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
+        // SEC-3: defence-in-depth pending-deletion + ownership gate via SitePolicy,
+        // mirroring UserSiteController::update's doctrine comment — ownership is
+        // structurally guaranteed ($site resolves from the authed professional).
+        $this->authorizeForUser($professional, 'update', $site);
         $data = $request->validated();
 
         // PARTIAL upsert: only fields present in THIS request are written.
@@ -175,6 +179,8 @@ class UserWorkplaceController extends ApiController
     {
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
+        // SEC-3: defence-in-depth pending-deletion + ownership gate via SitePolicy.
+        $this->authorizeForUser($professional, 'update', $site);
 
         // Instance delete (not a bulk query delete) so model events fire —
         // WorkplaceObserver::deleted sweeps the previous-website design-preset
@@ -217,6 +223,8 @@ class UserWorkplaceController extends ApiController
 
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
+        // SEC-3: defence-in-depth pending-deletion + ownership gate via SitePolicy.
+        $this->authorizeForUser($professional, 'update', $site);
         $previousWebsite = trim_or_null($validated['previous_website'] ?? null);
 
         Workplace::updateOrCreate(

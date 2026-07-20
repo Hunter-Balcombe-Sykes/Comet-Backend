@@ -115,6 +115,11 @@ class UserSectionBlockController extends ApiController
 
         $site = $this->currentSite($pro);
 
+        // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
+        // via SitePolicy::create), matching UserLinkBlockController::store/reorder.
+        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        $this->authorizeForUser($pro, 'create', $skeleton);
+
         $data = $request->validated();
         $allowedSections = config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {
@@ -230,6 +235,11 @@ class UserSectionBlockController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
 
+        // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
+        // via SitePolicy::create), matching UserLinkBlockController::reorder.
+        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        $this->authorizeForUser($pro, 'create', $skeleton);
+
         // Mass-update via the query builder bypasses BlockObserver. Explicit
         // Site touch in afterCommit fires SiteObserver::saved → CloudflareCachePurgeJob
         // + §28.8 cache key rotation. Without this, sort_order changes don't
@@ -251,6 +261,13 @@ class UserSectionBlockController extends ApiController
     {
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
+
+        // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
+        // via SitePolicy::create) — remove() is a soft-toggle (is_active=false),
+        // not a delete, so the same skeleton+create gate as upsert()/reorder() applies.
+        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        $this->authorizeForUser($pro, 'create', $skeleton);
+
         $allowedSections = config('partna.section_block_types', []);
         if (! in_array($blockType, $allowedSections, true)) {
             // 422 not 403: unknown blockType is invalid input, not an authz failure.

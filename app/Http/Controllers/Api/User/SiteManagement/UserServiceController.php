@@ -203,6 +203,10 @@ class UserServiceController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
 
+        // SEC-6: pending-deletion + ownership gate via ServicePolicy, matching
+        // this controller's own store()/update()/destroy().
+        $this->authorizeForUser($pro, 'update', new Service(['user_id' => $pro->id]));
+
         // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
         // events, so ServiceObserver never touches the site. Touch explicitly in
         // afterCommit to fire SiteObserver — Redis invalidation + Cloudflare edge
@@ -222,6 +226,11 @@ class UserServiceController extends ApiController
     {
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
+
+        // SEC-6: pending-deletion + ownership gate via ServicePolicy, matching
+        // this controller's own store()/update()/destroy()/reorder().
+        $this->authorizeForUser($pro, 'update', new Service(['user_id' => $pro->id]));
+
         $payload = $request->validated();
 
         DB::transaction(function () use ($pro, $payload) {

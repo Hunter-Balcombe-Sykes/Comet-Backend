@@ -50,6 +50,12 @@ class UserDocumentController extends ApiController
         $pro->loadMissing('site');
         $site = $this->currentSite($pro);
 
+        // SEC-1: skeleton pattern (pre-create ownership + pending-deletion gate
+        // via SitePolicy::create), matching update()/destroy() in this same file
+        // and the upload path in UserUploadController/UserDesignMediaController.
+        $skeleton = (new SiteMedia)->site()->associate($site);
+        $this->authorizeForUser($pro, 'create', $skeleton);
+
         // Double MIME-check via finfo — prevents Content-Type header spoofing
         // on top of the mimes: validation rule which trusts the client header.
         $file = $request->file('file');

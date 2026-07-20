@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
+use App\Http\Requests\Api\User\Services\ReorderServiceCategoryRequest;
 use App\Models\Core\User\ServiceCategory;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -81,4 +82,28 @@ it('service category index only returns the authenticated professionals categori
     $titles = collect($payload['categories'] ?? [])->pluck('title')->all();
     expect($titles)->toContain('B Category');
     expect($titles)->not->toContain('A Category');
+});
+
+// SEC-5: reorder() previously never called authorizeForUser, relying solely
+// on the HTTP-layer EnforcePendingDeletionReadOnly middleware. Direct
+// controller invocation bypasses that middleware so this actually exercises
+// the new ServicePolicy::update gate.
+it('blocks a pending-deletion professional from reordering service categories (423)', function () {
+    $pro = createTenant('sc-reorder-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $pro = $pro->fresh()->load('site');
+
+    $req = tenantRequestAs($pro, ['ids' => [(string) Str::uuid()]], 'POST');
+    $formReq = ReorderServiceCategoryRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    try {
+        app(UserServiceCategoryController::class)->reorder($formReq);
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
+    }
 });

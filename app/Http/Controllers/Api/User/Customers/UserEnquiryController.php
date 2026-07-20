@@ -174,6 +174,10 @@ class UserEnquiryController extends ApiController
             return $this->error('Enquiry not found.', 404);
         }
 
+        // SEC-9: pending-deletion + ownership gate via EnquiryPolicy, matching
+        // this controller's own transition() helper (markRead/archive/etc).
+        $this->authorizeForUser($pro, 'delete', $enquiry);
+
         $enquiry->delete();
 
         return $this->success(['ok' => true]);

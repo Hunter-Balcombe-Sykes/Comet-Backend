@@ -2,7 +2,10 @@
 
 use App\Http\Controllers\Api\User\Account\UserDocumentController;
 use App\Http\Requests\Api\User\Documents\UpdateDocumentRequest;
+use App\Http\Requests\Api\User\Documents\UploadDocumentRequest;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -91,5 +94,35 @@ it('blocks a non-owner from deleting a document with 404', function () {
         expect(false)->toBeTrue('Expected AuthorizationException');
     } catch (AuthorizationException $e) {
         expect($e->status())->toBe(404);
+    }
+});
+
+// SEC-1: store() previously never called authorizeForUser — update()/destroy()
+// in this same file already did. Direct controller invocation bypasses the
+// HTTP-layer EnforcePendingDeletionReadOnly middleware so this actually
+// exercises the new SiteMedia-skeleton SitePolicy::create gate.
+it('blocks a pending-deletion owner from uploading a document with 423', function () {
+    Storage::fake(config('partna.media_disk'));
+
+    $owner = createTenant('doc-store-pending');
+    DB::connection('pgsql')->table('core.users')->where('id', $owner->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+    $owner->refresh();
+
+    $req = Request::create('/', 'POST', ['title' => 'New Doc'], [], [
+        'file' => UploadedFile::fake()->create('s.pdf', 100, 'application/pdf'),
+    ]);
+    $req->attributes->set('professional', $owner);
+
+    $formReq = UploadDocumentRequest::createFrom($req);
+    $formReq->setContainer(app())->setRedirector(app('redirect'));
+    $formReq->validateResolved();
+
+    try {
+        app(UserDocumentController::class)->store($formReq);
+        expect(false)->toBeTrue('Expected AuthorizationException');
+    } catch (AuthorizationException $e) {
+        expect($e->status())->toBe(423);
     }
 });

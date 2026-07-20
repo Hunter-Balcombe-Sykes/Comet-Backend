@@ -155,6 +155,10 @@ class UserServiceCategoryController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
 
+        // SEC-5: pending-deletion + ownership gate via ServicePolicy, matching
+        // this controller's own store().
+        $this->authorizeForUser($pro, 'update', new ServiceCategory(['user_id' => $pro->id]));
+
         // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
         // events, so ServiceCategoryObserver never touches the site. Touch
         // explicitly in afterCommit to fire SiteObserver — Redis invalidation +
