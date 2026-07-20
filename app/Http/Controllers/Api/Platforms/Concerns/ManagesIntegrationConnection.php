@@ -160,16 +160,28 @@ trait ManagesIntegrationConnection
         );
     }
 
-    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null): IntegrationConnection
+    /**
+     * $pending (Unit 11 W6, deferred connect — mirrors writeAccountConnection's
+     * parameter of the same name): true writes a 'pending' placeholder instead
+     * of 'ok', MERGED over any existing payload rather than replacing it. This
+     * is the single-selection counterpart to writeAccountConnection's pending
+     * path — closes the gap W5 left open for pinterest/strava, whose
+     * multiAccount() is false so GenericPlatformController::connect() routes
+     * them here, not through writeAccountConnection(). Same three bugs the
+     * merge guards against (reconnect blanking the card, the Bandcamp 304
+     * trap, the conditional-request trap) apply identically here — see
+     * upsertConnection()'s docblock.
+     */
+    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null, bool $pending = false): IntegrationConnection
     {
         return $this->upsertConnection($user, [
             'payload' => $payload,
             'is_active' => true,
-            'last_refreshed_at' => now(),
-            'last_refresh_status' => 'ok',
+            'last_refreshed_at' => $pending ? null : now(),
+            'last_refresh_status' => $pending ? 'pending' : 'ok',
             'last_refresh_error' => null,
             'consecutive_failures' => 0,
-        ], $resourceId, canonicalKey: $canonicalKey, resourceKind: $resourceKind);
+        ], $resourceId, mergePayload: $pending, canonicalKey: $canonicalKey, resourceKind: $resourceKind);
     }
 
     /**

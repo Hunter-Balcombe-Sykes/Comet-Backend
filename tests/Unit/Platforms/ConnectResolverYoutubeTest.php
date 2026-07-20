@@ -78,7 +78,13 @@ it('lets the wall-clock budget reach the thumbnail-probe pool, not just the chan
     $descriptor = PlatformDescriptor::make('youtube')->label('YouTube')
         ->connect(app(YoutubeConnect::class), 'Enter your YouTube channel.');
 
-    $result = app(ConnectResolver::class)->resolve($descriptor, 'somehandle');
+    // Unit 11 W6 — resolve() now returns a ConnectOutcome; this descriptor is
+    // built fresh here (not fetched off the registry) and never calls
+    // ->deferredConnect(), so it always takes the resolve() (sync) branch
+    // regardless of config('partna.connect.deferred').
+    $outcome = app(ConnectResolver::class)->resolve($descriptor, 'somehandle');
+    expect($outcome->deferred)->toBeFalse();
+    $result = $outcome->result;
 
     // The connect still succeeds — budget exhaustion degrades the SKIPPED
     // videos' thumbnails to hqdefault (YoutubeThumbnailResolver's existing

@@ -58,7 +58,13 @@ it('opens a wall-clock budget around the strategy call', function () {
     $descriptor = PlatformDescriptor::make('probe')->label('Probe')
         ->connect($probeStrategy, 'Enter a valid link.');
 
-    $result = app(ConnectResolver::class)->resolve($descriptor, 'anything');
+    // Unit 11 W6 — resolve() now returns a ConnectOutcome wrapping the
+    // ConnectResult (see ConnectResolver's docblock); these probe descriptors
+    // never call ->deferredConnect(), so ->deferred is always false here and
+    // ->result behaves exactly as the old bare ConnectResult return did.
+    $outcome = app(ConnectResolver::class)->resolve($descriptor, 'anything');
+    expect($outcome->deferred)->toBeFalse();
+    $result = $outcome->result;
 
     expect($result->failed())->toBeFalse()
         ->and($result->selection['sent'])->toBeFalse();
@@ -85,7 +91,13 @@ it('lets the strategy call through normally when the budget is not exhausted', f
     $descriptor = PlatformDescriptor::make('probe')->label('Probe')
         ->connect($probeStrategy, 'Enter a valid link.');
 
-    $result = app(ConnectResolver::class)->resolve($descriptor, 'anything');
+    // Unit 11 W6 — resolve() now returns a ConnectOutcome wrapping the
+    // ConnectResult (see ConnectResolver's docblock); these probe descriptors
+    // never call ->deferredConnect(), so ->deferred is always false here and
+    // ->result behaves exactly as the old bare ConnectResult return did.
+    $outcome = app(ConnectResolver::class)->resolve($descriptor, 'anything');
+    expect($outcome->deferred)->toBeFalse();
+    $result = $outcome->result;
 
     expect($result->selection['sent'])->toBeTrue();
     Http::assertSentCount(1);
@@ -105,7 +117,9 @@ it('returns the strategy failure verbatim when it fails inside the budget', func
     $descriptor = PlatformDescriptor::make('probe')->label('Probe')
         ->connect($failingStrategy, 'Enter a valid link.');
 
-    $result = app(ConnectResolver::class)->resolve($descriptor, 'garbage');
+    $outcome = app(ConnectResolver::class)->resolve($descriptor, 'garbage');
+    expect($outcome->deferred)->toBeFalse();
+    $result = $outcome->result;
 
     expect($result->failed())->toBeTrue()
         ->and($result->error)->toBe('Enter a valid link.')

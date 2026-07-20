@@ -1277,6 +1277,17 @@ return [
             'default' => (int) env('PARTNA_CONNECT_RATE_DEFAULT', 20),
             // e.g. 'menu' => 10,
         ],
+
+        // Deferred-connect rollout flag (Unit 11 W6 / LIFE-13..20 Phase 2,
+        // docs/superpowers/plans/2026-07-20-platform-connect-async.md §2f).
+        // Comma-separated platform slugs — ConnectResolver takes the async
+        // (identify()+ConnectFetchJob) path for a platform ONLY when it is
+        // named here AND the platform's descriptor declares
+        // supportsDeferredConnect(). Default '' → array_filter(explode(...))
+        // yields [] → async is off everywhere on merge; every connect()
+        // response stays byte-identical. Per-platform, per-environment via
+        // env, no deploy — the same lever is the kill switch.
+        'deferred' => array_filter(explode(',', (string) env('PARTNA_CONNECT_DEFERRED', ''))),
     ],
 
     // Platform connection refresh (SCALE-1). The dispatcher (integrations:refresh)
