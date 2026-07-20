@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\Strategies\Contracts\HighlightsStrategy;
+use App\Services\Platforms\Strategies\Contracts\PreparesHighlightItems;
 
 /**
  * Serves the highlights picker's item list from the connection's private
@@ -99,6 +100,29 @@ class HighlightsPicker
         return $row->last_refreshed_at?->gt(
             now()->subSeconds((int) config('partna.refresh.highlights_snapshot_ttl', 24 * 3600))
         ) === true;
+    }
+
+    /**
+     * Enrich picker items ahead of a highlights save, OUTSIDE the per-user
+     * connection lock (W3 / LIFE-21 lock-boundary fix). Only BandcampHighlights
+     * implements PreparesHighlightItems today — the other three highlights
+     * strategies do no vendor I/O in apply() at all, so this is a no-op
+     * passthrough for them.
+     *
+     * Wrapped in the SAME wall-clock budget items()'s live-fetch branch uses:
+     * this is a vendor call reachable from GenericPlatformController::highlights(),
+     * so it must be bounded like every other request-cycle fetch.
+     */
+    public function prepared(HighlightsStrategy $strategy, array $items, array $chosenIds): array
+    {
+        if (! $strategy instanceof PreparesHighlightItems) {
+            return $items;
+        }
+
+        return $this->budget->open(
+            (float) config('partna.http_fetch.connect_budget_seconds', 20),
+            fn () => $strategy->prepare($items, $chosenIds),
+        );
     }
 
     /**

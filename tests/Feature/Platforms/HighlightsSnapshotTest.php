@@ -153,6 +153,14 @@ it('POST /highlights persists a warm `recent` snapshot end-to-end through writeC
     // and writes the result through the real writeConnection()/Eloquent
     // save) — not just that apply() RETURNS the right array in isolation.
     //
+    // W3 / LIFE-21 update: highlights() now reads its item list through
+    // HighlightsPicker::items() (same snapshot GET /recent serves), not a raw
+    // live re-fetch — "picker and save now see the same list" is the whole
+    // point of the lock-boundary fix. So the connect-time snapshot is aged
+    // past the freshness TTL below to force the picker's live-fetch branch —
+    // otherwise POST /highlights would serve the still-fresh 1-item
+    // connect-time snapshot and never reach $saveProfile at all.
+    //
     // Connect-time and save-time fetches deliberately return DIFFERENT
     // fixtures (Mockery's sequential andReturn: 1st call → $connectProfile,
     // 2nd call → $saveProfile). If they returned the same items, this test
@@ -181,6 +189,10 @@ it('POST /highlights persists a warm `recent` snapshot end-to-end through writeC
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/connect', ['url' => 'https://artist.bandcamp.com'])
         ->assertOk();
+
+    // Age the snapshot past the freshness TTL — see the note above.
+    IntegrationConnection::where('user_id', $user->id)->where('platform', 'bandcamp')
+        ->update(['last_refreshed_at' => now()->subHours(25)]);
 
     actingAsUser($user)->postJson('/api/platforms/bandcamp/highlights', ['itemIds' => ['album-2']])
         ->assertOk()

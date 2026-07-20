@@ -139,7 +139,14 @@ class GenericPlatformController extends ApiController
 
     // POST /api/platforms/{platform}/highlights?account={id} — snapshot the
     // chosen items onto that account's stored selection (empty list clears).
-    // Locked read→mutate→write, mirroring the deleted per-platform controllers.
+    //
+    // W3 / LIFE-21 lock-boundary fix: everything vendor-facing (the picker's
+    // live-fetch fallback, and any PreparesHighlightItems::prepare() pricing
+    // call) now runs OUTSIDE the per-user connection lock. A lock is a
+    // deliberate bottleneck — it serialises concurrent work — and holding one
+    // across a call to someone else's server lets a stranger's latency decide
+    // how long that bottleneck lasts. Mirrors ScheduledRefresh::run()'s
+    // fetch-outside/write-inside shape exactly.
     public function highlights(PlatformHighlightsRequest $request): JsonResponse
     {
         $descriptor = $this->descriptor();
@@ -149,30 +156,42 @@ class GenericPlatformController extends ApiController
         $validated = $request->validated();
         $user = $this->currentUser($request);
         $accountId = $request->query('account');
+        $chosenIds = $validated[$strategy->requestField()];
+        $resourceClass = $descriptor->resourceClass();
 
-        return $this->withConnectionLock($user, function () use ($user, $descriptor, $strategy, $validated, $accountId): JsonResponse {
-            $row = $this->requestedAccountRow($user, $accountId);
-            $selection = $row?->payload;
-            if (! $row || ! $selection) {
+        $row = $this->requestedAccountRow($user, $accountId);
+        if (! $row || ! $row->payload) {
+            return $this->error($strategy->notConnectedMessage(), 404);
+        }
+
+        $identity = $strategy->identity($row->payload);
+        if ($identity === null) {
+            return $this->error($strategy->notConnectedMessage(), 404);
+        }
+
+        $items = $this->picker->items($strategy, $row, $identity);
+        if ($items === null) {
+            return $this->error($strategy->loadErrorMessage(), 422);
+        }
+        $items = $this->picker->prepared($strategy, $items, $chosenIds);
+
+        return $this->withConnectionLock($user, function () use ($user, $strategy, $items, $chosenIds, $accountId, $resourceClass): JsonResponse {
+            // Authoritative re-read UNDER the lock. Load-bearing: reading
+            // outside the lock and writing inside it, off the OUTSIDE read,
+            // would reintroduce the lost update the lock exists to prevent —
+            // another highlights save (or a scheduled refresh) landing in the
+            // gap between the read above and the lock being acquired would be
+            // silently overwritten by this write's stale $row->payload. This
+            // re-read is what makes fetch-outside/write-inside safe.
+            $fresh = $this->requestedAccountRow($user, $accountId);
+            if (! $fresh || ! $fresh->payload) {
                 return $this->error($strategy->notConnectedMessage(), 404);
             }
 
-            $identity = $strategy->identity($selection);
-            if ($identity === null) {
-                return $this->error($strategy->notConnectedMessage(), 404);
-            }
+            $selection = $strategy->apply($fresh->payload, $items, $chosenIds);
+            $this->writeConnection($user, $selection, $fresh->resource_id);
 
-            $items = $strategy->recentItems($identity);
-            if ($items === null) {
-                return $this->error($strategy->loadErrorMessage(), 422);
-            }
-
-            $selection = $strategy->apply($selection, $items, $validated[$strategy->requestField()]);
-            $this->writeConnection($user, $selection, $row->resource_id);
-
-            $resourceClass = $descriptor->resourceClass();
-
-            return $this->success(['id' => $row->resource_id, ...(new $resourceClass($selection))->resolve()]);
+            return $this->success(['id' => $fresh->resource_id, ...(new $resourceClass($selection))->resolve()]);
         });
     }
 
