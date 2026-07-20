@@ -215,7 +215,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 3 of 20 complete
+- P2 Medium: 5 of 20 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -224,7 +224,7 @@
 
 ## P2 — Should fix
 
-- [ ] **LIFE-4** · P2 — Early-access invite mint/save races without a row lock — a fast re-invite can dead-link the first email
+- [x] **LIFE-4** · P2 — Early-access invite mint/save races without a row lock — a fast re-invite can dead-link the first email
     - **Where:** app/Services/EarlyAccess/EarlyAccessService.php:69-91
     - **Affects:** Staff-initiated invite flow — two staff members (or one staff member double-clicking) inviting the same waitlist row concurrently mint two tokens; only the last one persists.
     - **Effort:** S (~0.5–1h)
@@ -288,7 +288,7 @@
             Log::warning('LoadCurrentUser email sync collision', [
         ```
 
-- [ ] **LIFE-8** · P2 — `markSignedUp` swallows every failure as a bare `Log::warning` — a persistent write failure is invisible to Nightwatch
+- [x] **LIFE-8** · P2 — `markSignedUp` swallows every failure as a bare `Log::warning` — a persistent write failure is invisible to Nightwatch
     - **Where:** app/Services/EarlyAccess/EarlyAccessService.php:97-114
     - **Affects:** Early-access bookkeeping — if the UPDATE fails on every invocation (bad migration state, permission error), no waitlist row ever flips to `signed_up`, and nothing alerts anyone.
     - **Effort:** S (~0.5–1h)

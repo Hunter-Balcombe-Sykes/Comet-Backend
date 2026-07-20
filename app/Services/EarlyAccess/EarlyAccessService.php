@@ -5,6 +5,7 @@ namespace App\Services\EarlyAccess;
 use App\Mail\EarlyAccess\EarlyAccessInviteMail;
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -75,24 +76,45 @@ class EarlyAccessService
      */
     public function invite(EarlyAccessSignup $signup, ?string $invitedBy = null): ?string
     {
-        if ($signup->status === EarlyAccessSignup::STATUS_SIGNED_UP) {
+        // Row lock + status flip stay inside the transaction; the mail send
+        // happens AFTER it commits. This deploy runs QUEUE_CONNECTION=sync,
+        // so Mail::queue() sends synchronously in-process (SyncQueue has no
+        // after_commit config and this Mailable isn't a ShouldQueue job) —
+        // issuing it from inside the transaction would hold the FOR UPDATE
+        // lock for the duration of a live SMTP call. Same class of bug as
+        // TXN-102 (AccountDeletionService::requestDeletion()).
+        [$token, $email] = DB::connection('pgsql')->transaction(function () use ($signup, $invitedBy) {
+            // Re-read under a row lock: the caller's $signup instance may be stale
+            // (two concurrent staff invites for the same row both start from the
+            // pre-loaded model), so the signed-up guard has to bind to what's
+            // actually in the DB right now, not what was loaded earlier.
+            $locked = EarlyAccessSignup::query()
+                ->whereKey($signup->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if ($locked === null || $locked->status === EarlyAccessSignup::STATUS_SIGNED_UP) {
+                return [null, null];
+            }
+
+            $token = Str::random(48);
+
+            $locked->fill([
+                'status' => EarlyAccessSignup::STATUS_INVITED,
+                'invited_at' => now(),
+                'invite_token_hash' => hash('sha256', $token),
+            ]);
+            $locked->invited_by = $invitedBy;
+            $locked->save();
+
+            return [$token, $locked->getAttribute('email')];
+        });
+
+        if ($token === null) {
             return null;
         }
 
-        $token = Str::random(48);
-
-        $signup->fill([
-            'status' => EarlyAccessSignup::STATUS_INVITED,
-            'invited_at' => now(),
-            'invite_token_hash' => hash('sha256', $token),
-        ]);
-        $signup->invited_by = $invitedBy;
-        $signup->save();
-
-        Mail::queue(new EarlyAccessInviteMail(
-            $signup->getAttribute('email'),
-            $this->signupUrl($token),
-        ));
+        Mail::queue(new EarlyAccessInviteMail($email, $this->signupUrl($token)));
 
         return $token;
     }
@@ -116,6 +138,7 @@ class EarlyAccessService
         } catch (\Throwable $e) {
             // Bookkeeping only — a failed status flip must never fail the signup
             // itself. (Also covers SQLite test mirrors without the table.)
+            report($e);
             Log::warning('early_access.mark_signed_up_failed', ['error' => $e->getMessage()]);
         }
     }
