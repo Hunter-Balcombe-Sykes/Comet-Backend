@@ -1207,7 +1207,7 @@ None.
         }
         ```
 
-- [ ] **#WHK-3** · P2 — `VerifyBotToken`'s circuit-breaker fail-open alerting self-masks during the exact Redis outage it's meant to escalate
+- [x] **#WHK-3** · P2 — `VerifyBotToken`'s circuit-breaker fail-open alerting self-masks during the exact Redis outage it's meant to escalate
     - **Where:** app/Http/Middleware/VerifyBotToken.php:223-265 (`firstHitInWindow`, `throttledFailReport`)
     - **Affects:** Operators monitoring bot-protection health during a Redis outage; all `bot.token`-gated public write endpoints (subscribe, signup, lead, enquiry, waitlist, login-identifier) silently lose CAPTCHA enforcement with zero alert.
     - **Effort:** S (~0.5–1h)
