@@ -2,10 +2,13 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Policies\IntegrationConnectionPolicy;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\PublicSite\SitepageDataResolverService;
+use Illuminate\Auth\Access\Response;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -115,6 +118,38 @@ it('persists a toggle flip sparsely and reports it disabled', function () {
         ->assertOk();
 
     expect(IntegrationConnection::query()->find($id)->display_settings)->toBeNull();
+});
+
+// ── SEC-107: authorize every write up front, before any save ──────────────
+// update() now authorizes every connection + the site BEFORE the first save,
+// specifically so a denial can never leave a half-applied write (site column
+// saved, connections never touched, or vice versa). Ownership is already
+// structurally guaranteed here (both queries are scoped to $user->id), so
+// this can't deny through a real request today — prove atomicity instead by
+// forcing the connection-level gate to deny and asserting the site-column
+// write it precedes never landed.
+
+it('does not persist the site-column write when a connection-level authorize denies (atomicity)', function () {
+    $pro = createTenant('toggles-atomic');
+    displaySeedConnection($pro->id, ['username' => 'artist'], 'instagram');
+
+    $before = $pro->site->fresh()->content_instagram_auto_enabled;
+
+    $this->app->bind(IntegrationConnectionPolicy::class, fn () => new class extends IntegrationConnectionPolicy
+    {
+        public function update(User $actor, Model $resource): bool|Response
+        {
+            return Response::denyAsNotFound();
+        }
+    });
+
+    // instagram's only toggle ('gallery') is siteColumn-backed — flipping it
+    // is exactly the write that must not land while the connection gate denies.
+    actingAsUser($pro)
+        ->patchJson('/api/platforms/instagram/display-settings', ['toggles' => ['gallery' => ! (bool) $before]])
+        ->assertStatus(404);
+
+    expect($pro->site->fresh()->content_instagram_auto_enabled)->toEqual($before);
 });
 
 it('rejects unknown toggle keys and untoggleable platforms', function () {

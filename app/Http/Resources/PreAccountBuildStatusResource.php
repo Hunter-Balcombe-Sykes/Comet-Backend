@@ -8,6 +8,9 @@ use Illuminate\Http\Request;
 // Public poll shape for a pre-account build (site-first signup + staff
 // marketing builds). No scraped content leaks here (spec §8) — content only
 // ever appears via the public site payload once the build is ready.
+/**
+ * @mixin PreAccountBuild
+ */
 class PreAccountBuildStatusResource extends ApiResource
 {
     public function toArray(Request $request): array

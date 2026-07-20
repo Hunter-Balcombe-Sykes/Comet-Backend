@@ -19,7 +19,6 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
-use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
@@ -85,7 +84,6 @@ class ShopController extends ApiController
         private readonly ShopifyScraper $shopify,
         private readonly WooCommerceScraper $woocommerce,
         private readonly SquarespaceScraper $squarespace,
-        private readonly BigCartelScraper $bigcartel,
         private readonly GenericShopScraper $generic,
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopCatalog $catalog,
@@ -628,7 +626,9 @@ class ShopController extends ApiController
      * Resolve the brand profile (and, for generic pages, the products that
      * came with it) for a freshly-detected store.
      *
-     * @param  array{provider:string, origin:string, sourceUrl:string, page:array|null}  $detected
+     * @param  array{provider:string, origin:string, sourceUrl:string, page:array|null,
+     *               store:array|null, clientBrand?:array, clientProducts?:array,
+     *               fetchMode?:string}  $detected
      * @return array{0: array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}, 1: ?array}
      */
     private function brandProfileFor(array $detected): array

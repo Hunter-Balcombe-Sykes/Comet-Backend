@@ -41,8 +41,19 @@ class CustomDomainController extends ApiController
             return $this->error('Custom domains aren’t available yet — Cloudflare for SaaS isn’t configured.', 503);
         }
 
+        $user = $this->currentUser($request);
         $site = $this->siteOrFail($request);
         $domain = $request->validated()['domain'];
+
+        // Authorize BEFORE any Cloudflare side effect — not merely before
+        // $site->save() (SEC-108). Both the previous-hostname teardown below
+        // and the create() call further down talk to a real external system;
+        // a denied write must never leave a live custom hostname behind with
+        // no cleanup path (create() succeeding, then the save being denied,
+        // would orphan it). Defence-in-depth: $site is already resolved off
+        // the authenticated caller's OWN relation, so this can't actually
+        // deny today — it's a guard for a future by-UUID path.
+        $this->authorizeForUser($user, 'update', $site);
 
         // Reject a domain already connected to a different site.
         $takenByOther = Site::query()
@@ -105,6 +116,7 @@ class CustomDomainController extends ApiController
 
     public function verify(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $site = $this->siteOrFail($request);
 
         if (! $site->custom_domain || ! $site->custom_domain_cf_id) {
@@ -133,6 +145,9 @@ class CustomDomainController extends ApiController
             // back to their Partna handle anytime from settings.
             $site->custom_domain_primary = true;
         }
+        // Ownership gate immediately before the write (SEC-108, defence-in-
+        // depth — see siteOrFail()'s comment).
+        $this->authorizeForUser($user, 'update', $site);
         $site->save();
 
         // Once active, publish the domain → handle route through the single writer.
@@ -149,6 +164,7 @@ class CustomDomainController extends ApiController
     // active. primary=false swaps back to <handle>.partna.au.
     public function setPrimary(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $site = $this->siteOrFail($request);
         $primary = $request->boolean('primary');
 
@@ -157,6 +173,9 @@ class CustomDomainController extends ApiController
         }
 
         $site->custom_domain_primary = $primary;
+        // Ownership gate immediately before the write (SEC-108, defence-in-
+        // depth — see siteOrFail()'s comment).
+        $this->authorizeForUser($user, 'update', $site);
         $site->save();
 
         return $this->success($this->state($site));
@@ -164,7 +183,17 @@ class CustomDomainController extends ApiController
 
     public function destroy(Request $request): JsonResponse
     {
+        $user = $this->currentUser($request);
         $site = $this->siteOrFail($request);
+
+        // Authorize BEFORE any Cloudflare side effect — not merely before
+        // $site->save() (SEC-108). The teardown below talks to a real external
+        // system; a denied write must never tear down a live custom hostname
+        // before being denied. Defence-in-depth: $site is already resolved off
+        // the authenticated caller's OWN relation, so this can't actually
+        // deny today — it's a guard for a future by-UUID / staff path.
+        $this->authorizeForUser($user, 'update', $site);
+
         $previous = $site->custom_domain ? strtolower($site->custom_domain) : null;
 
         if ($site->custom_domain_cf_id) {
@@ -191,8 +220,17 @@ class CustomDomainController extends ApiController
 
     private function siteOrFail(Request $request): Site
     {
-        $site = $this->currentUser($request)->site;
+        $user = $this->currentUser($request);
+        $site = $user->site;
         abort_unless($site !== null, 404, 'No site to configure.');
+
+        // Read-only ownership gate, covering show() and the entry point every
+        // mutator resolves through — each mutator layers its own 'update'
+        // authorize immediately before its own write (SEC-108), so this stays
+        // view-only and show() remains a pure read. Defence-in-depth: $site is
+        // already the authenticated caller's OWN relation, so this can't
+        // actually deny today — it's a guard for a future by-UUID path.
+        $this->authorizeForUser($user, 'view', $site);
 
         return $site;
     }

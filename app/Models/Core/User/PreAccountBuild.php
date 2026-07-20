@@ -9,7 +9,26 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $id
+ * @property string $user_id 1:1 FK to core.users.id (UNIQUE, ON DELETE CASCADE). Not fillable — set via ->user()->associate().
+ * @property string $source_type One of 'instagram'|'google_business' (source_type CHECK) — the pairing map key in config('partna.pre_account.*').
+ * @property string $source_ref The raw source reference as typed/looked up (handle, place id, etc.).
+ * @property string $source_ref_lc Lowercased $source_ref — the dedupe key (pre_account_builds_live_source_unique).
+ * @property string $built_via One of VIA_* ('signup'|'staff') (built_via CHECK).
+ * @property string|null $built_by_staff_id FK to core.partna_staff.id, ON DELETE SET NULL. NULL for signup-originated builds. Not fillable — set via ->builtByStaff()->associate().
+ * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
+ * @property string|null $failure_code One of FAILURE_* (e.g. FAILURE_SOURCE_NOT_FOUND, FAILURE_SCRAPE_FAILED) when build_state is 'failed' — not DB-CHECK-enforced, app-level vocabulary only.
+ * @property string|null $created_ip_hash sha256(CF-Connecting-IP); NULL for staff-built rows (no visitor IP to hash).
+ * @property Carbon $expires_at Drives builds:prune-expired; irrelevant once claimed.
+ * @property Carbon|null $claimed_at NULL while the build is live (scopeLive); set once the visitor claims the site.
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ * @property-read User|null $user
+ * @property-read PartnaStaff|null $builtByStaff
+ */
 // Permanent origin record for a pre-account (site-first) build. 1:1 with the
 // provisional user; survives claim. NOT a ledger of ongoing source interactions —
 // post-claim refreshes belong to platform_connections.
@@ -50,6 +69,7 @@ class PreAccountBuild extends BaseModel
         'claimed_at' => 'datetime',
     ];
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');

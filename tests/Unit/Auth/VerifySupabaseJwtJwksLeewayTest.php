@@ -71,6 +71,9 @@ it('restores JWT::$leeway to its prior value after successful JWKS verification'
         'aud' => 'authenticated',
         'iat' => time(),
         'exp' => time() + 3600,
+        // session_id present — this test targets leeway restoration, not the
+        // SEC-2 no-session_id gate (covered in VerifySupabaseJwtSessionIdGateTest).
+        'session_id' => 'sess-leeway',
     ]);
 
     $cacheLock = Mockery::mock(CacheLockService::class);

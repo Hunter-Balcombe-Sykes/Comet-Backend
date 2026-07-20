@@ -20,14 +20,45 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
- * @property string $auth_user_id
+ * @property string|null $auth_user_id Null until claim — pre-account signup leaves it unset on provisional 'unclaimed' users.
  * @property string $handle
+ * @property string $handle_lc
  * @property string $display_name
+ * @property string $first_name
+ * @property string|null $last_name
+ * @property string|null $country_code
+ * @property string|null $timezone
+ * @property string|null $phone
+ * @property string|null $primary_email Nullable since the pre-account migration (20260718200000) — unset until claim.
+ * @property string|null $public_contact_number
+ * @property string|null $public_contact_email
+ * @property string|null $location_street_address
+ * @property string|null $location_postcode
+ * @property string|null $location_city
+ * @property string|null $location_state
+ * @property string|null $location_country
+ * @property string $status One of 'active'|'suspended'|'disabled'|'pending_deletion'|'unclaimed' (users_status_check).
  * @property int $onboarding_step
+ * @property AccountType $account_type
+ * @property string|null $sector Curated industry/sector slug (App\Services\Profile\SectorTaxonomy).
+ * @property string|null $sector_source Stamped by the writer: 'manual' (SectorController) or 'google-business' (IdentitySync).
  * @property string|null $partna_url Trigger-managed vanity URL — never mass-assignable.
+ * @property string|null $admin_notes Staff-only notes — never expose via UserDashboardResource.
+ * @property string|null $deletion_token_hash
+ * @property Carbon|null $deletion_requested_at
+ * @property Carbon|null $deletion_confirmed_at
+ * @property string|null $deletion_previous_status
+ * @property Carbon|null $deletion_mail_sent_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at Soft-delete marker (30-day retention).
+ * @property-read Site|null $site
+ * @property-read PreAccountBuild|null $preAccountBuild
+ * @property-read PartnaStaff|null $partnaStaff Independent of account_type — see partnaStaff() below.
  */
 
 // Standalone user model — individual-only accounts. Owns site, services, customers.
@@ -140,6 +171,7 @@ class User extends BaseModel
         return mb_strtolower(trim((string) $this->status)) === 'unclaimed';
     }
 
+    /** @return HasOne<Site, $this> */
     public function site(): HasOne
     {
         return $this->hasOne(Site::class, 'user_id');
@@ -212,6 +244,7 @@ class User extends BaseModel
         return $this->hasMany(EmailSubscription::class, 'user_id');
     }
 
+    /** @return HasMany<IntegrationConnection, $this> */
     public function integrationConnections(): HasMany
     {
         return $this->hasMany(IntegrationConnection::class, 'user_id');

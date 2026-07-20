@@ -35,6 +35,11 @@ final readonly class ParsedUrl
 
     public function lastSegment(): string
     {
-        return $this->pathSegments === [] ? '' : (string) end($this->pathSegments);
+        // end() would pass $pathSegments by reference, which readonly properties
+        // reject (fatals: "Cannot indirectly modify readonly property"). Read the
+        // last key instead — no by-ref call needed.
+        $lastKey = array_key_last($this->pathSegments);
+
+        return $lastKey === null ? '' : (string) $this->pathSegments[$lastKey];
     }
 }

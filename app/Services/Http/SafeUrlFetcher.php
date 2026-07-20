@@ -60,6 +60,7 @@ class SafeUrlFetcher
      * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}
      *
      * @throws SafeUrlException
+     * @throws ConnectionException
      */
     public function fetch(string $url, array $headers = []): array
     {
@@ -101,6 +102,7 @@ class SafeUrlFetcher
      * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}
      *
      * @throws SafeUrlException
+     * @throws ConnectionException
      */
     private function fetchFollowingRedirects(string $url, array $headers): array
     {

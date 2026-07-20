@@ -77,10 +77,20 @@ class MenuController extends ApiController
 
         // Sector-derived gate (2026-07-15): Menu is a food-business feature.
         // GET status()/show() stay open (UI-hidden, not endpoint-blocked) — only
-        // this mutating path is gated.
+        // this mutating path is gated. Runs FIRST — it's a 403 role/capability
+        // restriction, distinct from the ownership gate below, and the
+        // existing 403 for a non-food account must keep firing before it.
         if (! AccountCapabilities::for($user)->can_use_menu) {
             return $this->error('Menu is not available for your account.', 403);
         }
+
+        // Ownership gate (defence-in-depth — the menu is already scoped by
+        // $user->id, so this can never actually deny the caller today; it
+        // exists for parity with every other mutating controller and any
+        // future by-id path). No row yet → authorize a skeleton carrying the
+        // caller's own user_id (SEC-106).
+        $menu = Menu::query()->where('user_id', $user->id)->first();
+        $this->authorizeForUser($user, 'update', $menu ?? new Menu(['user_id' => $user->id]));
 
         // Only meaningful when the user has a resolvable Uber Eats / DoorDash link.
         if ($this->source->resolveAll($user) === null) {
@@ -107,6 +117,13 @@ class MenuController extends ApiController
         if (! AccountCapabilities::for($user)->can_use_menu) {
             return $this->error('Menu is not available for your account.', 403);
         }
+
+        // Ownership gate — see refresh()'s comment (SEC-106). Enforced HERE,
+        // not inside MenuScanApplier, so the service stays callable from
+        // non-HTTP callers (e.g. an automatic Google-photos scan job) without
+        // an HTTP-shaped actor.
+        $menu = Menu::query()->where('user_id', $user->id)->first();
+        $this->authorizeForUser($user, 'update', $menu ?? new Menu(['user_id' => $user->id]));
 
         $result = $this->scanApplier->apply($user, $request->validated()['items']);
 

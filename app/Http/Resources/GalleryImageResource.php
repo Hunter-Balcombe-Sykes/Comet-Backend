@@ -2,12 +2,16 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\Site\SiteMedia;
 use Illuminate\Http\Request;
 
 // Wire-format gate for gallery-pool SiteMedia rows (#P2-34).
 // Replaces the per-row inline ->map(...) that UserGalleryController::index
 // previously used. The explicit allowlist here keeps future SiteMedia columns
 // (e.g. moderation flags, exif blobs) from auto-shipping to the dashboard.
+/**
+ * @mixin SiteMedia
+ */
 class GalleryImageResource extends ApiResource
 {
     /**

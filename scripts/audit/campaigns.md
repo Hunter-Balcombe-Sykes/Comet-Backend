@@ -4,6 +4,77 @@ Copy-pasteable prompts for running a themed audit across the backend in tiers.
 Each tier is a single prompt you can hand to Claude; each run inside it is also
 listed as a raw command if you'd rather drive it yourself.
 
+---
+
+# ⭐ Priorities — read this first
+
+Two gates, in order. **Pre-pilot** = cutting over to a real prod Supabase and
+putting a controlled cohort of real users with real data on it. **Pre-launch** =
+opening to public, uncontrolled traffic. Everything else is ongoing hygiene.
+
+## Where the line actually falls
+
+**The pilot bounds who signs up, not who can reach the product.** Partna's
+product *is* public sitepages: 20 pilot users means 20 publicly-reachable pages
+at `<handle>.partna.au`, served by the Worker, indexable, hit by anyone who finds
+them. So "a controlled cohort bounds the blast radius" is true for *volume* and
+false for *reachability*. The test that decides the gate:
+
+- **On the public path at all** → Gate A, regardless of volume.
+- **Only hurts at volume** → Gate B.
+
+Within a gate, ranked by risk-per-token rather than severity: an irreversible
+one-shot operation (the migration cutover) outranks a worse-but-fixable defect,
+because you only get one attempt at it.
+
+## Gate A — pre-pilot (23 runs)
+
+Nothing here is optional. This is the set that gates the cutover.
+
+| Rank | Run | Runs | Why it gates the pilot |
+|---|---|---|---|
+| 1 | **Security T1** | 8 | Everything externally reachable. Nothing else matters if this is wrong. |
+| 2 | **Concurrency T1** | 3 | The claim race is new, unaudited, and corrupts data silently rather than erroring. |
+| 3 | **Security T2a** — `edge-worker`, `wiring`, `outbound-ssrf` | 3 | The public path, not the integration path. The Worker is the front door to every sitepage; `wiring` covers CORS and secret leakage at the moment real secrets first enter a real prod env; `InstagramController::mirror()` was already a CRITICAL SSRF once and any pilot user can trigger it on day one. |
+| 4 | **Lifecycle T1** | 2 | Deletion/claim state machines + KV reconcile. Real user data means a stuck or half-applied transition is a support incident, not a test artifact. |
+| 5 | **Cutover T1** | 3 | 185 unapplied migrations replayed onto a v2 schema is the single riskiest planned operation, and it is one-shot. |
+| 6 | **Cutover T2** | 2 | The SQLite/Postgres constraint asymmetry that has already caused two production incidents. |
+| 7 | **Data & privacy T1** | 2 | Pilot means real PII. GDPR is legal risk, not technical debt. |
+
+Executable end-to-end prompt: [Running Gate A](#running-gate-a-end-to-end-the-pre-pilot-set).
+
+**If 23 runs is too much in one go:** ranks 1–2 (11 runs) cover the externally
+reachable attack surface and the data-corruption race — the two that cannot wait
+under any circumstance.
+
+## Gate B — pre-launch (15 runs)
+
+Deferrable through the pilot because these genuinely are volume-bound or
+change-bound. Not deferrable past it.
+
+| Rank | Run | Runs | Why it gates launch, not the pilot |
+|---|---|---|---|
+| 8 | **Scale T1** | 3 | Public sitepage reads and analytics ingest scale with *traffic*, not user count. 20 users generate 20 users' traffic. The tail risk — one pilot page going viral — is a risk you accept, not a gate you pay for up front. |
+| 9 | **Security T2b** — `platforms-api`, `platforms-svc-a`, `platforms-svc-b` | 3 | The scraper surface, 827 KB combined and the most expensive runs in the whole plan. A scraper defect hurts the one user who connected that integration; it is not on the public read path. |
+| 10 | **Contract** | 3 | The frontend and the Astro sitepage app both consume these payloads. A shape break is cheap to fix pre-launch and expensive after. |
+| 11 | **Lifecycle T2** | 4 | Vendor resilience, retry storms, notification dedup — failure modes that need fan-out to appear at all. |
+| 12 | **Data & privacy T2** | 2 | Retention windows that never actually prune. Harmless at pilot volume; a compliance finding at launch volume. |
+
+## Ongoing — opportunistic, or when planning a change in that area
+
+| Run | When |
+|---|---|
+| **Security T3** (7) | Defence-in-depth on code that isn't externally reachable. |
+| **Concurrency T2** (2) | Before touching upload or staff write paths. |
+| **Scale T2–T3** (5) | Before a load event, or when queue depth becomes visible. |
+| **Foundation** (2) | When planning a subsystem change, never on a schedule. |
+| **Code quality** (3) | On new code only, never the whole repo. |
+
+**After either gate passes, do not re-run it.** Audit the delta instead —
+see [audit the delta](#after-the-baseline--audit-the-delta-not-the-repo).
+
+---
+
 ## Why these scopes look the way they do
 
 **Narrow scope finds more than wide scope.** Measured 2026-07-19 with 10
@@ -81,15 +152,46 @@ only place two strangers race for the same resource. `authz-core` matters
 disproportionately here — under Supabase JWT `Auth::user()` is always null, so a
 stray `authorize()` instead of `authorizeForUser()` **silently passes**.
 
-## Tier 2 — outbound, integrations, wiring (6 runs)
+## Tier 2a — the public path (3 runs) · **Gate A, pre-pilot**
+
+These three are split out of the old Tier 2 because they sit on the path every
+public sitepage visitor traverses, so a pilot cohort does not bound their
+exposure. See [Where the line actually falls](#where-the-line-actually-falls).
 
 > **Prompt:**
-> Run Tier 2 of the security campaign in `scripts/audit/campaigns.md` — the 6
-> outbound/integration/wiring runs. Same rules: sequential, report counts + paths
-> only, stop on failure. Summarise P0/P1 at the end. Pay particular attention to
-> SSRF regressions: `InstagramController::mirror()` was a CRITICAL SSRF fixed on
-> 2026-06-03 with `SafeUrlFetcher` + host allowlist + image-only content-type —
-> flag anything that bypasses that path.
+> Run Tier 2a of the security campaign in `scripts/audit/campaigns.md` — the 3
+> public-path runs. Sequential, counts + paths only, stop on failure. Pay
+> particular attention to SSRF regressions: `InstagramController::mirror()` was a
+> CRITICAL SSRF fixed on 2026-06-03 with `SafeUrlFetcher` + host allowlist +
+> image-only content-type — flag anything that bypasses that path. For the edge
+> worker, remember `SyncSubdomainToKvJob` is the ONLY sanctioned writer to
+> `SUBDOMAIN_KV`; treat any other write path, or any origin-trust assumption in
+> the Worker, as a routing-integrity finding.
+
+```bash
+A=scripts/audit/audit.sh
+$A --category security --name edge-worker --bundle security \
+  --scope cloudflare-worker/src                                                     # 23 KB
+$A --category security --name wiring --bundle security \
+  --scope routes --scope config --scope bootstrap/app.php \
+  --scope bootstrap/providers.php                                                   # 262 KB
+$A --category security --name outbound-ssrf --bundle security \
+  --scope app/Services/Http --scope app/Services/Media \
+  --scope app/Services/Streaming --scope app/Services/Cloudflare                    # 152 KB
+```
+
+## Tier 2b — the integration surface (3 runs) · **Gate B, pre-launch**
+
+827 KB combined — the most expensive runs in the whole plan. A defect here hurts
+the single user who connected that integration, not the public read path, which
+is why it can wait out the pilot.
+
+> **Prompt:**
+> Run Tier 2b of the security campaign in `scripts/audit/campaigns.md` — the 3
+> platform-integration runs. Sequential, counts + paths only, stop on failure.
+> Summarise P0/P1 at the end. These are scrapers and vendor clients: weight
+> credential handling, per-connection tenant scoping, and anything that fetches a
+> URL derived from vendor-controlled data.
 
 ```bash
 A=scripts/audit/audit.sh
@@ -102,14 +204,6 @@ $A --category security --name platforms-svc-b --bundle security \
   --scope app/Services/Platforms/Strategies --scope app/Services/Platforms/Registry \
   --scope app/Services/Platforms/Payloads --scope app/Services/Platforms/Normalizers \
   --scope app/Services/Platforms/Concerns                                           # 261 KB
-$A --category security --name outbound-ssrf --bundle security \
-  --scope app/Services/Http --scope app/Services/Media \
-  --scope app/Services/Streaming --scope app/Services/Cloudflare                    # 152 KB
-$A --category security --name wiring --bundle security \
-  --scope routes --scope config --scope bootstrap/app.php \
-  --scope bootstrap/providers.php                                                   # 262 KB
-$A --category security --name edge-worker --bundle security \
-  --scope cloudflare-worker/src                                                     # 23 KB
 ```
 
 ## Tier 3 — completeness (7 runs)
@@ -146,7 +240,7 @@ $A --category security --name migrations-b --bundle security \
   $(printf -- '--scope %s ' supabase/migrations/20260[7-9]*.sql)                    # 212 KB
 ```
 
-Tiers 1–3 together cover **1095 of 1096** backend files. Tier 1 alone covers the
+Tiers 1, 2a, 2b and 3 together cover **1095 of 1096** backend files. Tier 1 alone covers the
 externally reachable surface.
 
 ---
@@ -452,32 +546,87 @@ $A --category foundation --name json-denormalisation --bundle foundational \
 
 ---
 
-# Priority order — what to run, in what order
+# Campaign 9 — Lifecycle correctness
 
-Ranked across all campaigns for the current stage (pre-beta, no customers, pilot
-on a cut-over prod Supabase). Stop wherever the value stops justifying the spend.
+Lens: `lifecycle-correctness` (LIFE-*). Race-safety, idempotency, anchor
+decoupling, reconcile loops, vendor resilience, log discrimination.
 
-| Rank | Run | Why now |
-|---|---|---|
-| 1 | **Security Tier 1** (8 runs) | Everything externally reachable. Nothing else matters if this is wrong. |
-| 2 | **Concurrency Tier 1** (3 runs) | The claim race is new, unaudited, and corrupts data silently rather than erroring. |
-| 3 | **Cutover Tier 1** (3 runs) | Gates the pilot. 185 unapplied migrations onto a v2 schema is the single riskiest planned operation. |
-| 4 | **Cutover Tier 2** (2 runs) | The SQLite/Postgres asymmetry that has already caused two incidents. |
-| 5 | **Data & privacy Tier 1** (2 runs) | Pilot means real user data. GDPR is legal risk, not technical debt. |
-| 6 | **Security Tier 2** (6 runs) | Outbound/SSRF and wiring. |
-| 7 | **Contract campaign** (3 runs) | Before any release the frontend consumes. |
-| 8 | **Scale Tier 1** (3 runs) | Real but not yet binding — no customers. Do it before the pilot opens, not now. |
-| 9 | **Concurrency Tier 2**, **Data Tier 2**, **Security Tier 3** | Defence in depth. |
-| 10 | **Scale Tiers 2–3**, **Foundation**, **Code quality** | Opportunistic, or when planning a change in that area. |
+**Why this campaign exists.** This lens ships in the `core`, `pre-pilot` and
+`full-sweep` bundles, but no campaign above invokes any of those — so before this
+was added it ran in **zero** campaigns while passing the CI bundle-reachability
+guard. A lens that never opens a file reports nothing, which is indistinguishable
+from a clean result.
 
-**Minimum viable set before the pilot:** ranks 1–5 (18 runs). That covers the
-attack surface, the data-corruption race, the cutover, and GDPR.
+It is a deliberate **sibling** to `scaling-antipatterns` (which owns
+rebuild-on-write and weak caching) and overlaps `transaction-boundaries` /
+`caching-gold-standard` from Campaign 3. The non-overlapping doctrine is the point:
+anchor decoupling (`*_started_at` vs a retry-reset deadline), daily reconcile jobs
+for at-least-once-or-zero external events, JSONB notification dedup, `:stale` twin
+busting, jittered 1→N invalidation, and vendor API version pinning. None of those
+are hunted anywhere else.
+
+## Tier 1 — state machines and reconcile (2 runs)
+
+> **Prompt:**
+> Run Tier 1 of the lifecycle campaign in `scripts/audit/campaigns.md`.
+> Sequential, counts + paths only, stop on failure. Every finding must cite one of
+> the named house-doctrine patterns in the lens header — reject anything that
+> cannot. Two specifics to weight heavily: (1) self-service deletion never
+> soft-deletes, it goes active → pending_deletion → forceDelete, so a transition
+> stuck mid-way strands data; (2) `SyncSubdomainToKvJob` is the ONLY writer to
+> `SUBDOMAIN_KV` and KV writes are eventually-consistent, so flag any state that
+> depends on a KV write landing without a reconcile path.
+
+```bash
+A=scripts/audit/audit.sh
+L=scripts/audit/lenses
+$A --category lifecycle --name state-machines --lens-file $L/lifecycle-correctness.md \
+  --scope app/Services/User --scope app/Services/PreAccount --scope app/Jobs/Account \
+  --scope app/Jobs/Gdpr --scope app/Services/Segments \
+  --scope app/Http/Middleware/Context                                               # 216 KB
+$A --category lifecycle --name cache-edge-reconcile --lens-file $L/lifecycle-correctness.md \
+  --scope app/Services/Site --scope app/Services/Cache --scope app/Observers \
+  --scope app/Jobs/Cloudflare --scope app/Services/Cloudflare \
+  --scope routes/console.php                                                        # 245 KB
+```
+
+## Tier 2 — fan-out and vendor resilience (4 runs)
+
+> **Prompt:**
+> Run Tier 2 of the lifecycle campaign in `scripts/audit/campaigns.md` — the 4
+> fan-out/vendor runs. Sequential, counts + paths only. Focus on retry storms,
+> missing reconcile jobs for external state, unpinned vendor API versions, and
+> paraphrased-instead-of-verbatim vendor errors. Note provisional (unclaimed)
+> users have NO email — `routeNotificationForMail()` is nullable — so flag any
+> notification path that assumes a mail route exists.
+
+```bash
+A=scripts/audit/audit.sh
+L=scripts/audit/lenses
+$A --category lifecycle --name notif-moderation --lens-file $L/lifecycle-correctness.md \
+  --scope app/Services/Notifications --scope app/Jobs/Notifications \
+  --scope app/Http/Controllers/Api/User/Notifications --scope app/Services/Moderation \
+  --scope app/Jobs/Moderation --scope app/Policies \
+  --scope app/Services/Streaming --scope app/Jobs/Streaming                         # 222 KB
+$A --category lifecycle --name jobs-media --lens-file $L/lifecycle-correctness.md \
+  --scope app/Jobs --scope app/Services/Media                                       # 332 KB
+$A --category lifecycle --name vendor-platforms-a --lens-file $L/lifecycle-correctness.md \
+  $(printf -- '--scope %s ' app/Services/Platforms/[A-M]*.php)                      # 334 KB
+$A --category lifecycle --name vendor-platforms-b --lens-file $L/lifecycle-correctness.md \
+  $(printf -- '--scope %s ' app/Services/Platforms/[N-Z]*.php) \
+  --scope app/Services/Platforms/Strategies --scope app/Services/Platforms/Registry \
+  --scope app/Services/Platforms/Payloads --scope app/Services/Platforms/Normalizers \
+  --scope app/Services/Platforms/Concerns --scope app/Jobs/Platforms                # 335 KB
+```
 
 ---
 
-# Running ranks 1–5 end to end (the pre-pilot set)
+# Running Gate A end to end (the pre-pilot set)
 
-18 runs. Paste the prompt below. It is resumable — re-paste it after an
+**Ranks 1–7 from [Priorities](#-priorities--read-this-first) — that table is the
+single source of truth for ordering; this section is only the executable form.**
+
+23 runs. Paste the prompt below. It is resumable — re-paste it after an
 interruption and it skips whatever already completed.
 
 > ⚠ **The one hard rule: `audit.sh` is never run concurrently.** Every run
@@ -486,8 +635,8 @@ interruption and it skips whatever already completed.
 
 > **Prompt:**
 >
-> Work through ranks 1–5 of `scripts/audit/campaigns.md` — the 18-run pre-pilot
-> audit set. Read that file first for the exact commands.
+> Work through Gate A of `scripts/audit/campaigns.md` — the 23-run pre-pilot
+> audit set (ranks 1–7). Read that file first for the exact commands.
 >
 > **The run list, in this exact order:**
 >
@@ -504,13 +653,18 @@ interruption and it skips whatever already completed.
 > | 9 | concurrency | claim-and-provision | Concurrency T1 |
 > | 10 | concurrency | cache-invalidation | Concurrency T1 |
 > | 11 | concurrency | webhooks-idempotency | Concurrency T1 |
-> | 12 | cutover | migrations-early | Cutover T1 |
-> | 13 | cutover | migrations-recent | Cutover T1 |
-> | 14 | cutover | parity-models | Cutover T1 |
-> | 15 | cutover | parity-services | Cutover T2 |
-> | 16 | cutover | parity-jobs | Cutover T2 |
-> | 17 | privacy | gdpr-deletion-export | Data T1 |
-> | 18 | privacy | pii-schema | Data T1 |
+> | 12 | security | edge-worker | Security T2a |
+> | 13 | security | wiring | Security T2a |
+> | 14 | security | outbound-ssrf | Security T2a |
+> | 15 | lifecycle | state-machines | Lifecycle T1 |
+> | 16 | lifecycle | cache-edge-reconcile | Lifecycle T1 |
+> | 17 | cutover | migrations-early | Cutover T1 |
+> | 18 | cutover | migrations-recent | Cutover T1 |
+> | 19 | cutover | parity-models | Cutover T1 |
+> | 20 | cutover | parity-services | Cutover T2 |
+> | 21 | cutover | parity-jobs | Cutover T2 |
+> | 22 | privacy | gdpr-deletion-export | Data T1 |
+> | 23 | privacy | pii-schema | Data T1 |
 >
 > **Rules — these are not negotiable:**
 >
@@ -532,13 +686,13 @@ interruption and it skips whatever already completed.
 >    past a failure. Common causes are the `claude` CLI session limit and budget
 >    exhaustion — both now fail loudly and write no audit, so a missing
 >    `CONSOLIDATED.md` is a genuine failure, not a clean result.
-> 5. **Budget awareness.** 18 runs is roughly 90 scans plus 18 adjudications and
+> 5. **Budget awareness.** 23 runs is roughly 115 scans plus 23 adjudications and
 >    will likely hit a session limit partway. That is expected — stop, tell me
 >    where you got to, and I will re-paste this prompt to resume.
-> 6. **Progress only, no dumps.** After each run, one line: `[n/18] <name> —
+> 6. **Progress only, no dumps.** After each run, one line: `[n/23] <name> —
 >    P0:x P1:x P2:x P3:x → <path>`.
 >
-> **When all 18 are done (or you stop early), give me:**
+> **When all 23 are done (or you stop early), give me:**
 >
 > - A single table of every P0 and P1 across all runs: ID, tier, run it came from,
 >   one-line summary.
@@ -555,7 +709,7 @@ interruption and it skips whatever already completed.
 
 ## Expected cost
 
-Roughly 90 DeepSeek scans and 18 Claude adjudications. Adjudication budget scales
+Roughly 115 DeepSeek scans and 23 Claude adjudications. Adjudication budget scales
 with scope size (`$2 + $2/100KB`, capped $18), so the larger runs sit near the top
 of that range. Several hours wall-clock, sequential by design.
 

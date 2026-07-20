@@ -3,6 +3,9 @@
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Policies\SitePolicy;
+use Illuminate\Auth\Access\Response;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -172,4 +175,101 @@ it('cleans up the orphaned Cloudflare hostname and returns 422 when a concurrent
 
     // The racer's own row did not keep the domain (save rolled back).
     expect($site->fresh()->custom_domain)->toBeNull();
+});
+
+// ── SEC-108: ownership gates on every read/mutator ─────────────────────────
+// siteOrFail() now authorizes 'view' (covers show() + every mutator's entry
+// point), and each mutator additionally authorizes 'update' immediately
+// before its own write. Ownership is already structurally guaranteed (site
+// is always resolved off the caller's OWN relation), so none of this can
+// actually deny through a real request today — these prove the happy paths
+// are unaffected and the no-site 404 still fires the same way it always has.
+
+it('sets and unsets the primary domain via the dedicated endpoint', function () {
+    [$user, $site] = domainUserWithSite('domuprimary');
+    $site->custom_domain = 'bookwith.me';
+    $site->custom_domain_status = 'active';
+    $site->custom_domain_primary = false;
+    $site->saveQuietly();
+
+    actingAsUser($user)->postJson('/api/site/custom-domain/primary', ['primary' => true])
+        ->assertOk()
+        ->assertJsonPath('primary', true);
+    expect((bool) $site->fresh()->custom_domain_primary)->toBeTrue();
+
+    actingAsUser($user)->postJson('/api/site/custom-domain/primary', ['primary' => false])
+        ->assertOk()
+        ->assertJsonPath('primary', false);
+    expect((bool) $site->fresh()->custom_domain_primary)->toBeFalse();
+});
+
+it('404s show/store/verify/setPrimary/destroy for a user with no site', function () {
+    $user = User::create([
+        'handle' => 'nosite', 'handle_lc' => 'nosite', 'display_name' => 'Nosite',
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'nosite@example.com',
+    ]);
+
+    actingAsUser($user)->getJson('/api/site/custom-domain')->assertStatus(404);
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])->assertStatus(404);
+    actingAsUser($user)->postJson('/api/site/custom-domain/verify')->assertStatus(404);
+    actingAsUser($user)->postJson('/api/site/custom-domain/primary', ['primary' => true])->assertStatus(404);
+    actingAsUser($user)->deleteJson('/api/site/custom-domain')->assertStatus(404);
+});
+
+it('never calls Cloudflare create() when the ownership authorize denies before any external write', function () {
+    [$user] = domainUserWithSite('domudeny');
+
+    Http::fake(['api.cloudflare.com/*' => Http::response([
+        'success' => true,
+        'result' => ['id' => 'ch_should_never_exist'],
+    ], 200)]);
+
+    // Force the 'update' gate to deny for this request only — the ownership
+    // check can't actually deny through a real request (site is always the
+    // caller's own), so this simulates the guard catching something (a future
+    // by-id path). Proves the authorize call really does sit BEFORE
+    // cf->create(), not merely before $site->save() — a denial here must
+    // leave zero trace of a live CF custom hostname.
+    $this->app->bind(SitePolicy::class, fn () => new class extends SitePolicy
+    {
+        public function update(User $actor, Model $resource): bool|Response
+        {
+            return Response::denyAsNotFound();
+        }
+    });
+
+    actingAsUser($user)->putJson('/api/site/custom-domain', ['domain' => 'bookwith.me'])
+        ->assertStatus(404);
+
+    Http::assertNothingSent();
+});
+
+it('never calls Cloudflare delete() when the ownership authorize denies before any external write', function () {
+    [$user, $site] = domainUserWithSite('domudeny2');
+    $site->custom_domain = 'bookwith.me';
+    $site->custom_domain_cf_id = 'ch_should_never_be_deleted';
+    $site->custom_domain_status = 'active';
+    $site->saveQuietly();
+
+    Http::fake(['api.cloudflare.com/*' => Http::response(['success' => true], 200)]);
+
+    // Force the 'update' gate to deny for this request only — the ownership
+    // check can't actually deny through a real request (site is always the
+    // caller's own), so this simulates the guard catching something (a future
+    // by-id path). Proves the authorize call really does sit BEFORE
+    // cf->delete(), not merely before $site->save() — a denial here must
+    // leave the live CF custom hostname untouched.
+    $this->app->bind(SitePolicy::class, fn () => new class extends SitePolicy
+    {
+        public function update(User $actor, Model $resource): bool|Response
+        {
+            return Response::denyAsNotFound();
+        }
+    });
+
+    actingAsUser($user)->deleteJson('/api/site/custom-domain')
+        ->assertStatus(404);
+
+    Http::assertNothingSent();
 });

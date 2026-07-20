@@ -3,11 +3,14 @@
 namespace App\Http\Resources\Moderation;
 
 use App\Http\Resources\ApiResource;
+use App\Models\Moderation\ModerationCase;
 
 /**
  * List-view serialization of a moderation case — no nested relations.
  * PII fields (reporter_email, reporter_ip_hash) live on case_signals, not
  * here, so this resource is safe to return to any staff endpoint.
+ *
+ * @mixin ModerationCase
  */
 class CaseResource extends ApiResource
 {

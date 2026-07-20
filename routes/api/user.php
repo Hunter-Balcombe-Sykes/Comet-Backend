@@ -56,6 +56,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // would otherwise let a browser refresh or mobile double-tap persist
         // duplicate audit rows and queue duplicate confirmation mails (#P2-43).
         // Frontend must send a per-action `Idempotency-Key: <uuid-v4>` header.
+        // WHK-2: nesting `idempotent` inside this group (itself nested under the
+        // outer `throttle:authenticated` group above) does NOT determine execution
+        // order — Laravel's SortedMiddleware re-sorts the fully merged stack by the
+        // priority list in bootstrap/app.php (`prependToPriorityList(ThrottleRequests,
+        // IdempotencyKey)`), regardless of textual group nesting. Do not "fix" this
+        // by reordering groups.
         Route::prefix('me/deletion')->middleware('idempotent')->group(function () {
             Route::post('/request', [UserAccountDeletionController::class, 'request'])
                 ->middleware('throttle:3,60');

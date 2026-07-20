@@ -383,6 +383,7 @@ class AppleController extends ApiController
         $resource = match ($platform) {
             self::PODCAST => new ApplePodcastConnectionResource($selection),
             self::MUSIC => new AppleMusicConnectionResource($selection),
+            default => throw new \UnhandledMatchError("Unknown platform: $platform"),
         };
 
         return $resource->resolve();

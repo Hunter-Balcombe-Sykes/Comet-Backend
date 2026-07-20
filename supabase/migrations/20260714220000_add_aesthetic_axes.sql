@@ -12,7 +12,14 @@
 -- NULLABLE, no DB defaults — code-side defaults live in the design-system
 -- package (defaults.ts / vars.css), per the design-kit var contract.
 
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
 ALTER TABLE site.design_kits
     ADD COLUMN IF NOT EXISTS typography_tracking TEXT NULL,
     ADD COLUMN IF NOT EXISTS theme_contrast TEXT NULL,
     ADD COLUMN IF NOT EXISTS weight_heading TEXT NULL;
+
+COMMIT;

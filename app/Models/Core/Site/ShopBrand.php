@@ -59,6 +59,7 @@ class ShopBrand extends BaseModel
         return $this->belongsTo(IntegrationConnection::class, 'connection_id');
     }
 
+    /** @return HasMany<ShopProduct, $this> */
     public function products(): HasMany
     {
         return $this->hasMany(ShopProduct::class, 'brand_id')->orderBy('position');

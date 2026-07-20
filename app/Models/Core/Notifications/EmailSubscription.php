@@ -7,11 +7,34 @@ use App\Models\BaseModel;
 use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
+/**
+ * @property string $id
+ * @property string|null $user_id Null for list-level (non-user-specific) subscriptions — the partial unique/index pairs key on this being NULL vs NOT NULL.
+ * @property string $list_key
+ * @property string $email
+ * @property string|null $full_name
+ * @property string $status One of 'subscribed'|'unsubscribed' (email_subscriptions_status_check).
+ * @property Carbon|null $subscribed_at
+ * @property Carbon|null $unsubscribed_at
+ * @property string $unsubscribe_token NOT NULL, no DB default — callers must set via newUnsubscribeToken() before create().
+ * @property string|null $consent_source
+ * @property string|null $consent_ip_hash
+ * @property string|null $consent_user_agent
+ * @property string $email_lc Lowercased email, backs the per-list uniqueness indexes.
+ * @property string|null $qr_slug Unique when set; not currently written or read by any app code (legacy/reserved column).
+ * @property Carbon|null $confirmation_sent_at Visitor-facing confirmation-email idempotency stamp; reset to null on a genuine re-subscribe.
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property-read User|null $user
+ */
+
 // V2: Marketing email opt-in/out record per professional+email. Source of truth for consent; caches status on Customer for performance.
-// status ('subscribed'/'unsubscribed') is enforced at the DB level. @see supabase/migrations/202605190000002_add_enum_check_constraints.sql
+// status ('subscribed'/'unsubscribed') is enforced at the DB level by email_subscriptions_status_check.
+// @see supabase/migrations/20260526000000_baseline_standalone_user.sql
 class EmailSubscription extends BaseModel
 {
     use HasUuids;

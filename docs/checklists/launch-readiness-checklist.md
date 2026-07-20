@@ -54,10 +54,11 @@ This is the **business + operational** counterpart to the audit checklists. It c
     - **Cost:** DIY (~1 day to write)
     - **What it covers:** Who decides this is an incident, severity tiers, communication template, postmortem template, customer notification thresholds, breach notification triggers (AU OAIC requires within 30 days for eligible data breaches)
 
-- [ ] **TECH-5 · P0** — Secret rotation runbook
+- [ ] **TECH-5 · P0** — Secret rotation runbook → `docs/runbooks/secret-rotation.md`
     - **When:** Before first pilot customer
     - **Cost:** DIY (~half day to write)
-    - **What it covers:** For each credential class (Stripe keys, Supabase service role, Cloudflare API token, Shopify app secret, Hydrogen API key, Embedded API key), the steps to rotate without downtime + which env files / Laravel Cloud env vars to update
+    - **What it covers:** For each credential class this app actually holds (Supabase Auth Hook secret, Supabase Send Email Hook secret, **Supabase service role key**, Cloudflare API token, Cloudflare cache-purge token, Cloudflare SaaS API token, R2 media storage key pair, logo processor token, brand scan token, internal env-check token, Horizon dashboard password, and the full outbound-vendor / CAPTCHA key set — see the runbook's Scope section for the complete, current inventory rather than duplicating it here), the steps to rotate without downtime + which env files / Laravel Cloud env vars to update
+    - **Progress:** Runbook shipped: `docs/runbooks/secret-rotation.md` (accepted-downtime procedure, 2026-07-20; extended 2026-07-20 to cover every live secret the backend holds, grouped by rotation shape). Outstanding for this item's "without downtime" bar: dual-secret support in `VerifySupabaseHookSignature` (hook secrets, Procedure A) — deliberately deferred. The Supabase service role key (Procedure D) has no "without downtime" option to defer in the first place — Supabase invalidates the old key immediately on regeneration, no dual-key window exists on their side.
     - **Google Maps key note:** the public `GOOGLE_MAPS_API_KEY` (served CDN-cached at `/api/public/config/integrations`) is safe only while its GCP **HTTP-referrer restriction** (`*.partna.au/*`) holds. Re-verify that restriction in the Google Cloud Console as part of any rotation **and on every fresh-environment deploy** — dropping it on a new project is the highest-risk moment.
 
 - [ ] **TECH-6 · P0** — DIY AI-driven pentest pass

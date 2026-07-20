@@ -154,7 +154,7 @@ class DevInsightsController extends ApiController
      * and clicks (link_clicks, attributed by section_key) that feed them.
      *
      * @param  array<string, float>  $linkFreshness  additive boost per link_item content_key
-     * @return array<string, array<array{content_key, title, score, rank, computed_at, impressions, clicks, freshness: float}>>
+     * @return array<string, list<array{content_key: string, title: string|null, score: float, rank: int, computed_at: string, impressions: int, clicks: int, freshness: float}>>
      */
     private function itemScores(string $siteId, array $linkFreshness = []): array
     {

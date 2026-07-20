@@ -3,9 +3,38 @@
 namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
+
+/**
+ * @property string $id
+ * @property string $menu_id
+ * @property string $category_id
+ * @property int $position
+ * @property string $name
+ * @property string|null $description
+ * @property string|null $image_url Cross-filled: Uber Eats preferred, DoorDash fills the gap.
+ * @property float|null $rating DoorDash 👍 percent, 0-100. Uber Eats exposes no per-item rating, so null there.
+ * @property int|null $rating_count
+ * @property array<int, array{text: string, type?: string}>|null $badges DoorDash-only badges, normalized by DoorDashMenuDriver::badges(); Uber Eats exposes none per item.
+ * @property float|null $base_price Representative headline price (min across platforms).
+ * @property float|null $pickup_price Min among pickup-capable platforms.
+ * @property string|null $pickup_source Platform backing pickup_price. One of 'uber-eats'|'doordash'.
+ * @property float|null $delivery_price Min among delivery-capable platforms.
+ * @property string|null $delivery_source Platform backing delivery_price. One of 'uber-eats'|'doordash'.
+ * @property string|null $dd_external_id Cross-platform identity for re-matching against DoorDash.
+ * @property string|null $currency ISO 4217 code from the Uber Eats scrape (per item); null for DoorDash-only dishes.
+ * @property array<int, string>|null $images Hero-first image URL set (images[0] = image_url); cross-platform union — no single platform exposes >1 item image today.
+ * @property bool $is_manual Owner-authored/edited dish. Preserved across scrape rebuilds; a colliding scraped dish is skipped in its favour.
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property-read MenuCategory|null $category
+ * @property-read Menu|null $menu
+ * @property-read Collection<int, MenuItemPlatform> $platformLinks Per-platform availability (one row per ordering platform).
+ */
 
 // One dish under a site.menu_categories row. Content (name / description /
 // image) is UNIONED across every connected ordering platform: a dish
@@ -73,6 +102,7 @@ class MenuItem extends BaseModel
         'updated_at' => 'datetime',
     ];
 
+    /** @return BelongsTo<MenuCategory, $this> */
     public function category(): BelongsTo
     {
         return $this->belongsTo(MenuCategory::class, 'category_id');
@@ -83,7 +113,11 @@ class MenuItem extends BaseModel
         return $this->belongsTo(Menu::class, 'menu_id');
     }
 
-    /** Per-platform availability (one row per ordering platform, per-mode prices/urls). */
+    /**
+     * Per-platform availability (one row per ordering platform, per-mode prices/urls).
+     *
+     * @return HasMany<MenuItemPlatform, $this>
+     */
     public function platformLinks(): HasMany
     {
         return $this->hasMany(MenuItemPlatform::class, 'menu_item_id');

@@ -6,6 +6,12 @@
 -- =====================================================================
 BEGIN;
 
+-- Bounded to platform = 'shop' rows and already idempotent, but the CTE backfill
+-- and index builds lengthen the ROW EXCLUSIVE window on site.platform_connections
+-- held until COMMIT -- fail fast rather than queue behind live traffic.
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '30s';
+
 CREATE TABLE IF NOT EXISTS site.shop_brands (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     connection_id  uuid NOT NULL REFERENCES site.platform_connections (id) ON DELETE CASCADE,

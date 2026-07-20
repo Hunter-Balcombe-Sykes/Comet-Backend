@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\User\User;
 use Illuminate\Http\Request;
 
 // Staff admin shape for Professional — full profile including auth_user_id for identity verification.
@@ -11,6 +12,9 @@ use Illuminate\Http\Request;
 // the location_* fields, and admin_notes are null unless $showPii is true. Only
 // admin staff have $showPii=true — enforced by the controller before passing the
 // flag here. Mirrors the pattern in StaffUserListResource.
+/**
+ * @mixin User
+ */
 class UserStaffResource extends ApiResource
 {
     /**

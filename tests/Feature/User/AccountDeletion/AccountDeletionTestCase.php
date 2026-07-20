@@ -60,6 +60,7 @@ class AccountDeletionTestCase
             location_country TEXT,
             public_contact_email TEXT,
             public_contact_number TEXT,
+            admin_notes TEXT,
             created_at TEXT,
             updated_at TEXT,
             deleted_at TEXT

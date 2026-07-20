@@ -2,10 +2,14 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Http\Request;
 
 // Own-profile shape returned to the authenticated professional (dashboard show, update, bootstrap).
+/**
+ * @mixin User
+ */
 class UserDashboardResource extends ApiResource
 {
     public function toArray(Request $request): array

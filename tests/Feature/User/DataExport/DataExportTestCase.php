@@ -156,6 +156,7 @@ class DataExportTestCase
             ip TEXT,
             user_agent TEXT,
             metadata TEXT,
+            webhook_id TEXT,
             created_at TEXT
         )');
 

@@ -6,6 +6,19 @@ use App\Models\BaseModel;
 use Database\Factories\Core\Staff\PartnaStaffFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Carbon;
+
+/**
+ * @property string $id
+ * @property string $auth_user_id
+ * @property string $role One of ROLE_SUPPORT|ROLE_ADMIN — DB-enforced by the
+ *                        partna_staff_role_check CHECK constraint (@see supabase/migrations/20260526000000_baseline_standalone_user.sql).
+ * @property string|null $primary_email
+ * @property string|null $name
+ * @property string|null $phone
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ */
 
 // V2: Internal Partna staff member. Linked to a Supabase auth user; role-based access for admin operations.
 //
@@ -19,7 +32,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 //   never broadcast staff identity. Any staff-facing endpoint that legitimately
 //   needs these fields must expose them via a dedicated StaffResource.
 //
-// ROLE_* constants are enforced at the DB level. @see supabase/migrations/202605190000002_add_enum_check_constraints.sql
+// ROLE_* constants are enforced at the DB level by partna_staff_role_check.
+// @see supabase/migrations/20260526000000_baseline_standalone_user.sql
 class PartnaStaff extends BaseModel
 {
     use HasFactory, HasUuids;

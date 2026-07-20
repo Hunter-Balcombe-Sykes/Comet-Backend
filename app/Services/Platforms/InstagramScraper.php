@@ -39,7 +39,13 @@ class InstagramScraper extends PlatformScraper
                 );
         } catch (Throwable $e) {
             report($e);
-            Log::warning('instagram.apify.threw', ['username' => $username, 'user_id' => $userId, 'error' => $e->getMessage()]);
+            // Hash the handle before logging — public on Instagram, but pairing it
+            // with our internal user_id in long-retained logs builds a durable,
+            // joinable identity record that shouldn't outlive the request. Lowercase
+            // first: Instagram usernames are case-insensitive, so two connect attempts
+            // for the same account ("DocPizza" vs "docpizza") must hash identically or
+            // they won't correlate in the logs.
+            Log::warning('instagram.apify.threw', ['username_hash' => hash('sha256', mb_strtolower($username)), 'user_id' => $userId, 'error' => $e->getMessage()]);
 
             return null;
         }
@@ -52,7 +58,7 @@ class InstagramScraper extends PlatformScraper
                 report(new \RuntimeException('Apify scrape failed with status '.$response->status()));
             }
             Log::warning('instagram.apify.not_ok', [
-                'username' => $username,
+                'username_hash' => hash('sha256', mb_strtolower($username)),
                 'user_id' => $userId,
                 'status' => $response->status(),
             ]);
@@ -63,7 +69,7 @@ class InstagramScraper extends PlatformScraper
         $items = $response->json();
         if (! is_array($items) || empty($items) || ! is_array($items[0])) {
             Log::warning('instagram.apify.bad_items', [
-                'username' => $username,
+                'username_hash' => hash('sha256', mb_strtolower($username)),
                 'user_id' => $userId,
                 'type' => gettype($items),
                 'count' => is_array($items) ? count($items) : 0,

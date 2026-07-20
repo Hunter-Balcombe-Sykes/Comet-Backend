@@ -60,7 +60,7 @@ class MenuMerger
     }
 
     /**
-     * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>>|null>  $platformMenus  slug-keyed menus
+     * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null>  $platformMenus  slug-keyed menus
      * @param  string  $contentSource  platform whose category structure is canonical
      * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $storeLinks
      * @param  list<string>  $persistedCategoryOrder  the site's PREVIOUSLY persisted category names,
@@ -98,7 +98,7 @@ class MenuMerger
         $matched = [];
         foreach ($otherPlatforms as $p) {
             if ($menus[$p] !== null) {
-                $indexes[$p] = $this->index($menus[$p]['categories'] ?? []);
+                $indexes[$p] = $this->index($menus[$p]['categories']);
                 $matched[$p] = [];
             }
         }
@@ -138,7 +138,7 @@ class MenuMerger
             if ($menus[$p] === null) {
                 continue;
             }
-            foreach ($this->leftovers($menus[$p]['categories'] ?? [], $matched[$p]) as $category) {
+            foreach ($this->leftovers($menus[$p]['categories'], $matched[$p]) as $category) {
                 $items = [];
                 foreach ($category['items'] as $item) {
                     $versions = [$p => $item];
@@ -333,7 +333,7 @@ class MenuMerger
         // categories per normalized name), so the O(n²) pair scan below is
         // cheap.
         $parent = range(0, $n - 1);
-        $find = function (int $i) use (&$find, &$parent): int {
+        $find = function (int $i) use (&$parent): int {
             while ($parent[$i] !== $i) {
                 $parent[$i] = $parent[$parent[$i]];
                 $i = $parent[$i];
@@ -680,7 +680,7 @@ class MenuMerger
      * Store-level fields: canonical platform first, other platforms as fallback
      * so a missing rating/logo fills from wherever it exists.
      *
-     * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>>|null>  $menus
+     * @param  array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null>  $menus
      * @return array<string,mixed>
      */
     private function mergeStore(array $menus, string $contentSource): array

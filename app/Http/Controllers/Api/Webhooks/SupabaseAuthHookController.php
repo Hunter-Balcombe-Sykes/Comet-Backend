@@ -50,6 +50,11 @@ class SupabaseAuthHookController extends Controller
         // already recorded the outcome, and Supabase acts on whichever response
         // reaches it first. Runs AFTER signature verification so an unsigned
         // caller cannot probe which webhook IDs have been seen.
+        //
+        // WHK-101: this Cache::add anchor is the fast path; the partial unique
+        // index auth_factor_events_webhook_id_uk (audit.auth_factor_events,
+        // via $id passed into every record() call below) is the durable backstop
+        // for when Redis has already forgotten the key.
         if (! Cache::add(
             "supabase:auth-hook:{$id}",
             true,
@@ -94,6 +99,7 @@ class SupabaseAuthHookController extends Controller
                     factorType: $factorType,
                     ip: $ip,
                     userAgent: $userAgent,
+                    webhookId: $id,
                 );
 
                 return response()->json(['decision' => 'continue']);
@@ -114,6 +120,7 @@ class SupabaseAuthHookController extends Controller
                     ip: $ip,
                     userAgent: $userAgent,
                     metadata: ['recent_failures' => $recentFailures, 'window_seconds' => $windowSeconds],
+                    webhookId: $id,
                 );
 
                 return response()->json([
@@ -129,6 +136,7 @@ class SupabaseAuthHookController extends Controller
                 factorType: $factorType,
                 ip: $ip,
                 userAgent: $userAgent,
+                webhookId: $id,
             );
 
             return response()->json(['decision' => 'continue']);

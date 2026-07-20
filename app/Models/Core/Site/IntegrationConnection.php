@@ -7,12 +7,40 @@ use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * @property string $id
+ * @property string $user_id
+ * @property string $platform Validated against PlatformRegistry on write (see booted() below) — the registry, not a PHP enum, is the source of truth for valid values.
+ * @property string $resource_id
+ * @property string|null $canonical_key Normalized identity key for account-row dedupe (FOUND-14); NULL for event- and link- prefixed resource rows.
+ * @property string|null $resource_kind One of 'event'|'link', or NULL for account rows (platform_connections_resource_kind_check).
+ * @property array<string, mixed> $payload User-curated selection + last-fetched upstream snapshot; shape varies per platform archetype — see the typed read boundaries in App\Services\Platforms\Payloads (FeedPayload, SelectionPayload, CardPayload, etc.), each a DIFFERENT subset/union of keys. NOT NULL in Postgres (default '{}'), unlike the nullable SQLite test mirror.
+ * @property int $sort_order
+ * @property bool $is_active
+ * @property Carbon|null $last_visited_at
+ * @property Carbon|null $last_refreshed_at
+ * @property string|null $last_refresh_status One of 'ok'|'unavailable'|'error'|'pending' (platform_connections_last_refresh_status_check).
+ * @property string|null $last_refresh_error
+ * @property int $consecutive_failures
+ * @property string|null $apify_status One of 'pending'|'ok'|'unavailable' — Google Business async enrichment state, a separate state machine from last_refresh_status (platform_connections_apify_status_check).
+ * @property string|null $place_id Indexed mirror of the Google Place ID — the canonical value stays in payload.placeId (FOUND-18).
+ * @property string|null $refresh_etag Raw HTTP ETag from the last conditional fetch (ConditionalContext) — kept verbatim, not parsed.
+ * @property string|null $refresh_last_modified Raw HTTP Last-Modified header from the last conditional fetch — kept verbatim, not a Carbon.
+ * @property array<string, mixed>|null $display_settings Sparse toggle-key => bool map (absent/null key = toggle default ON); toggle sets declared per-platform on PlatformDescriptor::displayToggles.
+ * @property Carbon|null $created_at Nullable in Postgres (no NOT NULL constraint, only a DEFAULT now()) — unlike Site/PreAccountBuild's created_at.
+ * @property Carbon|null $updated_at Nullable in Postgres, same as created_at above.
+ * @property Carbon|null $deleted_at
+ * @property-read User|null $user
+ * @property-read Collection<int, ShopBrand> $shopBrands
+ */
 // A user's connection to an external platform — a Shopify store, an Apple
 // artist, an Instagram username, a Fresha salon, and so on. The per-user store
 // behind the pilot platform feature (promoted from the single-tenant test-mode
@@ -119,12 +147,17 @@ class IntegrationConnection extends BaseModel
         });
     }
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    /** FOUND-25: the shop connection's brands (child table, formerly the payload map). */
+    /**
+     * FOUND-25: the shop connection's brands (child table, formerly the payload map).
+     *
+     * @return HasMany<ShopBrand, $this>
+     */
     public function shopBrands(): HasMany
     {
         return $this->hasMany(ShopBrand::class, 'connection_id')

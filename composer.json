@@ -29,7 +29,9 @@
         "symfony/yaml": "^7.4.12"
     },
     "require-dev": {
+        "andreapollastri/checkpoint": "^1.1",
         "fakerphp/faker": "^1.23",
+        "filastudio/laravel-vigil": "^1.0",
         "larastan/larastan": "^3.0",
         "laravel/boost": "^1.8",
         "laravel/pail": "^1.2.2",

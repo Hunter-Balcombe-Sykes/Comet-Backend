@@ -13,6 +13,9 @@ use Illuminate\Http\Request;
 // `settings` is passed through unchanged — the dashboard reads non-design
 // settings (booking, GBP, etc). Per-user design vars live in site.design_kits
 // (separate table), exposed via the skeleton-system payload.
+/**
+ * @mixin Site
+ */
 class SiteResource extends ApiResource
 {
     /**

@@ -39,6 +39,7 @@ class MenuCategory extends BaseModel
         return $this->belongsTo(Menu::class, 'menu_id');
     }
 
+    /** @return HasMany<MenuItem, $this> */
     public function items(): HasMany
     {
         return $this->hasMany(MenuItem::class, 'category_id')->orderBy('position');

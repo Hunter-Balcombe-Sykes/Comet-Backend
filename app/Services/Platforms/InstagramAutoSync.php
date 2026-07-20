@@ -59,6 +59,15 @@ class InstagramAutoSync
     ) {}
 
     /**
+     * Contract: $userId MUST be server-derived — the real caller is
+     * InstagramConnectionSeeder::seed() (line ~159), itself invoked with the
+     * $userId InstagramConnectJob was dispatched with — never raw request
+     * input. There is no ownership check inside this method (it writes
+     * IntegrationConnection rows keyed on the given id unconditionally); a
+     * future controller-invoked caller must authorizeForUser($user, 'update', ...)
+     * at the call site before reaching here, the same way every other
+     * mutating controller path does.
+     *
      * @param  list<mixed>  $bioLinks  raw bio links (InstagramScraper::bioLinks() output — defensively typed here too)
      * @return array{findings: list<array<string,mixed>>, unmatched: list<array<string,mixed>>}
      */

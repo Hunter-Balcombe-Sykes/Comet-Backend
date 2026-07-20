@@ -8,6 +8,11 @@
 -- one (rule-of-two). These were never factor-targetable, but purge any
 -- stray contributions defensively.
 
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
 DELETE FROM site.design_kit_contributions
 WHERE target_var IN ('effect_scrim_blur', 'effect_glass_blur', 'motion_glass_shine_duration');
 
@@ -15,3 +20,5 @@ ALTER TABLE site.design_kits
     DROP COLUMN IF EXISTS effect_scrim_blur,
     DROP COLUMN IF EXISTS effect_glass_blur,
     DROP COLUMN IF EXISTS motion_glass_shine_duration;
+
+COMMIT;

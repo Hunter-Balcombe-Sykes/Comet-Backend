@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Tests\Feature\User\AccountDeletion\AccountDeletionTestCase;
 
@@ -227,4 +228,51 @@ it('does not dispatch a custom-domain retirement when purging a user without an 
     Bus::assertNotDispatched(SyncSubdomainToKvJob::class, function (SyncSubdomainToKvJob $job) {
         return $job->retireCustomDomain !== null;
     });
+});
+
+// ── LIFE-102 / LIFE-103: purge-step failure logs must carry user_id ────────
+//
+// Both steps are keyed on email_lc, not user_id, so their target row carries
+// no user identifier of its own — the acting user_id has to be logged
+// explicitly or a failure here is unattributable in the log stream. Each
+// step's target table is dropped to force the query inside its try/catch to
+// throw; the rest of purge() (an independent, per-step try/catch pipeline)
+// still runs to completion around it.
+
+it('logs user_id when early access signup erasure fails (LIFE-102)', function () {
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    DB::connection('pgsql')->statement('DROP TABLE core.early_access_signups');
+
+    Log::spy();
+
+    (new AccountDeletionService)->purge($pro);
+
+    Log::shouldHaveReceived('error')
+        ->withArgs(function ($message, $context) use ($pro) {
+            return $message === 'Early access signup erasure failed during account purge'
+                && ($context['user_id'] ?? null) === $pro->id;
+        })
+        ->once();
+});
+
+it('logs user_id when global email subscription erasure fails (LIFE-103)', function () {
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    DB::connection('pgsql')->statement('DROP TABLE notifications.email_subscriptions');
+
+    Log::spy();
+
+    (new AccountDeletionService)->purge($pro);
+
+    Log::shouldHaveReceived('error')
+        ->withArgs(function ($message, $context) use ($pro) {
+            return $message === 'Global email subscription erasure failed during account purge'
+                && ($context['user_id'] ?? null) === $pro->id;
+        })
+        ->once();
 });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\Site\Block;
 use Illuminate\Http\Request;
 
 // V2: API resource for site.blocks rows where block_group='links'.
@@ -9,6 +10,9 @@ use Illuminate\Http\Request;
 // at the top level. `settings` passes through the remaining JSONB keys (handle,
 // is_live, display-hint flags like highlight/note) — the column itself is
 // explicitly allowlisted and no longer carries the promoted keys.
+/**
+ * @mixin Block
+ */
 class LinkBlockResource extends ApiResource
 {
     /**

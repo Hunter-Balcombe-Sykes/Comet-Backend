@@ -5,15 +5,47 @@ namespace App\Models\Core\Site;
 use App\Models\BaseModel;
 use App\Models\Core\MediaVariant;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
+/**
+ * @property string $id
+ * @property string $site_id FK → site.sites.id (tenancy — excluded from $fillable; set only via ->site()->associate()).
+ * @property string $bucket
+ * @property string $path Storage path of the original upload (not a public URL).
+ * @property string|null $alt_text
+ * @property string|null $caption
+ * @property int $sort_order
+ * @property bool $is_active
+ * @property string $pool One of POOL_* (gallery|content|documents|design).
+ * @property string $media_type One of MEDIA_TYPE_* (image|video|document).
+ * @property string $processing_state One of PROCESSING_STATE_* (pending|processing|ready|failed) — the DB CHECK also allows 'scanning'|'quarantined' for the dormant moderation pipeline (supabase/migrations/20260528020000_alter_site_media_for_scan_states.sql); no class constants exist for those two.
+ * @property string|null $processing_error
+ * @property string|null $original_mime
+ * @property string|null $original_filename
+ * @property int|null $original_size_bytes
+ * @property int|null $duration_ms
+ * @property string|null $poster_path
+ * @property string|null $purpose Design-pool slot discriminator — see designSingletonPurposes(). NULL for non-design rows.
+ * @property string|null $product_gid Legacy Shopify product-link column from before the standalone strip-down; not referenced by any current application code.
+ * @property string|null $scanned_at CSAM-scan completion marker (NULL = pre-scanning-era media or not yet scanned). NOT in $casts, so unlike every other timestamp column here this returns a raw driver string, not a Carbon instance.
+ * @property string|null $dominant_color #RRGGBB mirror of palette['dominant'].
+ * @property array{dominant?: string, colors?: list<string>, saturation?: float, warm?: bool}|null $palette Extracted colour metadata for ImageryPaletteFactor; NULL until extraction runs or on failure.
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ * @property Carbon|null $deleted_at
+ * @property-read Site|null $site
+ * @property-read Collection<int, MediaVariant> $mediaVariants
+ */
 // V2: An uploaded image or video belonging to a site. Tracks processing state (pending/processing/ready/failed) and owns MediaVariant children.
-// POOL_* constants are enforced at the DB level. @see supabase/migrations/202605190000002_add_enum_check_constraints.sql
+// POOL_* constants are enforced at the DB level by site_media_pool_check, last redefined in
+// @see supabase/migrations/20260624010000_schema_hardening_constraints.sql
 class SiteMedia extends BaseModel
 {
     use HasUuids, SoftDeletes;

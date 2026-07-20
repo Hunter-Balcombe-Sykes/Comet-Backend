@@ -5,9 +5,18 @@ on:
     branches: [main, development-v2, development]
   push:
     branches: [main, development]
+  schedule:
+    # Weekly dependency-advisory check (Sun 20:00 UTC = Mon ~6am AEST). New CVEs
+    # land against an unchanged composer.lock/package-lock.json, so push-triggered
+    # CI alone misses them during quiet weeks. Only the supply-chain job runs on
+    # this trigger — test/schema-drift are code-driven and skip it.
+    # NOTE: GitHub registers cron triggers from the DEFAULT branch's copy of this
+    # file, so this block must exist on that branch to fire at all.
+    - cron: '0 20 * * 0'
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read  # Locked to least-privilege — add per-step permissions explicitly if a future step needs the token.
@@ -56,6 +65,22 @@ jobs:
 
       - name: Copy env
         run: cp .env.example .env && php artisan key:generate
+
+      - name: Static analysis (PHPStan level 5)
+        run: composer analyse
+
+      - name: Security scan (Checkpoint)
+        # False positives are suppressed by hash in config/checkpoint.php. FAIL
+        # (not WARN) breaks the build — see ScanCommand::outputTable in
+        # vendor/andreapollastri/checkpoint.
+        run: php artisan checkpoint:scan
+
+      - name: Security audit (Vigil)
+        # env-dependent checks (APP_DEBUG, headers) are only meaningful on the
+        # deployed env; this CI gate covers filesystem/secrets/dependency checks.
+        # APP_DEBUG=false neutralises the synthetic CI .env (.env.example already
+        # defaults to false, but this keeps the gate correct if that ever drifts).
+        run: APP_DEBUG=false php artisan vigil:audit --fail-on=critical
 
       - name: Check code style
         run: vendor/bin/pint --test
@@ -146,6 +171,9 @@ jobs:
           #   - CREATE INDEX without CONCURRENTLY (SHARE lock blocks all writes during build)
           #   - ADD CONSTRAINT FOREIGN KEY without NOT VALID (ACCESS EXCLUSIVE + full scan)
           #   - ALTER COLUMN SET NOT NULL (ACCESS EXCLUSIVE + full scan)
+          #   - DDL/DML on a hot table (site.design_kits/sites/blocks, core.users)
+          #     without a BEGIN + SET LOCAL lock_timeout (migrations added after
+          #     2026-07-11, its own later cutoff — see TIMEOUT_GUARD_CUTOFF)
           #
           # Pre-convention migrations (timestamp <= 20260514100000) are grandfathered.
           # See supabase/migrations/CONVENTIONS.md for the safe alternatives.
@@ -162,6 +190,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # gitleaks scans full history — a key committed months ago is still live
+          # Scheduled runs execute from the DEFAULT branch (production — stale).
+          # Pin the audited code to development, the branch that's actually
+          # deployed. Empty string = checkout's normal event-ref behaviour.
+          ref: ${{ github.event_name == 'schedule' && 'development' || '' }}
+
+      - name: Dependency advisories (composer audit)
+        # Reads composer.lock against the Packagist advisory DB — no vendor
+        # install needed; the runner's preinstalled PHP/composer suffice.
+        run: composer audit
 
       - name: Secret scan (gitleaks, full history)
         run: |
@@ -179,12 +216,18 @@ jobs:
         working-directory: cloudflare-worker
         run: npm audit --audit-level=high
 
+      - name: npm audit (repo root)
+        # Root package.json (Vite build tooling) was previously unaudited —
+        # Checkpoint caught 2 critical CVEs here 2026-07-19.
+        run: npm audit --audit-level=high
+
   # The schema-drift gate lives in the Feature suite, which `composer test` runs
   # AFTER the Unit suite. A single unrelated Unit-suite fatal would abort the run
   # before the gate ever executes — silently disabling the guardrail. Running it
   # in its own job isolates the gate so it always fires (and can fail on real drift)
   # regardless of the rest of the suite's health.
   schema-drift:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read

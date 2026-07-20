@@ -105,7 +105,7 @@ docs/api.md, AI_CONTEXT.md                                         (touched sect
 
 # Phase 1 — Schema + gating groundwork
 
-### Task 1: Migration — nullability, status CHECK, view, `core.pre_account_builds`
+### Task 1: Migration — nullability, status CHECK, view, `core.pre_account_builds`  ✅ bd6b8a58
 
 **Files:**
 - Create: `supabase/migrations/20260718200000_pre_account_sites.sql`
@@ -114,7 +114,7 @@ docs/api.md, AI_CONTEXT.md                                         (touched sect
 **Interfaces:**
 - Produces: nullable `core.users.auth_user_id` / `primary_email`; `'unclaimed'` in `users_status_check`; table `core.pre_account_builds`; widened `site.public_site_payload` view. Everything later depends on this DDL.
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
 
 Find the current canonical `site.public_site_payload` definition first: `grep -rn "CREATE OR REPLACE VIEW site.public_site_payload" supabase/migrations/` and copy the LATEST full definition into the migration below where indicated, changing ONLY the final WHERE clause from `p.status = 'active'` to `p.status IN ('active', 'unclaimed')`. Also mirror the GRANT/RLS treatment used by `supabase/migrations/20260701150000_create_workplaces.sql` for the new table (same `app_backend` grant style).
 
@@ -184,11 +184,11 @@ CREATE INDEX pre_account_builds_ip_idx
 --  WHERE s.is_published = true AND p.status IN ('active', 'unclaimed') AND p.deleted_at IS NULL>
 ```
 
-- [ ] **Step 2: Guard check** — Run: `composer test -- --filter=nothing 2>/dev/null || true` is NOT the check; run the migration guard explicitly: `composer run guard:no-laravel-migrations`. Expected: passes (file is raw SQL under `supabase/migrations/`).
+- [x] **Step 2: Guard check** — Run: `composer test -- --filter=nothing 2>/dev/null || true` is NOT the check; run the migration guard explicitly: `composer run guard:no-laravel-migrations`. Expected: passes (file is raw SQL under `supabase/migrations/`).
 
-- [ ] **Step 3: Apply to dev Supabase (Josh in the loop).** Ask Josh to run `! supabase link --project-ref glncumufgaqcmqhzwrxm`, then run `supabase db push --dry-run`, show him the output, then `supabase db push`. If the CLI reports drift (known: deleted-but-applied migrations), reconcile per the drift runbook (`supabase migration repair` / `--include-all`) — ask Josh before any repair.
+- [x] **Step 3: Apply to dev Supabase (Josh in the loop).** Ask Josh to run `! supabase link --project-ref glncumufgaqcmqhzwrxm`, then run `supabase db push --dry-run`, show him the output, then `supabase db push`. If the CLI reports drift (known: deleted-but-applied migrations), reconcile per the drift runbook (`supabase migration repair` / `--include-all`) — ask Josh before any repair.
 
-- [ ] **Step 4: Verify live DDL** via Supabase MCP `execute_sql` against `glncumufgaqcmqhzwrxm` (NEVER prod):
+- [x] **Step 4: Verify live DDL** via Supabase MCP `execute_sql` against `glncumufgaqcmqhzwrxm` (NEVER prod):
 ```sql
 SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
 WHERE conrelid IN ('core.users'::regclass, 'core.pre_account_builds'::regclass);
@@ -196,13 +196,13 @@ SELECT indexname, indexdef FROM pg_indexes WHERE schemaname='core' AND tablename
 ```
 Expected: `users_status_check` includes `'unclaimed'`; both users indexes carry the combined predicates; `pre_account_builds_live_source_unique` present; view definition (`SELECT pg_get_viewdef('site.public_site_payload'::regclass)`) contains `('active', 'unclaimed')`.
 
-- [ ] **Step 5: Refresh the schema-drift snapshot**
+- [x] **Step 5: Refresh the schema-drift snapshot**
 
 Run: `php scripts/refresh-schema-snapshot.php` then `composer test` (full suite — the drift gate consumes the snapshot). Expected: suite green.
 
-- [ ] **Step 6: Commit** — `git add supabase/migrations/20260718200000_pre_account_sites.sql scripts/schema-snapshot.json scripts/schema-drift-baseline.json && git commit -m "feat(pre-account): migration — provisional users, pre_account_builds, view widening"`
+- [x] **Step 6: Commit** — `git add supabase/migrations/20260718200000_pre_account_sites.sql scripts/schema-snapshot.json scripts/schema-drift-baseline.json && git commit -m "feat(pre-account): migration — provisional users, pre_account_builds, view widening"`
 
-### Task 2: `PreAccountBuild` model, SQLite schema, User helpers, policy, factory
+### Task 2: `PreAccountBuild` model, SQLite schema, User helpers, policy, factory  ✅ 0da3d2f4
 
 **Files:**
 - Create: `app/Models/Core/User/PreAccountBuild.php`, `app/Policies/PreAccountBuildPolicy.php`, `database/factories/PreAccountBuildFactory.php`
@@ -212,7 +212,7 @@ Run: `php scripts/refresh-schema-snapshot.php` then `composer test` (full suite 
 **Interfaces:**
 - Produces: `PreAccountBuild` (constants `STATE_PENDING|STATE_BUILDING|STATE_READY|STATE_FAILED`, `FAILURE_SOURCE_NOT_FOUND = 'source_not_found'`, `FAILURE_SCRAPE_FAILED = 'scrape_failed'`, `VIA_SIGNUP='signup'`, `VIA_STAFF='staff'`; relations `user()`, `builtByStaff()`; scope `live()`), `User::isUnclaimed(): bool`, `User::preAccountBuild(): HasOne`, `setupPreAccountBuildsTable()` test helper.
 
-- [ ] **Step 1: Write the failing test** (`tests/Unit/Models/PreAccountBuildTest.php`)
+- [x] **Step 1: Write the failing test** (`tests/Unit/Models/PreAccountBuildTest.php`)
 
 ```php
 <?php
@@ -252,9 +252,9 @@ it('does not mass-assign tenancy FKs', function () {
 });
 ```
 
-- [ ] **Step 2: Run** `./vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php` — Expected: FAIL (class/table missing).
+- [x] **Step 2: Run** `./vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php` — Expected: FAIL (class/table missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `tests/Pest.php` — add beside `setupUsersTable()` (same permissive pattern; all-nullable except load-bearing defaults):
 
@@ -418,11 +418,11 @@ class PreAccountBuildFactory extends Factory
 
 (Check `database/factories/` for the namespace convention of other Core models — mirror it, including `newFactory()` on the model if the existing pattern requires it for namespaced models.)
 
-- [ ] **Step 4: Run** `./vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php` — Expected: PASS. Then `./vendor/bin/pest tests/Feature/Security/PolicyCoverageTest.php` — Expected: PASS (policy registered).
+- [x] **Step 4: Run** `./vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php` — Expected: PASS. Then `./vendor/bin/pest tests/Feature/Security/PolicyCoverageTest.php` — Expected: PASS (policy registered).
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(pre-account): PreAccountBuild model + policy + test schema + User helpers"`
+- [x] **Step 5: Commit** — `git commit -m "feat(pre-account): PreAccountBuild model + policy + test schema + User helpers"`
 
-### Task 3: Null-email safety
+### Task 3: Null-email safety  ✅ f3998a97
 
 **Files:**
 - Modify: `app/Models/Core/User/User.php:105-109`
@@ -431,7 +431,7 @@ class PreAccountBuildFactory extends Factory
 **Interfaces:**
 - Produces: `User::routeNotificationForMail(): ?string` — null-safe mail routing (Laravel's mail channel skips a null route).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```php
 <?php
@@ -447,9 +447,9 @@ it('routes mail as null for an email-less provisional user instead of throwing',
 });
 ```
 
-- [ ] **Step 2: Run** — Expected: FAIL with `TypeError: ...routeNotificationForMail(): Return value must be of type string, null returned`.
+- [x] **Step 2: Run** — Expected: FAIL with `TypeError: ...routeNotificationForMail(): Return value must be of type string, null returned`.
 
-- [ ] **Step 3: Implement** — change the return type and PHPDoc:
+- [x] **Step 3: Implement** — change the return type and PHPDoc:
 
 ```php
     /**
@@ -463,11 +463,11 @@ it('routes mail as null for an email-less provisional user instead of throwing',
     }
 ```
 
-- [ ] **Step 4: Run the test (PASS), then the full suite** `composer test` — Expected: green (behavior for non-null emails unchanged).
+- [x] **Step 4: Run the test (PASS), then the full suite** `composer test` — Expected: green (behavior for non-null emails unchanged).
 
-- [ ] **Step 5: Commit** — `git commit -m "fix(pre-account): null-safe mail routing for email-less provisional users"`
+- [x] **Step 5: Commit** — `git commit -m "fix(pre-account): null-safe mail routing for email-less provisional users"`
 
-### Task 4: Status-machine gating sweep
+### Task 4: Status-machine gating sweep  ✅ 07acb6bd
 
 **Files:**
 - Modify: `app/Services/PublicSite/PublicSiteResolver.php:26-28`
@@ -476,7 +476,7 @@ it('routes mail as null for an email-less provisional user instead of throwing',
 **Interfaces:**
 - Produces: published unclaimed sites resolve publicly; everything else stays fail-closed. (KV-job routability is Task 13 — it needs `expires_at` TTL context.)
 
-- [ ] **Step 1: Write the failing tests** (`tests/Feature/PreAccount/UnclaimedGatingTest.php`)
+- [x] **Step 1: Write the failing tests** (`tests/Feature/PreAccount/UnclaimedGatingTest.php`)
 
 ```php
 <?php
@@ -532,9 +532,9 @@ it('staff force-delete works on an unclaimed user (the manual expiry — spec §
 
 (Adapt factory usage to whatever `setupSitesTable()`-era tests do today — copy the arrange pattern from an existing `PublicSiteResolver` test if one exists: `grep -rln "resolvePublishedSite" tests/`.)
 
-- [ ] **Step 2: Run** — Expected: first test FAILS (unclaimed filtered out), others pass.
+- [x] **Step 2: Run** — Expected: first test FAILS (unclaimed filtered out), others pass.
 
-- [ ] **Step 3: Implement** — in `PublicSiteResolver`:
+- [x] **Step 3: Implement** — in `PublicSiteResolver`:
 
 ```php
             ->whereHas('user', function ($q) {
@@ -544,17 +544,17 @@ it('staff force-delete works on an unclaimed user (the manual expiry — spec §
             });
 ```
 
-- [ ] **Step 4: Grep for sibling public-read status gates** — `git grep -n "'status'.*active" app/Services/PublicSite app/Services/Cache app/Http/Controllers/Api/PublicSite`. Decision rule: widen ONLY read-path gates that decide whether a public sitepage/payload renders (mirror the change above); leave every capability/notification/deletion gate untouched (fail-closed is correct there). Document each hit + decision in the test file's header comment.
+- [x] **Step 4: Grep for sibling public-read status gates** — `git grep -n "'status'.*active" app/Services/PublicSite app/Services/Cache app/Http/Controllers/Api/PublicSite`. Decision rule: widen ONLY read-path gates that decide whether a public sitepage/payload renders (mirror the change above); leave every capability/notification/deletion gate untouched (fail-closed is correct there). Document each hit + decision in the test file's header comment.
 
-- [ ] **Step 5: Run the new tests (PASS) + full suite** `composer test` — Expected: green.
+- [x] **Step 5: Run the new tests (PASS) + full suite** `composer test` — Expected: green.
 
-- [ ] **Step 6: Commit** — `git commit -m "feat(pre-account): published unclaimed sites resolve on the public read path"`
+- [x] **Step 6: Commit** — `git commit -m "feat(pre-account): published unclaimed sites resolve on the public read path"`
 
 ---
 
 # Phase 2 — Build engine
 
-### Task 5: Extract `HandleAllocator` + `EmailReuseGuard` (pure refactor)
+### Task 5: Extract `HandleAllocator` + `EmailReuseGuard` (pure refactor)  ✅ 4341c6d1
 
 **Files:**
 - Create: `app/Services/User/HandleAllocator.php`, `app/Services/User/EmailReuseGuard.php`
@@ -565,7 +565,7 @@ it('staff force-delete works on an unclaimed user (the manual expiry — spec §
 - Produces: `HandleAllocator::allocate(string $seed): array{handle: string, handle_lc: string}` (slug + bare-integer collision suffix, exactly `generateHandleFromDisplayName`'s behavior); `EmailReuseGuard::isClaimedByAnotherAuthUser(string $email, string $uid): bool` (exact logic from `UserBootstrapService::emailIsClaimedByAnotherAuthUser`).
 - Consumed by: `BootstrapRequest`, `UserBootstrapService` (unchanged behavior), `PreAccountBuildService` (Task 7), `ClaimSiteService` (Task 11).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```php
 <?php
@@ -589,9 +589,9 @@ it('falls back to "professional" for an empty slug', function () {
 });
 ```
 
-- [ ] **Step 2: Run** — Expected: FAIL (class missing).
+- [x] **Step 2: Run** — Expected: FAIL (class missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `app/Services/User/HandleAllocator.php`:
 
@@ -659,11 +659,11 @@ class EmailReuseGuard
 
 Then in `BootstrapRequest::generateHandleFromDisplayName` replace the body with `return app(HandleAllocator::class)->allocate($displayName)['handle'];` and in `UserBootstrapService` replace `emailIsClaimedByAnotherAuthUser($email, $uid)` calls with an injected `EmailReuseGuard` (constructor property) and delete the private method.
 
-- [ ] **Step 4: Run** the new test (PASS) **and the FULL suite** `composer test` — pure refactor, everything must stay green (namespace-relocation rule: full suite, never a filtered subset).
+- [x] **Step 4: Run** the new test (PASS) **and the FULL suite** `composer test` — pure refactor, everything must stay green (namespace-relocation rule: full suite, never a filtered subset).
 
-- [ ] **Step 5: Commit** — `git commit -m "refactor(pre-account): extract HandleAllocator + EmailReuseGuard shared seams"`
+- [x] **Step 5: Commit** — `git commit -m "refactor(pre-account): extract HandleAllocator + EmailReuseGuard shared seams"`
 
-### Task 6: `SiteProvisioningService` publish parameter
+### Task 6: `SiteProvisioningService` publish parameter  ✅ bed13050
 
 **Files:**
 - Modify: `app/Services/User/SiteProvisioningService.php:14,85-123`
@@ -672,7 +672,7 @@ Then in `BootstrapRequest::generateHandleFromDisplayName` replace the body with 
 **Interfaces:**
 - Produces: `createSiteWithRetry(string $userId, string $base, bool $published = true): Site` — default preserves every existing caller's behavior.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```php
 it('creates an unpublished site when asked (pre-account signup builds)', function () {
@@ -686,20 +686,20 @@ it('creates an unpublished site when asked (pre-account signup builds)', functio
 });
 ```
 
-- [ ] **Step 2: Run** — Expected: FAIL (unknown named argument).
+- [x] **Step 2: Run** — Expected: FAIL (unknown named argument).
 
-- [ ] **Step 3: Implement** — thread the flag through:
+- [x] **Step 3: Implement** — thread the flag through:
 
 ```php
 public function createSiteWithRetry(string $userId, string $base, bool $published = true): Site
 ```
 …pass `$published` down to `tryCreateSite(string $userId, string $candidate, bool $published)` and set `'is_published' => $published` in the `new Site([...])` array.
 
-- [ ] **Step 4: Run** new test + full suite — Expected: green (default `true` keeps bootstrap behavior byte-identical).
+- [x] **Step 4: Run** new test + full suite — Expected: green (default `true` keeps bootstrap behavior byte-identical).
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(pre-account): SiteProvisioningService publish flag"`
+- [x] **Step 5: Commit** — `git commit -m "feat(pre-account): SiteProvisioningService publish flag"`
 
-### Task 7: Config + `PreAccountBuildService`
+### Task 7: Config + `PreAccountBuildService`  ✅ 9832ade4
 
 **Files:**
 - Create: `app/Services/PreAccount/PreAccountBuildService.php`, `app/Services/PreAccount/PreAccountBuildException.php`
@@ -710,7 +710,7 @@ public function createSiteWithRetry(string $userId, string $base, bool $publishe
 - Consumes: `HandleAllocator`, `SiteProvisioningService::createSiteWithRetry(..., published:)`, `SourceGeneratorRegistry` (Task 8 — for `normalizeRef`/`dedupeKey`/`handleSeed`; this task lands with a minimal registry stub as written below, completed in Task 8).
 - Produces: `requestBuild(string $accountType, string $sourceType, string $rawSourceRef, ?string $sourceName, ?string $ipHash, ?PartnaStaff $staff = null, bool $publish = false, ?int $expiresDays = null): array{build: PreAccountBuild, reused: bool}`; throws `PreAccountBuildException` with `public readonly string $errorCode` ∈ `SOURCE_PAIRING_INVALID | IP_BUILD_CAP | SOURCE_REF_INVALID`.
 
-- [ ] **Step 1: Add config** (`config/partna.php`, new top-level `pre_account` block near the `waitlist` block):
+- [x] **Step 1: Add config** (`config/partna.php`, new top-level `pre_account` block near the `waitlist` block):
 
 ```php
     // Pre-Account Sites (site-first signup + staff marketing builds).
@@ -737,7 +737,7 @@ public function createSiteWithRetry(string $userId, string $base, bool $publishe
 
 Mirror the two new env keys into `.env.example` beside the other `PARTNA_*` keys.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```php
 <?php
@@ -831,9 +831,9 @@ it('staff builds record the staff id, skip the IP cap, and honour expires_days',
 
 (For `makePartnaStaff()`: find the existing staff-test arrange pattern with `grep -rln "PartnaStaff::" tests/Feature/Staff | head -3` and copy it.)
 
-- [ ] **Step 3: Run** — Expected: FAIL (service missing).
+- [x] **Step 3: Run** — Expected: FAIL (service missing).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `app/Services/PreAccount/PreAccountBuildException.php`:
 
@@ -1057,11 +1057,11 @@ class GeneratePreAccountSiteJob implements ShouldQueue
 }
 ```
 
-- [ ] **Step 5: Run** the tests — Expected: PASS. Run `./vendor/bin/pest tests/Feature/Queue/JobHygienePolicyTest.php` — Expected: PASS (shell job declares tries/timeout/backoff).
+- [x] **Step 5: Run** the tests — Expected: PASS. Run `./vendor/bin/pest tests/Feature/Queue/JobHygienePolicyTest.php` — Expected: PASS (shell job declares tries/timeout/backoff).
 
-- [ ] **Step 6: Commit** — `git commit -m "feat(pre-account): PreAccountBuildService + config + job shell"`
+- [x] **Step 6: Commit** — `git commit -m "feat(pre-account): PreAccountBuildService + config + job shell"`
 
-### Task 8: Generator interface, registry, Instagram seeder extraction + `InstagramSourceGenerator`
+### Task 8: Generator interface, registry, Instagram seeder extraction + `InstagramSourceGenerator`  ✅ 76371461
 
 **Files:**
 - Create: `app/Services/PreAccount/Generators/SiteSourceGenerator.php`, `app/Services/PreAccount/SourceGeneratorRegistry.php`, `app/Services/PreAccount/SourceGenerationException.php`, `app/Services/Platforms/InstagramConnectionSeeder.php`, `app/Services/PreAccount/Generators/InstagramSourceGenerator.php`
@@ -1095,7 +1095,7 @@ interface SiteSourceGenerator
 - `SourceGeneratorRegistry::for(string $sourceType): SiteSourceGenerator` — resolves `config('partna.pre_account.generators')[$sourceType]` from the container; throws `InvalidArgumentException` on unknown type.
 - `InstagramConnectionSeeder::seed(IntegrationConnection $connection, string $username, string $userId, array $profile): array` — the mirror + selection-build + auto-sync + row-update body currently inlined in `InstagramConnectJob::handle()` (lines 149-261) and its private helpers `mirrorOne`/`mirrorVideo`/`isAllowedHost` and constants, moved verbatim. Returns the persisted `$selection`.
 
-- [ ] **Step 1: Extract the seeder (refactor first, no behavior change).** Move lines 149-261 of `InstagramConnectJob::handle()` plus `mirrorOne`, `mirrorVideo`, `isAllowedHost`, and the `ALLOWED_HOSTS` / timeout / byte-cap constants into `App\Services\Platforms\InstagramConnectionSeeder` with the signature above. `InstagramConnectJob::handle()` becomes:
+- [x] **Step 1: Extract the seeder (refactor first, no behavior change).** Move lines 149-261 of `InstagramConnectJob::handle()` plus `mirrorOne`, `mirrorVideo`, `isAllowedHost`, and the `ALLOWED_HOSTS` / timeout / byte-cap constants into `App\Services\Platforms\InstagramConnectionSeeder` with the signature above. `InstagramConnectJob::handle()` becomes:
 
 ```php
     public function handle(InstagramScraper $scraper, InstagramConnectionSeeder $seeder, InstagramAutoSync $autoSync): void
@@ -1121,9 +1121,9 @@ interface SiteSourceGenerator
 
 (The seeder constructor-injects `InstagramScraper` + `InstagramAutoSync` for `latestMedia`/`profilePicUrl`/`bioLinks`/`seed` calls; keep every comment with the code it explains.)
 
-- [ ] **Step 2: Run the FULL suite** `composer test` — Expected: green. This is the checkpoint that the extraction changed nothing (existing InstagramConnectJob tests are the safety net). Commit: `git commit -m "refactor(platforms): extract InstagramConnectionSeeder from InstagramConnectJob"`
+- [x] **Step 2: Run the FULL suite** `composer test` — Expected: green. This is the checkpoint that the extraction changed nothing (existing InstagramConnectJob tests are the safety net). Commit: `git commit -m "refactor(platforms): extract InstagramConnectionSeeder from InstagramConnectJob"`
 
-- [ ] **Step 3: Write the failing generator tests**
+- [x] **Step 3: Write the failing generator tests**
 
 ```php
 <?php
@@ -1189,9 +1189,9 @@ it('maps a missing profile to source_not_found', function () {
 });
 ```
 
-- [ ] **Step 4: Run** — Expected: FAIL (classes missing).
+- [x] **Step 4: Run** — Expected: FAIL (classes missing).
 
-- [ ] **Step 5: Implement**
+- [x] **Step 5: Implement**
 
 `SourceGenerationException`:
 
@@ -1337,11 +1337,11 @@ class InstagramSourceGenerator implements SiteSourceGenerator
 
 Implementation notes for this task: (a) verify the `resource_id` literal by reading `ManagesIntegrationConnection::defaultResourceId()` (`grep -n "defaultResourceId" app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php`) and use the same value; (b) if `IntegrationConnection` doesn't allow `user_id` in `updateOrCreate` attributes, mirror exactly how `InstagramController::connect()` (lines 74-91) passes it.
 
-- [ ] **Step 6: Run** the generator tests (PASS) + full suite — Expected: green.
+- [x] **Step 6: Run** the generator tests (PASS) + full suite — Expected: green.
 
-- [ ] **Step 7: Commit** — `git commit -m "feat(pre-account): source generator contract + Instagram generator"`
+- [x] **Step 7: Commit** — `git commit -m "feat(pre-account): source generator contract + Instagram generator"`
 
-### Task 9: `GoogleBusinessSourceGenerator`
+### Task 9: `GoogleBusinessSourceGenerator`  ✅ ccc66b67
 
 **Files:**
 - Create: `app/Services/PreAccount/Generators/GoogleBusinessSourceGenerator.php`
@@ -1351,7 +1351,7 @@ Implementation notes for this task: (a) verify the `resource_id` literal by read
 - Consumes: `GoogleBusinessService::fetchPlaceDetails(string $placeId): ?array`, `IdentitySync::applyFromGooglePayload(User $user, array $gbPayload): void`, `GoogleBusinessEnrichJob::dispatch(string $userId, string $placeId)`.
 - Produces: workplace row + google-business `IntegrationConnection` for the provisional user.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```php
 <?php
@@ -1405,9 +1405,9 @@ it('maps a null details response to source_not_found', function () {
 
 (Same SEC-1 mock-before-save gotcha applies. Verify the `Workplace` name cap — `name` max:15 in the Form Request is a DASHBOARD rule; `IdentitySync` writes column-direct, check `Workplace` model/DDL for any DB-level length limit and truncate in the generator only if the DDL requires it.)
 
-- [ ] **Step 2: Run** — Expected: FAIL.
+- [x] **Step 2: Run** — Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```php
 <?php
@@ -1521,9 +1521,9 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
 
 Implementation notes: verify (a) the `Platform` enum case for google-business (`grep -n "GoogleBusiness\|google-business" app/Services/Platforms/Registry/Platform.php`), (b) the capability property name (`grep -n "google_business_sets_display_name\|google_business_full_sync" app/Services/Accounts/AccountCapabilities.php`), (c) `GoogleBusinessEnrichJob`'s constructor signature before dispatching.
 
-- [ ] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): Google Business source generator"`
+- [x] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): Google Business source generator"`
 
-### Task 10: `GeneratePreAccountSiteJob` (full implementation)
+### Task 10: `GeneratePreAccountSiteJob` (full implementation)  ✅ 180570d2
 
 **Files:**
 - Modify: `app/Jobs/PreAccount/GeneratePreAccountSiteJob.php` (from Task 7 shell)
@@ -1533,7 +1533,7 @@ Implementation notes: verify (a) the `Platform` enum case for google-business (`
 - Consumes: `SourceGeneratorRegistry`, `SyncSubdomainToKvJob::dispatch(string $userId)`.
 - Produces: build_state transitions `pending → building → ready|failed`; staff-publish flips `is_published` + re-syncs KV.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```php
 <?php
@@ -1616,9 +1616,9 @@ it('no-ops on a claimed or already-ready build', function () {
 });
 ```
 
-- [ ] **Step 2: Run** — Expected: FAIL (shell no-ops).
+- [x] **Step 2: Run** — Expected: FAIL (shell no-ops).
 
-- [ ] **Step 3: Implement** the full job:
+- [x] **Step 3: Implement** the full job:
 
 ```php
 <?php
@@ -1721,11 +1721,11 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
 }
 ```
 
-- [ ] **Step 4: Run** tests (PASS) + `./vendor/bin/pest tests/Feature/Queue/JobHygienePolicyTest.php tests/Unit/Jobs/HorizonQueueCoverageTest.php` — Expected: green (timeout 300 < scraping retry_after 660 and < supervisor timeout 660).
+- [x] **Step 4: Run** tests (PASS) + `./vendor/bin/pest tests/Feature/Queue/JobHygienePolicyTest.php tests/Unit/Jobs/HorizonQueueCoverageTest.php` — Expected: green (timeout 300 < scraping retry_after 660 and < supervisor timeout 660).
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(pre-account): GeneratePreAccountSiteJob"`
+- [x] **Step 5: Commit** — `git commit -m "feat(pre-account): GeneratePreAccountSiteJob"`
 
-### Task 11: Public endpoints — build + poll
+### Task 11: Public endpoints — build + poll  ✅ 2b087f28
 
 **Files:**
 - Create: `app/Http/Controllers/Api/PublicSite/PreAccountBuildController.php`, `app/Http/Requests/Api/PublicSite/CreatePreAccountBuildRequest.php`, `app/Http/Resources/PreAccountBuildStatusResource.php`
@@ -1735,7 +1735,7 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
 **Interfaces:**
 - Produces: `POST /api/public/signup/build` → 202 (new) / 200 (re-served) with `PreAccountBuildStatusResource`; `GET /api/public/signup/builds/{build}` → 200 resource or 404. Resource shape: `{ build_id, build_state, account_type, subdomain?, site_url?, failure_code? }` (`subdomain`/`site_url` only when `ready`).
 
-- [ ] **Step 1: Write the failing feature tests**
+- [x] **Step 1: Write the failing feature tests**
 
 ```php
 <?php
@@ -1800,9 +1800,9 @@ it('404s an unknown build id (public enumeration-safe)', function () {
 });
 ```
 
-- [ ] **Step 2: Run** — Expected: FAIL (404 route).
+- [x] **Step 2: Run** — Expected: FAIL (404 route).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Rate limiter in `AppServiceProvider::configureRateLimiting()` (copy the dual-key style of the `waitlist` limiter, CF-Connecting-IP keyed):
 
@@ -1959,13 +1959,13 @@ Route::middleware('throttle:public-site')
 
 (Route-model binding on `PreAccountBuild` must 404 cleanly — confirm `ApiController`/handler renders ModelNotFound as 404 JSON like sibling public routes.)
 
-- [ ] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): public build + poll endpoints"`
+- [x] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): public build + poll endpoints"`
 
 ---
 
 # Phase 3 — Claim flow
 
-### Task 12: `SignupSideEffects` extraction + `ClaimSiteService`
+### Task 12: `SignupSideEffects` extraction + `ClaimSiteService`  ✅ 50e2394d
 
 **Files:**
 - Create: `app/Services/User/SignupSideEffects.php`, `app/Services/PreAccount/ClaimSiteService.php`
@@ -1976,9 +1976,9 @@ Route::middleware('throttle:public-site')
 - Produces: `SignupSideEffects::ensureSidestUpdatesSubscription(?string $email): void` and `::createWelcomeNotification(User $professional): void` — bodies moved VERBATIM from `UserBootstrapService` (lines 182-230), same idempotent `insertOrIgnore` semantics.
 - Produces: `ClaimSiteService::claim(string $uid, string $verifiedEmail, string $subdomain): array{professional: User, site: Site}`; throws `RuntimeException` with message ∈ `CLAIM_NOT_FOUND | ALREADY_CLAIMED | BUILD_NOT_READY | ACCOUNT_EXISTS | EMAIL_ALREADY_REGISTERED` (mirroring the bootstrap service's string-discriminator convention).
 
-- [ ] **Step 1: Extract `SignupSideEffects`** (move the two private methods; `UserBootstrapService` calls the injected service). Run full suite — green. Commit: `git commit -m "refactor(pre-account): extract SignupSideEffects"`
+- [x] **Step 1: Extract `SignupSideEffects`** (move the two private methods; `UserBootstrapService` calls the injected service). Run full suite — green. Commit: `git commit -m "refactor(pre-account): extract SignupSideEffects"`
 
-- [ ] **Step 2: Write the failing claim tests**
+- [x] **Step 2: Write the failing claim tests**
 
 ```php
 <?php
@@ -2063,7 +2063,7 @@ it('404s an unknown subdomain', function () {
 })->throws(RuntimeException::class, 'CLAIM_NOT_FOUND');
 ```
 
-- [ ] **Step 3: Run** — Expected: FAIL. **Step 4: Implement**
+- [x] **Step 3: Run** — Expected: FAIL. **Step 4: Implement**
 
 ```php
 <?php
@@ -2175,9 +2175,9 @@ class ClaimSiteService
 
 (Verify `UserCacheService::invalidateUser` + `SiteCacheService::invalidateSite` signatures before wiring.)
 
-- [ ] **Step 5: Run** tests (PASS) + full suite. **Step 6: Commit** — `git commit -m "feat(pre-account): ClaimSiteService"`
+- [x] **Step 5: Run** tests (PASS) + full suite. **Step 6: Commit** — `git commit -m "feat(pre-account): ClaimSiteService"`
 
-### Task 13: `POST /api/claim` endpoint
+### Task 13: `POST /api/claim` endpoint  ✅ 852978de
 
 **Files:**
 - Create: `app/Http/Controllers/Api/PublicSite/ClaimController.php`, `app/Http/Requests/Api/PublicSite/ClaimSiteRequest.php`
@@ -2187,7 +2187,7 @@ class ClaimSiteService
 **Interfaces:**
 - Produces: `POST /api/claim` (middleware `['supabase.jwt', 'throttle:claim']`), body `{ subdomain }`, success = the bootstrap-shaped `{ professional: UserDashboardResource, site: <raw Site> }` payload; errors: 404 `CLAIM_NOT_FOUND`, 409 `ALREADY_CLAIMED|BUILD_NOT_READY|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED`, 422 `EMAIL_VERIFICATION_REQUIRED`.
 
-- [ ] **Step 1: Write the failing feature tests** — arrange with the same JWT-faking helper existing bootstrap feature tests use (`grep -rln "supabase_uid" tests/Feature | head -5`, copy the actingAs/withToken arrange):
+- [x] **Step 1: Write the failing feature tests** — arrange with the same JWT-faking helper existing bootstrap feature tests use (`grep -rln "supabase_uid" tests/Feature | head -5`, copy the actingAs/withToken arrange):
 
 ```php
 it('claims a ready build end-to-end and returns the bootstrap-shaped payload', function () {
@@ -2207,7 +2207,7 @@ it('404s an unknown subdomain', function () { /* → 404, no existence leak */ }
 
 (Write these four fully once the JWT helper name is confirmed — the assertions above are the contract.)
 
-- [ ] **Step 2: Run** — FAIL. **Step 3: Implement**
+- [x] **Step 2: Run** — FAIL. **Step 3: Implement**
 
 Limiter:
 
@@ -2290,9 +2290,9 @@ Route (`routes/api.php`, beside the bootstrap line, same comment style):
 Route::middleware(['supabase.jwt', 'throttle:claim'])->post('/claim', [ClaimController::class, 'store']);
 ```
 
-- [ ] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): POST /api/claim"`
+- [x] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): POST /api/claim"`
 
-### Task 14: Bootstrap create-branch retirement
+### Task 14: Bootstrap create-branch retirement  ✅ 16ec8869
 
 **Files:**
 - Modify: `app/Http/Controllers/Api/PublicSite/BootstrapController.php`
@@ -2301,7 +2301,7 @@ Route::middleware(['supabase.jwt', 'throttle:claim'])->post('/claim', [ClaimCont
 **Interfaces:**
 - Produces: `POST /api/bootstrap` returns **410 `{code: 'SIGNUP_MOVED'}`** when the caller's `sub` has no `core.users` row; the update/refresh path is byte-identical for existing users. Waitlist/invite gating blocks in the controller become dead for creation and are REMOVED (the waitlist gate now lives on the build endpoint — Task 11; F5/F6).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```php
 it('410s a JWT with no existing user row, pointing at the new flow', function () {
@@ -2318,7 +2318,7 @@ it('still refreshes an existing user (update path untouched)', function () {
 });
 ```
 
-- [ ] **Step 2: Run** — FAIL (currently creates). **Step 3: Implement** — in `BootstrapController::bootstrap()`, immediately after the verified-email check (line ~54), add:
+- [x] **Step 2: Run** — FAIL (currently creates). **Step 3: Implement** — in `BootstrapController::bootstrap()`, immediately after the verified-email check (line ~54), add:
 
 ```php
         // Pre-Account Sites: signup is site-first now. The create branch is
@@ -2336,15 +2336,15 @@ it('still refreshes an existing user (update path untouched)', function () {
 
 Then delete the now-dead creation-gating blocks: the invite-token block (lines ~56-79), the `WAITLIST_ONLY` block (~81-87), and the individual-waitlist divert (~89-127) — all three only ever fired for `! hasExistingProfessional($uid)` callers, which now 410 first. Keep `markSignedUp` (harmless on refresh) only if its removal breaks tests; otherwise remove it too and delete unused imports.
 
-- [ ] **Step 4: Update existing bootstrap tests.** Creation-path tests (creates-a-user, waitlist-gating, invite tests) now assert 410/moved semantics or move to build-endpoint coverage. Do NOT weaken update-path tests. Run `composer test` — Expected: green after updates.
+- [x] **Step 4: Update existing bootstrap tests.** Creation-path tests (creates-a-user, waitlist-gating, invite tests) now assert 410/moved semantics or move to build-endpoint coverage. Do NOT weaken update-path tests. Run `composer test` — Expected: green after updates.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(pre-account): retire bootstrap create branch (410 SIGNUP_MOVED)"`
+- [x] **Step 5: Commit** — `git commit -m "feat(pre-account): retire bootstrap create branch (410 SIGNUP_MOVED)"`
 
 ---
 
 # Phase 4 — KV routability/TTL + expiry prune
 
-### Task 15: `SyncSubdomainToKvJob` — unclaimed routability + TTL
+### Task 15: `SyncSubdomainToKvJob` — unclaimed routability + TTL  ✅ 666ccfd4
 
 **Files:**
 - Modify: `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php` (handle() gate + individual-entry put)
@@ -2353,7 +2353,7 @@ Then delete the now-dead creation-gating blocks: the invite-token block (lines ~
 **Interfaces:**
 - Produces: unclaimed owners route with `expirationTtl` aligned to `pre_account_builds.expires_at` (min 60s CF floor); expired-build owners retire; active owners unchanged (null TTL); claim's re-dispatch (Task 12) therefore rewrites the entry permanent.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```php
 it('writes a TTL-bearing individual entry for an unclaimed owner with a live build', function () {
@@ -2395,7 +2395,7 @@ it('still writes active owners with no TTL', function () {
 
 (Match the existing test file's arrange/mocking style — the job's `handle()` signature may take the KV service plus other collaborators; mirror how current tests invoke it.)
 
-- [ ] **Step 2: Run** — FAIL (unclaimed currently retires). **Step 3: Implement** — in `handle()`:
+- [x] **Step 2: Run** — FAIL (unclaimed currently retires). **Step 3: Implement** — in `handle()`:
 
 Replace the retire gate (lines ~94-98):
 
@@ -2433,9 +2433,9 @@ Before the individual `put` (line ~121):
 
 Also gate the custom-domain branch: unclaimed users cannot have custom domains — leave the existing `custom_domain_status === 'active'` condition as-is (it will simply never match) and add no unclaimed-specific handling.
 
-- [ ] **Step 4: Run** the job's full test file + full suite — green. **Step 5: Commit** — `git commit -m "feat(pre-account): KV routes unclaimed owners with build-aligned TTL"`
+- [x] **Step 4: Run** the job's full test file + full suite — green. **Step 5: Commit** — `git commit -m "feat(pre-account): KV routes unclaimed owners with build-aligned TTL"`
 
-### Task 16: `builds:prune-expired` command
+### Task 16: `builds:prune-expired` command  ✅ c98f7888
 
 **Files:**
 - Create: `app/Console/Commands/PruneExpiredPreAccountBuilds.php`
@@ -2445,7 +2445,7 @@ Also gate the custom-domain branch: unclaimed users cannot have custom domains �
 **Interfaces:**
 - Produces: daily command hard-deleting expired unclaimed builds (and failed builds older than `failed_prune_hours`), teardown-before-cascade ordering mirroring `AccountDeletionService::purge()` (no Supabase auth step — `auth_user_id` is NULL), `FOR UPDATE SKIP LOCKED` so a mid-claim row is skipped.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```php
 <?php
@@ -2516,7 +2516,7 @@ it('supports --dry-run', function () {
 
 Implementation note for the first test: SQLite in tests does NOT run Postgres FK cascades — the command must therefore delete via Eloquent in explicit order (which is also what fires the observers we need). Do not rely on DB cascade for anything the command itself must guarantee.
 
-- [ ] **Step 2: Run** — FAIL. **Step 3: Implement**
+- [x] **Step 2: Run** — FAIL. **Step 3: Implement**
 
 ```php
 <?php
@@ -2632,13 +2632,13 @@ Schedule::command('builds:prune-expired')
     ->onFailure($reportScheduledFailure('prune-expired-pre-account-builds'));
 ```
 
-- [ ] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): builds:prune-expired teardown command"`
+- [x] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): builds:prune-expired teardown command"`
 
 ---
 
 # Phase 5 — Staff surface, CI wiring, docs
 
-### Task 17: `POST /api/staff/builds`
+### Task 17: `POST /api/staff/builds`  ✅ 73b74e86
 
 **Files:**
 - Create: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php`, `app/Http/Requests/Api/Staff/UserSite/StaffCreatePreAccountBuildRequest.php`
@@ -2648,7 +2648,7 @@ Schedule::command('builds:prune-expired')
 **Interfaces:**
 - Produces: `POST /api/staff/builds` — body `{ account_type, source_type, source_ref, source_name?, publish?: bool=true, expires_days?: int }` → 202/200 `PreAccountBuildStatusResource`. Auth: standard staff middleware stack (already includes `require.aal2`), plus `authorizeForUser($staff, 'staffCreate', PreAccountBuild::class)`.
 
-- [ ] **Step 1: Write the failing tests** — copy the arrange (staff JWT + `partna_staff` row + AAL2 claims) from an existing staff feature test:
+- [x] **Step 1: Write the failing tests** — copy the arrange (staff JWT + `partna_staff` row + AAL2 claims) from an existing staff feature test:
 
 ```php
 it('lets staff trigger a published marketing build', function () {
@@ -2669,7 +2669,7 @@ it('rejects non-staff callers', function () { /* plain user JWT → 403 staff_re
 it('ignores the IP cap for staff builds', function () { /* config cap 0 → staff build still 202 */ });
 ```
 
-- [ ] **Step 2: Run** — FAIL. **Step 3: Implement**
+- [x] **Step 2: Run** — FAIL. **Step 3: Implement**
 
 `StaffCreatePreAccountBuildRequest` — same rules as the public request plus:
 
@@ -2739,9 +2739,9 @@ Route in the REGULAR staff group of `routes/api/staff.php`:
 
 (Class-string policy dispatch: `authorizeForUser($staff, 'staffCreate', PreAccountBuild::class)` — the Gate resolves `PreAccountBuildPolicy` from the class name; confirm against how existing class-level abilities are called in staff controllers, or pass `[PreAccountBuild::class]` if the repo's convention requires the array form.)
 
-- [ ] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): staff/ManyChat build endpoint"`
+- [x] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): staff/ManyChat build endpoint"`
 
-### Task 18: Staff visibility of the marketing pipeline
+### Task 18: Staff visibility of the marketing pipeline  ✅ 22d77a62
 
 **Files:**
 - Modify: `app/Http/Resources/UserStaffResource.php`, `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php` (eager-load only)
@@ -2750,9 +2750,9 @@ Route in the REGULAR staff group of `routes/api/staff.php`:
 **Interfaces:**
 - Produces: staff user detail includes `pre_account_build: { source_type, source_ref, built_via, build_state, failure_code, expires_at, claimed_at }` when the relation is loaded; `?status=unclaimed` filtering on the staff index already works (arbitrary status filter — verified) and gets a pin test.
 
-- [ ] **Step 1: Write the failing tests** (index filter pin + detail block presence for an unclaimed user; absence-of-block for a normal user). **Step 2: Run** — FAIL on the detail block.
+- [x] **Step 1: Write the failing tests** (index filter pin + detail block presence for an unclaimed user; absence-of-block for a normal user). **Step 2: Run** — FAIL on the detail block.
 
-- [ ] **Step 3: Implement** — in `UserStaffResource::toArray()`:
+- [x] **Step 3: Implement** — in `UserStaffResource::toArray()`:
 
 ```php
             'pre_account_build' => $this->whenLoaded('preAccountBuild', fn () => [
@@ -2768,22 +2768,22 @@ Route in the REGULAR staff group of `routes/api/staff.php`:
 
 …and add `->with('preAccountBuild')` (or `loadMissing`) at the staff show call site that builds `UserStaffResource` (find it: `grep -n "UserStaffResource" app/Http/Controllers/Api/Staff -r`).
 
-- [ ] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): staff visibility of unclaimed pipeline"`
+- [x] **Step 4: Run** tests (PASS) + full suite. **Step 5: Commit** — `git commit -m "feat(pre-account): staff visibility of unclaimed pipeline"`
 
-### Task 19: CI wiring, docs, final sweep
+### Task 19: CI wiring, docs, final sweep  ✅ f6ce6b06
 
 **Files:**
 - Modify: `scripts/audit/audit.sh` (`codebase_chunks()`), the matching lens `.md` scope-group(s) in `scripts/audit/lenses/`, `docs/api.md`, `AI_CONTEXT.md`
 
-- [ ] **Step 1: Audit-pipeline wiring.** Run `./vendor/bin/pest tests/Feature/Architecture/AuditPipelineIntegrityTest.php`. It will name the uncovered new directories (`app/Services/PreAccount`, `app/Jobs/PreAccount`, `tests/Feature/PreAccount`). Add each to the appropriate existing chunk in `codebase_chunks()` (services chunk / jobs chunk / tests chunk — follow the file's own grouping) AND to the corresponding lens scope-group `.md`. Re-run until green. Fix — never exempt.
+- [x] **Step 1: Audit-pipeline wiring.** Run `./vendor/bin/pest tests/Feature/Architecture/AuditPipelineIntegrityTest.php`. It will name the uncovered new directories (`app/Services/PreAccount`, `app/Jobs/PreAccount`, `tests/Feature/PreAccount`). Add each to the appropriate existing chunk in `codebase_chunks()` (services chunk / jobs chunk / tests chunk — follow the file's own grouping) AND to the corresponding lens scope-group `.md`. Re-run until green. Fix — never exempt.
 
-- [ ] **Step 2: Docs.** In `docs/api.md`, add the four endpoints (public build, poll, claim, staff builds) with request/response shapes exactly as implemented, and update the `POST /api/bootstrap` entry (410 create-branch retirement). In `AI_CONTEXT.md`, update ONLY the signup/account-lifecycle sections this feature touches: site-first signup, provisional users (`status='unclaimed'`, null `auth_user_id`/`primary_email`), `core.pre_account_builds`, claim flow, expiry prune. Do not attempt a general de-staling of either doc.
+- [x] **Step 2: Docs.** In `docs/api.md`, add the four endpoints (public build, poll, claim, staff builds) with request/response shapes exactly as implemented, and update the `POST /api/bootstrap` entry (410 create-branch retirement). In `AI_CONTEXT.md`, update ONLY the signup/account-lifecycle sections this feature touches: site-first signup, provisional users (`status='unclaimed'`, null `auth_user_id`/`primary_email`), `core.pre_account_builds`, claim flow, expiry prune. Do not attempt a general de-staling of either doc.
 
-- [ ] **Step 3: Frontend contract (handoff) —** verify the "Frontend-facing contract changes" section at the bottom of this plan still matches what shipped; amend it if any task diverged.
+- [x] **Step 3: Frontend contract (handoff) —** verify the "Frontend-facing contract changes" section at the bottom of this plan still matches what shipped; amend it if any task diverged.
 
-- [ ] **Step 4: Final verification.** `composer test` (full), `php artisan pint --dirty`, then re-run the three guard suites explicitly: PolicyCoverageTest, JobHygienePolicyTest, AuditPipelineIntegrityTest. All green.
+- [x] **Step 4: Final verification.** `composer test` (full), `php artisan pint --dirty`, then re-run the three guard suites explicitly: PolicyCoverageTest, JobHygienePolicyTest, AuditPipelineIntegrityTest. All green.
 
-- [ ] **Step 5: Commit** — `git commit -m "chore(pre-account): CI wiring + docs + contract"`
+- [x] **Step 5: Commit** — `git commit -m "chore(pre-account): CI wiring + docs + contract"`
 
 ---
 

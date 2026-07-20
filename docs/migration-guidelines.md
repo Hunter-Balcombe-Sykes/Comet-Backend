@@ -48,7 +48,7 @@ At current row counts (≤ 200) the validation scan is instant; the split matter
 
 ## Lock and statement timeouts (#SCALE-3)
 
-DDL against tables served by live traffic (`site.design_kits`, `site.sites`, `site.blocks`) should be guarded by timeouts so a stuck lock-wait doesn't cascade into a deploy outage.
+DDL against tables served by live traffic (`site.design_kits`, `site.sites`, `site.blocks`, `core.users`) should be guarded by timeouts so a stuck lock-wait doesn't cascade into a deploy outage. This is CI-enforced: `guard:no-unsafe-migrations` Check 5 fails any migration (timestamped after `TIMEOUT_GUARD_CUTOFF`) that runs `ALTER TABLE` or `UPDATE` against one of these tables without both an explicit `BEGIN;` and a `SET LOCAL lock_timeout` inside it — see `scripts/guard-no-unsafe-migrations.php`.
 
 **Add at the top of every migration that runs DDL on a live-traffic table:**
 ```sql
