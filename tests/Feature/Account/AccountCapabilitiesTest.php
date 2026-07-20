@@ -16,7 +16,7 @@ function makeProForCapabilities(string $accountType, ?string $sector = null): Us
 
 beforeEach(fn () => AccountCapabilities::flushCache());
 
-describe('AccountCapabilities — individual', function () {
+describe('AccountCapabilities — partna', function () {
     beforeEach(function () {
         $this->caps = AccountCapabilities::for(makeProForCapabilities('partna'));
     });
@@ -82,10 +82,6 @@ describe('AccountCapabilities — storewide booking (Business Partna)', function
     it('withholds storewide booking from standard (partna) accounts', function () {
         expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_book_storewide)->toBeFalse();
     });
-
-    it('withholds storewide booking from legacy individual rows', function () {
-        expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_book_storewide)->toBeFalse();
-    });
 });
 
 describe('AccountCapabilities — Google Business (Business Partna)', function () {
@@ -100,20 +96,10 @@ describe('AccountCapabilities — Google Business (Business Partna)', function (
         expect($caps->google_business_full_sync)->toBeFalse();
         expect($caps->google_business_sets_display_name)->toBeFalse();
     });
-
-    it('treats legacy individual rows like standard accounts', function () {
-        $caps = AccountCapabilities::for(makeProForCapabilities('partna'));
-        expect($caps->google_business_full_sync)->toBeFalse();
-        expect($caps->google_business_sets_display_name)->toBeFalse();
-    });
 });
 
 describe('AccountCapabilities — lifestyle pages (standard only)', function () {
     it('grants the lifestyle/creator pages to standard (partna) accounts', function () {
-        expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_use_lifestyle_pages)->toBeTrue();
-    });
-
-    it('treats legacy individual rows like standard accounts', function () {
         expect(AccountCapabilities::for(makeProForCapabilities('partna'))->can_use_lifestyle_pages)->toBeTrue();
     });
 
@@ -151,7 +137,6 @@ describe('AccountCapabilities — sector-derived (2026-07-15 industry/sector gat
         'business × food (restaurant)' => ['business', 'restaurant', true, true, false, true],
         'business × non-food (barber)' => ['business', 'barber', false, false, true, false],
         'business × null sector (defaults not-food)' => ['business', null, false, false, true, false],
-        'individual (legacy) × food — treated like partna, never food-gated' => ['partna', 'restaurant', false, true, true, false],
     ]);
 
     it('isFood is false for every non-Food & Drink sector, true for exactly the Food & Drink group', function () {
