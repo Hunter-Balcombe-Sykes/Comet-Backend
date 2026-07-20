@@ -220,6 +220,31 @@ it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (olde
 // hash must be computed from the LOWERCASED username so "DocPizza" and "docpizza"
 // (the same real account) correlate to the same hash in the logs.
 
+it('treats a 2xx Apify response carrying an "error" key as a failed scrape, not a valid empty profile', function () {
+    // Reproduced live 2026-07-20 against the real Apify actor: a profile it
+    // can't retrieve still comes back 2xx with a dataset item shaped like a
+    // profile but carrying an "error" string instead of real fields.
+    Log::spy();
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'username' => 'somehandle',
+        'full_name' => null,
+        'url' => 'https://www.instagram.com/somehandle/',
+        'inputUrl' => 'https://www.instagram.com/somehandle/',
+        'scrapedAt' => '2026-07-20T06:29:14.988Z',
+        'error' => 'Could not retrieve profile data — please try again later',
+    ]], 201)]);
+
+    $profile = (new InstagramScraper)->fetchProfile('somehandle', 'user-123');
+
+    expect($profile)->toBeNull();
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $context) => $message === 'instagram.apify.error_item'
+            && ($context['user_id'] ?? null) === 'user-123'
+            && ($context['username_hash'] ?? null) === hash('sha256', 'somehandle'));
+});
+
 it('logs a lowercase-normalised username hash — never the raw username — when the Apify call throws', function () {
     Exceptions::fake(); // the catch block also calls report($e); don't let that hit the real handler
     Log::spy();

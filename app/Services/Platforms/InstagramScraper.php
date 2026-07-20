@@ -78,6 +78,21 @@ class InstagramScraper extends PlatformScraper
             return null;
         }
 
+        // A 2xx run can still carry a per-item scrape failure: the dataset item
+        // is profile-shaped (username/url/scrapedAt) but its fields are null and
+        // it carries an "error" string instead. Treat that as a failed fetch —
+        // not a valid (empty) profile — so callers retry instead of silently
+        // persisting a blank account.
+        if (is_string($items[0]['error'] ?? null)) {
+            Log::warning('instagram.apify.error_item', [
+                'username_hash' => hash('sha256', mb_strtolower($username)),
+                'user_id' => $userId,
+                'error' => $items[0]['error'],
+            ]);
+
+            return null;
+        }
+
         return $items[0];
     }
 
