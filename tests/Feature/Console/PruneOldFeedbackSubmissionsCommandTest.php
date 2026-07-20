@@ -27,8 +27,8 @@ function seedAgedFeedbackRow(string $createdAt, string $kind = 'bug'): string
     return $id;
 }
 
-it('defaults the retention window to 365 days and the prune batch size to 1000', function () {
-    expect(config('partna.feedback.retention_days'))->toBe(365);
+it('defaults the retention window to 90 days and the prune batch size to 1000', function () {
+    expect(config('partna.feedback.retention_days'))->toBe(90);
     expect(config('partna.feedback.prune_batch_size'))->toBe(1000);
 });
 

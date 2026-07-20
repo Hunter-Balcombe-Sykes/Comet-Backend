@@ -1566,9 +1566,16 @@ return [
         // submissions). Nothing else ages this table out — PurgeSoftDeleted only
         // force-deletes rows a staffer already soft-deleted, so a row left in
         // 'new'/'triaged' would otherwise keep its reply_email + free-text
-        // message forever. 365 days mirrors the unsubscribed-email-subscription
-        // retention precedent (notifications:prune-unsubscribed-subscriptions).
-        'retention_days' => (int) env('FEEDBACK_RETENTION_DAYS', 365),
+        // message forever.
+        //
+        // 90 days (Josh's call, 2026-07-20). Deliberately SHORTER than the
+        // 365-day unsubscribed-subscription precedent: that table holds an email
+        // and a flag, whereas this one holds free-text a user may have typed
+        // anything into, alongside reply_email — so the minimisation argument is
+        // stronger and the operational need to keep it is weaker. It also matches
+        // analytics_raw_event_retention_days (90), the other free-form user-data
+        // window in this file.
+        'retention_days' => (int) env('FEEDBACK_RETENTION_DAYS', 90),
 
         // CFG-1-style batch size for feedback:prune-old-submissions — bounds
         // each DELETE's row count so the purge never holds one long-running

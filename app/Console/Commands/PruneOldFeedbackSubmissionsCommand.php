@@ -30,7 +30,7 @@ class PruneOldFeedbackSubmissionsCommand extends Command
 
     public function handle(): int
     {
-        $days = (int) ($this->option('days') ?? config('partna.feedback.retention_days', 365));
+        $days = (int) ($this->option('days') ?? config('partna.feedback.retention_days', 90));
         $cutoff = now()->subDays($days);
         $dryRun = (bool) $this->option('dry-run');
 
