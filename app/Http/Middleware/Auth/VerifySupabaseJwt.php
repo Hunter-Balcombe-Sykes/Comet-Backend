@@ -85,14 +85,27 @@ class VerifySupabaseJwt
             // its signature is still valid. One Redis EXISTS per request.
             $sessionId = isset($claims['session_id']) ? (string) $claims['session_id'] : '';
             if ($sessionId === '') {
-                // Revocation gate is skipped for tokens that carry no session_id.
-                // Log so we can confirm this case never legitimately fires before
-                // hardening to a 401 rejection.
+                // Log BEFORE the reject/pass-through branch below — this is the
+                // only telemetry we have to confirm in production whether this
+                // ever legitimately fires. Never move this after the return.
                 Log::warning('jwt.missing_session_id', [
                     'request_id' => $requestId,
                     'operation' => __METHOD__,
                     'uid' => $uid,
                 ]);
+
+                // SEC-2: a session_id-less token can never be revoked — it
+                // bypasses "sign out everywhere" and admin force-logout for
+                // its full TTL. Reject by default (fail-closed). The config
+                // flag is a same-day incident revert path (no deploy) for the
+                // unlikely case Supabase issues a legitimate token like this.
+                if (config('supabase.require_session_id', true)) {
+                    return response()->json([
+                        'error' => 'unauthenticated',
+                        'message' => 'Token missing session_id',
+                        'code' => 'session_id_missing',
+                    ], 401);
+                }
             } else {
                 // Revocation is a best-effort oracle layered on top of an
                 // already-cryptographically-valid token. isRevoked() does a Redis
@@ -179,14 +192,26 @@ class VerifySupabaseJwt
                 $fallbackClaims = $this->extractJwtPayloadClaims($token);
                 $fallbackSessionId = isset($fallbackClaims['session_id']) ? (string) $fallbackClaims['session_id'] : '';
                 if ($fallbackSessionId === '') {
-                    // Revocation gate is skipped for tokens that carry no session_id.
-                    // Log so we can confirm this case never legitimately fires before
-                    // hardening to a 401 rejection.
+                    // Log BEFORE the reject/pass-through branch below — this is the
+                    // only telemetry we have to confirm in production whether this
+                    // ever legitimately fires. Never move this after the return.
                     Log::warning('jwt.missing_session_id', [
                         'request_id' => $requestId,
                         'operation' => __METHOD__,
                         'uid' => $uid,
                     ]);
+
+                    // SEC-2: mirrors the JWKS-path gate above. Effectively
+                    // unreachable in production (jwks_fail_closed defaults true
+                    // and AppServiceProvider refuses to boot in production when
+                    // it's false) but kept symmetric with the primary path.
+                    if (config('supabase.require_session_id', true)) {
+                        return response()->json([
+                            'error' => 'unauthenticated',
+                            'message' => 'Token missing session_id',
+                            'code' => 'session_id_missing',
+                        ], 401);
+                    }
                 } else {
                     // Same fail-open contract as the JWKS path above: isRevoked() is a
                     // Redis EXISTS layered on an already-verified token. A Redis outage

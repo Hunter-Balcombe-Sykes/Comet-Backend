@@ -22,6 +22,8 @@ class SectorController extends ApiController
     public function update(UpdateSectorRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
+        $this->authorizeForUser($user, 'update', $user);
+
         $sector = $request->validated()['sector']; // null or a valid slug
 
         // sector_source is not fillable (service-written) — assign directly.

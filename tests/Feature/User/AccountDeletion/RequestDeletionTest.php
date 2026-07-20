@@ -139,3 +139,118 @@ it('rolls back token storage if mail send throws', function () {
     expect($pro->deletion_token_hash)->toBeNull()
         ->and($pro->deletion_requested_at)->toBeNull();
 });
+
+// ── WHK-102: double-submit idempotency guard ──────────────────────────────
+//
+// lockForUpdate is a no-op under SQLite (no row-level locking), so these tests
+// prove the GUARD LOGIC — the second call sees what the first call already
+// wrote — not lock-based concurrency safety. True concurrent-request locking
+// can only be verified against real Postgres.
+
+it('double-submit with no Idempotency-Key header mints exactly one token and audit row', function () {
+    Queue::fake();
+    $pro = makeDeletionTestUser();
+
+    $first = actingAsUser($pro)->postJson('/api/me/deletion/request');
+    $second = actingAsUser($pro)->postJson('/api/me/deletion/request');
+
+    // A double-tap must not surface an error to the user — both calls succeed.
+    $first->assertStatus(200);
+    $second->assertStatus(200);
+
+    Queue::assertPushed(SendAccountDeletionRequestMailJob::class, 1);
+
+    $count = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'requested')
+        ->count();
+    expect($count)->toBe(1);
+});
+
+it('double-submit with a shared Idempotency-Key does not double-count on top of the middleware fast-path', function () {
+    Queue::fake();
+    $pro = makeDeletionTestUser();
+    $idempotencyKey = '11111111-2222-4333-8444-555555555555';
+
+    // Same key on both calls: the `idempotent` middleware's own cache fast-path
+    // replays the first response for the second call without invoking the
+    // controller at all. Assertions must hold either way — this proves the
+    // middleware layer and the new domain-level guard don't conflict.
+    $first = actingAsUser($pro)->postJson('/api/me/deletion/request', [], [
+        'Idempotency-Key' => $idempotencyKey,
+    ]);
+    $second = actingAsUser($pro)->postJson('/api/me/deletion/request', [], [
+        'Idempotency-Key' => $idempotencyKey,
+    ]);
+
+    $first->assertStatus(200);
+    $second->assertStatus(200);
+
+    Queue::assertPushed(SendAccountDeletionRequestMailJob::class, 1);
+
+    $count = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'requested')
+        ->count();
+    expect($count)->toBe(1);
+});
+
+it('re-request after the 24h token window has expired mints a second token and audit row', function () {
+    // This is the test that catches a missing (or mis-windowed) expiry check:
+    // without it, the guard would treat the first, now-stale token as still
+    // "active" forever and silently block every re-request.
+    $pro = makeDeletionTestUser();
+    $service = new AccountDeletionService;
+
+    $firstResult = $service->request($pro, Request::create('/', 'POST'));
+    expect($firstResult['success'])->toBeTrue();
+
+    test()->travel(25)->hours();
+
+    // Reload from DB before the second call — a real second HTTP request always
+    // loads a fresh model (LoadCurrentUser middleware), so it sees the mail job's
+    // out-of-band write to deletion_mail_sent_at. Reusing the same in-memory $pro
+    // instance here would make Eloquent's dirty-check treat the reset-to-null
+    // write as a no-op (it was already null in memory), which is a test-harness
+    // artifact, not real behaviour.
+    $pro->refresh();
+
+    $secondResult = $service->request($pro, Request::create('/', 'POST'));
+    expect($secondResult['success'])->toBeTrue();
+
+    $count = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'requested')
+        ->count();
+    expect($count)->toBe(2);
+
+    Mail::assertSent(AccountDeletionRequestedMail::class, 2);
+});
+
+it('treats a token with no requested_at as stale and mints a fresh one (guard must not lock the user out)', function () {
+    Queue::fake();
+
+    // Reachable via a crash/rollback between the two update() columns writing, or a
+    // hand-edited row: if the guard ever drops the `deletion_requested_at !== null`
+    // check (or reorders it after the Carbon::parse call), this state either throws
+    // on Carbon::parse(null) or is read as "still active" — permanently locking the
+    // user out of self-service deletion with no recovery path (GDPR-relevant).
+    $pro = makeDeletionTestUser([
+        'deletion_token_hash' => hash('sha256', 'stale-half-written-token'),
+        'deletion_requested_at' => null,
+    ]);
+
+    $response = actingAsUser($pro)->postJson('/api/me/deletion/request');
+
+    $response->assertStatus(200);
+    Queue::assertPushed(SendAccountDeletionRequestMailJob::class, 1);
+
+    $count = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'requested')
+        ->count();
+    expect($count)->toBe(1);
+
+    $pro->refresh();
+    expect($pro->deletion_requested_at)->not->toBeNull();
+});

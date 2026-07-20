@@ -98,7 +98,10 @@ final class VerifyBotToken
                     'route' => $request->path(), 'ip_hash' => $this->hashedIp($request),
                     'request_id' => $request->header('X-Request-Id'),
                 ]);
-                if ($this->firstHitInWindow("bot_protection:fail_open_reported:{$driver}:provider_error")) {
+                // !== false (not a bare truthy check): null means the dedup store itself
+                // is unreachable, so we cannot tell "already alerted" from "can't tell" —
+                // must report rather than risk self-muting during a Redis outage (WHK-3).
+                if ($this->firstHitInWindow("bot_protection:fail_open_reported:{$driver}:provider_error") !== false) {
                     report(new \RuntimeException("bot_protection fail-open [{$driver}:provider_error] action={$action}"));
                 }
             } catch (Throwable $e) {
@@ -218,9 +221,15 @@ final class VerifyBotToken
      * INCR then EXPIRE-only-on-first-hit, so a crash between commands can't orphan
      * the TTL. Returns true at most once per cooldown window per key. Reuses
      * circuit_breaker.cooldown_seconds as the dedup TTL.
-     * Redis unavailable → false (skip observability; must never break a request).
+     *
+     * Tri-state on purpose (WHK-3): collapsing "already alerted this window" and
+     * "the dedup store itself is unreachable" into the same `false` self-mutes
+     * the alert on every request during a Redis outage — worst on the
+     * breaker_unavailable caller, which is reached BECAUSE the breaker's own
+     * Redis call just threw. `null` lets the caller tell the two apart and
+     * choose not to throttle when it can't.
      */
-    private function firstHitInWindow(string $dedupKey): bool
+    private function firstHitInWindow(string $dedupKey): ?bool
     {
         try {
             $ttl = (int) config('partna.bot_protection.circuit_breaker.cooldown_seconds', 300);
@@ -233,7 +242,7 @@ final class VerifyBotToken
 
             return (int) $count === 1;
         } catch (Throwable $e) {
-            return false;
+            return null;
         }
     }
 
@@ -246,11 +255,26 @@ final class VerifyBotToken
      * $reportMessage === null means "throttled warning only, no Nightwatch page" —
      * used for best-effort bookkeeping failures that don't need paging.
      *
+     * firstHitInWindow()'s `null` (dedup store unreachable) falls through to an
+     * unconditional log+report rather than returning early like `false` does —
+     * we cannot throttle without the store, so staying silent here would
+     * self-mute the one alert that says "the throttle store — and usually the
+     * breaker itself — is down" (WHK-3). A stateless sample (mt_rand, no
+     * store needed — see EscalatesRepeatedFaults' Tier 2) was a real option
+     * for exactly this "the counter's own store just failed" case, but this
+     * middleware follows the closer shipped precedent instead:
+     * IdempotencyKey::logFailOpen throttles report() via Cache::lock and, on
+     * catch(Throwable) — lock store unreachable — reports unconditionally
+     * with no sampling. Same shape here, and this path only guards a handful
+     * of low-volume public form endpoints already sitting behind a
+     * per-identifier throttle: middleware, so unconditional reporting can't
+     * flood Nightwatch the way high-frequency analytics traffic could.
+     *
      * @param  array<string, mixed>  $context
      */
     private function throttledFailReport(string $dedupKey, string $logEvent, array $context, ?string $reportMessage = null): void
     {
-        if (! $this->firstHitInWindow($dedupKey)) {
+        if ($this->firstHitInWindow($dedupKey) === false) {
             return;
         }
 

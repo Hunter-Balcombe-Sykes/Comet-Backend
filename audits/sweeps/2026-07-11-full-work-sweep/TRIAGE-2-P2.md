@@ -122,7 +122,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-2** · P2 — JWT revocation gate skipped when a token carries no `session_id` claim
+- [x] **#SEC-2** · P2 — JWT revocation gate skipped when a token carries no `session_id` claim
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php:86-96 (and the mirrored fallback path at :180-189)
     - **Affects:** "Sign out everywhere" / admin-forced-logout correctness — a cryptographically valid but un-revocable token, if one were ever issued without `session_id`, would keep working until natural expiry.
     - **Effort:** S (~0.5–1h)
@@ -146,7 +146,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P2 — Applicant email logged unhashed on the bootstrap account-conflict path
+- [x] **#SEC-5** · P2 — Applicant email logged unhashed on the bootstrap account-conflict path
     - **Where:** app/Http/Controllers/Api/PublicSite/BootstrapController.php:160-164
     - **Affects:** Users whose email is already registered — their raw email address persists in Nightwatch / the log aggregator beyond the request lifecycle.
     - **Effort:** S (~0.5–1h)
@@ -872,14 +872,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 5 of 5 complete
 - P3 Low: 0 of 8 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SCHEMA-1** · P2 — `analytics.item_views.item_type` has a documented 7-value taxonomy but no `CHECK` constraint
+- [x] **#SCHEMA-1** · P2 — `analytics.item_views.item_type` has a documented 7-value taxonomy but no `CHECK` constraint
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql:13
     - **Affects:** Data integrity for popularity scoring — a mistyped `item_type` from the item-seen telemetry endpoint silently pollutes `analytics:compute-popularity` input.
     - **Effort:** S (~0.5–1h)
@@ -892,7 +892,7 @@ None.
         item_type    text NOT NULL,    -- shop_product|menu_item|menu_category|service|block|gallery_item|engine_item
         ```
 
-- [ ] **#SCHEMA-2** · P2 — `analytics.content_popularity_scores.content_type` has a documented 8-value taxonomy but no `CHECK` constraint
+- [x] **#SCHEMA-2** · P2 — `analytics.content_popularity_scores.content_type` has a documented 8-value taxonomy but no `CHECK` constraint
     - **Where:** supabase/migrations/20260709042716_create_content_popularity_scores.sql:10
     - **Affects:** The read-side popularity table the public payload builder (`IndividualProfilePayloadBuilder`) and `RankedActionsComputer` read directly — a bad `content_type` from a buggy upsert in `analytics:compute-popularity` surfaces wrong ranks in the sitepage payload.
     - **Effort:** S (~0.5–1h)
@@ -905,7 +905,7 @@ None.
         content_type text NOT NULL,   -- page|shop_product|menu_item|menu_category|service|block|gallery_item|engine_item
         ```
 
-- [ ] **#SCHEMA-3** · P2 — `analytics.item_views` and `analytics.content_popularity_scores` have no foreign key on `site_id` (or `user_id`), unlike their sibling `analytics.section_views` — orphan rows never clean up after site deletion
+- [x] **#SCHEMA-3** · P2 — `analytics.item_views` and `analytics.content_popularity_scores` have no foreign key on `site_id` (or `user_id`), unlike their sibling `analytics.section_views` — orphan rows never clean up after site deletion
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql:10-12; supabase/migrations/20260709042716_create_content_popularity_scores.sql:9
     - **Affects:** `AccountDeletionService::forceDelete()` relies on `ON DELETE CASCADE` FK chains to clean up user/site-linked rows (per its own comments: "user_id-linked rows are cascade-deleted by forceDelete via FK ON DELETE CASCADE"). Neither table has that FK, so a force-deleted site/user leaves permanently dangling `site_id`/`user_id` values. `analytics.item_views` self-heals via the 90-day `partna:analytics:purge-raw-events` retention purge; `analytics.content_popularity_scores` is **not** in that command's table list at all, so its orphan rows persist forever.
     - **Effort:** M (~2–4h)
@@ -927,7 +927,7 @@ None.
             site_id      uuid NOT NULL
         ```
 
-- [ ] **#SCHEMA-4** · P2 — `site.shop_brands.selection_mode` and `.link_mode` are two-value enum columns without a `CHECK` constraint
+- [x] **#SCHEMA-4** · P2 — `site.shop_brands.selection_mode` and `.link_mode` are two-value enum columns without a `CHECK` constraint
     - **Where:** supabase/migrations/20260707030000_shop_brand_modes.sql:19-22
     - **Affects:** Data integrity for per-brand store rendering — a raw INSERT or direct DB fix could write an invalid `selection_mode`/`link_mode`; `UpdateShopBrandRequest` is the only guard today.
     - **Effort:** S (~0.5–1h)
@@ -944,7 +944,7 @@ None.
             ADD COLUMN IF NOT EXISTS referral_query text NOT NULL DEFAULT '';
         ```
 
-- [ ] **#SCHEMA-5** · P2 — `site.sites.shop_link_mode` is a two-value GLOBAL enum column without a `CHECK` constraint, unlike the sibling `booking_mode` column on the same table
+- [x] **#SCHEMA-5** · P2 — `site.sites.shop_link_mode` is a two-value GLOBAL enum column without a `CHECK` constraint, unlike the sibling `booking_mode` column on the same table
     - **Where:** supabase/migrations/20260708120000_sites_shop_global_settings.sql:28
     - **Affects:** Every connected store on every site — `shop_link_mode` is the single global switch the public payload builder (`PublicIntegrationConnectionResource`) stamps onto every brand's `linkMode` at read time. An invalid value here has the largest blast radius of any finding in this audit (site-wide, not per-brand).
     - **Effort:** S (~0.5–1h)
@@ -1175,7 +1175,17 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#WHK-2** · P2 — `idempotent` middleware runs after `throttle:authenticated` on the account-deletion route group, so lock-contended 409s consume rate-limit budget
+- [x] **#WHK-2** · P2 — `idempotent` middleware runs after `throttle:authenticated` on the acco
+      **REJECTED — NOT IMPLEMENTED (2026-07-20).** The premise is wrong. It reasons from route-group
+      merge order, but `bootstrap/app.php:76-88` already pins the order explicitly with
+      `prependToPriorityList(ThrottleRequests::class, IdempotencyKey::class)`, and Laravel's
+      `SortedMiddleware` re-sorts the merged stack by that list regardless of textual group nesting.
+      The documented contract ("a successful replay must not consume rate-limit budget") is already
+      enforced. Worse, the suggested one-line group reorder would risk moving `idempotent` OUTSIDE the
+      group that sets `supabase_uid`, where the middleware self-disables (`IdempotencyKey.php:56-58`) —
+      silently turning idempotency off entirely. Only a clarifying comment was added to
+      `routes/api/user.php` so the next reader does not re-file this. The real double-submit gap on this
+      route is `WHK-102`, which IS fixed (domain-layer locked guard in `AccountDeletionService::request()`).unt-deletion route group, so lock-contended 409s consume rate-limit budget
     - **Where:** routes/api/user.php:41-65, app/Http/Middleware/IdempotencyKey.php:95-102
     - **Affects:** Authenticated users hitting `/me/deletion/*` with concurrent identical `Idempotency-Key` requests — the losing request gets a 409 but has already been counted against the per-user `authenticated` rate limit.
     - **Effort:** S (~0.5–1h)
@@ -1207,7 +1217,7 @@ None.
         }
         ```
 
-- [ ] **#WHK-3** · P2 — `VerifyBotToken`'s circuit-breaker fail-open alerting self-masks during the exact Redis outage it's meant to escalate
+- [x] **#WHK-3** · P2 — `VerifyBotToken`'s circuit-breaker fail-open alerting self-masks during the exact Redis outage it's meant to escalate
     - **Where:** app/Http/Middleware/VerifyBotToken.php:223-265 (`firstHitInWindow`, `throttledFailReport`)
     - **Affects:** Operators monitoring bot-protection health during a Redis outage; all `bot.token`-gated public write endpoints (subscribe, signup, lead, enquiry, waitlist, login-identifier) silently lose CAPTCHA enforcement with zero alert.
     - **Effort:** S (~0.5–1h)
@@ -1991,7 +2001,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#CFG-1** · P2 — Auth-adjacent secrets have no rotation runbook or dual-secret window
+- [x] **#CFG-1** · P2 — Auth-adjacent secrets have no rotation runbook or dual-secret window
     - **Where:** config/services.php:44,48,74,79 (`supabase.email_hook_secret`, `supabase.auth_hook_secret`, `cloudflare.api_token`, `cloudflare.cache_purge_token`); config/partna.php:1102 (`logo_removal.token`)
     - **Affects:** Ops — rotating `SUPABASE_AUTH_HOOK_SECRET`, `SUPABASE_EMAIL_HOOK_SECRET`, `CLOUDFLARE_API_TOKEN`, or `CLOUDFLARE_CACHE_PURGE_TOKEN` requires an atomic env+dashboard swap with no grace window; a deploy race between the two 503s every hook delivery until they line up.
     - **Effort:** M (~2–4h) — docs + optional dual-secret support in `VerifySupabaseHookSignature`
@@ -2069,7 +2079,7 @@ None.
 
 - P0 Blockers: 0 of 1 complete
 - P1 High: 0 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -2080,7 +2090,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#MIG-3** · P2 — Table creation, JSONB CTE backfill, and a live-table `UPDATE` coalesced into one transaction with no lock/statement timeout
+- [x] **#MIG-3** · P2 — Table creation, JSONB CTE backfill, and a live-table `UPDATE` coalesced into one transaction with no lock/statement timeout
     - **Where:** `supabase/migrations/20260704160000_shop_brands_products.sql:7-105`
     - **Affects:** `site.platform_connections` writes (shop connect/disconnect) during this migration's apply window.
     - **Effort:** S (~0.5–1h)
@@ -2098,7 +2108,7 @@ None.
           AND (payload->>'storage') IS DISTINCT FROM 'relational';
         ```
 
-- [ ] **#MIG-4** · P2 — No CI check enforces `SET LOCAL lock_timeout`/`statement_timeout` on DDL against live-traffic tables
+- [x] **#MIG-4** · P2 — No CI check enforces `SET LOCAL lock_timeout`/`statement_timeout` on DDL against live-traffic tables
     - **Where:** `scripts/guard-no-unsafe-migrations.php` (existing guard, no timeout check); representative gap example at `supabase/migrations/20260711000000_staff_account_type.sql:13-18`
     - **Affects:** Any future migration touching `site.design_kits`, `site.sites`, `site.blocks`, or `core.users` — a stuck lock-wait on deploy queues instead of failing fast with a clear error.
     - **Effort:** M (~2–4h)
@@ -2395,7 +2405,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 
 ## P2 — Should fix
 
-- [ ] **#SEC-102** · P2 — `InstagramScraper` logs Instagram usernames alongside internal `user_id` in warning/info breadcrumbs
+- [x] **#SEC-102** · P2 — `InstagramScraper` logs Instagram usernames alongside internal `user_id` in warning/info breadcrumbs
     - **Where:** app/Services/Platforms/InstagramScraper.php:45, 57-61, 68-73, 210-216
     - **Affects:** Nightwatch/log-aggregator storage builds a persistent, plaintext join between a public Instagram handle and an internal Partna user UUID.
     - **Effort:** S (~0.5–1h)
@@ -2422,7 +2432,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             'posts' => count($posts)
         ```
 
-- [ ] **#SEC-103** · P2 — `GoogleBusinessAutoSync::seed()` / `InstagramAutoSync::seed()` accept a bare `$userId` string with no internal tenant guard
+- [x] **#SEC-103** · P2 — `GoogleBusinessAutoSync::seed()` / `InstagramAutoSync::seed()` accept a bare `$userId` string with no internal tenant guard
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:57 (`seed()`), app/Services/Platforms/InstagramAutoSync.php:63 (`seed()`)
     - **Affects:** Currently safe — both call sites (`GoogleBusinessEnrichJob.php:137`, `InstagramConnectJob.php:250`) derive `$userId` from the queued job's own stored state, never from request input. No confirmed exploit path exists today.
     - **Effort:** S (~0.5–1h)
@@ -2447,7 +2457,17 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             $user = User::find($userId);
         ```
 
-- [ ] **#SEC-104** · P2 — `StaffUserController::index()` queries and returns every professional with no `authorizeForUser` call
+- [x] **#SEC-104** · P2 — `StaffUserController::index()` queries and returns every professional with no `authorizeForUser` call
+      **REJECTED — NOT IMPLEMENTED (2026-07-20).** This finding prescribes exactly the change a prior
+      signed-off finding deliberately rejected. Commit `6311a1a1` ("SEC-101 — gate staff-detail PII to
+      admin tier") added the `staffView` seam to `UserSelfPolicy` (line 116) and intentionally did NOT
+      wire it into `index()`. The rationale is still in the docblock at `StaffUserController.php:34-38`:
+      it authorizes against a single User target while this is a paginated collection, so per-row
+      authorize calls would be N gate evaluations for a currently-unconditional ability; the PII gate
+      (`$showPii`) is the enforcement point for this endpoint, same as `show()`. Implementing SEC-104
+      would silently undo a deliberate decision. If the `staffView` ability should become conditional,
+      that is a separate design conversation, not a P2 gate insertion. `StaffUserController.php` left
+      untouched.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:35-89
     - **Affects:** Structural doctrine gap only — the list endpoint already gates raw PII behind `isAdmin()` inline (see ); this finding is the missing formal Policy seam underneath that inline check.
     - **Effort:** S (~0.5–1h)
@@ -2469,7 +2489,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
                 ->orderByDesc('created_at');
         ```
 
-- [ ] **#SEC-105** · P2 — `SectorController::update()` mutates the User model without an `authorizeForUser` gate
+- [x] **#SEC-105** · P2 — `SectorController::update()` mutates the User model without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/User/Profile/SectorController.php:22-38
     - **Affects:** Authenticated user updating their own sector — tenant-safe today (actor resolved via `currentUser`), but bypasses `UserSelfPolicy`'s pending-deletion block and (if `partna.mfa.require_fresh_aal2_for_profile_update` is ever enabled) its fresh-AAL2 requirement.
     - **Effort:** S (~0.5–1h)
@@ -2491,7 +2511,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             $user->save();
         ```
 
-- [ ] **#SEC-106** · P2 — `MenuController::refresh()` and `applyScan()` mutate the Menu model without an `authorizeForUser` gate
+- [x] **#SEC-106** · P2 — `MenuController::refresh()` and `applyScan()` mutate the Menu model without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/Platforms/MenuController.php:93-115 (`refresh()`), :121-133 (`applyScan()`); write path app/Services/Platforms/MenuScanApplier.php:166-182 (`resolveMenu()`)
     - **Affects:** Authenticated user re-triggering a menu scrape or applying an AI-scanned menu — tenant-safe today via inline `where('user_id', $user->id)`, but bypasses `SitePolicy`'s pending-deletion block on the `Menu` model.
     - **Effort:** S (~0.5–1h)
@@ -2519,7 +2539,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             }
         ```
 
-- [ ] **#SEC-107** · P2 — `DisplaySettingsController::update()` mutates `IntegrationConnection` and `Site` rows without an `authorizeForUser` gate
+- [x] **#SEC-107** · P2 — `DisplaySettingsController::update()` mutates `IntegrationConnection` and `Site` rows without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/Platforms/DisplaySettingsController.php:64-143
     - **Affects:** Authenticated user toggling public-display switches for their own platform connections — tenant-safe today via inline `where('user_id', $user->id)`, but bypasses both `IntegrationConnectionPolicy` and `SitePolicy`'s pending-deletion blocks.
     - **Evidence:**
@@ -2545,7 +2565,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
     - **Technical:** `update()` fetches `IntegrationConnection` rows and (conditionally) a `Site` row scoped by `where('user_id', $user->id)`, then saves both directly — neither path routes through the registered Policy for either model. This is the one platform controller that bypasses `ManagesIntegrationConnection`'s built-in authorization (verified by reading the trait: every `writeConnection`/`writePendingLinkCard`/`forgetConnection`/`forgetAllConnections` call already resolves create-vs-update and calls `authorizeForUser` before touching the row), because it manages toggle state across multiple connections at once rather than one row via the trait's helpers.
     - **Plain English:** Flipping a "show this on my public page" switch updates the database directly, protected only by a filter baked into the query ("only rows that belong to me") rather than the platform's standard permission check. Every sibling integration controller in this same folder DOES go through that standard check via a shared helper — this is the one exception, likely missed because it works with several connections at once instead of the usual "one connection" pattern the helper was built for.
 
-- [ ] **#SEC-108** · P2 — `CustomDomainController` mutates the `Site` model on all four write paths without an `authorizeForUser` gate
+- [x] **#SEC-108** · P2 — `CustomDomainController` mutates the `Site` model on all four write paths without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php:38-104 (`store()`), :106-144 (`verify()`), :150-163 (`setPrimary()`), :165-190 (`destroy()`); shared resolver :192-198 (`siteOrFail()`)
     - **Affects:** Authenticated user configuring their own custom domain (Cloudflare for SaaS) — tenant-safe today (site resolved via the `$user->site` Eloquent relationship), but bypasses `SitePolicy`'s pending-deletion block on every domain-configuration write, including CNAME/hostname creation and destruction.
     - **Effort:** S (~0.5–1h)
@@ -2629,7 +2649,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-102** · P2 — `purgeWaitlistSignup` error log carries no user identifier
+- [x] **#LIFE-102** · P2 — `purgeWaitlistSignup` error log carries no user identifier
     - **Where:** app/Services/User/AccountDeletionService.php:717-733
     - **Affects:** GDPR-erasure audit trail during the daily `purge()` sweep — support can't correlate a failed waitlist-row erasure back to the account that triggered it.
     - **Effort:** S (~0.5h)
@@ -2658,7 +2678,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-103** · P2 — `purgeGlobalEmailSubscriptions` error log carries no user identifier
+- [x] **#LIFE-103** · P2 — `purgeGlobalEmailSubscriptions` error log carries no user identifier
     - **Where:** app/Services/User/AccountDeletionService.php:846-863
     - **Affects:** Same GDPR-erasure audit trail as #LIFE-102 — global (platform-marketing) subscription rows keyed only by email have no user_id trail on failure.
     - **Effort:** S (~0.5h)
@@ -3011,14 +3031,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCHEMA-101** · P2 — Inline data backfill (`UPDATE` over matching rows) inside `20260713120000_reconcile_instagram_gallery_unification.sql`
+- [x] **SCHEMA-101** · P2 — Inline data backfill (`UPDATE` over matching rows) inside `20260713120000_reconcile_instagram_gallery_unification.sql`
     - **Where:** supabase/migrations/20260713120000_reconcile_instagram_gallery_unification.sql:16-41
     - **Affects:** `site.sites` and `site.platform_connections` — both statements require a full sequential scan to evaluate their `WHERE`/join predicates (no index backs `platform_connections.platform`+`display_settings ? 'gallery'`, nor the `site.sites` join key for this purpose), and both are data mutations executed inside a schema-migration transaction rather than a post-deploy path.
     - **Effort:** M (~2–4h)
@@ -3051,7 +3071,7 @@ None.
           AND display_settings ? 'gallery';
         ```
 
-- [ ] **SCHEMA-102** · P2 — `site.sites.shop_link_mode` is an enum-like `text` column with no `CHECK` constraint (recurring, previously flagged)
+- [x] **SCHEMA-102** · P2 — `site.sites.shop_link_mode` is an enum-like `text` column with no `CHECK` constraint (recurring, previously flagged)
     - **Where:** app/Models/Core/Site/Site.php:34-42
     - **Affects:** Any write path setting `shop_link_mode` — the column accepts any string, not just `'checkout'`/`'product'`; a bad value would silently corrupt the public shop-link behavior for every connected store on that site.
     - **Effort:** S (~0.5–1h)
@@ -3198,14 +3218,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#WHK-101** · P2 — MFA auth-hook idempotency anchor is Redis-only; no DB-level uniqueness backstop on the audit trail
+- [x] **#WHK-101** · P2 — MFA auth-hook idempotency anchor is Redis-only; no DB-level uniqueness backstop on the audit trail
     - **Where:** `app/Services/Auth/AuthFactorEventRepository.php:30-56`, `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:53-59`
     - **Affects:** `audit.auth_factor_events` rows and the MFA brute-force counter (`countRecentFailures`) for any user going through TOTP/phone/webauthn verification during a Redis blip.
     - **Effort:** M (~2-4h) — new nullable `webhook_id` column + unique index migration, thread the id through `record()`, switch the insert to `INSERT … ON CONFLICT (webhook_id) DO NOTHING`.
@@ -3255,7 +3275,7 @@ None.
         }
         ```
 
-- [ ] **#WHK-102** · P2 — `IdempotencyKey` is opt-in on `/me/deletion/*`; the double-submit race it's meant to close has no server-side enforcement and no test for the header-omitted path
+- [x] **#WHK-102** · P2 — `IdempotencyKey` is opt-in on `/me/deletion/*`; the double-submit race it's meant to close has no server-side enforcement and no test for the header-omitted path
     - **Where:** `app/Http/Middleware/IdempotencyKey.php:44-47`, `routes/api/user.php:54-59`, `app/Services/User/AccountDeletionService.php:48-113` (`request()`)
     - **Affects:** `POST /api/me/deletion/request` — a browser double-tap, refresh, or client retry without the `Idempotency-Key` header sends two deletion-confirmation emails and writes two `UserDeletionAuditEntry` rows for one user action.
     - **Effort:** M (~2-4h) — add a `lockForUpdate`-style guard to `AccountDeletionService::request()` matching the pattern already used in `confirm()`, plus a test for the missing-header path.
@@ -3392,7 +3412,7 @@ None — the two surviving findings touch unrelated files and subsystems (auth-h
         $this->persist($menu, $contentSource, $merged, $now);
         ```
 
-- [ ] **#TXN-102** · P2 — `AccountDeletionService::request()`'s docblock claims the deletion-token write "rolls back automatically" on dispatch failure — it does not, because the job's `afterCommit` flag defers the Redis push past the point of no return
+- [x] **#TXN-102** · P2 — `AccountDeletionService::request()`'s docblock claims the deletion-token write "rolls back automatically" on dispatch failure — it does not, because the job's `afterCommit` flag defers the Redis push past the point of no return
     - **Where:** app/Services/User/AccountDeletionService.php:36-40, 78-98; app/Jobs/Account/SendAccountDeletionRequestMailJob.php:53-58
     - **Affects:** Users initiating self-service account deletion during a Redis outage. The DB commit (token hash + `EVENT_REQUESTED` audit row) already succeeds before the deferred queue push is attempted, so a push failure at that point cannot roll anything back — the request-handling code nonetheless returns the same 503 "please try again" it uses for genuine DB failures, telling the user nothing happened when in fact a live, unconfirmed deletion token now sits on their row with no email ever sent.
     - **Effort:** S (~0.5–1h)
@@ -3485,14 +3505,14 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#DINT-101** · P2 — `typography_tracking` / `theme_contrast` design-kit columns have no DB CHECK backing their fixed vocabulary
+- [x] **#DINT-101** · P2 — `typography_tracking` / `theme_contrast` design-kit columns have no DB CHECK backing their fixed vocabulary
     - **Where:** supabase/migrations/20260714220000_add_aesthetic_axes.sql:15-18
     - **Affects:** `site.design_kits` rows written by any path that bypasses `UpdateSiteRequest`/`DesignKitValidationRules` — direct DB fixes, restore/import tooling, seeders, or a future admin script. A bad value renders as broken/missing CSS on the public sitepage since `@partnaau/design-system` trusts the DB to hold only valid selections.
     - **Effort:** S (~0.5–1h)
@@ -3856,7 +3876,7 @@ None.
         }
         ```
 
-- [ ] **PRIV-102** · P2 — Staff `admin_notes` freetext survives pseudonymisation for the full 30-day deletion grace period
+- [x] **PRIV-102** · P2 — Staff `admin_notes` freetext survives pseudonymisation for the full 30-day deletion grace period
     - **Where:** app/Services/User/AccountDeletionService.php:299-314 (`pseudonymiseAccountPii()`)
     - **Affects:** Any individual whose account enters `pending_deletion` — freetext support/identity-verification notes staff previously wrote about them remain live and staff-readable in cleartext for up to 30 days after the user pseudonymised their own account.
     - **Effort:** S (~0.5–1h)
@@ -4112,14 +4132,14 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **MIG-101** · P2 — Instagram/gallery unification backfill rewrites every matching row on re-run instead of skipping already-corrected ones
+- [x] **MIG-101** · P2 — Instagram/gallery unification backfill rewrites every matching row on re-run instead of skipping already-corrected ones
     - **Where:** supabase/migrations/20260713120000_reconcile_instagram_gallery_unification.sql:23-34
     - **Affects:** `site.sites` rows for every user with an active Instagram connection — a re-run (partial-apply retry, or a future fresh-apply replay against a partially-seeded DB) touches every one of those rows again even when already correct.
     - **Effort:** S (~0.5–1h)
@@ -4144,7 +4164,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         WHERE s.user_id = ig.user_id;
         ```
 
-- [ ] **MIG-102** · P2 — Six migrations touching hot tables omit the `SET LOCAL lock_timeout` / `statement_timeout` guard, right before the prod gated re-baseline replays all of them for the first time
+- [x] **MIG-102** · P2 — Six migrations touching hot tables omit the `SET LOCAL lock_timeout` / `statement_timeout` guard, right before the prod gated re-baseline replays all of them for the first time
     - **Where:** supabase/migrations/20260712000000_retire_staff_account_type.sql (touches `core.users`), 20260713120000_reconcile_instagram_gallery_unification.sql (`site.sites`), 20260714200000_architecture_one_to_staple.sql (`site.sites`), 20260714210000_drop_effect_surface.sql (`site.design_kits`), 20260714220000_add_aesthetic_axes.sql (`site.design_kits`), 20260714230000_drop_glass_satellites.sql (`site.design_kits`)
     - **Affects:** Deploy-pipeline safety for the next `supabase db push` — none of these six have run against production yet (prod-is-behind: latest applied prod migration is `20260512145025`), so this is the first opportunity for any of them to hang against real traffic.
     - **Effort:** S (~0.5–1h for all six)
@@ -4161,7 +4181,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         SET LOCAL statement_timeout = '10s';
         ```
 
-- [ ] **MIG-103** · P2 — `NOT VALID` + `VALIDATE CONSTRAINT` run in the same implicit transaction on `core.users`, defeating the two-step lock-weakening pattern
+- [x] **MIG-103** · P2 — `NOT VALID` + `VALIDATE CONSTRAINT` run in the same implicit transaction on `core.users`, defeating the two-step lock-weakening pattern
     - **Where:** supabase/migrations/20260712000000_retire_staff_account_type.sql:17-25
     - **Affects:** `core.users` — the primary user table read/written on every authenticated request (login, registration, profile resolution). This is the hottest table in the schema.
     - **Effort:** S (~0.5–1h)

@@ -25,6 +25,15 @@ return [
     // with this false (see AppServiceProvider::boot()).
     'jwks_fail_closed' => (bool) env('SUPABASE_JWKS_FAIL_CLOSED', true),
 
+    // When true (the default), a validated JWT with no session_id claim is
+    // rejected with 401 instead of passed through. A token with no session_id
+    // can never be looked up by TokenRevocationService::isRevoked(), so
+    // passing it through defeats "sign out everywhere" and admin force-logout
+    // for the token's full TTL. Set to false ONLY as an incident revert path
+    // if Supabase ever legitimately issues tokens without session_id — see
+    // VerifySupabaseJwt (SEC-2). Must be flippable with no deploy.
+    'require_session_id' => (bool) env('SUPABASE_REQUIRE_SESSION_ID', true),
+
     // Service role key for server-side admin operations (user creation, etc.)
     'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'),
 

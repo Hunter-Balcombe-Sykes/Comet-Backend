@@ -162,6 +162,55 @@ it('enforce + fail_open=false rejects 503 when Redis breaker check throws', func
     $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
 });
 
+// WHK-3 regression proof — the breaker's own Redis::get throw lands us on the
+// breaker_unavailable path, which then asks firstHitInWindow() (also Redis)
+// "have we already alerted this window?". Before the fix, a throw there
+// returned `false` — indistinguishable from "already alerted" — so the one
+// alert that says "Redis is down" was silently muted every single time. This
+// MUST fail against the pre-fix code (firstHitInWindow(): bool, throttledFailReport
+// returning early on any falsy/null): verified by reverting the src change
+// locally and re-running — Log::warning + Exceptions::assertReportedCount both
+// see zero calls, so both assertions below fail.
+it('logs and reports breaker_unavailable when the dedup store is ALSO unreachable', function () {
+    Log::spy();
+    Exceptions::fake();
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => false,
+    ]);
+    Redis::shouldReceive('get')->andThrow(new RuntimeException('redis down'));
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg) => $msg === 'bot_protection.breaker_unavailable')
+        ->once();
+    Exceptions::assertReportedCount(1);
+});
+
+// WHK-3 sibling — circuit genuinely open (isOpen()'s Redis::get succeeds) but
+// the SEPARATE dedup-store round-trip inside firstHitInWindow (Redis::eval,
+// left unstubbed here so it throws) is unreachable. Proves the null-fallthrough
+// isn't accidentally scoped to only the breaker_unavailable caller.
+it('logs and reports circuit_open fail-open when the dedup store is unreachable', function () {
+    Log::spy();
+    Exceptions::fake();
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => false,
+    ]);
+    Redis::shouldReceive('get')->andReturn('1');
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg, $ctx = []) => $msg === 'bot_protection.fail_open' && ($ctx['reason'] ?? null) === 'circuit_open')
+        ->once();
+    Exceptions::assertReportedCount(1);
+});
+
 it('shadow + fail_open=false still passes through on provider exception', function () {
     Log::spy();
     config([

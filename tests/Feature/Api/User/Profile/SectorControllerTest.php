@@ -4,6 +4,8 @@
 // slug validation + sector_source='manual' stamping).
 
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -83,4 +85,22 @@ it('accepts a null sector to clear the field — clearing also clears provenance
     // A cleared pick carries NO provenance — (null, 'manual') would permanently
     // block IdentitySync's Google fill and freeze sector-derived capabilities.
     expect($user->sector_source)->toBeNull();
+});
+
+// ── SEC-105: ownership gate (defence-in-depth) ────────────────────────────
+// update() now authorizeForUser's the caller against themselves. A non-owner
+// can't reach this endpoint at all (currentUser() always resolves the JWT's
+// own row), and a pending-deletion caller is already blocked at the HTTP
+// edge by EnforcePendingDeletionReadOnly (423) before the controller runs —
+// so the deny path can only be exercised at the policy layer directly.
+
+it('denies a pending-deletion user at the policy layer with 423 (HTTP edge already blocks this via middleware)', function () {
+    $user = sectorUser('sectpending');
+    DB::connection('pgsql')->table('core.users')->where('id', $user->id)->update(['status' => 'pending_deletion']);
+    $user->refresh();
+
+    $response = Gate::forUser($user)->inspect('update', $user);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(423);
 });

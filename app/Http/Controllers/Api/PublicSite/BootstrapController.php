@@ -98,9 +98,12 @@ class BootstrapController extends ApiController
         }
 
         if ($e->getMessage() === 'EMAIL_ALREADY_REGISTERED') {
+            // Hash before logging — mirrors the honeypot pattern in
+            // PublicEarlyAccessController::store(); Nightwatch retention outlasts
+            // GDPR scrubbing scope, so raw applicant emails must not land here.
             Log::info('Bootstrap rejected: email already registered to another auth user', [
                 'uid' => $uid,
-                'email' => $email,
+                'email_hash' => hash('sha256', mb_strtolower(trim((string) $email))),
             ]);
 
             return $this->error(

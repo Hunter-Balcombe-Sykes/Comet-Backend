@@ -66,3 +66,50 @@ it('countRecentFailures includes verify_rejected_by_hook events', function () {
 
     expect($repo->countRecentFailures($userId, $factorId, 300))->toBe(2);
 });
+
+it('records webhook_id when supplied and returns the existing id on a duplicate', function () {
+    $repo = app(AuthFactorEventRepository::class);
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+
+    $firstId = $repo->record(
+        userId: $userId,
+        eventType: 'verify_failed',
+        factorId: $factorId,
+        factorType: 'totp',
+        webhookId: 'msg_x',
+    );
+
+    $row = DB::connection('pgsql')->table('audit.auth_factor_events')->where('id', $firstId)->first();
+    expect($row->webhook_id)->toBe('msg_x');
+
+    $secondId = $repo->record(
+        userId: $userId,
+        eventType: 'verify_failed',
+        factorId: $factorId,
+        factorType: 'totp',
+        webhookId: 'msg_x',
+    );
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('webhook_id', 'msg_x')->count();
+    expect($count)->toBe(1);
+    expect($secondId)->toBe($firstId);
+});
+
+it('allows multiple rows with a null webhook_id', function () {
+    $repo = app(AuthFactorEventRepository::class);
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+
+    // Regression guard for the partial predicate: a non-partial unique index
+    // would collapse every no-webhook event (e.g. MfaController::destroy's
+    // 'unenroll') into a single row and silently gut the audit trail.
+    $repo->record($userId, 'unenroll', $factorId, 'totp');
+    $repo->record($userId, 'unenroll', $factorId, 'totp');
+    $repo->record($userId, 'unenroll', $factorId, 'totp');
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'unenroll')->count();
+    expect($count)->toBe(3);
+});

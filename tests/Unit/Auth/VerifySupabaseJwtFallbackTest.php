@@ -303,6 +303,9 @@ it('passes request through when auth-server returns valid UUID with correct clai
     $jwt = makeTestJwt([
         'iss' => 'https://proj.supabase.co/auth/v1',
         'aud' => 'authenticated',
+        // session_id present — this test targets the happy pass-through path,
+        // not the SEC-2 no-session_id gate (covered in VerifySupabaseJwtSessionIdGateTest).
+        'session_id' => 'sess-happy-path',
     ]);
 
     Http::fake([

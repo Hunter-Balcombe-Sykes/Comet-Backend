@@ -171,3 +171,4 @@ and check that no row-level lock waits exceed 100ms.
 | Set NOT NULL | `ALTER COLUMN SET NOT NULL` | Four-step NOT VALID pattern (see §3) |
 | Add FK | `ADD CONSTRAINT FOREIGN KEY` | `ADD CONSTRAINT ... NOT VALID` → `VALIDATE CONSTRAINT` |
 | Backfill data | `UPDATE` inside migration transaction | Separate file or dispatched job |
+| DDL/DML on a hot table | No timeout, or `SET LOCAL` with no `BEGIN` | `BEGIN;` + `SET LOCAL lock_timeout`/`statement_timeout` + `COMMIT;` |

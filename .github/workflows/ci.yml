@@ -171,6 +171,9 @@ jobs:
           #   - CREATE INDEX without CONCURRENTLY (SHARE lock blocks all writes during build)
           #   - ADD CONSTRAINT FOREIGN KEY without NOT VALID (ACCESS EXCLUSIVE + full scan)
           #   - ALTER COLUMN SET NOT NULL (ACCESS EXCLUSIVE + full scan)
+          #   - DDL/DML on a hot table (site.design_kits/sites/blocks, core.users)
+          #     without a BEGIN + SET LOCAL lock_timeout (migrations added after
+          #     2026-07-11, its own later cutoff — see TIMEOUT_GUARD_CUTOFF)
           #
           # Pre-convention migrations (timestamp <= 20260514100000) are grandfathered.
           # See supabase/migrations/CONVENTIONS.md for the safe alternatives.

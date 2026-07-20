@@ -355,3 +355,30 @@ it('no-ops a concurrent second confirmation once status is already pending_delet
     $pro->refresh();
     expect($pro->primary_email)->toBe($originalEmail);
 });
+
+it('nulls admin_notes at confirm time and never snapshots it into audit metadata (PRIV-102)', function () {
+    $rawToken = 'raw-token-'.Str::random(54);
+    $sentinel = 'SENTINEL-STAFF-NOTE-'.Str::random(12);
+    $pro = seedRequestedUser($rawToken, ['admin_notes' => $sentinel]);
+
+    $service = new AccountDeletionService;
+    $result = $service->confirm($pro, $rawToken, Request::create('/', 'POST'));
+
+    expect($result['success'])->toBeTrue();
+
+    $pro->refresh();
+    expect($pro->admin_notes)->toBeNull();
+
+    // Guard against a future "helpful" reintroduction of the snapshot-to-metadata
+    // fallback the audit explicitly rejected: audit.user_deletion_audit.metadata
+    // is fine for structural data, but grants app_backend SELECT/INSERT only (no
+    // UPDATE/DELETE) and its FK is ON DELETE SET NULL, so rows outlive the day-30
+    // forceDelete forever — copying staff freetext there would make it permanently,
+    // structurally unerasable.
+    $rows = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->get();
+    foreach ($rows as $row) {
+        expect((string) $row->metadata)->not->toContain($sentinel);
+    }
+});

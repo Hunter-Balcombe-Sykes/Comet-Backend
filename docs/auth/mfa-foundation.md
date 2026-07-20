@@ -90,7 +90,7 @@ This endpoint is registered in Supabase as an **Auth Hook** (MFA Verification). 
 
 ### Signature verification
 
-Follows the [Standard Webhooks spec](https://www.standardwebhooks.com/). The signing key comes from `config('services.supabase.auth_hook_secret')` (env: `SUPABASE_AUTH_HOOK_SECRET`). The header is `webhook-signature`, which may contain space-separated multi-sig values for key rotation.
+Follows the [Standard Webhooks spec](https://www.standardwebhooks.com/). The signing key comes from `config('services.supabase.auth_hook_secret')` (env: `SUPABASE_AUTH_HOOK_SECRET`). The header is `webhook-signature`, which may contain space-separated multi-sig values — but that's sender-side rotation support (multiple candidate signatures checked against our one configured secret). Supabase holds a single secret per hook and doesn't dual-sign, so this does not by itself give us zero-downtime secret rotation. See `docs/runbooks/secret-rotation.md` for the actual rotation procedure and its accepted downtime window.
 
 ## Config Keys (`config/partna.php`)
 

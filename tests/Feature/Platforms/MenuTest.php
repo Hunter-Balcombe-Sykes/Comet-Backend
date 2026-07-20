@@ -9,6 +9,7 @@ use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
@@ -546,6 +547,30 @@ it('refresh dispatches a forced menu fetch job', function () {
 it('refresh 422s when there is no ordering source', function () {
     $user = menuUser('m13');
     actingAsUser($user)->postJson('/api/platforms/menu/refresh')->assertStatus(422);
+});
+
+// ── SEC-106: ownership gate ordering ────────────────────────────────────
+// refresh()/applyScan() now authorize 'update' against the caller's OWN menu
+// (or a skeleton) as defence-in-depth, gated AFTER the existing can_use_menu
+// capability check. A non-food account must still see the 403 role
+// restriction, unaffected by the new ownership gate sitting behind it.
+
+it('still 403s refresh for a non-food business account (capability check runs before the new ownership gate)', function () {
+    $user = menuUser('m21nonfood');
+    $user->forceFill(['sector' => 'barber'])->save();
+    AccountCapabilities::flushCache();
+
+    actingAsUser($user)->postJson('/api/platforms/menu/refresh')->assertStatus(403);
+});
+
+it('still 403s scan apply for a non-food business account (capability check runs before the new ownership gate)', function () {
+    $user = menuUser('m21nonfoodscan');
+    $user->forceFill(['sector' => 'barber'])->save();
+    AccountCapabilities::flushCache();
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Should not apply', 'description' => null, 'price' => null, 'category' => null]],
+    ])->assertStatus(403);
 });
 
 it('menu:retry-unavailable re-dispatches forced fetches only for recently-unavailable menus', function () {

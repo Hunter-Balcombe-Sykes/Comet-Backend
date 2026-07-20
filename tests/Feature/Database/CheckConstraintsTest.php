@@ -47,6 +47,41 @@ function assertCheckConstraintExists(string $schema, string $table, string $cons
     );
 }
 
+/**
+ * Assert that a named ON DELETE CASCADE foreign key exists on the given table
+ * and has been validated (mirrors assertCheckConstraintExists() above, plus
+ * confdeltype — see ArchitectureSystemConstraintsTest for the same pattern on
+ * the design_kits -> sites FK).
+ *
+ * @param  string  $schema  e.g. 'analytics'
+ * @param  string  $table  e.g. 'item_views'
+ * @param  string  $constraint  e.g. 'item_views_site_fk'
+ */
+function assertCascadeFkConstraintExists(string $schema, string $table, string $constraint): void
+{
+    $row = DB::selectOne(
+        "SELECT convalidated, confdeltype FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          JOIN pg_namespace n ON t.relnamespace = n.oid
+         WHERE n.nspname = ?
+           AND t.relname = ?
+           AND c.conname = ?
+           AND c.contype = 'f'",
+        [$schema, $table, $constraint]
+    );
+
+    expect($row)->not->toBeNull(
+        "Expected FK constraint [{$schema}.{$table}.{$constraint}] to exist but it was not found."
+    );
+    expect((bool) $row->convalidated)->toBeTrue(
+        "FK [{$constraint}] exists but is NOT VALID — run VALIDATE CONSTRAINT."
+    );
+    // confdeltype 'c' = CASCADE; 'a' = NO ACTION; 'r' = RESTRICT; 'n' = SET NULL; 'd' = SET DEFAULT
+    expect($row->confdeltype)->toBe('c',
+        "FK [{$constraint}] exists but is not ON DELETE CASCADE (got confdeltype={$row->confdeltype})."
+    );
+}
+
 // ─── site.blocks ────────────────────────────────────────────────────────────
 
 it('blocks_group_type_check constraint exists and is validated', function () {
@@ -177,4 +212,84 @@ it('site_sessions_duration_check constraint exists and is validated', function (
         $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
     }
     assertCheckConstraintExists('analytics', 'site_sessions', 'site_sessions_duration_check');
+});
+
+// ─── SCHEMA-1..5 / SCHEMA-102 / DINT-101 batch (2026-07-20) ──────────────────
+// Postgres-only introspection (this layer alone is NOT sufficient — see
+// ConstraintVocabularyLockstepTest for the SQLite-runnable non-vacuous check
+// that also asserts the CHECK vocabularies match the app-side source of truth).
+
+// ─── site.sites (SCHEMA-5 + SCHEMA-102) ──────────────────────────────────────
+
+it('sites_shop_link_mode_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'sites', 'sites_shop_link_mode_check');
+});
+
+// ─── site.design_kits (DINT-101) ─────────────────────────────────────────────
+
+it('design_kits_typography_tracking_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'design_kits', 'design_kits_typography_tracking_check');
+});
+
+it('design_kits_theme_contrast_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'design_kits', 'design_kits_theme_contrast_check');
+});
+
+// ─── site.shop_brands (SCHEMA-4) ──────────────────────────────────────────────
+
+it('shop_brands_selection_mode_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_selection_mode_check');
+});
+
+it('shop_brands_link_mode_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_link_mode_check');
+});
+
+// ─── analytics.content_popularity_scores (SCHEMA-2) ──────────────────────────
+
+it('content_popularity_scores_content_type_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('analytics', 'content_popularity_scores', 'content_popularity_scores_content_type_check');
+});
+
+// ─── analytics.item_views (SCHEMA-1) ─────────────────────────────────────────
+
+it('item_views_item_type_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('analytics', 'item_views', 'item_views_item_type_check');
+});
+
+// ─── analytics.item_views / content_popularity_scores site_id FKs (SCHEMA-3) ─
+
+it('item_views_site_fk exists, is validated, and cascades on delete', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCascadeFkConstraintExists('analytics', 'item_views', 'item_views_site_fk');
+});
+
+it('content_popularity_scores_site_fk exists, is validated, and cascades on delete', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCascadeFkConstraintExists('analytics', 'content_popularity_scores', 'content_popularity_scores_site_fk');
 });

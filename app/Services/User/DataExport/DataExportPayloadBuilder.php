@@ -836,6 +836,8 @@ class DataExportPayloadBuilder
         yield from $this->lazyRows(
             DB::connection('pgsql')
                 ->table('audit.auth_factor_events')
+                // webhook_id is deliberately excluded (WHK-101): it's an internal
+                // Supabase delivery correlator for dedup, not the user's data.
                 ->select([
                     'id', 'session_id', 'event_type', 'factor_id', 'factor_type',
                     'ip', 'user_agent', 'metadata', 'created_at',

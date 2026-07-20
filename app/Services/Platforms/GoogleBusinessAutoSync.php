@@ -50,6 +50,14 @@ class GoogleBusinessAutoSync
     ) {}
 
     /**
+     * Contract: $userId MUST be server-derived — the job payload the current
+     * caller (GoogleBusinessEnrichJob::handle(), line ~137) was dispatched
+     * with, never raw request input. There is no ownership check inside this
+     * method (it writes IntegrationConnection rows keyed on the given id
+     * unconditionally); a future controller-invoked caller must
+     * authorizeForUser($user, 'update', ...) at the call site before
+     * reaching here, the same way every other mutating controller path does.
+     *
      * @param  array<string,mixed>  $enrichment  the scraper map() output (menu / reservation / order / booking / socials)
      * @param  array<string,mixed>|null  $gbPayload  the Google Business connection payload (Place Details: category / website / editorialSummary) for the workplace seed
      * @return list<array<string,mixed>> the per-connect findings (see class doc)

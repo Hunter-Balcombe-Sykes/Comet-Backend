@@ -1,0 +1,235 @@
+<?php
+
+// Non-vacuous companion to CheckConstraintsTest's Postgres-only introspection
+// (that file's assertions all markTestSkipped on the default SQLite CI
+// driver, so on their own they prove nothing about what CI actually
+// verifies). This file has NO Postgres guard — it runs for real on SQLite in
+// every CI run.
+//
+// WHY THIS EXISTS
+// ----------------
+// The SCHEMA-1/SCHEMA-2 audit findings (audits/sweeps/2026-07-11-full-work-sweep/
+// TRIAGE-2-P2.md) specified CHECK vocabularies copied from stale SQL DDL
+// comments — 7 item types instead of the real 10, 8 content types instead of
+// the real 12 — because nothing kept the DDL comment, the migration's CHECK,
+// and the Form Request's validated vocabulary in lockstep. Shipping the
+// stale lists would have failed VALIDATE CONSTRAINT against real data and
+// broken the nightly analytics:compute-popularity job. This test makes that
+// class of drift a CI failure instead of a manual-review catch.
+//
+// HOW IT WORKS
+// ------------
+// For each CHECK added by the 2026-07-20 SCHEMA/DINT batch, this test reads
+// the migration .sql file as text, regexes out the literal IN (...) list, and
+// compares it against BOTH:
+//   1. the live app-side vocabulary (the Form Request rule / model constant
+//      the CHECK is meant to mirror), and
+//   2. a HARDCODED expected set written directly into this test.
+//
+// The hardcoded set is the anti-tautology anchor: comparing the migration
+// only against the app-side source would still pass if BOTH drifted together
+// (e.g. someone widens ItemSeenRequest::ITEM_TYPES without touching the CHECK
+// and this test also derives its expectation from ITEM_TYPES — a silent
+// no-op). Anchoring one side to a value written by hand, independent of
+// either live source, means adding an 11th item type to the app WITHOUT
+// widening the CHECK — the exact drift that produced the stale audit
+// finding — fails this test, because the app's list no longer equals the
+// hardcoded set even though the migration (unchanged) still does.
+
+use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
+use App\Http\Requests\Concerns\DesignKitValidationRules;
+use App\Http\Requests\Platforms\UpdateShopBrandRequest;
+use App\Models\Core\Site\Site;
+use App\Services\Analytics\RankedActionsComputer;
+
+/**
+ * Read a migration file's contents by basename (relative to supabase/migrations/).
+ */
+function lockstepMigrationSql(string $basename): string
+{
+    $path = base_path('supabase/migrations/'.$basename);
+    expect(file_exists($path))->toBeTrue("Expected migration file [$basename] to exist at $path.");
+
+    return (string) file_get_contents($path);
+}
+
+/**
+ * Extract the literal string values from the first `<column> IN ('a', 'b', ...)`
+ * clause found in raw migration SQL. Relies on none of the quoted literals
+ * containing a `)` character, which holds for every vocabulary in this batch —
+ * so a plain [^)]* is sufficient to find the closing paren of the IN list
+ * without a full SQL parser.
+ *
+ * @return list<string>
+ */
+function lockstepExtractInList(string $sql, string $column): array
+{
+    if (! preg_match('/\b'.preg_quote($column, '/').'\s+IN\s*\(([^)]*)\)/', $sql, $m)) {
+        throw new RuntimeException("Could not find an IN (...) list for column [$column] in the migration SQL.");
+    }
+
+    $values = array_map(
+        fn (string $v) => trim(trim($v), "'"),
+        explode(',', $m[1])
+    );
+
+    return array_values(array_filter($values, fn (string $v) => $v !== ''));
+}
+
+/**
+ * Pull the CSV list out of a Laravel `in:a,b,c` validation rule string.
+ *
+ * @param  array<int, string>  $rules
+ * @return list<string>
+ */
+function lockstepExtractInRule(array $rules): array
+{
+    foreach ($rules as $rule) {
+        if (is_string($rule) && str_starts_with($rule, 'in:')) {
+            return explode(',', substr($rule, 3));
+        }
+    }
+
+    throw new RuntimeException('No in: rule found in the given rule set.');
+}
+
+/**
+ * Sort-independent equality: the CHECK's IN (...) order need not match the
+ * app-side array order for the two to be the same vocabulary.
+ *
+ * @param  list<string>  $a
+ * @param  list<string>  $b
+ */
+function lockstepAssertSameSet(array $a, array $b, string $label): void
+{
+    sort($a);
+    sort($b);
+    expect($a)->toEqual($b, "Vocabulary mismatch for [$label]: ".implode(',', $a).' vs '.implode(',', $b));
+}
+
+// ─── analytics.item_views.item_type (SCHEMA-1) ───────────────────────────────
+
+it('item_views_item_type_check matches ItemSeenRequest::ITEM_TYPES and the hardcoded expected set', function () {
+    // Hand-written anchor, independent of both the migration and the app class.
+    $expected = [
+        'shop_product', 'menu_item', 'menu_category', 'service', 'block',
+        'gallery_item', 'engine_item', 'listen_item', 'watch_item', 'link_item',
+    ];
+
+    $sql = lockstepMigrationSql('20260720100400_item_views_item_type_check.sql');
+    $migrationList = lockstepExtractInList($sql, 'item_type');
+
+    lockstepAssertSameSet($migrationList, $expected, 'item_views_item_type_check (migration vs hardcoded)');
+    lockstepAssertSameSet(ItemSeenRequest::ITEM_TYPES, $expected, 'ItemSeenRequest::ITEM_TYPES (app vs hardcoded)');
+});
+
+// ─── analytics.content_popularity_scores.content_type (SCHEMA-2) ────────────
+
+it('content_popularity_scores_content_type_check matches the item taxonomy + page + action', function () {
+    // The content_type vocabulary is the full item-type taxonomy plus the two
+    // non-item grains: 'page' (section/page scores) and 'action'
+    // (RankedActionsComputer's derived ranked-action layer).
+    $expected = [
+        'page', 'action', 'shop_product', 'menu_item', 'menu_category',
+        'service', 'block', 'gallery_item', 'engine_item', 'listen_item',
+        'watch_item', 'link_item',
+    ];
+
+    $sql = lockstepMigrationSql('20260720100300_content_popularity_scores_content_type_check.sql');
+    $migrationList = lockstepExtractInList($sql, 'content_type');
+
+    lockstepAssertSameSet($migrationList, $expected, 'content_popularity_scores_content_type_check (migration vs hardcoded)');
+
+    // App-side: item taxonomy (ItemSeenRequest) + 'page' + RankedActionsComputer's
+    // owned 'action' type, derived from two independent live sources.
+    $appList = [...ItemSeenRequest::ITEM_TYPES, 'page', RankedActionsComputer::CONTENT_TYPE];
+    lockstepAssertSameSet($appList, $expected, 'item taxonomy + page + action (app vs hardcoded)');
+});
+
+// ─── site.sites.shop_link_mode (SCHEMA-5 / SCHEMA-102) ───────────────────────
+
+it('sites_shop_link_mode_check matches Site::SHOP_LINK_MODES and the hardcoded expected set', function () {
+    $expected = ['checkout', 'product'];
+
+    $sql = lockstepMigrationSql('20260720100000_sites_shop_link_mode_check.sql');
+    $migrationList = lockstepExtractInList($sql, 'shop_link_mode');
+
+    lockstepAssertSameSet($migrationList, $expected, 'sites_shop_link_mode_check (migration vs hardcoded)');
+    lockstepAssertSameSet(Site::SHOP_LINK_MODES, $expected, 'Site::SHOP_LINK_MODES (app vs hardcoded)');
+});
+
+// ─── site.design_kits.typography_tracking / theme_contrast (DINT-101) ───────
+
+it('design_kits_typography_tracking_check matches DesignKitValidationRules and the hardcoded expected set', function () {
+    $expected = ['tight', 'normal', 'wide'];
+
+    $sql = lockstepMigrationSql('20260720100100_design_kits_aesthetic_axis_checks.sql');
+    $migrationList = lockstepExtractInList($sql, 'typography_tracking');
+
+    $rules = (new class
+    {
+        use DesignKitValidationRules;
+
+        /** @return array<string, list<string>> */
+        public function rules(): array
+        {
+            return $this->designKitRules();
+        }
+    })->rules();
+
+    $appList = lockstepExtractInRule($rules['design_kit.typography_tracking']);
+
+    lockstepAssertSameSet($migrationList, $expected, 'design_kits_typography_tracking_check (migration vs hardcoded)');
+    lockstepAssertSameSet($appList, $expected, 'DesignKitValidationRules typography_tracking (app vs hardcoded)');
+});
+
+it('design_kits_theme_contrast_check matches DesignKitValidationRules and the hardcoded expected set', function () {
+    $expected = ['soft', 'normal', 'stark'];
+
+    $sql = lockstepMigrationSql('20260720100100_design_kits_aesthetic_axis_checks.sql');
+    $migrationList = lockstepExtractInList($sql, 'theme_contrast');
+
+    $rules = (new class
+    {
+        use DesignKitValidationRules;
+
+        /** @return array<string, list<string>> */
+        public function rules(): array
+        {
+            return $this->designKitRules();
+        }
+    })->rules();
+
+    $appList = lockstepExtractInRule($rules['design_kit.theme_contrast']);
+
+    lockstepAssertSameSet($migrationList, $expected, 'design_kits_theme_contrast_check (migration vs hardcoded)');
+    lockstepAssertSameSet($appList, $expected, 'DesignKitValidationRules theme_contrast (app vs hardcoded)');
+});
+
+// ─── site.shop_brands.selection_mode / link_mode (SCHEMA-4) ─────────────────
+
+it('shop_brands_selection_mode_check matches UpdateShopBrandRequest and the hardcoded expected set', function () {
+    $expected = ['manual', 'latest'];
+
+    $sql = lockstepMigrationSql('20260720100200_shop_brands_mode_checks.sql');
+    $migrationList = lockstepExtractInList($sql, 'selection_mode');
+
+    $rules = (new UpdateShopBrandRequest)->rules();
+    $appList = lockstepExtractInRule($rules['selectionMode']);
+
+    lockstepAssertSameSet($migrationList, $expected, 'shop_brands_selection_mode_check (migration vs hardcoded)');
+    lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest selectionMode (app vs hardcoded)');
+});
+
+it('shop_brands_link_mode_check matches UpdateShopBrandRequest and the hardcoded expected set', function () {
+    $expected = ['product', 'checkout'];
+
+    $sql = lockstepMigrationSql('20260720100200_shop_brands_mode_checks.sql');
+    $migrationList = lockstepExtractInList($sql, 'link_mode');
+
+    $rules = (new UpdateShopBrandRequest)->rules();
+    $appList = lockstepExtractInRule($rules['linkMode']);
+
+    lockstepAssertSameSet($migrationList, $expected, 'shop_brands_link_mode_check (migration vs hardcoded)');
+    lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest linkMode (app vs hardcoded)');
+});

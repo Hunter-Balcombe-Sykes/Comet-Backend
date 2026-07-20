@@ -2012,8 +2012,23 @@ function setupAuthFactorEventsTable(): void
         ip TEXT NULL,
         user_agent TEXT NULL,
         metadata TEXT NULL DEFAULT \'{}\',
+        webhook_id TEXT NULL,
         created_at TEXT NULL
     )');
+
+    // WHK-101 — durable dedup backstop to the Redis-only idempotency anchor.
+    // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
+    // name (not the table name), same quirk as idx_platform_connections_canonical
+    // above. SQLite supports partial unique indexes with the same
+    // NULLs-are-distinct semantics as Postgres, so this faithfully mirrors
+    // the production auth_factor_events_webhook_id_uk index.
+    try {
+        DB::connection('pgsql')->statement('CREATE UNIQUE INDEX IF NOT EXISTS audit.auth_factor_events_webhook_id_uk
+            ON auth_factor_events (webhook_id)
+            WHERE webhook_id IS NOT NULL');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
 }
 
 function setupHandleAliasesTable(): void
