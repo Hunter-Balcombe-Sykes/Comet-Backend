@@ -1094,7 +1094,9 @@ return [
     | per-host burst caps at refresh.host_limits.fetch_many.
     */
     'http_fetch' => [
-        // Per-request HTTP client timeout (seconds).
+        // Per-request HTTP client timeout (seconds). NOTE: this is a per-hop
+        // ceiling only — FetchBudget::open() (connect_budget_seconds below) is
+        // what bounds the whole multi-hop/multi-retry operation.
         'timeout_seconds' => (int) env('PARTNA_HTTP_FETCH_TIMEOUT_SECONDS', 8),
         // Max redirect hops followed; each hop is re-validated for SSRF before
         // being followed (SafeUrlFetcher::fetch() / fetchMany()).
@@ -1106,6 +1108,22 @@ return [
         // link-preview and menu/shop scrapers. 10 MB is generous for the HTML /
         // JSON those parse.
         'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 10 * 1024 * 1024),
+        // TCP connect-phase timeout (seconds) — separate from the read timeout
+        // above. A SYN-blackholed host would otherwise ride Guzzle's default
+        // connect budget on top of timeout_seconds; this caps that leg
+        // explicitly. Applied globally to every SafeUrlFetcher call site
+        // (menu/shop/events/link-card scrapers included) AND to
+        // YoutubeThumbnailResolver's raw pool, not just connect.
+        'connect_timeout_seconds' => (int) env('PARTNA_HTTP_CONNECT_TIMEOUT_SECONDS', 3),
+        // Wall-clock budget (seconds) for one FetchBudget::open() operation —
+        // e.g. a platform connect's full parse+fetch(+retry) chain, which can
+        // otherwise spend up to max_redirects+1 hops x timeout_seconds (doubled
+        // by the 403 honest-UA retry). Deliberately NOT owned by SafeUrlFetcher:
+        // the budget spans every collaborator fetching during the operation,
+        // including ones that bypass SafeUrlFetcher for good reason (see
+        // FetchBudget's docblock). Opt-in per call site: callers that never open
+        // a budget — the overwhelming majority — are unaffected.
+        'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 20),
     ],
 
     /*

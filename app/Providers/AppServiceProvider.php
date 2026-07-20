@@ -77,6 +77,7 @@ use App\Services\Design\Presets\Factors\PreviousWebsiteFactor;
 use App\Services\Design\Presets\Factors\SectorFactor;
 use App\Services\Design\Presets\Factors\StorePricePointFactor;
 use App\Services\FeatureFlags\FeatureFlagService;
+use App\Services\Http\FetchBudget;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
@@ -108,6 +109,21 @@ class AppServiceProvider extends ServiceProvider
         // single request. Without this, app(FeatureFlagService::class) resolves
         // a fresh instance on every helper call and the memo is always empty.
         $this->app->singleton(FeatureFlagService::class);
+
+        // scoped (not singleton): FetchBudget::open() stores the open deadline
+        // on $this, so every collaborator that might fetch during one open
+        // budget — SafeUrlFetcher AND YoutubeThumbnailResolver, which
+        // deliberately bypasses SafeUrlFetcher for its SSRF-free i.ytimg.com
+        // probes — must share the SAME instance, or the deadline set by one
+        // (e.g. ConnectResolver) silently has zero effect on the other. Without
+        // ANY explicit binding, Laravel hands out a fresh instance per
+        // resolution (no-arg constructor), which is exactly the trap that let
+        // a YouTube connect's thumbnail-probe round run unbounded even after
+        // SafeUrlFetcher itself was correctly wired (2026-07-20 W1 independent
+        // review). scoped over singleton so Laravel's queue worker
+        // (forgetScopedInstances() between jobs) can't leak a deadline from one
+        // job into the next.
+        $this->app->scoped(FetchBudget::class);
 
         // Wire up the channel adapters in priority order: in-app first (fast,
         // in-process), email second (async job dispatch). Both adapters are
