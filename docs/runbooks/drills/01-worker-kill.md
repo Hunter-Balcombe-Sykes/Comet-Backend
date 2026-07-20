@@ -107,11 +107,13 @@ echo $WORKER_PID
    is reserved (mid-HTTP-call for a real KV write, which takes ~0.5–2s):
 
 ```bash
-# discover the exact prefixed key first (CLAUDE.md: queue = Redis DB 2)
-redis-cli -n 2 --scan --pattern '*queues:cloudflare*'
+# Discover the exact prefixed key first. Queue + Horizon live on Redis DB 0 (the
+# connection named `default`) — NOT DB 3, despite that connection being named
+# `queue`, and NOT DB 2, which is sessions. See config/queue.php + config/horizon.php.
+redis-cli -n 0 --scan --pattern '*queues:cloudflare*'
 QKEY='<the plain list key from above, not :notify / :reserved>'
-while [ "$(redis-cli -n 2 llen "$QKEY")" -eq 0 ]; do sleep 0.05; done  # wait for enqueue
-while [ "$(redis-cli -n 2 llen "$QKEY")" -gt 0 ]; do sleep 0.02; done  # wait for reserve
+while [ "$(redis-cli -n 0 llen "$QKEY")" -eq 0 ]; do sleep 0.05; done  # wait for enqueue
+while [ "$(redis-cli -n 0 llen "$QKEY")" -gt 0 ]; do sleep 0.02; done  # wait for reserve
 kill -9 $WORKER_PID && echo "killed mid-job"
 ```
 
@@ -122,12 +124,12 @@ kill -9 $WORKER_PID && echo "killed mid-job"
 ```
 
 4. **Observe the divergence window** (before recovery):
-   - `redis-cli -n 2 zrange "${QKEY}:reserved" 0 -1` → the job sits in the reserved set.
+   - `redis-cli -n 0 zrange "${QKEY}:reserved" 0 -1` → the job sits in the reserved set.
    - Real-KV mode: `kv_get` the handle and alias — depending on where the kill landed, the
      handle entry may exist while the alias entry doesn't (or neither). **This is the
      divergence — screenshot/copy it into the log.**
    - Unique-lock behavior: re-dispatch the same job within 45s of the kill →
-     `redis-cli -n 2 llen "$QKEY"` stays 0 (silently dropped by `ShouldBeUnique`). Record.
+     `redis-cli -n 0 llen "$QKEY"` stays 0 (silently dropped by `ShouldBeUnique`). Record.
 
 5. **Observe convergence:**
    - Start a fresh worker: `php artisan queue:work redis --queue=cloudflare --once` after
