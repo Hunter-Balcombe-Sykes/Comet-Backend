@@ -72,6 +72,24 @@ it('scraping queue is covered in the local environment (JOB-2)', function () {
     );
 });
 
+it('platform_connect queue is covered in the production environment', function () {
+    expect(envCoversQueue('production', 'platform_connect'))->toBeTrue(
+        'supervisor-platform-connect must be registered in production — jobs will strand otherwise'
+    );
+});
+
+it('platform_connect queue is covered in the development environment', function () {
+    expect(envCoversQueue('development', 'platform_connect'))->toBeTrue(
+        'platform_connect queue must appear in at least one development supervisor queue list'
+    );
+});
+
+it('platform_connect queue is covered in the local environment', function () {
+    expect(envCoversQueue('local', 'platform_connect'))->toBeTrue(
+        'platform_connect queue must appear in at least one local supervisor queue list'
+    );
+});
+
 it('InstagramConnectJob is dispatched to the scraping queue', function () {
     expect((new InstagramConnectJob('u', 'someuser', 'c'))->queue)->toBe('scraping');
 });
