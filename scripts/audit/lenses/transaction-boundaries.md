@@ -131,6 +131,7 @@ For every finding:
 --scope app/Services/Site
 --scope app/Services/Accounts
 --scope app/Services/Auth
+--scope app/Services/EarlyAccess
 ```
 
 ### Group B — Outbound I/O services (external call temptation high)
