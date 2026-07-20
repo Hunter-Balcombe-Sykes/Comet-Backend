@@ -2,11 +2,13 @@
 
 namespace App\Services\Platforms;
 
+use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Profile\SectorTaxonomy;
 use App\Support\BusinessName;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Central-identity precedence engine: folds a Google Business payload into the
@@ -68,7 +70,61 @@ class IdentitySync
                 'opening_hours' => $this->deriveOpeningHours($gbPayload['hours'] ?? null),
             ];
 
-            $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
+            // LIFE-108: fold onto site.workplaces under a locked re-read.
+            $this->applyWorkplaceFields($site, $candidates, $overwrite);
+
+            // Sector lives on the user, not the workplace — same precedence
+            // shape, its own store + provenance column. Mapping is pure, so it
+            // stays outside the lock LIFE-107 takes below.
+            $mappedSector = SectorTaxonomy::fromGoogleCategory($this->stringOrNull($gbPayload['category'] ?? null));
+
+            // LIFE-107: sector + the phone mirror below both live on core.users
+            // and share the identical read-then-write precedence shape, so both
+            // fold under ONE locked re-read of the row — never $user itself
+            // (see applyUserIdentityFields()'s docblock for why that matters:
+            // this observer fires on every connection save, and the hourly
+            // integrations:refresh job runs the same fold, so a concurrent
+            // second fold for the same user is a real race, not theoretical).
+            //
+            // display_name is intentionally untouched here — GoogleBusinessController
+            // ::maybeAdoptGoogleName owns the business name → display_name mirror.
+            $this->applyUserIdentityFields($user, $overwrite, $mappedSector, $candidates['phone']);
+        } catch (\Throwable $e) {
+            report($e); // Must never break the connection save that triggered us.
+        }
+    }
+
+    /**
+     * LIFE-108: re-read site.workplaces under `lockForUpdate` inside a
+     * transaction before applying the per-field precedence — the read (used to
+     * decide "is the current value blank?" for a partna account) is the check
+     * half of a check-then-write, and without the lock a concurrent fold (a
+     * second connection save, or the hourly `integrations:refresh` job racing
+     * this same user) can read the same stale blank and both writers "win",
+     * with whichever commits last silently discarding the other's fields.
+     *
+     * RACE NOTE: `lockForUpdate()` locks an EXISTING row — it locks nothing for
+     * a site that has never had a workplace row, so two simultaneous
+     * first-ever syncs can still both attempt an INSERT. That's bounded by
+     * `site.workplaces.site_id` being the PRIMARY KEY (not a separate unique
+     * index — verified in supabase/migrations/20260701150000_create_workplaces.sql
+     * and the setupWorkplacesTable() test stub): the loser gets a duplicate-key
+     * exception rather than a silently lost update, and that exception is
+     * caught by applyFromGooglePayload's outer try/catch (best-effort by
+     * contract — see class docblock).
+     *
+     * Kept SHORT by design (see class docblock: this runs off the connection-
+     * save observer on every payload change, and hourly off integrations:refresh
+     * at real volume) — no HTTP/queue work happens inside the transaction.
+     *
+     * @param  array<string,mixed>  $candidates  field => value|null; pure (site + Google payload only), safe to compute outside the lock
+     */
+    private function applyWorkplaceFields(Site $site, array $candidates, bool $overwrite): void
+    {
+        DB::connection($site->getConnectionName())->transaction(function () use ($site, $candidates, $overwrite) {
+            $workplace = Workplace::query()->where('site_id', (string) $site->id)->lockForUpdate()->first()
+                ?? new Workplace(['site_id' => (string) $site->id]);
+
             $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
             $stamp = now()->toIso8601String();
             $changed = false;
@@ -93,37 +149,66 @@ class IdentitySync
                 $workplace->field_sources = $sources;
                 $workplace->save();
             }
-
-            // Sector lives on the user, not the workplace — same precedence
-            // shape, its own store + provenance column.
-            $this->applySector($user, $overwrite, $this->stringOrNull($gbPayload['category'] ?? null));
-
-            // Keep the user's public_contact_number in step with the workplace
-            // phone so the existing sitepage `publicContact` stays coherent.
-            // display_name is intentionally untouched here — GoogleBusinessController
-            // ::maybeAdoptGoogleName owns the business name → display_name mirror.
-            $this->mirrorPublicContactNumber($user, $overwrite, $candidates['phone']);
-        } catch (\Throwable $e) {
-            report($e); // Must never break the connection save that triggered us.
-        }
+        });
     }
 
     /**
-     * Sector precedence (fixed 2026-07-15 — a manual pick is now permanent): map
-     * Google's category to a curated slug, then apply precedence in two steps.
-     * First, sector_source='manual' (stamped by SectorController on a user's own
-     * pick) is NEVER overwritten by Google, for EITHER account type — this is
-     * the bug fix: business used to overwrite a manually-chosen sector on every
-     * resync just like any other differing value, silently reverting the user's
-     * choice. Only once that's ruled out does the account-type rule apply:
-     * business overwrites a differing value (blank, or previously google-sourced);
+     * LIFE-107: applySector() + mirrorPublicContactNumber() both read-then-write
+     * the SAME core.users row under the SAME account-type precedence — folded
+     * into one locked re-read so a concurrent fold for this user can't read a
+     * value either write is about to make stale (the "manual sector pick"
+     * guard is the sharpest instance: it must see a `sector_source` a
+     * concurrent request just set to 'manual', not the value $user had when
+     * the observer loaded it — see IdentitySyncConcurrencyTest for the race
+     * this closes).
+     *
+     * FOOTGUN CLOSED BY DESIGN, not by luck: both applySector() and
+     * mirrorPublicContactNumber() below are called with $fresh (the locked
+     * row), never with the caller's $user instance — so neither ever marks
+     * $user's own sector/sector_source/public_contact_number attributes dirty.
+     * That means a caller who kept holding $user across this call and later
+     * calls $user->save() for an unrelated reason cannot clobber what this
+     * method just committed (Eloquent's save() only persists attributes dirty
+     * on THAT instance). $user is refreshed below regardless, so this isn't
+     * left as an implicit invariant for the next reader to rediscover.
+     */
+    private function applyUserIdentityFields(User $user, bool $overwrite, ?string $mappedSector, ?string $phone): void
+    {
+        DB::connection($user->getConnectionName())->transaction(function () use ($user, $overwrite, $mappedSector, $phone) {
+            $fresh = User::query()->whereKey($user->getKey())->lockForUpdate()->first();
+            if ($fresh === null) {
+                return; // Raced with a hard delete mid-sync — nothing left to fold onto.
+            }
+
+            $this->applySector($fresh, $overwrite, $mappedSector);
+            $this->mirrorPublicContactNumber($fresh, $overwrite, $phone);
+        });
+
+        $user->refresh();
+    }
+
+    /**
+     * Sector precedence (fixed 2026-07-15 — a manual pick is now permanent):
+     * apply precedence in two steps against $mappedSector (already resolved
+     * from Google's category by SectorTaxonomy::fromGoogleCategory — see
+     * applyUserIdentityFields, LIFE-107: that mapping is pure so it happens
+     * OUTSIDE the lock this method now runs under). First, sector_source=
+     * 'manual' (stamped by SectorController on a user's own pick) is NEVER
+     * overwritten by Google, for EITHER account type — this is the bug fix:
+     * business used to overwrite a manually-chosen sector on every resync just
+     * like any other differing value, silently reverting the user's choice.
+     * Only once that's ruled out does the account-type rule apply: business
+     * overwrites a differing value (blank, or previously google-sourced);
      * partna fills only when sector is currently blank. Provenance in
      * users.sector_source.
+     *
+     * $user MUST be the locked $fresh row from applyUserIdentityFields — the
+     * manual-pick guard below reads $user->sector_source, and evaluating it
+     * against a stale pre-lock instance is exactly the race LIFE-107 closes.
      */
-    private function applySector(User $user, bool $overwrite, ?string $category): void
+    private function applySector(User $user, bool $overwrite, ?string $mappedSector): void
     {
-        $mapped = SectorTaxonomy::fromGoogleCategory($category);
-        if ($mapped === null) {
+        if ($mappedSector === null) {
             return;
         }
 
@@ -138,8 +223,8 @@ class IdentitySync
         }
 
         if ($overwrite) {
-            if ($user->sector !== $mapped) {
-                $user->sector = $mapped;
+            if ($user->sector !== $mappedSector) {
+                $user->sector = $mappedSector;
                 $user->sector_source = self::GOOGLE_SOURCE;
                 $user->save();
             }
@@ -149,7 +234,7 @@ class IdentitySync
 
         // partna: fill only when nothing is set yet.
         if ($this->isBlank($user->sector)) {
-            $user->sector = $mapped;
+            $user->sector = $mappedSector;
             $user->sector_source = self::GOOGLE_SOURCE;
             $user->save();
         }

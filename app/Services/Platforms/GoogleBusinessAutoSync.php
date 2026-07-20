@@ -10,6 +10,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -32,6 +33,8 @@ use Throwable;
 // blocks the rest.
 class GoogleBusinessAutoSync
 {
+    use BuildsAutoSyncFindings;
+
     private const MAX_ORDERING = 10;
 
     private const RESERVATION_PLATFORMS = [
@@ -110,38 +113,24 @@ class GoogleBusinessAutoSync
     }
 
     /**
-     * "Change to" — install Google's found connection over the user's existing
-     * one. Removes whatever currently occupies the slot, then writes Google's
-     * (or re-dispatches the Instagram scrape). Idempotent + best-effort.
+     * The Instagram half of applyFinding()'s hook (BuildsAutoSyncFindings):
+     * when the recipe carries `apply.instagram`, re-dispatch the scrape
+     * instead of falling through to the generic `write` branch — GB never
+     * writes a raw Instagram card, it always re-runs the budgeted scrape (see
+     * dispatchInstagram()). Claiming the finding here also preserves the
+     * original early-return: an Instagram dispatch never ALSO runs the write.
      *
-     * @param  array<string,mixed>  $finding  a conflict finding (carries `apply`)
+     * @param  array<string,mixed>  $apply
      */
-    public function applyFinding(string $userId, array $finding): void
+    protected function applyFindingHandled(string $userId, array $apply): bool
     {
-        $apply = $finding['apply'] ?? null;
-        if (! is_array($apply)) {
-            return;
-        }
-
-        foreach ((array) ($apply['remove'] ?? []) as $platform) {
-            if (! is_string($platform)) {
-                continue;
-            }
-            IntegrationConnection::query()
-                ->where('user_id', $userId)->where('platform', $platform)
-                ->get()->each->delete();
-        }
-
         if (is_array($apply['instagram'] ?? null) && is_string($apply['instagram']['username'] ?? null)) {
             $this->dispatchInstagram($userId, $apply['instagram']['username']);
 
-            return;
+            return true;
         }
 
-        if (is_array($apply['write'] ?? null)) {
-            $w = $apply['write'];
-            $this->write($userId, (string) $w['platform'], (string) $w['resourceId'], (array) $w['payload']);
-        }
+        return false;
     }
 
     // ── reservation ──────────────────────────────────────────────
@@ -247,6 +236,7 @@ class GoogleBusinessAutoSync
     private function seedBooking(string $userId, array $enrichment, ?string $businessName): array
     {
         try {
+            // Pure — no DB — so it stays outside the lock below.
             $write = $this->resolveBookingWrite($enrichment, $businessName);
             if ($write === null) {
                 return [];
@@ -255,16 +245,29 @@ class GoogleBusinessAutoSync
             $label = match ($write['platform']) {
                 Platform::Fresha->value => 'Fresha', Platform::Square->value => 'Square', default => $write['payload']['name'] ?? 'Booking',
             };
-            if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
-                return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
-                    'remove' => self::BOOKING_PLATFORMS,
-                    'write' => $write,
-                ])];
-            }
 
-            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+            // LIFE-105: the has()-then-write() check spans fresha/square/booking —
+            // a per-platform lock can't serialize that, so the whole check+write
+            // runs under the shared booking-XOR lock (BuildsAutoSyncFindings::
+            // withBookingXorLock). The has() check MUST re-run INSIDE the closure
+            // (it's the read half of check-then-write) — moving only the write
+            // in would still let two concurrent seeds both pass a stale check.
+            // On lock contention the default is "do nothing" (empty findings) —
+            // this is a best-effort auto-sync, not a user-initiated write, so a
+            // dropped seed under contention is safe (the outer try/catch below
+            // still applies to whatever the closure itself throws).
+            return $this->withBookingXorLock($userId, function () use ($userId, $write, $label) {
+                if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
+                    return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
+                        'remove' => self::BOOKING_PLATFORMS,
+                        'write' => $write,
+                    ])];
+                }
 
-            return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];
+                $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+
+                return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];
+            }, []);
         } catch (Throwable $e) {
             report($e);
 
@@ -620,37 +623,8 @@ class GoogleBusinessAutoSync
     }
 
     // ── findings ──────────────────────────────────────────────────
-
-    /** @return array<string,mixed> */
-    private function seededFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl): array
-    {
-        return [
-            'platform' => $platform,
-            'resourceId' => $resourceId,
-            'category' => $category,
-            'label' => $label,
-            'foundUrl' => $foundUrl,
-            'outcome' => 'seeded',
-            'apply' => null,
-        ];
-    }
-
-    /**
-     * @param  array<string,mixed>  $apply
-     * @return array<string,mixed>
-     */
-    private function conflictFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl, array $apply): array
-    {
-        return [
-            'platform' => $platform,
-            'resourceId' => $resourceId,
-            'category' => $category,
-            'label' => $label,
-            'foundUrl' => $foundUrl,
-            'outcome' => 'conflict',
-            'apply' => $apply,
-        ];
-    }
+    // seededFinding() / conflictFinding() / write() / applyFinding() moved to
+    // BuildsAutoSyncFindings (SLOP-101) — was byte-identical with InstagramAutoSync.
 
     /** @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write */
     private function urlOf(array $write): ?string
@@ -670,24 +644,6 @@ class GoogleBusinessAutoSync
         }
 
         return $q->exists();
-    }
-
-    /** @param  array<string,mixed>  $payload */
-    private function write(string $userId, string $platform, string $resourceId, array $payload): void
-    {
-        // Model write (not quiet): the observer purges the sitepage edge cache for
-        // the newly-public opentable / social rows.
-        IntegrationConnection::updateOrCreate(
-            ['user_id' => $userId, 'platform' => $platform, 'resource_id' => $resourceId],
-            [
-                'payload' => $payload,
-                'is_active' => true,
-                'last_refreshed_at' => now(),
-                'last_refresh_status' => 'ok',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
-        );
     }
 
     /** Best-effort handle from a canonical social profile URL ('' when none). */

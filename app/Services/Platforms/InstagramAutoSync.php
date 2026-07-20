@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -42,6 +43,8 @@ use Throwable;
 // never blocks the rest (mirrors GoogleBusinessAutoSync's per-seed try/catch).
 class InstagramAutoSync
 {
+    use BuildsAutoSyncFindings;
+
     /** Platforms this service knows how to seed from a bare URL. Category per platform mirrors GoogleBusinessAutoSync's finding categories. */
     private const ACTIONABLE = [
         'facebook' => 'social', 'tiktok' => 'social', 'x' => 'social', 'linkedin' => 'social',
@@ -134,32 +137,37 @@ class InstagramAutoSync
                 $write = $this->resolveWrite($platform, $url);
 
                 if (self::ACTIONABLE[$platform] === 'booking') {
-                    // XOR invariant (FreshaController/SquareController::
-                    // hasConflictingConnection() both 409 the other way): only
-                    // one booking provider may be live at a time. Mirrors
-                    // GoogleBusinessAutoSync::seedBooking's group-level check —
-                    // unlike the same-platform branch below, GB's own group
-                    // check never compares urls (there's no meaningful "same
-                    // link" across two different providers), so neither do we
-                    // here: any OTHER live booking connection always conflicts,
-                    // never a silent write of a second live provider.
-                    $conflictingBooking = IntegrationConnection::query()
-                        ->where('user_id', $userId)
-                        ->whereIn('platform', self::BOOKING_PLATFORMS)
-                        ->where('platform', '!=', $platform)
-                        ->first();
+                    // LIFE-106: unlike social (below), booking's XOR invariant
+                    // spans THREE platforms (fresha/square/booking), so the
+                    // WHOLE check-then-write span — conflicting-provider query,
+                    // existing-row lookup, tombstone check, and the write —
+                    // must run under ONE lock shared with
+                    // GoogleBusinessAutoSync::seedBooking (BuildsAutoSyncFindings::
+                    // withBookingXorLock; see its docblock for why a per-platform
+                    // lock can't serialize this). On contention the link is
+                    // routed to unmatched rather than dropped — matches this
+                    // file's "still offered as a custom link, never silently
+                    // dropped" contract.
+                    $result = $this->withBookingXorLock(
+                        $userId,
+                        fn () => $this->resolveBookingLink($userId, $platform, $url, $write, $classified),
+                        ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true],
+                    );
 
-                    if ($conflictingBooking !== null) {
-                        $findings[] = $this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
-                            'remove' => self::BOOKING_PLATFORMS,
-                            'write' => $write,
-                        ]);
+                    $findings = [...$findings, ...$result['findings']];
+                    $unmatched = [...$unmatched, ...$result['unmatched']];
+                    if ($result['consumed']) {
                         $seenPlatforms[$platform] = true;
-
-                        continue;
                     }
+
+                    continue;
                 }
 
+                // Social (facebook/tiktok/x/linkedin): no lock — each is its own
+                // platform, already serialized by the per-platform DB unique
+                // index (idx_platform_connections_unique_active), so a lock here
+                // would add contention for no correctness gain (see
+                // withBookingXorLock's docblock for the contrast with booking).
                 $existing = IntegrationConnection::query()
                     ->where('user_id', $userId)->where('platform', $platform)
                     ->first();
@@ -218,34 +226,8 @@ class InstagramAutoSync
         return ['findings' => $findings, 'unmatched' => $unmatched];
     }
 
-    /**
-     * "Change to" — install the bio-found connection over the user's existing
-     * one. Removes whatever currently occupies the slot, then writes the found
-     * link. Idempotent + best-effort (mirrors GoogleBusinessAutoSync::applyFinding).
-     *
-     * @param  array<string,mixed>  $finding  a conflict finding (carries `apply`)
-     */
-    public function applyFinding(string $userId, array $finding): void
-    {
-        $apply = $finding['apply'] ?? null;
-        if (! is_array($apply)) {
-            return;
-        }
-
-        foreach ((array) ($apply['remove'] ?? []) as $platform) {
-            if (! is_string($platform)) {
-                continue;
-            }
-            IntegrationConnection::query()
-                ->where('user_id', $userId)->where('platform', $platform)
-                ->get()->each->delete();
-        }
-
-        if (is_array($apply['write'] ?? null)) {
-            $w = $apply['write'];
-            $this->write($userId, (string) $w['platform'], (string) $w['resourceId'], (array) $w['payload']);
-        }
-    }
+    // applyFinding() / seededFinding() / conflictFinding() / write() moved to
+    // BuildsAutoSyncFindings (SLOP-101) — was byte-identical with GoogleBusinessAutoSync.
 
     /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */
     private function resolveWrite(string $platform, string $url): array
@@ -267,53 +249,84 @@ class InstagramAutoSync
         ]];
     }
 
-    /** @return array<string,mixed> */
-    private function seededFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl): array
-    {
-        return [
-            'platform' => $platform,
-            'resourceId' => $resourceId,
-            'category' => $category,
-            'label' => $label,
-            'foundUrl' => $foundUrl,
-            'outcome' => 'seeded',
-            'apply' => null,
-        ];
-    }
-
     /**
-     * @param  array<string,mixed>  $apply
-     * @return array<string,mixed>
+     * LIFE-106: the booking-category span run under BuildsAutoSyncFindings::
+     * withBookingXorLock() — conflicting-provider check, existing-connection
+     * lookup (incl. the soft-delete tombstone guard), and the write, all
+     * behind the one lock. See the call site in seed() for why this can't be
+     * split (only the write locked) — the has-then-write shape is exactly the
+     * race the lock exists to close.
+     *
+     * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
+     * @param  array{platform:string,category:string,label:string}  $classified
+     * @return array{findings:list<array<string,mixed>>,unmatched:list<array<string,mixed>>,consumed:bool}
      */
-    private function conflictFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl, array $apply): array
+    private function resolveBookingLink(string $userId, string $platform, string $url, array $write, array $classified): array
     {
-        return [
-            'platform' => $platform,
-            'resourceId' => $resourceId,
-            'category' => $category,
-            'label' => $label,
-            'foundUrl' => $foundUrl,
-            'outcome' => 'conflict',
-            'apply' => $apply,
-        ];
-    }
+        // XOR invariant (FreshaController/SquareController::
+        // hasConflictingConnection() both 409 the other way): only one booking
+        // provider may be live at a time. Mirrors GoogleBusinessAutoSync::
+        // seedBooking's group-level check — unlike the same-platform branch
+        // below, GB's own group check never compares urls (there's no
+        // meaningful "same link" across two different providers), so neither
+        // do we here: any OTHER live booking connection always conflicts,
+        // never a silent write of a second live provider.
+        $conflictingBooking = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->whereIn('platform', self::BOOKING_PLATFORMS)
+            ->where('platform', '!=', $platform)
+            ->first();
 
-    /** @param  array<string,mixed>  $payload */
-    private function write(string $userId, string $platform, string $resourceId, array $payload): void
-    {
-        // Model write (not quiet): the observer purges the sitepage edge cache
-        // for the newly-public row (mirrors GoogleBusinessAutoSync::write).
-        IntegrationConnection::updateOrCreate(
-            ['user_id' => $userId, 'platform' => $platform, 'resource_id' => $resourceId],
-            [
-                'payload' => $payload,
-                'is_active' => true,
-                'last_refreshed_at' => now(),
-                'last_refresh_status' => 'ok',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
-        );
+        if ($conflictingBooking !== null) {
+            return [
+                'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                    'remove' => self::BOOKING_PLATFORMS,
+                    'write' => $write,
+                ])],
+                'unmatched' => [],
+                'consumed' => true,
+            ];
+        }
+
+        $existing = IntegrationConnection::query()
+            ->where('user_id', $userId)->where('platform', $platform)
+            ->first();
+
+        if ($existing === null) {
+            // A soft-deleted row means the user explicitly disconnected this
+            // platform before (ManagesIntegrationConnection::forgetConnection()
+            // soft-deletes on disconnect) — a tombstone, not "never connected".
+            // Respect it: route the link to unmatched instead of resurrecting it.
+            $wasDisconnected = IntegrationConnection::onlyTrashed()
+                ->where('user_id', $userId)->where('platform', $platform)
+                ->exists();
+
+            if ($wasDisconnected) {
+                return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
+            }
+
+            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+
+            return [
+                'findings' => [$this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url)],
+                'unmatched' => [],
+                'consumed' => true,
+            ];
+        }
+
+        $existingUrl = CardPayload::fromArray($existing->payload)->url();
+        if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {
+            return ['findings' => [], 'unmatched' => [], 'consumed' => true]; // already synced with the same link — nothing to surface
+        }
+
+        return [
+            'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                'remove' => [$write['platform']],
+                'write' => $write,
+            ])],
+            'unmatched' => [],
+            'consumed' => true,
+        ];
     }
 
     /** Best-effort handle from a canonical social profile URL ('' when none) — mirrors GoogleBusinessAutoSync::socialUsername. */

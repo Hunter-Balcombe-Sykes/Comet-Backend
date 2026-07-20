@@ -2649,7 +2649,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 2 of 9 complete
+- P2 Medium: 6 of 9 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2740,7 +2740,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-105** · P2 — `GoogleBusinessAutoSync::seedBooking` XOR invariant (one active booking provider) is check-then-write, not atomic
+- [x] **#LIFE-105** · P2 — `GoogleBusinessAutoSync::seedBooking` XOR invariant (one active booking provider) is check-then-write, not atomic
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:250-257
     - **Affects:** Business Partna accounts with Google Business connected — two near-simultaneous auto-sync sources (e.g. connecting Google Business and Instagram back-to-back during onboarding, or a scheduled Google Business refresh landing mid-connect) can both observe "no booking connection yet" and each write a different provider (Fresha vs Square vs custom Booking), leaving two live booking cards.
     - **Effort:** S (~0.5–1h)
@@ -2761,7 +2761,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
         ```
 
-- [ ] **#LIFE-106** · P2 — `InstagramAutoSync` booking XOR check has the same non-atomic race as `GoogleBusinessAutoSync::seedBooking`
+- [x] **#LIFE-106** · P2 — `InstagramAutoSync` booking XOR check has the same non-atomic race as `GoogleBusinessAutoSync::seedBooking`
     - **Where:** app/Services/Platforms/InstagramAutoSync.php:137-151
     - **Affects:** Same invariant as #LIFE-105 — a Google Business auto-sync racing an Instagram bio-link auto-sync (both can run around the same "connect a platform" moment) can each install a different booking provider.
     - **Effort:** S (~0.5–1h)
@@ -2780,7 +2780,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         if ($conflictingBooking !== null) {
         ```
 
-- [ ] **#LIFE-107** · P2 — `IdentitySync::applySector` reads-then-writes the user's sector with no row lock
+- [x] **#LIFE-107** · P2 — `IdentitySync::applySector` reads-then-writes the user's sector with no row lock
     - **Where:** app/Services/Platforms/IdentitySync.php:140-148
     - **Affects:** Business Partna users with Google Business connected — a scheduled Google Business refresh (dispatched hourly by `integrations:refresh`, confirmed in `routes/console.php:93-98`) landing in the same instant as a user manually picking their sector via `SectorController` can silently revert the manual pick.
     - **Effort:** S (~0.5–1h)
@@ -2801,7 +2801,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-108** · P2 — `IdentitySync::applyFromGooglePayload` reads-then-writes the workplace row with no row lock
+- [x] **#LIFE-108** · P2 — `IdentitySync::applyFromGooglePayload` reads-then-writes the workplace row with no row lock
     - **Where:** app/Services/Platforms/IdentitySync.php:71-95
     - **Affects:** Same recurring-refresh scenario as #LIFE-107, but for the workplace card fields (name, address, phone, website, category, hours) — a concurrent user edit to the same field a Google refresh is also touching can be silently clobbered.
     - **Effort:** S (~0.5–1h)
@@ -4525,14 +4525,14 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SLOP-101** · P2 — `seededFinding`/`conflictFinding`/`write`/`applyFinding` duplicated byte-for-byte between `GoogleBusinessAutoSync` and `InstagramAutoSync`
+- [x] **SLOP-101** · P2 — `seededFinding`/`conflictFinding`/`write`/`applyFinding` duplicated byte-for-byte between `GoogleBusinessAutoSync` and `InstagramAutoSync`
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php:627-663, 683-698` and `app/Services/Platforms/InstagramAutoSync.php:219-239, 262-290, 293-308`
     - **Affects:** Maintainers — the connect-modal finding contract and the `IntegrationConnection` write shape live in two places; a schema change (new finding field, new write column) must be made twice or silently diverges.
     - **Effort:** M (~2–4h)
