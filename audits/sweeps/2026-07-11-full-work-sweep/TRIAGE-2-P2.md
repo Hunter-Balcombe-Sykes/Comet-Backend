@@ -2079,7 +2079,7 @@ None.
 
 - P0 Blockers: 0 of 1 complete
 - P1 High: 0 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -2090,7 +2090,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#MIG-3** · P2 — Table creation, JSONB CTE backfill, and a live-table `UPDATE` coalesced into one transaction with no lock/statement timeout
+- [x] **#MIG-3** · P2 — Table creation, JSONB CTE backfill, and a live-table `UPDATE` coalesced into one transaction with no lock/statement timeout
     - **Where:** `supabase/migrations/20260704160000_shop_brands_products.sql:7-105`
     - **Affects:** `site.platform_connections` writes (shop connect/disconnect) during this migration's apply window.
     - **Effort:** S (~0.5–1h)
@@ -2108,7 +2108,7 @@ None.
           AND (payload->>'storage') IS DISTINCT FROM 'relational';
         ```
 
-- [ ] **#MIG-4** · P2 — No CI check enforces `SET LOCAL lock_timeout`/`statement_timeout` on DDL against live-traffic tables
+- [x] **#MIG-4** · P2 — No CI check enforces `SET LOCAL lock_timeout`/`statement_timeout` on DDL against live-traffic tables
     - **Where:** `scripts/guard-no-unsafe-migrations.php` (existing guard, no timeout check); representative gap example at `supabase/migrations/20260711000000_staff_account_type.sql:13-18`
     - **Affects:** Any future migration touching `site.design_kits`, `site.sites`, `site.blocks`, or `core.users` — a stuck lock-wait on deploy queues instead of failing fast with a clear error.
     - **Effort:** M (~2–4h)
@@ -3031,14 +3031,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCHEMA-101** · P2 — Inline data backfill (`UPDATE` over matching rows) inside `20260713120000_reconcile_instagram_gallery_unification.sql`
+- [x] **SCHEMA-101** · P2 — Inline data backfill (`UPDATE` over matching rows) inside `20260713120000_reconcile_instagram_gallery_unification.sql`
     - **Where:** supabase/migrations/20260713120000_reconcile_instagram_gallery_unification.sql:16-41
     - **Affects:** `site.sites` and `site.platform_connections` — both statements require a full sequential scan to evaluate their `WHERE`/join predicates (no index backs `platform_connections.platform`+`display_settings ? 'gallery'`, nor the `site.sites` join key for this purpose), and both are data mutations executed inside a schema-migration transaction rather than a post-deploy path.
     - **Effort:** M (~2–4h)
@@ -4132,14 +4132,14 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **MIG-101** · P2 — Instagram/gallery unification backfill rewrites every matching row on re-run instead of skipping already-corrected ones
+- [x] **MIG-101** · P2 — Instagram/gallery unification backfill rewrites every matching row on re-run instead of skipping already-corrected ones
     - **Where:** supabase/migrations/20260713120000_reconcile_instagram_gallery_unification.sql:23-34
     - **Affects:** `site.sites` rows for every user with an active Instagram connection — a re-run (partial-apply retry, or a future fresh-apply replay against a partially-seeded DB) touches every one of those rows again even when already correct.
     - **Effort:** S (~0.5–1h)
@@ -4164,7 +4164,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         WHERE s.user_id = ig.user_id;
         ```
 
-- [ ] **MIG-102** · P2 — Six migrations touching hot tables omit the `SET LOCAL lock_timeout` / `statement_timeout` guard, right before the prod gated re-baseline replays all of them for the first time
+- [x] **MIG-102** · P2 — Six migrations touching hot tables omit the `SET LOCAL lock_timeout` / `statement_timeout` guard, right before the prod gated re-baseline replays all of them for the first time
     - **Where:** supabase/migrations/20260712000000_retire_staff_account_type.sql (touches `core.users`), 20260713120000_reconcile_instagram_gallery_unification.sql (`site.sites`), 20260714200000_architecture_one_to_staple.sql (`site.sites`), 20260714210000_drop_effect_surface.sql (`site.design_kits`), 20260714220000_add_aesthetic_axes.sql (`site.design_kits`), 20260714230000_drop_glass_satellites.sql (`site.design_kits`)
     - **Affects:** Deploy-pipeline safety for the next `supabase db push` — none of these six have run against production yet (prod-is-behind: latest applied prod migration is `20260512145025`), so this is the first opportunity for any of them to hang against real traffic.
     - **Effort:** S (~0.5–1h for all six)
@@ -4181,7 +4181,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         SET LOCAL statement_timeout = '10s';
         ```
 
-- [ ] **MIG-103** · P2 — `NOT VALID` + `VALIDATE CONSTRAINT` run in the same implicit transaction on `core.users`, defeating the two-step lock-weakening pattern
+- [x] **MIG-103** · P2 — `NOT VALID` + `VALIDATE CONSTRAINT` run in the same implicit transaction on `core.users`, defeating the two-step lock-weakening pattern
     - **Where:** supabase/migrations/20260712000000_retire_staff_account_type.sql:17-25
     - **Affects:** `core.users` — the primary user table read/written on every authenticated request (login, registration, profile resolution). This is the hottest table in the schema.
     - **Effort:** S (~0.5–1h)

@@ -3,19 +3,36 @@
 /**
  * Guard: no unsafe migration patterns (Master Pattern 20).
  *
- * Fails on four patterns that cause lock-induced downtime on populated tables:
+ * Fails on five patterns that cause lock-induced downtime on populated tables:
  *   1. CREATE INDEX without CONCURRENTLY
  *   2. ADD CONSTRAINT ... FOREIGN KEY without NOT VALID
  *   3. ADD CONSTRAINT ... CHECK without NOT VALID
  *   4. ALTER COLUMN ... SET NOT NULL (must use the four-step NOT VALID pattern)
+ *   5. DDL/DML on a hot table (HOT_TABLES) without a BEGIN + SET LOCAL lock_timeout
  *
  * Migrations with timestamps <= GRANDFATHERED_CUTOFF are skipped — they ran safely on
  * empty tables before this convention was established (2026-05-14, timestamp 20260514100000).
- * All new migrations after that date are subject to this lint.
+ * All new migrations after that date are subject to Checks 1-4.
+ *
+ * Check 5 has its own, later boundary (TIMEOUT_GUARD_CUTOFF) since it shipped well
+ * after GRANDFATHERED_CUTOFF — see the constant's comment for why.
  *
  * See supabase/migrations/CONVENTIONS.md for the safe alternatives.
  */
 const GRANDFATHERED_CUTOFF = '20260514100000';
+
+// Check 5 (lock/statement timeouts) shipped 2026-07-20, long after the
+// GRANDFATHERED_CUTOFF above -- it needs its own boundary. At this cutoff the
+// check flags 0 files on a clean tree; with the original cutoff it would flag 66
+// pre-convention files. Raising this is not the way to silence a failure: add the
+// timeouts, or add the per-file disable marker with a written justification.
+const TIMEOUT_GUARD_CUTOFF = '20260711999999';
+
+// Tables served by live traffic. The first three are named in
+// docs/migration-guidelines.md §Lock and statement timeouts; core.users is added
+// because it is read on every authenticated request.
+const HOT_TABLES = ['site.design_kits', 'site.sites', 'site.blocks', 'core.users'];
+
 const MIGRATIONS_DIR = 'supabase/migrations';
 
 $errors = [];
@@ -152,6 +169,41 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
             $errors[] = "$basename: ALTER COLUMN SET NOT NULL detected.\n"
                 ."  Use the four-step pattern: ADD CONSTRAINT ... NOT VALID → backfill → VALIDATE → SET NOT NULL.\n"
                 .'  See: supabase/migrations/CONVENTIONS.md §3';
+        }
+    }
+
+    // ── Check 5: hot-table DDL/DML without a lock/statement timeout ───────────
+    // A migration that can't get its lock should abort in 2s with a clear error,
+    // not queue behind live traffic and stall the whole deploy. SET LOCAL is
+    // transaction-scoped, so the file also needs explicit BEGIN/COMMIT -- without
+    // it the SET LOCAL is a silent no-op.
+    if ($m[1] > TIMEOUT_GUARD_CUTOFF) {
+        foreach (HOT_TABLES as $hotTable) {
+            $touches = preg_match(
+                '/\b(?:ALTER\s+TABLE|UPDATE)\s+(?:ONLY\s+)?'.preg_quote($hotTable, '/').'\b/i',
+                $content,
+            ) === 1;
+
+            if (! $touches) {
+                continue;
+            }
+
+            $hasTimeout = preg_match('/\bSET\s+LOCAL\s+lock_timeout\b/i', $content) === 1;
+            $hasTxn = preg_match('/^\s*BEGIN\s*;/im', $content) === 1;
+
+            if ($hasTimeout && $hasTxn) {
+                break;
+            }
+
+            $errors[] = "$basename: DDL/DML on live-traffic table `$hotTable` without a lock timeout.\n"
+                ."  Wrap the statements and set the timeouts inside the transaction:\n"
+                ."    BEGIN;\n"
+                ."    SET LOCAL lock_timeout      = '2s';\n"
+                ."    SET LOCAL statement_timeout = '10s';\n"
+                ."    ...\n"
+                ."    COMMIT;\n"
+                .'  See: docs/migration-guidelines.md §Lock and statement timeouts';
+            break;
         }
     }
 }

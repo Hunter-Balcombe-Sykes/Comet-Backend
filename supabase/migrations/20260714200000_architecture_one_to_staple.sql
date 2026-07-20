@@ -22,6 +22,11 @@
 --
 -- guard:no-unsafe-migrations:disable-file
 
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
 ALTER TABLE site.sites DROP CONSTRAINT IF EXISTS sites_architecture_id_check;
 
 UPDATE site.sites
@@ -32,3 +37,5 @@ ALTER TABLE site.sites ALTER COLUMN architecture_id SET DEFAULT 'staple';
 
 ALTER TABLE site.sites
     ADD CONSTRAINT sites_architecture_id_check CHECK (architecture_id = 'staple');
+
+COMMIT;

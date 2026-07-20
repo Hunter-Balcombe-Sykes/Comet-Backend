@@ -13,29 +13,55 @@
 -- 'gallery' key. It preserves each site's CARD visibility; the curated slots
 -- follow the unified value thereafter.
 
+-- Row-count justification (SCHEMA-101): both statements are bounded scrubs, not
+-- growth-scale scans. site.sites holds 20 rows total in dev (census 2026-07-20),
+-- and the platform_connections UPDATE is further narrowed to instagram rows that
+-- actually carry the 'gallery' key. Kept inline rather than extracted to a
+-- post-deploy command: this file is already applied to dev, and removing the
+-- backfill would leave a fresh apply (db reset / prod re-baseline) silently
+-- unreconciled -- the schema-divergence hazard docs/migration-guidelines.md
+-- §"Editing already-applied migrations" warns against. Revisit if site.sites
+-- reaches analytics scale.
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
 WITH ig AS (
     SELECT pc.user_id,
            bool_or((pc.display_settings ->> 'gallery') IS DISTINCT FROM 'false') AS any_on
     FROM site.platform_connections pc
     WHERE pc.platform = 'instagram' AND pc.is_active = true
     GROUP BY pc.user_id
+),
+target AS (
+    SELECT s.user_id,
+           CASE
+               -- Never set (NULL): adopt the legacy card intent -- ON unless every
+               -- active connection explicitly hid the gallery.
+               WHEN s.content_instagram_auto_enabled IS NULL THEN ig.any_on
+               -- Curated ON but the card was explicitly hidden everywhere: a
+               -- deliberate hide must survive the unification.
+               WHEN s.content_instagram_auto_enabled = true AND ig.any_on = false THEN false
+               ELSE s.content_instagram_auto_enabled
+           END AS want
+    FROM site.sites s
+    JOIN ig ON s.user_id = ig.user_id
 )
 UPDATE site.sites s
-SET content_instagram_auto_enabled = CASE
-        -- Never set (NULL): adopt the legacy card intent -- ON unless every
-        -- active connection explicitly hid the gallery.
-        WHEN s.content_instagram_auto_enabled IS NULL THEN ig.any_on
-        -- Curated ON but the card was explicitly hidden everywhere: a deliberate
-        -- hide must survive the unification.
-        WHEN s.content_instagram_auto_enabled = true AND ig.any_on = false THEN false
-        ELSE s.content_instagram_auto_enabled
-    END
-FROM ig
-WHERE s.user_id = ig.user_id;
+SET content_instagram_auto_enabled = t.want
+FROM target t
+WHERE s.user_id = t.user_id
+  -- MIG-101: skip rows already at the target value so a re-run writes no tuples.
+  AND s.content_instagram_auto_enabled IS DISTINCT FROM t.want;
 
 -- Drop the defunct 'gallery' key from every Instagram connection's
 -- display_settings; null out any map left empty so no zombie state remains.
+-- Already re-run-safe via the `? 'gallery'` predicate -- a second run touches
+-- zero rows once the key is gone.
 UPDATE site.platform_connections
 SET display_settings = NULLIF(display_settings - 'gallery', '{}'::jsonb)
 WHERE platform = 'instagram'
   AND display_settings ? 'gallery';
+
+COMMIT;
