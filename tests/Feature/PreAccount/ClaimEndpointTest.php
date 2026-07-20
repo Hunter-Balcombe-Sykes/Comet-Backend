@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -58,4 +59,33 @@ it('404s an unknown subdomain', function () {
     $this->postJson('/api/claim', ['subdomain' => 'ghost'])
         ->assertStatus(404)
         ->assertJsonPath('code', 'CLAIM_NOT_FOUND');
+});
+
+it('PRIV-101: omitting marketing_opt_in creates no sidest_updates subscription', function () {
+    makeReadyBuild();
+    actingAsUser(claimJwtUser('auth-uid-1', 'jane@example.com'));
+
+    $this->postJson('/api/claim', ['subdomain' => 'janedoe'])->assertOk();
+
+    expect(
+        DB::connection('pgsql')->table('notifications.email_subscriptions')
+            ->where('list_key', 'sidest_updates')
+            ->where('email_lc', 'jane@example.com')
+            ->exists()
+    )->toBeFalse();
+});
+
+it('PRIV-101: marketing_opt_in=true creates a sidest_updates subscription', function () {
+    makeReadyBuild();
+    actingAsUser(claimJwtUser('auth-uid-1', 'jane@example.com'));
+
+    $this->postJson('/api/claim', ['subdomain' => 'janedoe', 'marketing_opt_in' => true])->assertOk();
+
+    $row = DB::connection('pgsql')->table('notifications.email_subscriptions')
+        ->where('list_key', 'sidest_updates')
+        ->where('email_lc', 'jane@example.com')
+        ->first();
+
+    expect($row)->not->toBeNull()
+        ->and($row->status)->toBe('subscribed');
 });

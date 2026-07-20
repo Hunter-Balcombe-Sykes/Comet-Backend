@@ -3,6 +3,7 @@
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimSiteService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -69,3 +70,33 @@ it('rejects an email already registered to another auth user', function () {
 it('404s an unknown subdomain', function () {
     app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'ghost');
 })->throws(RuntimeException::class, 'CLAIM_NOT_FOUND');
+
+it('PRIV-101: does not create a sidest_updates subscription without an explicit opt-in', function () {
+    makeReadyBuild();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect(
+        DB::connection('pgsql')->table('notifications.email_subscriptions')
+            ->where('list_key', 'sidest_updates')
+            ->where('email_lc', 'jane@example.com')
+            ->exists()
+    )->toBeFalse();
+});
+
+it('PRIV-101: creates a sidest_updates subscription with consent_source=claim when marketing_opt_in is true', function () {
+    makeReadyBuild();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe', true);
+
+    $row = DB::connection('pgsql')->table('notifications.email_subscriptions')
+        ->where('list_key', 'sidest_updates')
+        ->where('email_lc', 'jane@example.com')
+        ->first();
+
+    expect($row)->not->toBeNull()
+        ->and($row->status)->toBe('subscribed')
+        // The old hardcoded 'bootstrap' literal was misleading once ClaimSiteService
+        // (the "claim" flow) became the only live caller of this side effect.
+        ->and($row->consent_source)->toBe('claim');
+});

@@ -298,6 +298,17 @@ Schedule::command('moderation:prune-resolved-signal-pii')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('moderation:prune-resolved-signal-pii'));
 
+// PRIV-8: weekly hard-delete of core.feedback submissions older than the retention
+// window (default 365d, any triage status) — nothing else ages this table out.
+// Sunday 04:50 UTC — last of the Sunday weekly sweeps. withoutOverlapping(60) —
+// batched delete on a small T&S-adjacent table; expected to complete in seconds.
+Schedule::command('feedback:prune-old-submissions')
+    ->weeklyOn(0, '04:50')
+    ->onOneServer()
+    ->withoutOverlapping(60)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('feedback:prune-old-submissions'));
+
 // Scan open/triaged/under_review moderation cases and log warnings for any approaching
 // their SLA deadline. Threshold defaults to 120 min; configurable via
 // partna.moderation.sla.breach_warning_min. withoutOverlapping(30) gives a 2x ceiling

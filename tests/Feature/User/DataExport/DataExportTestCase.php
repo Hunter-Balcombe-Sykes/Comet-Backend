@@ -381,12 +381,16 @@ class DataExportTestCase
         )');
 
         // In-app feedback submissions. ip_hash and user_agent stored separately — excluded from DSAR.
+        // type/area/target (OV-D taxonomy) mirror 20260711153000_feedback_type_area_target.sql (PRIV-6).
         $conn->statement('CREATE TABLE IF NOT EXISTS core.feedback (
             id TEXT PRIMARY KEY,
             user_id TEXT,
             reply_email TEXT,
             kind TEXT,
             severity TEXT,
+            type TEXT,
+            area TEXT,
+            target TEXT,
             message TEXT,
             page_url TEXT,
             user_agent TEXT,
@@ -608,6 +612,9 @@ class DataExportTestCase
         )');
 
         // FOUND-4: workplace card promoted from settings JSONB to child table.
+        // previous_website_analysis (20260701220001) is included so PRIV-5 tests can
+        // prove it's excluded from the export's explicit allow-list, not just absent
+        // from the fixture.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.workplaces (
             site_id TEXT PRIMARY KEY,
             name TEXT NULL,
@@ -622,8 +629,12 @@ class DataExportTestCase
             phone TEXT NULL,
             website TEXT NULL,
             previous_website TEXT NULL,
+            previous_website_analysis TEXT NULL,
             category TEXT NULL,
             description TEXT NULL,
+            opening_hours TEXT NULL,
+            contact_email TEXT NULL,
+            field_sources TEXT NULL,
             created_at TEXT NULL,
             updated_at TEXT NULL
         )');

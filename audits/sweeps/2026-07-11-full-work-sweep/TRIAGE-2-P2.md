@@ -1700,7 +1700,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 2 of 5 complete
+- P2 Medium: 5 of 5 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1709,7 +1709,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **PRIV-5** · P2 — Internal brand-analysis data excluded from the dashboard but exported wholesale in the GDPR export
+- [x] **PRIV-5** · P2 — Internal brand-analysis data excluded from the dashboard but exported wholesale in the GDPR export
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:222-233` (`site()`) and `app/Http/Resources/WorkplaceResource.php:11-13`
     - **Affects:** Professionals requesting a DSAR — they receive machine-generated `previous_website_analysis` data the platform deliberately never shows them on the dashboard.
     - **Effort:** S (~0.5–1h)
@@ -1729,7 +1729,7 @@ None.
         return ['site' => (array) $site, 'blocks' => $blocks, 'workplace' => $workplaceRow ? (array) $workplaceRow : null];
         ```
 
-- [ ] **PRIV-6** · P2 — New `core.feedback` columns (`type`, `area`, `target`) excluded from the GDPR export's explicit column allow-list
+- [x] **PRIV-6** · P2 — New `core.feedback` columns (`type`, `area`, `target`) excluded from the GDPR export's explicit column allow-list
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:298-306` (`streamFeedback`) and `supabase/migrations/20260711153000_feedback_type_area_target.sql`
     - **Affects:** Professionals who submit feedback through the OV-D feedback tool — their reaction category, feature-area context, and structured target metadata are silently omitted from their export.
     - **Effort:** S (~0.5–1h)
@@ -1785,7 +1785,7 @@ None.
         ]);
         ```
 
-- [ ] **PRIV-8** · P2 — `core.feedback` has no declared retention rule and no scheduled purge
+- [x] **PRIV-8** · P2 — `core.feedback` has no declared retention rule and no scheduled purge
     - **Where:** `config/partna.php:1552-1577` (`feedback` section — no `retention_days` key) and `routes/console.php` (no feedback prune command)
     - **Affects:** Every feedback submission ever filed — free-text messages routinely embed the submitter's name/email/context and accumulate with no expiry, unlike the structurally similar `moderation.case_signals` (which has `signal_pii_retention_days` + a weekly prune job).
     - **Effort:** S (~0.5–1h)
@@ -3836,14 +3836,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **PRIV-101** · P2 — New-signup marketing subscription is created with no genuine consent signal
+- [x] **PRIV-101** · P2 — New-signup marketing subscription is created with no genuine consent signal
     - **Where:** app/Services/User/UserBootstrapService.php:118 (`bootstrap()`), `ensureSidestUpdatesSubscription()` at lines 165-187
     - **Affects:** Every new professional who signs up via `POST` bootstrap — their email is enrolled in the `sidest_updates` marketing list as an automatic side effect of account creation, not a separate opt-in.
     - **Effort:** M (~2–4h)

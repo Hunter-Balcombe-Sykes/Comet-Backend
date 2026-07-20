@@ -1561,6 +1561,19 @@ return [
 
         // Hard cap matched by DB CHECK constraint feedback_message_length_check.
         'max_message_length' => 5000,
+
+        // PRIV-8: retention window for core.feedback (bug/idea/praise/question
+        // submissions). Nothing else ages this table out — PurgeSoftDeleted only
+        // force-deletes rows a staffer already soft-deleted, so a row left in
+        // 'new'/'triaged' would otherwise keep its reply_email + free-text
+        // message forever. 365 days mirrors the unsubscribed-email-subscription
+        // retention precedent (notifications:prune-unsubscribed-subscriptions).
+        'retention_days' => (int) env('FEEDBACK_RETENTION_DAYS', 365),
+
+        // CFG-1-style batch size for feedback:prune-old-submissions — bounds
+        // each DELETE's row count so the purge never holds one long-running
+        // transaction.
+        'prune_batch_size' => (int) env('FEEDBACK_PRUNE_BATCH_SIZE', 1000),
     ],
 
     'cache' => [
