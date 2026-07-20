@@ -16,6 +16,12 @@
 
 BEGIN;
 
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
+-- DROP CONSTRAINT must precede the UPDATE below: it remaps values (dock,
+-- flick, deck) that the OLD CHECK forbids. Do not split this into separate
+-- windows — that would open a window with no CHECK active on site.sites.
 ALTER TABLE site.sites DROP CONSTRAINT IF EXISTS sites_skeleton_id_check;
 
 UPDATE site.sites SET skeleton_id = CASE skeleton_id

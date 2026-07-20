@@ -9,6 +9,17 @@
 -- deliberately un-CHECKed so item availability mirrors any platform without
 -- a migration. menu_item_id FK ON DELETE CASCADE so a wholesale item rebuild
 -- (MenuFetchJob deletes items each scrape) auto-clears stale child rows.
+--
+-- The CLI already batches a whole file into one implicit transaction, but
+-- SET LOCAL only takes effect inside an explicit BEGIN/COMMIT block, and the
+-- atomicity of the backfill + DROP COLUMN below shouldn't depend on
+-- undocumented CLI internals (audit MIG-1): a mid-run failure between the
+-- backfill and the DROP COLUMN would otherwise leave a half-applied schema.
+
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '30s';
 
 CREATE TABLE IF NOT EXISTS site.menu_item_platforms (
     id             uuid PRIMARY KEY,
@@ -50,6 +61,8 @@ WHERE jsonb_typeof(mi.platforms) = 'array'
   AND e ? 'platform';
 
 ALTER TABLE site.menu_items DROP COLUMN IF EXISTS platforms;
+
+COMMIT;
 
 -- ROLLBACK:
 -- ALTER TABLE site.menu_items ADD COLUMN IF NOT EXISTS platforms jsonb;

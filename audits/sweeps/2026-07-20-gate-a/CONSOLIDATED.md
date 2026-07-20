@@ -45,9 +45,17 @@ every draft rather than the scan reading nothing.
 ## Progress
 
 - P0 Blocker: 0 of 2 complete
-- P1 High: 0 of 13 complete
+- P1 High: 4 of 13 complete
 - P2 Medium: 0 of 62 complete
 - P3 Low: 0 of 51 complete
+
+**Units worked:** B2 ✅ (2026-07-20)
+
+**Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
+into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
+S2 and B19 are therefore hygiene for local `db reset`, preview branches and disaster recovery —
+not prod-blocking. Scope them accordingly; prefer in-place edits over new migration versions,
+since any new version gets applied to the live dev DB by `db push`.
 
 ## Cross-run root causes
 
@@ -169,13 +177,17 @@ turns a one-shot operation into an unrecoverable one.
 Note B2 contains **opposite** errors — MIG-1/2/3 are under-wrapped, MIG-4 is over-wrapped. The
 rule: **backfills want to be split, DDL pairs want to be atomic.**
 
-- [ ] **`migrations-recent/MIG-3`** · P1 · S — `DROP CONSTRAINT` + `ADD CONSTRAINT ... NOT VALID` auto-commit separately; momentary window with no CHECK active on `site.sites` and `core.users` → `sources/migrations-recent.md`
+- [x] **`migrations-recent/MIG-3`** · P1 · S — `DROP CONSTRAINT` + `ADD CONSTRAINT ... NOT VALID` auto-commit separately; momentary window with no CHECK active on `site.sites` and `core.users` → `sources/migrations-recent.md`
   - 6 files incl. `20260711000000_staff_account_type.sql` — wrap both statements in one transaction per file.
-- [ ] **`migrations-recent/MIG-1`** · P1 · S — Backfill INSERT and `DROP COLUMN` auto-commit separately; half-applied risk on `site.menu_items` → `sources/migrations-recent.md`
+  - **Fixed 2026-07-20, stated reason rejected.** The CLI wraps each file in one implicit transaction, so no "gap window" ever existed. The real defect: `VALIDATE` shared the transaction with the `DROP`, holding `ACCESS EXCLUSIVE` through the validation scan. Fixed by two-window `BEGIN`/`COMMIT` per file (5 files), per the `20260712000000` exemplar. 6th file was already fixed as MIG-103 (2026-07-11) — `no_change_needed`.
+- [x] **`migrations-recent/MIG-1`** · P1 · S — Backfill INSERT and `DROP COLUMN` auto-commit separately; half-applied risk on `site.menu_items` → `sources/migrations-recent.md`
   - `20260701140100_menu_item_platforms_table.sql` — wrap in one transaction; add `SET LOCAL lock_timeout` before the drop.
-- [ ] **`migrations-recent/MIG-2`** · P1 · S — Same non-atomic backfill/drop pattern on `site.menus` → `sources/migrations-recent.md`
-- [ ] **`migrations-recent/MIG-4`** · P1 · M — `ADD COLUMN` + full-table `UPDATE` + `ADD CONSTRAINT`/`VALIDATE` combined in one transaction on `site.sites`; violates the repo's own written convention → `sources/migrations-recent.md`
+  - **Premise false** — file was already atomic; the described retry dead-end cannot occur. Explicit single-window `BEGIN`/`COMMIT` + timeouts applied as hygiene (Josh's call), so atomicity no longer depends on undocumented CLI behaviour.
+- [x] **`migrations-recent/MIG-2`** · P1 · S — Same non-atomic backfill/drop pattern on `site.menus` → `sources/migrations-recent.md`
+  - **Premise false**, same as MIG-1. Same hygiene treatment.
+- [x] **`migrations-recent/MIG-4`** · P1 · M — `ADD COLUMN` + full-table `UPDATE` + `ADD CONSTRAINT`/`VALIDATE` combined in one transaction on `site.sites`; violates the repo's own written convention → `sources/migrations-recent.md`
   - Split into: DDL · backfill outside the transaction · `ADD CONSTRAINT NOT VALID` · `VALIDATE`.
+  - **Premise true.** Done as four windows **in place** (not new files) — new migration versions would have been pushed to the live dev DB and re-run the backfill after `20260701200000` stripped the keys, nulling all ten columns. Also fixed the `WHERE settings IS NOT NULL` tautology (`settings` is `NOT NULL DEFAULT '{}'`) → `settings ?| array[...]`. Independent windows required `ADD COLUMN IF NOT EXISTS` + `DROP CONSTRAINT IF EXISTS` guards for replay-safety (caught in review round 1).
 
 ### Bundle B3 — PII that survives redaction or leaks on export · **P1** · Effort M
 

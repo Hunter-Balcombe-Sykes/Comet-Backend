@@ -10,27 +10,55 @@
 -- Pre-beta: zero rows, so the backfill is a no-op now; it is written correct
 -- for prod-shape parity.
 --
--- All statements are transaction-safe (ADD COLUMN, UPDATE, ADD CONSTRAINT
--- NOT VALID, VALIDATE CONSTRAINT), so the whole sequence is wrapped so a
--- mid-migration failure rolls back to the pre-migration schema.
+-- Four separate windows, not one transaction (CONVENTIONS.md §5 / audit
+-- MIG-4): a single BEGIN/COMMIT around ADD COLUMN + backfill UPDATE + ADD
+-- CONSTRAINT + VALIDATE CONSTRAINT holds the ACCESS EXCLUSIVE taken by the
+-- first ADD COLUMN across the full-table backfill scan AND the CHECK
+-- validation scan — the repo's own §5 "BAD" example. Splitting means each
+-- DDL window is metadata-only/near-instant, and the backfill + validation
+-- each run under a weaker lock (or none) instead of one held for the whole
+-- sequence.
 -- =====================================================================
+
+-- Window 1: add the 10 nullable columns. Metadata-only, near-instant.
+-- Each window below commits independently, so a failure in a later window
+-- (lock/statement timeout) leaves this window's COMMIT standing -- the next
+-- `db push` replays the whole file from here. IF NOT EXISTS / DROP ... IF
+-- EXISTS make every window safe to repeat, not just the first attempt.
 BEGIN;
 
-ALTER TABLE site.sites
-  ADD COLUMN hero_title                  text,
-  ADD COLUMN hero_subtitle              text,
-  ADD COLUMN primary_button_text        text,
-  ADD COLUMN primary_button_url         text,
-  ADD COLUMN bio_text                   text,
-  ADD COLUMN show_branding              boolean,
-  ADD COLUMN charlie_enabled            boolean,
-  ADD COLUMN services_auto_sync_enabled boolean,
-  ADD COLUMN booking_mode              text,
-  ADD COLUMN manual_booking_url         text;
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
 
--- Backfill from the existing JSONB. `settings->>'key'` is NULL when the key is
--- absent, so unset keys leave the column NULL. Boolean keys are JSON booleans
--- ('true'/'false' as text via ->>), cast to boolean; NULL casts to NULL.
+ALTER TABLE site.sites
+  ADD COLUMN IF NOT EXISTS hero_title                  text,
+  ADD COLUMN IF NOT EXISTS hero_subtitle              text,
+  ADD COLUMN IF NOT EXISTS primary_button_text        text,
+  ADD COLUMN IF NOT EXISTS primary_button_url         text,
+  ADD COLUMN IF NOT EXISTS bio_text                   text,
+  ADD COLUMN IF NOT EXISTS show_branding              boolean,
+  ADD COLUMN IF NOT EXISTS charlie_enabled            boolean,
+  ADD COLUMN IF NOT EXISTS services_auto_sync_enabled boolean,
+  ADD COLUMN IF NOT EXISTS booking_mode              text,
+  ADD COLUMN IF NOT EXISTS manual_booking_url         text;
+
+COMMIT;
+
+-- Window 2: backfill from the existing JSONB — a bare statement (no
+-- BEGIN/COMMIT) so it runs in its own implicit transaction and inherits no
+-- lock from Window 1 (CONVENTIONS.md §5). `settings->>'key'` is NULL when
+-- the key is absent, so unset keys leave the column NULL. Boolean keys are
+-- JSON booleans ('true'/'false' as text via ->>), cast to boolean; NULL
+-- casts to NULL.
+--
+-- `settings` is `jsonb DEFAULT '{}'::jsonb NOT NULL` (baseline migration,
+-- site.sites), so `WHERE settings IS NOT NULL` was a tautology matching
+-- every row — an unconditional full-table scan, not a filter. The `?|`
+-- key-presence guard below is a real filter, and it also makes this
+-- backfill correctly inert if it's ever re-run after
+-- 20260701200000_strip_site_settings_jsonb_keys.sql has removed these keys
+-- — re-running the old unguarded UPDATE at that point would NULL out all
+-- ten columns.
 UPDATE site.sites SET
   hero_title                 = settings->>'hero_title',
   hero_subtitle              = settings->>'hero_subtitle',
@@ -42,15 +70,33 @@ UPDATE site.sites SET
   services_auto_sync_enabled = (settings->>'services_auto_sync_enabled')::boolean,
   booking_mode               = settings->>'booking_mode',
   manual_booking_url         = settings->>'manual_booking_url'
-WHERE settings IS NOT NULL;
+WHERE settings ?| array['hero_title','hero_subtitle','primary_button_text',
+                        'primary_button_url','bio_text','show_branding',
+                        'charlie_enabled','services_auto_sync_enabled',
+                        'booking_mode','manual_booking_url'];
 
--- booking_mode enum guard. NOT VALID → VALIDATE keeps the ADD lock brief and
--- validates existing rows separately. VALIDATE fails if any backfilled row has
--- a booking_mode NOT IN ('manual','none') and NOT NULL — investigate the data
--- before forcing (do not widen the CHECK to hide bad data).
+-- Window 3: add the booking_mode CHECK in NOT VALID form (brief metadata
+-- lock; skips the row scan).
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+
+ALTER TABLE site.sites DROP CONSTRAINT IF EXISTS sites_booking_mode_check;
 ALTER TABLE site.sites
   ADD CONSTRAINT sites_booking_mode_check
   CHECK (booking_mode IS NULL OR booking_mode IN ('manual','none')) NOT VALID;
+
+COMMIT;
+
+-- Window 4: validate in its own transaction (SHARE UPDATE EXCLUSIVE —
+-- doesn't block concurrent reads/writes). Fails if any backfilled row has a
+-- booking_mode NOT IN ('manual','none') and NOT NULL — investigate the data
+-- before forcing (do not widen the CHECK to hide bad data).
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
 
 ALTER TABLE site.sites VALIDATE CONSTRAINT sites_booking_mode_check;
 

@@ -12,6 +12,17 @@
 -- SCHEMA site, baseline :2303) auto-covers this table, exactly as it did
 -- for site.menu_categories / site.menu_items (added in 20260619050000
 -- with no explicit GRANT). No RLS (matches the rest of the menu subsystem).
+--
+-- The CLI already batches a whole file into one implicit transaction, but
+-- SET LOCAL only takes effect inside an explicit BEGIN/COMMIT block, and the
+-- atomicity of the backfill + DROP COLUMN below shouldn't depend on
+-- undocumented CLI internals (audit MIG-2): a mid-run failure between the
+-- backfill and the DROP COLUMN would otherwise leave a half-applied schema.
+
+BEGIN;
+
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '30s';
 
 CREATE TABLE IF NOT EXISTS site.menu_platform_links (
     id         uuid PRIMARY KEY,
@@ -46,6 +57,8 @@ ALTER TABLE site.menus
     DROP COLUMN IF EXISTS doordash_store_url,
     DROP COLUMN IF EXISTS doordash_synced_at,
     DROP COLUMN IF EXISTS doordash_status;
+
+COMMIT;
 
 -- ROLLBACK:
 -- ALTER TABLE site.menus
