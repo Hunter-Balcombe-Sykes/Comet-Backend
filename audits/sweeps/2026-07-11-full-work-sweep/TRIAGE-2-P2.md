@@ -2649,7 +2649,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 7 of 9 complete
+- P2 Medium: 9 of 9 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2817,7 +2817,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         $changed = false;
         ```
 
-- [ ] **#LIFE-109** · P2 — Alias KV entries with 1–59s of remaining TTL are written without Cloudflare's 60s minimum enforced
+- [x] **#LIFE-109** · P2 — Alias KV entries with 1–59s of remaining TTL are written without Cloudflare's 60s minimum enforced
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:211-251
     - **Affects:** Users with a handle alias expiring in under a minute at the moment any KV resync fires — the whole `bulkPut` batch for that user's aliases can be rejected by Cloudflare, temporarily dropping alias-redirect entries for handles that still have plenty of TTL left, not just the near-expiry one.
     - **Effort:** S (~0.5–1h)
@@ -2842,7 +2842,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-110** · P2 — `SyncSubdomainToKvJob`'s `ShouldBeUnique` window can drop a rapid second handle-routing sync while the first is still in flight
+- [x] **#LIFE-110** · P2 — `SyncSubdomainToKvJob`'s `ShouldBeUnique` window can drop a rapid second handle-routing sync while the first is still in flight
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:38-71
     - **Affects:** Any user whose routing state changes twice (e.g. two rapid handle corrections, or a handle change immediately followed by a custom-domain change) while the prior sync job for that same `uniqueId()` is still queued or actively processing (including through its up-to-3 Cloudflare-API retries).
     - **Effort:** M (~2–4h, needs care around Horizon lock semantics + a concurrency test)
