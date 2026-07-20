@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 
 function makeProForCapabilities(string $accountType, ?string $sector = null): User
 {
+    // Unsaved model — never hits the DB, so the users_account_type_check CHECK
+    // guard (tests/Pest.php) never fires here; validity relies on the enum cast.
     return new User(['account_type' => $accountType, 'sector' => $sector]);
 }
 
@@ -185,20 +187,8 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
     });
 });
 
-describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
-    it('omits stripe_connect_status entirely for individual accounts', function () {
-        $pro = new User([
-            'account_type' => 'partna',
-        ]);
-
-        $payload = (new UserDashboardResource($pro))->resolve(Request::create('/'));
-
-        expect($payload)->not->toHaveKey('stripe_connect_status');
-    });
-});
-
-describe('UserDashboardResource — stripe_connect_status absent for individuals', function () {
-    it('omits stripe_connect_status for individuals', function () {
+describe('UserDashboardResource — stripe_connect_status absent for standard accounts', function () {
+    it('omits stripe_connect_status entirely for standard accounts', function () {
         $pro = new User([
             'account_type' => 'partna',
         ]);
