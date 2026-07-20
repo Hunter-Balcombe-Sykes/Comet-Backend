@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 beforeEach(fn () => tenantHelpersEnsureTables());
 
 it('site show returns only the authenticated professionals own site', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
 
     DB::table('site.sites')->where('id', $a->site->id)->update([
         'settings' => json_encode(['meta_title' => 'Site A']),
@@ -32,20 +32,20 @@ it('site show returns only the authenticated professionals own site', function (
 });
 
 it('site data is scoped by user_id at the database level preventing cross-tenant reads', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
 
     DB::table('site.sites')->where('id', $a->site->id)->update([
-        'subdomain' => 'brand-a',
+        'subdomain' => 'tenant-a',
     ]);
     DB::table('site.sites')->where('id', $b->site->id)->update([
-        'subdomain' => 'brand-b',
+        'subdomain' => 'tenant-b',
     ]);
 
     // Verify DB-level WHERE user_id scoping works correctly.
     $aSite = DB::table('site.sites')->where('user_id', $a->id)->first();
     $bSite = DB::table('site.sites')->where('user_id', $b->id)->first();
 
-    expect($aSite->subdomain)->toBe('brand-a');
-    expect($bSite->subdomain)->toBe('brand-b');
+    expect($aSite->subdomain)->toBe('tenant-a');
+    expect($bSite->subdomain)->toBe('tenant-b');
     expect($aSite->id)->not->toBe($bSite->id);
 });

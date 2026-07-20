@@ -1039,16 +1039,14 @@ function createTenant(string $handle): User
 }
 
 /**
- * Standard pair: two fully-independent tenants. Returns [$tenantA, $tenantB].
- *
- * @return array{0: User, 1: User}
+ * Two fully-independent tenants for cross-tenant isolation tests.
+ * Handles are deliberately neutral — the brand/affiliate account types this
+ * helper used to distinguish were retired, and the old handle prefixes implied
+ * a distinction that no longer exists.
  */
-function createTwoTenants(string $type = 'brand'): array
+function createTwoTenants(): array
 {
-    $a = $type === 'brand' ? createTenant('brand-a') : createTenant('aff-a');
-    $b = $type === 'brand' ? createTenant('brand-b') : createTenant('aff-b');
-
-    return [$a, $b];
+    return [createTenant('tenant-a'), createTenant('tenant-b')];
 }
 
 /**

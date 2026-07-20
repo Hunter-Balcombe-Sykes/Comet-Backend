@@ -81,7 +81,7 @@ it('preserves sections not in the ids list at the end of the order', function ()
 });
 
 it('refuses to reorder a section belonging to another professional', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
     seedSectionBlock($a, 'gallery', 0);
     $bSection = seedSectionBlock($b, 'gallery', 0);
 

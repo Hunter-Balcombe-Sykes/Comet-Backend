@@ -21,7 +21,7 @@ beforeEach(function () {
 });
 
 it('service category show refuses a category belonging to another professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
 
     $categoryId = (string) Str::uuid();
     DB::table('site.service_categories')->insert([
@@ -41,7 +41,7 @@ it('service category show refuses a category belonging to another professional',
 });
 
 it('service category destroy refuses a category belonging to another professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
 
     $categoryId = (string) Str::uuid();
     DB::table('site.service_categories')->insert([
@@ -67,7 +67,7 @@ it('service category destroy refuses a category belonging to another professiona
 });
 
 it('service category index only returns the authenticated professionals categories', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
 
     DB::table('site.service_categories')->insert([
         ['id' => (string) Str::uuid(), 'user_id' => $a->id, 'title' => 'A Category', 'sort_order' => 0, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],

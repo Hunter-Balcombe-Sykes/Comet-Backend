@@ -37,7 +37,7 @@ beforeEach(function () {
 });
 
 it('customer index never includes customers from another professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     DB::table('site.customers')->insert([
@@ -56,7 +56,7 @@ it('customer index never includes customers from another professional', function
 });
 
 it('customer show refuses a customer belonging to another professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     $customerId = (string) Str::uuid();
@@ -82,7 +82,7 @@ it('customer show refuses a customer belonging to another professional', functio
 });
 
 it('enquiry update refuses an enquiry belonging to another professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     $enqId = (string) Str::uuid();

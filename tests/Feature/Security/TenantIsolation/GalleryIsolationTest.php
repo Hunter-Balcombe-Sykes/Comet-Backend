@@ -15,7 +15,7 @@ beforeEach(function () {
 });
 
 it('gallery destroy refuses an image belonging to another professionals site', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
 
     $imageId = (string) Str::uuid();
     DB::table('site.site_media')->insert([
@@ -47,7 +47,7 @@ it('gallery destroy refuses an image belonging to another professionals site', f
 });
 
 it('gallery update refuses an image belonging to another professionals site', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
 
     $imageId = (string) Str::uuid();
     DB::table('site.site_media')->insert([

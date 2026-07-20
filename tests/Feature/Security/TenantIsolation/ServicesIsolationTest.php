@@ -27,7 +27,7 @@ beforeEach(function () {
 });
 
 it('service destroy refuses a service belonging to another professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     $serviceId = (string) Str::uuid();
@@ -52,7 +52,7 @@ it('service destroy refuses a service belonging to another professional', functi
 });
 
 it('service index only returns services belonging to the authenticated professional', function () {
-    [$a, $b] = createTwoTenants('affiliate');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     DB::table('site.services')->insert([

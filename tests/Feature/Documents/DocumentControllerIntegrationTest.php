@@ -34,7 +34,7 @@ beforeEach(function () {
     app()->instance(SiteCacheService::class, $stub);
 });
 
-function seedUser(string $type = 'professional'): User
+function seedUser(): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();

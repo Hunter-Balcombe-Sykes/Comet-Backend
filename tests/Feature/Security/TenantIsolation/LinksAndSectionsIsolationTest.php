@@ -15,7 +15,7 @@ beforeEach(function () {
 });
 
 it('link index only returns blocks belonging to the authenticated professional', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     DB::table('site.blocks')->insert([
@@ -63,7 +63,7 @@ it('link index only returns blocks belonging to the authenticated professional',
 });
 
 it('link update refuses a block belonging to another professional site', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
     $now = now()->toDateTimeString();
 
     $blockId = (string) Str::uuid();

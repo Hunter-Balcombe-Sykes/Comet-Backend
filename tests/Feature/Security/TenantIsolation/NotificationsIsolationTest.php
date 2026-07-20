@@ -40,7 +40,7 @@ beforeEach(function () {
 });
 
 it('notification markRead returns 404 when the notification targets another professional', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
 
     // Targeted notification owned by Brand A.
     $notifId = (string) Str::uuid();
@@ -71,7 +71,7 @@ it('notification markRead returns 404 when the notification targets another prof
 });
 
 it('notification dismiss returns 404 when the notification targets another professional', function () {
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
 
     $notifId = (string) Str::uuid();
     DB::table('notifications.notifications')->insert([
@@ -102,7 +102,7 @@ it('broadcast notifications (user_id null) are receipted per-caller, not cross-t
     // Broadcast notifications — user_id is null so ALL pros may mark-read.
     // The isolation guarantee here is that each pro's read/dismiss state writes a
     // separate row keyed by user_id, so one pro's action cannot mutate another's state.
-    [$a, $b] = createTwoTenants('brand');
+    [$a, $b] = createTwoTenants();
 
     $notifId = (string) Str::uuid();
     DB::table('notifications.notifications')->insert([
