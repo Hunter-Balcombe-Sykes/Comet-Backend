@@ -3218,14 +3218,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#WHK-101** · P2 — MFA auth-hook idempotency anchor is Redis-only; no DB-level uniqueness backstop on the audit trail
+- [x] **#WHK-101** · P2 — MFA auth-hook idempotency anchor is Redis-only; no DB-level uniqueness backstop on the audit trail
     - **Where:** `app/Services/Auth/AuthFactorEventRepository.php:30-56`, `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:53-59`
     - **Affects:** `audit.auth_factor_events` rows and the MFA brute-force counter (`countRecentFailures`) for any user going through TOTP/phone/webauthn verification during a Redis blip.
     - **Effort:** M (~2-4h) — new nullable `webhook_id` column + unique index migration, thread the id through `record()`, switch the insert to `INSERT … ON CONFLICT (webhook_id) DO NOTHING`.

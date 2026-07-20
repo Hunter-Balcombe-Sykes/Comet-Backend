@@ -185,6 +185,64 @@ it('WHK-1: a record() failure on the reject path does not degrade to allow on re
         ->assertJson(['decision' => 'reject']);
 });
 
+it('WHK-101: a redelivered webhook-id is deduplicated at the DB layer even after the Redis anchor is lost', function () {
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+    $webhookId = 'msg_'.Str::uuid();
+
+    $payload = [
+        'user_id' => $userId,
+        'factor_id' => $factorId,
+        'factor_type' => 'totp',
+        'valid' => false,
+    ];
+
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'continue']);
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'verify_failed')->count();
+    expect($count)->toBe(1);
+
+    // Simulate a Redis wipe — the WEBHOOK-3 Cache::add anchor is gone, so
+    // without the DB backstop this redelivery would double-record.
+    Cache::flush();
+
+    postSignedHook($payload, null, $webhookId)
+        ->assertOk()->assertJson(['decision' => 'continue']);
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'verify_failed')->count();
+    expect($count)->toBe(1);
+});
+
+it('WHK-101: the DB backstop does not suppress a genuinely different delivery', function () {
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+
+    $payload = [
+        'user_id' => $userId,
+        'factor_id' => $factorId,
+        'factor_type' => 'totp',
+        'valid' => false,
+    ];
+
+    postSignedHook($payload, null, 'msg_'.Str::uuid())
+        ->assertOk()->assertJson(['decision' => 'continue']);
+
+    // Simulate a Redis wipe between two genuinely distinct deliveries — the
+    // partial unique index must not accidentally collapse them (that would
+    // silently disarm the brute-force counter).
+    Cache::flush();
+
+    postSignedHook($payload, null, 'msg_'.Str::uuid())
+        ->assertOk()->assertJson(['decision' => 'continue']);
+
+    $count = DB::connection('pgsql')->table('audit.auth_factor_events')
+        ->where('user_id', $userId)->where('event_type', 'verify_failed')->count();
+    expect($count)->toBe(2);
+});
+
 it('WHK-2: fails closed (400) when the webhook-id header is absent', function () {
     // Exercises the controller guard directly — the signature middleware would
     // normally 401 an empty webhook-id before the controller, so this proves the
