@@ -108,6 +108,21 @@ it('cleans up lifestyle connections when a user switches to business (observer)'
     expect(lccActiveCount($pro->id))->toBe(1); // only shop survives
 });
 
+it('leaves lifestyle connections untouched when an unrelated field changes on a business account (TEST-107)', function () {
+    $pro = lccTenant('lcc-unrelated', 'business');
+    lccConnection($pro->id, 'apple-music');
+    lccConnection($pro->id, 'strava');
+    expect(lccActiveCount($pro->id))->toBe(2);
+
+    // account_type is unchanged (still 'business') — UserObserver's guard
+    // (wasChanged('account_type')) must NOT fire the cleanup for any other
+    // field edit, or every profile save on a business account would silently
+    // wipe lifestyle connections.
+    $pro->update(['display_name' => 'New Display Name']);
+
+    expect(lccActiveCount($pro->id))->toBe(2);
+});
+
 it('the artisan command removes orphans across business accounts (and dry-run does not)', function () {
     $biz = lccTenant('lcc-cmd-biz', 'business');
     lccConnection($biz->id, 'spotify');

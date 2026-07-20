@@ -244,6 +244,92 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     expect(popularityScoreRow($tenant->site->id, 'action', 'page:links'))->toBeNull();
 });
 
+// ── SCALE-3: the full sweep (no --site) scopes to sites with recent events ──
+
+it('processes a site with a recent event but skips a published site with none, in a full sweep', function () {
+    $active = createTenant('scale3-active');
+    $idle = createTenant('scale3-idle');
+
+    // Active site: one link click right now — must be picked up by the sweep.
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $active->id,
+        'site_id' => $active->site->id,
+        'section_key' => 'bio',
+        'url' => 'https://example.com/active',
+        'occurred_at' => now()->toISOString(),
+        'created_at' => now()->toISOString(),
+    ]);
+
+    // Idle site: no events at all, but it DOES have a fresh platform connection —
+    // pre-fix, the full sweep would still process it and seed a freshness-only
+    // score. Post-fix it must be skipped entirely (zero rows, any content_type).
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $idle->id,
+        'platform' => 'custom',
+        'resource_id' => 'link-'.Str::random(8),
+        'resource_kind' => 'link',
+        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/idle']),
+        'is_active' => 1,
+        'created_at' => now()->toISOString(),
+        'updated_at' => now()->toISOString(),
+    ]);
+
+    // No --site — the periodic scheduled full sweep.
+    $this->artisan('analytics:compute-popularity')->assertExitCode(0);
+
+    expect(popularityScoreRow($active->site->id, 'page', 'home'))->not->toBeNull();
+
+    // Idle site was skipped entirely — no page/item/action rows of any kind.
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
+        ->where('site_id', $idle->site->id)
+        ->count())->toBe(0);
+});
+
+it('treats an event older than the recent-events window as no signal in a full sweep', function () {
+    $stale = createTenant('scale3-stale');
+
+    // 90 minutes old — outside the 20-minute recent-events window, even though
+    // it would still contribute a (heavily decayed) score if processed.
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $stale->id,
+        'site_id' => $stale->site->id,
+        'section_key' => 'bio',
+        'url' => 'https://example.com/stale',
+        'occurred_at' => now()->subMinutes(90)->toISOString(),
+        'created_at' => now()->subMinutes(90)->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity')->assertExitCode(0);
+
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
+        ->where('site_id', $stale->site->id)
+        ->count())->toBe(0);
+});
+
+it('an explicit --site bypasses the recent-events scope even with zero recent events', function () {
+    $idle = createTenant('scale3-explicit');
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $idle->id,
+        'platform' => 'custom',
+        'resource_id' => 'link-'.Str::random(8),
+        'resource_kind' => 'link',
+        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/explicit']),
+        'is_active' => 1,
+        'created_at' => now()->toISOString(),
+        'updated_at' => now()->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $idle->site->id])->assertExitCode(0);
+
+    // Explicit --site always processes the named site, matching the
+    // pre-existing contract (every test above this block relies on it).
+    expect(popularityScoreRow($idle->site->id, 'link_item', 'https://example.com/explicit'))->not->toBeNull();
+});
+
 // ── OBS-5: an explicit $timeout ceiling on this every-15-min sweep ──
 
 it('declares an explicit, non-null $timeout ceiling', function () {

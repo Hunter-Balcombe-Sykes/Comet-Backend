@@ -8,6 +8,8 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
 
@@ -30,8 +32,14 @@ use Illuminate\Http\JsonResponse;
  */
 class PublicIntegrationController extends ApiController
 {
+    // CCG-102: matches the analytics:compute-popularity schedule cadence
+    // (routes/console.php, everyFifteenMinutes) — ranks only change on that
+    // cadence, so staleness beyond it buys nothing and this just bounds it.
+    private const POPULARITY_CACHE_TTL_SECONDS = 900;
+
     public function __construct(
         private readonly ContentPopularityReader $popularity,
+        private readonly CacheLockService $cache,
     ) {}
 
     public function show(string $handle): JsonResponse
@@ -102,7 +110,17 @@ class PublicIntegrationController extends ApiController
             $shopLinkMode = $site?->shop_link_mode;
             // shop-product ranks annotate each product with a nullable
             // popularityRank on the public wire (inert until ONE consumes it).
-            $productRanks = $this->popularity->forSite($site?->id)['shop_product'] ?? [];
+            // CCG-102: single-flight cached (mirrors IndividualProfileController) —
+            // this read used to hit Postgres on every request with no cache wrapper.
+            $siteId = $site?->id;
+            $ranks = $siteId !== null
+                ? $this->cache->rememberLocked(
+                    CacheKeyGenerator::sitePopularityRanks($siteId),
+                    self::POPULARITY_CACHE_TTL_SECONDS,
+                    fn () => $this->popularity->forSite($siteId),
+                )
+                : [];
+            $productRanks = $ranks['shop_product'] ?? [];
         }
 
         $platforms = $connections

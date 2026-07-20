@@ -315,9 +315,46 @@ class CacheKeyGenerator
         return 'platforms:apify:'.$actor.':daily:'.$date;
     }
 
+    /**
+     * Marker set BEFORE the paid Google Business Apify call and cleared after
+     * (GoogleBusinessEnrichJob, JOB-2). Its presence WITHOUT a corresponding
+     * googleBusinessApifyResult means a previous attempt died mid-call — the
+     * job refuses to re-bill and treats the run as orphaned.
+     */
+    public static function googleBusinessApifyInflight(string $userId, string $placeId): string
+    {
+        return "platforms:google-business:apify:inflight:{$userId}:{$placeId}";
+    }
+
+    /**
+     * Cached Apify result for one (user, place) — set immediately after the
+     * paid call returns, so a retry within the window reuses it instead of
+     * paying twice (GoogleBusinessEnrichJob, JOB-2). Stores {enrichment:
+     * array|null}, NEVER a bare null — a bare null would be indistinguishable
+     * from a cache miss ("never ran").
+     */
+    public static function googleBusinessApifyResult(string $userId, string $placeId): string
+    {
+        return "platforms:google-business:apify:result:{$userId}:{$placeId}";
+    }
+
     /** Cached keyless iTunes Search/Lookup response, keyed by request path (SCALE-3). */
     public static function itunesResponse(string $path): string
     {
         return 'platforms:itunes:'.sha1($path);
+    }
+
+    /**
+     * Content-popularity ranks for a site (analytics.content_popularity_scores,
+     * grouped by content_type). Consumers: PublicIntegrationController (shop
+     * product ranks) and PublicMenuController (menu category/item ranks) —
+     * both single-flight cache via CacheLockService::rememberLocked, matching
+     * IndividualProfileController's pattern (CCG-102). No mutation-driven
+     * invalidation: ranks only change via the analytics:compute-popularity
+     * schedule, so a TTL near that cadence bounds staleness on its own.
+     */
+    public static function sitePopularityRanks(string $siteId): string
+    {
+        return "site:{$siteId}:popularity:ranks";
     }
 }

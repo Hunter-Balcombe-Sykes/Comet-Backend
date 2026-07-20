@@ -74,25 +74,30 @@ class BackfillWebsiteAnalysesCommand extends Command
         // so it never retries organically. On demand, strip such entries —
         // quietly, so the observer doesn't double-dispatch; the explicit job
         // below re-analyzes.
+        // SCALE-2: chunked instead of ->get() — a full ->get() loaded the whole
+        // result set into memory; each row updates independently so chunking is a
+        // pure memory-bound swap, no behaviour change.
         if ($this->option('retry-failures')) {
-            foreach ($outsideConnections()->get() as $connection) {
-                $payload = is_array($connection->payload) ? $connection->payload : [];
-                $changed = false;
-                if ($connection->platform === Platform::Custom->value) {
-                    if ($this->stripFailedAnalysis($payload)) {
-                        $changed = true;
-                    }
-                } else {
-                    foreach ($payload as $key => $brand) {
-                        if (is_array($brand) && $this->stripFailedAnalysis($payload[$key])) {
+            $outsideConnections()->chunk(200, function ($connections) {
+                foreach ($connections as $connection) {
+                    $payload = is_array($connection->payload) ? $connection->payload : [];
+                    $changed = false;
+                    if ($connection->platform === Platform::Custom->value) {
+                        if ($this->stripFailedAnalysis($payload)) {
                             $changed = true;
                         }
+                    } else {
+                        foreach ($payload as $key => $brand) {
+                            if (is_array($brand) && $this->stripFailedAnalysis($payload[$key])) {
+                                $changed = true;
+                            }
+                        }
+                    }
+                    if ($changed) {
+                        IntegrationConnection::withoutEvents(fn () => $connection->update(['payload' => $payload]));
                     }
                 }
-                if ($changed) {
-                    IntegrationConnection::withoutEvents(fn () => $connection->update(['payload' => $payload]));
-                }
-            }
+            });
         }
 
         // Dedup pushed to Postgres (SELECT DISTINCT) instead of hydrating every

@@ -74,12 +74,16 @@ Schedule::command('partna:analytics:purge-raw-events')
 // Reads only section_views / link_clicks / item_views.
 //
 // CADENCE (2026-07-09): every 15 min while validating the ONE theme, so page +
-// item scores reflect real browsing without a manual trigger. ⚠️ REVISIT before
-// real prod scale — this full-sweeps EVERY published site each run (wasteful at
-// scale; should scope to sites with recent events), and the 0.7/0.3 hysteresis
-// blend + 90-day half-life were tuned for a DAILY cadence (at 15-min the blend
-// barely smooths). Was: ->dailyAt('02:40'). The daily 03:00 purge still bounds
-// the retained window this reads.
+// item scores reflect real browsing without a manual trigger. Was:
+// ->dailyAt('02:40'). The daily 03:00 purge still bounds the retained window
+// this reads.
+//
+// SCALE-3 (2026-07-20): the "full-sweeps EVERY published site each run" half of
+// the earlier REVISIT is fixed — ComputeContentPopularityScores now scopes the
+// no-(--site) sweep to sites with a raw event in the last
+// RECENT_EVENTS_WINDOW_MINUTES (20min). ⚠️ STILL OPEN: the 0.7/0.3 hysteresis
+// blend + 90-day half-life were tuned for a DAILY cadence — at 15-min the blend
+// barely smooths. Revisit before real prod scale.
 Schedule::command('analytics:compute-popularity')
     ->everyFifteenMinutes()
     ->onOneServer()

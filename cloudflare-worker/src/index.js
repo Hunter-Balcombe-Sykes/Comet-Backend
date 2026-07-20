@@ -39,12 +39,21 @@
  *     Report-Only mode — flip to enforcing once a real render is validated.
  */
 
+// @sync config/partna.php `public_domain` (env PARTNA_PUBLIC_DOMAIN → SIDEST_PUBLIC_DOMAIN →
+// APP_URL-host fallback chain, config/partna.php:61-66). The Worker has no env()-equivalent
+// read of Laravel config, so this is a flat literal — a change to the backend's public
+// domain (e.g. adopting a non-prod TLD) must be mirrored here by hand (EDGE-3).
 const PARTNA_DOMAIN = "partna.au";
 
 // Mirrors `reserved_subdomains` in config/partna.php (EDGE-6/EDGE-11). KEEP IN
 // SYNC: a subdomain missing here is sent to KV and 404s instead of passing
 // through to the apex origin. This is a manual mirror — when config changes,
 // update this set (or wire a build step that generates it from the PHP config).
+// @sync tests/Feature/Subdomain/ReservedSubdomainWorkerSyncTest.php (EDGE-2)
+// parses THIS literal array out of this file and diffs it against
+// config('partna.reserved_subdomains') on every test run — the only automated
+// guard against these two lists drifting, since cloudflare-worker/ has no JS
+// test harness of its own. A change to either side goes red until mirrored.
 const RESERVED = new Set([
   // --- Platform infrastructure / DNS ---
   "www", "api", "admin", "app", "apps", "staff", "dashboard",
@@ -109,12 +118,16 @@ const RESERVED = new Set([
   "towelhead", "dyke", "shemale", "porn", "porno", "xxx", "nsfw",
 ]);
 
-/** Primary cache TTL in seconds — 24 h, push-purged on mutation. */
+/** Primary cache TTL in seconds — 24 h, push-purged on mutation.
+ *  @sync app/Services/Cloudflare/CloudflarePurgeService.php `purgeHandle()` docblock,
+ *  which cites this same "24 h" figure (EDGE-3) — bump both together. */
 const PRIMARY_CACHE_TTL_S = 86_400;
 
 /** Stale-shadow TTL — 7 d. Wide window so even multi-day backend outages
  * serve the last good render. SWR refresh re-extends the shadow each
- * successful origin hit. */
+ * successful origin hit.
+ * @sync app/Services/Cloudflare/CloudflarePurgeService.php `purgeHandle()` docblock,
+ * which cites this same "7-day TTL" (EDGE-3) — bump both together. */
 const STALE_SHADOW_TTL_S = 7 * 86_400;
 
 /**
@@ -450,12 +463,30 @@ export default {
     }
 
     let entry = null;
+    let kvErrored = false;
     try {
       entry = await env.SUBDOMAIN_KV.get(subdomain, {type: "json"});
     } catch (err) {
-      // KV transient failure — fail open to avoid blocking user traffic.
+      // KV transient failure (EDGE-4). Previously this fell through to
+      // passThrough(request) — a DIFFERENT, worse UX than a genuine miss (which
+      // serves the branded unclaimedHtml 404 below): passThrough hits the apex
+      // origin with a subdomain Host it doesn't expect, typically surfacing a raw
+      // origin error. Serve the SAME branded page a real miss would, so an outage
+      // degrades gracefully instead of visibly differently — but tag the response
+      // `X-Partna-Cache: kv-error` (vs a miss's own tag below) so ops can tell a
+      // true KV outage apart from routine unclaimed-subdomain traffic in logs.
       console.error("KV lookup failed", {subdomain, err: String(err)});
-      return passThrough(request);
+      kvErrored = true;
+    }
+
+    if (kvErrored) {
+      return finalize(
+        new Response(unclaimedHtml(subdomain), {
+          status: 404,
+          headers: {"Content-Type": "text/html; charset=utf-8"},
+        }),
+        {cacheStatus: "kv-error", noStore: true},
+      );
     }
 
     if (!entry) {

@@ -4,7 +4,9 @@ use App\Enums\SitepageId;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -188,6 +190,93 @@ it('purgeHandle ignores empty handles', function () {
     (new CloudflarePurgeService)->purgeHandle('');
 
     Http::assertNothingSent();
+});
+
+/** Anonymous subclass that counts paceBetweenChunks() calls instead of really
+ *  sleeping — captures the pacing MECHANISM (SCALE-101) without slowing the
+ *  suite down or asserting on wall-clock time. Plain subclassing (not a
+ *  Mockery partial mock) so the real constructor runs and initialises the
+ *  readonly zoneId/apiToken/configured properties from config as normal. */
+function purgeServiceWithPaceSpy(): object
+{
+    return new class extends CloudflarePurgeService
+    {
+        public int $paceCalls = 0;
+
+        protected function paceBetweenChunks(): void
+        {
+            $this->paceCalls++;
+        }
+    };
+}
+
+it('paces between purge_cache chunk POSTs on a multi-chunk purge (SCALE-101)', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    // 65 URLs -> 3 chunks (30/30/5) -> pacing fires BETWEEN chunks: exactly twice,
+    // never before the first POST or after the last.
+    $urls = array_map(fn ($i) => "https://h.partna.au/p{$i}", range(1, 65));
+
+    $service = purgeServiceWithPaceSpy();
+    $service->purgeUrls($urls);
+
+    expect(Http::recorded())->toHaveCount(3);
+    expect($service->paceCalls)->toBe(2);
+});
+
+it('does not pace a single-chunk purge (no gap to pace between)', function () {
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    $service = purgeServiceWithPaceSpy();
+    $service->purgeUrls(['https://h.partna.au/']);
+
+    expect(Http::recorded())->toHaveCount(1);
+    expect($service->paceCalls)->toBe(0);
+});
+
+it('reports and warns (not silently debug-logs) when the product/menu/event enrichment lookups fail (OBS-101)', function () {
+    // Deliberately skip setupSitesTable() — the schemas are ATTACHed (empty) but
+    // none of site.shop_products / site.menu_items / site.platform_connections /
+    // core.users exist, so all three DB::table(...) lookups inside purgeHandle()
+    // throw "no such table". Proves: (a) each is now reported to Nightwatch at
+    // 'warning' — not the previous 'debug', invisible under the default
+    // log_level=warning gate (config/nightwatch.php) — and (b) the purge itself
+    // still succeeds despite all three lookups failing (the documented fail-open
+    // contract: "never let this optional lookup break the purge itself").
+    attachTestSchemas();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', '');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+    Exceptions::fake();
+    Log::spy();
+
+    (new CloudflarePurgeService)->purgeHandle('nouser');
+
+    // The page-only purge still fired despite all 3 enrichment lookups failing.
+    Http::assertSent(fn ($req) => $req->method() === 'POST');
+
+    Exceptions::assertReportedCount(3);
+    // Total warning-level call count, independent of args matching below —
+    // catches a regression that fires the right count but wrong message/level.
+    Log::shouldHaveReceived('warning')->times(3);
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $msg, array $ctx) => $msg === 'CloudflarePurgeService: product-handle lookup failed, purging pages only'
+            && ($ctx['handle'] ?? null) === 'nouser'
+    );
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $msg, array $ctx) => $msg === 'CloudflarePurgeService: menu-item lookup failed, purging pages only'
+            && ($ctx['handle'] ?? null) === 'nouser'
+    );
+    Log::shouldHaveReceived('warning')->withArgs(
+        fn (string $msg, array $ctx) => $msg === 'CloudflarePurgeService: event-id lookup failed, purging pages only'
+            && ($ctx['handle'] ?? null) === 'nouser'
+    );
 });
 
 it('purgeHandle also purges shop product detail pages + their shadows', function () {

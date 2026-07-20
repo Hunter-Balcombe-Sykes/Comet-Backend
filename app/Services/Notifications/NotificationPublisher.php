@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -270,14 +271,33 @@ class NotificationPublisher
             ->pluck('id')
             ->all();
 
+        // Only critical notifications escalate to email (OV-H) — matches publish().
+        $jobs = [];
         foreach ($insertedIds as $id) {
             [$category, $userId, $critical] = $idToCategoryAndPro[$id];
-            // Only critical notifications escalate to email (OV-H) — matches publish().
             if (! $critical) {
                 continue;
             }
-            SendTransactionalNotificationEmailJob::dispatch($id, $category, $userId)
-                ->onQueue('mail');
+            $jobs[] = new SendTransactionalNotificationEmailJob($id, $category, $userId);
+        }
+
+        if ($jobs === []) {
+            return;
+        }
+
+        // CACHE-2: fan out via Bus::batch() in chunks (mirrors
+        // SendStaffBroadcastEmailsJob) instead of one dispatch() per recipient — bounds
+        // each Redis pipeline write so a large publishMany() call can't spike Redis.
+        // allowFailures() is required, not just borrowed convention: without it a batch
+        // cancels its remaining pending jobs on the first failure, which would be a
+        // regression from the original per-recipient loop where one bad email never
+        // touched the others.
+        foreach (array_chunk($jobs, (int) config('partna.notifications.batch_chunk_size', 200)) as $chunk) {
+            Bus::batch($chunk)
+                ->onQueue('mail')
+                ->name('notification-publish-many')
+                ->allowFailures()
+                ->dispatch();
         }
     }
 

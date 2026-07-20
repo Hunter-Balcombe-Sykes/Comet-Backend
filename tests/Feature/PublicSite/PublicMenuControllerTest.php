@@ -178,6 +178,43 @@ it('surfaces menu_item and menu_category popularity ranks keyed by the persisted
     expect($items->firstWhere('id', (string) $sleeper->id)['popularityRank'])->toBeNull();
 });
 
+// ── CCG-102: popularity ranks are single-flight cached, not re-read per request ──
+
+it('serves the second popularity-ranked menu request from cache — one DB read, identical payload', function () {
+    setupContentPopularityScoresTable();
+    $user = createTenant('pubmenucache');
+
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $item = MenuItem::create([
+        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 0, 'name' => 'Margherita', 'base_price' => 11.0,
+    ]);
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(), 'site_id' => $user->site->id, 'content_type' => 'menu_item',
+        'content_key' => (string) $item->id, 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
+    ]);
+
+    DB::connection('pgsql')->enableQueryLog();
+    $first = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+    $second = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+    $log = DB::connection('pgsql')->getQueryLog();
+    DB::connection('pgsql')->disableQueryLog();
+
+    // Both requests see the same rank — the cache didn't change the answer.
+    expect($first->json('data.categories.0.items.0.popularityRank'))->toBe(1);
+    expect($second->json())->toEqual($first->json());
+
+    // The actual "not re-read per request" proof: only ONE query touches
+    // content_popularity_scores across both HTTP calls.
+    $rankQueries = array_filter($log, fn ($q) => str_contains($q['query'], 'content_popularity_scores'));
+    expect(count($rankQueries))->toBe(1);
+});
+
 // ── Per-item platform deep links (links: {uber_eats?, doordash?}) ──
 
 it('serves a DoorDash per-item deep link built from the store link + dd item id, and omits uber_eats', function () {

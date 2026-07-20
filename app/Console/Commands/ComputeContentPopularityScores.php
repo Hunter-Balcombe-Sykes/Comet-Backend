@@ -99,6 +99,15 @@ class ComputeContentPopularityScores extends Command
 
     private const SITE_CHUNK = 200;
 
+    // SCALE-3: the scheduled (no --site) run used to full-sweep EVERY published
+    // site every 15 minutes regardless of whether it had any recent activity.
+    // Now scoped to sites with a raw event since this window — sized a bit past
+    // the 15-min cadence so a slow/late tick still catches events from the gap
+    // since the previous run, without re-reading the whole event history. An
+    // explicit --site always bypasses this (manual/targeted runs process the
+    // named site unconditionally, matching the pre-existing contract).
+    private const RECENT_EVENTS_WINDOW_MINUTES = 20;
+
     /**
      * link_clicks.section_key → scored item_type. Clicks self-describe their
      * hosting section (shop / book / events); item_views carry item_type
@@ -153,6 +162,11 @@ class ComputeContentPopularityScores extends Command
         $query = Site::query()->where('is_published', true)->with('user');
         if (is_string($siteOpt) && $siteOpt !== '') {
             $query->where('id', $siteOpt);
+        } else {
+            // SCALE-3: scope the periodic full sweep to sites with events since
+            // the last window — see RECENT_EVENTS_WINDOW_MINUTES above.
+            $since = now()->subMinutes(self::RECENT_EVENTS_WINDOW_MINUTES);
+            $query->whereIn('id', $this->siteIdsWithRecentEvents($since));
         }
 
         $sitesProcessed = 0;
@@ -217,6 +231,33 @@ class ComputeContentPopularityScores extends Command
         ]);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Distinct site ids with at least one raw event since $since, across the same
+     * three tables this command already reads (section_views/link_clicks/item_views
+     * — see the class docblock). PHP-side union of three DISTINCT plucks rather
+     * than a cross-table SQL UNION so the query stays a plain per-table filter,
+     * identical on Postgres and the SQLite test schema.
+     *
+     * @return list<string>
+     */
+    private function siteIdsWithRecentEvents(Carbon $since): array
+    {
+        $ids = [];
+        foreach (['analytics.section_views', 'analytics.link_clicks', 'analytics.item_views'] as $table) {
+            foreach (
+                DB::connection('pgsql')->table($table)
+                    ->where('occurred_at', '>=', $since->toISOString())
+                    ->distinct()
+                    ->pluck('site_id')
+                as $siteId
+            ) {
+                $ids[(string) $siteId] = true;
+            }
+        }
+
+        return array_keys($ids);
     }
 
     /**

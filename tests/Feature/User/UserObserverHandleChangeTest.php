@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -17,6 +18,44 @@ beforeEach(function () {
     // Prevent Redis connection attempts in the cache service
     mock(UserCacheService::class)->shouldIgnoreMissing();
 });
+
+// TEST-2: real User + Site rows (not a mocked Site) so the "touches parent
+// site" tests assert the OBSERVABLE outcome — CloudflareCachePurgeJob firing
+// via SiteObserver::saved — rather than a mock expectation on touch() that
+// can drift from what touch() actually triggers. Mirrors the fixture +
+// rationale in tests/Feature/Observers/BlockAndMediaTouchSiteTest.php (unique
+// name here to avoid a global function redeclare across the two files).
+function seedUserObserverTouchFixture(): array
+{
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'touchtest',
+        'handle_lc' => 'touchtest',
+        'display_name' => 'Touch Test',
+        'first_name' => 'Touch',
+        'last_name' => 'Test',
+        'phone' => '+61400000000',
+        'account_type' => 'individual',
+        'status' => 'active',
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $proId,
+        'subdomain' => 'touchtest',
+        'is_published' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    return ['pro_id' => $proId, 'site_id' => $siteId];
+}
 
 it('dispatches SyncSubdomainToKvJob when handle changes', function () {
     Queue::fake();
@@ -118,19 +157,21 @@ it('re-dispatches a KV sync (upsert) when a professional is restored', function 
 // ── Site touch on public-visible User-field changes (PR #120) ─────────────
 
 it('touches parent site when a public-visible field changes', function (string $field) {
+    setupUsersTable();
+    setupSitesTable();
     Queue::fake();
 
-    $site = Mockery::mock(Site::class);
-    $site->shouldReceive('touch')->once();
+    $fixture = seedUserObserverTouchFixture();
+    $pro = User::find($fixture['pro_id']);
 
-    $pro = new User;
-    $pro->setRawAttributes(['id' => (string) Str::uuid(), $field => 'old']);
-    $pro->syncOriginal();
-    $pro->{$field} = 'new';
-    $pro->syncChanges();
-    $pro->setRelation('site', $site);
+    // Real DB write (not a mocked Site) so this asserts the OBSERVABLE outcome
+    // of touch() — CloudflareCachePurgeJob dispatched via SiteObserver::saved —
+    // rather than a mock expectation that touch() itself was called.
+    $pro->update([$field => 'new-value']);
 
-    app(UserObserver::class)->updated($pro);
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->handle === 'touchtest';
+    });
 })->with(['handle', 'display_name', 'first_name', 'last_name']);
 
 it('survives a null site relation when a public field changes', function () {
@@ -196,25 +237,21 @@ it('does not throw when a public contact change happens with no site relation', 
 // ── Joint negative — non-public field changes trigger neither path ────────
 
 it('skips both site touch and public_contact reeval when only a non-public field changes', function () {
+    setupUsersTable();
+    setupSitesTable();
     Queue::fake();
 
-    $site = Mockery::mock(Site::class);
-    $site->shouldNotReceive('touch');
+    $fixture = seedUserObserverTouchFixture();
+    $pro = User::find($fixture['pro_id']);
 
     $visibility = mock(SectionVisibilityService::class);
     $visibility->shouldNotReceive('reevaluateEnabled');
 
-    $pro = new User;
-    $pro->setRawAttributes([
-        'id' => (string) Str::uuid(),
-        'phone' => '+61400000000',
-    ]);
-    $pro->syncOriginal();
-    $pro->phone = '+61400000001';
-    $pro->syncChanges();
-    $pro->setRelation('site', $site);
+    // Real DB write — asserts the observable outcome (no CF purge dispatched)
+    // rather than a mock expectation that Site::touch() was never called.
+    $pro->update(['phone' => '+61400000001']);
 
-    app(UserObserver::class)->updated($pro);
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
 });
 
 // ── Cache-invalidation faults are reported to Nightwatch, not just logged (#CCH-101) ─

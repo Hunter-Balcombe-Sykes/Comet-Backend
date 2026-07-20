@@ -19,6 +19,16 @@ use Illuminate\Support\Facades\Log;
 // Gracefully no-ops when unconfigured (local dev without CF credentials).
 class CloudflarePurgeService
 {
+    // SCALE-101: gap between chunk POSTs on a multi-chunk purgeUrls() call. A full
+    // purgeHandle() can fan out to 20+ chunks once products/menu items/events are
+    // all folded in (each bounded: 100 products + 150 menu items + 30 events, times
+    // up to 2 hosts) — firing them back-to-back with zero pacing bursts Cloudflare's
+    // purge_cache endpoint. 150ms keeps a worst-case ~20-chunk purge under ~3s,
+    // comfortably inside CloudflareCachePurgeJob's 15s job timeout, while smoothing
+    // the burst. Plain usleep (not a pool) because purgeUrls' chunk order matters
+    // for nothing and the volumes here don't justify Http::pool's added complexity.
+    private const CHUNK_PACING_MICROSECONDS = 150_000;
+
     private readonly string $zoneId;
 
     private readonly string $apiToken;
@@ -62,8 +72,12 @@ class CloudflarePurgeService
         // Cloudflare's purge_cache `files` accepts at most 30 URLs per request on
         // non-Enterprise plans. A full sitepage purge (root + 15 deep-link
         // sub-paths + each one's SWR shadow + the API subrequest) exceeds that, so
-        // chunk into <=30-URL batches — one POST each.
-        foreach (array_chunk(array_values($urls), 30) as $chunk) {
+        // chunk into <=30-URL batches — one POST each, paced (SCALE-101).
+        foreach (array_chunk(array_values($urls), 30) as $i => $chunk) {
+            if ($i > 0) {
+                $this->paceBetweenChunks();
+            }
+
             Http::withToken($this->apiToken)
                 ->asJson()
                 ->acceptJson()
@@ -72,15 +86,23 @@ class CloudflarePurgeService
         }
     }
 
+    /** Extracted so tests can spy on the pacing mechanism without a real sleep. */
+    protected function paceBetweenChunks(): void
+    {
+        usleep(self::CHUNK_PACING_MICROSECONDS);
+    }
+
     /**
      * Purge the full cache chain for one individual's public profile. The router
      * Worker keys the edge cache by request PATH, so a profile occupies many keys:
      *   • Root page (`https://<handle>.partna.au/`, slash + slash-less variants).
      *   • Every deep-link sub-page — `/shop`, `/book`, `/listen`, … (the SitepageId
      *     taxonomy). Each is a SEPARATE edge key; purging only the root left these
-     *     serving pre-mutation HTML until their s-maxage lapsed (observed 24 h).
+     *     serving pre-mutation HTML until their s-maxage lapsed (observed 24 h —
+     *     sync note: cloudflare-worker/src/index.js `PRIMARY_CACHE_TTL_S`, bump both together).
      *   • The SWR stale shadow for each of the above (`/_swr-shadow<path>`, 7-day
-     *     TTL — cloudflare-worker/src/index.js `staleShadowKey`). On a primary MISS
+     *     TTL — cloudflare-worker/src/index.js `staleShadowKey`, sync note: `STALE_SHADOW_TTL_S`
+     *     in the same file — bump both together). On a primary MISS
      *     the Worker serves the shadow and refreshes in the background, so without
      *     purging it the first post-mutation visitor still sees stale content.
      *   • Backend API subrequest (`<app.url>/api/public/profiles/<handle>`), which
@@ -148,7 +170,11 @@ class CloudflarePurgeService
                 ->pluck('product_handle')
                 ->all();
         } catch (\Throwable $e) {
-            Log::debug('CloudflarePurgeService: product-handle lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
+            // OBS-101: this lookup failing silently degrades to page-only purges
+            // (stale PDPs) with zero signal — must reach Nightwatch, not just a
+            // log line the default 'warning' log_level filters out (config/nightwatch.php).
+            report($e);
+            Log::warning('CloudflarePurgeService: product-handle lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $productHandles = [];
         }
 
@@ -164,7 +190,11 @@ class CloudflarePurgeService
                 ->pluck('mi.id')
                 ->all();
         } catch (\Throwable $e) {
-            Log::debug('CloudflarePurgeService: menu-item lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
+            // OBS-101: same bug as the product-handle catch above — bump to
+            // warning + report() so a stale-menu-page regression pages instead
+            // of vanishing into a log level Nightwatch never reads.
+            report($e);
+            Log::warning('CloudflarePurgeService: menu-item lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $menuItemIds = [];
         }
 
@@ -206,7 +236,11 @@ class CloudflarePurgeService
             }
             $eventIds = array_slice(array_keys($eventIdSet), 0, 100);
         } catch (\Throwable $e) {
-            Log::debug('CloudflarePurgeService: event-id lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
+            // OBS-101: same bug as the product-handle catch above — bump to
+            // warning + report() so a stale-event-page regression pages instead
+            // of vanishing into a log level Nightwatch never reads.
+            report($e);
+            Log::warning('CloudflarePurgeService: event-id lookup failed, purging pages only', ['handle' => $h, 'error' => $e->getMessage()]);
             $eventIds = [];
         }
 

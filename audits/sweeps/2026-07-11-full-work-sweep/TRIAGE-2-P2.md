@@ -215,7 +215,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 5 of 20 complete
+- P2 Medium: 6 of 20 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -328,7 +328,7 @@
         );
         ```
 
-- [ ] **LIFE-10** · P2 — GoogleBusinessEnrichJob writes `payload` without a lock; a same-window scheduled refresh can lose the enrichment
+- [x] **LIFE-10** · P2 — GoogleBusinessEnrichJob writes `payload` without a lock; a same-window scheduled refresh can lose the enrichment
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:90-167 (vs. app/Services/Platforms/Strategies/Refresh/ScheduledRefresh.php:22-40)
     - **Affects:** Google Business connections — a connect-time Apify enrichment racing a due scheduled refresh for the same connection can have either write clobber the other's `payload`.
     - **Effort:** M (~2–4h)
@@ -1404,7 +1404,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1413,7 +1413,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#JOB-2** · P2 — GoogleBusinessEnrichJob can re-run the paid Apify scrape on a retry after a partial success
+- [x] **#JOB-2** · P2 — GoogleBusinessEnrichJob can re-run the paid Apify scrape on a retry after a partial success
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:106-166
     - **Affects:** Google Business enrichment flow; duplicate Apify actor billing and duplicate scrape traffic against the same place on a DB-write failure
     - **Effort:** M (~2–4h)
@@ -1494,7 +1494,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 3 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1570,7 +1570,7 @@ None.
         ```
     - `[Adjudicated: jobs-hooks DeepSeek draft OBS-4 (P2, confidence 0.8); scope narrowed — BackfillWebsiteAnalysesCommand dropped after confirming it only dispatches jobs and does no heavy synchronous work]`
 
-- [ ] **OBS-6** · P2 — GoogleBusinessEnrichJob's soft-failure branch marks the connection 'unavailable' with zero logging
+- [x] **OBS-6** · P2 — GoogleBusinessEnrichJob's soft-failure branch marks the connection 'unavailable' with zero logging
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:111-118
     - **Affects:** Users whose Google Business enrichment fails without an exception (Apify returned nothing AND the website harvest found nothing) — the core Place Details card still renders, but repeated soft failures are invisible to operators.
     - **Effort:** S (~0.5–1h)

@@ -24,30 +24,18 @@ id = "ce726607804d41a296d6da150b0c537f"
 preview_id = "e6a8eecd305148f9a75b879aa6faf790"
 
 # Service Binding to the partna-pages Astro Worker (plan §16, §29.2).
-# Production wires to the production deployment of partna-pages; staging
-# overrides to the staging worker name. Bind name must stay `PARTNA_PAGES`
-# — the router reads `env.PARTNA_PAGES.fetch(request)` against this exact
-# identifier.
+# Bind name must stay `PARTNA_PAGES` — the router reads
+# `env.PARTNA_PAGES.fetch(request)` against this exact identifier.
 [[services]]
 binding = "PARTNA_PAGES"
 service = "partna-pages"
 environment = "production"
 
-# Staging override — same router code, points at the staging Astro Worker.
-[env.staging]
-[[env.staging.services]]
-binding = "PARTNA_PAGES"
-service = "partna-pages-staging"
-
-# EDGE-10: staging MUST NOT share the production SUBDOMAIN_KV — without this
-# override a `--env staging` deploy (or a staging backend KV backfill) would
-# write into the production routing table and poison prod. Give staging its own
-# namespace. TODO(josh): create it and paste the id below —
-#   wrangler kv namespace create SUBDOMAIN_KV_STAGING
-#   wrangler kv namespace create SUBDOMAIN_KV_STAGING --preview
-# then point the STAGING Laravel env's CLOUDFLARE_KV_NAMESPACE_ID at the same id
-# so SyncSubdomainToKvJob writes to the staging namespace, not prod.
-[[env.staging.kv_namespaces]]
-binding = "SUBDOMAIN_KV"
-id = "REPLACE_WITH_STAGING_KV_NAMESPACE_ID"
-preview_id = "REPLACE_WITH_STAGING_KV_PREVIEW_ID"
+# EDGE-102: no [env.staging] block. CLAUDE.md documents exactly two backend
+# environments — development and production (both served by the SAME Laravel
+# Cloud env as of 2026-06-16) — there is no staging environment for this Worker
+# to target. The removed block carried unresolved REPLACE_WITH_STAGING_KV_*
+# placeholders that would have failed a real `--env staging` deploy anyway. If
+# a genuine staging tier is introduced later, re-add the override then with
+# real KV namespace ids (EDGE-10's concern — staging must never share the
+# production SUBDOMAIN_KV) rather than resurrecting placeholders.

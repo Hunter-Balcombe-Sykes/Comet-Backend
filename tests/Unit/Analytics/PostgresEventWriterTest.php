@@ -17,6 +17,7 @@ beforeEach(function () {
     setupLinkClicksTable();
     setupSectionViewsTable();
     setupItemViewsTable();
+    setupSiteSessionsTable();
 });
 
 function pgWriter(): PostgresEventWriter
@@ -165,6 +166,89 @@ it('drops an item view missing item_type/item_id (NOT NULL defence)', function (
     ]));
 
     expect(DB::connection('pgsql')->table('analytics.item_views')->count())->toBe(0);
+});
+
+// --- CACHE-1: batched session-ping upsert (writeMany's per-event loop collapsed
+// into one multi-row INSERT ... ON CONFLICT ... GREATEST()) ---
+
+it('writeMany upserts multiple distinct sessions in a single round trip', function () {
+    $t = createBrandTenant('writer-sessions-batch');
+    $sessionA = (string) Str::orderedUuid();
+    $sessionB = (string) Str::orderedUuid();
+
+    DB::connection('pgsql')->enableQueryLog();
+    pgWriter()->writeMany([
+        baseEvent(['type' => AnalyticsEvent::TYPE_SESSION_PING, 'user_id' => $t->id, 'site_id' => $t->site->id, 'session_id' => $sessionA, 'duration_seconds' => 5]),
+        baseEvent(['type' => AnalyticsEvent::TYPE_SESSION_PING, 'user_id' => $t->id, 'site_id' => $t->site->id, 'session_id' => $sessionB, 'duration_seconds' => 8]),
+    ]);
+    $log = DB::connection('pgsql')->getQueryLog();
+    DB::connection('pgsql')->disableQueryLog();
+
+    // The finding: ONE insert statement touches analytics.site_sessions for the
+    // whole batch, not one round trip per event (the old per-event loop).
+    $sessionQueries = array_filter($log, fn ($q) => str_contains($q['query'], 'analytics.site_sessions'));
+    expect($sessionQueries)->toHaveCount(1);
+
+    $rows = DB::connection('pgsql')->table('analytics.site_sessions')->orderBy('id')->get();
+    expect($rows)->toHaveCount(2)
+        ->and($rows->firstWhere('id', $sessionA)->duration_seconds)->toEqual(5)
+        ->and($rows->firstWhere('id', $sessionB)->duration_seconds)->toEqual(8);
+});
+
+it('writeMany collapses same-batch pings for the same session — GREATEST duration, first-write-wins referrer', function () {
+    $t = createBrandTenant('writer-sessions-samebatch');
+    $sessionId = (string) Str::orderedUuid();
+    $earlier = now()->subMinute()->toISOString();
+    $later = now()->toISOString();
+
+    pgWriter()->writeMany([
+        baseEvent([
+            'type' => AnalyticsEvent::TYPE_SESSION_PING, 'user_id' => $t->id, 'site_id' => $t->site->id,
+            'session_id' => $sessionId, 'duration_seconds' => 30, 'occurred_at' => $earlier,
+            'referrer' => 'https://instagram.com/',
+        ]),
+        // Same session, later ping with a SMALLER duration (out-of-order / replay) and
+        // a different referrer — duration must not shrink, and the first referrer wins.
+        baseEvent([
+            'type' => AnalyticsEvent::TYPE_SESSION_PING, 'user_id' => $t->id, 'site_id' => $t->site->id,
+            'session_id' => $sessionId, 'duration_seconds' => 10, 'occurred_at' => $later,
+            'referrer' => 'https://facebook.com/',
+        ]),
+    ]);
+
+    $rows = DB::connection('pgsql')->table('analytics.site_sessions')->where('id', $sessionId)->get();
+    expect($rows)->toHaveCount(1)
+        ->and((int) $rows[0]->duration_seconds)->toBe(30)
+        ->and($rows[0]->referrer)->toBe('https://instagram.com/');
+});
+
+it('writeMany preserves first-write-wins against an EXISTING row across two batches (conflict case)', function () {
+    $t = createBrandTenant('writer-sessions-conflict');
+    $sessionId = (string) Str::orderedUuid();
+
+    // First batch establishes the row.
+    pgWriter()->writeMany([
+        baseEvent([
+            'type' => AnalyticsEvent::TYPE_SESSION_PING, 'user_id' => $t->id, 'site_id' => $t->site->id,
+            'session_id' => $sessionId, 'duration_seconds' => 20, 'country_code' => 'AU',
+            'referrer' => 'https://instagram.com/',
+        ]),
+    ]);
+
+    // Second batch retries with a SMALLER duration and different origin fields —
+    // duration must only grow, and origin fields (referrer/country) stay first-write-wins.
+    pgWriter()->writeMany([
+        baseEvent([
+            'type' => AnalyticsEvent::TYPE_SESSION_PING, 'user_id' => $t->id, 'site_id' => $t->site->id,
+            'session_id' => $sessionId, 'duration_seconds' => 5, 'country_code' => 'US',
+            'referrer' => 'https://facebook.com/',
+        ]),
+    ]);
+
+    $row = DB::connection('pgsql')->table('analytics.site_sessions')->where('id', $sessionId)->first();
+    expect((int) $row->duration_seconds)->toBe(20)
+        ->and($row->country_code)->toBe('AU')
+        ->and($row->referrer)->toBe('https://instagram.com/');
 });
 
 it('writeMany persists all valid events across types', function () {

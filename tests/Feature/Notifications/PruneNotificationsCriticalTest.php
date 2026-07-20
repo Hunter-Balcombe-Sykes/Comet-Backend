@@ -84,3 +84,46 @@ it('dry-run deletes nothing', function () {
 
     expect(DB::table('notifications.notifications')->count())->toBe(1);
 });
+
+// SCALE-1: the daily-scheduled prune used to be one unbounded DELETE. Now batched
+// like PurgeRawAnalyticsEvents::purgeBatched — these prove the loop still deletes
+// every eligible row across multiple rounds AND leaves ineligible rows untouched.
+it('deletes every eligible row across multiple batches when eligible rows exceed the batch size', function () {
+    // 5 expired non-critical rows — batch size 2 forces 3 rounds (2, 2, 1).
+    foreach (range(1, 5) as $i) {
+        seedPruneRow("expired-{$i}", critical: false, endsAt: now()->subDay()->toDateTimeString());
+    }
+    // Ineligible rows must survive the batching loop too — the survival half is
+    // the one most likely to catch an inverted comparison.
+    seedPruneRow('kept-unexpired', critical: false, endsAt: now()->addDay()->toDateTimeString());
+    seedPruneRow('kept-critical', critical: true, endsAt: now()->subDay()->toDateTimeString());
+
+    DB::connection('pgsql')->enableQueryLog();
+    Artisan::call('partna:prune-notifications', ['--days' => 0, '--batch-size' => 2]);
+    $log = DB::connection('pgsql')->getQueryLog();
+    DB::connection('pgsql')->disableQueryLog();
+
+    $remaining = DB::table('notifications.notifications')->pluck('id')->all();
+
+    foreach (range(1, 5) as $i) {
+        expect($remaining)->not->toContain("expired-{$i}");
+    }
+    expect($remaining)->toContain('kept-unexpired')
+        ->and($remaining)->toContain('kept-critical');
+
+    // The actual "genuinely loops" proof: 5 eligible rows at batch size 2 must take
+    // 3 DELETE round trips (2, 2, 1) — a single unbounded DELETE would show as 1 and
+    // still pass the row-survival assertions above, so this is the half that catches
+    // a batching loop that was silently skipped/no-opped.
+    $deleteQueries = array_filter($log, fn ($q) => str_starts_with(trim($q['query']), 'delete'));
+    expect($deleteQueries)->toHaveCount(3);
+});
+
+it('aborts without deleting when the given batch size is non-positive (infinite-loop guard)', function () {
+    seedPruneRow('expired-noncritical', critical: false, endsAt: now()->subDay()->toDateTimeString());
+
+    // Must return promptly (no infinite do/while spin) and leave the row untouched.
+    Artisan::call('partna:prune-notifications', ['--days' => 0, '--batch-size' => 0]);
+
+    expect(DB::table('notifications.notifications')->count())->toBe(1);
+});

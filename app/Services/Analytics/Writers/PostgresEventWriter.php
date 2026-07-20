@@ -72,8 +72,8 @@ class PostgresEventWriter implements AnalyticsEventWriter
         if ($itemRows !== []) {
             ItemView::query()->insertOrIgnore($itemRows);
         }
-        foreach ($sessionEvents as $event) {
-            $this->upsertSession($event);
+        if ($sessionEvents !== []) {
+            $this->upsertSessions($sessionEvents);
         }
         // Dwell AFTER section inserts so a same-batch impression row exists
         // before its dwell annotation looks for it.
@@ -284,53 +284,103 @@ class PostgresEventWriter implements AnalyticsEventWriter
     }
 
     /**
-     * Upsert one session row from a heartbeat. PK is the composite
-     * (client-minted session UUID, site_id) — #DINT-1: a bare id-only PK let
-     * a session id reused across two different sites (one visitor browsing
-     * two Partna sites) silently drop the second site's heartbeat, because
-     * the old id-only conflict target found a row that belonged to the
-     * WRONG site and a WHERE guard blocked the update with nowhere for the
-     * insert to go. Keying the conflict target on (id, site_id) means a
-     * conflict can only ever fire when site_id already matches, so two
-     * sites sharing a session id now get two independent rows instead of
-     * one clobbering silently over the other. GREATEST() on last_seen/
-     * duration makes at-least-once delivery and out-of-order pings
-     * idempotent. Origin fields (geo/device/referrer/visitor) are
-     * first-write-wins by design.
+     * Upsert session rows from a batch of heartbeats in ONE round trip (CACHE-1 —
+     * was a per-event loop, the only sibling array in writeMany() not already
+     * batched). PK is the composite (client-minted session UUID, site_id) —
+     * #DINT-1: a bare id-only PK let a session id reused across two different
+     * sites (one visitor browsing two Partna sites) silently drop the second
+     * site's heartbeat, because the old id-only conflict target found a row that
+     * belonged to the WRONG site and a WHERE guard blocked the update with
+     * nowhere for the insert to go. Keying the conflict target on (id, site_id)
+     * means a conflict can only ever fire when site_id already matches, so two
+     * sites sharing a session id now get two independent rows instead of one
+     * clobbering silently over the other. GREATEST() on last_seen/duration makes
+     * at-least-once delivery and out-of-order pings idempotent. Origin fields
+     * (geo/device/referrer/visitor) are first-write-wins by design.
+     *
+     * Postgres forbids an INSERT ... ON CONFLICT DO UPDATE from touching the same
+     * row twice within one statement ("ON CONFLICT DO UPDATE command cannot
+     * affect row a second time"), so same-batch pings for the same (id, site_id)
+     * are pre-merged in PHP below — first-write-wins fields keep the FIRST
+     * event's values (array order, same as the old sequential-upsert order),
+     * last_seen_at/duration_seconds GREATEST-merge across the batch exactly like
+     * the per-row ON CONFLICT clause would.
+     *
+     * @param  AnalyticsEvent[]  $events
      */
-    private function upsertSession(AnalyticsEvent $e): void
+    private function upsertSessions(array $events): void
     {
-        // started_at derived in PHP (last_seen − cumulative seconds) so the SQL
-        // stays driver-portable — SQLite test envs lack make_interval().
-        $seconds = max(0, min(86400, (int) ($e->durationSeconds ?? 0)));
-        $lastSeen = Carbon::parse($e->occurredAt);
-        $startedAt = $lastSeen->copy()->subSeconds($seconds);
+        $rows = [];
+        foreach ($events as $e) {
+            // started_at derived in PHP (last_seen − cumulative seconds) so the SQL
+            // stays driver-portable — SQLite test envs lack make_interval().
+            $seconds = max(0, min(86400, (int) ($e->durationSeconds ?? 0)));
+            $lastSeen = Carbon::parse($e->occurredAt);
+            $key = $e->sessionId.'|'.$e->siteId;
+
+            if (! isset($rows[$key])) {
+                $rows[$key] = [
+                    'id' => $e->sessionId,
+                    'user_id' => $e->userId,
+                    'site_id' => $e->siteId,
+                    'visitor_id' => $e->visitorId,
+                    'started_at' => $lastSeen->copy()->subSeconds($seconds),
+                    'last_seen_at' => $lastSeen,
+                    'duration_seconds' => $seconds,
+                    'country_code' => $e->countryCode,
+                    'region_code' => $e->regionCode,
+                    'device_type' => $e->deviceType,
+                    // PRIV-5: strip referrer query strings (UTM-embedded PII).
+                    'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
+                ];
+
+                continue;
+            }
+
+            // Same session repeated within this batch — merge like the DB
+            // conflict clause would; started_at (and the other first-write-wins
+            // fields) stay untouched, matching per-row upsert semantics.
+            if ($lastSeen->gt($rows[$key]['last_seen_at'])) {
+                $rows[$key]['last_seen_at'] = $lastSeen;
+            }
+            if ($seconds > $rows[$key]['duration_seconds']) {
+                $rows[$key]['duration_seconds'] = $seconds;
+            }
+        }
 
         $greatest = DB::connection('pgsql')->getDriverName() === 'sqlite' ? 'MAX' : 'GREATEST';
+        $now = now()->toISOString();
+
+        $placeholders = [];
+        $bindings = [];
+        foreach ($rows as $row) {
+            $placeholders[] = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            array_push(
+                $bindings,
+                $row['id'],
+                $row['user_id'],
+                $row['site_id'],
+                $row['visitor_id'],
+                $row['started_at']->toISOString(),
+                $row['last_seen_at']->toISOString(),
+                $row['duration_seconds'],
+                $row['country_code'],
+                $row['region_code'],
+                $row['device_type'],
+                $row['referrer'],
+                $now,
+            );
+        }
 
         DB::connection('pgsql')->statement(
-            "INSERT INTO analytics.site_sessions
+            'INSERT INTO analytics.site_sessions
                 (id, user_id, site_id, visitor_id, started_at, last_seen_at, duration_seconds,
                  country_code, region_code, device_type, referrer, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES '.implode(', ', $placeholders)."
              ON CONFLICT (id, site_id) DO UPDATE SET
                 last_seen_at = {$greatest}(site_sessions.last_seen_at, EXCLUDED.last_seen_at),
                 duration_seconds = {$greatest}(site_sessions.duration_seconds, EXCLUDED.duration_seconds)",
-            [
-                $e->sessionId,
-                $e->userId,
-                $e->siteId,
-                $e->visitorId,
-                $startedAt->toISOString(),
-                $lastSeen->toISOString(),
-                $seconds,
-                $e->countryCode,
-                $e->regionCode,
-                $e->deviceType,
-                // PRIV-5: strip referrer query strings (UTM-embedded PII).
-                AnalyticsEventSanitizer::referrer($e->referrer),
-                now()->toISOString(),
-            ]
+            $bindings
         );
     }
 
