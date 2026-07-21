@@ -165,8 +165,13 @@ class InstagramAutoSync
     {
         try {
             $userId = (string) $user->id;
-            $canSyncSocial = AccountCapabilities::for($user)->google_business_full_sync;
-            $canSyncBooking = AccountCapabilities::for($user)->can_use_booking;
+            $caps = AccountCapabilities::for($user);
+            // DISC-7: don't auto-create platform connections from a scraped bio for a
+            // not-yet-consenting provisional (unclaimed) subject — surfaced as an
+            // unmatched custom-link suggestion instead (same routing as a capability-gated link).
+            $canAutosync = $caps->can_autosync_scraped_connections;
+            $canSyncSocial = $caps->google_business_full_sync && $canAutosync;
+            $canSyncBooking = $caps->can_use_booking && $canAutosync;
 
             $platform = $classified['platform'];
             if (! isset(self::ACTIONABLE[$platform])) {

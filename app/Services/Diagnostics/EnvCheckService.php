@@ -84,6 +84,10 @@ class EnvCheckService
         ],
         'Mail' => [
             'services.resend.key' => 'RESEND_API_KEY',
+            // Missing = the Resend bounce/complaint webhook 503s (fail-closed), so
+            // dead/complaining addresses are never suppressed and drag down the
+            // shared partna.au sender reputation.
+            'services.resend.webhook_secret' => 'RESEND_WEBHOOK_SECRET',
             'mail.from.address' => 'MAIL_FROM_ADDRESS',
             'mail.from.name' => 'MAIL_FROM_NAME',
         ],

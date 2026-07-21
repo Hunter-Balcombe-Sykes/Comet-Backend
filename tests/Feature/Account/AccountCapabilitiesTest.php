@@ -187,6 +187,28 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
     });
 });
 
+describe('AccountCapabilities — DISC-7 consent gate (auto-synced scraped connections)', function () {
+    it('withholds auto-sync consent from an unclaimed (provisional) account', function () {
+        // status is deliberately NOT fillable (SEC-2) — forceFill it directly,
+        // same as every other status-setting test in this suite.
+        $pro = (new User(['account_type' => 'partna']))->forceFill(['status' => 'unclaimed']);
+
+        expect(AccountCapabilities::for($pro)->can_autosync_scraped_connections)->toBeFalse();
+    });
+
+    it('grants auto-sync consent to an active (claimed) account', function () {
+        $pro = (new User(['account_type' => 'partna']))->forceFill(['status' => 'active']);
+
+        expect(AccountCapabilities::for($pro)->can_autosync_scraped_connections)->toBeTrue();
+    });
+
+    it('grants auto-sync consent to any other non-unclaimed status (spot-check: suspended)', function () {
+        $pro = (new User(['account_type' => 'partna']))->forceFill(['status' => 'suspended']);
+
+        expect(AccountCapabilities::for($pro)->can_autosync_scraped_connections)->toBeTrue();
+    });
+});
+
 describe('UserDashboardResource — stripe_connect_status absent for standard accounts', function () {
     it('omits stripe_connect_status entirely for standard accounts', function () {
         $pro = new User([

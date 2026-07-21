@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
@@ -90,6 +91,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -337,6 +339,12 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(CacheHit::class, RecordCacheMetrics::class);
         Event::listen(CacheMissed::class, RecordCacheMetrics::class);
         Event::listen(KeyWritten::class, RecordCacheMetrics::class);
+
+        // Send-time suppression gate — cancels any outbound mail to an address on
+        // core.email_suppressions (hard bounce / spam complaint from Resend). The
+        // one chokepoint that makes suppression bite for OTP, claim-invite, and
+        // transactional mail alike. Fails open on lookup error (see the listener).
+        Event::listen(MessageSending::class, BlockSuppressedRecipients::class);
 
         // Strict-mode N+1 trap: throw on unloaded relation access outside production
         // so tests/local catch lazy loading instead of leaking slow queries to prod.

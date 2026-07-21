@@ -4,9 +4,12 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 // Unified "Tickets & Events" catalogue over the Eventbrite + Humanitix platforms
 // plus a custom-link fallback. A pasted URL is detected (eventbrite / humanitix /
@@ -216,46 +219,61 @@ class EventsCatalog
 
     // ── Storage ───────────────────────────────────────────────────────────
 
+    // PWL-13: this catalogue is a second writer of the SAME eventbrite/humanitix
+    // platform_connections rows EventsPlatformController::addAccount() (locked)
+    // and ScheduledRefresh (locked) write — races them without withPlatformLock.
+    // The vendor fetch (fetchAccount) already ran upstream in addByUrl() before
+    // this is called, so the whole read→mutate→write cycle here is DB-only and
+    // safe to hold the lock across.
     private function storeAccount(User $user, string $platform, string $url, array $result): array
     {
-        $rid = 'acct-'.substr(sha1(strtolower(trim($url))), 0, 16);
-        $existing = IntegrationConnection::query()
-            ->where('user_id', $user->id)->where('platform', $platform)->where('resource_id', $rid)
-            ->first();
+        return $this->withPlatformLock($user, $platform, function () use ($user, $platform, $url, $result): array {
+            $rid = 'acct-'.substr(sha1(strtolower(trim($url))), 0, 16);
+            $existing = IntegrationConnection::query()
+                ->where('user_id', $user->id)->where('platform', $platform)->where('resource_id', $rid)
+                ->first();
 
-        if ($existing === null && $this->accountRows($user, $platform)->count() >= self::MAX_ACCOUNTS) {
-            return $this->fail('You can connect up to '.self::MAX_ACCOUNTS.' organisers per platform.', 422);
-        }
+            if ($existing === null && $this->accountRows($user, $platform)->count() >= self::MAX_ACCOUNTS) {
+                return $this->fail('You can connect up to '.self::MAX_ACCOUNTS.' organisers per platform.', 422);
+            }
 
-        // Re-connecting the same organiser keeps its per-event hides.
-        $hidden = EventsAccountPayload::fromArray($existing?->payload)->hiddenEventIds();
-        $payload = EventsPayload::accountPayload(
-            $url,
-            $result['organiser'] ?? null,
-            is_array($result['events'] ?? null) ? $result['events'] : [],
-            $hidden,
-        );
-        $this->writeRow($user, $platform, $rid, $payload);
+            // Re-connecting the same organiser keeps its per-event hides.
+            $hidden = EventsAccountPayload::fromArray($existing?->payload)->hiddenEventIds();
+            $payload = EventsPayload::accountPayload(
+                $url,
+                $result['organiser'] ?? null,
+                is_array($result['events'] ?? null) ? $result['events'] : [],
+                $hidden,
+            );
+            $this->writeRow($user, $platform, $rid, $payload);
 
-        return ['ok' => true, 'selection' => $this->selection($user)];
+            return ['ok' => true, 'selection' => $this->selection($user)];
+        });
     }
 
+    // PWL-13: same duplicate-writer race as storeAccount() above, against
+    // EventsPlatformController::addStandaloneEvent()/removeEvent() (locked) and
+    // ScheduledRefresh. fetchEvent already ran upstream in addByUrl(); storeCustom()
+    // does its own fetch (linkCard->snapshotOrMinimal) before calling in here, so
+    // this method's body is DB-only same as storeAccount's.
     private function storeStandalone(User $user, string $platform, array $payload): array
     {
-        $rid = 'event-'.$payload['id'];
-        $exists = IntegrationConnection::query()
-            ->where('user_id', $user->id)->where('platform', $platform)->where('resource_id', $rid)
-            ->exists();
+        return $this->withPlatformLock($user, $platform, function () use ($user, $platform, $payload): array {
+            $rid = 'event-'.$payload['id'];
+            $exists = IntegrationConnection::query()
+                ->where('user_id', $user->id)->where('platform', $platform)->where('resource_id', $rid)
+                ->exists();
 
-        if (! $exists && $this->eventRows($user, $platform)->count() >= self::MAX_EVENTS) {
-            return $this->fail('You can add up to '.self::MAX_EVENTS.' individual events per platform.', 422);
-        }
+            if (! $exists && $this->eventRows($user, $platform)->count() >= self::MAX_EVENTS) {
+                return $this->fail('You can add up to '.self::MAX_EVENTS.' individual events per platform.', 422);
+            }
 
-        // Covers both the direct-event path and the events-custom fallback
-        // (storeCustom below also routes through here) — both are 'event-*' rows.
-        $this->writeRow($user, $platform, $rid, $payload, resourceKind: 'event');
+            // Covers both the direct-event path and the events-custom fallback
+            // (storeCustom below also routes through here) — both are 'event-*' rows.
+            $this->writeRow($user, $platform, $rid, $payload, resourceKind: 'event');
 
-        return ['ok' => true, 'selection' => $this->selection($user)];
+            return ['ok' => true, 'selection' => $this->selection($user)];
+        });
     }
 
     private function storeCustom(User $user, string $raw): array
@@ -316,6 +334,31 @@ class EventsCatalog
             ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $resourceId],
             $values,
         );
+    }
+
+    /**
+     * Serialise a read→mutate→write cycle behind the SAME per-(user, platform)
+     * lock ManagesIntegrationConnection::withConnectionLock (controllers) and
+     * ScheduledRefresh already use — CacheKeyGenerator::platformConnectionLock()
+     * is the one formula every writer of `site.platform_connections` must build
+     * (PWL-13). $platform here is $provider ('eventbrite'/'humanitix'), which
+     * is exactly what EventbriteController::platform() / HumanitixController::
+     * platform() return, so this contends on the identical key.
+     *
+     * EventsCatalog has no JsonResponse to return (unlike the controller trait),
+     * so a timeout surfaces as a 423 through the existing fail() array contract
+     * instead — EventsController::add() maps result['status'] straight onto the
+     * HTTP response.
+     *
+     * @return array{ok:bool, error?:string, status?:int, selection?:?array}
+     */
+    private function withPlatformLock(User $user, string $platform, callable $write): array
+    {
+        try {
+            return Cache::lock(CacheKeyGenerator::platformConnectionLock($platform, (string) $user->id), 10)->block(5, $write);
+        } catch (LockTimeoutException) {
+            return $this->fail('Another change is still saving — please retry in a moment.', 423);
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

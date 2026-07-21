@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicMenuController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
+use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
 use Illuminate\Support\Facades\Route;
 
@@ -44,6 +45,13 @@ Route::middleware('throttle:webhooks')->group(function () {
         '/webhooks/supabase/auth/mfa-verification',
         [SupabaseAuthHookController::class, 'mfaVerification'],
     )->middleware('supabase.auth-hook')->name('webhooks.supabase.auth.mfa-verification');
+
+    // Resend bounce/complaint webhook (Svix-signed) — hard bounces + spam
+    // complaints add the recipient to core.email_suppressions so the
+    // MessageSending gate never re-hits a dead/complaining address. Register the
+    // endpoint URL + signing secret in the Resend dashboard → Webhooks.
+    Route::post('/internal/webhooks/resend', ResendWebhookController::class)
+        ->middleware('resend.webhook')->name('webhooks.resend');
 });
 
 // bootstrap uses ONLY JWT middleware

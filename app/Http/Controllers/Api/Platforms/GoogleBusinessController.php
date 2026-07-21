@@ -117,23 +117,34 @@ class GoogleBusinessController extends ApiController
             // ONLY in the column; place_id mirrors the payload value for the indexed
             // reconnect guard. saveQuietly — no public change beyond the payload
             // write writeConnection already purged.
-            $row = $this->writeConnection($user, $merged);
-            $row->forceFill([
-                'place_id' => $data['placeId'],
-                'apify_status' => $enrich ? 'pending' : null,
-            ])->saveQuietly();
+            //
+            // PWL-1: GoogleBusinessEnrichJob::persist() locks on this same
+            // platform+user key (see that job's own docblock, which documents this
+            // gap explicitly), so the read→mutate→write here must too, or a
+            // background enrich run can clobber a just-saved edit. The job
+            // dispatch below stays OUTSIDE the lock — it needs nothing from $row,
+            // and dispatching it from inside would self-deadlock under a sync
+            // queue connection (the job blocks on the identical lock key).
+            $response = $this->withConnectionLock($user, function () use ($user, $merged, $data, $enrich): JsonResponse {
+                $row = $this->writeConnection($user, $merged);
+                $row->forceFill([
+                    'place_id' => $data['placeId'],
+                    'apify_status' => $enrich ? 'pending' : null,
+                ])->saveQuietly();
 
-            // Echo: re-inject apifyStatus from the column so the connect response
-            // keeps the key the dashboard polls on (resource is built from the array).
-            $resource = $this->resourceClass();
-            $echo = $merged;
-            if ($enrich) {
-                $echo['apifyStatus'] = 'pending';
-            }
-            // WS-B2.2: respect display toggles on the connect echo (a reconnect can
-            // carry previously-saved display_settings).
-            $echo = DisplaySettingsFilter::suppress($this->platform(), $echo, $row->display_settings);
-            $response = $this->success((new $resource($echo))->resolve());
+                // Echo: re-inject apifyStatus from the column so the connect response
+                // keeps the key the dashboard polls on (resource is built from the array).
+                $resource = $this->resourceClass();
+                $echo = $merged;
+                if ($enrich) {
+                    $echo['apifyStatus'] = 'pending';
+                }
+                // WS-B2.2: respect display toggles on the connect echo (a reconnect can
+                // carry previously-saved display_settings).
+                $echo = DisplaySettingsFilter::suppress($this->platform(), $echo, $row->display_settings);
+
+                return $this->success((new $resource($echo))->resolve());
+            });
 
             if ($enrich) {
                 GoogleBusinessEnrichJob::dispatch((string) $user->id, $data['placeId']);
@@ -149,20 +160,30 @@ class GoogleBusinessController extends ApiController
 
         $this->maybeAdoptGoogleName($user, $place['name'] ?? null);
 
-        $row = $this->writeConnection($user, $place);
-        $resource = $this->resourceClass();
-        // WS-B2.2: respect display toggles on the legacy link-parse connect echo.
-        $place = DisplaySettingsFilter::suppress($this->platform(), $place, $row->display_settings);
+        // PWL-1: same lock-boundary reasoning as the picker branch above — the
+        // legacy link-parse path writes the same row the enrich job locks on.
+        return $this->withConnectionLock($user, function () use ($user, $place): JsonResponse {
+            $row = $this->writeConnection($user, $place);
+            $resource = $this->resourceClass();
+            // WS-B2.2: respect display toggles on the legacy link-parse connect echo.
+            $shaped = DisplaySettingsFilter::suppress($this->platform(), $place, $row->display_settings);
 
-        return $this->success((new $resource($place))->resolve());
+            return $this->success((new $resource($shaped))->resolve());
+        });
     }
 
     // DELETE /api/platforms/google-business — clear every connection.
+    // PWL-1: wrapped so a concurrent GoogleBusinessEnrichJob write can't land
+    // between forgetAllConnections()'s reads and deletes.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success(['selection' => null]);
+        return $this->withConnectionLock($user, function () use ($user): JsonResponse {
+            $this->forgetAllConnections($user);
+
+            return $this->success(['selection' => null]);
+        });
     }
 
     // Business Partna accounts treat the Google Business name as their public
@@ -221,34 +242,65 @@ class GoogleBusinessController extends ApiController
     // "Change to" — swap the user's existing connection for the one Google found
     // (a conflict finding): remove the existing, install Google's (or re-run the
     // Instagram scrape), and flip the finding to seeded so it shows as synced/syncing.
+    // PWL-1 correction: autoSync->applyFinding() writes to OTHER platforms' rows
+    // (reservation/ordering/social) and — under a sync queue connection — can run
+    // an Instagram Apify scrape inline (up to ~110s). It never touches THIS row,
+    // so it now runs OUTSIDE the lock entirely (mirrors
+    // GenericPlatformController::highlights()'s fetch-outside/write-inside
+    // shape): holding a 10s-TTL lock across a ~110s foreign call would let it
+    // expire mid-call and reopen the exact lost-update window this lock exists
+    // to close. Only the final authoritative re-read → flip → write sits inside
+    // withConnectionLock, guarded against GoogleBusinessEnrichJob::persist()
+    // (same platform+user lock key) racing the mutation.
     public function applySync(Request $request, GoogleBusinessAutoSync $autoSync): JsonResponse
     {
         $user = $this->currentUser($request);
         $platform = $request->validate(['platform' => ['required', 'string', 'max:40', new PlatformInRegistry]])['platform'];
 
         $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
-        $gbp = GoogleBusinessPayload::fromArray($gb?->payload);
-        $payload = $gbp->toArray();
-        $findings = $gbp->syncFindings();
-
-        $idx = null;
-        foreach ($findings as $i => $f) {
-            if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
-                $idx = $i;
-                break;
-            }
-        }
+        $findings = GoogleBusinessPayload::fromArray($gb?->payload)->syncFindings();
+        $idx = $this->locateConflictFinding($findings, $platform);
         if ($idx === null || $gb === null) {
             return $this->error('Nothing to change for that platform.', 404);
         }
 
         $autoSync->applyFinding((string) $user->id, $findings[$idx]);
 
-        $findings[$idx]['outcome'] = 'seeded';
-        $findings[$idx]['apply'] = null;
-        $gb->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
+        return $this->withConnectionLock($user, function () use ($user, $platform, $request): JsonResponse {
+            // Authoritative re-read UNDER the lock — a concurrent enrich run (or
+            // another applySync) may have rewritten this row in the gap between
+            // the outside-lock read above and the lock being acquired. Re-derive
+            // everything from the fresh row rather than closing over the stale
+            // $gb/$findings captured before applyFinding() ran.
+            $gb = $user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->first();
+            $gbp = GoogleBusinessPayload::fromArray($gb?->payload);
+            $payload = $gbp->toArray();
+            $findings = $gbp->syncFindings();
 
-        return $this->synced($request);
+            $idx = $this->locateConflictFinding($findings, $platform);
+            if ($idx !== null && $gb !== null) {
+                $findings[$idx]['outcome'] = 'seeded';
+                $findings[$idx]['apply'] = null;
+                $gb->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
+            }
+            // else: the conflict finding is gone by the time we got the lock (a
+            // concurrent write already resolved/removed it) — skip the flip
+            // rather than error; the caller still gets a consistent /synced view.
+
+            return $this->synced($request);
+        });
+    }
+
+    /** Index of the first 'conflict' finding for $platform, or null. */
+    private function locateConflictFinding(array $findings, string $platform): ?int
+    {
+        foreach ($findings as $i => $f) {
+            if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
+                return $i;
+            }
+        }
+
+        return null;
     }
 
     /**

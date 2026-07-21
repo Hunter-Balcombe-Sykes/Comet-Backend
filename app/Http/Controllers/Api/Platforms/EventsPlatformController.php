@@ -70,17 +70,22 @@ abstract class EventsPlatformController extends ApiController
             return $this->error('Could not load that '.$this->platformLabel().' page.', 422);
         }
 
-        // Re-adding an already-connected page keeps its per-event hides.
-        $existingRow = $this->matchAccountByCanonical($user, $url);
-        $hidden = EventsAccountPayload::fromArray($existingRow?->payload)->hiddenEventIds();
+        // PWL-4: this write races removeEvent() (already locked) + ScheduledRefresh
+        // on the same platform+user key. fetchAccountEvents() above is the scrape —
+        // it stays OUTSIDE the lock; only the read→mutate→write is wrapped.
+        return $this->withConnectionLock($user, function () use ($user, $url, $result): JsonResponse {
+            // Re-adding an already-connected page keeps its per-event hides.
+            $existingRow = $this->matchAccountByCanonical($user, $url);
+            $hidden = EventsAccountPayload::fromArray($existingRow?->payload)->hiddenEventIds();
 
-        $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], $hidden);
-        $row = $this->writeAccountConnection($user, $url, $payload);
-        if ($row === null) {
-            return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
-        }
+            $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], $hidden);
+            $row = $this->writeAccountConnection($user, $url, $payload);
+            if ($row === null) {
+                return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+            }
 
-        return $this->success(['id' => $row->resource_id, ...$this->accountData($payload)]);
+            return $this->success(['id' => $row->resource_id, ...$this->accountData($payload)]);
+        });
     }
 
     // GET /api/platforms/{platform}/accounts — every connected organiser/host.
@@ -91,15 +96,19 @@ abstract class EventsPlatformController extends ApiController
 
     // DELETE /api/platforms/{platform}/accounts/{id} — remove one account
     // (its events leave the sitepage with it).
+    // PWL-4: races addAccount()/removeEvent() (both locked) + ScheduledRefresh.
     public function removeAccount(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
-            return $this->error('Account not found.', 404);
-        }
-        $this->forgetConnection($user, $id);
 
-        return $this->success(['accounts' => $this->accountsData($user)]);
+        return $this->withConnectionLock($user, function () use ($user, $id): JsonResponse {
+            if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
+                return $this->error('Account not found.', 404);
+            }
+            $this->forgetConnection($user, $id);
+
+            return $this->success(['accounts' => $this->accountsData($user)]);
+        });
     }
 
     // ── Standalone events ─────────────────────────────────────────────────
@@ -120,14 +129,19 @@ abstract class EventsPlatformController extends ApiController
         $payload = EventsPayload::standalonePayload($event);
         $rid = 'event-'.$payload['id'];
 
-        if ($this->eventRows($user)->firstWhere('resource_id', $rid) === null
-            && $this->eventRows($user)->count() >= self::MAX_STANDALONE_EVENTS) {
-            return $this->error('You can add up to '.self::MAX_STANDALONE_EVENTS.' individual events.', 422);
-        }
+        // PWL-4: races removeEvent() (already locked) + ScheduledRefresh on the
+        // same platform+user key. fetchSingleEvent() above is the scrape — it
+        // stays OUTSIDE the lock; only the cap-check + write is wrapped.
+        return $this->withConnectionLock($user, function () use ($user, $payload, $rid): JsonResponse {
+            if ($this->eventRows($user)->firstWhere('resource_id', $rid) === null
+                && $this->eventRows($user)->count() >= self::MAX_STANDALONE_EVENTS) {
+                return $this->error('You can add up to '.self::MAX_STANDALONE_EVENTS.' individual events.', 422);
+            }
 
-        $this->writeConnection($user, $payload, $rid, resourceKind: 'event');
+            $this->writeConnection($user, $payload, $rid, resourceKind: 'event');
 
-        return $this->success(['selection' => $this->selectionData($user)]);
+            return $this->success(['selection' => $this->selectionData($user)]);
+        });
     }
 
     // DELETE /api/platforms/{platform}/events/{id} — remove ONE event. A
@@ -180,11 +194,16 @@ abstract class EventsPlatformController extends ApiController
     }
 
     // DELETE /api/platforms/{platform} — clear everything (accounts + events).
+    // PWL-4: races every other writer above (all locked) + ScheduledRefresh.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success(['selection' => null]);
+        return $this->withConnectionLock($user, function () use ($user): JsonResponse {
+            $this->forgetAllConnections($user);
+
+            return $this->success(['selection' => null]);
+        });
     }
 
     // ── Shapes ────────────────────────────────────────────────────────────
