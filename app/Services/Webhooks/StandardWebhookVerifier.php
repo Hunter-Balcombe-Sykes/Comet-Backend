@@ -14,9 +14,6 @@ namespace App\Services\Webhooks;
  */
 class StandardWebhookVerifier
 {
-    /** Reject messages outside this window — replay-attack defense. */
-    private const TIMESTAMP_TOLERANCE = 300;
-
     /**
      * @param  string  $configuredSecret  raw value from config (e.g. `v1,whsec_<base64>`)
      * @return bool true when at least one v1 signature in the header matches
@@ -37,7 +34,7 @@ class StandardWebhookVerifier
             return false;
         }
 
-        if (abs(time() - (int) $webhookTimestamp) > self::TIMESTAMP_TOLERANCE) {
+        if (abs(time() - (int) $webhookTimestamp) > $this->timestampTolerance()) {
             return false;
         }
 
@@ -56,6 +53,26 @@ class StandardWebhookVerifier
         }
 
         return false;
+    }
+
+    /**
+     * CFG-1: shared with SupabaseEmailHookController's dedup TTL — one config
+     * key so the signature-replay window and the dedup-anchor lifetime can't
+     * drift apart (partna.cache.ttls.webhook_timestamp_tolerance).
+     *
+     * Guarded so this class stays instantiable with no Laravel app booted
+     * (see StandardWebhookVerifierTest — "pure crypto, no boot required"):
+     * the container helper always exists, but a bare, un-bootstrapped
+     * Container has nothing bound under the 'config' abstract, so calling
+     * config() directly would throw BindingResolutionException.
+     */
+    private function timestampTolerance(): int
+    {
+        if (! app()->bound('config')) {
+            return 300;
+        }
+
+        return (int) config('partna.cache.ttls.webhook_timestamp_tolerance', 300);
     }
 
     /**

@@ -37,8 +37,15 @@ function makeRs256TestJwt(array $claims = []): string
 
 beforeEach(function () {
     // The middleware throttles JWKS-failure reports via a cache key; flush so
-    // each test sees an un-throttled first failure.
+    // each test sees an un-throttled first failure. CCH-1 (webhooks-idempotency
+    // bundle): jwksOutage() now pins this lock to the `cache_locks` store
+    // explicitly (matching apcuStore()'s existing pattern), which is real,
+    // TTL'd Redis rather than the default `array` test store — Cache::flush()
+    // no longer reaches it, so the throttle key must be released directly or
+    // it survives (up to its 60s TTL) across tests and even across separate
+    // test-suite runs.
     Cache::flush();
+    Cache::store('cache_locks')->forget('jwt:jwks-failure-reported');
 
     config([
         'supabase.url' => 'https://proj.supabase.co',

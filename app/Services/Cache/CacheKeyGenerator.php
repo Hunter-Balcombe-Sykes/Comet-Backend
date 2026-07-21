@@ -366,4 +366,25 @@ class CacheKeyGenerator
     {
         return "site:{$siteId}:popularity:ranks";
     }
+
+    /**
+     * Shared `:stale` suffix for every SWR (stale-while-revalidate) primary key
+     * in this app. Single point of change if the convention is ever renamed —
+     * previously hand-concatenated at each call site (CCH-2).
+     */
+    public static function staleKey(string $key): string
+    {
+        return $key.':stale';
+    }
+
+    /**
+     * Per-user Redis SET tracking every idempotency response-cache key issued
+     * for that user (App\Http\Middleware\IdempotencyKey — writer/indexer) so
+     * AccountDeletionService::purgeIdempotencyCache() (reader/purger) can find
+     * and forget every entry at GDPR-erasure time without a key scan (CCH-1).
+     */
+    public static function idempotencyIndexKey(string $userId): string
+    {
+        return "idempotency:index:{$userId}";
+    }
 }

@@ -1706,6 +1706,14 @@ return [
             'professional_handle_lookup' => (int) env('PARTNA_CACHE_TTL_PROFESSIONAL_HANDLE_LOOKUP', env('CACHE_TTL_PROFESSIONAL_HANDLE_LOOKUP', 3600)), // 60m
             'webhook_idempotency' => (int) env('PARTNA_CACHE_TTL_WEBHOOK_IDEMPOTENCY', env('CACHE_TTL_WEBHOOK_IDEMPOTENCY', 86400)),               // 24h
             'email_brand' => (int) env('PARTNA_CACHE_TTL_EMAIL_BRAND', 86400),                                                                     // 24h
+
+            // CFG-1/WHK-2: Standard Webhooks replay-tolerance window — shared by
+            // StandardWebhookVerifier::TIMESTAMP_TOLERANCE (signature check) and
+            // SupabaseEmailHookController's dedup TTL, which must stay >= the
+            // tolerance or a signature-valid replay could re-acquire the dedup
+            // anchor and re-queue an already-sent auth email. One key so the two
+            // can't drift apart.
+            'webhook_timestamp_tolerance' => (int) env('PARTNA_CACHE_TTL_WEBHOOK_TIMESTAMP_TOLERANCE', env('CACHE_TTL_WEBHOOK_TIMESTAMP_TOLERANCE', 300)), // 5m
         ],
     ],
 

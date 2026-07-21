@@ -269,7 +269,30 @@ class UserCacheService
     public function invalidateCustomerCount(string $userId): void
     {
         $key = CacheKeyGenerator::customerCount($userId);
-        Cache::deleteMultiple([$key, $key.':stale']);
+        Cache::deleteMultiple([$key, CacheKeyGenerator::staleKey($key)]);
+    }
+
+    /**
+     * Bust only the services keys (dashboard + public-site view, both ± :stale).
+     * Deliberately narrower than invalidateUser() — a category rename/reorder/
+     * delete doesn't touch the hydrated model, payloads, or customer count, so
+     * nuking those too would cause unnecessary Postgres round-trips. Called by
+     * ServiceCategoryObserver to keep raw Cache:: calls inside the cache-service
+     * layer, matching CustomerObserver's use of invalidateCustomerCount() to
+     * stay within the GS-1 service-layer rule (no raw Cache:: outside cache
+     * services) — CCH-1.
+     */
+    public function invalidateServices(string $userId): void
+    {
+        $dashKey = CacheKeyGenerator::professionalDashboardServices($userId);
+        $svcKey = CacheKeyGenerator::professionalServices($userId);
+
+        Cache::deleteMultiple([
+            $dashKey,
+            CacheKeyGenerator::staleKey($dashKey),
+            $svcKey,
+            CacheKeyGenerator::staleKey($svcKey),
+        ]);
     }
 
     public function invalidateUser(User $professional, bool $bustSite = true): void
@@ -290,14 +313,14 @@ class UserCacheService
             // the `:stale` last-good copy must die here, otherwise stale-while-
             // revalidate would let writes appear cached for up to 10 minutes.
             $modelKey,
-            $modelKey.':stale',
+            CacheKeyGenerator::staleKey($modelKey),
 
             CacheKeyGenerator::professionalServices($professional->id),
-            CacheKeyGenerator::professionalServices($professional->id).':stale',
+            CacheKeyGenerator::staleKey(CacheKeyGenerator::professionalServices($professional->id)),
             CacheKeyGenerator::professionalDashboardServices($professional->id),
-            CacheKeyGenerator::professionalDashboardServices($professional->id).':stale',
+            CacheKeyGenerator::staleKey(CacheKeyGenerator::professionalDashboardServices($professional->id)),
             CacheKeyGenerator::customerCount($professional->id),
-            CacheKeyGenerator::customerCount($professional->id).':stale',
+            CacheKeyGenerator::staleKey(CacheKeyGenerator::customerCount($professional->id)),
         ];
 
         if ($professional->wasChanged('handle')) {

@@ -5,9 +5,8 @@ namespace App\Observers\Core;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
-use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Cache\UserCacheService;
 use Illuminate\Support\Facades\Log;
 
 // §28.17 CACHE-1 — ServiceCategory mutations bust the dashboard services
@@ -21,6 +20,10 @@ use Illuminate\Support\Facades\Log;
 class ServiceCategoryObserver
 {
     public bool $afterCommit = true;
+
+    public function __construct(
+        private readonly UserCacheService $userCache,
+    ) {}
 
     public function saved(ServiceCategory $category): void
     {
@@ -47,13 +50,11 @@ class ServiceCategoryObserver
         // Only the services keys are stale after a category rename/reorder/delete.
         // Calling invalidateUser() would nuke 13+ keys (hydrated model,
         // payloads, ID maps, customer count) causing unnecessary Postgres round-trips.
+        // Routed through UserCacheService::invalidateServices() (CCH-1) to stay
+        // within the GS-1 service-layer rule — no raw Cache:: calls outside cache
+        // services — matching CustomerObserver's use of invalidateCustomerCount().
         try {
-            Cache::deleteMultiple([
-                CacheKeyGenerator::professionalDashboardServices($userId),
-                CacheKeyGenerator::professionalDashboardServices($userId).':stale',
-                CacheKeyGenerator::professionalServices($userId),
-                CacheKeyGenerator::professionalServices($userId).':stale',
-            ]);
+            $this->userCache->invalidateServices($userId);
         } catch (\Throwable $e) {
             Log::warning('Services cache bust failed on ServiceCategory change', [
                 'category_id' => $category->id,

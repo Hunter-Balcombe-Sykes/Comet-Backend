@@ -639,14 +639,14 @@ and it removes a whole class of test-vs-prod divergence.
 
 Do **after** B1 — B1 changes the invalidation call sites these helpers would wrap.
 
-- [ ] **`cache-invalidation/CCH-2`** · P3 · S — No shared `:stale`-key helper; the suffix is hand-concatenated at every invalidation site → `sources/cache-invalidation.md`
-- [ ] **`cache-invalidation/CCH-1`** · P3 · S — `ServiceCategoryObserver` bypasses the cache-service layer for services-key invalidation → `sources/cache-invalidation.md`
-- [ ] **`cache-invalidation/TXN-1`** · P3 · S — Inconsistent `->afterCommit()` usage on job dispatches inside `SiteObserver::saved()` → `sources/cache-invalidation.md`
-- [ ] **`claim-and-provision/CCH-1`** · P3 · S — Idempotency purge index key duplicated as a hardcoded string instead of a shared helper → `sources/claim-and-provision.md`
-- [ ] **`webhooks-idempotency/CCH-1`** · P2 · S — JWKS-outage throttle lock relies on the default cache store instead of pinning `cache_locks` → `sources/webhooks-idempotency.md`
-- [ ] **`webhooks-idempotency/WHK-2`** · P2 · S — Email-hook dedup TTL hardcoded 300s, duplicated rather than shared with the verifier's replay window → `sources/webhooks-idempotency.md`
-- [ ] **`webhooks-internal/CFG-1`** · P3 · S — Coupled hardcoded webhook timestamp tolerance not sourced from shared config (two 300 literals) → `sources/webhooks-internal.md`
-- [ ] **`webhooks-internal/CFG-2`** · P3 · S — Idempotency-cache TTL config read has no inline fallback, inconsistent with siblings in the same controller → `sources/webhooks-internal.md`
+- [x] **`cache-invalidation/CCH-2`** · P3 · S — No shared `:stale`-key helper; the suffix is hand-concatenated at every invalidation site → `sources/cache-invalidation.md`
+- [x] **`cache-invalidation/CCH-1`** · P3 · S — `ServiceCategoryObserver` bypasses the cache-service layer for services-key invalidation → `sources/cache-invalidation.md`
+- [x] **`cache-invalidation/TXN-1`** · P3 · S — Inconsistent `->afterCommit()` usage on job dispatches inside `SiteObserver::saved()` → `sources/cache-invalidation.md`
+- [x] **`claim-and-provision/CCH-1`** · P3 · S — Idempotency purge index key duplicated as a hardcoded string instead of a shared helper → `sources/claim-and-provision.md`
+- [x] **`webhooks-idempotency/CCH-1`** · P2 · S — JWKS-outage throttle lock relies on the default cache store instead of pinning `cache_locks` → `sources/webhooks-idempotency.md`
+- [x] **`webhooks-idempotency/WHK-2`** · P2 · S — Email-hook dedup TTL hardcoded 300s, duplicated rather than shared with the verifier's replay window → `sources/webhooks-idempotency.md`
+- [x] **`webhooks-internal/CFG-1`** · P3 · S — Coupled hardcoded webhook timestamp tolerance not sourced from shared config (two 300 literals) → `sources/webhooks-internal.md`
+- [x] **`webhooks-internal/CFG-2`** · P3 · S — Idempotency-cache TTL config read has no inline fallback, inconsistent with siblings in the same controller → `sources/webhooks-internal.md`
 
 ### Bundle B18 — Config extraction sweep · **P3** · Effort S–M
 

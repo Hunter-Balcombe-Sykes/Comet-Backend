@@ -63,7 +63,7 @@ class SupabaseAuthHookController extends Controller
         if (! Cache::add(
             "supabase:auth-hook:{$id}",
             true,
-            (int) config('partna.cache.ttls.webhook_idempotency'),
+            (int) config('partna.cache.ttls.webhook_idempotency', 86_400),
         )) {
             $replay = $this->replayDecision($id);
             if ($replay !== null) {

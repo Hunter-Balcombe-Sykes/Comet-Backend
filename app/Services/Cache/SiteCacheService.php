@@ -561,7 +561,7 @@ class SiteCacheService
      */
     private static function bustWithStale(string $key): array
     {
-        return [$key, $key.':stale'];
+        return [$key, CacheKeyGenerator::staleKey($key)];
     }
 
     /**
