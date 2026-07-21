@@ -46,7 +46,7 @@ it('runs the generator and flips pending → ready', function () {
     $build = makePendingBuild();
     bindGenerator();
 
-    (new GeneratePreAccountSiteJob($build->id))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
 });
@@ -55,7 +55,7 @@ it('records failure_code and flips to failed on SourceGenerationException', func
     $build = makePendingBuild();
     bindGenerator(fn () => throw SourceGenerationException::sourceNotFound());
 
-    (new GeneratePreAccountSiteJob($build->id))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class));
 
     $fresh = $build->fresh();
     expect($fresh->build_state)->toBe(PreAccountBuild::STATE_FAILED)
@@ -67,7 +67,7 @@ it('publishes the site + re-syncs KV for staff publish builds', function () {
     $build = makePendingBuild();
     bindGenerator();
 
-    (new GeneratePreAccountSiteJob($build->id, publish: true))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: true))->handle(app(SourceGeneratorRegistry::class));
 
     expect($build->user->fresh()->site->is_published)->toBeTrue();
     Queue::assertPushed(SyncSubdomainToKvJob::class);
@@ -77,7 +77,7 @@ it('no-ops on a claimed or already-ready build', function () {
     $build = makePendingBuild();
     $build->forceFill(['claimed_at' => now(), 'build_state' => PreAccountBuild::STATE_READY])->save(); // B11 SEC-4
 
-    (new GeneratePreAccountSiteJob($build->id))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
 });
@@ -121,7 +121,7 @@ it('notifies via email when a published build with contact_email reaches ready',
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new GeneratePreAccountSiteJob($build->id, publish: true))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: true))->handle(app(SourceGeneratorRegistry::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
@@ -165,7 +165,7 @@ it('does not notify when an unpublished build with contact_email reaches ready',
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new GeneratePreAccountSiteJob($build->id, publish: false))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: false))->handle(app(SourceGeneratorRegistry::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
     Mail::assertNothingQueued();
@@ -215,7 +215,7 @@ it('deactivates the IG connection for a dark early-access build', function () {
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new GeneratePreAccountSiteJob($build->id, publish: false))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: false))->handle(app(SourceGeneratorRegistry::class));
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
     expect((bool) $conn->is_active)->toBeFalse();
@@ -269,7 +269,7 @@ it('leaves the IG connection active for a non-early-access build (signup)', func
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new GeneratePreAccountSiteJob($build->id, publish: false))->handle(app(SourceGeneratorRegistry::class));
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: false))->handle(app(SourceGeneratorRegistry::class));
 
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
     expect((bool) $conn->is_active)->toBeTrue();

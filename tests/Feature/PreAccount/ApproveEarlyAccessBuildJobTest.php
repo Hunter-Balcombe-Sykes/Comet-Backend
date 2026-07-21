@@ -63,7 +63,7 @@ it('re-scrapes IG, opens the window, flips to invited, and emails the invite', f
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
 
     expect($build->fresh()->expires_at)->not->toBeNull()
         ->and($signup->fresh()->status)->toBe('invited');
@@ -96,7 +96,7 @@ it('does not re-scrape a GBP early-access build, but still opens the window and 
         $mock->shouldReceive('for')->never();
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
 
     expect($build->fresh()->expires_at)->not->toBeNull()
         ->and($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY)
@@ -147,7 +147,7 @@ it('flips to failed and does not notify when the re-scrape throws (never invite 
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_FAILED)
         ->and($build->fresh()->expires_at)->toBeNull()
@@ -162,7 +162,9 @@ it('no-ops when the signup has no linked build (user_id null)', function () {
         'status' => EarlyAccessSignup::STATUS_WAITLIST, 'source' => 'marketing',
     ]);
 
-    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
+    // No linked build → source_type is unused (the job early-returns); pass a
+    // valid literal to satisfy the required constructor arg.
+    (new ApproveEarlyAccessBuildJob($signup->id, 'instagram'))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
 
     expect($signup->fresh()->status)->toBe('waitlist');
     Mail::assertNothingQueued();
@@ -187,7 +189,7 @@ it('no-ops when the build is already claimed', function () {
     ]);
     $signup->forceFill(['user_id' => $user->id])->save();
 
-    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
 
     expect($build->fresh()->expires_at)->toBeNull()
         ->and($signup->fresh()->status)->toBe('waitlist');

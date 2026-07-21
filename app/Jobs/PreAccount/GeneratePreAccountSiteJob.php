@@ -3,6 +3,8 @@
 namespace App\Jobs\PreAccount;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Concerns\ThrottlesPreAccountScraping;
+use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
@@ -19,26 +21,42 @@ use Throwable;
 
 // Populates a provisional user's site from its source (scrape/Places) on the
 // scraping lane — a ManyChat marketing blast must never starve user-facing
-// notification/cache queues (JOB-103 precedent). tries=1: a re-run re-bills the
-// Apify scrape; failures surface as build_state='failed' (prunable, retryable
-// via the dedupe re-serve path).
-class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
+// notification/cache queues (JOB-103 precedent). Per-vendor rate-limited via
+// ThrottlesPreAccountScraping so a signup/approval burst can't stampede Apify or
+// Places; that limiter RELEASES the job when over-budget, so tries=0 (releases
+// are governed by retryUntil, not a finite try count). maxExceptions=1 +
+// failOnTimeout keep the original "never re-bill the scrape" guarantee: a real
+// error or a timeout fails fast (build_state='failed', prunable/re-servable),
+// only a pre-run throttle release ever re-queues.
+class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, ThrottlesPreAccountScraping;
 
     // Apify up to 110s + media mirroring + Places headroom. Stays under the
     // redis_scraping connection's retry_after=660 (HorizonQueueCoverageTest).
     public int $timeout = 300;
 
-    public int $tries = 1;
+    // Unlimited attempts, bounded by retryUntil() (in the trait) — a rate-limit
+    // release counts as an attempt, so a finite $tries would fail the scrape the
+    // first time it's throttled.
+    public int $tries = 0;
 
-    /** @var list<int> */
+    /** @var list<int> Backoff between exception-triggered retries (not rate-limit releases). */
     public array $backoff = [30];
+
+    // A genuine error surfaces on the first exception (matching the old tries=1
+    // behaviour) — never retrying, so a scrape that already ran can't re-bill.
+    public int $maxExceptions = 1;
+
+    // A mid-scrape timeout fails immediately rather than retrying (which would
+    // re-bill Apify) — the guarantee the old tries=1 carried, now that tries=0.
+    public bool $failOnTimeout = true;
 
     public int $uniqueFor = 600;
 
     public function __construct(
         public readonly string $buildId,
+        public readonly string $sourceType,
         public readonly bool $publish = false,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));

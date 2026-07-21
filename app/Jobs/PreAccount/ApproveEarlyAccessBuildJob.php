@@ -2,6 +2,8 @@
 
 namespace App\Jobs\PreAccount;
 
+use App\Jobs\Concerns\ThrottlesPreAccountScraping;
+use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
@@ -18,23 +20,39 @@ use Throwable;
 
 // Staff "allow claiming" (spec Flow 3): freshen the dark early-access site,
 // open its 30-day claim window, and invite the person. Runs on the scraping
-// lane; a bulk approval fans one job per signup. Idempotent-ish: re-approving
-// an already-invited row re-scrapes and re-notifies (a resend).
-class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue
+// lane; a bulk approval fans one job per signup — so it's per-vendor rate-limited
+// via ThrottlesPreAccountScraping (an unthrottled approve-bulk was the concrete
+// Apify-stampede trigger). That limiter RELEASES when over-budget, so tries=0
+// (releases are governed by retryUntil, not a finite try count); maxExceptions=1
+// + failOnTimeout fail a real error/timeout fast so an already-run scrape never
+// re-bills. Idempotent-ish: re-approving re-scrapes and re-notifies (a resend).
+class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, ThrottlesPreAccountScraping;
 
     public int $timeout = 300;
 
-    public int $tries = 1;
+    // Unlimited attempts, bounded by retryUntil() (in the trait) — a rate-limit
+    // release counts as an attempt, so a finite $tries would fail on first throttle.
+    public int $tries = 0;
 
-    /** @var list<int> */
+    /** @var list<int> Backoff between exception-triggered retries (not rate-limit releases). */
     public array $backoff = [30];
+
+    // Fail fast on a genuine error (first exception) — never retry a scrape that
+    // may already have billed Apify.
+    public int $maxExceptions = 1;
+
+    // A mid-scrape timeout fails immediately rather than retrying (which would
+    // re-bill) — the guarantee the old tries=1 carried, now that tries=0.
+    public bool $failOnTimeout = true;
 
     public int $uniqueFor = 600;
 
-    public function __construct(public readonly string $signupId)
-    {
+    public function __construct(
+        public readonly string $signupId,
+        public readonly string $sourceType,
+    ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 

@@ -517,5 +517,22 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             return Limit::perMinute($perMinute)->by('platform-connect:'.$actor);
         });
+
+        // Per-vendor BURST gate for the pre-account scraping lane
+        // (GeneratePreAccountSiteJob, ApproveEarlyAccessBuildJob). The 'instagram'
+        // source rides the 'platform-connect' limiter above instead (shared paid-
+        // Apify budget — same account as dashboard connects); THIS limiter covers
+        // the 'google_business' source, which hits the official Google Places API —
+        // a different vendor, so a separate budget. Same cache-backed → Redis-in-
+        // prod → global-across-workers shape as the connect/refresh limiters.
+        RateLimiter::for('preaccount-places', function (ThrottledByProvider $job) {
+            $actor = $job->providerRateKey();
+            $perMinute = (int) config(
+                "partna.pre_account.rate_limits.{$actor}",
+                config('partna.pre_account.rate_limits.default')
+            );
+
+            return Limit::perMinute($perMinute)->by('preaccount-places:'.$actor);
+        });
     }
 }
