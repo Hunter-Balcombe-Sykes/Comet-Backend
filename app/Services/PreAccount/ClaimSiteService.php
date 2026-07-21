@@ -2,6 +2,7 @@
 
 namespace App\Services\PreAccount;
 
+use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
@@ -154,6 +155,13 @@ class ClaimSiteService
             : null;
         if ($handle !== '') {
             CloudflareCachePurgeJob::dispatch($handle, $customDomain)->afterCommit();
+
+            // Pre-warm the freshly-published claimed site: saveQuietly() above
+            // skipped SiteObserver::saved(), which would have dispatched this same
+            // job when is_published flips true. Mirrors the observer's own gate.
+            if ((bool) $result['site']->is_published) {
+                WarmPublicSiteCacheJob::dispatch($handle)->afterCommit();
+            }
         }
 
         return $result;

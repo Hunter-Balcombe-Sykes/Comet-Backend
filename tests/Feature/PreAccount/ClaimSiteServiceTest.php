@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
@@ -179,6 +180,17 @@ it('auto-publishes the site on claim', function () {
     app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
 
     expect($site->fresh()->is_published)->toBeTrue();
+});
+
+// Minor: saveQuietly() on auto-publish skips SiteObserver::saved(), which would
+// have dispatched this same pre-warm job — the claim post-commit block must
+// replicate it, or a claim-published site is left cold for its first visitor.
+it('pre-warms the public site cache on claim-publish', function () {
+    makeReadyBuild();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    Queue::assertPushed(WarmPublicSiteCacheJob::class, fn (WarmPublicSiteCacheJob $job) => $job->subdomain === 'janedoe');
 });
 
 // Review finding: the auto-publish block's plain $site->save() fires

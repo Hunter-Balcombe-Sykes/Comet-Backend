@@ -21,3 +21,5 @@
         <a href="{{ $claimUrl }}" style="color: #3a6efc; text-decoration: none;">{{ $claimUrl }}</a>
     </p>
 @endsection
+
+@section('footer_note', "You're receiving this because a Partna site was built for this email address.")
