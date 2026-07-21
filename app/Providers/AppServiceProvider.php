@@ -144,6 +144,14 @@ class AppServiceProvider extends ServiceProvider
             return $inline ? $app->make(SyncIngestor::class) : $app->make(QueuedIngestor::class);
         });
 
+        // ClaimDmChannel seam: interface bound to null implementation.
+        // The real driver (ManyChat or open-source alternative) will implement
+        // this interface later without changing the claim core.
+        $this->app->bind(
+            \App\Services\PreAccount\Notifications\ClaimDmChannel::class,
+            \App\Services\PreAccount\Notifications\NullClaimDmChannel::class,
+        );
+
         // Design-kit preset factors. Registry is a singleton holding the
         // concrete factor lists; empty lists make the preset system a no-op.
         // Priority bands (factors-engine spec §4 + P4, low→high): A ambient 10-19
