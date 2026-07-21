@@ -106,9 +106,9 @@ it opens an authz hole. If unsure, `no_change_needed` and flag it.
 ## Coordination notes
 - Runs PARALLEL to `PROMPT-execute-migration-safety.md` (disjoint files). At merge, only `CONSOLIDATED.md`'s
   Progress line may need a one-line reconcile.
-- ⚠️ **A `platform-write-locking` session may still be active** (`audit-fix/platform-write-locking-2026-07-21`,
-  touches platform controllers/jobs). B18's `authz-core/CFG-3` edits `PlatformRegistryServiceProvider` —
-  different file from those controllers, but CHECK for overlap at merge before landing.
+- ✅ **The `platform-write-locking` session has LANDED on development** (2026-07-22, PWL-1..13). Because you
+  branch off `origin/development`, you already include it — no overlap to reconcile. (B18's `authz-core/CFG-3`
+  edits `PlatformRegistryServiceProvider`, unrelated to those platform controllers anyway.)
 
 ## Stop and ask if
 - `authz-core/SEC-1`'s middleware-order premise can't be confirmed — do NOT delete; surface it.
