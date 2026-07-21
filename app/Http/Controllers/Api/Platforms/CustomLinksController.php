@@ -88,20 +88,27 @@ class CustomLinksController extends ApiController
     public function removeLink(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        if (! $this->linkRows($user)->firstWhere('resource_id', $id)) {
-            return $this->error('Link not found.', 404);
-        }
-        $this->forgetConnection($user, $id);
 
-        return $this->success(['links' => $this->linksData($user)]);
+        return $this->withConnectionLock($user, function () use ($user, $id) {
+            if (! $this->linkRows($user)->firstWhere('resource_id', $id)) {
+                return $this->error('Link not found.', 404);
+            }
+            $this->forgetConnection($user, $id);
+
+            return $this->success(['links' => $this->linksData($user)]);
+        });
     }
 
     // DELETE /api/platforms/custom — remove every link.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success(['links' => []]);
+        return $this->withConnectionLock($user, function () use ($user) {
+            $this->forgetAllConnections($user);
+
+            return $this->success(['links' => []]);
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

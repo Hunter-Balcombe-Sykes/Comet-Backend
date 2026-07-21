@@ -436,23 +436,25 @@ class ShopController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        // Drop brand/product rows BEFORE the soft-delete so nothing is left
-        // hanging off the tombstoned connection row (they'd otherwise orphan
-        // until the 30-day hard-delete purge). Explicit child delete (not just
-        // the DB's ON DELETE CASCADE) — see removeBrand() for why.
-        $connection = $this->connectionFor($user);
-        if ($connection) {
-            $brandIds = ShopBrand::where('connection_id', $connection->id)->pluck('id');
-            ShopProduct::whereIn('brand_id', $brandIds)->delete();
-            ShopBrand::where('connection_id', $connection->id)->delete();
-        }
-        // forgetConnection() soft-deletes the connection row, which fires the
-        // observer's deleted() → unconditional cache refresh — so unlike the
-        // other mutations (which only touch child rows) no explicit refresh is
-        // needed here.
-        $this->forgetConnection($user);
+        return $this->withConnectionLock($user, function () use ($user) {
+            // Drop brand/product rows BEFORE the soft-delete so nothing is left
+            // hanging off the tombstoned connection row (they'd otherwise orphan
+            // until the 30-day hard-delete purge). Explicit child delete (not just
+            // the DB's ON DELETE CASCADE) — see removeBrand() for why.
+            $connection = $this->connectionFor($user);
+            if ($connection) {
+                $brandIds = ShopBrand::where('connection_id', $connection->id)->pluck('id');
+                ShopProduct::whereIn('brand_id', $brandIds)->delete();
+                ShopBrand::where('connection_id', $connection->id)->delete();
+            }
+            // forgetConnection() soft-deletes the connection row, which fires the
+            // observer's deleted() → unconditional cache refresh — so unlike the
+            // other mutations (which only touch child rows) no explicit refresh is
+            // needed here.
+            $this->forgetConnection($user);
 
-        return $this->success(['brands' => []]);
+            return $this->success(['brands' => []]);
+        });
     }
 
     // POST /api/platforms/shop/products — add a single product by URL, not tied

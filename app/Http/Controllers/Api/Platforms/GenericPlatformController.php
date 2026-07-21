@@ -98,25 +98,34 @@ class GenericPlatformController extends ApiController
             return $this->connectDeferred($user, $descriptor, $selection, $result->accountKey);
         }
 
-        if ($descriptor->multiAccount()) {
-            $key = $result->accountKey ?? $this->defaultAccountKey($selection);
-            if ($key !== null) {
-                if ($descriptor->hasHighlights()) {
-                    // Re-adding an already-connected account keeps its curated highlights.
-                    $selection['highlights'] = $this->preserveHighlights($user, $key);
-                }
-                $row = $this->writeAccountConnection($user, $key, $selection);
-                if ($row === null) {
-                    return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
-                }
+        $accountKey = $result->accountKey;
 
-                return $this->success(['id' => $row->resource_id, ...(new $resourceClass($selection))->resolve()]);
+        // PWL-2: ConnectFetchJob and ScheduledRefresh both write this same row
+        // behind platformConnectionLock — the read (preserveHighlights) through
+        // the write (writeAccountConnection/writeConnection) must serialise
+        // against them the same way highlights() already does, or a background
+        // refresh can clobber this connect.
+        return $this->withConnectionLock($user, function () use ($user, $descriptor, $selection, $resourceClass, $accountKey): JsonResponse {
+            if ($descriptor->multiAccount()) {
+                $key = $accountKey ?? $this->defaultAccountKey($selection);
+                if ($key !== null) {
+                    if ($descriptor->hasHighlights()) {
+                        // Re-adding an already-connected account keeps its curated highlights.
+                        $selection['highlights'] = $this->preserveHighlights($user, $key);
+                    }
+                    $row = $this->writeAccountConnection($user, $key, $selection);
+                    if ($row === null) {
+                        return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+                    }
+
+                    return $this->success(['id' => $row->resource_id, ...(new $resourceClass($selection))->resolve()]);
+                }
             }
-        }
 
-        $this->writeConnection($user, $selection);
+            $this->writeConnection($user, $selection);
 
-        return $this->success((new $resourceClass($selection))->resolve());
+            return $this->success((new $resourceClass($selection))->resolve());
+        });
     }
 
     /**
@@ -134,31 +143,53 @@ class GenericPlatformController extends ApiController
      * deferred platforms, the single default-resource write (writeConnection,
      * extended in W6 with its own $pending/merge support) for pinterest/strava.
      */
+    // PWL-2: wrapped for the same reason as connect() above — the pending row
+    // this writes is exactly what ConnectFetchJob's own locked write completes.
+    // ConnectFetchJob::dispatch()->afterCommit() is deliberately called AFTER
+    // the lock closure returns (lock released): the job blocks on the
+    // identical platform+user lock key, so dispatching it from inside would
+    // self-deadlock under a sync queue connection (phpunit.xml's test
+    // default, and the current deployed dev env — see ConnectFetchJob's own
+    // lock-timeout handling). $row is captured by reference since
+    // withConnectionLock's return type is JsonResponse only; the closure's
+    // own return value is a throwaway success once $row is set, or the real
+    // error response (422 / lock-timeout 423) when it isn't.
     private function connectDeferred(User $user, PlatformDescriptor $descriptor, array $selection, ?string $accountKey): JsonResponse
     {
         $slug = $descriptor->key();
+        $row = null;
 
-        if ($descriptor->multiAccount()) {
-            $key = $accountKey ?? $this->defaultAccountKey($selection);
-            if ($key === null) {
-                // Unreachable in practice — identify() always derives at least the
-                // identity key on success (DeferredConnectParityTest) — defensive only.
-                return $this->error($descriptor->connectErrorMessage() ?? 'Enter a valid link.', 422);
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $descriptor, $selection, $accountKey, &$row): JsonResponse {
+            if ($descriptor->multiAccount()) {
+                $key = $accountKey ?? $this->defaultAccountKey($selection);
+                if ($key === null) {
+                    // Unreachable in practice — identify() always derives at least the
+                    // identity key on success (DeferredConnectParityTest) — defensive only.
+                    return $this->error($descriptor->connectErrorMessage() ?? 'Enter a valid link.', 422);
+                }
+                if ($descriptor->hasHighlights()) {
+                    // Same carry-forward as the sync path: on a reconnect, curated
+                    // highlights survive. Redundant with the merge below (which would
+                    // preserve an untouched 'highlights' key anyway) but kept explicit
+                    // to mirror the sync branch exactly and avoid a second code path
+                    // to reason about.
+                    $selection['highlights'] = $this->preserveHighlights($user, $key);
+                }
+                $row = $this->writeAccountConnection($user, $key, $selection, pending: true);
+                if ($row === null) {
+                    return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+                }
+            } else {
+                $row = $this->writeConnection($user, $selection, pending: true);
             }
-            if ($descriptor->hasHighlights()) {
-                // Same carry-forward as the sync path: on a reconnect, curated
-                // highlights survive. Redundant with the merge below (which would
-                // preserve an untouched 'highlights' key anyway) but kept explicit
-                // to mirror the sync branch exactly and avoid a second code path
-                // to reason about.
-                $selection['highlights'] = $this->preserveHighlights($user, $key);
-            }
-            $row = $this->writeAccountConnection($user, $key, $selection, pending: true);
-            if ($row === null) {
-                return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
-            }
-        } else {
-            $row = $this->writeConnection($user, $selection, pending: true);
+
+            return $this->success([]);
+        });
+
+        if ($row === null) {
+            // Either the max-accounts 422 above, or withConnectionLock's own
+            // 423 lock-timeout response — both correctly short-circuit here.
+            return $lockResponse;
         }
 
         ConnectFetchJob::dispatch($row->id, $slug)->afterCommit();
@@ -359,6 +390,9 @@ class GenericPlatformController extends ApiController
     }
 
     // DELETE /api/platforms/{platform}/accounts/{id} — remove one account.
+    // PWL-2: 404 check stays outside the lock (pure read, early-return); the
+    // delete + list rebuild is wrapped so it can't land between a
+    // ConnectFetchJob/ScheduledRefresh read and write on this platform.
     public function removeAccount(Request $request, string $id): JsonResponse
     {
         $descriptor = $this->descriptor();
@@ -367,17 +401,25 @@ class GenericPlatformController extends ApiController
         if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
             return $this->error('Account not found.', 404);
         }
-        $this->forgetConnection($user, $id);
 
-        return $this->success(['accounts' => $this->accountsList($descriptor, $user)]);
+        return $this->withConnectionLock($user, function () use ($descriptor, $user, $id): JsonResponse {
+            $this->forgetConnection($user, $id);
+
+            return $this->success(['accounts' => $this->accountsList($descriptor, $user)]);
+        });
     }
 
     // DELETE /api/platforms/{platform} — clear every connection for the platform.
+    // PWL-2: wrapped for the same reason as removeAccount() above.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success(['selection' => null]);
+        return $this->withConnectionLock($user, function () use ($user): JsonResponse {
+            $this->forgetAllConnections($user);
+
+            return $this->success(['selection' => null]);
+        });
     }
 
     // Resolve the descriptor for the current route's platform, or 404.
