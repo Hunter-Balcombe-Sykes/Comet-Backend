@@ -48,7 +48,7 @@ every draft rather than the scan reading nothing.
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
 - P2 Medium: 59 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 16 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 3 of 7 complete (DISC-2, DISC-5, DISC-6).*
+- *Total reconciles to 128. Discovered during execution (outside the 128): 4 of 9 complete (DISC-2, DISC-5, DISC-6, DISC-9).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
@@ -106,7 +106,8 @@ never opened the file, which is the failure mode `CLAUDE.md`'s audit-integrity g
 to catch: **a lens reports nothing for files it never reads, and that is indistinguishable
 from clean.**
 
-- [ ] **`discovered/DISC-9`** · P3 · S — the SQLite test stub for `site.blocks` (`tests/Pest.php::setupBlocksTable()`) declares `user_id`/`site_id` NULLABLE, but production (`20260526000000_baseline_standalone_user.sql`) has both NOT NULL — the same test/prod parity shape as B21/`parity-jobs`, for a different table
+- [x] **`discovered/DISC-9`** · P3 · S — the SQLite test stub for `site.blocks` (`tests/Pest.php::setupBlocksTable()`) declares `user_id`/`site_id` NULLABLE, but production (`20260526000000_baseline_standalone_user.sql`) has both NOT NULL — the same test/prod parity shape as B21/`parity-jobs`, for a different table
+  - **Done 2026-07-21:** flipped `user_id`/`site_id` `NULL`→`NOT NULL` in `setupBlocksTable()` (and corrected the now-stale "all columns nullable" docblock). Prod NOT NULL is the baseline's `professional_id`/`site_id` + the `20260527030000_rename_professional_to_user.sql` rename to `user_id` (a RENAME preserves NOT NULL) — the finding's baseline-only citation was slightly imprecise, substance holds. Two test call-sites that raw-inserted `site.blocks` without owner columns surfaced and were fixed by supplying real values (NOT stub relaxation): `UpdateLinkBlockLiveCheckTest` (`$professional->id` + its `$site`) and `CheckStreamingLiveStatusJobTest` (synthetic UUIDs — the job filters only on block_group/live_check_enabled/deleted_at/is_active and never reads the owner, verified). Full suite green (4691 passed, 0 failures); independent Sonnet review PASS.
   - **Where:** `tests/Pest.php::setupBlocksTable()` vs `supabase/migrations/20260526000000_baseline_standalone_user.sql` (`site.blocks`)
   - **What to do:** own decision — flip the two columns to NOT NULL in the stub (as B21 did for `pre_account_builds.user_id`) so a dropped FK fails loudly in tests instead of persisting null. S4 Tier 2b's value-assertion tests already cover the immediate risk; this closes the general gap.
   - **Why the audit missed it:** the `parity-jobs` lens found `pre_account_builds` but never enumerated `site.blocks`. Surfaced while converting Block writers in S4 Tier 2b.

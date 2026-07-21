@@ -961,16 +961,17 @@ function shimPgAdvisoryLockForSqlite(): void
 }
 
 /**
- * site.blocks — all columns nullable except the PK. Used by backfill command
- * tests and any test that exercises Block Eloquent operations in SQLite.
+ * site.blocks — user_id/site_id NOT NULL (prod parity, DISC-9); other columns
+ * nullable. Used by backfill command tests and any test that exercises Block
+ * Eloquent operations in SQLite.
  */
 function setupBlocksTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.blocks (
         id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        site_id TEXT NULL,
+        user_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
         block_group TEXT NULL,
         block_type TEXT NULL,
         title TEXT NULL,
