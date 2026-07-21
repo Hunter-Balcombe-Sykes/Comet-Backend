@@ -65,6 +65,35 @@ it('word-trims an over-cap Google name onto display_name, mirroring GoogleBusine
         ->and($user->first_name)->toBe('Old');
 });
 
+it('strips reviewer PII from the persisted payload while keeping public fields (PRIV-1)', function () {
+    $svc = Mockery::mock(GoogleBusinessService::class);
+    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJprivacy')
+        ->andReturn([
+            'name' => 'Jane Cafe',
+            'address' => '1 Main St',
+            'rating' => 4.7,
+            'reviewCount' => 42,
+            'reviews' => [['author' => 'A Reviewer', 'text' => 'Great!']],
+            'photos' => [['ref' => 'places/X/photos/1', 'widthPx' => 100, 'heightPx' => 100, 'authors' => ['A Reviewer']]],
+        ]);
+    app()->instance(GoogleBusinessService::class, $svc);
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'account_type' => 'business']);
+    $site = Site::factory()->create(['user_id' => $user->id, 'is_published' => false]);
+
+    app(GoogleBusinessSourceGenerator::class)->generate($user, $site, 'ChIJprivacy');
+
+    $payload = IntegrationConnection::where('user_id', $user->id)->where('platform', 'google-business')->value('payload');
+
+    expect($payload)->not->toHaveKey('reviews')
+        ->and($payload['photos'][0])->not->toHaveKey('authors')
+        ->and($payload['photos'][0]['ref'])->toBe('places/X/photos/1')
+        ->and($payload['name'])->toBe('Jane Cafe')
+        ->and($payload['address'])->toBe('1 Main St')
+        ->and($payload['rating'])->toBe(4.7)
+        ->and($payload['reviewCount'])->toBe(42);
+});
+
 it('maps a null details response to source_not_found', function () {
     $svc = Mockery::mock(GoogleBusinessService::class);
     $svc->shouldReceive('fetchPlaceDetails')->once()->andReturnNull();

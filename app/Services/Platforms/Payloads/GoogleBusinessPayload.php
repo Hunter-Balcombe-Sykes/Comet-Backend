@@ -92,4 +92,37 @@ final readonly class GoogleBusinessPayload
     {
         return $this->raw;
     }
+
+    /**
+     * PRIV-1: strip third-party reviewer PII from a mapped/stored payload —
+     * drops `reviews` entirely (author name/uri/photo/text) and `authors`
+     * from each `photos[]` entry (contributor display names) — while keeping
+     * every other field (name/address/phone/hours/rating/reviewCount/
+     * category/website/photos[ref,widthPx,heightPx,url]/…) untouched.
+     *
+     * Used ONLY on the provisional (pre-claim) write paths —
+     * GoogleBusinessSourceGenerator's initial build and GoogleBusinessFetch's
+     * refresh for an unclaimed owner. The authenticated connect() /
+     * GoogleBusinessEnrichJob / refresh-for-claimed-user paths never call
+     * this and keep the full payload.
+     *
+     * @param  array<string,mixed>  $payload
+     * @return array<string,mixed>
+     */
+    public static function stripThirdPartyPii(array $payload): array
+    {
+        unset($payload['reviews']);
+
+        if (isset($payload['photos']) && is_array($payload['photos'])) {
+            $payload['photos'] = array_map(function ($photo) {
+                if (is_array($photo)) {
+                    unset($photo['authors']);
+                }
+
+                return $photo;
+            }, $payload['photos']);
+        }
+
+        return $payload;
+    }
 }

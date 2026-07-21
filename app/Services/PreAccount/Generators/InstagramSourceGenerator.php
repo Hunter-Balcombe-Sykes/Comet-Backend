@@ -9,6 +9,7 @@ use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 
 // Builds a provisional user's site from a typed Instagram handle by reusing the
@@ -75,6 +76,20 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         } catch (\Throwable $e) {
             throw SourceGenerationException::scrapeFailed($e->getMessage());
         }
+
+        // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping
+        // — never in PublicIntegrationConnectionResource::ALLOWLIST['instagram'] — so
+        // dropping them from the PROVISIONAL (pre-claim) payload is pure data
+        // minimisation with zero render impact. Deliberately narrow: images/
+        // videoUrl/videoPoster/followersCount/postsCount/businessCategory are the
+        // WYSIWYG preview and stay untouched. saveQuietly — seed()'s own ->update()
+        // above already fired the connect-time observer side effects (cache purge,
+        // content-instagram-auto flag) on the full payload; this is a same-write
+        // trim, not a second meaningful change (payload's `_folder` key, the only
+        // thing the `updated` observer inspects, is untouched here).
+        $connection->forceFill([
+            'payload' => Arr::except($connection->payload, ['bioLinks', 'syncFindings', 'unmatched']),
+        ])->saveQuietly();
 
         // Scraped identity onto the user row (spec §4): placeholder → real values.
         $fullName = trim((string) data_get($profile, 'fullName'));

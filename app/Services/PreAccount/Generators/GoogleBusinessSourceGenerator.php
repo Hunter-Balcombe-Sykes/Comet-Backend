@@ -8,6 +8,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessService;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Support\BusinessName;
@@ -53,6 +54,13 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
             // service is best-effort-null either way; the build must not hang.
             throw SourceGenerationException::sourceNotFound();
         }
+
+        // PRIV-1: a pre-claim (provisional) build persists no third-party reviewer
+        // PII — the visitor hasn't claimed the site and may never see this data
+        // rendered, so we minimise what's stored rather than what's rendered
+        // (render is gated by is_published, not claim status). GoogleBusinessFetch
+        // mirrors this strip on refresh for as long as the owner stays unclaimed.
+        $details = GoogleBusinessPayload::stripThirdPartyPii($details);
 
         $name = trim((string) ($details['name'] ?? '')) ?: $user->display_name;
 

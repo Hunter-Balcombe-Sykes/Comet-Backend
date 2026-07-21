@@ -2,6 +2,8 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\GoogleBusinessService;
+use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -247,6 +249,96 @@ it('records legacy link connections without a placeId as unavailable, quietly', 
     expect($conn->last_refresh_error)->toBe('missing_place_id');
     expect($conn->payload['name'])->toBe('Fade Lab');   // last-known-good kept
     Http::assertNothingSent();
+});
+
+// ── PRIV-1: unclaimed pre-account owners never accumulate reviewer PII ────────
+// google-business is refreshable (unlike Instagram), so the pre-account
+// generator's build-time strip alone would reinflate within one TTL cycle.
+// GoogleBusinessFetch mirrors the same strip, gated on live user status —
+// never for a claimed ('active') owner — so it self-heals the moment the
+// visitor claims the site.
+
+it('strips reviewer PII on refresh for an unclaimed owner (PRIV-1)', function () {
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => ['placeId' => 'ChIJpriv', 'name' => 'Old'],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $service = Mockery::mock(GoogleBusinessService::class);
+    $service->shouldReceive('fetchPlaceDetails')->once()->andReturn([
+        'name' => 'Jane Cafe',
+        'rating' => 4.7,
+        'reviewCount' => 42,
+        'reviews' => [['author' => 'A Reviewer', 'text' => 'Great!']],
+        'photos' => [['ref' => 'places/X/photos/1', 'widthPx' => 100, 'heightPx' => 100, 'authors' => ['A Reviewer']]],
+    ]);
+
+    $merged = (new GoogleBusinessFetch($service))->fetch($connection);
+
+    expect($merged)->not->toHaveKey('reviews')
+        ->and($merged['photos'][0])->not->toHaveKey('authors')
+        ->and($merged['photos'][0]['ref'])->toBe('places/X/photos/1')
+        ->and($merged['name'])->toBe('Jane Cafe')
+        ->and($merged['rating'])->toBe(4.7)
+        ->and($merged['reviewCount'])->toBe(42);
+});
+
+it('keeps full reviewer data on refresh for a claimed (active) owner (PRIV-1)', function () {
+    $user = User::factory()->create(['status' => 'active']);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => ['placeId' => 'ChIJactive', 'name' => 'Old'],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $service = Mockery::mock(GoogleBusinessService::class);
+    $service->shouldReceive('fetchPlaceDetails')->once()->andReturn([
+        'name' => 'Jane Cafe',
+        'reviews' => [['author' => 'A Reviewer', 'text' => 'Great!']],
+        'photos' => [['ref' => 'places/X/photos/1', 'authors' => ['A Reviewer']]],
+    ]);
+
+    $merged = (new GoogleBusinessFetch($service))->fetch($connection);
+
+    expect($merged['reviews'])->toHaveCount(1)
+        ->and($merged['photos'][0]['authors'])->toBe(['A Reviewer']);
+});
+
+it('self-heals full reviewer data on the first refresh after claim (PRIV-1)', function () {
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => ['placeId' => 'ChIJheal', 'name' => 'Old'],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $details = [
+        'name' => 'Jane Cafe',
+        'reviews' => [['author' => 'A Reviewer', 'text' => 'Great!']],
+        'photos' => [['ref' => 'places/X/photos/1', 'authors' => ['A Reviewer']]],
+    ];
+    $service = Mockery::mock(GoogleBusinessService::class);
+    $service->shouldReceive('fetchPlaceDetails')->twice()->andReturn($details);
+
+    // Still unclaimed: stripped.
+    $merged = (new GoogleBusinessFetch($service))->fetch($connection);
+    expect($merged)->not->toHaveKey('reviews');
+
+    // Claim flips status to 'active' — the very next refresh (no
+    // ClaimSiteService change needed) restores the full snapshot.
+    $user->forceFill(['status' => 'active'])->save();
+
+    $healed = (new GoogleBusinessFetch($service))->fetch($connection);
+    expect($healed['reviews'])->toHaveCount(1)
+        ->and($healed['photos'][0]['authors'])->toBe(['A Reviewer']);
 });
 
 // ── Public allowlist ─────────────────────────────────────────────────────────

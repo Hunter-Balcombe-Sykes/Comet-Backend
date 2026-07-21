@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 43 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P2 Medium: 45 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 8 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -69,7 +69,7 @@ every draft rather than the scan reading nothing.
 > for the three re-tiers recorded below.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
-**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)* · B11 ✅ *($fillable hardening across 4 findings; handle/handle_lc kept fillable per Josh to avoid a ~90-file test ripple; SEC-3/SEC-4 needed forceCreate/forceFill not the audit's "clean removal"; dual fresh-grep review)*
+**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)* · B11 ✅ *($fillable hardening across 4 findings; handle/handle_lc kept fillable per Josh to avoid a ~90-file test ripple; SEC-3/SEC-4 needed forceCreate/forceFill not the audit's "clean removal"; dual fresh-grep review)* · B12 ✅ *(GBP reviewer-PII strip durable across the 2-day refresh + self-heal on claim; IG narrowed to bioLinks/syncFindings/unmatched; logged DISC-7 InstagramAutoSync)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -105,6 +105,10 @@ never opened the file, which is the failure mode `CLAUDE.md`'s audit-integrity g
 to catch: **a lens reports nothing for files it never reads, and that is indistinguishable
 from clean.**
 
+- [ ] **`discovered/DISC-7`** · P3 · M — `InstagramConnectionSeeder::seed()` → `InstagramAutoSync::seed()` writes NEW `IntegrationConnection` rows (facebook/tiktok/x/linkedin/fresha/square) parsed from a scraped bio, for a not-yet-consenting provisional subject, as a side effect of the shared seed call
+  - **Where:** `app/Services/Platforms/InstagramAutoSync.php` (called from `InstagramConnectionSeeder::seed()`) · pre-account IG generation path
+  - **What to do:** own decision + commit — NOT folded into B12. B12's PRIV-2 trims the IG connection's own stored fields, but does not undo these auto-created sibling connections. Whether to skip `InstagramAutoSync` for provisional (`unclaimed`) builds needs its own call, since `seed()` is shared machinery (threading a provisional flag). This is arguably the larger "collects more pre-consent than needed" issue than the payload fields B12 addressed.
+  - **Why the audit missed it:** the `state-machines`/`preaccount-claim` scopes opened the generator but not the transitive `InstagramAutoSync` write. Surfaced while planning B12.
 - [ ] **`discovered/DISC-6`** · P2 · S — `UserBootstrapService::bootstrap()` has the same `handle_lc` TOCTOU as the pre-account path (B9 LIFE-3), but its catch only disambiguates *email* reuse — a concurrent handle collision on `core_users_handle_lc_unique` re-throws as an unhandled 500
   - **Where:** `app/Services/User/UserBootstrapService.php` (the `catch` that handles email reuse) · `app/Services/User/HandleAllocator.php` (shared `allocate()` — same lockless EXISTS loop)
   - **What to do:** apply the same savepoint-retry-past-handle-collision fix B9 applied to `PreAccountBuildService` (`tryCreateProvisionalUser` pattern). Own commit + review — NOT folded into B9 (different file/flow, and the authenticated signup path deserves isolated verification).
@@ -554,9 +558,10 @@ FK leaves `$fillable`, or creation silently breaks. `pre_account_builds.user_id`
 Provisional (`unclaimed`) users have not consented to anything. Both generators persist the full
 vendor payload when the unclaimed sitepage renders only a few fields.
 
-- [ ] **`preaccount-claim/PRIV-1`** · P2 · M — Google Business generator spreads full mapped Place Details (including reviewer names/photos) into a provisional user's payload → `sources/preaccount-claim.md`
-- [ ] **`preaccount-claim/PRIV-2`** · P2 · M — Instagram scraper stores third-party profile data for a not-yet-consenting provisional user → `sources/preaccount-claim.md`
-  - Keep the `IdentitySync`-via-observer contract intact; narrow what the seeder writes, don't bypass the machinery.
+- [x] **`preaccount-claim/PRIV-1`** · P2 · M — Google Business generator spreads full mapped Place Details (including reviewer names/photos) into a provisional user's payload → `sources/preaccount-claim.md`
+  - **Fixed durably (the audit's premise was corrected in planning).** Exposure isn't gated by claim status — unclaimed+claimed sites share the render pipeline and `PublicIntegrationConnectionResource` already serves reviews/photos; it's gated by `is_published`, so the real risk is staff/ManyChat `publish=true` builds. New `GoogleBusinessPayload::stripThirdPartyPii()` removes the `reviews` array and `photos[].authors` (keeps rating/reviewCount and everything else), applied in `GoogleBusinessSourceGenerator` AND — critically, since google-business is refreshable on a 2-day TTL — in `GoogleBusinessFetch::fetch()` gated on `user()->value('status') === 'unclaimed'`. That gate self-heals on claim (status flips → next refresh restores full data, no ClaimSiteService change) and never strips an `active` user's data (parity test proves it). Authenticated connect/enrich never call the helper.
+- [x] **`preaccount-claim/PRIV-2`** · P2 · M — Instagram scraper stores third-party profile data for a not-yet-consenting provisional user → `sources/preaccount-claim.md`
+  - **Fixed with a narrowed scope (the audit's literal "trim to name/bio/avatar" was rejected).** The IG payload has NO third-party PII (no reviewers/followers-as-PII) and is NOT refreshable, so gutting `images`/`videos`/counts would break the deliberate WYSIWYG preview for zero privacy gain. Instead `InstagramSourceGenerator` drops only `bioLinks`/`syncFindings`/`unmatched` (never in the public allowlist → zero render impact) via a post-seed `saveQuietly` — the shared `InstagramConnectionSeeder::seed()` is untouched, IdentitySync already fired on `seed()`. Kept the `IdentitySync`-via-observer contract intact; narrowed what's written, didn't bypass the machinery.
 
 ### Bundle B13 — Cloudflare Worker hardening · **P2** · Effort S–M
 

@@ -5,6 +5,7 @@ namespace App\Services\Platforms\Strategies\Fetch;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessService;
+use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -46,6 +47,17 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
         $details = $this->googleBusiness->fetchPlaceDetails((string) $placeId, (array) ($payload['photos'] ?? []));
         if ($details === null) {
             throw new FetchUnavailableException('google_details_fetch_failed');
+        }
+
+        // PRIV-1: google-business is refreshable (this method), so a generator-only
+        // strip at build time would reinflate reviewer PII within one TTL cycle for
+        // a still-unclaimed owner. Mirror the same strip here, gated on live status
+        // (never the connection's stale cached state) so it self-heals the moment
+        // the owner claims: claim flips status to 'active' and the very next
+        // refresh restores full data with no ClaimSiteService change needed. A
+        // cheap scalar column read — never a full User hydrate.
+        if ($connection->user()->value('status') === 'unclaimed') {
+            $details = GoogleBusinessPayload::stripThirdPartyPii($details);
         }
 
         // WS-B2.2: sections the owner switched off are not refreshed into storage —
