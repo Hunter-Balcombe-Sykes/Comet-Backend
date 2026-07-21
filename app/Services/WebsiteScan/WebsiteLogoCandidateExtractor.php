@@ -22,7 +22,7 @@ class WebsiteLogoCandidateExtractor
 
     public function extract(string $html, string $baseUrl): array
     {
-        $doc = new \DOMDocument();
+        $doc = new \DOMDocument;
         libxml_use_internal_errors(true);
         $doc->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
         libxml_clear_errors();

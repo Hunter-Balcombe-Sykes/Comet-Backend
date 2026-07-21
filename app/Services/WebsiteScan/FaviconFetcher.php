@@ -39,7 +39,7 @@ class FaviconFetcher
 
     private function findIconUrl(string $html, string $baseUrl): ?string
     {
-        $doc = new \DOMDocument();
+        $doc = new \DOMDocument;
         libxml_use_internal_errors(true);
         $doc->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
         libxml_clear_errors();
