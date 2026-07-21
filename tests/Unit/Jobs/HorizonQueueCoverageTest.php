@@ -3,6 +3,7 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
@@ -68,6 +69,24 @@ it('scraping queue is covered in the development environment (JOB-2)', function 
 it('scraping queue is covered in the local environment (JOB-2)', function () {
     expect(envCoversQueue('local', 'scraping'))->toBeTrue(
         'scraping queue must appear in at least one local supervisor queue list'
+    );
+});
+
+it('platform_connect queue is covered in the production environment', function () {
+    expect(envCoversQueue('production', 'platform_connect'))->toBeTrue(
+        'supervisor-platform-connect must be registered in production — jobs will strand otherwise'
+    );
+});
+
+it('platform_connect queue is covered in the development environment', function () {
+    expect(envCoversQueue('development', 'platform_connect'))->toBeTrue(
+        'platform_connect queue must appear in at least one development supervisor queue list'
+    );
+});
+
+it('platform_connect queue is covered in the local environment', function () {
+    expect(envCoversQueue('local', 'platform_connect'))->toBeTrue(
+        'platform_connect queue must appear in at least one local supervisor queue list'
     );
 });
 
@@ -219,6 +238,7 @@ it('every ShouldBeUnique job holds its lock at least as long as it can run', fun
         CloudflareCachePurgeJob::class => [['some-handle'], null],
         SyncSubdomainToKvJob::class => [['00000000-0000-0000-0000-000000000001'], null],
         InstagramConnectJob::class => [['u', 'someuser', 'c'], null],
+        ConnectFetchJob::class => [['00000000-0000-0000-0000-000000000001', 'bandcamp'], null],
     ];
 
     $violations = [];

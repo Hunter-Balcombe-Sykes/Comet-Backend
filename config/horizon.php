@@ -269,6 +269,26 @@ return [
             'timeout' => 660,
             'nice' => 0,
         ],
+        // Deferred-connect content fetch (ConnectFetchJob — Unit 11 W5 / LIFE-13..20).
+        // Isolated from 'scraping' so an interactive connect (user watching the
+        // modal) never queues behind ~110s Apify Instagram jobs. Deliberately no
+        // per-provider RateLimiter here (see the job's own docblock) — process
+        // count alone bounds worker pressure. timeout 60 exceeds the job's own
+        // $timeout=45 with headroom and stays well under the default redis
+        // connection's retry_after=360.
+        'supervisor-platform-connect' => [
+            'connection' => 'redis',
+            'queue' => ['platform_connect'],
+            'balance' => 'auto',
+            'minProcesses' => 1,
+            'maxProcesses' => 3,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,       // retries governed by the job's own $tries/$backoff
+            'timeout' => 60,
+            'nice' => 0,
+        ],
         // Videos use a dedicated Redis connection with a 1-hour retry_after.
         // Run separately via: php artisan queue:work redis_video --queue=videos --timeout=3600
         'supervisor-videos' => [
@@ -298,6 +318,7 @@ return [
             'supervisor-images' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-scraping' => ['minProcesses' => 1, 'maxProcesses' => 2],
             'supervisor-platform-refresh' => ['minProcesses' => 1, 'maxProcesses' => 2],
+            'supervisor-platform-connect' => ['minProcesses' => 1, 'maxProcesses' => 3],
             'supervisor-gdpr' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 2],
         ],
@@ -305,7 +326,7 @@ return [
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,
@@ -347,7 +368,7 @@ return [
             // supervisor-scraping notes above).
             'supervisor-1' => [
                 'connection' => 'redis',
-                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh'],
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
                 'balance' => 'simple',
                 'maxProcesses' => 3,
                 'tries' => 1,

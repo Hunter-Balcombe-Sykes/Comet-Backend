@@ -3,13 +3,13 @@
 namespace App\Services\Platforms\Strategies\Connect;
 
 use App\Services\Platforms\Strategies\Contracts\ConnectResult;
-use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
+use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
 use App\Services\Platforms\StravaClubScraper;
 
 // Strava connect: club URL (athlete profiles are login-walled) → club page
 // provides name, location, photo, live member count. Moved verbatim from
 // StravaController.
-class StravaConnect implements ConnectStrategy
+class StravaConnect implements DeferredConnect
 {
     public function __construct(private readonly StravaClubScraper $scraper) {}
 
@@ -26,5 +26,16 @@ class StravaConnect implements ConnectStrategy
         }
 
         return ConnectResult::ok(['url' => $url, ...$club]);
+    }
+
+    // DeferredConnect — no network. Writes exactly what StravaFetch reads (url).
+    public function identify(string $input): ConnectResult
+    {
+        $url = $this->scraper->normalizeUrl($input);
+        if (! $url) {
+            return ConnectResult::fail(); // same as resolve() — descriptor's parse-fail message
+        }
+
+        return ConnectResult::ok(['url' => $url]);
     }
 }

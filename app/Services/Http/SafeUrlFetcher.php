@@ -6,6 +6,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * SSRF-guarded outbound fetcher. Every custom-link and platform-scraper fetch
@@ -41,17 +42,30 @@ class SafeUrlFetcher
      */
     public const FALLBACK_USER_AGENT = 'PartnaBot/1.0 (+https://partna.au)';
 
+    /** Fallback default for config('partna.http_fetch.connect_timeout_seconds'). */
+    private const CONNECT_TIMEOUT_SECONDS = 3;
+
     private readonly int $maxRedirects;
 
     private readonly int $timeoutSeconds;
 
     private readonly int $maxBytes;
 
-    public function __construct()
+    private readonly int $connectTimeoutSeconds;
+
+    /**
+     * The wall-clock budget is NOT owned here — it's a request/job-scoped
+     * concern shared with other collaborators (e.g. YoutubeThumbnailResolver,
+     * which deliberately bypasses this class for its SSRF-free i.ytimg.com
+     * probes but must still respect the same deadline). See FetchBudget's
+     * docblock for why this was extracted out of SafeUrlFetcher.
+     */
+    public function __construct(private readonly FetchBudget $budget)
     {
         $this->maxRedirects = (int) config('partna.http_fetch.max_redirects', self::MAX_REDIRECTS);
         $this->timeoutSeconds = (int) config('partna.http_fetch.timeout_seconds', self::TIMEOUT_SECONDS);
         $this->maxBytes = (int) config('partna.http_fetch.max_bytes', self::MAX_BYTES);
+        $this->connectTimeoutSeconds = (int) config('partna.http_fetch.connect_timeout_seconds', self::CONNECT_TIMEOUT_SECONDS);
     }
 
     /**
@@ -109,10 +123,26 @@ class SafeUrlFetcher
         $current = $url;
 
         for ($hop = 0; $hop <= $this->maxRedirects; $hop++) {
+            // Budget check BEFORE assertSafe(): a DNS-resolving assertSafe() call
+            // is itself real wall-clock time we don't want to spend once the
+            // deadline has already passed.
+            $remaining = $this->budget->remaining();
+            if ($remaining !== null && $remaining <= 0) {
+                throw new SafeUrlException("Fetch budget exhausted for {$current}");
+            }
+
             $this->assertSafe($current);
 
+            // No open budget → the flat per-hop timeout, unchanged. With a
+            // budget, the hop gets whatever is smaller: the configured per-hop
+            // ceiling, or what's left of the operation's wall clock.
+            $hopTimeout = $remaining === null
+                ? $this->timeoutSeconds
+                : (int) max(1, ceil(min($this->timeoutSeconds, $remaining)));
+
             $response = Http::withHeaders($headers)
-                ->timeout($this->timeoutSeconds)
+                ->timeout($hopTimeout)
+                ->connectTimeout($this->connectTimeoutSeconds)
                 ->withoutRedirecting()
                 ->get($current);
 
@@ -322,7 +352,8 @@ class SafeUrlFetcher
      *
      * @param  array<int,string>  $currentUrls  0-indexed list of URLs for this round.
      * @param  array<string,string>  $mergedHeaders
-     * @return array<string, Response|\Throwable> Keyed by "$i".
+     * @return array<string, Response|\Throwable> Keyed by "$i". Absent when the budget
+     *                                            ran out before that chunk fired — see below.
      */
     private function pooledGet(array $currentUrls, array $mergedHeaders): array
     {
@@ -330,9 +361,39 @@ class SafeUrlFetcher
         $responses = [];
 
         foreach (array_chunk($currentUrls, $max, true) as $chunk) {
+            // Same budget check as fetchFollowingRedirects(), applied per chunk
+            // rather than per URL — a pool batch is one round-trip, so there's no
+            // cheaper place to cut it short. UNLIKE fetchFollowingRedirects(),
+            // this must NOT throw: fetchMany()'s documented contract is to
+            // silently drop URLs it couldn't reach (unlike fetch(), which
+            // throws) — a caller such as BandcampScraper::enrichPrices() never
+            // wraps this in a try/catch, so a throw here would violate that
+            // caller's contract, not enforce ours. Breaking leaves the
+            // remaining indices absent from $responses, which
+            // fetchManyFollowingRedirects() already treats as "dropped" via
+            // its `$responses[(string) $i] ?? null` lookup against $results'
+            // array_fill_keys(..., null) baseline.
+            $remaining = $this->budget->remaining();
+            if ($remaining !== null && $remaining <= 0) {
+                // One line per exhausted pooledGet() call (not per dropped URL)
+                // — the only way to tell "dropped for budget" apart from
+                // "dropped because the vendor 404'd", which otherwise look
+                // identical to the caller.
+                Log::warning('http_fetch.pooled_get.budget_exhausted', [
+                    'dropped' => count($currentUrls) - count($responses),
+                    'remaining_seconds' => $remaining,
+                ]);
+
+                break;
+            }
+            $chunkTimeout = $remaining === null
+                ? $this->timeoutSeconds
+                : (int) max(1, ceil(min($this->timeoutSeconds, $remaining)));
+
             $batch = Http::pool(fn (Pool $pool) => array_map(
                 fn (int $i, string $url) => $pool->as((string) $i)
-                    ->timeout($this->timeoutSeconds)
+                    ->timeout($chunkTimeout)
+                    ->connectTimeout($this->connectTimeoutSeconds)
                     ->withHeaders($mergedHeaders)
                     ->withoutRedirecting()
                     ->get($url),

@@ -280,6 +280,20 @@ $registerIntegrationRoutes = function (string $base): void {
                 Route::get('/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $slug);
                 Route::delete('/', [GenericPlatformController::class, 'forget'])->defaults('platform', $slug);
 
+                // Deferred-connect poll endpoint (Unit 11 W6). Emitted wherever the
+                // platform SUPPORTS deferral (a capability), independent of whether
+                // config('partna.connect.deferred') currently ACTIVATES it — a route
+                // that appears/disappears with an env var is worse to debug than one
+                // that always 404s a nonexistent row. Reads supportsDeferredConnect()
+                // — a declared flag — and MUST NOT call connectStrategy(): this loop
+                // runs at boot, and resolving the lazy factory here would bake a real
+                // scraper into the descriptor before any test can mock it (the same
+                // trap hasHighlights()/multiAccount() below are already careful to
+                // avoid).
+                if ($descriptor->supportsDeferredConnect()) {
+                    Route::get('/connect/status', [GenericPlatformController::class, 'connectStatus'])->defaults('platform', $slug);
+                }
+
                 if ($descriptor->multiAccount()) {
                     Route::get('/accounts', [GenericPlatformController::class, 'accounts'])->defaults('platform', $slug);
                     Route::delete('/accounts/{id}', [GenericPlatformController::class, 'removeAccount'])

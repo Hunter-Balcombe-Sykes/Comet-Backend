@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Strategies\Contracts\DeferredConnect;
 
 it('pins the descriptor-driven connect contract for every reducible platform', function () {
     $registry = app(PlatformRegistry::class);
@@ -44,4 +45,39 @@ it('pins the descriptor-driven connect contract for every reducible platform', f
 
     // GoogleBusiness is irreducible — not shared-request driven.
     expect($registry->get('google-business')->connectField())->toBeNull();
+});
+
+it('pins deferredConnect() flag <=> DeferredConnect interface for every descriptor (Unit 11 W4)', function () {
+    // Guards the boot-safety trap PlatformDescriptor::deferredConnect() is
+    // built to avoid: supportsDeferredConnect() must be a DECLARED flag, never
+    // an instanceof on the resolved strategy (a route loop calling
+    // connectStrategy() at boot would bake a real scraper into the descriptor
+    // before any test can mock it). This test is the one place `instanceof`
+    // is safe to check — it runs long after boot, inside a test.
+    //
+    // Fails unfixed two ways: (1) before deferredConnect()/connectFetchError()
+    // existed, this file wouldn't even compile; (2) if a descriptor declared
+    // deferredConnect() without its strategy implementing DeferredConnect (or
+    // vice versa), the flag<=>instanceof equality breaks.
+    $registry = app(PlatformRegistry::class);
+
+    $deferredKeys = ['spotify', 'bandcamp', 'twitch', 'pinterest', 'strava', 'vimeo', 'youtube-music', 'youtube'];
+
+    foreach ($registry->all() as $key => $descriptor) {
+        $strategy = $descriptor->connectStrategy();
+        expect($descriptor->supportsDeferredConnect())
+            ->toBe($strategy instanceof DeferredConnect, "flag<=>instanceof drift: {$key}");
+    }
+
+    foreach ($deferredKeys as $key) {
+        $d = $registry->get($key);
+        expect($d->supportsDeferredConnect())->toBeTrue("expected {$key} to be deferred");
+        expect($d->connectFetchErrorMessage())->not->toBeNull("missing connectFetchErrorMessage: {$key}");
+    }
+
+    // The five non-deferred connect implementers + every other descriptor
+    // must NOT have declared the flag.
+    foreach (array_diff($registry->keys(), $deferredKeys) as $key) {
+        expect($registry->get($key)->supportsDeferredConnect())->toBeFalse("unexpected deferred flag: {$key}");
+    }
 });

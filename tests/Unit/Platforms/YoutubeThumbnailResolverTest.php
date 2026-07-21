@@ -1,8 +1,11 @@
 <?php
 
+use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\YoutubeThumbnailResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -111,4 +114,79 @@ it('caches maxres verdicts with the long CACHE_DAYS TTL', function () {
     Cache::shouldHaveReceived('put')->withArgs(
         fn ($k, $v, $ttl) => $v === 'maxres' && is_int($ttl) && $ttl > 2000000,
     )->once();
+});
+
+// ── FetchBudget — Unit 11 W1 (post-review) ────────────────────────────────
+//
+// pooledHead() bypasses SafeUrlFetcher (see the class docblock — i.ytimg.com
+// URLs are hardcoded, no SSRF surface) but must still respect a budget
+// opened around the whole connect. On exhaustion it stops firing further
+// pool rounds and returns the partial batch — never throws, matching
+// bestForMany()'s "never throws, a failed probe is a fallback" contract.
+
+it('degrades un-probed ids to hqdefault instead of throwing when the budget runs out mid-pool', function () {
+    // Against code with no FetchBudget wired into pooledHead(), every id
+    // gets probed regardless of any open budget — all three i.ytimg.com
+    // requests fire, and the assertSentCount(1) below fails (3, not 1).
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
+
+    Http::fake(function () {
+        usleep(60_000); // burns the 50ms budget below, before round 2 fires
+
+        return Http::response('', 404); // genuinely probed, no maxres
+    });
+
+    $out = app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
+        ->bestForMany(['probed-a', 'skipped-b', 'skipped-c']));
+
+    // Every id still gets a usable (hqdefault) URL — never null, never throws.
+    expect($out['probed-a'])->toBe('https://i.ytimg.com/vi/probed-a/hqdefault.jpg')
+        ->and($out['skipped-b'])->toBe('https://i.ytimg.com/vi/skipped-b/hqdefault.jpg')
+        ->and($out['skipped-c'])->toBe('https://i.ytimg.com/vi/skipped-c/hqdefault.jpg');
+
+    Http::assertSentCount(1); // only round 1 (probed-a) ever fired
+});
+
+it('caches a genuinely-probed non-200 verdict but NOT an id the budget skipped entirely', function () {
+    // Distinguishes "asked YouTube and got a non-200" (a real fact worth
+    // caching) from "budget ran out before we ever asked" (not a fact about
+    // the video — caching it would pin an un-probed id to hqdefault for the
+    // recheck TTL). Against code using `$responses[$id] ?? null` alone
+    // (unable to tell the two apart), EVERY miss id gets cached as 'hq' —
+    // including the skipped ones — so the assertion that skipped-b/c have NO
+    // cache entry fails.
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
+
+    Http::fake(function () {
+        usleep(60_000);
+
+        return Http::response('', 404);
+    });
+
+    app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
+        ->bestForMany(['probed-a', 'skipped-b', 'skipped-c']));
+
+    expect(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('probed-a')))->toBe('hq')
+        ->and(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('skipped-b')))->toBeNull()
+        ->and(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('skipped-c')))->toBeNull();
+});
+
+it('logs once (not per skipped id) when the budget runs out mid-pool', function () {
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
+    Log::spy();
+
+    Http::fake(function () {
+        usleep(60_000);
+
+        return Http::response('', 404);
+    });
+
+    app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
+        ->bestForMany(['probed-a', 'skipped-b', 'skipped-c']));
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $ctx) => $message === 'youtube_thumbnails.pooled_head.budget_exhausted'
+            && $ctx['dropped'] === 2
+            && $ctx['remaining_seconds'] <= 0);
 });

@@ -29,7 +29,7 @@
 9. **GoogleBusinessEnrichJob hardening** — `LIFE-10`, `JOB-2`, `OBS-6` · same file/method (payload race, retry reruns paid scrape, silent soft-failure) · effort ~M · autonomous
 10. **Platform auto-sync (GBP/IG) race + dedup** — `LIFE-105`, `LIFE-106`, `LIFE-107`, `LIFE-108`, `SLOP-101` · `GoogleBusinessAutoSync`/`InstagramAutoSync`/`IdentitySync` — booking-XOR/sector/workplace races + duplicated finding-builder · effort ~M · autonomous
 11. **Platform connect/highlights async-fetch pattern** — `LIFE-13`, `LIFE-14`, `LIFE-15`, `LIFE-16`, `LIFE-17`, `LIFE-18`, `LIFE-19`, `LIFE-20`, `LIFE-21`, `LIFE-22`, `LIFE-23`, `LIFE-24` (12 IDs) · identical sync-vendor-fetch-in-request-cycle across 8 Connect + 4 Highlights strategies · effort ~L · autonomous (design shared async pattern once, then fan out)
-    - **⏸ DEFERRED IN FULL — Josh's decision, 2026-07-20.** All 12 boxes stay open; needs its own session. Premise verification is DONE, so do not redo it — findings below are confirmed VALID against current code, and all 12 strategies are live (registered in `PlatformRegistryServiceProvider`, routed through `GenericPlatformController`). None is dead code.
+    - **✅ SHIPPED 2026-07-21** (commits `1f1a6f2b`..`d7c755a1`, branch `audit-fix/unit-11-highlights-2026-07-21`). All 12 boxes closed. Highlights half (`LIFE-21`..`LIFE-24`) is live and unconditional — the picker now serves a cached `recentItems` snapshot (warmed by the existing 12h `refreshEvery()` pipeline, `FetchBudget`-wrapped live fetch as fallback) instead of scraping on every modal open, and the bonus lock-held-fetch defect in `BandcampHighlights::apply()` was fixed alongside it. Connect half (`LIFE-13`..`LIFE-20`) shipped a new `DeferredConnect` seam + `ConnectFetchJob` + `GET /platforms/{slug}/connect/status` poll route — but the async path is gated by `config('partna.connect.deferred')` (env `PARTNA_CONNECT_DEFERRED`), which defaults EMPTY: **built, wired, and tested, but OFF everywhere until a platform slug is added to that list.** Every `connect()` response stays byte-identical to today until the flag is flipped per-platform.
         - **No shared seam.** `ConnectStrategy` and `HighlightsStrategy` are BARE interfaces implemented directly by all 12; there is no base class. `ConnectResult` is `final readonly` with no pending variant. "Lock one async contract then fan out" has no free seam — it means touching all 12 files plus the result type. This is why it is L, not M.
         - **Connect half (`LIFE-13`..`LIFE-20`) is a BREAKING API change.** `GenericPlatformController.php:91,97` echoes `$result->selection` (name/thumbnail/latest item) in the same HTTP response, built from the in-memory result and not re-read from the DB. Deferring the fetch changes the `POST .../connect` response shape for 8 platforms. There IS a proven in-house pattern to copy — Instagram/GBP write `last_refresh_status='pending'`, `::dispatch()`, return **202**, and the frontend polls the already-generic `GET /platforms/meta` — but it requires coordinated work in `partna-frontend` (read-only from a backend session).
         - **Highlights half (`LIFE-21`..`LIFE-24`) is architecturally different.** `GET /{platform}/recent` feeds the picker modal and is expected to feel instant; there is NO pending/poll precedent for it anywhere. The better direction is the audit's own alternative: these platforms already have a working 12h `refreshEvery()` pipeline (`RefreshConnectionJob`/`PlatformRefresher`) that could populate a cached recent-items snapshot instead of live-fetching on every picker open. Non-breaking, no frontend dependency.
@@ -220,7 +220,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 8 of 20 complete
+- P2 Medium: 20 of 20 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -354,7 +354,7 @@
         ])->saveQuietly();
         ```
 
-- [ ] **LIFE-13** · P2 — SpotifyConnect fetches the vendor oEmbed endpoint synchronously in the request cycle
+- [x] **LIFE-13** · P2 — SpotifyConnect fetches the vendor oEmbed endpoint synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/SpotifyConnect.php:17-40 (invoked from app/Http/Controllers/Api/Platforms/GenericPlatformController.php:63)
     - **Affects:** Users connecting a Spotify link — Spotify oEmbed latency/downtime directly extends or fails the `POST /api/platforms/{platform}/connect` response.
     - **Effort:** M (~2–4h)
@@ -370,7 +370,7 @@
         }
         ```
 
-- [ ] **LIFE-14** · P2 — BandcampConnect fetches the artist page + price enrichment synchronously in the request cycle
+- [x] **LIFE-14** · P2 — BandcampConnect fetches the artist page + price enrichment synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/BandcampConnect.php:23-48
     - **Affects:** Users connecting a Bandcamp page — same request-latency exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -386,7 +386,7 @@
         $latest = $this->scraper->enrichPrices([$profile['items'][0]])[0];
         ```
 
-- [ ] **LIFE-15** · P2 — PinterestConnect makes two sequential synchronous vendor fetches in the request cycle
+- [x] **LIFE-15** · P2 — PinterestConnect makes two sequential synchronous vendor fetches in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/PinterestConnect.php:16-38
     - **Affects:** Users connecting a Pinterest profile — two sequential external fetches (state JSON + RSS) both block the response.
     - **Effort:** M (~2–4h)
@@ -402,7 +402,7 @@
         $pins = $this->scraper->fetchPins($username);
         ```
 
-- [ ] **LIFE-16** · P2 — StravaConnect fetches the club page synchronously in the request cycle
+- [x] **LIFE-16** · P2 — StravaConnect fetches the club page synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/StravaConnect.php:16-30
     - **Affects:** Users connecting a Strava club — same exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -417,7 +417,7 @@
         }
         ```
 
-- [ ] **LIFE-17** · P2 — TwitchConnect fetches the channel page synchronously in the request cycle
+- [x] **LIFE-17** · P2 — TwitchConnect fetches the channel page synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/TwitchConnect.php:15-35
     - **Affects:** Users connecting a Twitch channel — same exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -432,7 +432,7 @@
         }
         ```
 
-- [ ] **LIFE-18** · P2 — VimeoConnect makes two sequential synchronous vendor API calls in the request cycle
+- [x] **LIFE-18** · P2 — VimeoConnect makes two sequential synchronous vendor API calls in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/VimeoConnect.php:18-40
     - **Affects:** Users connecting a Vimeo profile — two sequential keyless-API calls block the response.
     - **Effort:** M (~2–4h)
@@ -448,7 +448,7 @@
         }
         ```
 
-- [ ] **LIFE-19** · P2 — YoutubeConnect fetches the channel's recent videos synchronously in the request cycle
+- [x] **LIFE-19** · P2 — YoutubeConnect fetches the channel's recent videos synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/YoutubeConnect.php:21-42
     - **Affects:** Users connecting a YouTube channel — same exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -463,7 +463,7 @@
         }
         ```
 
-- [ ] **LIFE-20** · P2 — YoutubeMusicConnect fetches channel-id resolution + uploads feed synchronously in the request cycle
+- [x] **LIFE-20** · P2 — YoutubeMusicConnect fetches channel-id resolution + uploads feed synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/YoutubeMusicConnect.php:20-31
     - **Affects:** Users connecting a YouTube Music artist — two sequential external fetches block the response.
     - **Effort:** M (~2–4h)
@@ -479,7 +479,7 @@
         $feed = $this->scraper->fetchUploadsFeed($channelId, self::MAX_ITEMS);
         ```
 
-- [ ] **LIFE-21** · P2 — BandcampHighlights fetches the artist page synchronously from the picker endpoint
+- [x] **LIFE-21** · P2 — BandcampHighlights fetches the artist page synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/BandcampHighlights.php:28-36 (invoked from `GenericPlatformController::recent()`)
     - **Affects:** Users opening the "choose highlights" picker for an already-connected Bandcamp page — the modal blocks on a live fetch every time it opens.
     - **Effort:** M (~2–4h)
@@ -499,7 +499,7 @@
         }
         ```
 
-- [ ] **LIFE-22** · P2 — VimeoHighlights fetches recent videos synchronously from the picker endpoint
+- [x] **LIFE-22** · P2 — VimeoHighlights fetches recent videos synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/VimeoHighlights.php:27-33
     - **Affects:** Users opening the Vimeo highlights picker — same exposure as LIFE-21.
     - **Effort:** M (~2–4h)
@@ -515,7 +515,7 @@
         }
         ```
 
-- [ ] **LIFE-23** · P2 — YoutubeHighlights fetches recent videos synchronously from the picker endpoint
+- [x] **LIFE-23** · P2 — YoutubeHighlights fetches recent videos synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/YoutubeHighlights.php:28-31
     - **Affects:** Users opening the YouTube highlights picker — same exposure as LIFE-21.
     - **Effort:** M (~2–4h)
@@ -530,7 +530,7 @@
         }
         ```
 
-- [ ] **LIFE-24** · P2 — YoutubeMusicHighlights fetches the uploads feed synchronously from the picker endpoint
+- [x] **LIFE-24** · P2 — YoutubeMusicHighlights fetches the uploads feed synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/YoutubeMusicHighlights.php:28-36
     - **Affects:** Users opening the YouTube Music highlights picker — same exposure as LIFE-21.
     - **Effort:** M (~2–4h)

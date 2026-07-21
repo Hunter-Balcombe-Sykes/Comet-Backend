@@ -91,8 +91,35 @@ trait ManagesIntegrationConnection
         }
     }
 
-    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null): IntegrationConnection
-    {
+    /**
+     * Shared upsert body for every connection-write path (writeConnection,
+     * writePendingLinkCard, writeAccountConnection): resolves create-vs-update
+     * policy, asserts platform availability, then upserts. $canonicalKey /
+     * $resourceKind are stamped only when the caller resolved one — an
+     * omitted value must leave an already-stored column untouched.
+     *
+     * $mergePayload is the pending-write contract (writeAccountConnection's
+     * $pending flag, Unit 11 W5 / LIFE-13..20): when true and a row already
+     * exists, $values['payload'] is merged ONTO the existing stored payload
+     * rather than replacing it — `[...($existing->payload ?? []), ...$new]`.
+     * Load-bearing for three distinct bugs on a reconnect:
+     *   1. UX — the card stays rendered (an identity stub at worst) instead
+     *      of blanking while ConnectFetchJob's fetch is still queued.
+     *   2. The Bandcamp 304 trap — BandcampFetch throws
+     *      FetchNotModifiedException when auto_sync_latest is off; that's
+     *      only correct if the OLD payload survived the pending write.
+     *   3. The conditional-request trap — OEmbedFetch/YoutubeMusicFetch send
+     *      If-None-Match from the stored refresh_etag; a 304 on reconnect is
+     *      likewise only safe if the payload wasn't blanked first.
+     */
+    private function upsertConnection(
+        User $user,
+        array $values,
+        ?string $resourceId,
+        bool $mergePayload = false,
+        ?string $canonicalKey = null,
+        ?string $resourceKind = null,
+    ): IntegrationConnection {
         $this->assertPlatformAvailable($user);
 
         // Determine create vs. update before the upsert so the correct ability fires.
@@ -101,6 +128,10 @@ trait ManagesIntegrationConnection
             // connectionFor already ran 'view' (ownership check); run 'update' for
             // the pending-deletion guard on top of ownership.
             $this->authorizeForUser($user, 'update', $existing);
+
+            if ($mergePayload && array_key_exists('payload', $values)) {
+                $values['payload'] = [...($existing->payload ?? []), ...$values['payload']];
+            }
         } else {
             // No row yet — gate with a skeleton so the policy can check ownership
             // and pending-deletion without a real DB row.
@@ -112,20 +143,9 @@ trait ManagesIntegrationConnection
             $this->authorizeForUser($user, 'create', $skeleton);
         }
 
-        $values = [
-            'payload' => $payload,
-            'is_active' => true,
-            'last_refreshed_at' => now(),
-            'last_refresh_status' => 'ok',
-            'last_refresh_error' => null,
-            'consecutive_failures' => 0,
-        ];
-        // Only stamp canonical_key when the caller actually resolved one — an
-        // omitted value here must leave a previously-stored key untouched.
         if ($canonicalKey !== null) {
             $values['canonical_key'] = $canonicalKey;
         }
-        // Same stamp-only-if-not-null contract for resource_kind (FOUND-34).
         if ($resourceKind !== null) {
             $values['resource_kind'] = $resourceKind;
         }
@@ -141,6 +161,30 @@ trait ManagesIntegrationConnection
     }
 
     /**
+     * $pending (Unit 11 W6, deferred connect — mirrors writeAccountConnection's
+     * parameter of the same name): true writes a 'pending' placeholder instead
+     * of 'ok', MERGED over any existing payload rather than replacing it. This
+     * is the single-selection counterpart to writeAccountConnection's pending
+     * path — closes the gap W5 left open for pinterest/strava, whose
+     * multiAccount() is false so GenericPlatformController::connect() routes
+     * them here, not through writeAccountConnection(). Same three bugs the
+     * merge guards against (reconnect blanking the card, the Bandcamp 304
+     * trap, the conditional-request trap) apply identically here — see
+     * upsertConnection()'s docblock.
+     */
+    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null, bool $pending = false): IntegrationConnection
+    {
+        return $this->upsertConnection($user, [
+            'payload' => $payload,
+            'is_active' => true,
+            'last_refreshed_at' => $pending ? null : now(),
+            'last_refresh_status' => $pending ? 'pending' : 'ok',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ], $resourceId, mergePayload: $pending, canonicalKey: $canonicalKey, resourceKind: $resourceKind);
+    }
+
+    /**
      * Async-connect variant of writeConnection: writes a usable MINIMAL card
      * immediately with status 'pending', so the connect action can return 202
      * before the slow enrichment fetch runs (JOB-1). EnrichLinkCardJob flips the
@@ -148,44 +192,20 @@ trait ManagesIntegrationConnection
      * like writeConnection (create vs update ability resolved before the upsert).
      *
      * $resourceKind stamps resource_kind only when non-null — same contract as
-     * writeConnection (FOUND-34).
+     * writeConnection (FOUND-34). Unlike writeAccountConnection's $pending path
+     * below, this REPLACES the payload on a reconnect (unchanged behaviour) —
+     * link cards have no merge-worthy prior content the way an account row does.
      */
     protected function writePendingLinkCard(User $user, array $payload, ?string $resourceId = null, ?string $resourceKind = null): IntegrationConnection
     {
-        $this->assertPlatformAvailable($user);
-
-        $existing = $this->connectionFor($user, $resourceId);
-        if ($existing) {
-            $this->authorizeForUser($user, 'update', $existing);
-        } else {
-            $skeleton = new IntegrationConnection([
-                'user_id' => $user->id,
-                'platform' => $this->platform(),
-                'resource_id' => $resourceId ?? $this->defaultResourceId(),
-            ]);
-            $this->authorizeForUser($user, 'create', $skeleton);
-        }
-
-        $values = [
+        return $this->upsertConnection($user, [
             'payload' => $payload,
             'is_active' => true,
             'last_refreshed_at' => null,
             'last_refresh_status' => 'pending',
             'last_refresh_error' => null,
             'consecutive_failures' => 0,
-        ];
-        if ($resourceKind !== null) {
-            $values['resource_kind'] = $resourceKind;
-        }
-
-        return IntegrationConnection::updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'platform' => $this->platform(),
-                'resource_id' => $resourceId ?? $this->defaultResourceId(),
-            ],
-            $values,
-        );
+        ], $resourceId, resourceKind: $resourceKind);
     }
 
     /**
@@ -334,8 +354,15 @@ trait ManagesIntegrationConnection
      * canonical_key column (bridges legacy rows / hash-scheme drift) — updates
      * that row in place; otherwise a new row is created, capped at maxAccounts().
      * Returns null when the cap is hit so the controller can shape the 422.
+     *
+     * $pending (Unit 11 W5 / LIFE-13..20, deferred connect): true writes a
+     * 'pending' placeholder row instead of 'ok' — used by the (not-yet-wired,
+     * W6) async-connect path so the controller can return 202 while
+     * ConnectFetchJob fills the payload. On a reconnect, the pending write
+     * MERGES over the existing payload rather than replacing it — see
+     * upsertConnection()'s docblock for the three bugs that prevents.
      */
-    protected function writeAccountConnection(User $user, string $canonicalKey, array $payload): ?IntegrationConnection
+    protected function writeAccountConnection(User $user, string $canonicalKey, array $payload, bool $pending = false): ?IntegrationConnection
     {
         $needle = $this->normalizeCanonicalKey($canonicalKey);
         $rid = $this->accountResourceId($canonicalKey);
@@ -350,7 +377,22 @@ trait ManagesIntegrationConnection
             return null;
         }
 
-        return $this->writeConnection($user, $payload, $existing?->resource_id ?? $rid, $needle);
+        $values = [
+            'payload' => $payload,
+            'is_active' => true,
+            'last_refreshed_at' => $pending ? null : now(),
+            'last_refresh_status' => $pending ? 'pending' : 'ok',
+            'last_refresh_error' => null,
+            'consecutive_failures' => 0,
+        ];
+
+        return $this->upsertConnection(
+            $user,
+            $values,
+            $existing?->resource_id ?? $rid,
+            mergePayload: $pending,
+            canonicalKey: $needle,
+        );
     }
 
     /**
