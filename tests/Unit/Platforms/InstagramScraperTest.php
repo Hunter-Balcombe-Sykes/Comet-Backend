@@ -115,6 +115,39 @@ it('drops a non-http externalUrl and biography-embedded non-http scheme', functi
     expect($links)->toBe([]);
 });
 
+// ── bio_links[] — the figue~instagram-profile-scraper actor shape ────────────
+
+it('extracts bio links from the figue actor shape (bio_links array)', function () {
+    $links = (new InstagramScraper)->bioLinks([
+        'bio_links' => [['url' => 'https://linktr.ee/venue'], ['url' => 'https://instagram.com/venue']],
+    ]);
+
+    expect($links)->toBe(['https://linktr.ee/venue', 'https://instagram.com/venue']);
+});
+
+it('collects bio_links ahead of externalUrl/externalUrls/biography, deduped across all four sources', function () {
+    $links = (new InstagramScraper)->bioLinks([
+        'bio_links' => [['url' => 'https://linktr.ee/venue']],
+        'externalUrl' => 'https://linktr.ee/venue', // duplicate of a bio_links entry
+        'externalUrls' => [['url' => 'https://other.example.com']],
+        'biography' => 'Also see https://third.example.com',
+    ]);
+
+    expect($links)->toBe([
+        'https://linktr.ee/venue',
+        'https://other.example.com',
+        'https://third.example.com',
+    ]);
+});
+
+it('tolerates a bio_links entry that is a bare string, and ignores non-string entries', function () {
+    $links = (new InstagramScraper)->bioLinks([
+        'bio_links' => ['https://linktr.ee/venue', 123, null],
+    ]);
+
+    expect($links)->toBe(['https://linktr.ee/venue']);
+});
+
 // ── fetchProfile() end-to-end: bio fields flow through from a realistic Apify item ──
 
 function igScraperItem(array $overrides = []): array
@@ -153,6 +186,18 @@ it('fetchProfile returns the raw item with bio fields intact for bioLinks() to r
     ]);
 });
 
+it('posts to the configured apify actor id', function () {
+    config(['services.apify.token' => 'test-token', 'partna.instagram.actor' => 'figue~instagram-profile-scraper']);
+    Http::fake(['api.apify.com/*' => Http::response([igScraperItem()], 201)]);
+
+    (new InstagramScraper)->fetchProfile('docpizza');
+
+    Http::assertSent(fn ($request) => str_contains(
+        $request->url(),
+        'acts/figue~instagram-profile-scraper/run-sync-get-dataset-items'
+    ));
+});
+
 it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (older Apify actor shape)', function () {
     config(['services.apify.token' => 'test-token']);
     // Today's real actor output: no biography / externalUrl / externalUrls at all.
@@ -174,6 +219,31 @@ it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (olde
 // SEC-102: the log context must never carry the raw Instagram handle, and the
 // hash must be computed from the LOWERCASED username so "DocPizza" and "docpizza"
 // (the same real account) correlate to the same hash in the logs.
+
+it('treats a 2xx Apify response carrying an "error" key as a failed scrape, not a valid empty profile', function () {
+    // Reproduced live 2026-07-20 against the real Apify actor: a profile it
+    // can't retrieve still comes back 2xx with a dataset item shaped like a
+    // profile but carrying an "error" string instead of real fields.
+    Log::spy();
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([[
+        'username' => 'somehandle',
+        'full_name' => null,
+        'url' => 'https://www.instagram.com/somehandle/',
+        'inputUrl' => 'https://www.instagram.com/somehandle/',
+        'scrapedAt' => '2026-07-20T06:29:14.988Z',
+        'error' => 'Could not retrieve profile data — please try again later',
+    ]], 201)]);
+
+    $profile = (new InstagramScraper)->fetchProfile('somehandle', 'user-123');
+
+    expect($profile)->toBeNull();
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $context) => $message === 'instagram.apify.error_item'
+            && ($context['user_id'] ?? null) === 'user-123'
+            && ($context['username_hash'] ?? null) === hash('sha256', 'somehandle'));
+});
 
 it('logs a lowercase-normalised username hash — never the raw username — when the Apify call throws', function () {
     Exceptions::fake(); // the catch block also calls report($e); don't let that hit the real handler

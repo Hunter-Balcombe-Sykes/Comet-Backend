@@ -17,7 +17,8 @@ use App\Support\BusinessName;
 // place_id via the EXISTING Places + IdentitySync machinery: fetch details with
 // the server key, persist a google-business connection (same shape as
 // GoogleBusinessController::connect), fold identity into site.workplaces, and
-// kick the Apify enrichment job when a token is configured.
+// always dispatch the enrich job — it has its own free website-harvest
+// fallback and only spends the paid Apify call when it decides it needs to.
 class GoogleBusinessSourceGenerator implements SiteSourceGenerator
 {
     public function __construct(
@@ -90,10 +91,16 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
             ],
         );
 
-        $enrich = (bool) config('services.apify.token');
+        // Always dispatch the enrich job, token or not — it has its own free
+        // website-harvest fallback (WebsiteLinkHarvester) and only spends the
+        // paid Apify call via needsApify(), gracefully no-op'ing the Apify leg
+        // when no token is configured (GoogleBusinessApifyScraper::fetch()).
+        // Gating the DISPATCH itself on the token, as before, skipped that free
+        // path entirely and silently dropped previous-website/social detection
+        // whenever Apify wasn't configured.
         $connection->forceFill([
             'place_id' => $sourceRef,
-            'apify_status' => $enrich ? 'pending' : null,
+            'apify_status' => 'pending',
         ])->saveQuietly();
 
         // Identity fold happens automatically here: IntegrationConnectionObserver::saved()
@@ -115,8 +122,6 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
             }
         }
 
-        if ($enrich) {
-            GoogleBusinessEnrichJob::dispatch((string) $user->id, $sourceRef);
-        }
+        GoogleBusinessEnrichJob::dispatch((string) $user->id, $sourceRef);
     }
 }

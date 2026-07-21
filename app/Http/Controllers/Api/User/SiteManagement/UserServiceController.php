@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Services\ReorderServiceLayoutRequest;
 use App\Http\Requests\Api\User\Services\ReorderServiceRequest;
 use App\Http\Requests\Api\User\Services\StoreServiceRequest;
+use App\Http\Requests\Api\User\Services\UpdateServiceCategoryAssignmentRequest;
 use App\Http\Requests\Api\User\Services\UpdateServiceRequest;
 use App\Http\Resources\ServiceCategoryResource;
 use App\Http\Resources\ServiceResource;
@@ -185,6 +186,44 @@ class UserServiceController extends ApiController
 
         $service->fill($data);
         $service->save();
+
+        return $this->success(['service' => new ServiceResource($service->fresh())]);
+    }
+
+    // Move a single service into a category (or Uncategorized). Deliberately
+    // separate from update(): this endpoint's only writable input is category_id,
+    // so it never re-exposes the raw sort_order field update() accepts. The moved
+    // service is appended at max(sort_order)+1 across ALL of the owner's live
+    // services (services_user_sort_order_uq is global-per-user, not per-category),
+    // the same append restore() uses. The advisory lock shares reorderLayout()'s
+    // key so the two read-modify-write paths can never interleave.
+    public function updateCategory(UpdateServiceCategoryAssignmentRequest $request, Service $service): JsonResponse
+    {
+        $pro = $this->currentUser($request);
+
+        $this->authorizeForUser($pro, 'update', $service);
+
+        $categoryId = $request->validated()['category_id'];
+        $this->assertCategoryBelongsToProfessional($pro->id, $categoryId);
+
+        DB::transaction(function () use ($pro, $service, $categoryId) {
+            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$pro->id}"]);
+
+            // No-op move: nothing to reindex, keep the current sort_order.
+            if ($categoryId === $service->category_id) {
+                return;
+            }
+
+            $max = Service::query()
+                ->where('user_id', $pro->id)
+                ->whereNull('deleted_at')
+                ->max('sort_order');
+
+            $service->update([
+                'category_id' => $categoryId,
+                'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
+            ]);
+        });
 
         return $this->success(['service' => new ServiceResource($service->fresh())]);
     }

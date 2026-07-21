@@ -105,11 +105,12 @@ it('SEC-102: no InstagramScraper Log:: call embeds an un-hashed Instagram userna
         expect($bareUsernameRefs)->toBe(0, "Log call embeds \$username outside hash(sha256, mb_strtolower()): {$call}");
     }
 
-    // Belt-and-braces: fetchProfile() has exactly 3 failure branches (threw /
-    // not_ok / bad_items), each hashing the (lowercased) username. If this drops,
-    // a branch stopped hashing; if you add a genuine 4th hashing call site, bump
-    // the number — the loop above is what actually guards against a raw leak.
-    expect(substr_count($src, "hash('sha256', mb_strtolower(\$username))"))->toBe(3);
+    // Belt-and-braces: fetchProfile() has exactly 4 failure branches (threw /
+    // not_ok / bad_items / error_item), each hashing the (lowercased) username.
+    // If this drops, a branch stopped hashing; if you add a genuine 5th hashing
+    // call site, bump the number — the loop above is what actually guards
+    // against a raw leak.
+    expect(substr_count($src, "hash('sha256', mb_strtolower(\$username))"))->toBe(4);
 
     // Behavioural coverage: tests/Unit/Platforms/InstagramScraperTest.php's
     // "does not log the raw username" case drives the apify.threw branch and

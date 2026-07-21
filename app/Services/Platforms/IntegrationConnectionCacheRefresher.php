@@ -3,12 +3,10 @@
 namespace App\Services\Platforms;
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
-use App\Jobs\Design\AnalyzeConnectionWebsitesJob;
 use App\Jobs\Design\ResolveDesignPresetsJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Design\Presets\DesignFactorRegistry;
-use App\Services\Design\Presets\Factors\OutsideWebsitesFactor;
 use Illuminate\Support\Facades\Log;
 
 // Shared "a platform connection meaningfully changed" side-effect: purge the
@@ -58,22 +56,9 @@ class IntegrationConnectionCacheRefresher
     {
         try {
             $platform = (string) $connection->platform;
-
-            // Only platforms that feed the preset layer trigger work: ones with
-            // a registered connection factor, plus the outside-website sources
-            // (custom links / shop brands) feeding the aggregate site factor.
             $hasFactor = app(DesignFactorRegistry::class)->factorsFor($platform) !== [];
-            $isWebsiteSource = in_array($platform, OutsideWebsitesFactor::SOURCE_PLATFORMS, true);
-            if (! $connection->user_id || (! $hasFactor && ! $isWebsiteSource)) {
+            if (! $connection->user_id || ! $hasFactor) {
                 return;
-            }
-
-            // Outside websites lacking a style analysis get one queued; the
-            // analyses job's write re-triggers a refresh with analyses present,
-            // so this converges (no dispatch loop).
-            if ($isWebsiteSource && ! $connection->trashed()
-                && AnalyzeConnectionWebsitesJob::connectionNeedsAnalyses($connection)) {
-                AnalyzeConnectionWebsitesJob::dispatch((string) $connection->user_id);
             }
 
             ResolveDesignPresetsJob::dispatch((string) $connection->user_id);

@@ -287,6 +287,30 @@ it('still lets Google replace its OWN previously google-sourced sector on a busi
     expect($user->sector_source)->toBe('google-business');
 });
 
+it('never overwrites a non-Google automated source (e.g. instagram) sector on a business google resync', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('bizinstasector', 'business');
+    $siteId = idsyncSite($user);
+    // A different automated source's stamped value — not manual, not Google's
+    // own prior write. The 2026-07-15 fix only protected 'manual'; this is the
+    // same bug class for any other non-Google source (e.g. a value seeded by
+    // an Instagram connect during pre-account signup, before Google runs).
+    $user->forceFill(['sector' => 'restaurant', 'sector_source' => 'instagram'])->save();
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    $user->refresh();
+    expect($user->sector)->toBe('restaurant');
+    expect($user->sector_source)->toBe('instagram');
+    // Confirms this connect really did run (workplace fields still overwrite).
+    expect(Workplace::query()->where('site_id', $siteId)->value('name'))->toBe('Fade Lab');
+});
+
 // ── (c) Email is never written by Google ─────────────────────────────────────
 
 it('never writes contact_email from a google connect, even for business', function () {

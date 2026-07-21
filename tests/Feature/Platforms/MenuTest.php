@@ -981,6 +981,26 @@ it('creates a menu row via scan apply when the user has none yet', function () {
     expect((float) $item->base_price)->toBe(14.5);
 });
 
+it('scan apply carries dietary markers through validation onto the created item badges', function () {
+    // MenuScanApplier has accepted dietary all along (the automatic Google-
+    // photos/PDF scans use it), but ApplyMenuScanRequest had no rule for it —
+    // validated() strips unruled keys, so a manual scan's dietary markers were
+    // silently dropped at the HTTP boundary.
+    $user = menuUser('scan-diet');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [[
+            'name' => 'Falafel Bowl', 'description' => null, 'price' => 18.0,
+            'category' => 'Mains', 'dietary' => ['Vegan', 'Gluten free'],
+        ]],
+    ])->assertOk();
+
+    $item = MenuItem::query()->where('name', 'Falafel Bowl')->firstOrFail();
+    $labels = array_map(fn ($b) => $b['text'] ?? null, (array) $item->badges);
+    expect($labels)->toContain('Vegan');
+    expect($labels)->toContain('Gluten free');
+});
+
 it('defaults new scan items with no category to a "Menu" category', function () {
     $user = menuUser('scan2');
 

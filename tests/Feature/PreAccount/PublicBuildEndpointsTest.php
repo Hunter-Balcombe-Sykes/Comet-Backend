@@ -48,16 +48,50 @@ it('403s with WAITLIST_ONLY when the waitlist gate is on (moved from bootstrap)'
         ->assertStatus(403)->assertJsonPath('code', 'WAITLIST_ONLY');
 });
 
-it('polls a build through its lifecycle and exposes subdomain only when ready', function () {
+it('polls a build through its lifecycle: subdomain available immediately (claim needs it before ready), site_url only once ready', function () {
     $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe']);
     $build = PreAccountBuild::firstOrFail();
+    $subdomain = $build->user->site->subdomain;
 
+    // Subdomain exists from creation (SiteProvisioningService::createSiteWithRetry
+    // runs synchronously in requestBuild(), long before build_state reaches
+    // 'ready') and is guessable-by-design per spec — no reason to withhold it.
+    // The frontend needs it here, pre-ready, to call POST /api/claim (Decision
+    // A: claim no longer waits for ready). site_url stays ready-gated — that's
+    // the "go visit a real site" signal, appropriately withheld until there's
+    // actual content.
     $this->getJson("/api/public/signup/builds/{$build->id}")
-        ->assertOk()->assertJsonPath('build_state', 'pending')->assertJsonMissingPath('subdomain');
+        ->assertOk()
+        ->assertJsonPath('build_state', 'pending')
+        ->assertJsonPath('subdomain', $subdomain)
+        ->assertJsonMissingPath('site_url');
 
     $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save(); // B11 SEC-4
     $this->getJson("/api/public/signup/builds/{$build->id}")
-        ->assertOk()->assertJsonPath('subdomain', $build->user->site->subdomain);
+        ->assertOk()
+        ->assertJsonPath('subdomain', $subdomain)
+        ->assertJsonPath('site_url', fn ($url) => is_string($url) && str_contains($url, $subdomain));
+});
+
+it('stays reachable and correct after the build has been claimed — no new authenticated endpoint needed', function () {
+    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe']);
+    $build = PreAccountBuild::firstOrFail();
+    $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save(); // B11 SEC-4: build_state no longer fillable
+
+    setupEmailSubscriptionsTable();
+    setupNotificationsTable();
+    setupSubdomainAliasesTable();
+    $subdomain = $build->user->site->subdomain;
+    app(App\Services\PreAccount\ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', $subdomain);
+
+    // Same opaque-UUID, unauthenticated response shape as pre-claim — the
+    // dashboard can keep polling this exact endpoint by the build_id it
+    // already holds from step 2 of signup instead of needing a new
+    // authenticated status endpoint.
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('build_state', 'ready')
+        ->assertJsonPath('subdomain', $subdomain);
 });
 
 it('404s an unknown build id (public enumeration-safe)', function () {

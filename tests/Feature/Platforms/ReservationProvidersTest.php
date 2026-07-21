@@ -248,6 +248,49 @@ it('does not overwrite a workplace field the user already set', function () {
     expect($workplace['previous_website'])->toBe('https://ollies.example'); // filled (was empty)
 });
 
+it('stamps field_sources provenance for every workplace field it fills from Google', function () {
+    $user = resUser('rp6b');
+    resSite($user);
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [], 'Ollies', [
+        'category' => 'Japanese restaurant',
+        'website' => 'https://ollies.example',
+        'editorialSummary' => 'From Ollies: the best ramen in town.',
+    ]);
+
+    $sources = json_decode(resWorkplace($user)['field_sources'], true);
+
+    expect($sources['category']['source'])->toBe('google-business');
+    expect($sources['previous_website']['source'])->toBe('google-business');
+    expect($sources['description']['source'])->toBe('google-business');
+    expect($sources['category'])->toHaveKey('at');
+});
+
+it('does not stamp field_sources for a field it declined to overwrite', function () {
+    $user = resUser('rp7b');
+    resSite($user);
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('id');
+    DB::connection('pgsql')->table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => 'Ollies',
+        'category' => 'My own category',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [], 'Ollies', [
+        'category' => 'Japanese restaurant',
+        'website' => 'https://ollies.example',
+    ]);
+
+    $workplace = resWorkplace($user);
+    $sources = json_decode($workplace['field_sources'] ?? 'null', true);
+
+    expect($workplace['category'])->toBe('My own category'); // preserved, per the existing test above
+    expect($sources['previous_website']['source'] ?? null)->toBe('google-business'); // this one WAS filled
+    expect($sources['category'] ?? null)->toBeNull(); // never written, so never stamped
+});
+
 it('truncates a long Google description to the workplace field cap', function () {
     $user = resUser('rp8');
     resSite($user);

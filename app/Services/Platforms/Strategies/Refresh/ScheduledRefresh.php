@@ -29,12 +29,19 @@ class ScheduledRefresh implements RefreshStrategy
         $next = $this->fetch->fetch($connection);
 
         // LIFE-10: this write is the SECOND writer of the connection payload
-        // (GoogleBusinessEnrichJob is the first) — same per-user/platform lock,
-        // same suffix rule (ManagesIntegrationConnection::withConnectionLock),
-        // so a scheduled refresh can never race a dashboard save or an
-        // in-flight enrichment. Only the write is guarded, not the fetch above.
-        $suffix = $connection->resource_id === $connection->platform ? null : $connection->resource_id;
-        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, $connection->user_id, $suffix);
+        // (GoogleBusinessEnrichJob is the first) — same per-user/platform lock
+        // ManagesIntegrationConnection::withConnectionLock() builds, so a
+        // scheduled refresh can never race a dashboard save or an in-flight
+        // enrichment. Only the write is guarded, not the fetch above.
+        //
+        // Platform-wide key, NOT per-account (2026-07-21 fix): for a
+        // multi-account platform this connection's account row and any other
+        // account row of the same platform+user now serialise on the SAME
+        // lock as highlights()/ConnectFetchJob — that's the whole point.
+        // Two accounts briefly waiting on each other here is imperceptible
+        // (rare, human-paced writes); a mismatched key that lets a refresh
+        // silently clobber a just-saved highlight is not.
+        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, $connection->user_id);
 
         try {
             Cache::lock($key, 10)->block(5, function () use ($connection, $next) {

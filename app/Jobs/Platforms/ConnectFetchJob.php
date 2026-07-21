@@ -148,12 +148,16 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             $next = $picker->warmInto($next, $connection);
         }
 
-        // SINGLE LOCKED WRITE — same key + suffix rule as ScheduledRefresh::
+        // SINGLE LOCKED WRITE — same platform-wide key as ScheduledRefresh::
         // run(), so this job can never race a dashboard highlights save or a
         // scheduled refresh. Taking the lock twice (once for content, once for
         // `recent`) would open a window for a highlights save to land between.
-        $suffix = $connection->resource_id === $connection->platform ? null : $connection->resource_id;
-        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, $connection->user_id, $suffix);
+        //
+        // NOT per-account (2026-07-21 fix): CacheKeyGenerator::platformConnectionLock()
+        // no longer takes a suffix, so this can no longer drift from
+        // withConnectionLock()'s key the way it used to for a multi-account
+        // platform (bandcamp/youtube/vimeo/youtube-music/spotify/soundcloud).
+        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, $connection->user_id);
 
         try {
             Cache::lock($key, 10)->block(5, function () use ($connection, $next) {

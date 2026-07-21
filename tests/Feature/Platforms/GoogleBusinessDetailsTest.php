@@ -78,7 +78,7 @@ function gbPlaceDetailsResponse(): array
             'widthPx' => 4000,
             'heightPx' => 3000,
             'authorAttributions' => [['displayName' => "Author {$i}"]],
-        ], range(1, 12)),  // 12 in the response — mapper caps at 10
+        ], range(1, 18)),  // 18 in the response — mapper caps at 15 (the content-selection slot count)
         'outdoorSeating' => false,
         'goodForChildren' => true,
         'paymentOptions' => ['acceptsCreditCards' => true],
@@ -132,7 +132,7 @@ it('enriches a picker connect with the place details snapshot', function () {
         ->where('user_id', $user->id)->where('platform', 'google-business')
         ->firstOrFail()->payload;
     expect($payload['reviews'])->toHaveCount(5);    // capped
-    expect($payload['photos'])->toHaveCount(10);    // capped
+    expect($payload['photos'])->toHaveCount(15);    // capped
     expect($payload['photos'][0]['url'])->toBe('https://lh3.example/resolved.jpg');    // resolved media URL
     expect($payload['streetView']['panoId'])->toBe('pano123');
     expect($payload['currentHours']['weekdays'])->toHaveCount(2);   // holiday-aware variant

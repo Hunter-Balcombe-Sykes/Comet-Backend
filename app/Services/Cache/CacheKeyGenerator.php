@@ -296,11 +296,20 @@ class CacheKeyGenerator
      * Per-user, per-platform mutex key for serialising a read→mutate→write
      * connection-payload cycle (ManagesIntegrationConnection::withConnectionLock).
      * Lock name only (locks live on the cache_locks connection via config/cache.php
-     * lock_connection). $suffix scopes the lock when one controller serves two platforms.
+     * lock_connection).
+     *
+     * Deliberately PLATFORM-WIDE, not per-account: this key must be the ONLY
+     * string any writer can build for a given (platform, user), or two writers
+     * that should mutually exclude silently don't (a lost update — see the
+     * account-suffix bug this signature used to carry, removed 2026-07-21).
+     * A multi-account platform (youtube/vimeo/youtube-music/bandcamp/spotify/
+     * soundcloud) therefore serialises ALL of a user's accounts on one platform
+     * behind one lock — an acceptable trade because these writes are rare,
+     * human-paced events, not a hot path.
      */
-    public static function platformConnectionLock(string $platform, string $userId, ?string $suffix = null): string
+    public static function platformConnectionLock(string $platform, string $userId): string
     {
-        return "platforms:{$platform}:lock:{$userId}".($suffix !== null ? ":{$suffix}" : '');
+        return "platforms:{$platform}:lock:{$userId}";
     }
 
     /** Global daily Apify claim counter across ALL actors (SCALE-2 cost ceiling). */

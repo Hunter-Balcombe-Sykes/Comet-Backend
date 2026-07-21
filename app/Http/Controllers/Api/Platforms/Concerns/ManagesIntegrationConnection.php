@@ -272,14 +272,16 @@ trait ManagesIntegrationConnection
      * holds the lock past the block timeout so the dashboard can retry. The closure
      * form of block() releases the lock automatically on return or throw.
      *
-     * $suffix scopes the lock more narrowly (e.g. one controller serving two
-     * platforms that should not block each other).
+     * The key is PLATFORM-WIDE only — CacheKeyGenerator::platformConnectionLock()
+     * no longer accepts a per-account suffix (removed 2026-07-21: two writers
+     * that built different suffixes for the same platform+user silently failed
+     * to exclude each other, a lost-update bug). Do not reintroduce one here.
      *
      * Note: assumes the using class extends ApiController (for error()).
      */
-    protected function withConnectionLock(User $user, callable $callback, ?string $suffix = null): JsonResponse
+    protected function withConnectionLock(User $user, callable $callback): JsonResponse
     {
-        $key = CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id, $suffix);
+        $key = CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id);
 
         try {
             return Cache::lock($key, 10)->block(5, $callback);
