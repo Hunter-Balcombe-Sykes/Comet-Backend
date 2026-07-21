@@ -96,6 +96,11 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
         if ($this->publish) {
             $site->update(['is_published' => true]);
             SyncSubdomainToKvJob::dispatch($user->id);
+            // Cold/marketing builds (Flow 2) go live immediately — invite the
+            // person to claim via whatever channels we have (spec §3.1). Early-
+            // access builds are unpublished here, so they never notify from this
+            // path; their invite fires at staff approval instead.
+            app(\App\Services\PreAccount\ClaimNotifier::class)->notify($build->fresh());
         }
     }
 

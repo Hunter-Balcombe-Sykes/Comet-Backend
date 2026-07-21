@@ -2,18 +2,21 @@
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
+use App\Mail\PreAccount\ClaimInviteMail;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    config(['app.frontend_url' => 'https://app.partna.au']);
 });
 
 function makePendingBuild(bool $publish = false): PreAccountBuild
@@ -76,4 +79,49 @@ it('no-ops on a claimed or already-ready build', function () {
     (new GeneratePreAccountSiteJob($build->id))->handle(app(SourceGeneratorRegistry::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
+});
+
+it('notifies via email when a published build with contact_email reaches ready', function () {
+    Mail::fake();
+    // Real dispatch runs inline under QUEUE_CONNECTION=sync (tests) and would hit
+    // missing alias-table setup unrelated to this test — fake it like the sibling
+    // publish test above.
+    Queue::fake([SyncSubdomainToKvJob::class]);
+    $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram', 'contact_email' => 'lead@example.com']);
+    $build->build_state = PreAccountBuild::STATE_PENDING;
+    $build->user()->associate($user);
+    $build->save();
+
+    // Stub the generator so no real scrape runs. Must implement SiteSourceGenerator —
+    // SourceGeneratorRegistry::for() is typed to return it, so an anon class that
+    // merely duck-types generate() trips a TypeError (caught as a scrape failure).
+    $this->mock(SourceGeneratorRegistry::class, function ($mock) {
+        $gen = new class implements SiteSourceGenerator
+        {
+            public function normalizeRef(string $raw): string
+            {
+                return $raw;
+            }
+
+            public function dedupeKey(string $normalizedRef): string
+            {
+                return $normalizedRef;
+            }
+
+            public function handleSeed(string $normalizedRef, ?string $sourceName): string
+            {
+                return $normalizedRef;
+            }
+
+            public function generate($user, $site, $ref): void {}
+        };
+        $mock->shouldReceive('for')->andReturn($gen);
+    });
+
+    (new GeneratePreAccountSiteJob($build->id, publish: true))->handle(app(SourceGeneratorRegistry::class));
+
+    expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
+    Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
 });

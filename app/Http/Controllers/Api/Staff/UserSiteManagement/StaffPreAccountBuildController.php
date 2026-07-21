@@ -33,6 +33,7 @@ class StaffPreAccountBuildController extends ApiController
                 staff: $staff,
                 publish: (bool) ($data['publish'] ?? true),
                 expiresDays: isset($data['expires_days']) ? (int) $data['expires_days'] : null,
+                contactEmail: $data['contact_email'] ?? null,
             );
         } catch (PreAccountBuildException $e) {
             // The staff surface has no waitlist/IP-cap paths (requestBuild skips

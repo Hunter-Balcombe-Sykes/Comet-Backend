@@ -103,3 +103,15 @@ it('ignores the IP cap for staff builds', function () {
 
     expect(PreAccountBuild::query()->count())->toBe(1);
 });
+
+it('stores a contact_email on a staff build', function () {
+    actingAsStaff(staffBuildActor());
+    Queue::fake();
+
+    $this->postJson('/api/staff/builds', [
+        'account_type' => 'partna', 'source_type' => 'instagram',
+        'source_ref' => 'prospect', 'contact_email' => 'prospect@example.com',
+    ])->assertStatus(202);
+
+    expect(PreAccountBuild::firstOrFail()->contact_email)->toBe('prospect@example.com');
+});
