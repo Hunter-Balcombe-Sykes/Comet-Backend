@@ -626,12 +626,12 @@ Six sites, one mechanical change. `BaseModel` forces the pgsql connection for mo
 `DB::transaction()` resolves the *default* connection — which is SQLite under test. Cheap to fix,
 and it removes a whole class of test-vs-prod divergence.
 
-- [ ] **`claim-and-provision/TXN-4`** · P3 · S — `RenameSubdomainAction`'s concurrent-rename row lock reads the default connection, not the pinned one its own contract requires → `sources/claim-and-provision.md`
-- [ ] **`claim-and-provision/TXN-1`** · P3 · S — `ConfirmationPreferenceService:58-70` → `sources/claim-and-provision.md`
-- [ ] **`claim-and-provision/TXN-2`** · P3 · S — `InsertWithSortOrder:21-31` (advisory-lock insert) → `sources/claim-and-provision.md`
-- [ ] **`claim-and-provision/TXN-3`** · P3 · S — `ReorderService:24-50` (advisory-lock reorder) → `sources/claim-and-provision.md`
-- [ ] **`state-machines/LIFE-6`** · P3 · S — `SendAccountDeletionRequestMailJob:65-83` dedup check → `sources/state-machines.md`
-- [ ] **`state-machines/LIFE-7`** · P3 · S — `ExportUserDataJob:111-115` email-dedup check → `sources/state-machines.md`
+- [x] **`claim-and-provision/TXN-4`** · P3 · S — `RenameSubdomainAction`'s concurrent-rename row lock reads the default connection, not the pinned one its own contract requires → `sources/claim-and-provision.md`
+- [x] **`claim-and-provision/TXN-1`** · P3 · S — `ConfirmationPreferenceService:58-70` → `sources/claim-and-provision.md`
+- [x] **`claim-and-provision/TXN-2`** · P3 · S — `InsertWithSortOrder:21-31` (advisory-lock insert) → `sources/claim-and-provision.md`
+- [x] **`claim-and-provision/TXN-3`** · P3 · S — `ReorderService:24-50` (advisory-lock reorder) → `sources/claim-and-provision.md`
+- [x] **`state-machines/LIFE-6`** · P3 · S — `SendAccountDeletionRequestMailJob:65-83` dedup check → `sources/state-machines.md`
+- [x] **`state-machines/LIFE-7`** · P3 · S — `ExportUserDataJob:111-115` email-dedup check → `sources/state-machines.md`
 
 ### Bundle B17 — Cache-layer helper hygiene · **P3** · Effort S
 

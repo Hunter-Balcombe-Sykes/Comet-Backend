@@ -20,8 +20,8 @@ class InsertWithSortOrder
      */
     public static function run(Builder $maxQuery, string $lockKey, Closure $create): Model
     {
-        return DB::transaction(function () use ($maxQuery, $lockKey, $create) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
+        return DB::connection('pgsql')->transaction(function () use ($maxQuery, $lockKey, $create) {
+            DB::connection('pgsql')->select('select pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
 
             $max = (clone $maxQuery)->max('sort_order');
             $next = is_null($max) ? 0 : ((int) $max + 1);

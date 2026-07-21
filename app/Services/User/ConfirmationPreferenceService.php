@@ -55,7 +55,7 @@ class ConfirmationPreferenceService
             return $this->getForProfessional($userId);
         }
 
-        DB::transaction(function () use ($userId, $normalizedUpdates): void {
+        DB::connection('pgsql')->transaction(function () use ($userId, $normalizedUpdates): void {
             foreach ($normalizedUpdates as $actionKey => $skipConfirmation) {
                 // SEC-1: user_id is no longer fillable, and updateOrCreate()'s INSERT
                 // path mass-assigns its search keys — firstOrNew + direct assignment

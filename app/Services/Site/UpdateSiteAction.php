@@ -107,7 +107,7 @@ class UpdateSiteAction
             // (bypasses the model's cached attribute + array cast), so the
             // returned value is JSON text that needs an explicit decode.
             if ($hasSettings) {
-                $lockedRaw = DB::table('site.sites')->where('id', $site->id)->lockForUpdate()->value('settings');
+                $lockedRaw = DB::connection('pgsql')->table('site.sites')->where('id', $site->id)->lockForUpdate()->value('settings');
                 $decoded = json_decode((string) $lockedRaw, true);
                 $existing = is_array($decoded) ? $decoded : [];
 
