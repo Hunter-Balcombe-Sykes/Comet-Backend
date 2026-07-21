@@ -479,15 +479,32 @@ class DataExportPayloadBuilder
      */
     private function streamServices(string $userId): Generator
     {
+        // Multi-category (20260721180000): the single category_id column (and
+        // the legacy dead `category` text) are gone — memberships stream via
+        // the category_ids aggregate below. source/is_manual/external_id are
+        // the Fresha-projection provenance (20260721150000).
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.services')
                 ->select([
-                    'id', 'user_id', 'title', 'description', 'category', 'price_cents',
+                    'id', 'user_id', 'title', 'description', 'price_cents',
                     'currency_code', 'duration_minutes', 'is_active', 'sort_order',
-                    'category_id', 'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
+                    'source', 'is_manual', 'external_id',
+                    'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
                 ])
-                ->where('user_id', $userId)
+                ->where('user_id', $userId),
+            transform: function (object $row): array {
+                $out = (array) $row;
+                $out['category_ids'] = DB::connection('pgsql')
+                    ->table('site.service_category_assignments')
+                    ->select(['service_category_id'])
+                    ->where('service_id', $row->id)
+                    ->pluck('service_category_id')
+                    ->map(fn ($id) => (string) $id)
+                    ->all();
+
+                return $out;
+            },
         );
     }
 
@@ -499,7 +516,7 @@ class DataExportPayloadBuilder
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.service_categories')
-                ->select(['id', 'user_id', 'title', 'sort_order', 'created_at', 'updated_at', 'deleted_at'])
+                ->select(['id', 'user_id', 'title', 'sort_order', 'source', 'created_at', 'updated_at', 'deleted_at'])
                 ->where('user_id', $userId)
         );
     }
@@ -990,10 +1007,10 @@ class DataExportPayloadBuilder
      * PDOStatement one at a time rather than building a full result array,
      * which keeps peak PHP memory bounded regardless of total row count.
      */
-    private function lazyRows(Builder $query): Generator
+    private function lazyRows(Builder $query, ?callable $transform = null): Generator
     {
         foreach ($query->cursor() as $row) {
-            yield (array) $row;
+            yield $transform !== null ? $transform($row) : (array) $row;
         }
     }
 

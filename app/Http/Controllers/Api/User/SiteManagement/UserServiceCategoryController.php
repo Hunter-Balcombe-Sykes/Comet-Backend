@@ -119,33 +119,15 @@ class UserServiceCategoryController extends ApiController
         DB::transaction(function () use ($pro, $category) {
             DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$pro->id}"]);
 
-            // Move services to Uncategorized (category_id = null) and place them at the end
-            $toMove = Service::query()
-                ->where('user_id', $pro->id)
-                ->where('category_id', $category->id)
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            if (! empty($toMove)) {
-                $maxNull = Service::query()
-                    ->where('user_id', $pro->id)
-                    ->whereNull('category_id')
-                    ->max('sort_order');
-
-                $i = is_null($maxNull) ? 0 : ((int) $maxNull + 1);
-
-                foreach ($toMove as $serviceId) {
-                    Service::query()
-                        ->where('user_id', $pro->id)
-                        ->where('id', $serviceId)
-                        ->update([
-                            'category_id' => null,
-                            'sort_order' => $i++,
-                        ]);
-                }
-            }
+            // Multi-category: deleting a category DETACHES its members. A
+            // service that belonged only to this category is left with zero
+            // memberships — i.e. Uncategorised, the same end state as the old
+            // ON-DELETE-SET-NULL move; one that also lives in other categories
+            // keeps those memberships. sort_order is untouched (it's the
+            // global per-user order, no longer per-bucket).
+            DB::table('site.service_category_assignments')
+                ->where('service_category_id', $category->id)
+                ->delete();
 
             $category->delete();
         });

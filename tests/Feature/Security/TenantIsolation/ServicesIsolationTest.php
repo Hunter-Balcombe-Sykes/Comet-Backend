@@ -11,21 +11,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     tenantHelpersEnsureTables();
 
-    // square_variation_id is included because the controller adds whereNull('square_variation_id')
-    // when the 'square' query param is absent. title matches the production column name on the model.
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.services (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        title TEXT,
-        square_variation_id TEXT,
-        duration_minutes INTEGER,
-        price_cents INTEGER,
-        sort_order INTEGER,
-        is_active INTEGER,
-        deleted_at TEXT,
-        created_at TEXT,
-        updated_at TEXT
-    )');
+    // The shared mirror (services + categories + the multi-category pivot) —
+    // ServiceResource reads memberships now, so the hand-rolled minimal table
+    // no longer suffices. Includes square_variation_id (the controller adds
+    // whereNull('square_variation_id') when the 'square' param is absent).
+    setupServicesTable();
 });
 
 it('service destroy refuses a service belonging to another professional', function () {

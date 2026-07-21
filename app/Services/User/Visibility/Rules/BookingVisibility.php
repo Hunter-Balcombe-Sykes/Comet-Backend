@@ -22,10 +22,12 @@ class BookingVisibility implements SectionVisibilityContract
     public function contextSubqueries(string $userId, string $siteId): array
     {
         return [
-            // Gating requirement: at least one active service.
+            // Gating requirement: at least one active MANUAL service (Fresha
+            // projections don't change this gate — pre-projection behaviour kept).
             'has_active_service' => Service::query()
                 ->select(DB::raw('1'))
                 ->where('user_id', $userId)
+                ->whereNull('source')
                 ->where('is_active', true)
                 ->whereNull('deleted_at')
                 ->getQuery(),

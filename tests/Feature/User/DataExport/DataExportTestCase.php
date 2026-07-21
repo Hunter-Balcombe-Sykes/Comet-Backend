@@ -247,7 +247,19 @@ class DataExportTestCase
             updated_at TEXT,
             deleted_at TEXT,
             category_id TEXT,
-            deleted_origin TEXT
+            deleted_origin TEXT,
+            source TEXT NULL,
+            is_manual INTEGER NOT NULL DEFAULT 0,
+            external_id TEXT NULL
+        )');
+
+        // Multi-category pivot (20260721180000) — ServiceResource reads memberships.
+        $conn->statement('CREATE TABLE IF NOT EXISTS site.service_category_assignments (
+            service_id TEXT NOT NULL,
+            service_category_id TEXT NOT NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL,
+            PRIMARY KEY (service_id, service_category_id)
         )');
 
         // Column list mirrors PRODUCTION (baseline :905-917; professional_id

@@ -47,7 +47,8 @@ class MenuPayloadComposer
             ->where('user_id', $user->id)
             ->with([
                 'categories' => fn ($q) => $q->orderBy('position'),
-                'categories.items' => fn ($q) => $q->orderBy('position'),
+                // Items order by their per-membership pivot position (baked into
+                // the MenuCategory::items() relation).
                 'categories.items.platformLinks',
                 // Menu-level store links — the base each item's deep link derives from.
                 'platformLinks',
@@ -124,6 +125,17 @@ class MenuPayloadComposer
         // slug => normalized store_url — base for each item's per-platform deep link.
         $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
 
+        // item id => every category id it's a member of. A dish in several
+        // categories appears under EACH of them below (sharing its id) — this
+        // map lets the dashboard's flat items view dedupe by id and render/edit
+        // the full membership set (category_ids on the write side).
+        $categoryIdsByItem = [];
+        foreach ($menu->categories as $category) {
+            foreach ($category->items as $item) {
+                $categoryIdsByItem[(string) $item->id][] = (string) $category->id;
+            }
+        }
+
         return $menu->categories->map(fn ($category) => [
             // Stable persisted id — addresses PATCH/DELETE /menu/categories/{id}
             // and is the value an item write sends as category_id.
@@ -153,6 +165,10 @@ class MenuPayloadComposer
                 // Owner-authored marker — skips the sync-detach warning (an
                 // already-manual item has nothing left to detach from).
                 'isManual' => $item->is_manual,
+                // Every category this dish belongs to — lets the flat view dedupe
+                // (same id under several categories) and drives the multi-select
+                // category editor + category filter. Includes THIS category.
+                'categoryIds' => $categoryIdsByItem[(string) $item->id] ?? [(string) $category->id],
                 'platforms' => $this->platforms($item),
                 // Per-item deep links ({doordash?: url}) — mirrors PublicMenuController
                 // exactly; null when nothing item-level is derivable (see MenuItemDeepLinks).

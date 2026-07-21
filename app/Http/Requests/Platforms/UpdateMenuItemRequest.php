@@ -23,6 +23,11 @@ class UpdateMenuItemRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:160'],
             'description' => ['sometimes', 'nullable', 'string'],
             'price' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100000'],
+            // category_ids REPLACES the dish's category memberships (min 1 — a
+            // dish is never orphaned); category_id is the legacy single spelling.
+            // Null/omitted = no membership change.
+            'category_ids' => ['sometimes', 'nullable', 'array', 'min:1', 'max:50'],
+            'category_ids.*' => ['uuid', 'distinct'],
             'category_id' => ['sometimes', 'nullable', 'uuid'],
             'image_media_id' => ['sometimes', 'nullable', 'uuid'],
             'remove_image' => ['sometimes', 'boolean'],

@@ -113,33 +113,12 @@ class StaffServiceCategoryManagementController extends ApiController
         DB::transaction(function () use ($professional, $serviceCategory) {
             DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$professional->id}"]);
 
-            // Move services to Uncategorized (category_id = null) and append to end
-            $toMove = Service::query()
-                ->where('user_id', $professional->id)
-                ->where('category_id', $serviceCategory->id)
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
-
-            if (! empty($toMove)) {
-                $maxNull = Service::query()
-                    ->where('user_id', $professional->id)
-                    ->whereNull('category_id')
-                    ->max('sort_order');
-
-                $i = is_null($maxNull) ? 0 : ((int) $maxNull + 1);
-
-                foreach ($toMove as $serviceId) {
-                    Service::query()
-                        ->where('user_id', $professional->id)
-                        ->where('id', $serviceId)
-                        ->update([
-                            'category_id' => null,
-                            'sort_order' => $i++,
-                        ]);
-                }
-            }
+            // Multi-category: detach members (a service left with zero
+            // memberships is Uncategorised); sort_order untouched — mirrors
+            // UserServiceCategoryController::destroy.
+            DB::table('site.service_category_assignments')
+                ->where('service_category_id', $serviceCategory->id)
+                ->delete();
 
             $serviceCategory->delete();
         });

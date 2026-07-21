@@ -22,6 +22,9 @@ class ServicesVisibility implements SectionVisibilityContract
             'has_priced_service' => Service::query()
                 ->select(DB::raw('1'))
                 ->where('user_id', $userId)
+                // Manual services only — Fresha projections never flip the
+                // public services section on (they render via the booking blob).
+                ->whereNull('source')
                 ->where('is_active', true)
                 ->whereNull('deleted_at')
                 ->whereNotNull('title')
