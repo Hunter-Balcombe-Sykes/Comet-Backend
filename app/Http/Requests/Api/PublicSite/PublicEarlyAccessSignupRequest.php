@@ -27,6 +27,13 @@ class PublicEarlyAccessSignupRequest extends BaseFormRequest
             'platforms' => ['required', 'array', 'min:2', 'max:3'],
             'platforms.*' => ['string', 'max:120'],
 
+            // Source-first build: which existing platform machinery generates
+            // the dark site (registry key) + the raw ref (handle/place id) it
+            // scrapes. Required — a resolvable source is how the visitor gets
+            // a site to later claim.
+            'source_type' => ['required', 'string', Rule::in(array_keys(config('partna.pre_account.generators', [])))],
+            'source_ref' => ['required', 'string', 'max:300'],
+
             // Bot protection (never surfaced in UI copy).
             'website' => ['nullable', 'string', 'max:255'],
             'form_started_at_ms' => ['nullable', 'integer'],

@@ -5,6 +5,7 @@ namespace App\Services\EarlyAccess;
 use App\Mail\EarlyAccess\EarlyAccessInviteMail;
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -17,13 +18,17 @@ use Illuminate\Support\Str;
  */
 class EarlyAccessService
 {
+    public function __construct(
+        private readonly PreAccountBuildService $builds,
+    ) {}
+
     /**
      * Public marketing-form signup (upsert by email). Queues the thank-you
      * email on FIRST create only. Fields refresh only while the row is still
      * on the waitlist — an invited/signed-up row never loses its state to a
      * repeat form submission.
      *
-     * @param  array{email:string, type:string, workplace_or_industry?:?string, platforms?:array, consent_ip_hash?:?string, consent_user_agent?:?string}  $data
+     * @param  array{email:string, type:string, workplace_or_industry?:?string, platforms?:array, source_type?:?string, source_ref?:?string, consent_ip_hash?:?string, consent_user_agent?:?string}  $data
      * @return array{signup: EarlyAccessSignup, created: bool}
      */
     public function signupFromMarketing(array $data): array
@@ -47,6 +52,36 @@ class EarlyAccessService
                 'consent_user_agent' => $data['consent_user_agent'] ?? null,
             ],
         );
+
+        // Site-first early access: build a dark site the person can later claim
+        // (spec Flow 3). Best-effort — a malformed handle still captures the lead;
+        // staff see an unlinked row and can correct the source. Only build once,
+        // on first create, when a source was supplied.
+        if ($signup->wasRecentlyCreated
+            && ! empty($data['source_type']) && ! empty($data['source_ref'])
+            && $signup->user_id === null) {
+            try {
+                $result = $this->builds->requestBuild(
+                    accountType: $data['type'],
+                    sourceType: $data['source_type'],
+                    rawSourceRef: $data['source_ref'],
+                    sourceName: null,
+                    ipHash: null,
+                    staff: null,
+                    publish: false,
+                    expiresDays: null,
+                    contactEmail: $emailLc,
+                    builtVia: \App\Models\Core\User\PreAccountBuild::VIA_EARLY_ACCESS,
+                );
+                $signup->forceFill([
+                    'source_type' => $data['source_type'],
+                    'source_ref' => $data['source_ref'],
+                    'user_id' => $result['build']->user_id,
+                ])->save();
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
 
         if ($signup->wasRecentlyCreated) {
             Mail::queue(new EarlyAccessThankYouMail($emailLc));
