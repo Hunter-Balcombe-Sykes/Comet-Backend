@@ -35,6 +35,19 @@ visible go-live). Everything else is copy-config.
 
 - [ ] **All P0/P1 audit findings resolved**, including any that carry Supabase migrations (they must land
       on dev first so the schema is final before we snapshot it).
+- [ ] **Land the deferred Gate-A P2 schema items on dev before the collapse snapshot** (so they are captured
+      in the baseline) — runbook: `audits/sweeps/2026-07-20-gate-a/PROMPT-execute-deferred-cutover.md`.
+      - **B20** — 11 authored, currently-unpushed migrations (`supabase/migrations/20260721010000…040700`):
+        RLS enable+FORCE+policies on `site.workplaces` + `site.content_selection`, `gen_random_uuid()`
+        defaults on `menu_platform_links`/`menu_item_platforms.id`, a `design_kits` backfill, and `pg_trgm`
+        + GIN trigram indexes on the staff-search columns.
+      - **B8** `models-data/PRIV-2` + `PRIV-3` — retention/prune for the `audit.user_deletion_audit` and
+        `audit.data_export_audit` email snapshots. **Not yet authored:** needs a new SECURITY DEFINER prune
+        function mirroring `audit.prune_handle_change_log()` (`20260718010000`) + scheduler wiring.
+      All are catalog-only/additive with zero live-app impact today (`app_backend` has BYPASSRLS; the UUID
+      writers already supply ids) — they were held off live dev deliberately and land here so the snapshot
+      schema is final. NB the B20 file version-numbers must be reconciled in the drift step below (dev already
+      carries the sibling menu/services migrations under different versions).
 - [ ] **Reconcile dev migration drift** — the **non-negotiable prerequisite** for a trustworthy prod DB.
       The dev DB has changes applied out-of-band that aren't in the repo (and possibly repo files not
       applied to dev). Reconcile so the schema we snapshot/replay is a known, reproducible state. **Full
