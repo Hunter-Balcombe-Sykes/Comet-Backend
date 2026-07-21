@@ -17,7 +17,7 @@ use Illuminate\Support\Carbon;
  * @property string $source_type One of 'instagram'|'google_business' (source_type CHECK) — the pairing map key in config('partna.pre_account.*').
  * @property string $source_ref The raw source reference as typed/looked up (handle, place id, etc.).
  * @property string $source_ref_lc Lowercased $source_ref — the dedupe key (pre_account_builds_live_source_unique).
- * @property string $built_via One of VIA_* ('signup'|'staff') (built_via CHECK).
+ * @property string $built_via One of VIA_* ('signup'|'staff'|'early_access') (built_via CHECK).
  * @property string|null $built_by_staff_id FK to core.partna_staff.id, ON DELETE SET NULL. NULL for signup-originated builds. Not fillable — set via ->builtByStaff()->associate().
  * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
  * @property string|null $failure_code One of FAILURE_* (e.g. FAILURE_SOURCE_NOT_FOUND, FAILURE_SCRAPE_FAILED) when build_state is 'failed' — not DB-CHECK-enforced, app-level vocabulary only.

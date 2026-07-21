@@ -140,6 +140,23 @@ it('marks a signup as signed_up and burns the token via the service', function (
         ->and(EarlyAccessSignup::findByInviteToken($token))->toBeNull();
 });
 
+it('skips build-linked early-access rows via the service (dead invite path must not strand them)', function () {
+    $row = ovaWaitlistRow('linked@example.test');
+    $row->forceFill(['user_id' => (string) Str::uuid()])->save(); // B11: user_id via forceFill only
+
+    $service = app(EarlyAccessService::class);
+    $token = $service->invite($row);
+
+    expect($token)->toBeNull();
+
+    $row->refresh();
+    expect($row->status)->toBe('waitlist')
+        ->and($row->invite_token_hash)->toBeNull()
+        ->and($row->invited_at)->toBeNull();
+
+    Mail::assertNothingQueued();
+});
+
 it('rejects invite sends from support-role staff (admin-only power)', function () {
     $row = ovaWaitlistRow('support-cant@example.test');
 

@@ -127,6 +127,50 @@ it('notifies via email when a published build with contact_email reaches ready',
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
 });
 
+it('does not notify when an unpublished build with contact_email reaches ready', function () {
+    Mail::fake();
+    // Dark (visitor/early-access) builds must never send the claim invite early —
+    // that's reserved for staff-published marketing builds. Mirrors the published
+    // notify test above but with publish: false.
+    $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedark', 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram', 'contact_email' => 'lead-dark@example.com']);
+    $build->build_state = PreAccountBuild::STATE_PENDING;
+    $build->user()->associate($user);
+    $build->save();
+
+    // Stub the generator so no real scrape runs — must implement SiteSourceGenerator
+    // (SourceGeneratorRegistry::for() is typed to return it; a duck-typed anon class
+    // trips a TypeError caught as a scrape failure).
+    $this->mock(SourceGeneratorRegistry::class, function ($mock) {
+        $gen = new class implements SiteSourceGenerator
+        {
+            public function normalizeRef(string $raw): string
+            {
+                return $raw;
+            }
+
+            public function dedupeKey(string $normalizedRef): string
+            {
+                return $normalizedRef;
+            }
+
+            public function handleSeed(string $normalizedRef, ?string $sourceName): string
+            {
+                return $normalizedRef;
+            }
+
+            public function generate($user, $site, $ref): void {}
+        };
+        $mock->shouldReceive('for')->andReturn($gen);
+    });
+
+    (new GeneratePreAccountSiteJob($build->id, publish: false))->handle(app(SourceGeneratorRegistry::class));
+
+    expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
+    Mail::assertNothingQueued();
+});
+
 it('deactivates the IG connection for a dark early-access build', function () {
     $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_jane', 'is_published' => false]);

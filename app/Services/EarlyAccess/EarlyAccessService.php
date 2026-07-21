@@ -77,7 +77,21 @@ class EarlyAccessService
                     contactEmail: $emailLc,
                     builtVia: PreAccountBuild::VIA_EARLY_ACCESS,
                 );
-                $signup->forceFill(['user_id' => $result['build']->user_id])->save();
+                // Only link when the re-served build is genuinely early-access. The
+                // dedupe in requestBuild() re-serves ANY live build for this source
+                // ref regardless of who built it — if a Flow-1/2 build (built_via
+                // 'signup'/'staff', no contact_email) already exists for this handle,
+                // linking here would leave the site NON-email-gated. Capture the lead
+                // UNLINKED instead (source_type/source_ref already persisted at row
+                // creation above) and surface it — staff handle it manually rather
+                // than the flow silently mis-gating.
+                if ($result['build']->built_via === PreAccountBuild::VIA_EARLY_ACCESS) {
+                    $signup->forceFill(['user_id' => $result['build']->user_id])->save();
+                } else {
+                    Log::warning('early_access.build_collision', [
+                        'email_lc' => $emailLc, 'source_ref' => $data['source_ref'], 'built_via' => $result['build']->built_via,
+                    ]);
+                }
             } catch (\Throwable $e) {
                 report($e);
             }
@@ -129,6 +143,15 @@ class EarlyAccessService
                 ->first();
 
             if ($locked === null || $locked->status === EarlyAccessSignup::STATUS_SIGNED_UP) {
+                return [null, null];
+            }
+
+            // Build-linked early-access rows (user_id set) use the new approve flow
+            // (StaffEarlyAccessController::approve), not this dead invite path — the
+            // old /signup?invite= link never touches the linked build, so flipping
+            // status here would strand it (status='invited' but build stays dark,
+            // and bulk-approve's all_waitlisted query won't resurface it).
+            if ($locked->user_id !== null) {
                 return [null, null];
             }
 
