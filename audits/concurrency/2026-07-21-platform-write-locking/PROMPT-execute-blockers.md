@@ -1,6 +1,16 @@
 # Platform write-locking — BLOCKER units execution prompt
 
-> **▶ To run this:** first answer the OPEN QUESTIONS below (edit your answers inline).
+> **⛔ SUPERSEDED (2026-07-22).** The open questions below are ANSWERED and this combined prompt was
+> split in two — run those instead:
+> - `PROMPT-execute-rest.md` — PWL-5, 7, 8, 10, 14, 15, 16 (continues the existing branch).
+> - `PROMPT-execute-pwl9.md` — the deferred PWL-9 auto-sync seeders (own follow-up branch).
+>
+> Kept for the reasoning/tiering rationale only. Decisions taken: Q1 = split (rest now, PWL-9 own
+> branch) · Q2 = resolved (rate-limit branch already merged) · Q3 = per-platform lock per non-booking
+> seed write, booking-xor untouched · Q4 = reuse booking-xor + mirror reservations-xor · Q5 =
+> EnrichLinkCardJob log-and-skip, Instagram job terminal-write · Q6 = comment in ManagesIntegrationConnection.
+
+> **▶ (historical) To run this:** first answer the OPEN QUESTIONS below (edit your answers inline).
 > Then paste everything from `=== PROMPT START ===` to the end as the opening message of a
 > fresh Claude Code session on **Opus**. Read it end to end first.
 

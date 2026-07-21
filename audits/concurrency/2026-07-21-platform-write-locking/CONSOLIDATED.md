@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 5/10 · Tier 2: 3/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 8 done** (PWL-1,2,3,4,6,11,12,13)
+- Tier 1: 9/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 1/1 (record-only) — **16 findings, 15 done** (PWL-1,2,3,4,5,6,7,8,10,11,12,13,14,15,16). Remaining: PWL-9 ONLY (deferred to its own prompt, PROMPT-execute-pwl9.md).
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -109,7 +109,7 @@ don't. Racing partners: `removeEvent()` + `ScheduledRefresh`. **Fix:** wrap the 
 the duplicate `EventsCatalog` write path feeding the same rows.)
 
 ### PWL-5 — FreshaController connect/saveSelection/forget vs setServiceVisibility + ScheduledRefresh — CONTROLLER-side, non-blocker, S–M
-- [ ] Fix
+- [x] Fix — wrapped connect()/saveSelection() read→mutate→write in withConnectionLock('fresha'); scrapes (fetchMenu/fetchLocation/extractTeam/fetchEmployeeServices) stay OUTSIDE the lock. forget()'s cross-platform clear deferred to PWL-14 (booking-XOR). Independent review PASS; lost-update test fails pre-fix (200→423).
 **Plain English:** Connecting Fresha, saving your service selection, or disconnecting doesn't lock;
 toggling a service's visibility and the refresh cron do. A refresh mid-edit can lose your selection.
 **Technical:** `FreshaController` — `setServiceVisibility()` (`:238`, lock `:244`) locks; `connect()`
@@ -127,7 +127,7 @@ but `forget()` (`:435`) deletes `ShopProduct`/`ShopBrand` (`:446`–`:447`) with
 **Fix:** wrap `forget()`'s delete block in the lock.
 
 ### PWL-7 — Instagram locks NOWHERE: controller + InstagramConnectJob/Seeder — MIXED (controller non-blocker; job/seeder BLOCKER), M–L
-- [ ] Fix
+- [x] Fix — BOTH sides now take platformConnectionLock('instagram', userId) (a controller-only fix is inert). Controller: connect() locks the placeholder write (job dispatch + 202 OUTSIDE — dispatch scrapes inline under sync); forget() via withConnectionLock; applySync() locks the IG-row mark-seeded write (applyFinding stays OUTSIDE). Seeder: only the final row upsert is locked (mirror/autoSync/identitySync stay outside); LockTimeout → bare terminal 'unavailable' (mirrors ConnectFetchJob, sync-driver Q5). Job markFailed() locked with a bare-write fallback so a failure is never lost. Re-mapped against DISC-7's InstagramAutoSync rework. Pre-account InstagramSourceGenerator caller verified safe on the timeout path. Independent review PASS; tests fail pre-fix (no lock → 202/'ok'), pass post-fix (~5s block / terminal 'unavailable').
 **Plain English:** Instagram is the worst case — no code path locks the IG connection row at all.
 Two quick connects, or a connect landing while the previous connect's background scrape is still
 writing, can clobber each other with no protection anywhere.
@@ -140,7 +140,7 @@ side locks, a controller-only fix is inert. **Fix:** wrap the controller writes 
 **Blocker:** the seeder/job half is a live job path → plan + sign-off before implementing.
 
 ### PWL-8 — EnrichLinkCardJob::handle() vs custom/online-ordering/booking/reservations connect-time locked writes — BLOCKER (job path), S–M
-- [ ] Fix
+- [x] Fix — snapshot() HTTP stays outside; the re-read + display-field merge + update() are wrapped in platformConnectionLock($this->platform, $this->userId), re-reading the row inside the lock (authoritative). Q5 = LOG-AND-SKIP on timeout (best-effort upgrade; keep the minimal card, no terminal write / fail / retry). Independent review PASS; test fails pre-fix (instant write-through), passes post-fix (~5s block → skip + warning). NOTE (accepted): since PWL-14/15 moved booking/reservations detect/forget onto the XOR key, this per-platform key excludes the custom/online-ordering writers but NOT the booking/reservations XOR-locked paths — low-stakes (display-only fields, ShouldBeUnique job, self-correcting on next connect/refresh).
 **Plain English:** After you add a custom link / online-ordering / booking / reservation card, a
 background job upgrades its display fields. That job doesn't lock, so it can overwrite an edit or a
 disconnect you make in the seconds while it runs.
@@ -164,7 +164,7 @@ row directly (`:615`). These run inside `GeneratePreAccountSiteJob` / `Instagram
 Depends on the controller fixes (PWL-1..5,7) to close the pairs. **Blocker:** live job paths, L → sign-off.
 
 ### PWL-10 — CustomLinkSeeder::seed() vs CustomLinksController::addLink (controller locks, seeder doesn't) — BLOCKER (job path), S
-- [ ] Fix
+- [x] Fix — wrapped the existing-row/MAX_LINKS read + updateOrCreate write in platformConnectionLock('custom', userId) — byte-identical to addLink's withConnectionLock key (Platform::Custom->value='custom'), so they genuinely exclude. minimalCard/normalizeUrl confirmed non-fetching; EnrichLinkCardJob dispatch stays outside. Q5 = log-and-skip → return null (matches the ?IntegrationConnection contract). Independent review PASS; test fails pre-fix (instant write-through, non-null), passes post-fix (~5s block, no row, null) with Queue::fake() isolating the seeder's own EnrichLinkCardJob (which shares the 'custom' key).
 **Plain English:** Job-triggered custom-link creation writes the same card row your dashboard
 "add link" writes — but the job path doesn't lock while the dashboard path does.
 **Technical:** `CustomLinkSeeder` (`app/Services/Platforms/CustomLinkSeeder.php:53` `updateOrCreate`),
@@ -201,7 +201,7 @@ locked path, or wrap `storeAccount`'s write. Bundle with PWL-4.
 ## Tier 3 — STRUCTURAL ODDITY (wrong-key) — Standalone, BLOCKER
 
 ### PWL-14 — BookingController holds the `booking` lock while deleting fresha/square rows; forget() unlocked — Standalone, M
-- [ ] Fix
+- [x] Fix — promoted the booking-XOR key to `CacheKeyGenerator::bookingXorLock` (string unchanged; BookingXorLockTest green proves seedBooking still shares it); added controller helper `withCrossPlatformLock`. BookingController detect()+forget() now take bookingXorLock around the whole clear+write; EnrichLinkCardJob dispatch moved OUTSIDE the lock (sync-inline scrape). FreshaController::forget() (PWL-5's deferred delete) now takes the SAME bookingXorLock → the Fresha delete has one owner. Independent review PASS; lost-update tests fail pre-fix (202/200→423). RESIDUAL (accepted, flagged to Josh): the booking-family CONNECT paths (FreshaController::connect on the per-platform 'fresha' lock, SquareController::connect unlocked) do NOT share the XOR lock, so a connect racing a custom detect is not mutually excluded — a rare two-tab single-slot case; closing it would need XOR-on-connect beyond this signed-off scope.
 **Plain English:** Booking is a single-slot card — connecting one provider clears the others. The
 code locks the "booking" slot but then deletes the Fresha and Square rows, which live under different
 locks, so a simultaneous Fresha connect isn't actually excluded. And "disconnect" clears them with no
@@ -214,7 +214,7 @@ one. **Fix (design decision):** guard the cross-platform clear with the shared b
 `forget()`. Coordinate with PWL-5 (Fresha) and PWL-9 (auto-sync seedBooking share the same lock).
 
 ### PWL-15 — ReservationsController holds the `reservations` lock while deleting opentable/resdiary/nowbookit rows; forget() unlocked — Standalone, M
-- [ ] Fix
+- [x] Fix — added `CacheKeyGenerator::reservationsXorLock`; ReservationsController detect()+forget() take it around the whole clear+write (mirrors PWL-14), EnrichLinkCardJob dispatch moved OUTSIDE the lock. Independent review PASS; lost-update test fails pre-fix (202/200→423). Same accepted connect-side residual as PWL-14 (keyless-provider connects don't share the reservations-XOR lock).
 **Plain English:** Same shape as Booking, for the reservations single-slot family.
 **Technical:** `ReservationsController::detect()` (`:76`) holds the `reservations` lock; `clearReservations()`
 deletes opentable/resdiary/nowbookit rows (`:172`) + `forgetConnection` (`:175`); `forget()` (`:123`)
@@ -225,7 +225,7 @@ clears unlocked. **Fix:** a reservations-family XOR lock mirroring the booking d
 ## Tier 4 — NOT WORTH LOCKING (record-only, do NOT fix)
 
 ### PWL-16 — Deliberately-not-locking register — doc-only, XS
-- [ ] Record in an ADR/comment so a future sweep doesn't re-flag
+- [x] Record in an ADR/comment so a future sweep doesn't re-flag — added a `## Deliberately NOT locked (PWL-16 register)` comment block in ManagesIntegrationConnection.php (at the lock helpers' site, Q6) covering link-only socials, DisplaySettingsController::update, ConnectFetchJob status writes + PlatformRefresher, dead OnDemandRefresh, and the non-connection Menu/workplaces/design_kits writers. Comment-only (php -l clean, 0 code lines changed); notes that 'square's row delete IS covered by the booking-XOR lock.
 **Items & reasons:**
 - **Link-only socials** (facebook / tiktok / x / linkedin / threads / reddit / skool / square): never
   locked, no refreshable sibling, no second writer — nothing to race.

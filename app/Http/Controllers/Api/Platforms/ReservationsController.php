@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -73,11 +74,17 @@ class ReservationsController extends ApiController
         }
         $meta = $this->scraper->minimalCard($url);
 
-        return $this->withConnectionLock($user, function () use ($user, $meta, $url) {
+        // Cross-platform XOR lock (not the per-platform withConnectionLock) —
+        // clearReservations() below can delete opentable/resdiary/nowbookit
+        // rows, which a per-platform 'reservations' key can't mutually
+        // exclude against those controllers. The EnrichLinkCardJob dispatch is
+        // deliberately OUTSIDE the lock: under QUEUE_CONNECTION=sync it runs
+        // inline and can take seconds, which would hold the lock far past its
+        // 10s TTL (rule #1).
+        $response = $this->withCrossPlatformLock(CacheKeyGenerator::reservationsXorLock((string) $user->id), function () use ($user, $meta) {
             $this->clearReservations($user);   // single-slot
             $payload = ['provider' => 'custom', 'source' => 'manual', ...$meta];
             $this->writePendingLinkCard($user, $payload);
-            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $this->defaultResourceId(), $url)->afterCommit();
 
             return $this->success([
                 'provider' => 'custom',
@@ -87,6 +94,12 @@ class ReservationsController extends ApiController
                 'statusUrl' => url('/api/platforms/reservations/detect/status'),
             ], 202);
         });
+
+        if ($response->getStatusCode() === 202) {
+            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $this->defaultResourceId(), $url)->afterCommit();
+        }
+
+        return $response;
     }
 
     // GET /api/platforms/reservations/detect/status — poll the custom-card enrichment.
@@ -123,9 +136,12 @@ class ReservationsController extends ApiController
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $this->clearReservations($user);
 
-        return $this->success($this->statusFor($user));
+        return $this->withCrossPlatformLock(CacheKeyGenerator::reservationsXorLock((string) $user->id), function () use ($user) {
+            $this->clearReservations($user);
+
+            return $this->success($this->statusFor($user));
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

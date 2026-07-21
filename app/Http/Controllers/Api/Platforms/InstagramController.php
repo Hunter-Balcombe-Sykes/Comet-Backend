@@ -10,13 +10,16 @@ use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Rules\PlatformInRegistry;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\PlatformInput;
 use App\Services\Platforms\Registry\Platform;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 // Instagram integration endpoints. A single automatic connect: connect() queues a
 // background job (InstagramConnectJob) that scrapes the profile and mirrors the
@@ -54,41 +57,56 @@ class InstagramController extends ApiController
             return $budgetError;
         }
 
-        // Gate the placeholder write: determine create vs. update so the correct
-        // policy ability fires. This is a direct write (not via writeConnection)
-        // because the placeholder shape differs from a normal selection row.
-        $existing = $this->connectionFor($user);
-        if ($existing) {
-            $this->authorizeForUser($user, 'update', $existing);
-        } else {
-            $skeleton = new IntegrationConnection([
-                'user_id' => $user->id,
-                'platform' => $this->platform(),
-                'resource_id' => $this->defaultResourceId(),
-            ]);
-            $this->authorizeForUser($user, 'create', $skeleton);
-        }
+        // PWL-7: the placeholder write (and the authorize check that decides
+        // create vs. update) is the only part that needs to serialize against
+        // other writers of this row — the raw lock primitive is used (not
+        // withConnectionLock) because the created $connection is needed below
+        // for the job dispatch, which — like validateUsername/guardApifyBudget
+        // above — MUST stay OUTSIDE the lock: under QUEUE_CONNECTION=sync,
+        // dispatch() runs InstagramConnectJob's ~110s Apify scrape inline, and
+        // holding a 10s lock across that would make every concurrent request
+        // (including unrelated reads that take the same lock) queue behind it.
+        try {
+            $connection = Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id), 10)->block(5, function () use ($user) {
+                // Gate the placeholder write: determine create vs. update so the correct
+                // policy ability fires. This is a direct write (not via writeConnection)
+                // because the placeholder shape differs from a normal selection row.
+                $existing = $this->connectionFor($user);
+                if ($existing) {
+                    $this->authorizeForUser($user, 'update', $existing);
+                } else {
+                    $skeleton = new IntegrationConnection([
+                        'user_id' => $user->id,
+                        'platform' => $this->platform(),
+                        'resource_id' => $this->defaultResourceId(),
+                    ]);
+                    $this->authorizeForUser($user, 'create', $skeleton);
+                }
 
-        // Write a pending placeholder so the status endpoint can respond before
-        // the job runs. updateOrCreate so a re-connect replaces any prior row.
-        $connection = IntegrationConnection::updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'platform' => $this->platform(),
-                'resource_id' => $this->defaultResourceId(),
-            ],
-            [
-                // Empty (not null): platform_connections.payload is NOT NULL, so a
-                // null placeholder violates the constraint and 500s the connect. The
-                // job overwrites this with the real scrape once it completes.
-                'payload' => [],
-                'is_active' => false,
-                'last_refreshed_at' => null,
-                'last_refresh_status' => 'pending',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
-        );
+                // Write a pending placeholder so the status endpoint can respond before
+                // the job runs. updateOrCreate so a re-connect replaces any prior row.
+                return IntegrationConnection::updateOrCreate(
+                    [
+                        'user_id' => $user->id,
+                        'platform' => $this->platform(),
+                        'resource_id' => $this->defaultResourceId(),
+                    ],
+                    [
+                        // Empty (not null): platform_connections.payload is NOT NULL, so a
+                        // null placeholder violates the constraint and 500s the connect. The
+                        // job overwrites this with the real scrape once it completes.
+                        'payload' => [],
+                        'is_active' => false,
+                        'last_refreshed_at' => null,
+                        'last_refresh_status' => 'pending',
+                        'last_refresh_error' => null,
+                        'consecutive_failures' => 0,
+                    ],
+                );
+            });
+        } catch (LockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         InstagramConnectJob::dispatch($user->id, $username, $connection->id);
 
@@ -145,9 +163,13 @@ class InstagramController extends ApiController
     // DELETE /api/platforms/instagram — clear the authenticated user's connection.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetConnection($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success(['selection' => null]);
+        return $this->withConnectionLock($user, function () use ($user) {
+            $this->forgetConnection($user);
+
+            return $this->success(['selection' => null]);
+        });
     }
 
     // GET /api/platforms/instagram/synced
@@ -205,11 +227,42 @@ class InstagramController extends ApiController
             return $this->error('Nothing to change for that platform.', 404);
         }
 
+        // PWL-7: applyFinding() writes OTHER platforms' rows (remove + write the
+        // found connection) and may dispatch a job — it MUST stay outside the
+        // lock, same reasoning as connect()'s job dispatch. Only the IG row's
+        // own read-modify-write (marking the finding 'seeded' below) is the
+        // authoritative, contended span, so that alone is locked — re-reading
+        // $ig inside the closure for the authoritative state.
         $autoSync->applyFinding((string) $user->id, $findings[$idx]);
 
-        $findings[$idx]['outcome'] = 'seeded';
-        $findings[$idx]['apply'] = null;
-        $ig->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
+        try {
+            Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id), 10)->block(5, function () use ($user, $platform) {
+                $ig = $user->integrationConnections()->where('platform', Platform::Instagram->value)->first();
+                if (! $ig) {
+                    return;
+                }
+                $igp = InstagramPayload::fromArray($ig->payload);
+                $payload = $igp->toArray();
+                $findings = $igp->syncFindings;
+
+                $idx = null;
+                foreach ($findings as $i => $f) {
+                    if (is_array($f) && ($f['platform'] ?? null) === $platform && ($f['outcome'] ?? null) === 'conflict') {
+                        $idx = $i;
+                        break;
+                    }
+                }
+                if ($idx === null) {
+                    return;
+                }
+
+                $findings[$idx]['outcome'] = 'seeded';
+                $findings[$idx]['apply'] = null;
+                $ig->forceFill(['payload' => [...$payload, 'syncFindings' => $findings]])->saveQuietly();
+            });
+        } catch (LockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->synced($request);
     }

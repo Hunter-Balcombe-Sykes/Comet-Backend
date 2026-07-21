@@ -60,3 +60,34 @@ it('status endpoint reports ready once the row is ok', function () {
         ->assertOk()
         ->assertJsonPath('status', 'ready');
 });
+
+it('reorders links and lists them in the new order', function () {
+    $user = customLinksCtrlUser('clinkorder');
+    foreach ([['link-a', 0], ['link-b', 1], ['link-c', 2]] as [$rid, $pos]) {
+        IntegrationConnection::create([
+            'user_id' => $user->id, 'platform' => 'custom', 'resource_id' => $rid,
+            'resource_kind' => 'link',
+            'payload' => ['kind' => 'link', 'url' => "https://{$rid}.test", 'name' => $rid],
+            'is_active' => true, 'sort_order' => $pos, 'last_refresh_status' => 'ok',
+        ]);
+    }
+
+    actingAsUser($user)->putJson('/api/platforms/custom/links/order', ['ids' => ['link-c', 'link-a']])
+        ->assertOk()
+        ->assertJsonPath('links.0.id', 'link-c')
+        ->assertJsonPath('links.1.id', 'link-a')
+        // Omitted rows keep their relative order after the listed ones.
+        ->assertJsonPath('links.2.id', 'link-b');
+
+    actingAsUser($user)->getJson('/api/platforms/custom/links')
+        ->assertOk()
+        ->assertJsonPath('links.0.id', 'link-c')
+        ->assertJsonPath('links.1.id', 'link-a')
+        ->assertJsonPath('links.2.id', 'link-b');
+});
+
+it('rejects reorder ids that are not the users links', function () {
+    $user = customLinksCtrlUser('clinkbad');
+    actingAsUser($user)->putJson('/api/platforms/custom/links/order', ['ids' => ['link-nope']])
+        ->assertNotFound();
+});

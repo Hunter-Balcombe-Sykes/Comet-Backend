@@ -4,10 +4,14 @@ namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -172,14 +176,39 @@ class InstagramConnectionSeeder
             $this->autoSaveUnmatchedLinks($user, $sync['unmatched']);
         }
 
-        $connection->update([
-            'payload' => $selection,
-            'is_active' => true,
-            'last_refreshed_at' => now(),
-            'last_refresh_status' => 'ok',
-            'last_refresh_error' => null,
-            'consecutive_failures' => 0,
-        ]);
+        // PWL-7 (job/seeder half): the media mirroring + auto-sync + identity-sync
+        // above are all vendor I/O / heavy work — they stay OUTSIDE the lock, same
+        // discipline as ConnectFetchJob::handle(). Only the authoritative row write
+        // below is contended (a dashboard highlights save or a scheduled refresh can
+        // race it via the SAME platformConnectionLock key), so only it is locked.
+        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, (string) $connection->user_id);
+        try {
+            Cache::lock($key, 10)->block(5, function () use ($connection, $selection) {
+                $connection->update([
+                    'payload' => $selection,
+                    'is_active' => true,
+                    'last_refreshed_at' => now(),
+                    'last_refresh_status' => 'ok',
+                    'last_refresh_error' => null,
+                    'consecutive_failures' => 0,
+                ]);
+            });
+        } catch (LockTimeoutException) {
+            // SYNC-DRIVER CAVEAT: QUEUE_CONNECTION=sync means release()/retry never
+            // happens (InstagramConnectJob's caller has no queue to catch a throw
+            // and re-run). A swallowed timeout here would leave the row 'pending'
+            // forever, so a terminal 'unavailable' write is mandatory — mirrors
+            // ConnectFetchJob::handle()'s LockTimeoutException branch.
+            Log::warning('instagram.connect_seeder.lock_timeout', [
+                'connection_id' => $connection->id,
+                'user_id' => (string) $connection->user_id,
+            ]);
+            $connection->forceFill([
+                'last_refresh_status' => 'unavailable',
+                'last_refresh_error' => "We couldn't save your Instagram connection just then — please try again.",
+                'consecutive_failures' => (int) $connection->consecutive_failures + 1,
+            ])->saveQuietly();
+        }
 
         return $selection;
     }
