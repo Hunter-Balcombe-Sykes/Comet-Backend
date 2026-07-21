@@ -125,3 +125,53 @@ it('notifies via email when a published build with contact_email reaches ready',
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
 });
+
+it('deactivates the IG connection for a dark early-access build', function () {
+    $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_jane', 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make([
+        'source_type' => 'instagram', 'built_via' => PreAccountBuild::VIA_EARLY_ACCESS, 'expires_at' => null,
+    ]);
+    $build->build_state = PreAccountBuild::STATE_PENDING;
+    $build->user()->associate($user);
+    $build->save();
+
+    // Generator stub that seeds an ACTIVE IG connection (mirrors the real seeder).
+    // Must implement SiteSourceGenerator — SourceGeneratorRegistry::for() is typed
+    // to return it, so a duck-typed anon class trips a TypeError.
+    $this->mock(SourceGeneratorRegistry::class, function ($mock) use ($user) {
+        $gen = new class($user) implements SiteSourceGenerator
+        {
+            public function __construct(private User $user) {}
+
+            public function normalizeRef(string $raw): string
+            {
+                return $raw;
+            }
+
+            public function dedupeKey(string $normalizedRef): string
+            {
+                return $normalizedRef;
+            }
+
+            public function handleSeed(string $normalizedRef, ?string $sourceName): string
+            {
+                return $normalizedRef;
+            }
+
+            public function generate(User $user, Site $site, string $sourceRef): void
+            {
+                App\Models\Core\Site\IntegrationConnection::create([
+                    'user_id' => $this->user->id, 'platform' => 'instagram',
+                    'resource_id' => 'instagram', 'payload' => [], 'is_active' => true,
+                ]);
+            }
+        };
+        $mock->shouldReceive('for')->andReturn($gen);
+    });
+
+    (new GeneratePreAccountSiteJob($build->id, publish: false))->handle(app(SourceGeneratorRegistry::class));
+
+    $conn = App\Models\Core\Site\IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
+    expect((bool) $conn->is_active)->toBeFalse();
+});

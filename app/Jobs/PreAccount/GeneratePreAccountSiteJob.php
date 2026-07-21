@@ -86,6 +86,20 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // Keep dark, unapproved early-access Instagram builds OFF the Apify refresh
+        // treadmill (spec §3.4): a site nobody has claimed must not be re-scraped via
+        // Apify on the ~12h cadence. GBP (official Places API) stays active. The
+        // signal is expires_at IS NULL = not yet approved; approval sets expires_at
+        // and re-scrapes, which the seeder reactivates.
+        if ($build->built_via === PreAccountBuild::VIA_EARLY_ACCESS
+            && $build->source_type === 'instagram'
+            && $build->expires_at === null) {
+            \App\Models\Core\Site\IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->where('platform', 'instagram')
+                ->update(['is_active' => false]);
+        }
+
         // SEC-4: build_state is no longer fillable — forceFill so this transition
         // isn't a silent no-op.
         $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();

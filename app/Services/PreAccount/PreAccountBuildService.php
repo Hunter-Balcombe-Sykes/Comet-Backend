@@ -37,6 +37,7 @@ class PreAccountBuildService
         bool $publish = false,
         ?int $expiresDays = null,
         ?string $contactEmail = null,
+        ?string $builtVia = null,
     ): array {
         // A source type unknown to the registry (never configured, or configured
         // but its generator class doesn't exist yet — e.g. GoogleBusinessSourceGenerator
@@ -78,11 +79,15 @@ class PreAccountBuildService
             );
         }
 
-        $expiresAt = now()->addDays($expiresDays ?? (int) config('partna.pre_account.expiry_days', 30));
+        // Early-access builds have no expiry until a staff approval opens the
+        // 30-day claim window (spec §3.5); every other build expires from creation.
+        $expiresAt = $builtVia === PreAccountBuild::VIA_EARLY_ACCESS
+            ? null
+            : now()->addDays($expiresDays ?? (int) config('partna.pre_account.expiry_days', 30));
 
         try {
             $build = DB::connection('pgsql')->transaction(function () use (
-                $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt, $contactEmail
+                $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt, $contactEmail, $builtVia
             ) {
                 // LIFE-2: signup-path abuse cap (F2), re-checked INSIDE the transaction
                 // under an advisory lock. The previous pre-transaction check-then-act let
@@ -116,7 +121,7 @@ class PreAccountBuildService
                     'source_type' => $sourceType,
                     'source_ref' => $ref,
                     'source_ref_lc' => $refLc,
-                    'built_via' => $staff ? PreAccountBuild::VIA_STAFF : PreAccountBuild::VIA_SIGNUP,
+                    'built_via' => $builtVia ?? ($staff ? PreAccountBuild::VIA_STAFF : PreAccountBuild::VIA_SIGNUP),
                     'created_ip_hash' => $staff ? null : $ipHash,
                     'expires_at' => $expiresAt,
                     'contact_email' => $contactEmail,

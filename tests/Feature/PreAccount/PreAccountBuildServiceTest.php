@@ -210,3 +210,17 @@ it('does not re-dispatch a re-served build still pending within the SLA', functi
         ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING);
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 1);
 });
+
+it('creates an early-access build with null expiry and built_via early_access', function () {
+    $result = app(App\Services\PreAccount\PreAccountBuildService::class)->requestBuild(
+        accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'ea_prospect',
+        sourceName: null, ipHash: null, staff: null, publish: false,
+        expiresDays: null, contactEmail: 'lead@example.com',
+        builtVia: PreAccountBuild::VIA_EARLY_ACCESS,
+    );
+
+    $build = $result['build'];
+    expect($build->built_via)->toBe('early_access')
+        ->and($build->expires_at)->toBeNull()
+        ->and($build->contact_email)->toBe('lead@example.com');
+});
