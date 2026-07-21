@@ -27,6 +27,24 @@ and new indexes, split into two files with the same timestamp prefix + sequentia
 20260601000001_add_foo_indexes.sql      ← CONCURRENTLY outside any transaction
 ```
 
+**A `CONCURRENTLY` statement must be ALONE in its file** — a file that contains a
+`CREATE`/`DROP`/`REINDEX … CONCURRENTLY` statement must contain **only that one statement**: no
+second `CONCURRENTLY`, no other DDL/DML, and no `BEGIN`/`COMMIT`. The Supabase CLI applier
+(`supabase db reset` **and** `supabase db push`) sends a file's statements to Postgres as a single
+libpq **pipeline** (an implicit transaction) whenever the file has more than one statement — of any
+kind — and `CONCURRENTLY` cannot run inside a pipeline/transaction (`SQLSTATE 25001`). So a from-zero
+`db reset`/`db push` aborts on any file that pairs a `CONCURRENTLY` statement with anything else.
+Split multi-index changes into consecutive one-statement files sharing the timestamp prefix with
+sequential suffixes (`…000001`, `…000002`, …); put any accompanying non-index DDL in its own
+`BEGIN`/`COMMIT` file. Enforced by `scripts/guard-no-unsafe-migrations.php` **Check 6** for files
+timestamped after `20260721000000`; nine pre-convention files are grandfathered.
+
+Because those grandfathered bundles cannot be applied from zero by the CLI, **local fresh
+provisioning uses `scripts/db/fresh-reset.sh`** (a `psql` simple-query loop — each statement runs as
+its own top-level command, so `CONCURRENTLY` succeeds). The fresh-**prod** cutover uses the psql
+procedure documented in `CLAUDE.md` → "Push to Supabase / Fresh prod DB". `supabase db reset`/`db
+push` are **not** usable from an empty database here.
+
 **Why**: `CREATE INDEX` (non-concurrent) acquires a `SHARE` lock on the target table for the entire
 build duration, blocking all `INSERT`/`UPDATE`/`DELETE`. On a table with millions of rows, this is
 minutes of write downtime. `CONCURRENTLY` builds the index in multiple passes under weaker locks,
