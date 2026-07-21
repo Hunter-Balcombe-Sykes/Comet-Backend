@@ -217,7 +217,10 @@ class GoogleBusinessService extends PlatformScraper
                 fn ($a) => data_get($a, 'displayName'),
                 (array) data_get($p, 'authorAttributions', []),
             ))),
-        ], array_slice(array_values(array_filter((array) data_get($place, 'photos', []), 'is_array')), 0, 10));
+        // 15 = the content-selection slot count (ContentSelection::MAX_POSITION)
+        // so a GB connect can fill every gallery slot; each kept photo costs one
+        // billed media-URL resolve on connect (carry-forward covers refreshes).
+        ], array_slice(array_values(array_filter((array) data_get($place, 'photos', []), 'is_array')), 0, 15));
 
         $serves = array_filter([
             'coffee' => data_get($place, 'servesCoffee'),

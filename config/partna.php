@@ -290,6 +290,13 @@ return [
         ],
     ],
 
+    // Apify actor id for the Instagram profile scrape (InstagramScraper::fetchProfile).
+    // Tilde-separated owner~name form for the API path — configurable so the actor
+    // can be swapped without a code deploy.
+    'instagram' => [
+        'actor' => env('PARTNA_INSTAGRAM_ACTOR', 'figue~instagram-profile-scraper'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Social platform registry

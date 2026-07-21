@@ -554,7 +554,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     {
         return MenuCategory::query()
             ->where('menu_id', $menuId)
-            ->where(fn ($q) => $q->whereNull('source_platform')->orWhereNotIn('source_platform', ['scan', 'manual']))
+            ->where(fn ($q) => $q->whereNull('source_platform')->orWhereNotIn('source_platform', ['scan', 'manual', 'website-scan']))
             ->pluck('id');
     }
 

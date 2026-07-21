@@ -52,6 +52,7 @@ class WebsiteLinkHarvester
         'Menulog' => '~(^|\.)menulog\.com\.au$~',
         'Deliveroo' => '~(^|\.)deliveroo\.[a-z.]+$~',
         'Order Online' => '~(^|\.)order\.online$~',
+        'OrderMate' => '~(^|\.)ordermate\.online$~',
     ];
 
     /** Booking provider hosts (Fresha / Square), keyed by label — see RESERVATION_HOSTS note. */
@@ -99,7 +100,19 @@ class WebsiteLinkHarvester
             return [];
         }
 
-        $links = $this->extractLinks($html, $response['finalUrl'] ?? $websiteUrl);
+        return $this->harvestHtml($html, $response['finalUrl'] ?? $websiteUrl);
+    }
+
+    /**
+     * Same classification harvest() does, off an already-fetched HTML string —
+     * lets a caller that already has the page in hand (previous-website scan,
+     * link-in-bio scan) reuse this class's classification without a second fetch.
+     *
+     * @return array<string, mixed> enrichment-shaped subset; [] when linkless.
+     */
+    public function harvestHtml(string $html, string $baseUrl): array
+    {
+        $links = $this->extractLinks($html, $baseUrl);
         if ($links === []) {
             return [];
         }
@@ -152,6 +165,20 @@ class WebsiteLinkHarvester
             'booking' => $booking !== [] ? $booking : null,
             'socials' => $socials !== [] ? $socials : null,
         ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * Every absolute, deduped, http(s)-only outbound link on the page — not
+     * just the ones classify()-able into a known platform. Used by the
+     * link-in-bio scan and previous-website general link-harvest, which need
+     * to hand EVERY link to classify()/CustomLinkSeeder themselves rather than
+     * only the pre-bucketed subset harvestHtml() returns.
+     *
+     * @return list<string>
+     */
+    public function allOutboundLinks(string $html, string $baseUrl): array
+    {
+        return $this->extractLinks($html, $baseUrl);
     }
 
     /**

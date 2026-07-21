@@ -88,12 +88,39 @@ it('first-come wins: a second claimer gets ALREADY_CLAIMED', function () {
     $svc->claim('auth-uid-2', 'mallory@example.com', 'janedoe');
 })->throws(RuntimeException::class, 'ALREADY_CLAIMED');
 
-it('rejects a not-ready build', function () {
-    [, , $build] = makeReadyBuild();
+it('claims successfully while the build is still pending — the dashboard, not the claim gate, waits for ready', function () {
+    [$user, , $build] = makeReadyBuild();
+    $build->update(['build_state' => PreAccountBuild::STATE_PENDING]);
+
+    $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($result['professional']->id)->toBe($user->id)
+        ->and($user->fresh()->auth_user_id)->toBe('auth-uid-1');
+});
+
+it('claims successfully while the build is still building', function () {
+    [$user, , $build] = makeReadyBuild();
     $build->update(['build_state' => PreAccountBuild::STATE_BUILDING]);
 
+    $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($result['professional']->id)->toBe($user->id)
+        ->and($user->fresh()->auth_user_id)->toBe('auth-uid-1');
+});
+
+it('rejects a failed build', function () {
+    [, , $build] = makeReadyBuild();
+    $build->update(['build_state' => PreAccountBuild::STATE_FAILED]);
+
     app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
-})->throws(RuntimeException::class, 'BUILD_NOT_READY');
+})->throws(RuntimeException::class, 'BUILD_FAILED');
+
+it('rejects a claim with no build row at all', function () {
+    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
+    \App\Models\Core\Site\Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+})->throws(RuntimeException::class, 'BUILD_FAILED');
 
 it('rejects a claimer who already has an account (one account, one site)', function () {
     makeReadyBuild();

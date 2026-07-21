@@ -339,17 +339,24 @@ class GoogleBusinessAutoSync
 
             // Load existing row (or a fresh unsaved model) to preserve fields the user already set.
             $workplace = Workplace::query()->firstOrNew(['site_id' => (string) $site->id]);
+            $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
+            $stamp = now()->toIso8601String();
 
             $changed = false;
             foreach ($fields as $key => $value) {
                 // Only fill if the column is currently blank — never overwrite user data.
                 if ($this->blank($workplace->{$key} ?? null)) {
                     $workplace->{$key} = $value;
+                    // Same field_sources shape IdentitySync stamps, so a future
+                    // "synced from Google" badge works for every source, not
+                    // just IdentitySync's own writes.
+                    $sources[$key] = ['source' => 'google-business', 'at' => $stamp];
                     $changed = true;
                 }
             }
 
             if ($changed) {
+                $workplace->field_sources = $sources;
                 $workplace->save();
             }
         } catch (Throwable $e) {

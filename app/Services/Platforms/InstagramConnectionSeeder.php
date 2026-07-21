@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\Payloads\InstagramPayload;
@@ -45,6 +46,8 @@ class InstagramConnectionSeeder
     public function __construct(
         private readonly InstagramScraper $scraper,
         private readonly InstagramAutoSync $autoSync,
+        private readonly InstagramIdentitySync $identitySync,
+        private readonly CustomLinkSeeder $linkSeeder,
     ) {}
 
     /**
@@ -160,6 +163,15 @@ class InstagramConnectionSeeder
         $selection['syncFindings'] = $sync['findings'];
         $selection['unmatched'] = $sync['unmatched'];
 
+        // Fold Instagram's own identity fields (industry/name/handle/contact)
+        // into the user's real records, fill-if-empty. $userId is only a
+        // string in this scope — resolve the model explicitly.
+        $user = User::find($userId);
+        if ($user !== null) {
+            $this->identitySync->applyIdentity($user, $profile);
+            $this->autoSaveUnmatchedLinks($user, $sync['unmatched']);
+        }
+
         $connection->update([
             'payload' => $selection,
             'is_active' => true,
@@ -170,6 +182,17 @@ class InstagramConnectionSeeder
         ]);
 
         return $selection;
+    }
+
+    /** @param  list<array<string,mixed>>  $unmatched */
+    private function autoSaveUnmatchedLinks(User $user, array $unmatched): void
+    {
+        foreach ($unmatched as $entry) {
+            $url = is_array($entry) ? ($entry['url'] ?? null) : null;
+            if (is_string($url)) {
+                $this->linkSeeder->seed($user, $url);
+            }
+        }
     }
 
     // Mirror a single image (cover or profile pic) to R2, STREAMED via a temp

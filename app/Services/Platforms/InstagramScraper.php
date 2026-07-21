@@ -13,9 +13,6 @@ use Throwable;
 // run-sync-get-dataset-items returns 201 on success, so we accept any 2xx.
 class InstagramScraper extends PlatformScraper
 {
-    // Apify actor id (tilde-separated owner~name form for the API path).
-    private const ACTOR = 'apify~instagram-profile-scraper';
-
     // Posts to ask Apify for — enough that auto reliably yields 8 covers and the
     // manual picker has a healthy pool.
     private const RESULTS_LIMIT = 24;
@@ -37,8 +34,8 @@ class InstagramScraper extends PlatformScraper
             $response = Http::withToken($token)
                 ->timeout(110)
                 ->post(
-                    'https://api.apify.com/v2/acts/'.self::ACTOR.'/run-sync-get-dataset-items',
-                    ['usernames' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
+                    'https://api.apify.com/v2/acts/'.config('partna.instagram.actor').'/run-sync-get-dataset-items',
+                    ['profiles' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
                 );
         } catch (Throwable $e) {
             report($e);
@@ -81,6 +78,21 @@ class InstagramScraper extends PlatformScraper
             return null;
         }
 
+        // A 2xx run can still carry a per-item scrape failure: the dataset item
+        // is profile-shaped (username/url/scrapedAt) but its fields are null and
+        // it carries an "error" string instead. Treat that as a failed fetch —
+        // not a valid (empty) profile — so callers retry instead of silently
+        // persisting a blank account.
+        if (is_string($items[0]['error'] ?? null)) {
+            Log::warning('instagram.apify.error_item', [
+                'username_hash' => hash('sha256', mb_strtolower($username)),
+                'user_id' => $userId,
+                'error' => $items[0]['error'],
+            ]);
+
+            return null;
+        }
+
         return $items[0];
     }
 
@@ -112,6 +124,16 @@ class InstagramScraper extends PlatformScraper
     public function bioLinks(array $profile): array
     {
         $links = [];
+
+        $bioLinksField = data_get($profile, 'bio_links');
+        if (is_array($bioLinksField)) {
+            foreach ($bioLinksField as $entry) {
+                $url = is_array($entry) ? data_get($entry, 'url') : (is_string($entry) ? $entry : null);
+                if (is_string($url) && $this->isHttpUrl($url)) {
+                    $links[] = trim($url);
+                }
+            }
+        }
 
         $external = data_get($profile, 'externalUrl');
         if (is_string($external) && $this->isHttpUrl($external)) {

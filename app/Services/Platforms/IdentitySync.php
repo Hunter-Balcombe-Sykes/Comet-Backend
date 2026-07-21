@@ -188,22 +188,25 @@ class IdentitySync
     }
 
     /**
-     * Sector precedence (fixed 2026-07-15 — a manual pick is now permanent):
-     * apply precedence in two steps against $mappedSector (already resolved
-     * from Google's category by SectorTaxonomy::fromGoogleCategory — see
-     * applyUserIdentityFields, LIFE-107: that mapping is pure so it happens
-     * OUTSIDE the lock this method now runs under). First, sector_source=
-     * 'manual' (stamped by SectorController on a user's own pick) is NEVER
-     * overwritten by Google, for EITHER account type — this is the bug fix:
-     * business used to overwrite a manually-chosen sector on every resync just
-     * like any other differing value, silently reverting the user's choice.
-     * Only once that's ruled out does the account-type rule apply: business
-     * overwrites a differing value (blank, or previously google-sourced);
-     * partna fills only when sector is currently blank. Provenance in
-     * users.sector_source.
+     * Sector precedence (widened 2026-07-20 — any non-Google source is now
+     * permanent, not just 'manual'): apply precedence in two steps against
+     * $mappedSector (already resolved from Google's category by
+     * SectorTaxonomy::fromGoogleCategory — see applyUserIdentityFields,
+     * LIFE-107: that mapping is pure so it happens OUTSIDE the lock this
+     * method now runs under). First, any sector_source that is neither null
+     * nor Google's own (`self::GOOGLE_SOURCE`) is NEVER overwritten by a
+     * business account's Google resync — originally this only protected
+     * 'manual' (the 2026-07-15 fix: business used to silently revert a
+     * user's own pick on every resync), but the same clobbering bug applies
+     * to any other automated source (e.g. a sector seeded by an Instagram
+     * connect ahead of Google during pre-account signup): first non-Google
+     * source to write wins. Only once that's ruled out does the account-type
+     * rule apply: business overwrites a blank value or one it previously
+     * stamped itself; partna fills only when sector is currently blank.
+     * Provenance in users.sector_source.
      *
      * $user MUST be the locked $fresh row from applyUserIdentityFields — the
-     * manual-pick guard below reads $user->sector_source, and evaluating it
+     * source guard below reads $user->sector_source, and evaluating it
      * against a stale pre-lock instance is exactly the race LIFE-107 closes.
      */
     private function applySector(User $user, bool $overwrite, ?string $mappedSector): void
@@ -212,17 +215,17 @@ class IdentitySync
             return;
         }
 
-        // A user-chosen sector is permanent from Google's perspective, for
-        // either account type. Google may still fill a blank sector or replace
-        // one it set itself on an earlier sync. The `sector !== null` leg is
-        // defensive: SectorController clears provenance when the pick is
-        // cleared, but rows stamped (null, 'manual') before that fix must not
-        // block Google's fill forever.
-        if ($user->sector_source === 'manual' && $user->sector !== null) {
-            return;
-        }
-
         if ($overwrite) {
+            // Any other source's stamped value is permanent from Google's
+            // perspective — first non-Google source to write wins. Google may
+            // still fill a blank sector or replace one it set itself on an
+            // earlier sync. The `sector !== null` leg is defensive: provenance
+            // can be stamped ahead of the value being cleared elsewhere, and a
+            // (null, <source>) row must not block Google's fill forever.
+            if ($user->sector_source !== null && $user->sector_source !== self::GOOGLE_SOURCE && $user->sector !== null) {
+                return;
+            }
+
             if ($user->sector !== $mappedSector) {
                 $user->sector = $mappedSector;
                 $user->sector_source = self::GOOGLE_SOURCE;
@@ -232,7 +235,8 @@ class IdentitySync
             return;
         }
 
-        // partna: fill only when nothing is set yet.
+        // partna: fill only when nothing is set yet — inherently safe
+        // regardless of the current source, so no source check needed here.
         if ($this->isBlank($user->sector)) {
             $user->sector = $mappedSector;
             $user->sector_source = self::GOOGLE_SOURCE;
