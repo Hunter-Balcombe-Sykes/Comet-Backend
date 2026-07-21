@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 5/10 · Tier 2: 3/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 8 done** (PWL-1,2,3,4,6,11,12,13)
+- Tier 1: 6/10 · Tier 2: 3/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 9 done** (PWL-1,2,3,4,5,6,11,12,13)
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -109,7 +109,7 @@ don't. Racing partners: `removeEvent()` + `ScheduledRefresh`. **Fix:** wrap the 
 the duplicate `EventsCatalog` write path feeding the same rows.)
 
 ### PWL-5 — FreshaController connect/saveSelection/forget vs setServiceVisibility + ScheduledRefresh — CONTROLLER-side, non-blocker, S–M
-- [ ] Fix
+- [x] Fix — wrapped connect()/saveSelection() read→mutate→write in withConnectionLock('fresha'); scrapes (fetchMenu/fetchLocation/extractTeam/fetchEmployeeServices) stay OUTSIDE the lock. forget()'s cross-platform clear deferred to PWL-14 (booking-XOR). Independent review PASS; lost-update test fails pre-fix (200→423).
 **Plain English:** Connecting Fresha, saving your service selection, or disconnecting doesn't lock;
 toggling a service's visibility and the refresh cron do. A refresh mid-edit can lose your selection.
 **Technical:** `FreshaController` — `setServiceVisibility()` (`:238`, lock `:244`) locks; `connect()`

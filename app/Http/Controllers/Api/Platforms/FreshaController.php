@@ -74,53 +74,55 @@ class FreshaController extends ApiController
         $url = $this->scraper->stripLocale($validated['url']);
         $menu = $this->scraper->fetchMenu($url);
 
-        // Business Partna accounts book storewide — no team-member picker. Finalise
-        // the selection here so connect() completes setup in one step; the dashboard
-        // sees mode='storewide' and skips the picker. Capability-gated so the
-        // account_type read stays inside AccountCapabilities.
-        if (AccountCapabilities::for($user)->can_book_storewide) {
-            // Project the scrape into site.services rows (deduped by serviceId;
-            // owner edits + suppressions honoured) and store the EFFECTIVE list
-            // in the public selection; the raw scrape lands at payload.raw
-            // (private — the public allowlist ships only url+selection).
-            $projected = $this->projector->sync($user, $menu['services']);
-            $selection = [
-                'url' => $url,
-                'storeName' => $menu['storeName'],
-                'mode' => 'storewide',
-                'employee' => null,
-                'services' => $projected['services'],
-                'hiddenServiceIds' => $projected['hiddenServiceIds'],
-            ];
+        return $this->withConnectionLock($user, function () use ($user, $url, $menu): JsonResponse {
+            // Business Partna accounts book storewide — no team-member picker. Finalise
+            // the selection here so connect() completes setup in one step; the dashboard
+            // sees mode='storewide' and skips the picker. Capability-gated so the
+            // account_type read stays inside AccountCapabilities.
+            if (AccountCapabilities::for($user)->can_book_storewide) {
+                // Project the scrape into site.services rows (deduped by serviceId;
+                // owner edits + suppressions honoured) and store the EFFECTIVE list
+                // in the public selection; the raw scrape lands at payload.raw
+                // (private — the public allowlist ships only url+selection).
+                $projected = $this->projector->sync($user, $menu['services']);
+                $selection = [
+                    'url' => $url,
+                    'storeName' => $menu['storeName'],
+                    'mode' => 'storewide',
+                    'employee' => null,
+                    'services' => $projected['services'],
+                    'hiddenServiceIds' => $projected['hiddenServiceIds'],
+                ];
+                $this->writeConnection($user, [
+                    'url' => $url,
+                    'selection' => $selection,
+                    'raw' => ['services' => $projected['raw']],
+                ]);
+
+                return $this->success([
+                    'url' => $url,
+                    'mode' => 'storewide',
+                    'selection' => (new FreshaSelectionResource($selection))->resolve(),
+                ]);
+            }
+
+            // Individual: preserve any existing selection (re-connecting the same store
+            // keeps the saved team member); the dashboard re-picks via saveSelection.
+            // FreshaSelection::toArray() returns the stored inner blob verbatim, so a
+            // canonical stored selection round-trips byte-identically; a pending row
+            // (selection null) carries forward as null, exactly as before. The stored
+            // raw scrape (revert source for detached projections) rides along too.
+            $existingPayload = $this->readConnection($user) ?? [];
+            $existing = SelectionPayload::fromArray($existingPayload);
+            $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
             $this->writeConnection($user, [
                 'url' => $url,
-                'selection' => $selection,
-                'raw' => ['services' => $projected['raw']],
+                'selection' => $existing->selection?->toArray(),
+                ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
             ]);
 
-            return $this->success([
-                'url' => $url,
-                'mode' => 'storewide',
-                'selection' => (new FreshaSelectionResource($selection))->resolve(),
-            ]);
-        }
-
-        // Individual: preserve any existing selection (re-connecting the same store
-        // keeps the saved team member); the dashboard re-picks via saveSelection.
-        // FreshaSelection::toArray() returns the stored inner blob verbatim, so a
-        // canonical stored selection round-trips byte-identically; a pending row
-        // (selection null) carries forward as null, exactly as before. The stored
-        // raw scrape (revert source for detached projections) rides along too.
-        $existingPayload = $this->readConnection($user) ?? [];
-        $existing = SelectionPayload::fromArray($existingPayload);
-        $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
-        $this->writeConnection($user, [
-            'url' => $url,
-            'selection' => $existing->selection?->toArray(),
-            ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
-        ]);
-
-        return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
+            return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
+        });
     }
 
     // GET /api/platforms/fresha/team — team + services for the saved URL.
@@ -166,33 +168,35 @@ class FreshaController extends ApiController
         $services = ($slug ? $this->scraper->fetchEmployeeServices($slug, $validated['employeeId']) : null)
             ?? $this->scraper->extractServices($location);
 
-        // Preserve previously hidden services, dropping ids that no longer exist
-        // in the refreshed menu so the hidden list never drifts stale. The kept
-        // list seeds is_active on first-time projections; projected rows then
-        // own the hidden state (compose() re-derives the list from is_active).
-        $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
-        $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
-        $hidden = array_values(array_filter(
-            $existing->selection?->hiddenServiceIds() ?? [],
-            static fn ($id): bool => in_array($id, $serviceIds, true),
-        ));
+        return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {
+            // Preserve previously hidden services, dropping ids that no longer exist
+            // in the refreshed menu so the hidden list never drifts stale. The kept
+            // list seeds is_active on first-time projections; projected rows then
+            // own the hidden state (compose() re-derives the list from is_active).
+            $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
+            $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+            $hidden = array_values(array_filter(
+                $existing->selection?->hiddenServiceIds() ?? [],
+                static fn ($id): bool => in_array($id, $serviceIds, true),
+            ));
 
-        $projected = $this->projector->sync($user, $services, $hidden);
-        $selection = [
-            'url' => $url,
-            'storeName' => $this->scraper->extractStoreName($location),
-            'mode' => 'employee',
-            'employee' => $employee,
-            'services' => $projected['services'],
-            'hiddenServiceIds' => $projected['hiddenServiceIds'],
-        ];
-        $this->writeConnection($user, [
-            'url' => $url,
-            'selection' => $selection,
-            'raw' => ['services' => $projected['raw']],
-        ]);
+            $projected = $this->projector->sync($user, $services, $hidden);
+            $selection = [
+                'url' => $url,
+                'storeName' => $this->scraper->extractStoreName($location),
+                'mode' => 'employee',
+                'employee' => $employee,
+                'services' => $projected['services'],
+                'hiddenServiceIds' => $projected['hiddenServiceIds'],
+            ];
+            $this->writeConnection($user, [
+                'url' => $url,
+                'selection' => $selection,
+                'raw' => ['services' => $projected['raw']],
+            ]);
 
-        return $this->success((new FreshaSelectionResource($selection))->resolve());
+            return $this->success((new FreshaSelectionResource($selection))->resolve());
+        });
     }
 
     // GET /api/platforms/fresha/employee-services?employeeId=X — the per-employee
