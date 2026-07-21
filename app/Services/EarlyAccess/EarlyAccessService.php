@@ -48,15 +48,18 @@ class EarlyAccessService
                 'platforms' => array_values($data['platforms'] ?? []),
                 'status' => EarlyAccessSignup::STATUS_WAITLIST,
                 'source' => 'marketing',
+                'source_type' => $data['source_type'] ?? null,
+                'source_ref' => $data['source_ref'] ?? null,
                 'consent_ip_hash' => $data['consent_ip_hash'] ?? null,
                 'consent_user_agent' => $data['consent_user_agent'] ?? null,
             ],
         );
 
         // Site-first early access: build a dark site the person can later claim
-        // (spec Flow 3). Best-effort — a malformed handle still captures the lead;
-        // staff see an unlinked row and can correct the source. Only build once,
-        // on first create, when a source was supplied.
+        // (spec Flow 3). Best-effort — a malformed handle still captures the lead
+        // (source_type/source_ref are already persisted above, unconditionally);
+        // staff see the row with its submitted source and no linked build, and can
+        // correct it. Only build once, on first create, when a source was supplied.
         if ($signup->wasRecentlyCreated
             && ! empty($data['source_type']) && ! empty($data['source_ref'])
             && $signup->user_id === null) {
@@ -73,11 +76,7 @@ class EarlyAccessService
                     contactEmail: $emailLc,
                     builtVia: \App\Models\Core\User\PreAccountBuild::VIA_EARLY_ACCESS,
                 );
-                $signup->forceFill([
-                    'source_type' => $data['source_type'],
-                    'source_ref' => $data['source_ref'],
-                    'user_id' => $result['build']->user_id,
-                ])->save();
+                $signup->forceFill(['user_id' => $result['build']->user_id])->save();
             } catch (\Throwable $e) {
                 report($e);
             }

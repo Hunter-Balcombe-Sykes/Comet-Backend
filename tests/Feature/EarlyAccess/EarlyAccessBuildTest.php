@@ -30,3 +30,22 @@ it('creates a dark early-access build and links the signup on first signup', fun
         ->and($build->contact_email)->toBe('lead@example.com');
     Queue::assertPushed(App\Jobs\PreAccount\GeneratePreAccountSiteJob::class);
 });
+
+it('still captures the lead and persists the submitted source when the handle is malformed', function () {
+    // Instagram refs must match ^[a-z0-9._]{1,30}$ — this fails normalizeRef,
+    // so requestBuild throws SOURCE_REF_INVALID and the try/catch swallows it.
+    // The uniform success response + the row's source columns must not depend
+    // on the build succeeding.
+    $this->postJson('/api/public/early-access', [
+        'email' => 'lead-bad-handle@example.com', 'type' => 'partna',
+        'platforms' => ['instagram', 'tiktok'],
+        'source_type' => 'instagram', 'source_ref' => 'has spaces!',
+    ])->assertOk();
+
+    $signup = EarlyAccessSignup::firstOrFail();
+    expect($signup->source_type)->toBe('instagram')
+        ->and($signup->source_ref)->toBe('has spaces!')
+        ->and($signup->user_id)->toBeNull();
+
+    expect(PreAccountBuild::count())->toBe(0);
+});
