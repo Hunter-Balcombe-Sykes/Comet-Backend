@@ -14,6 +14,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 // PII posture mirrors WaitlistSignup: email + consent telemetry + the invite
 // token hash are hidden from default serialization; staff endpoints expose
 // email deliberately through EarlyAccessSignupResource.
+/**
+ * Only user_id is annotated: it's read at dispatch time (not just in handlers) to
+ * key the scrape rate limiter — StaffEarlyAccessController::buildSourceType() and
+ * ApproveEarlyAccessBuildJob. The remaining dynamic columns stay covered by the
+ * PHPStan baseline; a full @property block is a follow-up cleanup.
+ *
+ * @property string|null $user_id
+ */
 class EarlyAccessSignup extends BaseModel
 {
     use HasUuids;

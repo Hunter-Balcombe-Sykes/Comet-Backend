@@ -82,7 +82,7 @@ it('retries a failed live build on dedupe hit (F3)', function () {
     // hand-simulated "first job already failed" matches what a real worker would
     // have already done by the time a retry request lands.
     (new UniqueLock(app(Repository::class)))
-        ->release(new GeneratePreAccountSiteJob($first['build']->id));
+        ->release(new GeneratePreAccountSiteJob($first['build']->id, $first['build']->source_type));
 
     $second = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
     expect($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING)
@@ -170,7 +170,7 @@ it('re-dispatches a re-served build stuck in pending past the SLA', function () 
     // swallowed without this release (mirrors the F3 "retries a failed live
     // build" test above).
     (new UniqueLock(app(Repository::class)))
-        ->release(new GeneratePreAccountSiteJob($first['build']->id));
+        ->release(new GeneratePreAccountSiteJob($first['build']->id, $first['build']->source_type));
 
     $second = $svc->requestBuild('partna', 'instagram', 'stuckpending', null, hash('sha256', 'stuck-b'));
 
@@ -188,7 +188,7 @@ it('re-dispatches a re-served build stuck in building past the SLA', function ()
     $first['build']->save();
 
     (new UniqueLock(app(Repository::class)))
-        ->release(new GeneratePreAccountSiteJob($first['build']->id));
+        ->release(new GeneratePreAccountSiteJob($first['build']->id, $first['build']->source_type));
 
     $second = $svc->requestBuild('partna', 'instagram', 'stuckbuilding', null, hash('sha256', 'stuck-d'));
 

@@ -5,8 +5,9 @@ namespace App\Services\Webhooks;
 /**
  * Standard Webhooks HMAC-SHA256 verification per https://www.standardwebhooks.com/
  *
- * Handles the Supabase secret format `v1,whsec_<base64>` (the bytes after `whsec_`
- * are the signing key), bare base64, and plain string as a fallback.
+ * Handles the Supabase secret format `v1,whsec_<base64>`, the Resend/Svix format
+ * `whsec_<base64>` (both: the bytes after `whsec_` are the signing key), bare
+ * base64, and plain string as a fallback.
  *
  * Signed payload: {webhook-id}.{webhook-timestamp}.{raw-body}
  * Header:         webhook-signature: v1,<base64-sig> [v1,<sig2> ...]  (space-separated during rotation)
@@ -69,6 +70,25 @@ class StandardWebhookVerifier
             $bytes = base64_decode(substr($configuredSecret, strlen('v1,whsec_')), true);
 
             return $bytes === false ? null : $bytes;
+        }
+
+        // Resend/Svix format: bare `whsec_<base64>` (no `v1,` prefix). Same as
+        // above minus the version tag — the base64 after `whsec_` decodes to the
+        // signing key bytes. Placed before the bare-base64 branch: the `_` in
+        // `whsec_` fails that branch's regex, so without this a Resend secret
+        // would fall through to "plain string" and HMAC with the literal
+        // `whsec_…` text (silent mismatch → every delivery 401s).
+        //
+        // Unlike the `v1,whsec_` branch, a decode failure here FALLS THROUGH
+        // rather than returning null: bare `whsec_` is ambiguous — it may be a
+        // real Svix secret OR a plain/dev secret that merely starts with those
+        // bytes and isn't base64 (see SupabaseAuthHookSignatureTest's plain-string
+        // case). Returning null would wrongly reject such a secret.
+        if (str_starts_with($configuredSecret, 'whsec_')) {
+            $bytes = base64_decode(substr($configuredSecret, strlen('whsec_')), true);
+            if ($bytes !== false && $bytes !== '') {
+                return $bytes;
+            }
         }
 
         // Bare base64 (legacy / manual rotations).

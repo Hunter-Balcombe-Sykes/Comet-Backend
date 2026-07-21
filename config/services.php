@@ -34,6 +34,11 @@ return [
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
+        // Svix signing secret for the Resend bounce/complaint webhook, verified
+        // by VerifyResendWebhookSignature. Copy from Resend Dashboard → Webhooks →
+        // (endpoint) → Signing Secret. Format: `whsec_<base64>`. Without it,
+        // POST /internal/webhooks/resend returns 503 (fail-closed).
+        'webhook_secret' => env('RESEND_WEBHOOK_SECRET'),
     ],
 
     // Supabase Send Email Hook — secret used to verify the HMAC signature

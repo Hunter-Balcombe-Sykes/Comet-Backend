@@ -13,6 +13,7 @@ use App\Http\Requests\Api\Staff\EarlyAccess\StaffEarlyAccessUpdateRequest;
 use App\Http\Resources\Staff\EarlyAccessSignupResource;
 use App\Jobs\PreAccount\ApproveEarlyAccessBuildJob;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Models\Core\User\PreAccountBuild;
 use App\Services\EarlyAccess\EarlyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -177,7 +178,7 @@ class StaffEarlyAccessController extends ApiController
         $staff = request()->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $signup);
 
-        ApproveEarlyAccessBuildJob::dispatch($signup->id);
+        ApproveEarlyAccessBuildJob::dispatch($signup->id, $this->buildSourceType($signup));
 
         return $this->success(['ok' => true], 202);
     }
@@ -200,10 +201,22 @@ class StaffEarlyAccessController extends ApiController
 
         $count = 0;
         $query->lazyById()->each(function (EarlyAccessSignup $s) use (&$count) {
-            ApproveEarlyAccessBuildJob::dispatch($s->id);
+            ApproveEarlyAccessBuildJob::dispatch($s->id, $this->buildSourceType($s));
             $count++;
         });
 
         return $this->success(['dispatched' => $count], 202);
+    }
+
+    // The build's source_type is authoritative for the scrape rate limiter (the
+    // signup column is nullable). A user has one build source per account_type, so
+    // this is stable. Defaults to 'instagram' when no build resolves — conservative
+    // (throttles the paid-Apify red path), and the job early-returns with no build
+    // anyway. Keyed at dispatch so the limiter middleware has it before handle().
+    private function buildSourceType(EarlyAccessSignup $signup): string
+    {
+        return PreAccountBuild::query()
+            ->where('user_id', $signup->user_id)
+            ->value('source_type') ?? 'instagram';
     }
 }

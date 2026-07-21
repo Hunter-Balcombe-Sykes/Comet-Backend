@@ -859,6 +859,20 @@ return [
             'instagram' => InstagramSourceGenerator::class,
             'google_business' => GoogleBusinessSourceGenerator::class,
         ],
+
+        // Per-provider outbound BURST rate (requests/minute) for the pre-account
+        // scraping lane, keyed by provider actor slug; falls back to 'default'.
+        // Cache-backed → Redis in prod → global across ALL workers (mirrors
+        // connect/refresh). NOTE: the 'instagram' source does NOT read this — it
+        // shares the paid-Apify 'connect.rate_limits' budget (same Apify account
+        // as dashboard connects). This map sizes the 'google_business' source,
+        // which hits the official Google Places API (a different vendor, its own
+        // 'preaccount-places' limiter). Sized as a spike ceiling well above pre-
+        // beta volume, binding only under a burst (e.g. bulk early-access approval).
+        'rate_limits' => [
+            'default' => (int) env('PARTNA_PREACCOUNT_PLACES_RATE_DEFAULT', 30),
+            // e.g. 'google-business' => 60,
+        ],
     ],
 
     'soft_delete_retention_days' => (int) env('PARTNA_SOFT_DELETE_RETENTION_DAYS', env('SOFT_DELETE_RETENTION_DAYS', 30)),
