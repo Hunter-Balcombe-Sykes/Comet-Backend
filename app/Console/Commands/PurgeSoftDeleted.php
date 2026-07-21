@@ -92,8 +92,25 @@ class PurgeSoftDeleted extends Command
         $failed = 0;
 
         try {
-            $modelClass::onlyTrashed()
-                ->where('deleted_at', '<', $cutoff)
+            $query = $modelClass::onlyTrashed()
+                ->where('deleted_at', '<', $cutoff);
+
+            // Fresha suppression records must never expire: a soft-deleted
+            // projection with deleted_origin='user' IS the "owner deleted this
+            // synced service" marker the sync consults — purging it would let
+            // the next scrape silently resurrect the service. Spelled as an OR
+            // chain (not whereNot) because NOT(source='fresha' AND …) evaluates
+            // to NULL — not TRUE — for the ordinary rows where source IS NULL,
+            // which would silently exempt EVERY plain service from the purge.
+            if ($modelClass === Service::class) {
+                $query->where(fn ($q) => $q
+                    ->whereNull('source')
+                    ->orWhere('source', '!=', 'fresha')
+                    ->orWhereNull('deleted_origin')
+                    ->orWhere('deleted_origin', '!=', 'user'));
+            }
+
+            $query
                 ->orderBy('deleted_at')
                 ->chunk(500, function ($rows) use (&$count, &$failed) {
                     foreach ($rows as $row) {

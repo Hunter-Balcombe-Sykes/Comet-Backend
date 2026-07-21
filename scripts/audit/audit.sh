@@ -252,7 +252,7 @@ codebase_chunks() {
     case "$1" in
         security) cat <<'EOF'
 auth-core|app/Http/Middleware app/Policies app/Providers app/Http/Controllers/Concerns app/Http/Controllers/Controller.php app/Http/Controllers/Api/ApiController.php app/Exceptions app/Rules
-config-models|config app/Models
+config-models|config app/Models app/Database
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
 public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php
 platforms-surface|app/Http/Controllers/Api/Platforms app/Http/Resources
@@ -277,7 +277,7 @@ read-surface|app/Services/Cache app/Http/Resources app/Http/Controllers/Api/Staf
 EOF
         ;;
         database-and-queue-scaling) cat <<'EOF'
-models-config|app/Models app/Http/Resources database/factories routes/console.php config/horizon.php config/queue.php
+models-config|app/Models app/Database app/Http/Resources database/factories routes/console.php config/horizon.php config/queue.php
 jobs|app/Jobs
 vendors|app/Services/Media app/Services/Streaming app/Services/Cloudflare app/Services/Analytics
 platforms|app/Services/Platforms
@@ -288,7 +288,7 @@ EOF
         ;;
         schema-rls) cat <<'EOF'
 schema|supabase/migrations
-models|app/Models
+models|app/Models app/Database
 EOF
         ;;
         caching-gold-standard) cat <<'EOF'

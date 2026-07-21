@@ -76,10 +76,15 @@ function seedServiceReorderFixture(): array
         DB::connection('pgsql')->table('site.services')->insert([
             'id' => $id,
             'user_id' => $userId,
-            'category_id' => $catIds[$sort],
             'title' => "Service {$sort}",
             'price_cents' => 1000,
             'sort_order' => $sort,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+        DB::connection('pgsql')->table('site.service_category_assignments')->insert([
+            'service_id' => $id,
+            'service_category_id' => $catIds[$sort],
             'created_at' => now()->toDateTimeString(),
             'updated_at' => now()->toDateTimeString(),
         ]);

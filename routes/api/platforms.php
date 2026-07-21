@@ -241,6 +241,10 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::patch('/categories/{category}', [MenuContentController::class, 'updateCategory'])->whereUuid('category');
             Route::delete('/categories/{category}', [MenuContentController::class, 'deleteCategory'])->whereUuid('category');
             Route::post('/items', [MenuContentController::class, 'createItem']);
+            // Bulk delete before the {item} routes — 'bulk-delete' must never be
+            // captured as an {item} id (whereUuid already prevents it; order is
+            // belt-and-braces).
+            Route::post('/items/bulk-delete', [MenuContentController::class, 'bulkDeleteItems']);
             Route::patch('/items/{item}', [MenuContentController::class, 'updateItem'])->whereUuid('item');
             Route::delete('/items/{item}', [MenuContentController::class, 'deleteItem'])->whereUuid('item');
         });
