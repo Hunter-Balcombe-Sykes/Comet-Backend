@@ -106,7 +106,7 @@ it('throws EMAIL_ALREADY_REGISTERED via the pre-check when the email is already 
     expect(User::query()->where('auth_user_id', 'newcomer-uid')->exists())->toBeFalse();
 });
 
-it('LIFE-101: re-throws the raw UniqueConstraintViolationException (does not mis-classify) when the collision is a non-email unique violation', function () {
+it('DISC-6: classifies a concurrent handle_lc collision as HANDLE_ALREADY_TAKEN (re-query, not driver-message), never as email or a raw 500', function () {
     // Real unique indexes on the SQLite stub, mirroring the constraints defined in
     // supabase/migrations/20260526000000_baseline_standalone_user.sql
     // (core_users_handle_lc_unique) and 20260711170000_users_email_unique_case_insensitive.sql
@@ -133,16 +133,19 @@ it('LIFE-101: re-throws the raw UniqueConstraintViolationException (does not mis
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    // Different email — the pre-check and the post-catch re-query both look ONLY at
-    // primary_email, so a handle_lc collision must surface as the raw
-    // UniqueConstraintViolationException, never as EMAIL_ALREADY_REGISTERED.
+    // Different email — the pre-check and the post-catch email re-query both look
+    // ONLY at primary_email, so a handle_lc collision must NOT surface as
+    // EMAIL_ALREADY_REGISTERED. DISC-6: it is now deliberately classified via a
+    // second re-query (never driver-message string matching) as the friendly
+    // HANDLE_ALREADY_TAKEN, not left as a raw UniqueConstraintViolationException
+    // (which the controller can't translate and turns into a 500).
     expect(fn () => app(UserBootstrapService::class)->bootstrap('new-uid', raceBootstrapPayload([
         'handle' => 'taken',
         'handle_lc' => 'taken',
         'display_name' => 'New Arrival',
         'primary_email' => 'new@example.com',
         'first_name' => 'New',
-    ])))->toThrow(UniqueConstraintViolationException::class);
+    ])))->toThrow(RuntimeException::class, 'HANDLE_ALREADY_TAKEN');
 
     expect(User::query()->where('auth_user_id', 'new-uid')->exists())->toBeFalse();
 });
@@ -280,6 +283,73 @@ it('LIFE-101: throws EMAIL_ALREADY_REGISTERED (via re-query, not driver-message 
         // committed by the hook DURING save(), strictly after the pre-check already
         // passed. The exception can only have come from the save()-time catch's
         // re-query.
+        expect(User::query()->where('auth_user_id', $targetAuthId)->exists())->toBeFalse();
+    } finally {
+        DB::connection('pgsql')->table('core.users')->whereIn('auth_user_id', [$targetAuthId, $rivalAuthId])->delete();
+        DB::disconnect('pgsql_race_rival');
+    }
+});
+
+it('DISC-6: throws HANDLE_ALREADY_TAKEN (via re-query, not driver-message matching) when a second real Postgres connection commits the rival handle_lc during the nested-tx save (Postgres only)', function () {
+    if (! emailRaceSuiteIsPostgres()) {
+        $this->markTestSkipped('PostgreSQL transaction-abort + savepoint semantics required; SQLite cannot reproduce a genuinely concurrent commit from a second session.');
+    }
+
+    DB::connection('pgsql')->statement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS core.core_users_handle_lc_unique '.
+        'ON users (handle_lc) WHERE deleted_at IS NULL'
+    );
+
+    $handle = 'race'.Str::lower(Str::random(8));
+    $targetAuthId = 'race-target-'.Str::lower(Str::random(8));
+    $rivalAuthId = 'race-rival-'.Str::lower(Str::random(8));
+    $rivalEmail = 'race-rival-'.Str::lower(Str::random(8)).'@example.com';
+    $targetEmail = 'race-'.Str::lower(Str::random(8)).'@example.com';
+
+    // A genuinely separate Postgres session — models a truly concurrent signup
+    // request. Unlike a same-connection `saving` hook, this commits independently
+    // and durably, so a savepoint rollback on OUR connection cannot undo it —
+    // exactly like two real HTTP requests racing each other.
+    config(['database.connections.pgsql_race_rival' => config('database.connections.pgsql')]);
+    $rival = DB::connection('pgsql_race_rival');
+
+    // One-shot hook: the instant the target user's row is about to be saved (i.e.
+    // strictly AFTER BootstrapRequest's Rule::unique(handle_lc) would already have
+    // passed on a real request), the SECOND connection claims + commits the same
+    // handle_lc, opening the TOCTOU window the pre-save validation cannot see.
+    $fired = false;
+    User::saving(function (User $u) use (&$fired, $handle, $rivalAuthId, $rivalEmail, $rival) {
+        if ($fired || $u->handle_lc !== $handle) {
+            return;
+        }
+        $fired = true;
+        $rival->table('core.users')->insert([
+            'id' => (string) Str::uuid(),
+            'auth_user_id' => $rivalAuthId,
+            'handle' => $handle,
+            'handle_lc' => $handle,
+            'display_name' => 'Race Rival',
+            'primary_email' => $rivalEmail,
+            'account_type' => 'partna',
+            'status' => 'active',
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+    });
+
+    try {
+        expect(fn () => app(UserBootstrapService::class)->bootstrap($targetAuthId, raceBootstrapPayload([
+            'handle' => $handle,
+            'handle_lc' => $handle,
+            'display_name' => 'Racer',
+            'primary_email' => $targetEmail,
+            'first_name' => 'Racer',
+        ])))->toThrow(RuntimeException::class, 'HANDLE_ALREADY_TAKEN');
+
+        // Falsifiability, as in the email sibling: no row could have existed for a
+        // pre-save check to catch when it ran — the rival is committed by the hook
+        // DURING save(), strictly after any pre-check would have passed. The
+        // exception can only have come from the save()-time catch's re-query.
         expect(User::query()->where('auth_user_id', $targetAuthId)->exists())->toBeFalse();
     } finally {
         DB::connection('pgsql')->table('core.users')->whereIn('auth_user_id', [$targetAuthId, $rivalAuthId])->delete();

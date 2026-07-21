@@ -113,6 +113,16 @@ class BootstrapController extends ApiController
             );
         }
 
+        if ($e->getMessage() === 'HANDLE_ALREADY_TAKEN') {
+            // DISC-6: core_users_handle_lc_unique TOCTOU. No PII to hash — a handle
+            // is public, so this doesn't need the email branch's log line.
+            return $this->error(
+                'That handle was just taken. Please choose another.',
+                409,
+                ['code' => 'HANDLE_ALREADY_TAKEN']
+            );
+        }
+
         Log::error('Bootstrap transaction failed', [
             'error' => $e->getMessage(),
             'uid' => $uid,

@@ -30,8 +30,8 @@ class UserBootstrapService
      * @param  array<string, mixed>  $data  Validated payload from BootstrapRequest
      * @return array{professional: User, site: Site, created: bool}
      *
-     * @throws RuntimeException with one of: 'ACCOUNT_DISABLED', 'EMAIL_ALREADY_REGISTERED'.
-     *                          Other exceptions propagate.
+     * @throws RuntimeException with one of: 'ACCOUNT_DISABLED', 'EMAIL_ALREADY_REGISTERED',
+     *                          'HANDLE_ALREADY_TAKEN'. Other exceptions propagate.
      */
     public function bootstrap(string $uid, array $data): array
     {
@@ -119,10 +119,27 @@ class UserBootstrapService
                 // can't see (a concurrent signup claims the email between the pre-check and this
                 // write). Re-query with the same helper the pre-check uses: if another auth user
                 // now holds this email, surface the same friendly EMAIL_ALREADY_REGISTERED the
-                // pre-check throws instead of a raw 500. Any other unique violation (e.g.
-                // users_auth_user_id_unique / core_users_handle_lc_unique) re-throws unchanged.
+                // pre-check throws instead of a raw 500. Any unique violation that is neither
+                // email nor handle (e.g. users_auth_user_id_unique) re-throws unchanged.
                 if ($this->emailReuseGuard->isClaimedByAnotherAuthUser((string) $professional->primary_email, $uid)) {
                     throw new RuntimeException('EMAIL_ALREADY_REGISTERED', 0, $e);
+                }
+
+                // DISC-6: core_users_handle_lc_unique TOCTOU — the chosen handle passed
+                // BootstrapRequest's uniqueness validation but was claimed by a concurrent
+                // request before this save(). Classify deterministically by re-query (same
+                // discipline as the email branch above), and surface a friendly
+                // HANDLE_ALREADY_TAKEN. The handle is user-chosen (bootstrap's only live
+                // surface is the existing-user refresh/rename; the create branch is
+                // HTTP-dead behind 410 SIGNUP_MOVED), so we must NOT silently re-allocate
+                // a different handle. whereKeyNot excludes the row we tried to write
+                // (harmless on create, where the row doesn't exist; correct on the
+                // update/rename path, where it does).
+                if (User::query()
+                    ->where('handle_lc', $professional->handle_lc)
+                    ->whereKeyNot($professional->getKey())
+                    ->exists()) {
+                    throw new RuntimeException('HANDLE_ALREADY_TAKEN', 0, $e);
                 }
 
                 throw $e;
