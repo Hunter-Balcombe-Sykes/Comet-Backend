@@ -132,7 +132,7 @@ it('refreshes an existing user normally even with a garbage invite param (invite
         'account_type' => 'partna',
     ]);
 
-    $professional = new User([
+    $professional = (new User)->forceFill([ // B11 SEC-2: status no longer fillable
         'handle' => 'existinginvitehandle',
         'display_name' => 'Existing Invite User',
         'primary_email' => 'existinginvite@example.com',

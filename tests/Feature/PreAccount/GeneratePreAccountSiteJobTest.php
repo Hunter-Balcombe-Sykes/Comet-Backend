@@ -71,7 +71,7 @@ it('publishes the site + re-syncs KV for staff publish builds', function () {
 
 it('no-ops on a claimed or already-ready build', function () {
     $build = makePendingBuild();
-    $build->update(['claimed_at' => now(), 'build_state' => PreAccountBuild::STATE_READY]);
+    $build->forceFill(['claimed_at' => now(), 'build_state' => PreAccountBuild::STATE_READY])->save(); // B11 SEC-4
 
     (new GeneratePreAccountSiteJob($build->id))->handle(app(SourceGeneratorRegistry::class));
 

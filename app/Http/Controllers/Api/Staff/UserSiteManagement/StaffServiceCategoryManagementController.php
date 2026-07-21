@@ -59,8 +59,8 @@ class StaffServiceCategoryManagementController extends ApiController
             ServiceCategory::query()->where('user_id', $professional->id),
             "service-categories:{$professional->id}",
             function (int $next) use ($professional, $data) {
-                $category = ServiceCategory::query()->create([
-                    'user_id' => $professional->id,
+                // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
+                $category = $professional->serviceCategories()->create([
                     'title' => $data['title'],
                     'sort_order' => $data['sort_order'] ?? $next,
                 ]);

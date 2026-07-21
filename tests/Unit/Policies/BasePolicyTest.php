@@ -14,7 +14,7 @@ class FakePolicy extends BasePolicy
 }
 
 it('returns null when the professional is active', function () {
-    $pro = new User(['status' => 'active']);
+    $pro = (new User)->forceFill(['status' => 'active']); // B11 SEC-2: status no longer fillable
 
     $result = (new FakePolicy)->callDenyIfPendingDeletion($pro);
 
@@ -22,7 +22,7 @@ it('returns null when the professional is active', function () {
 });
 
 it('returns a 423 deny response when the professional is pending deletion', function () {
-    $pro = new User(['status' => 'pending_deletion']);
+    $pro = (new User)->forceFill(['status' => 'pending_deletion']); // B11 SEC-2
 
     $result = (new FakePolicy)->callDenyIfPendingDeletion($pro);
 
@@ -32,7 +32,7 @@ it('returns a 423 deny response when the professional is pending deletion', func
 });
 
 it('returns null when the professional has any other status', function () {
-    $pro = new User(['status' => 'suspended']);
+    $pro = (new User)->forceFill(['status' => 'suspended']); // B11 SEC-2
 
     $result = (new FakePolicy)->callDenyIfPendingDeletion($pro);
 

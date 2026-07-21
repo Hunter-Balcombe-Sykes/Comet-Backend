@@ -105,8 +105,8 @@ class StaffServiceManagementController extends ApiController
                 ->whereNull('deleted_at'),
             "services:{$professional->id}",
             function (int $next) use ($professional, $data) {
-                $service = Service::query()->create([
-                    'user_id' => $professional->id,
+                // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
+                $service = $professional->services()->create([
                     'category_id' => $data['category_id'] ?? null,
                     'title' => $data['title'],
                     'description' => $data['description'] ?? null,

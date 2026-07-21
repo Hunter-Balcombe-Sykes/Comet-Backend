@@ -40,16 +40,16 @@ class UserDeletionAuditEntry extends BaseModel
 
     public const ACTOR_TYPE_SYSTEM = 'system';
 
+    // SEC-3: user_id, actor_id, ip_address, professional_email_snapshot, and
+    // actor_handle_snapshot are server-managed — excluded from mass-assignment
+    // on this append-only audit table. professional_email_snapshot is NOT NULL
+    // on Postgres, so a silent drop here would 23502 instead of just no-opping.
+    // Writers use forceCreate() to set them.
     protected $fillable = [
-        'user_id',
         'professional_handle_snapshot',
-        'professional_email_snapshot',
         'event',
         'actor_type',
-        'actor_id',
-        'actor_handle_snapshot',
         'reason',
-        'ip_address',
         'user_agent',
         'metadata',
     ];

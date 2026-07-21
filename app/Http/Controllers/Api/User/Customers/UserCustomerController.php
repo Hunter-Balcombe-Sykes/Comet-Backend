@@ -83,7 +83,9 @@ class UserCustomerController extends ApiController
     {
         $pro = $this->currentUser($request);
 
-        $skeleton = new Customer(['user_id' => $pro->id]);
+        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
+        $skeleton = new Customer;
+        $skeleton->user_id = $pro->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         $data = $request->validated();

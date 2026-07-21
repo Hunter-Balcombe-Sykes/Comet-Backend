@@ -76,7 +76,7 @@ it('prunes failed builds older than the failed window, keeps fresh ones', functi
 
 it('never touches claimed builds', function () {
     [, , $build] = makeExpiredBuild();
-    $build->update(['claimed_at' => now()]);
+    $build->forceFill(['claimed_at' => now()])->save(); // B11 SEC-4: claimed_at no longer fillable
 
     $this->artisan('builds:prune-expired')->assertSuccessful();
 

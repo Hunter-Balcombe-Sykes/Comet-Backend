@@ -46,7 +46,9 @@ function seedServiceBustPro(): array
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $service = Service::query()->create([
+    // SEC-1 (B11): user_id is no longer fillable — forceCreate to preserve this
+    // fixture's exact prior behaviour.
+    $service = Service::query()->forceCreate([
         'user_id' => $proId,
         'title' => 'Original Title',
         'is_active' => true,
@@ -110,7 +112,9 @@ it('DOES call reevaluateEnabled on service create', function () {
     $visibilitySpy = Mockery::spy(SectionVisibilityService::class);
     app()->instance(SectionVisibilityService::class, $visibilitySpy);
 
-    Service::query()->create([
+    // SEC-1 (B11): user_id is no longer fillable — forceCreate to preserve this
+    // fixture's exact prior behaviour.
+    Service::query()->forceCreate([
         'user_id' => $proId,
         'title' => 'Brand new service',
         'is_active' => true,

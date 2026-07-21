@@ -40,8 +40,10 @@ class Customer extends BaseModel
         'external_id',
     ];
 
+    // SEC-1: user_id is server-managed — excluded from mass-assignment. Set via
+    // the ->customers() relation's create() (sets the FK directly) or direct
+    // property assignment on a pre-authorization skeleton.
     protected $fillable = [
-        'user_id',
         'email',
         'phone',
         'full_name',

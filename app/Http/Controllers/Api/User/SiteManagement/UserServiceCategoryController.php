@@ -54,15 +54,18 @@ class UserServiceCategoryController extends ApiController
     public function store(StoreServiceCategoryRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
-        $this->authorizeForUser($pro, 'create', new ServiceCategory(['user_id' => $pro->id]));
+        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
+        $skeleton = new ServiceCategory;
+        $skeleton->user_id = $pro->id;
+        $this->authorizeForUser($pro, 'create', $skeleton);
         $data = $request->validated();
 
         $category = InsertWithSortOrder::run(
             ServiceCategory::query()->where('user_id', $pro->id),
             "service-categories:{$pro->id}",
             function (int $next) use ($pro, $data) {
-                $category = ServiceCategory::query()->create([
-                    'user_id' => $pro->id,
+                // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
+                $category = $pro->serviceCategories()->create([
                     'title' => $data['title'],
                     'sort_order' => $data['sort_order'] ?? $next,
                 ]);
@@ -157,7 +160,10 @@ class UserServiceCategoryController extends ApiController
 
         // SEC-5: pending-deletion + ownership gate via ServicePolicy, matching
         // this controller's own store().
-        $this->authorizeForUser($pro, 'update', new ServiceCategory(['user_id' => $pro->id]));
+        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
+        $skeleton = new ServiceCategory;
+        $skeleton->user_id = $pro->id;
+        $this->authorizeForUser($pro, 'update', $skeleton);
 
         // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
         // events, so ServiceCategoryObserver never touches the site. Touch

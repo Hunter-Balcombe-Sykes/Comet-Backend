@@ -62,7 +62,11 @@ class UserBootstrapService
                 $this->guardAgainstEmailReuseByDifferentAuthUser((string) ($data['primary_email'] ?? ''), $uid);
 
                 $createdProfessional = true;
-                $professional = new User([
+                // SEC-2: handle/handle_lc/status are no longer fillable — forceFill so
+                // this create path doesn't silently drop them (a drop here 23502s on
+                // Postgres, since handle/handle_lc are NOT NULL).
+                $professional = new User;
+                $professional->forceFill([
                     'handle' => $data['handle'],
                     'display_name' => $data['display_name'],
                     'country_code' => $data['country_code'] ?? null,
@@ -83,7 +87,9 @@ class UserBootstrapService
                 ]);
                 $professional->auth_user_id = $uid;
             } else {
-                $professional->fill([
+                // SEC-2: handle/handle_lc are no longer fillable — forceFill so this
+                // existing-user refresh path doesn't silently drop them.
+                $professional->forceFill([
                     'handle' => $data['handle'],
                     'display_name' => $data['display_name'],
                     'primary_email' => $data['primary_email'],

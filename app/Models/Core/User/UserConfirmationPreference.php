@@ -17,8 +17,9 @@ class UserConfirmationPreference extends BaseModel
 
     protected $keyType = 'string';
 
+    // SEC-1: user_id is server-managed — excluded from mass-assignment.
+    // ConfirmationPreferenceService sets it via firstOrNew()->user_id + save().
     protected $fillable = [
-        'user_id',
         'action_key',
         'skip_confirmation',
     ];

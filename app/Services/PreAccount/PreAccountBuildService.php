@@ -116,13 +116,14 @@ class PreAccountBuildService
                     'source_ref' => $ref,
                     'source_ref_lc' => $refLc,
                     'built_via' => $staff ? PreAccountBuild::VIA_STAFF : PreAccountBuild::VIA_SIGNUP,
-                    // Set explicitly (not left to the DB DEFAULT 'pending') so the
-                    // in-memory model matches the row immediately after save() —
-                    // Eloquent doesn't re-fetch DB-computed column defaults post-insert.
-                    'build_state' => PreAccountBuild::STATE_PENDING,
                     'created_ip_hash' => $staff ? null : $ipHash,
                     'expires_at' => $expiresAt,
                 ]);
+                // SEC-4: build_state is no longer fillable. Set explicitly (not left to
+                // the DB DEFAULT 'pending') so the in-memory model matches the row
+                // immediately after save() — Eloquent doesn't re-fetch DB-computed
+                // column defaults post-insert.
+                $build->build_state = PreAccountBuild::STATE_PENDING;
                 $build->user()->associate($user);
                 if ($staff) {
                     $build->builtByStaff()->associate($staff);
@@ -193,7 +194,11 @@ class PreAccountBuildService
     {
         try {
             return DB::connection('pgsql')->transaction(function () use ($handle, $accountType, $sourceName) {
-                $user = new User([
+                // SEC-2: handle/handle_lc/status are no longer fillable — forceFill so
+                // this live signup-path write doesn't silently drop them (a drop here
+                // 23502s on Postgres, since handle/handle_lc are NOT NULL).
+                $user = new User;
+                $user->forceFill([
                     'handle' => $handle['handle'],
                     'handle_lc' => $handle['handle_lc'],
                     // Placeholder identity until the generator writes scraped values;
@@ -233,7 +238,10 @@ class PreAccountBuildService
             && $build->updated_at->lt(now()->subMinutes($stuckSla));
 
         if ($build->build_state === PreAccountBuild::STATE_FAILED || $isStuck) {
-            $build->update(['build_state' => PreAccountBuild::STATE_PENDING, 'failure_code' => null]);
+            // SEC-4: build_state/failure_code are no longer fillable — forceFill so
+            // this re-serve write isn't a silent no-op (a dropped write here would
+            // leave the build stuck in 'failed' forever).
+            $build->forceFill(['build_state' => PreAccountBuild::STATE_PENDING, 'failure_code' => null])->save();
             GeneratePreAccountSiteJob::dispatch($build->id, false)->afterCommit();
         }
 

@@ -111,7 +111,10 @@ class UserServiceController extends ApiController
     public function store(StoreServiceRequest $request): JsonResponse
     {
         $pro = $this->currentUser($request);
-        $this->authorizeForUser($pro, 'create', new Service(['user_id' => $pro->id]));
+        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
+        $skeleton = new Service;
+        $skeleton->user_id = $pro->id;
+        $this->authorizeForUser($pro, 'create', $skeleton);
         $data = $request->validated();
 
         $this->assertCategoryBelongsToProfessional($pro->id, $data['category_id'] ?? null);
@@ -128,8 +131,8 @@ class UserServiceController extends ApiController
                     ->whereNull('deleted_at'),
                 "services:{$pro->id}",
                 function (int $next) use ($pro, $data) {
-                    $service = Service::query()->create([
-                        'user_id' => $pro->id,
+                    // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
+                    $service = $pro->services()->create([
                         'category_id' => $data['category_id'] ?? null,
                         'title' => $data['title'],
                         'description' => $data['description'] ?? null,
@@ -205,7 +208,10 @@ class UserServiceController extends ApiController
 
         // SEC-6: pending-deletion + ownership gate via ServicePolicy, matching
         // this controller's own store()/update()/destroy().
-        $this->authorizeForUser($pro, 'update', new Service(['user_id' => $pro->id]));
+        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
+        $skeleton = new Service;
+        $skeleton->user_id = $pro->id;
+        $this->authorizeForUser($pro, 'update', $skeleton);
 
         // EDGE-1 (audit): mass `update()` inside ReorderService bypasses Eloquent
         // events, so ServiceObserver never touches the site. Touch explicitly in
@@ -229,7 +235,10 @@ class UserServiceController extends ApiController
 
         // SEC-6: pending-deletion + ownership gate via ServicePolicy, matching
         // this controller's own store()/update()/destroy()/reorder().
-        $this->authorizeForUser($pro, 'update', new Service(['user_id' => $pro->id]));
+        // SEC-1: user_id is no longer fillable — direct assignment so the policy still sees the owner.
+        $skeleton = new Service;
+        $skeleton->user_id = $pro->id;
+        $this->authorizeForUser($pro, 'update', $skeleton);
 
         $payload = $request->validated();
 

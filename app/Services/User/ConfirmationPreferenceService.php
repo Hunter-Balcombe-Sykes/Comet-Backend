@@ -57,15 +57,16 @@ class ConfirmationPreferenceService
 
         DB::transaction(function () use ($userId, $normalizedUpdates): void {
             foreach ($normalizedUpdates as $actionKey => $skipConfirmation) {
-                UserConfirmationPreference::query()->updateOrCreate(
-                    [
-                        'user_id' => $userId,
-                        'action_key' => $actionKey,
-                    ],
-                    [
-                        'skip_confirmation' => $skipConfirmation,
-                    ]
-                );
+                // SEC-1: user_id is no longer fillable, and updateOrCreate()'s INSERT
+                // path mass-assigns its search keys — firstOrNew + direct assignment
+                // keeps user_id set on a newly-created row.
+                $pref = UserConfirmationPreference::query()->firstOrNew([
+                    'user_id' => $userId,
+                    'action_key' => $actionKey,
+                ]);
+                $pref->user_id = $userId;
+                $pref->skip_confirmation = $skipConfirmation;
+                $pref->save();
             }
         });
 
@@ -86,15 +87,16 @@ class ConfirmationPreferenceService
             return;
         }
 
-        UserConfirmationPreference::query()->updateOrCreate(
-            [
-                'user_id' => $userId,
-                'action_key' => $actionKey,
-            ],
-            [
-                'skip_confirmation' => true,
-            ]
-        );
+        // SEC-1: user_id is no longer fillable, and updateOrCreate()'s INSERT path
+        // mass-assigns its search keys — firstOrNew + direct assignment keeps
+        // user_id set on a newly-created row.
+        $pref = UserConfirmationPreference::query()->firstOrNew([
+            'user_id' => $userId,
+            'action_key' => $actionKey,
+        ]);
+        $pref->user_id = $userId;
+        $pref->skip_confirmation = true;
+        $pref->save();
     }
 
     /**

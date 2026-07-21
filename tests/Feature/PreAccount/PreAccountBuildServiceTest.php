@@ -74,7 +74,7 @@ it('re-serves an existing LIVE build for the same source without re-scraping', f
 it('retries a failed live build on dedupe hit (F3)', function () {
     $svc = app(PreAccountBuildService::class);
     $first = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
-    $first['build']->update(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed']);
+    $first['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save(); // B11 SEC-4
 
     // GeneratePreAccountSiteJob is ShouldBeUnique (keyed on build id); the lock a
     // real worker releases on job completion never releases under Queue::fake()

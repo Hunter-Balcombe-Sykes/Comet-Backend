@@ -88,7 +88,9 @@ class ClaimSiteService
                 throw $e;
             }
 
-            $build->update(['claimed_at' => now()]);
+            // SEC-4: claimed_at is no longer fillable — forceFill so a dropped write
+            // can't leave the build re-servable forever (scopeLive() filters on it).
+            $build->forceFill(['claimed_at' => now()])->save();
 
             // Claim-time side effects moved from the retired bootstrap create branch.
             // PRIV-101: subscription is opt-in only — $marketingOptIn comes straight

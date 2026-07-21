@@ -256,7 +256,7 @@ it('returns 403 when professional account is suspended', function () {
     $request = Request::create('/test', 'GET');
     $request->attributes->set('supabase_uid', $uid);
 
-    $pro = new User(['status' => 'suspended']);
+    $pro = (new User)->forceFill(['status' => 'suspended']); // B11 SEC-2: status no longer fillable
     $this->cache->shouldReceive('getByAuthId')->with($uid)->once()->andReturn($pro);
 
     $response = $this->middleware->handle($request, $this->next);

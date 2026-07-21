@@ -55,7 +55,7 @@ it('polls a build through its lifecycle and exposes subdomain only when ready', 
     $this->getJson("/api/public/signup/builds/{$build->id}")
         ->assertOk()->assertJsonPath('build_state', 'pending')->assertJsonMissingPath('subdomain');
 
-    $build->update(['build_state' => PreAccountBuild::STATE_READY]);
+    $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save(); // B11 SEC-4
     $this->getJson("/api/public/signup/builds/{$build->id}")
         ->assertOk()->assertJsonPath('subdomain', $build->user->site->subdomain);
 });

@@ -90,7 +90,7 @@ it('first-come wins: a second claimer gets ALREADY_CLAIMED', function () {
 
 it('rejects a not-ready build', function () {
     [, , $build] = makeReadyBuild();
-    $build->update(['build_state' => PreAccountBuild::STATE_BUILDING]);
+    $build->forceFill(['build_state' => PreAccountBuild::STATE_BUILDING])->save(); // B11 SEC-4: build_state no longer fillable
 
     app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
 })->throws(RuntimeException::class, 'BUILD_NOT_READY');

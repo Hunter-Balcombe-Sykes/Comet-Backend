@@ -251,6 +251,13 @@ class StaffUserController extends ApiController
         $validated = $request->validated();
 
         DB::transaction(function () use ($professional, $validated): void {
+            // SEC-2: admin_notes is no longer fillable (self-service UpdateUserRequest
+            // doesn't validate it, so leaving it fillable would let self-service writes
+            // through fill() reach it too). StaffUpdateUserRequest DOES validate it, so
+            // set it explicitly before the mass-assignable fields.
+            if (array_key_exists('admin_notes', $validated)) {
+                $professional->admin_notes = $validated['admin_notes'];
+            }
             $professional->fill($validated);
             $professional->save();
         });

@@ -129,7 +129,7 @@ it('purged audit row records the resolved pre-pseudonymisation email, not the pl
     DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
         ->update(['primary_email' => 'deleted+'.$pro->id.'@partna.au']);
 
-    UserDeletionAuditEntry::create([
+    UserDeletionAuditEntry::forceCreate([
         'user_id' => $pro->id,
         'professional_handle_snapshot' => $pro->handle,
         'professional_email_snapshot' => $realEmail,

@@ -29,7 +29,7 @@ it('links 1:1 to its provisional user and scopes live builds', function () {
         ->and($user->fresh()->isUnclaimed())->toBeTrue()
         ->and(PreAccountBuild::live()->count())->toBe(1);
 
-    $build->update(['claimed_at' => now()]);
+    $build->forceFill(['claimed_at' => now()])->save(); // B11 SEC-4: claimed_at no longer fillable
     expect(PreAccountBuild::live()->count())->toBe(0);
 });
 

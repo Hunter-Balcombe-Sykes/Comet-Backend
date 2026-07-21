@@ -79,13 +79,22 @@ class User extends BaseModel
         'deletion_token_hash',
     ];
 
+    // SEC-2: status, the deletion-lifecycle columns, and admin_notes are
+    // server-managed — excluded from mass-assignment. Writers use forceFill()/direct
+    // assignment (AccountDeletionService, ClaimSiteService, StaffUserController).
+    // account_type and primary_email stay fillable — legitimately validated by
+    // UpdateUserRequest/StaffUpdateUserRequest.
+    // handle/handle_lc are KEPT fillable (Josh, 2026-07-21): they are already
+    // excluded from the /me UpdateUserRequest and changed only via the dedicated
+    // rename flow (RenameSubdomainAction forceFill), so removing them bought minimal
+    // defence-in-depth for a ~90-test-file blast radius (raw User::create in tests).
     protected $fillable = [
         'handle',
+        'handle_lc',
         'display_name',
         'country_code',
         'timezone',
         'account_type',
-        'status',
         'onboarding_step',
         'phone',
         'primary_email',
@@ -107,19 +116,6 @@ class User extends BaseModel
         'location_state',
         'location_postcode',
         'location_country',
-
-        'handle_lc',
-
-        // Account deletion lifecycle
-        'deletion_token_hash',
-        'deletion_requested_at',
-        'deletion_confirmed_at',
-        'deletion_previous_status',
-        'deletion_mail_sent_at',
-
-        // Staff-only — surfaced through UserStaffResource. Never expose through
-        // UserDashboardResource (self-service /me).
-        'admin_notes',
     ];
 
     protected $casts = [

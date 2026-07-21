@@ -51,10 +51,12 @@ class ReconcileStuckPreAccountBuilds extends Command
                 $wasState = $build->build_state;
                 $ageMinutes = $build->updated_at->diffInMinutes(now());
 
-                $build->update([
+                // SEC-4: build_state/failure_code are no longer fillable — forceFill so
+                // a dropped write can't leave a stuck build silently un-reconciled.
+                $build->forceFill([
                     'build_state' => PreAccountBuild::STATE_FAILED,
                     'failure_code' => PreAccountBuild::FAILURE_STUCK_TIMEOUT,
-                ]);
+                ])->save();
 
                 Log::warning('pre_account.cleanup.swept_stuck', [
                     'build_id' => $build->id,

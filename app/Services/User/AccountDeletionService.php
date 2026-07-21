@@ -121,13 +121,15 @@ class AccountDeletionService
                     return;
                 }
 
-                $professional->update([
+                // SEC-2: deletion_* columns are no longer fillable — forceFill so this
+                // persisted-row write isn't a silent no-op.
+                $professional->forceFill([
                     'deletion_token_hash' => $tokenHash,
                     'deletion_requested_at' => now(),
                     // Reset sent_at so the idempotency guard in the job allows re-delivery —
                     // mirrors the subscription reset-on-re-subscribe precedent in PublicEmailSubscriptionController.
                     'deletion_mail_sent_at' => null,
-                ]);
+                ])->save();
 
                 // TXN-102: this call only REGISTERS the dispatch — it does not push to Redis
                 // here. The job sets $this->afterCommit = true, so Laravel defers the actual
@@ -185,10 +187,12 @@ class AccountDeletionService
             : Carbon::parse((string) $professional->deletion_requested_at);
 
         if ($requestedAt->lt(now()->subHours(24))) {
-            $professional->update([
+            // SEC-2: deletion_* columns are no longer fillable — forceFill so this
+            // persisted-row write isn't a silent no-op.
+            $professional->forceFill([
                 'deletion_token_hash' => null,
                 'deletion_requested_at' => null,
-            ]);
+            ])->save();
 
             return ['success' => false, 'code' => 410, 'error' => 'Confirmation token has expired.'];
         }
@@ -280,12 +284,14 @@ class AccountDeletionService
                 return;
             }
 
-            $professional->update([
+            // SEC-2: status/deletion_* columns are no longer fillable — forceFill so
+            // this persisted-row write isn't a silent no-op.
+            $professional->forceFill([
                 'deletion_previous_status' => $previousStatus,
                 'status' => 'pending_deletion',
                 'deletion_confirmed_at' => now(),
                 'deletion_token_hash' => null,
-            ]);
+            ])->save();
 
             // Immediately take the public storefront offline so a deleted brand's
             // shop stops serving requests for the full 30-day grace period.
@@ -552,13 +558,15 @@ class AccountDeletionService
             // email is live but the account is still pending_deletion.
             $this->restoreEmailFromAuditSnapshot($professional);
 
-            $professional->update([
+            // SEC-2: status/deletion_* columns are no longer fillable — forceFill so
+            // this persisted-row write isn't a silent no-op.
+            $professional->forceFill([
                 'status' => $previousStatus,
                 'deletion_requested_at' => null,
                 'deletion_confirmed_at' => null,
                 'deletion_previous_status' => null,
                 'deletion_token_hash' => null,
-            ]);
+            ])->save();
 
             // Re-publish the site only if it was programmatically unpublished by our
             // deletion flow (unpublished_at is the signal). A manually unpublished
@@ -714,7 +722,9 @@ class AccountDeletionService
         // the email uses the audit-resolved pre-pseudonymisation address so this
         // PURGED receipt records the real address, not the "deleted+{id}@" placeholder
         // that primary_email already holds by this point (SEM-1).
-        UserDeletionAuditEntry::create([
+        // SEC-3: forceCreate — user_id/professional_email_snapshot are no longer
+        // fillable (server-managed on this append-only audit table).
+        UserDeletionAuditEntry::forceCreate([
             'user_id' => null,
             'professional_handle_snapshot' => $handleSnapshot,
             'professional_email_snapshot' => $lookupEmail ?? $emailSnapshot,
@@ -1200,7 +1210,10 @@ class AccountDeletionService
         ?string $actorHandle = null,
         ?string $reason = null,
     ): void {
-        UserDeletionAuditEntry::create([
+        // SEC-3: forceCreate — user_id/actor_id/ip_address/actor_handle_snapshot/
+        // professional_email_snapshot are no longer fillable (server-managed on
+        // this append-only audit table).
+        UserDeletionAuditEntry::forceCreate([
             'user_id' => $professional->id,
             'professional_handle_snapshot' => (string) ($professional->handle ?? ''),
             'professional_email_snapshot' => (string) ($professional->primary_email ?? ''),

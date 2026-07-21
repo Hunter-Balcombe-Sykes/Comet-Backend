@@ -48,7 +48,9 @@ it('busts only the services cache keys when a ServiceCategory is created', funct
     Cache::put($svcKey, ['old'], 60);
     Cache::put($svcKey.':stale', ['old-stale'], 60);
 
-    ServiceCategory::query()->create([
+    // SEC-1 (B11): user_id is no longer fillable — forceCreate to preserve this
+    // fixture's exact prior behaviour.
+    ServiceCategory::query()->forceCreate([
         'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,
@@ -62,7 +64,9 @@ it('busts only the services cache keys when a ServiceCategory is created', funct
 
 it('busts only the services cache keys when a ServiceCategory is updated', function () {
     $pro = seedCategoryTestPro();
-    $category = ServiceCategory::query()->create([
+    // SEC-1 (B11): user_id is no longer fillable — forceCreate to preserve this
+    // fixture's exact prior behaviour.
+    $category = ServiceCategory::query()->forceCreate([
         'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,
@@ -85,7 +89,9 @@ it('busts only the services cache keys when a ServiceCategory is updated', funct
 
 it('busts only the services cache keys when a ServiceCategory is deleted', function () {
     $pro = seedCategoryTestPro();
-    $category = ServiceCategory::query()->create([
+    // SEC-1 (B11): user_id is no longer fillable — forceCreate to preserve this
+    // fixture's exact prior behaviour.
+    $category = ServiceCategory::query()->forceCreate([
         'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,
@@ -120,7 +126,9 @@ it('purges the Cloudflare edge directly when a ServiceCategory changes', functio
 
     Queue::fake();
 
-    ServiceCategory::query()->create([
+    // SEC-1 (B11): user_id is no longer fillable — forceCreate to preserve this
+    // fixture's exact prior behaviour.
+    ServiceCategory::query()->forceCreate([
         'user_id' => $pro->id,
         'title' => 'Haircuts',
         'sort_order' => 0,

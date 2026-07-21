@@ -19,8 +19,10 @@ class ServiceCategory extends BaseModel
 
     protected $keyType = 'string';
 
+    // SEC-1: user_id is server-managed — excluded from mass-assignment. Set via
+    // the ->serviceCategories() relation's create() (sets the FK directly) or
+    // direct property assignment on a pre-authorization skeleton.
     protected $fillable = [
-        'user_id',
         'title',
         'sort_order',
     ];

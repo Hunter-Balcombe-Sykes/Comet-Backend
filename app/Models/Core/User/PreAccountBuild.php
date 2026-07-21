@@ -64,9 +64,12 @@ class PreAccountBuild extends BaseModel
     protected $keyType = 'string';
 
     // user_id / built_by_staff_id deliberately NOT fillable — set via associate().
+    // SEC-4: build_state/claimed_at/failure_code drive the state machine and are
+    // also excluded — writers use forceFill()/direct assignment (a silently
+    // dropped write here strands a build in the wrong state with zero error).
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',
-        'build_state', 'failure_code', 'created_ip_hash', 'expires_at', 'claimed_at',
+        'created_ip_hash', 'expires_at',
     ];
 
     protected $casts = [

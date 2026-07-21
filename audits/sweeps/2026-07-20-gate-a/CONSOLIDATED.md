@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 39 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P2 Medium: 43 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 8 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -69,7 +69,7 @@ every draft rather than the scan reading nothing.
 > for the three re-tiers recorded below.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
-**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)*
+**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)* · B11 ✅ *($fillable hardening across 4 findings; handle/handle_lc kept fillable per Josh to avoid a ~90-file test ripple; SEC-3/SEC-4 needed forceCreate/forceFill not the audit's "clean removal"; dual fresh-grep review)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -538,10 +538,14 @@ associate()* rule, trusted creation paths must move to `->relation()->associate(
 FK leaves `$fillable`, or creation silently breaks. `pre_account_builds.user_id` /
 `built_by_staff_id` are already correctly non-fillable — follow that precedent.
 
-- [ ] **`preaccount-claim/SEC-2`** · P2 · M — `User::$fillable` includes server/staff-only lifecycle fields (status, deletion tokens, handle) → `sources/preaccount-claim.md`
-- [ ] **`preaccount-claim/SEC-1`** · P2 · M — `user_id` is mass-assignable on four tenant-owned models → `sources/preaccount-claim.md`
-- [ ] **`preaccount-claim/SEC-3`** · P2 · S — `UserDeletionAuditEntry::$fillable` includes spoofable actor/IP fields on an append-only compliance table → `sources/preaccount-claim.md`
-- [ ] **`preaccount-claim/SEC-4`** · P2 · S — `PreAccountBuild::$fillable` includes state-machine fields the app never mass-assigns → `sources/preaccount-claim.md`
+- [x] **`preaccount-claim/SEC-2`** · P2 · M — `User::$fillable` includes server/staff-only lifecycle fields (status, deletion tokens, handle) → `sources/preaccount-claim.md`
+  - **Fixed, with one scope refinement (Josh, 2026-07-21).** Removed `status`, the six deletion-lifecycle columns, and `admin_notes`; converted every trusted writer to `forceFill()`/direct assignment (the 4 `AccountDeletionService` deletion writes, `StaffUserController::update` admin_notes split, `tryCreateProvisionalUser`, `UserBootstrapService` both branches). **`handle`/`handle_lc` KEPT fillable (Josh):** the audit's "small diff" estimate was wrong — removal rippled to ~90 test files that create users via raw `User::create([...handle...])` (handle is `NOT NULL`, no default), for near-zero gain since the `/me` endpoint already excludes it and renames go through `RenameSubdomainAction::forceFill`. `account_type`/`primary_email` stay fillable (validated flows). Independent review (fresh-grep) PASS.
+- [x] **`preaccount-claim/SEC-1`** · P2 · M — `user_id` is mass-assignable on four tenant-owned models → `sources/preaccount-claim.md`
+  - **Fixed.** Removed `user_id` from `Customer`/`Service`/`ServiceCategory`/`UserConfirmationPreference`. Skeleton pre-create sites (`authorizeForUser`) → direct assignment; literal `::create` sites → relation `create()` (FK set outside mass-assignment). **Audit missed `ConfirmationPreferenceService::updateForProfessional`/`enableForProfessional`** (`updateOrCreate` INSERT path mass-assigns the search keys) — converted to `firstOrNew` + explicit `user_id`. Value-assertion test (`->fresh()->user_id`) added.
+- [x] **`preaccount-claim/SEC-3`** · P2 · S — `UserDeletionAuditEntry::$fillable` includes spoofable actor/IP fields on an append-only compliance table → `sources/preaccount-claim.md`
+  - **Fixed — the audit's "clean model-only change" framing was wrong.** `professional_email_snapshot` is `NOT NULL`; both writers (`logAuditEvent` + the PURGED create) mass-assign the removed fields, so a bare `$fillable` removal would 23502 on Postgres / silently drop on the trust-critical audit table. Converted both to `forceCreate([...])` (+ the `PurgePendingDeletionTest` fixture).
+- [x] **`preaccount-claim/SEC-4`** · P2 · S — `PreAccountBuild::$fillable` includes state-machine fields the app never mass-assigns → `sources/preaccount-claim.md`
+  - **Fixed — the audit missed 3 files of the write path.** Removed `build_state`/`claimed_at`/`failure_code`; converted `reserve()`, `ClaimSiteService::claim()`, the **five** `GeneratePreAccountSiteJob` state writes, and `ReconcileStuckPreAccountBuilds` to `forceFill` (`requestBuild`'s `new PreAccountBuild` sets `build_state` via direct assignment). A naive removal would have silently stalled every build in `pending` = flagship outage. 6 test-fixture files converted to `forceFill`; review verified exactly 5 job forceFill sites via fresh grep.
 
 ### Bundle B12 — Pre-claim scraping stores more third-party data than it renders · **P2** · Effort M
 
