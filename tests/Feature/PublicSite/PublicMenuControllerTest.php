@@ -90,8 +90,6 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
     ]);
     $item = MenuItem::create([
         'menu_id' => $menu->id,
-        'category_id' => $category->id,
-        'position' => 0,
         'name' => 'Margherita',
         'base_price' => 11.0,
         'pickup_price' => 11.0,
@@ -102,6 +100,7 @@ it('serves pickup/delivery prices, per-item currency, and per-platform links on 
         'image_url' => 'https://ue/marg.jpg',
         'images' => ['https://ue/marg.jpg', 'https://dd/marg.jpg'],
     ]);
+    $item->categories()->attach($category->id, ['position' => 0]);
     MenuItemPlatform::create([
         'menu_item_id' => $item->id,
         'platform' => 'uber-eats',
@@ -157,11 +156,13 @@ it('surfaces menu_item and menu_category popularity ranks keyed by the persisted
         'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
     ]);
     $popular = MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 0, 'name' => 'Margherita', 'base_price' => 11.0,
+        'menu_id' => $menu->id, 'name' => 'Margherita', 'base_price' => 11.0,
     ]);
+    $popular->categories()->attach($category->id, ['position' => 0]);
     $sleeper = MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 1, 'name' => 'Anchovy Special', 'base_price' => 13.0,
+        'menu_id' => $menu->id, 'name' => 'Anchovy Special', 'base_price' => 13.0,
     ]);
+    $sleeper->categories()->attach($category->id, ['position' => 1]);
 
     $now = now()->toDateTimeString();
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
@@ -192,8 +193,9 @@ it('serves the second popularity-ranked menu request from cache — one DB read,
         'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
     ]);
     $item = MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 0, 'name' => 'Margherita', 'base_price' => 11.0,
+        'menu_id' => $menu->id, 'name' => 'Margherita', 'base_price' => 11.0,
     ]);
+    $item->categories()->attach($category->id, ['position' => 0]);
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $user->site->id, 'content_type' => 'menu_item',
         'content_key' => (string) $item->id, 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
@@ -232,13 +234,15 @@ it('serves a DoorDash per-item deep link built from the store link + dd item id,
         'menu_id' => $menu->id, 'name' => 'Feasts', 'position' => 0, 'source_platform' => 'doordash',
     ]);
     $withId = MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 0,
+        'menu_id' => $menu->id,
         'name' => 'Classic Feast', 'base_price' => 27.95, 'dd_external_id' => '157588920',
     ]);
+    $withId->categories()->attach($category->id, ['position' => 0]);
     $withoutId = MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $category->id, 'position' => 1,
+        'menu_id' => $menu->id,
         'name' => 'Mystery Dish', 'base_price' => 9.0,
     ]);
+    $withoutId->categories()->attach($category->id, ['position' => 1]);
 
     $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
 
@@ -273,11 +277,13 @@ it('B6: item id is stable across a category reorder, so a URL keyed off it never
     $catA = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Featured', 'position' => 0, 'source_platform' => 'uber-eats']);
     $catB = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 1, 'source_platform' => 'uber-eats']);
     $target = MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $catB->id, 'position' => 0, 'name' => 'Steak', 'base_price' => 30.0,
+        'menu_id' => $menu->id, 'name' => 'Steak', 'base_price' => 30.0,
     ]);
-    MenuItem::create([
-        'menu_id' => $menu->id, 'category_id' => $catA->id, 'position' => 0, 'name' => 'Hero Dish', 'base_price' => 10.0,
+    $target->categories()->attach($catB->id, ['position' => 0]);
+    $hero = MenuItem::create([
+        'menu_id' => $menu->id, 'name' => 'Hero Dish', 'base_price' => 10.0,
     ]);
+    $hero->categories()->attach($catA->id, ['position' => 0]);
 
     $before = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
     // Before a "refresh": Steak sits at category 1, item 0 — positional "1:0".

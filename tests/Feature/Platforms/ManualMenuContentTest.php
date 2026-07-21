@@ -110,9 +110,10 @@ function mmcSeedScraped(User $user, array $categories): Menu
         $cat = MenuCategory::create(['menu_id' => $menu->id, 'name' => $name, 'position' => $ci++, 'source_platform' => 'uber-eats']);
         $ii = 0;
         foreach ($items as $item) {
-            MenuItem::create(array_merge([
-                'menu_id' => $menu->id, 'category_id' => $cat->id, 'position' => $ii++, 'is_manual' => false,
+            $row = MenuItem::create(array_merge([
+                'menu_id' => $menu->id, 'is_manual' => false,
             ], $item));
+            $row->categories()->attach($cat->id, ['position' => $ii++]);
         }
     }
 
@@ -234,7 +235,7 @@ it('deletes a manual category and its items', function () {
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
     $catId = MenuCategory::query()->where('menu_id', $menu->id)->value('id');
     actingAsUser($user)->postJson('/api/platforms/menu/items', ['name' => 'Chef Special', 'category_id' => $catId])->assertOk();
-    $itemId = MenuItem::query()->where('category_id', $catId)->value('id');
+    $itemId = MenuItem::query()->where('name', 'Chef Special')->value('id');
     MenuItemPlatform::create(['menu_item_id' => $itemId, 'platform' => 'uber-eats']);
 
     actingAsUser($user)->deleteJson("/api/platforms/menu/categories/{$catId}")->assertOk();
@@ -264,12 +265,13 @@ it('creates a manual item in a supplied category', function () {
         'name' => 'Ribeye', 'description' => '300g, grass fed.', 'price' => 42.0, 'category_id' => $catId,
     ])->assertOk();
 
-    $item = MenuItem::query()->where('category_id', $catId)->firstOrFail();
-    expect($item->name)->toBe('Ribeye');
+    $item = MenuItem::query()->where('name', 'Ribeye')->firstOrFail();
     expect($item->description)->toBe('300g, grass fed.');
     expect((float) $item->base_price)->toBe(42.0);
     expect($item->is_manual)->toBeTrue();
-    expect($item->position)->toBe(0);
+    $membership = $item->categories()->firstOrFail();
+    expect((string) $membership->id)->toBe((string) $catId);
+    expect((int) $membership->pivot->position)->toBe(0);
 });
 
 it('find-or-creates a manual "Menu" category when no category is supplied', function () {
@@ -284,7 +286,7 @@ it('find-or-creates a manual "Menu" category when no category is supplied', func
     expect($categories)->toHaveCount(1);
     expect($categories->first()->name)->toBe('Menu');
     expect($categories->first()->source_platform)->toBe('manual');
-    expect(MenuItem::query()->where('category_id', $categories->first()->id)->count())->toBe(2);
+    expect($categories->first()->items()->count())->toBe(2);
 });
 
 it('resolves image_media_id to the optimized variant url and sets images', function () {
@@ -371,10 +373,64 @@ it('moves an item to another category and clears its image on remove_image', fun
 
     actingAsUser($user)->patchJson("/api/platforms/menu/items/{$item->id}", ['category_id' => $catB, 'remove_image' => true])->assertOk();
 
+    // The legacy single category_id REPLACES the membership set — the item now
+    // lives only in B.
     $item->refresh();
-    expect((string) $item->category_id)->toBe((string) $catB);
+    expect($item->categories->pluck('id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB]);
     expect($item->image_url)->toBeNull();
     expect($item->images)->toBeNull();
+});
+
+it('sets multiple category memberships via category_ids on create and update', function () {
+    $user = mmcUser('mm10d');
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Lunch'])->assertOk();
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Dinner'])->assertOk();
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Specials'])->assertOk();
+    $menuId = Menu::query()->where('user_id', $user->id)->value('id');
+    $ids = MenuCategory::query()->where('menu_id', $menuId)->pluck('id', 'name');
+
+    // Create in two categories at once.
+    actingAsUser($user)->postJson('/api/platforms/menu/items', [
+        'name' => 'Garlic Bread', 'price' => 12.0,
+        'category_ids' => [(string) $ids['Lunch'], (string) $ids['Dinner']],
+    ])->assertOk();
+    $item = MenuItem::query()->where('name', 'Garlic Bread')->firstOrFail();
+    expect($item->categories->pluck('name')->sort()->values()->all())->toBe(['Dinner', 'Lunch']);
+
+    // Replace the set: drop Lunch, keep Dinner, add Specials.
+    actingAsUser($user)->patchJson("/api/platforms/menu/items/{$item->id}", [
+        'category_ids' => [(string) $ids['Dinner'], (string) $ids['Specials']],
+    ])->assertOk();
+    $item->refresh();
+    expect($item->categories->pluck('name')->sort()->values()->all())->toBe(['Dinner', 'Specials']);
+
+    // A category from someone else's menu 404s the whole write (all-or-nothing).
+    $other = mmcUser('mm10dother');
+    $foreign = mmcSeedScraped($other, ['Mains' => [['name' => 'Foreign Dish']]]);
+    $foreignCat = MenuCategory::query()->where('menu_id', $foreign->id)->value('id');
+    actingAsUser($user)->patchJson("/api/platforms/menu/items/{$item->id}", [
+        'category_ids' => [(string) $ids['Dinner'], (string) $foreignCat],
+    ])->assertStatus(404);
+    $item->refresh();
+    expect($item->categories->pluck('name')->sort()->values()->all())->toBe(['Dinner', 'Specials']);
+});
+
+it('bulk-deletes items in one call, suppressing the scraped ones', function () {
+    $user = mmcUser('mm11b');
+    $menu = mmcSeedScraped($user, ['Mains' => [['name' => 'Burger'], ['name' => 'Fries']]]);
+    actingAsUser($user)->postJson('/api/platforms/menu/items', ['name' => 'Handmade'])->assertOk();
+
+    $ids = MenuItem::query()->where('menu_id', $menu->id)->pluck('id')->map(fn ($id) => (string) $id)->all();
+    actingAsUser($user)->postJson('/api/platforms/menu/items/bulk-delete', ['ids' => $ids])->assertOk();
+
+    expect(MenuItem::query()->where('menu_id', $menu->id)->count())->toBe(0);
+    // Scraped dishes suppressed; the manual one just deleted.
+    $menu->refresh();
+    $suppressedNames = collect($menu->suppressed_items)->pluck('name')->sort()->values()->all();
+    expect($suppressedNames)->toBe(['Burger', 'Fries']);
+
+    // Unknown ids are skipped, not errors.
+    actingAsUser($user)->postJson('/api/platforms/menu/items/bulk-delete', ['ids' => [(string) Str::uuid()]])->assertOk();
 });
 
 it('hard-deletes a manual item without suppressing it', function () {
@@ -406,7 +462,8 @@ it('does not duplicate a suppression entry when the same scraped dish is deleted
     $menu = mmcSeedScraped($user, ['Mains' => [['name' => 'Burger'], ['name' => 'Fries']]]);
     // Two scraped rows with the same name/category (a real duplicate) — deleting
     // both must record the suppression once.
-    MenuItem::create(['menu_id' => $menu->id, 'category_id' => MenuCategory::query()->where('menu_id', $menu->id)->value('id'), 'position' => 2, 'name' => 'Burger', 'is_manual' => false]);
+    $dupe = MenuItem::create(['menu_id' => $menu->id, 'name' => 'Burger', 'is_manual' => false]);
+    $dupe->categories()->attach(MenuCategory::query()->where('menu_id', $menu->id)->value('id'), ['position' => 2]);
     foreach (MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Burger')->pluck('id') as $id) {
         actingAsUser($user)->deleteJson("/api/platforms/menu/items/{$id}")->assertOk();
     }
@@ -597,7 +654,7 @@ it('does not resurrect a suppressed dish through the automatic scan reapply', fu
     // under a scan category — proving only the suppressed dish was dropped.
     $lemonade = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Lemonade')->first();
     expect($lemonade)->not->toBeNull();
-    expect($lemonade->category->source_platform)->toBe('scan');
+    expect($lemonade->categories->first()->source_platform)->toBe('scan');
 
     // The suppression record survives for future rebuilds.
     $menu->refresh();

@@ -6,14 +6,13 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
  * @property string $menu_id
- * @property string $category_id
- * @property int $position
  * @property string $name
  * @property string|null $description
  * @property string|null $image_url Cross-filled: Uber Eats preferred, DoorDash fills the gap.
@@ -31,12 +30,15 @@ use Illuminate\Support\Carbon;
  * @property bool $is_manual Owner-authored/edited dish. Preserved across scrape rebuilds; a colliding scraped dish is skipped in its favour.
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
- * @property-read MenuCategory|null $category
+ * @property-read Collection<int, MenuCategory> $categories Every category this dish belongs to (pivot carries per-membership position).
  * @property-read Menu|null $menu
  * @property-read Collection<int, MenuItemPlatform> $platformLinks Per-platform availability (one row per ordering platform).
  */
 
-// One dish under a site.menu_categories row. Content (name / description /
+// One dish, belonging to ONE OR MORE site.menu_categories rows via the
+// site.menu_item_categories pivot (a dish listed under "Lunch" and "Dinner" is
+// a single row with two memberships; display position is per-membership on the
+// pivot). Content (name / description /
 // image) is UNIONED across every connected ordering platform: a dish
 // on both Uber Eats and DoorDash becomes one row whose display fields gap-fill
 // across platforms (UE wins a field only where present). `images` is the full
@@ -67,8 +69,6 @@ class MenuItem extends BaseModel
 
     protected $fillable = [
         'menu_id',
-        'category_id',
-        'position',
         'name',
         'description',
         'image_url',
@@ -89,7 +89,6 @@ class MenuItem extends BaseModel
     ];
 
     protected $casts = [
-        'position' => 'integer',
         'badges' => 'array',
         'images' => 'array',
         'rating' => 'float',
@@ -102,10 +101,17 @@ class MenuItem extends BaseModel
         'updated_at' => 'datetime',
     ];
 
-    /** @return BelongsTo<MenuCategory, $this> */
-    public function category(): BelongsTo
+    /**
+     * Every category this dish is listed under. The pivot's `position` orders
+     * the dish within EACH category independently.
+     *
+     * @return BelongsToMany<MenuCategory, $this>
+     */
+    public function categories(): BelongsToMany
     {
-        return $this->belongsTo(MenuCategory::class, 'category_id');
+        return $this->belongsToMany(MenuCategory::class, 'site.menu_item_categories', 'menu_item_id', 'menu_category_id')
+            ->withPivot('position')
+            ->withTimestamps();
     }
 
     public function menu(): BelongsTo

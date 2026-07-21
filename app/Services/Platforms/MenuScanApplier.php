@@ -8,6 +8,7 @@ use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheInvalidator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
 
 // Applies a batch of AI-extracted menu items (a user-uploaded menu photo/PDF,
@@ -19,20 +20,18 @@ use Illuminate\Support\Facades\DB;
 // wholesale rebuild treats as off-limits, so scanned content survives a later
 // scrape refresh (see MenuFetchJob::rebuildableCategoryIds()).
 //
-// Matching: an item whose trimmed, case-insensitive name matches an EXISTING
-// menu_items row — scraped or previously scanned, any source — is UPDATED in
-// place (description/base_price only, and only the fields the scan actually
-// supplied; a field the scan omitted never null's out existing content).
-// Same-named items across DIFFERENT categories (e.g. "Garlic Bread" as both a
-// Starter and a Side) are a real, disambiguation-worthy collision: when the
-// scan supplies a category, the (name, category) match wins; otherwise (or
-// when that scoped match misses) the plain name-only match is used ONLY when
-// it's unambiguous (exactly one candidate) — with 2+ same-name candidates and
-// nothing to disambiguate them, a new item is created rather than guessed.
-// No match (or an unresolved ambiguity) creates a new item under a scan-owned
-// category, matched case-insensitively by trimmed name among the menu's OWN
-// 'scan' categories ONLY — never reusing a scraped category, or the new item
-// would be deleted right along with it on the next scrape refresh.
+// Matching: one normalized name = one dish, menu-wide. An item whose trimmed,
+// case-insensitive name matches an EXISTING menu_items row — scraped or
+// previously scanned, any source — is UPDATED in place (description/base_price
+// only, and only the fields the scan actually supplied; a field the scan
+// omitted never null's out existing content). A dish the scan lists under
+// SEVERAL categories ("Garlic Bread" in Lunch AND Dinner) stays ONE row whose
+// category MEMBERSHIPS grow — the scan's category is attached via the
+// site.menu_item_categories pivot instead of creating a duplicate row.
+// No match creates a new item under a scan-owned category, matched
+// case-insensitively by trimmed name among the menu's OWN 'scan' categories
+// ONLY — never reusing a scraped category, or the new item would be deleted
+// right along with it on the next scrape refresh.
 class MenuScanApplier
 {
     private const DEFAULT_CATEGORY_NAME = 'Menu';
@@ -49,6 +48,11 @@ class MenuScanApplier
      * — descriptions and prices update when supplied; the AUTOMATIC Google-
      * photos scan passes true and only ADDS — longer descriptions win,
      * prices fill gaps, never overwrite. Dietary badges merge in both modes.
+     * Category ATTACH on a matched item follows the same conservatism: the
+     * manual scan always attaches the scan's category; enrich-only attaches
+     * ONLY when the matched item carries no scraped membership (i.e. it's a
+     * scan-created dish whose multi-category memberships this scan completes)
+     * — an automatic scan never restructures a scraped dish's categories.
      *
      * $source overrides the menu_categories.source_platform / menu.content_source
      * tag written by this apply (default self::SOURCE = 'scan') — used by the
@@ -70,23 +74,12 @@ class MenuScanApplier
             // in an arbitrary order across requests.
             $existingItems = MenuItem::query()
                 ->where('menu_id', $menu->id)
-                ->with('category')
+                ->with('categories')
                 ->orderBy('created_at')
                 ->orderBy('id')
                 ->get();
 
             $itemsByName = $this->groupByNormalizedName($existingItems, fn (MenuItem $item) => $item->name);
-
-            // (name, category) scoped index for disambiguating a same-name
-            // collision across sections — first occurrence per pair wins.
-            $itemsByNameAndCategory = [];
-            foreach ($existingItems as $existingItem) {
-                $categoryName = $existingItem->category?->name;
-                if ($categoryName === null) {
-                    continue;
-                }
-                $itemsByNameAndCategory[$this->normalize($existingItem->name)][$this->normalize($categoryName)] ??= $existingItem;
-            }
 
             $scanCategoriesByName = $this->indexByNormalizedName(
                 MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', $source)->get(),
@@ -101,43 +94,58 @@ class MenuScanApplier
             foreach ($items as $item) {
                 $name = trim((string) $item['name']);
                 $nameKey = $this->normalize($name);
-                $scanCategoryName = $this->cleanString($item['category'] ?? null);
+                $candidates = $itemsByName[$nameKey] ?? [];
 
-                $match = $this->resolveMatch($nameKey, $scanCategoryName, $itemsByNameAndCategory, $itemsByName);
-                if ($match !== null) {
-                    // A manual dish (owner-authored via the dashboard) outranks scan
-                    // enrichment — leave it untouched, and don't create a scan
-                    // duplicate either (the manual row already represents this dish).
-                    if ($match->is_manual) {
-                        continue;
+                // A manual dish (owner-authored via the dashboard) outranks scan
+                // enrichment — leave it untouched, and don't create a scan
+                // duplicate either (the manual row already represents this dish).
+                $hasManual = false;
+                foreach ($candidates as $candidate) {
+                    if ($candidate->is_manual) {
+                        $hasManual = true;
+                        break;
                     }
+                }
+                if ($hasManual) {
+                    continue;
+                }
+
+                $match = $candidates[0] ?? null;
+                if ($match !== null) {
                     $this->updateItem($match, $item, $enrichOnly);
+                    // Multi-category attach: the scan listing a KNOWN dish under a
+                    // category it isn't in yet grows its memberships ("Garlic
+                    // Bread" scanned under Lunch AND Dinner = one row, two
+                    // memberships). Skipped when the scan named no category, and
+                    // satisfied by ANY same-named existing membership (scraped
+                    // "Sides" already covers a scan's "sides" — never shadow a
+                    // scraped category with a scan-owned duplicate).
+                    $scanCategoryLabel = $this->cleanString($item['category'] ?? null);
+                    if ($scanCategoryLabel !== null && $this->shouldAttachOnMatch($match, $enrichOnly)) {
+                        $labelKey = $this->normalize($scanCategoryLabel);
+                        $alreadyListed = $match->categories->contains(
+                            fn (MenuCategory $c) => $this->normalize((string) $c->name) === $labelKey
+                        );
+                        if (! $alreadyListed) {
+                            $category = $this->resolveScanCategory(
+                                $menu, $scanCategoryLabel, $source,
+                                $scanCategoriesByName, $nextCategoryPosition,
+                            );
+                            $this->ensureMembership($match, $category, $nextItemPositionByCategory);
+                        }
+                    }
                     $updated++;
 
                     continue;
                 }
 
-                $categoryName = $this->cleanCategoryName($item['category'] ?? null);
-                $categoryKey = $this->normalize($categoryName);
-                $category = $scanCategoriesByName[$categoryKey] ?? null;
-                if ($category === null) {
-                    $category = MenuCategory::create([
-                        'menu_id' => $menu->id,
-                        'name' => $categoryName,
-                        'position' => $nextCategoryPosition++,
-                        'source_platform' => $source,
-                    ]);
-                    $scanCategoriesByName[$categoryKey] = $category;
-                }
-
-                $nextItemPositionByCategory[$category->id] ??= $this->nextPosition(
-                    MenuItem::query()->where('category_id', $category->id)
+                $category = $this->resolveScanCategory(
+                    $menu, $item['category'] ?? null, $source,
+                    $scanCategoriesByName, $nextCategoryPosition,
                 );
 
                 $newItem = MenuItem::create([
                     'menu_id' => $menu->id,
-                    'category_id' => $category->id,
-                    'position' => $nextItemPositionByCategory[$category->id]++,
                     'name' => $name,
                     'description' => $this->cleanString($item['description'] ?? null),
                     'base_price' => $item['price'] ?? null,
@@ -145,11 +153,13 @@ class MenuScanApplier
                     // {text, type} rows the platform drivers write).
                     'badges' => $this->mergeDietaryBadges(null, $item['dietary'] ?? null),
                 ]);
-                // The new item joins both lookup pools too, so a LATER scan
-                // item in this SAME batch sharing this name can still find it
-                // (mirrors the prior single-map "first occurrence wins" reuse).
+                $newItem->setRelation('categories', new EloquentCollection);
+                $this->ensureMembership($newItem, $category, $nextItemPositionByCategory);
+                // The new item joins the lookup pool too, so a LATER scan item
+                // in this SAME batch sharing this name attaches its category to
+                // THIS row instead of creating a duplicate — the multi-category
+                // dedupe this applier exists for.
                 $itemsByName[$nameKey][] = $newItem;
-                $itemsByNameAndCategory[$nameKey][$categoryKey] ??= $newItem;
                 $added++;
             }
 
@@ -173,29 +183,74 @@ class MenuScanApplier
     }
 
     /**
-     * The existing item a scan item should update, or null when no
-     * unambiguous match exists. A scan-supplied category wins first
-     * (case-insensitive category-name match); otherwise — or when that
-     * scoped lookup misses — fall back to the name-only match, but ONLY when
-     * it's unambiguous (exactly one candidate). A same-name collision across
-     * categories with nothing to disambiguate it is a "don't guess" case,
-     * left to the caller to create a new item instead.
-     *
-     * @param  array<string, array<string, MenuItem>>  $itemsByNameAndCategory
-     * @param  array<string, list<MenuItem>>  $itemsByName
+     * Whether a MATCHED item should also gain the scan's category membership.
+     * Manual scans always attach (the user deliberately scanned this menu's
+     * structure). Enrich-only (automatic) scans attach only to scan-created
+     * dishes — a dish with any scraped membership keeps its scraped structure.
      */
-    private function resolveMatch(string $nameKey, ?string $scanCategoryName, array $itemsByNameAndCategory, array $itemsByName): ?MenuItem
+    private function shouldAttachOnMatch(MenuItem $match, bool $enrichOnly): bool
     {
-        if ($scanCategoryName !== null) {
-            $scoped = $itemsByNameAndCategory[$nameKey][$this->normalize($scanCategoryName)] ?? null;
-            if ($scoped !== null) {
-                return $scoped;
-            }
+        if (! $enrichOnly) {
+            return true;
         }
 
-        $candidates = $itemsByName[$nameKey] ?? [];
+        return ! $match->categories->contains(
+            fn (MenuCategory $c) => ! in_array($c->source_platform, ['scan', 'manual', 'website-scan'], true)
+        );
+    }
 
-        return count($candidates) === 1 ? $candidates[0] : null;
+    /**
+     * The scan-owned category for a scan item's (possibly absent) category
+     * label — matched case-insensitively among the menu's OWN $source
+     * categories, created (appended) when missing. Never reuses a scraped
+     * category: the next scrape rebuild would delete the membership with it.
+     *
+     * @param  array<string, MenuCategory>  $scanCategoriesByName
+     */
+    private function resolveScanCategory(
+        Menu $menu,
+        mixed $rawCategoryName,
+        string $source,
+        array &$scanCategoriesByName,
+        int &$nextCategoryPosition,
+    ): MenuCategory {
+        $categoryName = $this->cleanCategoryName(is_string($rawCategoryName) ? $rawCategoryName : null);
+        $categoryKey = $this->normalize($categoryName);
+
+        $category = $scanCategoriesByName[$categoryKey] ?? null;
+        if ($category === null) {
+            $category = MenuCategory::create([
+                'menu_id' => $menu->id,
+                'name' => $categoryName,
+                'position' => $nextCategoryPosition++,
+                'source_platform' => $source,
+            ]);
+            $scanCategoriesByName[$categoryKey] = $category;
+        }
+
+        return $category;
+    }
+
+    /**
+     * Attach $item to $category (appended after the category's current last
+     * slot) unless it's already a member. Keeps the in-memory `categories`
+     * relation in sync so later batch entries see the new membership.
+     *
+     * @param  array<string, int>  $nextItemPositionByCategory
+     */
+    private function ensureMembership(MenuItem $item, MenuCategory $category, array &$nextItemPositionByCategory): void
+    {
+        if ($item->categories->contains(fn (MenuCategory $c) => (string) $c->id === (string) $category->id)) {
+            return;
+        }
+
+        $nextItemPositionByCategory[$category->id] ??= 1 + (int) (DB::connection('pgsql')
+            ->table('site.menu_item_categories')
+            ->where('menu_category_id', $category->id)
+            ->max('position') ?? -1);
+
+        $item->categories()->attach($category->id, ['position' => $nextItemPositionByCategory[$category->id]++]);
+        $item->setRelation('categories', $item->categories->push($category));
     }
 
     /**

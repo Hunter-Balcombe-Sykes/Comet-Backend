@@ -645,13 +645,16 @@ function setupSitesTable(): void
     )');
 
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
-    // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),
+    // + site.menu_item_platforms + site.menu_item_categories — the relational
+    // fetched menu (Uber Eats / DoorDash),
     // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000
     // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables)
     // + 20260715090000 (menu_items.currency, menus.dining_modes)
     // + 20260717170000 (menu_items.images)
     // + 20260717210000 (menus.scan_items)
-    // + 20260718000000 (menu_items.is_manual, menus.suppressed_items).
+    // + 20260718000000 (menu_items.is_manual, menus.suppressed_items)
+    // + 20260721090000 (multi-category: menu_item_categories pivot; menu_items
+    //   loses category_id + position — they live per-membership on the pivot).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -704,8 +707,6 @@ function setupSitesTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_items (
         id TEXT PRIMARY KEY,
         menu_id TEXT NULL,
-        category_id TEXT NULL,
-        position INTEGER NULL,
         name TEXT NULL,
         description TEXT NULL,
         image_url TEXT NULL,
@@ -763,6 +764,17 @@ function setupSitesTable(): void
         delivery_url TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
+    )');
+
+    // Item ↔ category memberships (multi-category, 20260721090000). Display
+    // position is per-membership. Composite PK mirrors Postgres.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_item_categories (
+        menu_item_id TEXT NOT NULL,
+        menu_category_id TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        PRIMARY KEY (menu_item_id, menu_category_id)
     )');
 
     // Wire in workplace table so any test calling setupSitesTable() has the

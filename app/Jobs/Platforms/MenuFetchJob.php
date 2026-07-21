@@ -340,6 +340,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             // URLs — a fresh UUID every scrape silently reset both. Name-matching is the
             // same identity heuristic MenuMerger uses cross-platform; a renamed dish gets
             // a new id (and starts its score over), which is the honest interpretation.
+            // Item identity is MENU-scoped: with the multi-category model, one normalized
+            // name = one row among scraped dishes (a dish under several categories is a
+            // single row with several pivot memberships), so a name maps to exactly one
+            // id and identities can never swap across rebuilds.
             //
             // Scoped to rebuildableCategoryIds() (NOT every category) — owner-authored
             // categories (source_platform 'scan'/'manual') are never scraper output and
@@ -351,50 +355,60 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             // row keeps its live id, so reusing it would collide.
             //
             // Also clears children explicitly (FK cascade covers this on Postgres, but being
-            // explicit prevents orphaned item-platform rows in SQLite tests).
+            // explicit prevents orphaned pivot/item-platform rows in SQLite tests).
             $rebuildableCategoryIds = $this->rebuildableCategoryIds($menu->id);
 
-            // Manual dishes living inside a rebuildable (scraper-owned) category — the
-            // owner's own edits/additions. They survive the rebuild, keep their category
-            // alive, and outrank a same-named scraped dish (collision skip below).
-            $survivingManualItems = MenuItem::query()
-                ->whereIn('category_id', $rebuildableCategoryIds)
+            // Membership rows in scraper-owned categories — the scrape's write scope.
+            $rebuildableMemberships = DB::connection('pgsql')->table('site.menu_item_categories')
+                ->whereIn('menu_category_id', $rebuildableCategoryIds)
+                ->get(['menu_item_id', 'menu_category_id']);
+
+            // Manual dishes anywhere on the menu — the owner's own edits/additions.
+            // They survive the rebuild, keep their categories alive, and outrank a
+            // same-named scraped dish MENU-WIDE (one name = one dish).
+            $manualItems = MenuItem::query()
+                ->where('menu_id', $menu->id)
                 ->where('is_manual', true)
-                ->get(['id', 'category_id', 'name']);
-            $survivingCategoryIds = $survivingManualItems->pluck('category_id')->unique();
+                ->get(['id', 'name']);
+            $manualItemIds = [];
+            foreach ($manualItems as $mi) {
+                $manualItemIds[(string) $mi->id] = true;
+            }
+
+            // Rebuildable categories kept alive by a manual dish member.
+            $survivingCategoryIds = $rebuildableMemberships
+                ->filter(fn ($m) => isset($manualItemIds[(string) $m->menu_item_id]))
+                ->pluck('menu_category_id')->map(fn ($id) => (string) $id)->unique()->values();
 
             // Categories to actually delete: rebuildable ones NOT kept alive by a manual
             // dish. Every dish in them is scraped, so they're empty once the scrape rows go.
             $deletableCategoryIds = $rebuildableCategoryIds
-                ->reject(fn ($id) => $survivingCategoryIds->contains($id))->values();
-            // Items to delete: scraped (is_manual=false) rows in rebuildable categories.
-            $deletableItemIds = MenuItem::query()
-                ->whereIn('category_id', $rebuildableCategoryIds)
-                ->where('is_manual', false)
-                ->pluck('id');
+                ->reject(fn ($id) => $survivingCategoryIds->contains((string) $id))->values();
 
-            // Identity snapshot BEFORE the delete: normalized name → FIFO queue of ids,
-            // in stable (category, position) order so re-assignment is deterministic.
-            // Scoped to DELETED categories only (survivors keep their live ids).
+            // Items to delete: non-manual dishes holding at least one scraper-owned
+            // membership. A scan-created dish living only in scan categories has no
+            // scraped membership and survives; its scan memberships are restored by
+            // the scan reapply in handle() either way. Ordered for deterministic
+            // FIFO identity snapshots below.
+            $memberItemIds = $rebuildableMemberships->pluck('menu_item_id')->map(fn ($id) => (string) $id)->unique()->values();
+            $deletableItems = MenuItem::query()
+                ->whereIn('id', $memberItemIds)
+                ->where('is_manual', false)
+                ->orderBy('created_at')->orderBy('id')
+                ->get(['id', 'name']);
+            $deletableItemIds = $deletableItems->pluck('id');
+
+            // Identity snapshot BEFORE the delete: normalized name → FIFO queue of ids.
+            // Scoped to DELETED rows only (survivors keep their live ids).
             $previousCategoryIds = $this->idsByNormalizedName(
                 MenuCategory::query()->whereIn('id', $deletableCategoryIds)->orderBy('position')->get(['id', 'name'])
             );
-            // Items key by (category id, name) — NOT name alone. A global
-            // name pool deterministically SWAPPED ids between same-named
-            // dishes in different categories on every rebuild (critic
-            // 2026-07-17: the FIFO order rode category_id's lexicographic
-            // sort, unrelated to processing order), cross-contaminating
-            // popularity scores and item URLs. Scoping to the matched
-            // category makes reuse exact; the trade-off — a RENAMED category
-            // restarts its items' identities — is the same honest policy as
-            // a renamed dish. Scoped to DELETED (scraped) items only.
-            $previousItemIds = $this->itemIdsByCategoryAndName(
-                MenuItem::query()->whereIn('id', $deletableItemIds)
-                    ->orderBy('category_id')->orderBy('position')->get(['id', 'name', 'category_id'])
-            );
+            $previousItemIds = $this->idsByNormalizedName($deletableItems);
 
             MenuItemPlatform::query()->whereIn('menu_item_id', $deletableItemIds)->delete();
+            DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_item_id', $deletableItemIds)->delete();
             MenuItem::query()->whereIn('id', $deletableItemIds)->delete();
+            DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_category_id', $deletableCategoryIds)->delete();
             MenuCategory::query()->whereIn('id', $deletableCategoryIds)->delete();
 
             // Rebuildable categories kept alive by a manual dish, keyed by normalized
@@ -405,16 +419,21 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 ->get()
                 ->keyBy(fn (MenuCategory $c) => $this->normalizeName((string) $c->name));
 
-            // "<categoryId>|<normalized name>" of every surviving manual dish — a scraped
-            // dish that collides with one is skipped (the manual version wins).
-            $manualNamesByCategory = [];
-            foreach ($survivingManualItems as $mi) {
-                $manualNamesByCategory[(string) $mi->category_id.'|'.$this->normalizeName((string) $mi->name)] = true;
+            // Normalized names of every manual dish — a scraped dish that collides
+            // with one is skipped anywhere on the menu (the manual version wins;
+            // sync never re-imposes memberships the owner may have removed).
+            $manualNames = [];
+            foreach ($manualItems as $mi) {
+                $key = $this->normalizeName((string) $mi->name);
+                if ($key !== '') {
+                    $manualNames[$key] = true;
+                }
             }
 
-            // "<normalized category>|<normalized name>" of dishes the owner deleted from
-            // scraped content — the rebuild must not resurrect them.
-            $suppressedKeys = $this->suppressedItemKeys($menu);
+            // Normalized names of dishes the owner deleted from scraped content —
+            // the rebuild must not resurrect them (name-only: a dish spans
+            // categories now, so the owner's delete intent is "this dish, gone").
+            $suppressedNames = $this->suppressedItemNames($menu);
 
             $store = $merged['store'];
             $menu->forceFill([
@@ -429,9 +448,17 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 'last_fetched_at' => $now,
             ])->save();
 
-            // Accumulate item-platform child rows across all categories; insert
-            // them once, after every menu_items row exists (FK menu_item_id).
+            // Accumulate rows across all categories; items insert first, then the
+            // pivot memberships (FK menu_item_id) and item-platform children.
+            $itemRows = [];
+            $pivotRows = [];
             $platformRows = [];
+            // Dedup bookkeeping: the same dish under several merged categories
+            // becomes ONE row + several memberships. First occurrence wins the
+            // display fields and the platform child rows (the merger emits the
+            // same fused dish either way); later occurrences only attach.
+            $itemIdByName = [];
+            $attachedByName = [];
 
             foreach ($merged['categories'] as $ci => $category) {
                 $categoryKey = $this->normalizeName((string) $category['name']);
@@ -443,7 +470,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                     $cat = $survivor;
                     $cat->forceFill(['position' => $ci])->save();
                     // Append scraped items AFTER the manual dishes already occupying it.
-                    $position = 1 + (int) MenuItem::query()->where('category_id', $cat->id)->max('position');
+                    $position = 1 + (int) (DB::connection('pgsql')->table('site.menu_item_categories')
+                        ->where('menu_category_id', $cat->id)->max('position') ?? -1);
                 } else {
                     // new MenuCategory + explicit id (NOT ::create) — 'id' isn't mass-
                     // assignable, and HasUuids only fills the key when it's still empty,
@@ -459,27 +487,39 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                     $position = 0;
                 }
 
-                $rows = [];
                 foreach ($category['items'] as $item) {
                     $itemKey = $this->normalizeName((string) $item['name']);
-                    // A manual dish in this category outranks the scraped one — skip it.
-                    if (isset($manualNamesByCategory[(string) $cat->id.'|'.$itemKey])) {
+                    // A manual dish of this name outranks the scraped one — skip it.
+                    if (isset($manualNames[$itemKey])) {
                         continue;
                     }
                     // The owner deleted this scraped dish — don't resurrect it.
-                    if (isset($suppressedKeys[$categoryKey.'|'.$itemKey])) {
+                    if (isset($suppressedNames[$itemKey])) {
                         continue;
                     }
-                    // $cat->id IS the old category id whenever the category
-                    // matched by name above — so this lookup only ever finds
-                    // ids that lived in this same category. A fresh-uuid
-                    // (new/renamed) category finds nothing and mints new ids.
-                    $itemId = $this->takeReusedItemId($previousItemIds, (string) $cat->id, (string) $item['name']) ?? (string) Str::uuid();
-                    $rows[] = [
+
+                    // Seen under an earlier category this rebuild → attach only.
+                    // (Empty-name dishes can't dedupe by name; each stays its own row.)
+                    if ($itemKey !== '' && isset($itemIdByName[$itemKey])) {
+                        if (isset($attachedByName[$itemKey][(string) $cat->id])) {
+                            continue; // same-name repeat within one category — one membership
+                        }
+                        $pivotRows[] = [
+                            'menu_item_id' => $itemIdByName[$itemKey],
+                            'menu_category_id' => (string) $cat->id,
+                            'position' => $position++,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ];
+                        $attachedByName[$itemKey][(string) $cat->id] = true;
+
+                        continue;
+                    }
+
+                    $itemId = $this->takeReusedId($previousItemIds, (string) $item['name']) ?? (string) Str::uuid();
+                    $itemRows[] = [
                         'id' => $itemId,
                         'menu_id' => $menu->id,
-                        'category_id' => $cat->id,
-                        'position' => $position++,
                         'name' => $item['name'],
                         'description' => $item['description'] ?? null,
                         'image_url' => $item['imageUrl'] ?? null,
@@ -502,6 +542,17 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                         'created_at' => $now,
                         'updated_at' => $now,
                     ];
+                    $pivotRows[] = [
+                        'menu_item_id' => $itemId,
+                        'menu_category_id' => (string) $cat->id,
+                        'position' => $position++,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                    if ($itemKey !== '') {
+                        $itemIdByName[$itemKey] = $itemId;
+                        $attachedByName[$itemKey][(string) $cat->id] = true;
+                    }
 
                     foreach (($item['platforms'] ?? []) as $p) {
                         if (! is_array($p) || ! isset($p['platform'])) {
@@ -520,12 +571,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                         ];
                     }
                 }
-                if ($rows !== []) {
-                    // Bulk insert (bypasses casts — badges already JSON).
-                    MenuItem::query()->insert($rows);
-                }
             }
 
+            if ($itemRows !== []) {
+                // Bulk insert (bypasses casts — badges already JSON).
+                MenuItem::query()->insert($itemRows);
+            }
+            if ($pivotRows !== []) {
+                DB::connection('pgsql')->table('site.menu_item_categories')->insert($pivotRows);
+            }
             if ($platformRows !== []) {
                 MenuItemPlatform::query()->insert($platformRows);
             }
@@ -560,10 +614,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
     /**
      * normalized name → FIFO list of row ids, from a (id, name) collection in
-     * its already-sorted stable order. Feeds the persist() identity reuse:
-     * each rebuilt row shifts the oldest unclaimed id sharing its name.
+     * its already-sorted stable order. Feeds the persist() identity reuse
+     * (categories AND items — both are menu-scoped name pools now): each
+     * rebuilt row shifts the oldest unclaimed id sharing its name.
      *
-     * @param  Collection<int, MenuCategory>  $rows
+     * @param  Collection<int, MenuCategory|MenuItem>  $rows
      * @return array<string, list<string>>
      */
     private function idsByNormalizedName($rows): array
@@ -591,42 +646,6 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * Item flavour of idsByNormalizedName: "<categoryId>|<normalized name>" →
-     * FIFO list of item ids. Category-scoped so same-named dishes in two
-     * categories can never trade identities across rebuilds (see persist()).
-     *
-     * @param  Collection<int, MenuItem>  $rows
-     * @return array<string, list<string>>
-     */
-    private function itemIdsByCategoryAndName($rows): array
-    {
-        $map = [];
-        foreach ($rows as $row) {
-            $key = $this->normalizeName((string) $row->name);
-            if ($key !== '') {
-                $map[((string) $row->category_id).'|'.$key][] = (string) $row->id;
-            }
-        }
-
-        return $map;
-    }
-
-    /** Shift the oldest previous item id recorded under (category, name), or null. */
-    private function takeReusedItemId(array &$idsByCatAndName, string $categoryId, string $name): ?string
-    {
-        $key = $this->normalizeName($name);
-        if ($key === '') {
-            return null;
-        }
-        $mapKey = $categoryId.'|'.$key;
-        if (empty($idsByCatAndName[$mapKey])) {
-            return null;
-        }
-
-        return array_shift($idsByCatAndName[$mapKey]);
-    }
-
-    /**
      * lowercase, non-alphanumerics → single spaces, trimmed. Deliberately the
      * same normalization MenuMerger::norm() applies when matching one dish
      * across platforms, so "identity" means the same thing at merge time and
@@ -642,57 +661,46 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * "<normalized category>|<normalized name>" set of dishes the owner deleted
-     * from scraped content (menus.suppressed_items, written by
-     * MenuContentController). The rebuild skips reinserting any scraped dish
-     * matching one — same normalization as the identity matching, so "match"
-     * means the same thing here as everywhere else.
+     * Normalized-name set of dishes the owner deleted from scraped content
+     * (menus.suppressed_items, written by MenuContentController). The rebuild
+     * skips reinserting any scraped dish matching one. NAME-ONLY on purpose:
+     * a dish spans several categories in the multi-category model, so the
+     * owner's delete intent is "this dish, gone" — stored entries still carry
+     * a {category, name} shape (the category is informational), and legacy
+     * category-scoped entries keep matching by their name. Same normalization
+     * as the identity matching, so "match" means the same thing everywhere.
      *
      * @return array<string, true>
      */
-    private function suppressedItemKeys(Menu $menu): array
+    private function suppressedItemNames(Menu $menu): array
     {
-        $keys = [];
-        foreach (($menu->suppressed_items ?? []) as $entry) {
-            if (! is_array($entry)) {
-                continue;
-            }
-            $name = $this->normalizeName((string) ($entry['name'] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-            $keys[$this->normalizeName((string) ($entry['category'] ?? '')).'|'.$name] = true;
-        }
-
-        return $keys;
-    }
-
-    /**
-     * $scanItems minus every dish the owner deleted (menus.suppressed_items),
-     * matched by normalized NAME ONLY — deliberately looser than persist()'s
-     * category+name suppression key. Scan category names rarely equal scrape
-     * category names ("Beverages" vs "Drinks"), and the owner's delete intent
-     * is "this dish, gone", not category-scoped; a category-scoped match here
-     * would let the AUTOMATIC scan reapply recreate the deleted dish under a
-     * scan category every rebuild. Applies ONLY to this automatic reapply —
-     * the MANUAL dashboard /scan/apply stays unfiltered, because an explicit
-     * re-scan is the user asking for that photo's content back.
-     *
-     * @param  list<mixed>  $scanItems
-     * @return list<mixed>
-     */
-    private function withoutSuppressedScanItems(array $scanItems, Menu $menu): array
-    {
-        $suppressedNames = [];
+        $names = [];
         foreach (($menu->suppressed_items ?? []) as $entry) {
             if (! is_array($entry)) {
                 continue;
             }
             $name = $this->normalizeName((string) ($entry['name'] ?? ''));
             if ($name !== '') {
-                $suppressedNames[$name] = true;
+                $names[$name] = true;
             }
         }
+
+        return $names;
+    }
+
+    /**
+     * $scanItems minus every dish the owner deleted (menus.suppressed_items),
+     * matched by normalized name — the same rule persist() applies. Applies
+     * ONLY to this automatic reapply — the MANUAL dashboard /scan/apply stays
+     * unfiltered, because an explicit re-scan is the user asking for that
+     * photo's content back.
+     *
+     * @param  list<mixed>  $scanItems
+     * @return list<mixed>
+     */
+    private function withoutSuppressedScanItems(array $scanItems, Menu $menu): array
+    {
+        $suppressedNames = $this->suppressedItemNames($menu);
         if ($suppressedNames === []) {
             return $scanItems;
         }
@@ -732,20 +740,26 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
         DB::connection('pgsql')->transaction(function () use ($menu) {
             $rebuildableCategoryIds = $this->rebuildableCategoryIds($menu->id);
-            // Delete only scraped items — manual dishes survive even when no
-            // ordering platform is connected at all.
+            // Delete only scraped items (non-manual dishes with a membership in a
+            // scraper-owned category) — manual dishes survive even when no
+            // ordering platform is connected at all, and scan-created dishes
+            // living only in scan categories are untouched.
+            $memberItemIds = DB::connection('pgsql')->table('site.menu_item_categories')
+                ->whereIn('menu_category_id', $rebuildableCategoryIds)
+                ->distinct()->pluck('menu_item_id');
             $deletableItemIds = MenuItem::query()
-                ->whereIn('category_id', $rebuildableCategoryIds)
+                ->whereIn('id', $memberItemIds)
                 ->where('is_manual', false)
                 ->pluck('id');
             MenuItemPlatform::query()->whereIn('menu_item_id', $deletableItemIds)->delete();
+            DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_item_id', $deletableItemIds)->delete();
             MenuItem::query()->whereIn('id', $deletableItemIds)->delete();
 
             // Drop rebuildable categories that are now empty; keep any that still
             // hold a manual dish (its name/position intact).
-            $nonEmptyCategoryIds = MenuItem::query()
-                ->whereIn('category_id', $rebuildableCategoryIds)
-                ->distinct()->pluck('category_id');
+            $nonEmptyCategoryIds = DB::connection('pgsql')->table('site.menu_item_categories')
+                ->whereIn('menu_category_id', $rebuildableCategoryIds)
+                ->distinct()->pluck('menu_category_id');
             MenuCategory::query()
                 ->whereIn('id', $rebuildableCategoryIds)
                 ->whereNotIn('id', $nonEmptyCategoryIds)
