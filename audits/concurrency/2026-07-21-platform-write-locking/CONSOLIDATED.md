@@ -58,7 +58,7 @@ so wrapping a controller write cannot self-deadlock.
 
 - Tier 1: 5/10 · Tier 2: 2/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 7 done** (PWL-1,2,3,4,6,11,12)
 - Session A COMPLETE (all non-blocker controller-side locks). Remaining: PWL-13 (Tier-2), the blocker units (PWL-5,7,8,9,10 + Tier-3 14,15), Tier-4 record.
-- Discovered during execution: 2 (PWL-D1, PWL-D2, below)
+- Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
 - Verified against `42bc6141`; line numbers current as of this baseline.
 
 ---
@@ -242,7 +242,7 @@ clears unlocked. **Fix:** a reservations-family XOR lock mirroring the booking d
 ## Discovered during execution
 
 ### PWL-D1 — AppleController::highlightsFor() holds its lock across a network fetch — Tier-3-adjacent, pre-existing, S
-- [ ] Fix
+- [x] Fix — fetch moved outside the lock; closure re-reads the fresh account row + writes (mirrors GenericPlatformController::highlights()). Test proves fetch runs under a held lock (fetchCalls===1, pre-fix 0). Independent review PASS.
 **Found:** during PWL-3 review (2026-07-21). Pre-existing (commit `2e4018e4`), NOT introduced by this
 audit. Same class as the PWL-1 `applySync` defect: `highlightsFor()` (`AppleController.php` ~327-349)
 calls `($cfg['fetch'])(...)` INSIDE its `withConnectionLock` closure, so a slow/network fetch is held
@@ -251,7 +251,7 @@ under the 10s-TTL lock — the lock can expire mid-fetch and a concurrent writer
 and `GenericPlatformController::highlights()` re-read-under-lock shape). Bundle with any Apple follow-up.
 
 ### PWL-D2 — OnlineOrderingController::addEntry() dispatches MenuFetchJob inside its lock — Tier-1-adjacent, pre-existing, XS
-- [ ] Fix
+- [x] Fix — EnrichLinkCardJob + MenuFetchJob dispatch moved outside the lock, gated on 202 (mirrors PWL-12). Proof is structural + assertPushed-on-202 (a blocked block(5) never enters the closure, so the 423-path test can't distinguish — reviewer confirmed). Independent review PASS.
 **Found:** during PWL-12 review (2026-07-21). Pre-existing, NOT introduced here. `addEntry()`
 (`OnlineOrderingController.php` ~80-106) dispatches `MenuFetchJob` (a ~240s inline scrape under the
 sync queue, no platform lock of its own) from INSIDE its `withConnectionLock` closure — the same

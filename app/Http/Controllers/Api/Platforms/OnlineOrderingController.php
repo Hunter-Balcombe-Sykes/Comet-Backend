@@ -77,7 +77,14 @@ class OnlineOrderingController extends ApiController
         $mode = $this->modeOf($meta['url']);
         $storeKey = $this->storeKey($meta['url']);
 
-        return $this->withConnectionLock($user, function () use ($user, $meta, $mode, $storeKey, $url) {
+        // PWL-D2: EnrichLinkCardJob/MenuFetchJob dispatch under QUEUE_CONNECTION=
+        // sync run INLINE — dispatching either from inside the lock closure would
+        // hold the 10s lock across that inline work. Capture the resource id the
+        // write settled on and dispatch only after the lock releases, gated on
+        // the write having actually succeeded (never on the 422 cap or a 423 lock
+        // timeout) — mirrors the fix already in removeEntry()/forget() below.
+        $rid = null;
+        $response = $this->withConnectionLock($user, function () use ($user, $meta, $mode, $storeKey, &$rid) {
             // Merge-on-add: a link to a store the user already has (same platform +
             // store path) folds into that existing row — one store = one entry
             // carrying both a pickup and a delivery URL — instead of a duplicate.
@@ -101,16 +108,20 @@ class OnlineOrderingController extends ApiController
                 ], $meta, $mode), $rid);
             }
 
-            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url)->afterCommit();
-            // Ordering links drive the shared menu — (re)derive it from them.
-            MenuFetchJob::dispatch((string) $user->id);
-
             return $this->success([
                 'status' => 'pending',
                 'entries' => $this->entriesData($user),
                 'statusUrl' => url("/api/platforms/online-ordering/entries/{$rid}/status"),
             ], 202);
         });
+
+        if ($response->getStatusCode() === 202) {
+            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $rid, $url)->afterCommit();
+            // Ordering links drive the shared menu — (re)derive it from them.
+            MenuFetchJob::dispatch((string) $user->id);
+        }
+
+        return $response;
     }
 
     // GET /api/platforms/online-ordering/entries/{id}/status — poll enrichment.

@@ -318,21 +318,37 @@ class AppleController extends ApiController
 
     // $validated is the pre-validated input (from the typed Form Request on the
     // public action). The helper no longer calls $request->validate().
+    //
+    // PWL-D1: mirrors GenericPlatformController::highlights() — the network
+    // call (AppleSearch fetch, via $cfg['fetch']) runs OUTSIDE the lock, keyed
+    // off an identity read that also happens outside it. The lock then wraps
+    // only the authoritative RE-READ of the account row + the write: writing
+    // off the outside-lock $row would reintroduce the lost update the lock
+    // exists to prevent (a concurrent save or ScheduledRefresh landing in the
+    // gap between that read and the lock being acquired would be silently
+    // clobbered). $items themselves are NOT re-fetched inside the lock — only
+    // the row they're applied to is re-read fresh.
     private function highlightsFor(Request $request, array $cfg, array $validated): JsonResponse
     {
         $this->activePlatform = $cfg['platform'];
         $user = $this->currentUser($request);
         $accountId = $request->query('account');
 
-        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated, $accountId): JsonResponse {
-            $row = $this->requestedAccountRow($user, $accountId);
-            $selection = $row?->payload;
-            if (! $row || ! $selection) {
+        $row = $this->requestedAccountRow($user, $accountId);
+        $selection = $row?->payload;
+        if (! $row || ! $selection) {
+            return $this->error($cfg['connectFirst'], 404);
+        }
+        $items = ($cfg['fetch'])(data_get($selection, 'input'));
+        if ($items === null) {
+            return $this->error($cfg['loadError'], 422);
+        }
+
+        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated, $accountId, $items): JsonResponse {
+            $fresh = $this->requestedAccountRow($user, $accountId);
+            $selection = $fresh?->payload;
+            if (! $fresh || ! $selection) {
                 return $this->error($cfg['connectFirst'], 404);
-            }
-            $items = ($cfg['fetch'])(data_get($selection, 'input'));
-            if ($items === null) {
-                return $this->error($cfg['loadError'], 422);
             }
 
             // Refresh the "Most recent" tile too — a release/episode published since
@@ -343,9 +359,9 @@ class AppleController extends ApiController
             }
 
             $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
-            $this->writeConnection($user, $selection, $row->resource_id);
+            $this->writeConnection($user, $selection, $fresh->resource_id);
 
-            return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
+            return $this->success(['id' => $fresh->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
         });
     }
 
