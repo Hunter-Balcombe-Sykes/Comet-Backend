@@ -56,8 +56,9 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 5/10 · Tier 2: 2/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 7 done** (PWL-1,2,3,4,6,11,12)
-- Session A COMPLETE (all non-blocker controller-side locks). Remaining: PWL-13 (Tier-2), the blocker units (PWL-5,7,8,9,10 + Tier-3 14,15), Tier-4 record.
+- Tier 1: 5/10 · Tier 2: 3/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 8 done** (PWL-1,2,3,4,6,11,12,13)
+- ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
+- REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
 - Verified against `42bc6141`; line numbers current as of this baseline.
 
@@ -187,7 +188,7 @@ don't. **Fix:** wrap both — trivial, do alongside any custom-link work.
 (`:153`→`:156`) don't. **Fix:** wrap both.
 
 ### PWL-13 — EventsCatalog::storeAccount duplicate unlocked write to the same events row — non-blocker, S
-- [ ] Fix
+- [x] Fix — added a service-level withPlatformLock helper (raw Cache::lock on platformConnectionLock($provider,uid), 423 via the fail() array contract); wrapped storeAccount + storeStandalone (read+write inside). storeCustom's fetch stays upstream, its write routes through the now-locked storeStandalone. Independent review PASS. (Note: removeCustom delete stays unlocked — no lost-update window, events-custom never refreshed.)
 **Plain English:** Two different code paths write the same Eventbrite/Humanitix account row; one of
 them (the catalog service, reached via the Eventbrite/Humanitix connect controllers) doesn't lock.
 **Technical:** `EventsCatalog::storeAccount()` (`app/Services/Platforms/EventsCatalog.php:219`) derives
