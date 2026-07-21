@@ -7,6 +7,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 // V2: Per-professional UI preference to skip confirmation dialogs for specific actions (e.g., "don't ask me again" toggles).
+/**
+ * @property string $id
+ * @property string $user_id
+ * @property string $action_key
+ * @property bool $skip_confirmation
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class UserConfirmationPreference extends BaseModel
 {
     use HasUuids;
