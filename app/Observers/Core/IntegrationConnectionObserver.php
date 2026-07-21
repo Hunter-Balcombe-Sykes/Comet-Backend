@@ -3,6 +3,7 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
+use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Services\Platforms\IdentitySync;
@@ -65,13 +66,21 @@ class IntegrationConnectionObserver
         // Content-selection connect hooks (best-effort, never break the save):
         //   - google-business connect → one-time seed of google-photo picks
         //   - instagram connect       → turn the content Instagram-auto flag on
-        // Only on wasRecentlyCreated (a genuine connect), not on refresh writes.
+        //     and reserve the ig slots once the payload can fill them. The IG
+        //     connect writes a pending placeholder row FIRST (empty payload) and
+        //     the scraped payload lands in a later update — so the slot
+        //     reconcile must also run on payload changes, not just the create,
+        //     or the reserved slots never materialize for the placeholder flow.
         if ($connection->wasRecentlyCreated) {
             if ($connection->platform === Platform::GoogleBusiness->value) {
                 $this->seedContentFromGoogle($connection);
             } elseif ($connection->platform === Platform::Instagram->value) {
                 $this->enableContentInstagramAuto($connection);
+                $this->reconcileContentInstagramSlots($connection);
             }
+        } elseif ($connection->platform === Platform::Instagram->value
+            && $connection->wasChanged('payload')) {
+            $this->reconcileContentInstagramSlots($connection);
         }
     }
 
@@ -139,6 +148,57 @@ class IntegrationConnectionObserver
         } catch (\Throwable $e) {
             report($e);
             Log::warning('IntegrationConnectionObserver content instagram-auto enable failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Reserve the content-selection ig slots (reel@1 / post@2) once they can
+     * actually be filled. Gated on: the auto flag still on (turning it off is
+     * how a user removes the slots — never resurrect past that), no ig rows
+     * already reserved (later refreshes must not reshuffle), and the payload
+     * carrying at least one reservable kind. Delegates the actual slot
+     * arithmetic to ContentSelectionService::setInstagramAuto so the shift-
+     * down/overflow behavior matches the manual toggle exactly. Best-effort —
+     * a failure here must never break the connection save.
+     */
+    private function reconcileContentInstagramSlots(IntegrationConnection $connection): void
+    {
+        try {
+            $site = $connection->user?->site;
+            if (! $site instanceof Site) {
+                return;
+            }
+
+            // The user->site relation may have been memoized on this model
+            // instance before the user toggled auto off (connect placeholder →
+            // payload update within one request/job) — a stale true here would
+            // resurrect slots the user just removed. Re-read before gating.
+            $site->refresh();
+            if (! $site->content_instagram_auto_enabled) {
+                return;
+            }
+
+            $hasSlots = ContentSelection::query()
+                ->where('site_id', $site->id)
+                ->whereIn('entry_type', ContentSelection::IG_TYPES)
+                ->exists();
+            if ($hasSlots) {
+                return;
+            }
+
+            $payload = InstagramPayload::fromArray($connection->payload ?? []);
+            if ($payload->videoUrl === null && ($payload->images[0] ?? null) === null) {
+                return;
+            }
+
+            app(ContentSelectionService::class)->setInstagramAuto($site, true);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver content instagram-slot reconcile failed', [
                 'platform_connection_id' => $connection->id,
                 'user_id' => $connection->user_id,
                 'message' => $e->getMessage(),

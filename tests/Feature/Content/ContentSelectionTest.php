@@ -442,6 +442,70 @@ it('IG connect flips the content instagram-auto toggle on', function () {
     expect($site->fresh()->content_instagram_auto_enabled)->toBeTrue();
 });
 
+it('IG connect with an already-filled payload reserves ig slots 1-2 immediately', function () {
+    [$user, $site] = contentUserWithSite('hook6');
+
+    igConnection($user, ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows->pluck('entry_type')->all())->toBe(['ig-reel', 'ig-post']);
+});
+
+it('IG payload landing after the placeholder connect reserves ig slots and shifts google photos down', function () {
+    [$user, $site] = contentUserWithSite('hook7');
+
+    // GB connected first — with the full 15-photo payload the seed fills all slots.
+    gbConnectionWithPhotos($user, array_map(
+        fn (int $i) => ['ref' => "places/A/photos/{$i}", 'url' => "https://lh3/{$i}.jpg"],
+        range(1, 15),
+    ));
+    expect(ContentSelection::query()->where('site_id', $site->id)->count())->toBe(15);
+
+    // The real IG connect writes a pending placeholder row FIRST (empty payload)
+    // — the flag flips, but there's nothing to reserve yet.
+    $ig = igConnection($user, []);
+    expect(ContentSelection::query()->where('site_id', $site->id)->whereIn('entry_type', ContentSelection::IG_TYPES)->count())->toBe(0);
+
+    // The scrape lands: the payload update must reconcile the reserved slots —
+    // ig-reel@1 + ig-post@2, google photos shifted down, overflow dropped.
+    $ig->update(['payload' => ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']]);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows)->toHaveCount(15);
+    expect($rows[0]->entry_type)->toBe('ig-reel');
+    expect($rows[1]->entry_type)->toBe('ig-post');
+    expect($rows->slice(2)->pluck('entry_type')->unique()->values()->all())->toBe(['google-photo']);
+    // The first 13 google photos survive in order; the last 2 dropped past the cap.
+    expect($rows[2]->external_ref)->toBe('places/A/photos/1');
+    expect($rows[14]->external_ref)->toBe('places/A/photos/13');
+});
+
+it('the ig-slot reconcile never resurrects slots the user removed by disabling auto', function () {
+    [$user, $site] = contentUserWithSite('hook8');
+
+    $ig = igConnection($user, []); // placeholder connect — flag on
+    app(ContentSelectionService::class)->setInstagramAuto($site->fresh(), false); // user turns it off
+
+    $ig->update(['payload' => ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']]);
+
+    expect($site->fresh()->content_instagram_auto_enabled)->toBeFalse();
+    expect(ContentSelection::query()->where('site_id', $site->id)->whereIn('entry_type', ContentSelection::IG_TYPES)->count())->toBe(0);
+});
+
+it('the ig-slot reconcile no-ops on later payload refreshes once slots exist', function () {
+    [$user, $site] = contentUserWithSite('hook9');
+
+    $ig = igConnection($user, []);
+    $ig->update(['payload' => ['images' => ['https://r2/post.jpg'], 'videoUrl' => 'https://r2/reel.mp4']]);
+    expect(ContentSelection::query()->where('site_id', $site->id)->count())->toBe(2);
+
+    // A later weekly refresh writes a new payload — slots must not duplicate or reshuffle.
+    $ig->update(['payload' => ['images' => ['https://r2/post-2.jpg'], 'videoUrl' => 'https://r2/reel-2.mp4']]);
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->orderBy('position')->get();
+    expect($rows->pluck('entry_type')->all())->toBe(['ig-reel', 'ig-post']);
+});
+
 // ── resolve() live resolution ────────────────────────────────────────────────
 
 it('resolve() drops a google-photo whose ref has vanished from the payload', function () {
@@ -475,8 +539,8 @@ it('resolve() expands uploads and instagram reel/post rows', function () {
         'videoPoster' => 'https://r2/poster.jpg',
     ]);
 
-    ContentSelection::create(['site_id' => $site->id, 'position' => 1, 'entry_type' => 'ig-reel']);
-    ContentSelection::create(['site_id' => $site->id, 'position' => 2, 'entry_type' => 'ig-post']);
+    // ig-reel@1 + ig-post@2 were auto-reserved by the connect hook (the payload
+    // above already carries both kinds) — only the upload row is added manually.
     ContentSelection::create([
         'site_id' => $site->id, 'position' => 3,
         'entry_type' => 'upload', 'media_id' => $upload->id,
