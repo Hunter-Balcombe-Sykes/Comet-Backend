@@ -5,9 +5,8 @@ namespace App\Http\Requests\Api\User\Services;
 use App\Http\Requests\BaseFormRequest;
 
 // Validates new service creation — title, price, description, currency,
-// duration, active state. Categories were removed from the affiliate UX;
-// the column stays nullable on the DB but no rule for it here so a stray
-// category_id in a payload is silently dropped instead of accepted.
+// duration, active state, and (multi-)category memberships. Ownership of the
+// supplied category ids is asserted in the controller.
 class StoreServiceRequest extends BaseFormRequest
 {
     public function rules(): array
@@ -19,6 +18,10 @@ class StoreServiceRequest extends BaseFormRequest
             'currency_code' => ['nullable', 'string', 'size:3'],
             'duration_minutes' => ['nullable', 'integer', 'min:1'],
             'is_active' => ['sometimes', 'boolean'],
+            // Memberships: category_ids (multi) or the legacy single category_id.
+            'category_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
+            'category_ids.*' => ['uuid', 'distinct'],
+            'category_id' => ['sometimes', 'nullable', 'uuid'],
         ];
     }
 }

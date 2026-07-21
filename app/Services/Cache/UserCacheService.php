@@ -207,6 +207,7 @@ class UserCacheService
             CacheKeyGenerator::professionalServices($userId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
             fn () => Service::query()
+                ->with('categories:id')
                 ->where('user_id', $userId)
                 ->where('is_active', true)
                 ->whereNull('deleted_at')
@@ -235,6 +236,7 @@ class UserCacheService
             CacheKeyGenerator::professionalDashboardServices($userId),
             (int) config('partna.cache.ttls.auth_id_lookup'),
             fn () => Service::query()
+                ->with('categories:id')
                 ->where('user_id', $userId)
                 ->whereNull('deleted_at')
                 ->orderBy('sort_order')

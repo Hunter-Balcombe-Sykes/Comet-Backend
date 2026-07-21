@@ -3,7 +3,9 @@
 namespace App\Services\Platforms\Strategies\Fetch;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
 use App\Services\Platforms\FreshaScraper;
+use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 
@@ -20,7 +22,10 @@ use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 // throws unavailable so a transient scrape failure never wipes a selection.
 final readonly class FreshaFetch implements FetchStrategy
 {
-    public function __construct(private FreshaScraper $scraper) {}
+    public function __construct(
+        private FreshaScraper $scraper,
+        private FreshaServiceProjector $projector,
+    ) {}
 
     public function fetch(IntegrationConnection $connection): array
     {
@@ -63,18 +68,30 @@ final readonly class FreshaFetch implements FetchStrategy
             static fn ($id): bool => is_string($id) && in_array($id, $serviceIds, true),
         ));
 
+        // Project the refreshed scrape into site.services (dedup by serviceId;
+        // detached/suppressed rows honoured) and store the EFFECTIVE list; the
+        // raw scrape persists privately at payload.raw (the revert source).
+        // The kept hidden list seeds is_active on first-time projections only.
+        $user = User::query()->find($connection->user_id);
+        if ($user === null) {
+            throw new FetchNotModifiedException('fresha');
+        }
+        $projected = $this->projector->sync($user, $services, $hidden);
+
         $inner = [
             ...$selection,
             'storeName' => $storeName,
-            'services' => $services,
-            'hiddenServiceIds' => $hidden,
+            'services' => $projected['services'],
+            'hiddenServiceIds' => $projected['hiddenServiceIds'],
         ];
 
-        if ($inner == $selection) {
-            // Menu unchanged — quiet bookkeeping, no edge purge.
+        $storedRaw = ($connection->payload ?? [])['raw']['services'] ?? null;
+        if ($inner == $selection && $storedRaw == $projected['raw']) {
+            // Menu unchanged — quiet bookkeeping, no edge purge. (The projection
+            // upserts above are idempotent, so re-running them costs nothing.)
             throw new FetchNotModifiedException('fresha');
         }
 
-        return ['url' => $url, 'selection' => $inner];
+        return ['url' => $url, 'selection' => $inner, 'raw' => ['services' => $projected['raw']]];
     }
 }

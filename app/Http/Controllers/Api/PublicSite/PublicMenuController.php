@@ -59,9 +59,11 @@ class PublicMenuController extends ApiController
         }
 
         $menu = Menu::with([
-            'categories' => fn ($q) => $q->with([
-                'items' => fn ($q2) => $q2->orderBy('position')->with('platformLinks'),
-            ]),
+            // Items order by their per-membership pivot position (baked into the
+            // MenuCategory::items() relation) — a dish in several categories
+            // renders under each of them, sharing its id.
+            'categories' => fn ($q) => $q->orderBy('position'),
+            'categories.items.platformLinks',
             // Menu-level per-platform store links — the normalized store_url base
             // each item's DoorDash deep link is built from (MenuItemDeepLinks).
             'platformLinks',

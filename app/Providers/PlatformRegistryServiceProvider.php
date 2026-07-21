@@ -34,6 +34,7 @@ use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\FreshaScraper;
+use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
@@ -296,6 +297,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // re-scrapes the saved selection; 304s when unchanged or unselected.
             $r->get('fresha')->fetch(fn () => new FreshaFetch(
                 app(FreshaScraper::class),
+                app(FreshaServiceProjector::class),
             ));
             $r->get('fresha')->refreshEvery(2 * 86400);
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));

@@ -120,10 +120,9 @@ function seedMenu(User $user, array $menuAttrs, array $categories): Menu
             unset($item['platforms']);
             $menuItem = MenuItem::create(array_merge([
                 'menu_id' => $menu->id,
-                'category_id' => $cat->id,
-                'position' => $ii,
                 'name' => 'Item',
             ], $item));
+            $menuItem->categories()->attach($cat->id, ['position' => $ii]);
             foreach ($platforms as $p) {
                 MenuItemPlatform::create([
                     'menu_item_id' => $menuItem->id,
@@ -293,12 +292,11 @@ it('reuses category and item ids across rebuilds when names match (stable identi
         ->toBe($pizzasIdBefore);
 });
 
-it('keeps same-named items in different categories on their own ids across rebuilds', function () {
-    // Critic 2026-07-17: a global name→id FIFO deterministically SWAPPED the
-    // ids of two same-named dishes in different categories on every rebuild
-    // (pool order rode category_id's lexicographic sort). Identity reuse is
-    // category-scoped now — "Coke" in Drinks and "Coke" in Combos must each
-    // keep THEIR OWN id no matter how ids/categories sort.
+it('collapses a same-named dish in two categories into ONE item with BOTH memberships, id-stable across rebuilds', function () {
+    // Multi-category model (2026-07-21): "Coke" under Drinks AND Combos is a
+    // single menu_items row with two pivot memberships — the duplicate-rows
+    // problem this redesign removes. Its id must survive forced rebuilds
+    // (popularity scores + item URLs key on it).
     $user = menuUser('m6xcat');
     ordering($user, 'https://www.ubereats.com/store/xcat', null, '2026-06-17 10:00:00');
 
@@ -315,20 +313,23 @@ it('keeps same-named items in different categories on their own ids across rebui
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
-    $catIds = MenuCategory::query()->where('menu_id', $menu->id)->pluck('id', 'name');
-    $cokeByCat = fn () => MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')
-        ->pluck('id', 'category_id');
-    $before = $cokeByCat();
 
-    // TWO forced rebuilds: a swap flips ids each run, so a single rebuild of
-    // a swapped pair can look "stable" if asserted naively — assert both runs.
-    (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
-    expect($cokeByCat()[$catIds['Drinks']])->toBe($before[$catIds['Drinks']]);
-    expect($cokeByCat()[$catIds['Combos']])->toBe($before[$catIds['Combos']]);
+    $coke = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')->get();
+    expect($coke)->toHaveCount(1);
+    $cokeCategories = fn () => MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')
+        ->firstOrFail()->categories->pluck('name')->sort()->values()->all();
+    expect($cokeCategories())->toBe(['Combos', 'Drinks']);
+    // First occurrence (Drinks) wins the display fields.
+    expect((float) $coke->first()->pickup_price)->toBe(4.0);
+    $idBefore = (string) $coke->first()->id;
 
     (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
-    expect($cokeByCat()[$catIds['Drinks']])->toBe($before[$catIds['Drinks']]);
-    expect($cokeByCat()[$catIds['Combos']])->toBe($before[$catIds['Combos']]);
+    expect((string) MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')->firstOrFail()->id)->toBe($idBefore);
+    expect($cokeCategories())->toBe(['Combos', 'Drinks']);
+
+    (new MenuFetchJob((string) $user->id, force: true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    expect((string) MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Coke')->firstOrFail()->id)->toBe($idBefore);
+    expect($cokeCategories())->toBe(['Combos', 'Drinks']);
 });
 
 it('skips the paid scrape when the store url is unchanged', function () {
@@ -865,8 +866,12 @@ it('wholesale rebuild produces identical menu structure across two forced runs w
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    // Category-grouped item names in display order (category position, then
+    // per-membership pivot position) — the structure the readers render.
+    $structure = fn () => MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->with('items')->get()
+        ->flatMap(fn ($c) => $c->items->pluck('name'))->all();
     $cats1 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
-    $items1 = MenuItem::query()->where('menu_id', $menu->id)->orderBy('category_id')->orderBy('position')->pluck('name')->all();
+    $items1 = $structure();
     $linkCount1 = MenuItemPlatform::query()->whereIn('menu_item_id', MenuItem::query()->where('menu_id', $menu->id)->pluck('id'))->count();
 
     // Run #2 — identical scraper output, forced rebuild.
@@ -875,7 +880,7 @@ it('wholesale rebuild produces identical menu structure across two forced runs w
 
     $menu->refresh();
     $cats2 = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
-    $items2 = MenuItem::query()->where('menu_id', $menu->id)->orderBy('category_id')->orderBy('position')->pluck('name')->all();
+    $items2 = $structure();
     $linkCount2 = MenuItemPlatform::query()->whereIn('menu_item_id', MenuItem::query()->where('menu_id', $menu->id)->pluck('id'))->count();
 
     expect($cats2)->toBe($cats1);
@@ -1012,7 +1017,7 @@ it('defaults new scan items with no category to a "Menu" category', function () 
     $category = MenuCategory::query()->where('menu_id', $menuId)->firstOrFail();
     expect($category->name)->toBe('Menu');
     expect($category->source_platform)->toBe('scan');
-    expect(MenuItem::query()->where('category_id', $category->id)->value('base_price'))->toBeNull();
+    expect($category->items()->firstOrFail()->base_price)->toBeNull();
 });
 
 it('updates an existing item by case-insensitive trimmed name match without nulling missing fields', function () {
@@ -1068,59 +1073,61 @@ it('reports mixed updated/added counts for a batch with both matches and new ite
     // Both new items land in the SAME new "Sides" scan category, not two.
     $sides = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Sides')->firstOrFail();
     expect($sides->source_platform)->toBe('scan');
-    expect(MenuItem::query()->where('category_id', $sides->id)->count())->toBe(2);
+    expect($sides->items()->count())->toBe(2);
 });
 
-// ── BE3: category-aware name matching (same-name items across sections) ──
-// indexByNormalizedName() used to keep "first occurrence wins" with NO
-// orderBy — non-deterministic on Postgres — and matched on name alone, so
-// two items sharing a normalized name in different categories (e.g. "Garlic
-// Bread" as both a Starter and a Side) could have a scan update land on the
-// wrong one. A scan-supplied category now disambiguates; with no category
-// and no unambiguous single match, a new item is created instead of guessed.
+// ── BE3: multi-category name matching (one name = one dish, menu-wide) ──
+// A dish listed under several sections ("Garlic Bread" as both a Starter and
+// a Side) is ONE menu_items row with several pivot memberships. A scan match
+// updates that single row; a scan category the dish isn't listed under yet
+// ATTACHES (find-or-create among scan-owned categories) — unless a same-named
+// membership (any source) already covers it, so a scraped "Sides" is never
+// shadowed by a scan-owned duplicate.
 
-it('updates the item within the matching category when the same name exists in two categories', function () {
+it('updates the single multi-category dish in place and never shadows a same-named scraped category', function () {
     $user = menuUser('scan15');
     $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Starters', 'items' => [['name' => 'Garlic Bread', 'base_price' => 8.0]]],
-        ['name' => 'Sides', 'items' => [['name' => 'Garlic Bread', 'base_price' => 6.0]]],
+        ['name' => 'Sides', 'items' => []],
     ]);
+    // The one Garlic Bread row is listed under BOTH sections.
+    $garlic = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    $sidesCat = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Sides')->firstOrFail();
+    $garlic->categories()->attach($sidesCat->id, ['position' => 0]);
 
     $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Garlic Bread', 'description' => 'Toasted, buttery.', 'price' => 6.5, 'category' => 'sides']],
     ])->assertOk();
 
     expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
-    $starters = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Starters'))->firstOrFail();
-    $sides = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Sides'))->firstOrFail();
-    expect((float) $sides->base_price)->toBe(6.5);
-    expect($sides->description)->toBe('Toasted, buttery.');
-    expect((float) $starters->base_price)->toBe(8.0); // untouched
-    expect($starters->description)->toBeNull();
+    $garlic->refresh();
+    expect((float) $garlic->base_price)->toBe(6.5);
+    expect($garlic->description)->toBe('Toasted, buttery.');
+    // 'sides' was already covered by the scraped "Sides" membership — no
+    // scan-owned duplicate category may appear.
+    expect(MenuCategory::query()->where('menu_id', $menu->id)->count())->toBe(2);
+    expect($garlic->categories()->count())->toBe(2);
 });
 
-it('creates a new item instead of guessing when the same name exists in two categories and the scan supplies no category', function () {
+it('attaches the scan category to a matched dish that is not listed under it yet', function () {
     $user = menuUser('scan16');
     $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
         ['name' => 'Starters', 'items' => [['name' => 'Garlic Bread', 'base_price' => 8.0]]],
-        ['name' => 'Sides', 'items' => [['name' => 'Garlic Bread', 'base_price' => 6.0]]],
     ]);
 
     $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
-        'items' => [['name' => 'Garlic Bread', 'description' => null, 'price' => 7.0, 'category' => null]],
+        'items' => [['name' => 'Garlic Bread', 'description' => null, 'price' => 7.0, 'category' => 'Dinner']],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 0, 'added' => 1]);
-    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Garlic Bread')->count())->toBe(3);
+    // One row still — the scan grew its memberships instead of duplicating it.
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    expect(MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Garlic Bread')->count())->toBe(1);
 
-    $starters = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Starters'))->firstOrFail();
-    $sides = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('name', 'Sides'))->firstOrFail();
-    expect((float) $starters->base_price)->toBe(8.0); // untouched
-    expect((float) $sides->base_price)->toBe(6.0);     // untouched
-
-    $newItem = MenuItem::query()->where('menu_id', $menu->id)->whereHas('category', fn ($q) => $q->where('source_platform', 'scan'))->firstOrFail();
-    expect((float) $newItem->base_price)->toBe(7.0);
-    expect($newItem->category->name)->toBe('Menu'); // default category, no category supplied
+    $garlic = MenuItem::query()->where('menu_id', $menu->id)->firstOrFail();
+    expect((float) $garlic->base_price)->toBe(7.0);
+    expect($garlic->categories->pluck('name')->sort()->values()->all())->toBe(['Dinner', 'Starters']);
+    $dinner = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Dinner')->firstOrFail();
+    expect($dinner->source_platform)->toBe('scan');
 });
 
 it('still updates by name alone when exactly one item shares that name and the scan supplies no category (pinned existing behavior)', function () {
@@ -1215,7 +1222,7 @@ it('preserves scan-sourced categories and items across a forced scraper rebuild 
     ])->assertOk();
 
     $scanCategory = MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'scan')->firstOrFail();
-    $scanItem = MenuItem::query()->where('category_id', $scanCategory->id)->firstOrFail();
+    $scanItem = $scanCategory->items()->firstOrFail();
 
     // A forced scraper refresh returns entirely different scraped content.
     $this->mock(MenuApifyScraper::class, function ($m) {
