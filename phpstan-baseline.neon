@@ -25,12 +25,6 @@ parameters:
 			path: app/Console/Commands/RetryUnavailableMenusCommand.php
 
 		-
-			message: '#^Offset ''candidates'' on array\{candidates\: list\<array\>\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Console/Commands/ScanWebsiteCommand.php
-
-		-
 			message: '#^Strict comparison using \=\=\= between non\-empty\-array\<string, mixed\> and null will always evaluate to false\.$#'
 			identifier: identical.alwaysFalse
 			count: 1
@@ -1729,42 +1723,6 @@ parameters:
 			path: app/Http/Resources/UserDashboardResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$style_analysis\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
-
-		-
-			message: '#^Offset ''candidates'' on array\{candidates\: list\<array\>\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
-
-		-
-			message: '#^Offset ''mode'' on array\{v\: int, url\: string, finalUrl\: string\|null, ok\: bool, mode\: string, failure\: string\|null, analyzedAt\: string, accent\: array\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
-
-		-
-			message: '#^Offset ''signals'' on array\{v\: int, url\: string, finalUrl\: string\|null, ok\: bool, mode\: string, failure\: string\|null, analyzedAt\: string, accent\: array\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>previous_website" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Jobs/Design/AnalyzePreviousWebsiteJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$email_sent_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -2509,12 +2467,6 @@ parameters:
 			path: app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>previous_website" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Services/Design/Presets/Factors/PreviousWebsiteFactor.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$target_var\.$#'
 			identifier: property.notFound
 			count: 1
@@ -2525,18 +2477,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Offset ''a'' on array\{r\: int, g\: int, b\: int, a\: float\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Design/Scan/EvidenceConclusions.php
-
-		-
-			message: '#^Offset 0 on non\-empty\-list\<string\> on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Design/Scan/EvidenceConclusions.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$invited_by\.$#'
@@ -3311,12 +3251,6 @@ parameters:
 			path: app/Models/Core/Site/ShopBrand.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$style_analysis\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php
-
-		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuCategory\>\:\:map\(\) contains unresolvable type\.$#'
 			identifier: argument.unresolvableType
 			count: 1
@@ -3446,12 +3380,6 @@ parameters:
 			path: app/Services/Design/Presets/RecipeSignals.php
 
 		-
-			message: '#^Strict comparison using \=\=\= between non\-empty\-array\<int, int\<1, max\>\> and array\{\} will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Services/Design/Scan/ScreenshotSampler.php
-
-		-
 			message: '#^Strict comparison using \=\=\= between array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} and null will always evaluate to false\.$#'
 			identifier: identical.alwaysFalse
 			count: 1
@@ -3495,13 +3423,6 @@ parameters:
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
-			path: app/Console/Commands/BackfillWebsiteAnalysesCommand.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
 
 		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
@@ -3510,13 +3431,6 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Jobs/Design/AnalyzeConnectionWebsitesJob.php
 
 		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
 		-
@@ -3538,13 +3452,6 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Cache/UserCacheService.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Design/Presets/Factors/OutsideWebsitesFactor.php
 
 		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
 		-
