@@ -12,11 +12,10 @@ use Illuminate\Support\Facades\DB;
 class StaffStatsController extends ApiController
 {
     // Single shared cache key — these stats are platform-wide, not per-user.
-    // 60s TTL caps DB load if anything ever polls this (status board, monitoring,
-    // mistaken auto-refresh) without making the numbers visibly stale to humans.
+    // 60s TTL (config-driven, see partna.cache.ttls.staff_ops_stats) caps DB load
+    // if anything ever polls this (status board, monitoring, mistaken
+    // auto-refresh) without making the numbers visibly stale to humans.
     private const CACHE_KEY = 'staff:ops:stats';
-
-    private const CACHE_TTL_SECONDS = 60;
 
     public function __construct(private readonly CacheLockService $cacheLock) {}
 
@@ -24,7 +23,7 @@ class StaffStatsController extends ApiController
     {
         $payload = $this->cacheLock->rememberLocked(
             self::CACHE_KEY,
-            self::CACHE_TTL_SECONDS,
+            (int) config('partna.cache.ttls.staff_ops_stats', 60),
             fn (): array => $this->buildPayload(),
         );
 

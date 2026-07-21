@@ -299,7 +299,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 app(FreshaScraper::class),
                 app(FreshaServiceProjector::class),
             ));
-            $r->get('fresha')->refreshEvery(2 * 86400);
+            $r->get('fresha')->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400));
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
@@ -343,7 +343,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 app(ShopCatalog::class),
                 app(IntegrationConnectionCacheRefresher::class),
             ));
-            $r->get('shop')->refreshEvery(6 * 3600);
+            $r->get('shop')->refreshEvery((int) config('partna.refresh.intervals.shop', 6 * 3600));
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
             $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));
@@ -434,18 +434,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // its fetch keeps a 40h internal freshness gate so ratings stay
             // ≤2 days stale instead of the old 6-day drift, while still
             // respecting Google's caching guidance.
-            $r->get('eventbrite')->refreshEvery(6 * 3600);
-            $r->get('humanitix')->refreshEvery(6 * 3600);
-            $r->get('youtube')->refreshEvery(12 * 3600);
-            $r->get('vimeo')->refreshEvery(12 * 3600);
-            $r->get('twitch')->refreshEvery(12 * 3600);
-            $r->get('youtube-music')->refreshEvery(12 * 3600);
-            $r->get('spotify')->refreshEvery(12 * 3600);
-            $r->get('soundcloud')->refreshEvery(12 * 3600);
-            $r->get('bandcamp')->refreshEvery(12 * 3600);
-            $r->get('apple-music')->refreshEvery(12 * 3600);
-            $r->get('apple-podcast')->refreshEvery(12 * 3600);
-            $r->get('google-business')->refreshEvery(2 * 86400);
+            $r->get('eventbrite')->refreshEvery((int) config('partna.refresh.intervals.eventbrite', 6 * 3600));
+            $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
+            $r->get('youtube')->refreshEvery((int) config('partna.refresh.intervals.youtube', 12 * 3600));
+            $r->get('vimeo')->refreshEvery((int) config('partna.refresh.intervals.vimeo', 12 * 3600));
+            $r->get('twitch')->refreshEvery((int) config('partna.refresh.intervals.twitch', 12 * 3600));
+            $r->get('youtube-music')->refreshEvery((int) config('partna.refresh.intervals.youtube-music', 12 * 3600));
+            $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
+            $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
+            $r->get('bandcamp')->refreshEvery((int) config('partna.refresh.intervals.bandcamp', 12 * 3600));
+            $r->get('apple-music')->refreshEvery((int) config('partna.refresh.intervals.apple-music', 12 * 3600));
+            $r->get('apple-podcast')->refreshEvery((int) config('partna.refresh.intervals.apple-podcast', 12 * 3600));
+            $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
 
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
             // Drives the single registry loop in routes/api/platforms.php. Bespoke

@@ -37,7 +37,7 @@ class PublicEmailSubscribeRequest extends BaseFormRequest
                 'required',
                 'string',
                 'max:50',
-                Rule::in(config('subscriptions.public_list_keys', ['marketing'])),
+                Rule::in(config('partna.notifications.subscription_list_keys.public', ['marketing'])),
             ],
 
             // Bot protection (honeypot + timing) — canonical rules in WithBotProtection.

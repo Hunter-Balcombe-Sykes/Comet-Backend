@@ -39,7 +39,7 @@ class UserEnquiryController extends ApiController
         }
 
         $page = $query->orderByDesc('created_at')
-            ->paginate((int) $request->integer('per_page', 20));
+            ->paginate((int) $request->integer('per_page', config('partna.limits.pagination.enquiries_per_page', 20)));
 
         // through() transforms items in place; the paginator's count metadata
         // is untouched so paginatedResponse() still emits the canonical

@@ -36,11 +36,6 @@ class DevInsightsController extends ApiController
     ) {}
 
     /**
-     * Days of daily-series history to return (the per-entity change-over-time graph).
-     */
-    private const SERIES_DAYS = 30;
-
-    /**
      * Mirrors ComputeContentPopularityScores::CLICK_SECTION_TO_ITEM_TYPE (a private
      * const there, not importable). Maps a click's section_key → the item_type its
      * clicks score as, so this endpoint can attribute link_clicks to the same item
@@ -67,7 +62,10 @@ class DevInsightsController extends ApiController
     public function index(Request $request): JsonResponse
     {
         $site = $this->currentSite($this->currentUser($request));
-        $since = Carbon::now()->utc()->subDays(self::SERIES_DAYS)->startOfDay();
+        // Dev/testing endpoint only — days of daily-series history to return
+        // (the per-entity change-over-time graph).
+        $seriesDays = (int) config('partna.analytics.dev_insights_series_days', 30);
+        $since = Carbon::now()->utc()->subDays($seriesDays)->startOfDay();
 
         // Same freshness boosts the scoring job applies — surfaced so the score
         // breakdown can show the additive term per page / link item.

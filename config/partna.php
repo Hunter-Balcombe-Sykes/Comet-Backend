@@ -288,6 +288,22 @@ return [
                 'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
             ],
         ],
+
+        // CFG-3 (user-api audit): dashboard list endpoint pagination / query-limit
+        // defaults, previously hardcoded literals scattered across four
+        // controllers (UserEnquiryController, NotificationController,
+        // UserServiceCategoryController, UserServiceController). Values are
+        // today's literals unchanged — filling in the same "tunable without a
+        // redeploy" gap this block already covers for the Apify caps above.
+        'pagination' => [
+            'enquiries_per_page' => (int) env('PARTNA_LIMITS_ENQUIRIES_PER_PAGE', 20),
+            'notifications_limit_default' => (int) env('PARTNA_LIMITS_NOTIFICATIONS_LIMIT_DEFAULT', 50),
+            'notifications_limit_max' => (int) env('PARTNA_LIMITS_NOTIFICATIONS_LIMIT_MAX', 200),
+            // B18/API-4: raw ->limit() caps, not true pagination — see the
+            // controllers' inline comments.
+            'service_categories_max' => (int) env('PARTNA_LIMITS_SERVICE_CATEGORIES_MAX', 200),
+            'services_max' => (int) env('PARTNA_LIMITS_SERVICES_MAX', 500),
+        ],
     ],
 
     // Apify actor id for the Instagram profile scrape (InstagramScraper::fetchProfile).
@@ -900,6 +916,27 @@ return [
         // Dedicated per-minute limit for the login resolve-identifier endpoint (P2-44).
         // Mirrors typical mistyped-handle retry behaviour while bounding enumeration.
         'login_identifier_per_minute' => (int) env('PARTNA_LOGIN_IDENTIFIER_PER_MINUTE', 20),
+
+        // CFG-2 (authz-core audit): the remaining limiters in
+        // AppServiceProvider::configureRateLimiting() that were still hardcoded
+        // literals, extended to match the config-driven pattern above. Values are
+        // today's literals unchanged — this is a config-hygiene extraction, not a
+        // traffic-shaping change.
+        'analytics_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_PER_MINUTE', 120),
+        'analytics_click_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_CLICK_PER_MINUTE', 5),
+        'leads_per_minute_ip' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_IP', 3),
+        'leads_per_minute_subdomain' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_SUBDOMAIN', 100),
+        'authenticated_per_minute' => (int) env('PARTNA_THROTTLE_AUTHENTICATED_PER_MINUTE', 300),
+        'staff_per_minute' => (int) env('PARTNA_THROTTLE_STAFF_PER_MINUTE', 300),
+        'webhooks_per_minute' => (int) env('PARTNA_THROTTLE_WEBHOOKS_PER_MINUTE', 200),
+        'bootstrap_per_minute' => (int) env('PARTNA_THROTTLE_BOOTSTRAP_PER_MINUTE', 5),
+        'early_access_per_minute' => (int) env('PARTNA_THROTTLE_EARLY_ACCESS_PER_MINUTE', 5),
+        'early_access_per_day' => (int) env('PARTNA_THROTTLE_EARLY_ACCESS_PER_DAY', 20),
+        'early_access_per_hour_email' => (int) env('PARTNA_THROTTLE_EARLY_ACCESS_PER_HOUR_EMAIL', 12),
+        'public_subscribe_per_minute' => (int) env('PARTNA_THROTTLE_PUBLIC_SUBSCRIBE_PER_MINUTE', 5),
+        'public_subscribe_per_hour_email' => (int) env('PARTNA_THROTTLE_PUBLIC_SUBSCRIBE_PER_HOUR_EMAIL', 12),
+        'session_writes_per_minute' => (int) env('PARTNA_THROTTLE_SESSION_WRITES_PER_MINUTE', 10),
+        'document_download_per_hour' => (int) env('PARTNA_THROTTLE_DOCUMENT_DOWNLOAD_PER_HOUR', 10),
     ],
 
     /*
@@ -957,6 +994,13 @@ return [
             'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
             rtrim(config('app.url'), '/').'/api/analytics'
         ),
+
+        // CFG-2 (public-surface audit): QrCodeController's SVG generation
+        // params — the QR points at the professional's public partna_url, so
+        // this lives alongside the rest of the public-profile surface. Values
+        // unchanged.
+        'qr_code_size' => (int) env('PARTNA_PUBLIC_PROFILE_QR_CODE_SIZE', 320),
+        'qr_code_margin' => (int) env('PARTNA_PUBLIC_PROFILE_QR_CODE_MARGIN', 10),
     ],
 
     // Version token for the design_kits column-list cache
@@ -1370,6 +1414,30 @@ return [
             // e.g. 'google-business' => 30,
         ],
 
+        // CFG-3 (authz-core audit): per-platform refresh cadences for the hourly
+        // dispatcher, previously hardcoded arithmetic literals in
+        // PlatformRegistryServiceProvider's refreshEvery() calls. Each call site
+        // reads its own key here with today's literal as the inline fallback, so
+        // an unset entry is a no-op — mirrors rate_limits' per-platform-with-
+        // default shape above. Platforms not listed here declare no
+        // refreshEvery() override and fall back to default_ttl_seconds instead.
+        'intervals' => [
+            'eventbrite' => (int) env('PARTNA_REFRESH_INTERVAL_EVENTBRITE', 6 * 3600),
+            'humanitix' => (int) env('PARTNA_REFRESH_INTERVAL_HUMANITIX', 6 * 3600),
+            'shop' => (int) env('PARTNA_REFRESH_INTERVAL_SHOP', 6 * 3600),
+            'fresha' => (int) env('PARTNA_REFRESH_INTERVAL_FRESHA', 2 * 86400),
+            'youtube' => (int) env('PARTNA_REFRESH_INTERVAL_YOUTUBE', 12 * 3600),
+            'vimeo' => (int) env('PARTNA_REFRESH_INTERVAL_VIMEO', 12 * 3600),
+            'twitch' => (int) env('PARTNA_REFRESH_INTERVAL_TWITCH', 12 * 3600),
+            'youtube-music' => (int) env('PARTNA_REFRESH_INTERVAL_YOUTUBE_MUSIC', 12 * 3600),
+            'spotify' => (int) env('PARTNA_REFRESH_INTERVAL_SPOTIFY', 12 * 3600),
+            'soundcloud' => (int) env('PARTNA_REFRESH_INTERVAL_SOUNDCLOUD', 12 * 3600),
+            'bandcamp' => (int) env('PARTNA_REFRESH_INTERVAL_BANDCAMP', 12 * 3600),
+            'apple-music' => (int) env('PARTNA_REFRESH_INTERVAL_APPLE_MUSIC', 12 * 3600),
+            'apple-podcast' => (int) env('PARTNA_REFRESH_INTERVAL_APPLE_PODCAST', 12 * 3600),
+            'google-business' => (int) env('PARTNA_REFRESH_INTERVAL_GOOGLE_BUSINESS', 2 * 86400),
+        ],
+
         // Staleness alarm thresholds (integrations:refresh-backlog).
         'backlog' => [
             // Overdue = not refreshed within (ttl × grace_multiplier).
@@ -1516,6 +1584,23 @@ return [
         'mandatory_categories' => [
             'policy_update',
         ],
+
+        // CFG-1 (public-surface audit): mailing-list key allowlists, migrated
+        // from the standalone config/subscriptions.php so subscription config
+        // lives with the rest of notifications config instead of a second file
+        // a developer has to know exists. public = subscribable from public
+        // (unauthenticated) endpoints (PublicEmailSubscribeRequest); global =
+        // staff/internal only, currently unread by any call site.
+        'subscription_list_keys' => [
+            'public' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env('PARTNA_SUBSCRIPTION_PUBLIC_LIST_KEYS', 'marketing'))
+            ))),
+            'global' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env('PARTNA_SUBSCRIPTION_GLOBAL_LIST_KEYS', 'sidest_updates'))
+            ))),
+        ],
     ],
 
     /*
@@ -1625,6 +1710,11 @@ return [
             'per_page' => 25,
             'per_page_max' => 100,
         ],
+
+        // CFG-3 (staff-api audit): truncation cap for the User-Agent string
+        // persisted to core.handle_change_log on a staff-initiated site rename
+        // (StaffSiteManagementController::update). Value unchanged.
+        'audit_user_agent_max_length' => (int) env('PARTNA_STAFF_AUDIT_UA_MAX_LENGTH', 1024),
     ],
 
     'feedback' => [
@@ -1714,6 +1804,16 @@ return [
             // anchor and re-queue an already-sent auth email. One key so the two
             // can't drift apart.
             'webhook_timestamp_tolerance' => (int) env('PARTNA_CACHE_TTL_WEBHOOK_TIMESTAMP_TOLERANCE', env('CACHE_TTL_WEBHOOK_TIMESTAMP_TOLERANCE', 300)), // 5m
+
+            // CFG-1/CFG-2 (staff-api audit): staff ops-dashboard TTLs, previously
+            // hardcoded class constants (StaffAggregateAnalyticsController,
+            // StaffStatsController). Values unchanged.
+            'staff_aggregate_analytics_summary' => (int) env('PARTNA_CACHE_TTL_STAFF_AGGREGATE_ANALYTICS_SUMMARY', 60),
+            'staff_ops_stats' => (int) env('PARTNA_CACHE_TTL_STAFF_OPS_STATS', 60),
+
+            // CFG-2 (public-surface audit): browser/CDN cache lifetime for
+            // QrCodeController's SVG response. Value unchanged.
+            'qr_code_svg' => (int) env('PARTNA_CACHE_TTL_QR_CODE_SVG', 86400), // 24h
         ],
     ],
 
@@ -1860,6 +1960,20 @@ return [
         // rendered, so UserAnalyticsController::summary() clamps the LOOKBACK to this
         // window instead of the full range.
         'hourly_bucket_max_days' => (int) env('PARTNA_ANALYTICS_HOURLY_BUCKET_MAX_DAYS', 7),
+
+        // CFG-1 (user-api audit): UserAnalyticsController::summary() date-range
+        // clamping constants. max_days_all_time caps the ?days= request param;
+        // max_window_days is the hard server-side clamp on the resolved from/to
+        // span; default_hourly_lookback_hours is both the implicit "hour" grouping
+        // window (no from/to given) and the cutoff used to decide whether a range
+        // qualifies for hourly buckets.
+        'max_days_all_time' => (int) env('PARTNA_ANALYTICS_MAX_DAYS_ALL_TIME', 3650),
+        'max_window_days' => (int) env('PARTNA_ANALYTICS_MAX_WINDOW_DAYS', 730),
+        'default_hourly_lookback_hours' => (int) env('PARTNA_ANALYTICS_DEFAULT_HOURLY_LOOKBACK_HOURS', 24),
+
+        // CFG-2 (user-api audit): DevInsightsController's daily-series lookback
+        // window. Dev/testing endpoint only (GET /api/professional/dev-insights).
+        'dev_insights_series_days' => (int) env('PARTNA_ANALYTICS_DEV_INSIGHTS_SERIES_DAYS', 30),
 
         // Section-key → display label for the analytics "top sections" chart. Add a new
         // architecture section here — no code deploy needed. Unknown keys fall back to a

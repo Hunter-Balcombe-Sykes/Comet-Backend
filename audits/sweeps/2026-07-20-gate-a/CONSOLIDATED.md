@@ -655,19 +655,19 @@ Do **after** B1 — B1 changes the invalidation call sites these helpers would w
 `config/partna.php` is the canonical home for all Partna limits and flags. These are literals
 that should live there. Purely mechanical — do last.
 
-- [ ] **`authz-core/SEC-1`** · P3 · S — `EnsurePartnaAdmin`'s staff-lookup fallback is dead code given the app's fixed middleware order → `sources/authz-core.md`
+- [x] **`authz-core/SEC-1`** · P3 · S — `EnsurePartnaAdmin`'s staff-lookup fallback is dead code given the app's fixed middleware order → `sources/authz-core.md`
   - Delete the fallback query; treat a missing `partna_staff` attribute as a hard failure. Verify the middleware ordering claim against `bootstrap/app.php` before deleting.
-- [ ] **`authz-core/CFG-1`** · P3 · S — Hardcoded HTTP timeouts in `SupabaseAdminService` instead of the existing shared config key → `sources/authz-core.md`
-- [ ] **`authz-core/CFG-2`** · P3 · M — Rate limits hardcoded in `AppServiceProvider::configureRateLimiting()` → `sources/authz-core.md`
-- [ ] **`authz-core/CFG-3`** · P3 · M — Platform refresh intervals hardcoded in `PlatformRegistryServiceProvider` → `sources/authz-core.md`
-- [ ] **`user-api/CFG-1`** · P3 · S — Analytics date-range clamping constants hardcoded → `sources/user-api.md`
-- [ ] **`user-api/CFG-2`** · P3 · S — `SERIES_DAYS` hardcoded in the dev-insights controller → `sources/user-api.md`
-- [ ] **`user-api/CFG-3`** · P3 · M — Pagination and query-limit defaults hardcoded across dashboard list endpoints → `sources/user-api.md`
-- [ ] **`staff-api/CFG-1`** · P3 · S — Hardcoded cache TTL in `StaffAggregateAnalyticsController` → `sources/staff-api.md`
-- [ ] **`staff-api/CFG-2`** · P3 · S — Hardcoded cache TTL in `StaffStatsController` → `sources/staff-api.md`
-- [ ] **`staff-api/CFG-3`** · P3 · S — Magic number for user-agent truncation in `StaffSiteManagementController` → `sources/staff-api.md`
-- [ ] **`public-surface/CFG-1`** · P3 · S — Public subscription list-key allowlist lives in `config/subscriptions.php` instead of `config/partna.php` → `sources/public-surface.md`
-- [ ] **`public-surface/CFG-2`** · P3 · S — QR code size, margin, and cache lifetime hardcoded → `sources/public-surface.md`
+- [x] **`authz-core/CFG-1`** · P3 · S — Hardcoded HTTP timeouts in `SupabaseAdminService` instead of the existing shared config key → `sources/authz-core.md`
+- [x] **`authz-core/CFG-2`** · P3 · M — Rate limits hardcoded in `AppServiceProvider::configureRateLimiting()` → `sources/authz-core.md`
+- [x] **`authz-core/CFG-3`** · P3 · M — Platform refresh intervals hardcoded in `PlatformRegistryServiceProvider` → `sources/authz-core.md`
+- [x] **`user-api/CFG-1`** · P3 · S — Analytics date-range clamping constants hardcoded → `sources/user-api.md`
+- [x] **`user-api/CFG-2`** · P3 · S — `SERIES_DAYS` hardcoded in the dev-insights controller → `sources/user-api.md`
+- [x] **`user-api/CFG-3`** · P3 · M — Pagination and query-limit defaults hardcoded across dashboard list endpoints → `sources/user-api.md`
+- [x] **`staff-api/CFG-1`** · P3 · S — Hardcoded cache TTL in `StaffAggregateAnalyticsController` → `sources/staff-api.md`
+- [x] **`staff-api/CFG-2`** · P3 · S — Hardcoded cache TTL in `StaffStatsController` → `sources/staff-api.md`
+- [x] **`staff-api/CFG-3`** · P3 · S — Magic number for user-agent truncation in `StaffSiteManagementController` → `sources/staff-api.md`
+- [x] **`public-surface/CFG-1`** · P3 · S — Public subscription list-key allowlist lives in `config/subscriptions.php` instead of `config/partna.php` → `sources/public-surface.md`
+- [x] **`public-surface/CFG-2`** · P3 · S — QR code size, margin, and cache lifetime hardcoded → `sources/public-surface.md`
 
 ### Bundle B19 — Migration hygiene (non-blocking) · **P2/P3** · Effort M
 
