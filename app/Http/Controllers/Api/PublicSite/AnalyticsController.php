@@ -503,7 +503,11 @@ class AnalyticsController extends ApiController
 
         try {
             Log::info('rum', [
-                'handle' => strtolower($handle),
+                // PRIV-3: non-reversible — the raw handle is public (it's the
+                // subdomain), but hashing keeps this log line consistent with the
+                // rest of the codebase's hash-before-log convention and avoids a
+                // trivially greppable per-site RUM timing history.
+                'handle' => hash('sha256', strtolower($handle)),
                 'ttfb_ms' => isset($payload['ttfb']) ? (int) $payload['ttfb'] : null,
                 'dom_ms' => isset($payload['dom']) ? (int) $payload['dom'] : null,
                 'load_ms' => isset($payload['load']) ? (int) $payload['load'] : null,

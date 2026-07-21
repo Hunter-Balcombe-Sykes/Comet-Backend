@@ -2,6 +2,7 @@
 
 namespace App\Services\Auth;
 
+use App\Support\Concerns\MinimisesClientData;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -15,6 +16,8 @@ use Illuminate\Support\Str;
  */
 class AuthFactorEventRepository
 {
+    use MinimisesClientData;
+
     public const TABLE = 'audit.auth_factor_events';
 
     public const FAILURE_EVENT_TYPES = [
@@ -42,6 +45,17 @@ class AuthFactorEventRepository
      * violations, so SQLite tests cannot catch a bad-payload insert that
      * Postgres would reject.
      *
+     * PRIV-1: $ip/$userAgent are minimised before storage, never persisted
+     * verbatim. $userAgent collapses to "<browser family> / <platform>" (fits
+     * the existing `user_agent text` column directly). $ip is HMAC-hashed —
+     * but the `ip` column is Postgres `inet`, which cannot hold a hash string
+     * (an HMAC hex digest is not valid inet syntax; SQLite's TEXT-typed test
+     * column would silently accept it, masking the failure — see CLAUDE.md's
+     * SQLite-vs-Postgres schema drift warning). So the `ip` column is left
+     * null going forward and the hash is folded into `metadata` instead,
+     * which is already exported alongside these events. Additive only — rows
+     * written before this change keep their raw ip/user_agent.
+     *
      * @param  array<string, mixed>  $metadata
      */
     public function record(
@@ -57,6 +71,11 @@ class AuthFactorEventRepository
     ): string {
         $id = (string) Str::uuid();
 
+        $ipHash = $this->hashClientIp($ip);
+        if ($ipHash !== null) {
+            $metadata['ip_hash'] = $ipHash;
+        }
+
         // insertOrIgnore returns an affected-row count, not the id. On a
         // suppressed duplicate (affected === 0) the freshly-minted $id above
         // was never persisted, so we look up the row that actually won the
@@ -70,8 +89,8 @@ class AuthFactorEventRepository
             'event_type' => $eventType,
             'factor_id' => $factorId,
             'factor_type' => $factorType,
-            'ip' => $ip,
-            'user_agent' => $userAgent,
+            'ip' => null,
+            'user_agent' => $this->summariseUserAgent($userAgent),
             'metadata' => json_encode($metadata),
             'webhook_id' => $webhookId,
             'created_at' => now()->toIso8601String(),

@@ -46,8 +46,8 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 24 of 69 complete
-- P3 Low: 5 of 46 complete
+- P2 Medium: 31 of 69 complete
+- P3 Low: 8 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
@@ -69,6 +69,7 @@ every draft rather than the scan reading nothing.
 > for the three re-tiers recorded below.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
+**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -455,17 +456,26 @@ All of this sits behind `require.aal2` + a `core.partna_staff` row, which is why
 Ten findings, six runs, one theme: identifiers written to logs or audit tables raw where the
 codebase's own hash-before-log pattern exists elsewhere in the same file.
 
-- [ ] **`webhooks-internal/PRIV-1`** · P2 · M — CSP report sink logs raw IP/UA/URL to Nightwatch with no redaction, on an unauthenticated internet-reachable endpoint → `sources/webhooks-internal.md`
-- [ ] **`authz-core/PRIV-1`** · P2 · M — Auth-factor audit log stores raw IP and User-Agent with no minimisation → `sources/authz-core.md`
-  - Extract a shared minimiser used by both `TokenRevocationService` and `AuthFactorEventRepository`; HMAC-SHA256 the IP.
-- [ ] **`outbound-ssrf/PRIV-1`** · P2 · M — Original image/video uploads stored verbatim without EXIF/GPS stripping → `sources/outbound-ssrf.md`
-- [ ] **`public-surface/PRIV-4`** · P2 · S — Bootstrap collision path logs a real user's raw email to persistent structured logs → `sources/public-surface.md`
-- [ ] **`public-surface/PRIV-1`** · P2 · S — Newsletter signup infers and stores a subscriber's real name from their email address without consent → `sources/public-surface.md`
-- [ ] **`public-surface/PRIV-2`** · P2 · S — `PublicCustomerLeadController` stores a raw unbounded User-Agent, inconsistent with its own `logLead()` → `sources/public-surface.md`
-- [ ] **`public-surface/PRIV-3`** · P2 · S — RUM beacon logs a professional's handle unhashed while hashing every other identifying field in the same call → `sources/public-surface.md`
-- [ ] **`requests-resources/PRIV-2`** · P3 · S — Analytics endpoints store the raw referrer URL with no query-string minimisation → `sources/requests-resources.md`
-- [ ] **`requests-resources/PRIV-3`** · P3 · S — `PublicCustomerLeadRequest` trims but doesn't `strip_tags` the notes field, unlike the sibling public-form pattern → `sources/requests-resources.md`
-- [ ] **`edge-worker/PRIV-1`** · P3 · S — Worker error logs include the raw handle/hostname/URL in structured fields → `sources/edge-worker.md`
+- [x] **`webhooks-internal/PRIV-1`** · P2 · M — CSP report sink logs raw IP/UA/URL to Nightwatch with no redaction, on an unauthenticated internet-reachable endpoint → `sources/webhooks-internal.md`
+  - **Fixed.** `CspReportController`: raw `ip` → `ip_hash` via `HashesClientData::hashIp` (HMAC-SHA256); `normalise()` strips query strings from `document-uri`/`blocked-uri` (all key casings), keeping scheme+host+path; CSP sentinels (`inline`/`eval`/`self`) pass through untouched. Auth/throttle unchanged.
+- [x] **`authz-core/PRIV-1`** · P2 · M — Auth-factor audit log stores raw IP and User-Agent with no minimisation → `sources/authz-core.md`
+  - **Fixed with a schema-forced deviation (verified in review).** `audit.auth_factor_events.ip` is Postgres `inet` — an HMAC hex string is NOT valid inet and would insert-FAIL on Postgres while passing SQLite (the string-literal trap). So new rows write `ip = NULL` and fold the HMAC into the existing `metadata` jsonb (`metadata.ip_hash`); `user_agent` → browser/platform summary. New shared trait `App\Support\Concerns\MinimisesClientData` (`hashClientIp` HMAC-SHA256 via `app.key`, `summariseUserAgent`); `TokenRevocationService` left unchanged (minimal blast radius). Additive only, no migration. `countRecentFailures` keys on user_id+factor_id (not ip/ua) — confirmed safe.
+- [x] **`outbound-ssrf/PRIV-1`** · P2 · M — Original image/video uploads stored verbatim without EXIF/GPS stripping → `sources/outbound-ssrf.md`
+  - **Deferred to a dedicated media-pipeline task (Josh, 2026-07-21).** Exposure analysis: public variants are already EXIF-clean (GD re-encode drops it); only the private-ACL original backup (not publicly served, kept for re-processing) retains EXIF. The GD re-encode fix would recompress/degrade the DR original, and video needs a separate `ffmpeg -map_metadata` remux — M-effort on the hot upload path for a low-exposure private backup. Not folded into a log-hygiene bundle.
+- [x] **`public-surface/PRIV-4`** · P2 · S — Bootstrap collision path logs a real user's raw email to persistent structured logs → `sources/public-surface.md`
+  - **`no_change_needed` — already fixed by `4559cecc` (2026-07-20, "hash identifiers before logging — SEC-5/SEC-102").** `BootstrapController` already logs `email_hash`; no raw `email` remains in that log call. Confirmed by `git blame` in review — genuinely pre-existing, not a same-session edit.
+- [x] **`public-surface/PRIV-1`** · P2 · S — Newsletter signup infers and stores a subscriber's real name from their email address without consent → `sources/public-surface.md`
+  - **Won't-fix (Josh, 2026-07-21).** The name-inference is a deliberately-built feature; kept. Recorded as a product decision, not a code defect (same class as B6 `requests-resources/PRIV-1`).
+- [x] **`public-surface/PRIV-2`** · P2 · S — `PublicCustomerLeadController` stores a raw unbounded User-Agent, inconsistent with its own `logLead()` → `sources/public-surface.md`
+  - **Landed early (commit `51e7d1a9`, Josh).** UA capped via `AnalyticsEventSanitizer::userAgent` in `upsertMarketingSubscription`. Verified correct in the P2 session.
+- [x] **`public-surface/PRIV-3`** · P2 · S — RUM beacon logs a professional's handle unhashed while hashing every other identifying field in the same call → `sources/public-surface.md`
+  - **Fixed.** `AnalyticsController::rum` now logs `hash('sha256', strtolower($handle))`.
+- [x] **`requests-resources/PRIV-2`** · P3 · S — Analytics endpoints store the raw referrer URL with no query-string minimisation → `sources/requests-resources.md`
+  - **`no_change_needed` — already fixed.** `AnalyticsController::buildEvent()` funnels every beacon through `AnalyticsEventSanitizer::referrer()` (strips query string + fragment) in the write path; the validators intentionally still accept a raw referrer so beacons don't 422. Pre-existing (`2ad3d7cb`). Verified in review.
+- [x] **`requests-resources/PRIV-3`** · P3 · S — `PublicCustomerLeadRequest` trims but doesn't `strip_tags` the notes field, unlike the sibling public-form pattern → `sources/requests-resources.md`
+  - **Landed early (commit `51e7d1a9`, Josh).** `strip_tags` applied to `notes`, matching `PublicEnquiryRequest`. Verified correct in the P2 session.
+- [x] **`edge-worker/PRIV-1`** · P3 · S — Worker error logs include the raw handle/hostname/URL in structured fields → `sources/edge-worker.md`
+  - **Deferred to the B13 Worker session** (same file `cloudflare-worker/src/index.js`, same single deploy path; P3, the handle is the visitor's own public URL already visible to Cloudflare on every request). Tracked with B13's Worker changes rather than touching the Worker in a log-hygiene bundle.
 
 ### Bundle B8 — Retention windows that never prune · **P2** · Effort M
 

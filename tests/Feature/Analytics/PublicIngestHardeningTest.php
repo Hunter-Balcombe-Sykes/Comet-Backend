@@ -188,3 +188,19 @@ it('caps the rum beacon UA at 256 chars via the shared sanitiser (no ellipsis ma
         ->postJson('/api/public/analytics/rum', ['handle' => 'sem1-platform-case'])
         ->assertStatus(200);
 });
+
+// --- B7/PRIV-3: rum() handle is hashed, not logged in the clear -------------------
+
+it('hashes the rum beacon handle instead of logging it raw', function () {
+    Log::shouldReceive('info')
+        ->once()
+        ->with('rum', Mockery::on(function (array $context) {
+            expect($context['handle'])->toBe(hash('sha256', 'priv3-handle-case'));
+            expect($context['handle'])->not->toBe('priv3-handle-case');
+
+            return true;
+        }));
+
+    $this->postJson('/api/public/analytics/rum', ['handle' => 'PRIV3-Handle-Case'])
+        ->assertStatus(200);
+});

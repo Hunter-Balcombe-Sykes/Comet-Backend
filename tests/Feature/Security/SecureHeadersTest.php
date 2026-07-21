@@ -201,3 +201,59 @@ it('truncates oversized CSP report string fields before logging', function () {
     expect(strlen($logged['report']['blocked-uri']))->toBeLessThanOrEqual(2051);
     expect($logged['report']['blocked-uri'])->toEndWith('…');
 });
+
+it('B7/PRIV-1: strips the query string from document-uri and blocked-uri before logging', function () {
+    $logged = null;
+    Log::shouldReceive('error')
+        ->once()
+        ->with('csp.violation', Mockery::on(function ($ctx) use (&$logged) {
+            $logged = $ctx;
+
+            return true;
+        }));
+
+    $payload = ['csp-report' => [
+        'document-uri' => 'https://handle.partna.au/page?email=someone%40example.com&ref=abc',
+        'blocked-uri' => 'https://evil.example.com/x.js?token=secret123',
+        'violated-directive' => "script-src 'self'",
+    ]];
+
+    $this->postJson('/api/internal/csp-report', $payload)->assertStatus(204);
+
+    expect($logged['report']['csp-report']['document-uri'])->toBe('https://handle.partna.au/page');
+    expect($logged['report']['csp-report']['blocked-uri'])->toBe('https://evil.example.com/x.js');
+});
+
+it('B7/PRIV-1: leaves non-URL blocked-uri sentinel values (inline/eval/self) unchanged', function () {
+    $logged = null;
+    Log::shouldReceive('error')
+        ->once()
+        ->with('csp.violation', Mockery::on(function ($ctx) use (&$logged) {
+            $logged = $ctx;
+
+            return true;
+        }));
+
+    $this->postJson('/api/internal/csp-report', ['csp-report' => ['blocked-uri' => 'inline']])
+        ->assertStatus(204);
+
+    expect($logged['report']['csp-report']['blocked-uri'])->toBe('inline');
+});
+
+it('B7/PRIV-1: hashes the caller IP instead of logging it raw', function () {
+    $logged = null;
+    Log::shouldReceive('error')
+        ->once()
+        ->with('csp.violation', Mockery::on(function ($ctx) use (&$logged) {
+            $logged = $ctx;
+
+            return true;
+        }));
+
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.42'])
+        ->postJson('/api/internal/csp-report', ['csp-report' => ['violated-directive' => "script-src 'self'"]])
+        ->assertStatus(204);
+
+    expect($logged)->not->toHaveKey('ip');
+    expect($logged['ip_hash'])->toBe(hash_hmac('sha256', '203.0.113.42', config('app.key')));
+});

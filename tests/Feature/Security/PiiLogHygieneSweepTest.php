@@ -116,3 +116,36 @@ it('SEC-102: no InstagramScraper Log:: call embeds an un-hashed Instagram userna
     // asserts on the captured Log::warning context, including the normalised
     // (case-insensitive) hash from Defect 1.
 });
+
+it('B7/PRIV-1: CspReportController hashes the caller IP instead of logging it raw', function () {
+    $src = readSource('app/Http/Controllers/Api/Internal/CspReportController.php');
+
+    expect($src)
+        ->not->toContain("'ip' => \$request->ip()")
+        ->and($src)->toContain("'ip_hash' => \$this->hashIp(\$request->ip())");
+    // Behavioural coverage: tests/Feature/Security/SecureHeadersTest.php's
+    // "hashes the caller IP instead of logging it raw" case drives the
+    // controller and asserts on the captured Log::error context.
+});
+
+it('B7/PRIV-1: AuthFactorEventRepository does not store a raw ip/user_agent on insert', function () {
+    $src = readSource('app/Services/Auth/AuthFactorEventRepository.php');
+
+    expect($src)
+        ->not->toContain("'ip' => \$ip,")
+        ->and($src)->not->toContain("'user_agent' => \$userAgent,");
+    // Behavioural coverage: tests/Feature/Auth/AuthFactorEventRepositoryTest.php's
+    // "minimises ip/user_agent instead of storing them verbatim" case inserts a
+    // row and asserts on the persisted columns + metadata.
+});
+
+it('B7/PRIV-3: AnalyticsController rum() hashes the handle instead of logging it raw', function () {
+    $src = readSource('app/Http/Controllers/Api/PublicSite/AnalyticsController.php');
+
+    expect($src)
+        ->not->toContain("'handle' => strtolower(\$handle),")
+        ->and($src)->toContain("'handle' => hash('sha256', strtolower(\$handle)),");
+    // Behavioural coverage: tests/Feature/Analytics/PublicIngestHardeningTest.php's
+    // "hashes the rum beacon handle instead of logging it raw" case drives the
+    // rum() endpoint and asserts on the captured Log::info context.
+});

@@ -97,6 +97,35 @@ it('records webhook_id when supplied and returns the existing id on a duplicate'
     expect($secondId)->toBe($firstId);
 });
 
+it('B7/PRIV-1: minimises ip/user_agent instead of storing them verbatim', function () {
+    $repo = app(AuthFactorEventRepository::class);
+    $userId = (string) Str::uuid();
+    $factorId = (string) Str::uuid();
+    $rawIp = '203.0.113.42';
+    $rawUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+    $id = $repo->record(
+        userId: $userId,
+        eventType: 'verify_success',
+        factorId: $factorId,
+        factorType: 'totp',
+        ip: $rawIp,
+        userAgent: $rawUa,
+    );
+
+    $row = DB::connection('pgsql')->table('audit.auth_factor_events')->where('id', $id)->first();
+
+    // ip column is Postgres `inet` — cannot hold an HMAC hex string, so it's
+    // never populated; the hash goes into metadata instead (B7/PRIV-1).
+    expect($row->ip)->toBeNull();
+    expect($row->user_agent)->toBe('Chrome / macOS');
+    expect($row->user_agent)->not->toContain('Mozilla');
+
+    $metadata = json_decode((string) $row->metadata, true);
+    expect($metadata['ip_hash'])->toBe(hash_hmac('sha256', $rawIp, config('app.key')));
+    expect($metadata['ip_hash'])->not->toBe($rawIp);
+});
+
 it('allows multiple rows with a null webhook_id', function () {
     $repo = app(AuthFactorEventRepository::class);
     $userId = (string) Str::uuid();

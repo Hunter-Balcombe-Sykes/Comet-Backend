@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Internal;
 
+use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -21,11 +22,25 @@ use Illuminate\Support\Facades\Log;
  */
 class CspReportController extends Controller
 {
+    use HashesClientData;
+
     /** Max characters retained per string value when normalising a report. */
     private const MAX_STRING_LEN = 2048;
 
     /** Max top-level keys retained from a single report (defence vs giant payloads). */
     private const MAX_KEYS = 20;
+
+    /**
+     * Report fields that carry a URL and get their query string stripped before
+     * logging (PRIV-1) — browsers routinely echo the violating page's full URL
+     * here, which can carry PII in query params (e.g. an email in a tracking
+     * param). Covers both the legacy csp-report keys and the newer Reporting-API
+     * body's camelCase equivalents.
+     */
+    private const URL_FIELDS_TO_STRIP = [
+        'document-uri', 'documentURL', 'documentUri',
+        'blocked-uri', 'blockedURL', 'blockedUri',
+    ];
 
     public function __invoke(Request $request): Response
     {
@@ -48,7 +63,7 @@ class CspReportController extends Controller
         // regression introduced by a Horizon/Vue upgrade.
         Log::error('csp.violation', [
             'report' => self::normalise($payload),
-            'ip' => $request->ip(),
+            'ip_hash' => $this->hashIp($request->ip()),
             'ua' => substr((string) $request->userAgent(), 0, self::MAX_STRING_LEN),
         ]);
 
@@ -71,6 +86,9 @@ class CspReportController extends Controller
                 break;
             }
             if (is_string($value)) {
+                if (in_array($key, self::URL_FIELDS_TO_STRIP, true)) {
+                    $value = self::stripQueryString($value);
+                }
                 $out[$key] = strlen($value) > self::MAX_STRING_LEN
                     ? substr($value, 0, self::MAX_STRING_LEN).'…'
                     : $value;
@@ -84,5 +102,24 @@ class CspReportController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * Strip the query string from a document-uri/blocked-uri value, keeping
+     * scheme+host+path. Browsers also send non-URL sentinel values here
+     * ("inline", "eval", "self", "data") — parse_url() on those yields no
+     * host, so they pass through unchanged rather than being mangled.
+     */
+    private static function stripQueryString(string $value): string
+    {
+        $parts = parse_url($value);
+        if ($parts === false || empty($parts['host'])) {
+            return $value;
+        }
+
+        $scheme = $parts['scheme'] ?? 'https';
+        $path = $parts['path'] ?? '';
+
+        return $scheme.'://'.$parts['host'].$path;
     }
 }
