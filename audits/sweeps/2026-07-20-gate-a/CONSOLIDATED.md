@@ -48,7 +48,7 @@ every draft rather than the scan reading nothing.
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
 - P2 Medium: 59 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 16 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 6 of 9 complete (DISC-2, DISC-4, DISC-5, DISC-6, DISC-8, DISC-9).*
+- *Total reconciles to 128. Discovered during execution (outside the 128): 7 of 9 complete (DISC-2, DISC-3, DISC-4, DISC-5, DISC-6, DISC-8, DISC-9).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
@@ -143,7 +143,8 @@ from clean.**
   - **What to do:** point `config('partna.ffprobe_binary')` at a stub script (one exiting non-zero, one emitting crafted bad JSON) so the real `Process` → `\RuntimeException` → `InvalidVideoFileException` → 422 chain is exercised without mocking the class.
   - **Why it matters:** `requests-resources/SEC-2` was closed *because* this control is strictly stronger than the byte-sniff the audit asked for. But `MediaUploadFailureHandlingTest`, `MediaUploadBreadcrumbTest`, `GalleryMixedReorderTest`, `VideoUploadsFlagTest` and `MediaJobReliabilityTest` all `Mockery::mock(VideoVariantService::class)`, so **the control our closure relies on is verified by no automated test.** Its fail-closed behaviour was confirmed by manual experiment during review, not by CI. Someone narrowing the catch type, changing the ffprobe invocation, or a build script silently ceasing to install the binary would not be caught.
   - Surfaced during B4 review, not by the original audit.
-- [ ] **`discovered/DISC-3`** · P3 · M — Three shared SQLite test stubs still declare columns that production dropped
+- [x] **`discovered/DISC-3`** · P3 · M — Three shared SQLite test stubs still declare columns that production dropped
+  - **Done 2026-07-22:** removed the 15 dead columns — 5 profile cols (hero_title/hero_subtitle/primary_button_text/primary_button_url/bio_text, dropped by `20260705120002`) from `setupSitesTable()`'s CREATE list AND its `$promotedCols` ALTER map; 10 `square_*`/`fresha_*` cols from `setupServicesTable()` (never in the standalone baseline — baseline ~L924-929 document their v2 exclusion); and the false `whereNull('square_variation_id')` comment in `ServicesIsolationTest.php` (grep confirms zero `square_variation_id` in `app/`). Verified none present in current prod DDL, none referenced by `app/` or any test — the "191-file" readers of `setupSitesTable()` touch none of the removed columns, so removal was zero-breakage. Full suite green (4695 passed); independent Sonnet review PASS.
   - **Where:** `tests/Pest.php:489-493` (`setupSitesTable()` — `hero_title`, `hero_subtitle`, `primary_button_text`, `primary_button_url`, `bio_text`, all dropped by `20260705120002_drop_dead_profile_columns_tables.sql`) · `tests/Pest.php:1189-1198` (`setupServicesTable()` — all 10 dropped `square_*`/`fresha_*` columns) · `tests/Feature/Security/TenantIsolation/ServicesIsolationTest.php:18` (`square_variation_id`, dropped pre-baseline)
   - **What to do:** own cleanup unit, NOT folded into an audit bundle. `setupSitesTable()` is used by **191 test files**, so the blast radius warrants its own plan and review.
   - **Why this is lower severity than the B3 drift:** these are the *inverse* hazard — extra dead columns **present** in the stub, rather than real columns **missing** from it. Nothing in `app/` selects these names (verified by grep), so no query silently receives a string literal. It is schema drift, not a masked live bug.
