@@ -39,6 +39,15 @@ sequential suffixes (`…000001`, `…000002`, …); put any accompanying non-in
 `BEGIN`/`COMMIT` file. Enforced by `scripts/guard-no-unsafe-migrations.php` **Check 6** for files
 timestamped after `20260721000000`; nine pre-convention files are grandfathered.
 
+**Dropping an index on a hot table** follows the same rule: use `DROP INDEX CONCURRENTLY IF EXISTS`
+in its own one-statement file, never inside a `BEGIN`/`COMMIT`. A bare `DROP INDEX` takes
+`ACCESS EXCLUSIVE` on the index's table for the catalog write, blocking every writer until it
+completes — the same downtime class as a non-concurrent `CREATE INDEX`. Enforced by
+`scripts/guard-no-unsafe-migrations.php` **Check 7** for files timestamped after `20260722000000`
+(hot tables: `site.design_kits`, `site.sites`, `site.blocks`, `core.users`); pre-convention files
+are grandfathered, and any file that must deviate carries the
+`-- guard:no-unsafe-migrations:disable-file` marker with a written justification.
+
 Because those grandfathered bundles cannot be applied from zero by the CLI, **local fresh
 provisioning uses `scripts/db/fresh-reset.sh`** (a `psql` simple-query loop — each statement runs as
 its own top-level command, so `CONCURRENTLY` succeeds). The fresh-**prod** cutover uses the psql

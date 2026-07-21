@@ -3,12 +3,14 @@
 /**
  * Guard: no unsafe migration patterns (Master Pattern 20).
  *
- * Fails on five patterns that cause lock-induced downtime on populated tables:
+ * Fails on seven patterns that cause lock-induced downtime (or a failed from-zero apply):
  *   1. CREATE INDEX without CONCURRENTLY
  *   2. ADD CONSTRAINT ... FOREIGN KEY without NOT VALID
  *   3. ADD CONSTRAINT ... CHECK without NOT VALID
  *   4. ALTER COLUMN ... SET NOT NULL (must use the four-step NOT VALID pattern)
  *   5. DDL/DML on a hot table (HOT_TABLES) without a BEGIN + SET LOCAL lock_timeout
+ *   6. more than one statement in a file that contains a CONCURRENTLY statement (pipeline/25001)
+ *   7. DROP INDEX without CONCURRENTLY on a HOT_TABLES table
  *
  * Migrations with timestamps <= GRANDFATHERED_CUTOFF are skipped — they ran safely on
  * empty tables before this convention was established (2026-05-14, timestamp 20260514100000).
@@ -36,6 +38,15 @@ const TIMEOUT_GUARD_CUTOFF = '20260711999999';
 // grandfathered here; only NEW files must keep one CONCURRENTLY per file. At this cutoff
 // the check flags 0 files on a clean tree.
 const CONCURRENTLY_GUARD_CUTOFF = '20260721000000';
+
+// Check 7 (DROP INDEX non-CONCURRENTLY on a hot table) shipped 2026-07-22. Like
+// Checks 5 and 6 it needs its own boundary: one pre-existing file
+// (20260701180000_strip_block_settings_keys_and_views.sql) drops a hot-table index
+// inside a transaction and is already applied to dev, so it is grandfathered here.
+// (The two core.users drops in 20260718200000_pre_account_sites.sql are already
+// covered by that file's -- guard:no-unsafe-migrations:disable-file marker.) At this
+// cutoff the check flags 0 files on a clean tree; only NEW files are subject to it.
+const DROP_INDEX_GUARD_CUTOFF = '20260722000000';
 
 // Tables served by live traffic. The first three are named in
 // docs/migration-guidelines.md §Lock and statement timeouts; core.users is added
@@ -242,6 +253,57 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
                     ."  Put each CREATE/DROP INDEX CONCURRENTLY in its OWN file — one statement, no other\n"
                     ."  DDL/DML, no BEGIN/COMMIT (use sequential timestamp suffixes for a batch).\n"
                     .'  See: supabase/migrations/CONVENTIONS.md §1 and scripts/db/fresh-reset.sh';
+            }
+        }
+    }
+
+    // ── Check 7: DROP INDEX (non-CONCURRENTLY) on a HOT_TABLES table ───────────
+    // A bare DROP INDEX takes ACCESS EXCLUSIVE on the index's table for the catalog
+    // write, blocking every writer until it completes -- on a hot table it queues
+    // behind, and stalls, live traffic. DROP INDEX names the index, not the table,
+    // so the target table is inferred from the index name: flag a non-CONCURRENTLY
+    // drop whose (schema-stripped) index name contains a hot table's bare name as an
+    // underscore/anchor-delimited token. Heuristic in both directions: an index whose
+    // name omits the table name slips through (false negative), and one whose name
+    // collides with a hot table's token (e.g. user_sites_summary_idx matching `sites`)
+    // is flagged spuriously (false positive). It fails toward the safe pattern; use
+    // CONCURRENTLY, or the -- guard:no-unsafe-migrations:disable-file marker, to opt out.
+    if ($m[1] > DROP_INDEX_GUARD_CUTOFF) {
+        if (preg_match_all(
+            '/\bDROP\s+INDEX\b(\s+CONCURRENTLY\b)?(?:\s+IF\s+EXISTS\b)?\s+([\w.]+)/i',
+            $content,
+            $dropMatches,
+            PREG_SET_ORDER,
+        )) {
+            foreach ($dropMatches as $match) {
+                $hasConcurrently = ($match[1] ?? '') !== '';
+                if ($hasConcurrently) {
+                    continue;
+                }
+
+                // Strip an optional schema qualifier: site.idx_foo -> idx_foo.
+                $idxName = $match[2];
+                if (($dot = strrpos($idxName, '.')) !== false) {
+                    $idxName = substr($idxName, $dot + 1);
+                }
+
+                foreach (HOT_TABLES as $hotTable) {
+                    // Bare table name (strip schema): site.blocks -> blocks.
+                    $bare = $hotTable;
+                    if (($dotB = strrpos($bare, '.')) !== false) {
+                        $bare = substr($bare, $dotB + 1);
+                    }
+
+                    // \b is useless in snake_case (_blocks_ has no boundary), so match
+                    // the bare name delimited by underscores or the string ends.
+                    if (preg_match('/(^|_)'.preg_quote($bare, '/').'(_|$)/i', $idxName)) {
+                        $errors[] = "$basename: DROP INDEX without CONCURRENTLY on hot table `$hotTable` (index `{$match[2]}`).\n"
+                            ."  Use: DROP INDEX CONCURRENTLY IF EXISTS ... (in its OWN file, outside any transaction)\n"
+                            ."  A bare DROP INDEX takes ACCESS EXCLUSIVE and blocks writes for its duration.\n"
+                            .'  See: supabase/migrations/CONVENTIONS.md §1';
+                        break 2; // one error per file is enough
+                    }
+                }
             }
         }
     }
