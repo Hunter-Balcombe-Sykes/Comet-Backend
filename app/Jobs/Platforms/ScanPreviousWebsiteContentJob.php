@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Design\LogoAutoGrabber;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\WebsiteLinkHarvester;
@@ -140,7 +141,24 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // capability-gate-bypass bug class this job's design deliberately avoids).
         $harvested = $harvester->harvestHtml($html, $baseUrl);
         if ($harvested !== []) {
-            $googleBusinessAutoSync->seed($this->userId, $harvested, null, null);
+            // seed() returns the findings LIST directly (unlike InstagramAutoSync's
+            // ['findings' => …, 'unmatched' => …] wrapper).
+            $findings = array_filter($googleBusinessAutoSync->seed($this->userId, $harvested, null, null), 'is_array');
+
+            // This job runs from an observer on website change — no modal, no
+            // HTTP response. A conflict finding (found link clashing with an
+            // existing connection) previously vanished with the job; the bell
+            // is its only surface. Conflicts only — clean seeds are already
+            // visible as real connections in Integrations.
+            $hasConflict = array_filter($findings, static fn (array $f) => ($f['outcome'] ?? null) === 'conflict') !== [];
+            if ($hasConflict) {
+                app(FindingsNotifier::class)->notify(
+                    $this->userId,
+                    'website-scan-findings:'.$this->userId.':'.sha1($this->url),
+                    'We found more on your website',
+                    'Your website mentions an integration that clashes with one you have connected — review it in Integrations.',
+                );
+            }
         }
 
         // Accent colour + logo candidates — one shared favicon fetch, no

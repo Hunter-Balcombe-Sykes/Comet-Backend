@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -10,7 +11,19 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupNotificationsTable();
 });
+
+/** The pending IG connection row the scan job's findings merge back into. */
+function libIgConnection(User $user, array $payload = []): IntegrationConnection
+{
+    return IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'payload' => $payload,
+        'is_active' => true,
+    ]);
+}
 
 it('unrolls a link-in-bio page into a seeded integration and a custom link, without persisting the bio-link url itself', function () {
     Queue::fake(); // do not let CustomLinkSeeder's EnrichLinkCardJob actually run
@@ -101,6 +114,72 @@ it('does nothing when the fetch fails', function () {
     );
 
     expect(IntegrationConnection::where('user_id', $user->id)->exists())->toBeFalse();
+});
+
+it('merges a conflict finding into the IG payload syncFindings and notifies the user', function () {
+    // Before this, a conflict discovered one hop into a Linktree (e.g. a NEW
+    // booking provider clashing with the connected one) was computed and then
+    // thrown away — the user never learned a better link was found. Now it
+    // must land in the same payload syncFindings the /synced endpoint serves,
+    // plus a notification since the connect modal is likely long closed.
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'business']);
+    $ig = libIgConnection($user, ['syncFindings' => [], 'unmatched' => []]);
+    // An existing fresha connection with a DIFFERENT url — the scanned link conflicts.
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
+    ]);
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://www.fresha.com/a/new-venue">Book</a>', 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(App\Services\Http\SafeUrlFetcher::class),
+        app(App\Services\Platforms\WebsiteLinkHarvester::class),
+        app(App\Services\Platforms\InstagramAutoSync::class),
+        app(App\Services\Platforms\CustomLinkSeeder::class),
+    );
+
+    $findings = $ig->fresh()->payload['syncFindings'] ?? [];
+    expect($findings)->toHaveCount(1);
+    expect($findings[0]['platform'])->toBe('fresha');
+    expect($findings[0]['outcome'])->toBe('conflict');
+
+    $note = DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->first();
+    expect($note)->not->toBeNull();
+    expect($note->cta_url)->toBe('/account/integrations');
+});
+
+it('does not duplicate a finding for a platform the direct bio scan already recorded', function () {
+    Queue::fake();
+    $user = User::factory()->create(['account_type' => 'business']);
+    $existingFinding = [
+        'platform' => 'fresha', 'resourceId' => 'main', 'category' => 'booking',
+        'label' => 'Fresha', 'foundUrl' => 'https://www.fresha.com/a/from-bio',
+        'outcome' => 'conflict', 'apply' => ['remove' => ['fresha'], 'write' => []],
+    ];
+    $ig = libIgConnection($user, ['syncFindings' => [$existingFinding], 'unmatched' => []]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
+    ]);
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="https://www.fresha.com/a/new-venue">Book</a>', 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
+        app(App\Services\Http\SafeUrlFetcher::class),
+        app(App\Services\Platforms\WebsiteLinkHarvester::class),
+        app(App\Services\Platforms\InstagramAutoSync::class),
+        app(App\Services\Platforms\CustomLinkSeeder::class),
+    );
+
+    $findings = $ig->fresh()->payload['syncFindings'] ?? [];
+    expect($findings)->toHaveCount(1);
+    expect($findings[0]['foundUrl'])->toBe('https://www.fresha.com/a/from-bio');
+    // Nothing new surfaced — no notification either.
+    expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(0);
 });
 
 it('does nothing when the user no longer exists', function () {

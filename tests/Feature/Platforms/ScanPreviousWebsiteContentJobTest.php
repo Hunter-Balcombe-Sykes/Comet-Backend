@@ -46,6 +46,7 @@ beforeEach(function () {
     setupSitesTable();
     setupWorkplacesTable();
     setupDesignKitsTable();
+    setupNotificationsTable();
 });
 
 function spwcjUser(string $handle, string $accountType = 'business', string $sector = 'restaurant'): array
@@ -191,6 +192,40 @@ it('does not follow the one-hop menu link when the homepage already has menu dat
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
     Http::assertNotSent(fn ($request) => str_contains($request->url(), '/menu/'));
+});
+
+it('notifies the user when the website scan surfaces a conflict finding', function () {
+    // The scan runs from an observer on website change — no modal is open, no
+    // HTTP response carries the result. A conflict (found link clashing with an
+    // existing connection) previously vanished with the job; now it must raise
+    // a bell notification pointing at Integrations.
+    [$user, $site] = spwcjUser('spwcj10', 'business', 'hair-salon');
+    Workplace::create(['site_id' => (string) $site->id]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
+    ]);
+
+    Http::fake(['example.com' => Http::response('<a href="https://www.fresha.com/a/new-venue">Book</a>', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    $note = DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->first();
+    expect($note)->not->toBeNull();
+    expect($note->cta_url)->toBe('/account/integrations');
+});
+
+it('does not notify when the website scan finds nothing conflicting', function () {
+    [$user, $site] = spwcjUser('spwcj11', 'business', 'hair-salon');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    // A clean seed (no existing connection to clash with) writes the fresha
+    // connection outright — nothing needs the user's attention.
+    Http::fake(['example.com' => Http::response('<a href="https://www.fresha.com/a/venue">Book</a>', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(0);
 });
 
 it('fills the design_kits accent colour off the same fetch', function () {

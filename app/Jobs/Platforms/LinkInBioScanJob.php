@@ -2,10 +2,13 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\InstagramAutoSync;
+use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -95,6 +98,72 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             if (is_string($url)) {
                 $seeder->seed($user, $url);
             }
+        }
+
+        $this->mergeFindingsBack($findings);
+    }
+
+    /**
+     * Fold this scan's findings into the Instagram connection payload's
+     * syncFindings — the SAME list GET /platforms/instagram/synced serves — so
+     * a conflict found one hop into the bio page gets the identical Swap
+     * surface as one found directly in the bio, instead of vanishing when this
+     * job returns. Deduped by platform (the direct bio scan ran first and its
+     * finding for a platform stands). New findings also raise a notification:
+     * this job races the connect modal's lifetime, so by the time it lands the
+     * user has usually navigated away.
+     *
+     * @param  list<array<string,mixed>>  $findings
+     */
+    private function mergeFindingsBack(array $findings): void
+    {
+        if ($findings === []) {
+            return;
+        }
+
+        $ig = IntegrationConnection::query()
+            ->where('user_id', $this->userId)
+            ->where('platform', Platform::Instagram->value)
+            ->first();
+        if ($ig === null) {
+            return;
+        }
+
+        $payload = is_array($ig->payload) ? $ig->payload : [];
+        $existing = array_values(array_filter((array) ($payload['syncFindings'] ?? []), 'is_array'));
+        $seenPlatforms = array_flip(array_filter(array_map(
+            static fn (array $f) => $f['platform'] ?? null,
+            $existing,
+        ), 'is_string'));
+
+        $fresh = [];
+        foreach ($findings as $finding) {
+            $platform = $finding['platform'] ?? null;
+            if (is_string($platform) && ! isset($seenPlatforms[$platform])) {
+                $seenPlatforms[$platform] = true;
+                $fresh[] = $finding;
+            }
+        }
+        if ($fresh === []) {
+            return;
+        }
+
+        // Quiet write, matching InstagramController::applySync's findings-only
+        // update: syncFindings are internal (never in the public resource), so
+        // no cache purge or observer churn is warranted.
+        $ig->forceFill(['payload' => [...$payload, 'syncFindings' => [...$existing, ...$fresh]]])->saveQuietly();
+
+        // Bell only for conflicts — a decision the user doesn't know they have.
+        // Seeded findings are already visible as real connections in
+        // Integrations; pinging for those would just be noise.
+        $hasConflict = array_filter($fresh, static fn (array $f) => ($f['outcome'] ?? null) === 'conflict') !== [];
+        if ($hasConflict) {
+            app(FindingsNotifier::class)->notify(
+                $this->userId,
+                'link-in-bio-findings:'.$this->userId.':'.sha1($this->bioPageUrl),
+                'We found more in your bio link',
+                'Your link-in-bio page mentions an integration that clashes with one you have connected — review it in Integrations.',
+            );
         }
     }
 }
