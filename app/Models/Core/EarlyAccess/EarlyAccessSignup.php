@@ -5,6 +5,7 @@ namespace App\Models\Core\EarlyAccess;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Support\Carbon;
 
 // OV-A: early-access signup lifecycle row (waitlist → invited → signed_up).
 // Created by the public marketing endpoint (source=marketing) or staff manual
@@ -23,18 +24,18 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property array<int, string> $platforms
  * @property string $status
  * @property string $source
- * @property \Illuminate\Support\Carbon|null $invited_at
+ * @property Carbon|null $invited_at
  * @property string|null $invite_token_hash
  * @property array<string, mixed>|null $invite_meta
  * @property string|null $invited_by
- * @property \Illuminate\Support\Carbon|null $signed_up_at
+ * @property Carbon|null $signed_up_at
  * @property string|null $consent_ip_hash
  * @property string|null $consent_user_agent
  * @property string|null $source_type
  * @property string|null $source_ref
  * @property string|null $user_id
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class EarlyAccessSignup extends BaseModel
 {

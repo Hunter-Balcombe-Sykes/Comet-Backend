@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 /**
  * User-submitted feedback (bug/idea/praise/question/other).
@@ -37,9 +38,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property array<int, string> $tags
  * @property string $source
  * @property string|null $ip_hash
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
- * @property \Illuminate\Support\Carbon|null $deleted_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  * @property string|null $type
  * @property string|null $area
  * @property array<string, mixed>|null $target
