@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 0/10 · Tier 2: 0/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 0 done**
+- Tier 1: 2/10 · Tier 2: 0/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 2 done** (PWL-1, PWL-2)
 - Verified against `42bc6141`; line numbers current as of this baseline.
 
 ---
@@ -64,7 +64,7 @@ so wrapping a controller write cannot self-deadlock.
 ## Tier 1 — REAL (job ⇄ user, fix these)
 
 ### PWL-1 — GoogleBusinessController connect/applySync/forget vs GoogleBusinessEnrichJob (job locks, controller doesn't) — CONTROLLER-side, non-blocker, S–M
-- [ ] Fix
+- [x] Fix — wrapped connect/applySync/forget; applySync's applyFinding() kept OUTSIDE the lock (re-read→write inside). Independent review PASS.
 **Plain English:** When you connect or edit your Google Business card, a background job is often
 still fetching and enriching that same card. The job carefully locks the row before writing; your
 click doesn't. So the job's slower write can silently erase what you just saved, or vice-versa.
@@ -75,7 +75,7 @@ locks on `platformConnectionLock('google_business', userId)`. Its own comment (`
 controller methods' read→mutate→write in `withConnectionLock($user, …)`. Racing partner: the enrich job.
 
 ### PWL-2 — GenericPlatformController connect/connectDeferred/removeAccount/forget vs ConnectFetchJob + ScheduledRefresh — CONTROLLER-side, non-blocker, M
-- [ ] Fix
+- [x] Fix — wrapped connect/connectDeferred/removeAccount/forget, mirroring highlights(); job dispatch stays outside the lock. Independent review PASS.
 **Plain English:** Every "generic" platform card (YouTube, Vimeo, Spotify, SoundCloud, Bandcamp,
 Twitch, Pinterest, Strava, and the reservation providers) can be refreshed by a 12-hour cron and by
 an async connect-fetch job — both of which lock. Connecting, deferring, removing an account, or
