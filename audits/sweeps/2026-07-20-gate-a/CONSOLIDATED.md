@@ -48,7 +48,7 @@ every draft rather than the scan reading nothing.
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
 - P2 Medium: 59 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 16 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 4 of 9 complete (DISC-2, DISC-5, DISC-6, DISC-9).*
+- *Total reconciles to 128. Discovered during execution (outside the 128): 5 of 9 complete (DISC-2, DISC-4, DISC-5, DISC-6, DISC-9).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
@@ -136,7 +136,8 @@ from clean.**
   - **Technical:** Laravel's `scopeBindings()` resolves the parent relation for a `{category}` child as `Str::plural(Str::camel('category'))` = `categories()`, but `User` defines the relation as `serviceCategories()`. So `User::categories()` does not exist and every such route 500s with "Call to undefined method". Independently reproduced in review with a probe request.
   - **Why it matters:** the entire staff service-category management surface beyond `index()`/`store()` is currently broken in production. No audit lens found this — it surfaced only when B6 tried to write an HTTP-level test against the route (which is why `StaffOwnedRecordActorGateTest` tests those via `Gate` directly, not HTTP).
   - Surfaced during B6, not by the original audit.
-- [ ] **`discovered/DISC-4`** · P3 · S — No test exercises the real `ffprobe` invocation chain that video-upload validation depends on
+- [x] **`discovered/DISC-4`** · P3 · S — No test exercises the real `ffprobe` invocation chain that video-upload validation depends on
+  - **Done 2026-07-21:** added `tests/Feature/Media/VideoProbeRealChainTest.php` (3 cases, `VideoVariantService` NOT mocked). Two stub `ffprobe` scripts (exit non-zero; exit-0 with non-JSON stdout) pointed at via `config('partna.ffprobe_binary')` prove `probe()` throws the distinct `ffprobe failed (exit` / `non-JSON` RuntimeExceptions, and a real video upload through `UserUploadController` returns **422** carrying that message AND persists **no** `SiteMedia` row (fail-closed). The message substrings are load-bearing — they rule out a false pass from a fake file merely lacking a video stream (a different branch/message). Note: `ffprobe` is not installed on the dev machine, so this stub-driven test is the ONLY exercise of the control. Test-only, no `app/`/`config/` change. Full suite green (4694 passed); independent Sonnet review PASS.
   - **Where:** `app/Services/Media/VideoVariantService.php:75-79` (`probe()`) · every video test mocks `VideoVariantService` wholesale
   - **What to do:** point `config('partna.ffprobe_binary')` at a stub script (one exiting non-zero, one emitting crafted bad JSON) so the real `Process` → `\RuntimeException` → `InvalidVideoFileException` → 422 chain is exercised without mocking the class.
   - **Why it matters:** `requests-resources/SEC-2` was closed *because* this control is strictly stronger than the byte-sniff the audit asked for. But `MediaUploadFailureHandlingTest`, `MediaUploadBreadcrumbTest`, `GalleryMixedReorderTest`, `VideoUploadsFlagTest` and `MediaJobReliabilityTest` all `Mockery::mock(VideoVariantService::class)`, so **the control our closure relies on is verified by no automated test.** Its fail-closed behaviour was confirmed by manual experiment during review, not by CI. Someone narrowing the catch type, changing the ffprobe invocation, or a build script silently ceasing to install the binary would not be caught.
