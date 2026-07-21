@@ -9,6 +9,10 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    // LIFE-2: requestBuild() now takes a pg_advisory_xact_lock inside the build
+    // transaction for every signup-path build (no staff actor) — without the shim
+    // this errors on SQLite (no such function).
+    shimPgAdvisoryLockForSqlite();
     Queue::fake();
 });
 

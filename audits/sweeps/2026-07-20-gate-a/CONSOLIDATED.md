@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 33 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P2 Medium: 37 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 8 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -69,7 +69,7 @@ every draft rather than the scan reading nothing.
 > for the three re-tiers recorded below.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
-**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)*
+**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -105,6 +105,10 @@ never opened the file, which is the failure mode `CLAUDE.md`'s audit-integrity g
 to catch: **a lens reports nothing for files it never reads, and that is indistinguishable
 from clean.**
 
+- [ ] **`discovered/DISC-6`** · P2 · S — `UserBootstrapService::bootstrap()` has the same `handle_lc` TOCTOU as the pre-account path (B9 LIFE-3), but its catch only disambiguates *email* reuse — a concurrent handle collision on `core_users_handle_lc_unique` re-throws as an unhandled 500
+  - **Where:** `app/Services/User/UserBootstrapService.php` (the `catch` that handles email reuse) · `app/Services/User/HandleAllocator.php` (shared `allocate()` — same lockless EXISTS loop)
+  - **What to do:** apply the same savepoint-retry-past-handle-collision fix B9 applied to `PreAccountBuildService` (`tryCreateProvisionalUser` pattern). Own commit + review — NOT folded into B9 (different file/flow, and the authenticated signup path deserves isolated verification).
+  - **Why the audit missed it:** `HandleAllocator`'s docblock notes it was "extracted verbatim from `BootstrapRequest::generateHandleFromDisplayName`", so both signup paths inherit the identical race; the `state-machines` scope opened `PreAccountBuildService` but the bootstrap caller's catch was out of that lens's frame. Surfaced while planning B9 LIFE-3.
 - [ ] **`discovered/DISC-1`** · P2 · S — `DROP INDEX` without `CONCURRENTLY` on `site.blocks`, inside a transaction alongside a full-table `UPDATE site.blocks`
   - **Where:** `supabase/migrations/20260701180000_strip_block_settings_keys_and_views.sql:19`
   - **What to do:** fold into **B19**. This is a *strictly stronger* instance of what `migrations-early/MIG-1` (S1) complains about — `site.blocks` IS on the repo's own `HOT_TABLES` list (`scripts/guard-no-unsafe-migrations.php:34`), whereas `site.site_media` and `site.enquiries` are not. Found while planning S1/S2; `migrations-early`'s scope never opened this file.
@@ -503,10 +507,14 @@ tables that still lack it.
 (pinned transaction, `lockForUpdate`, savepoint-wrapped 23505 recovery, unique partial index).
 These are the adjacent paths that lack the same rigour.
 
-- [ ] **`state-machines/LIFE-4`** · P2 · M — `PreAccountBuild` has no reconcile path for a build stuck in `pending`/`building`; only `failed` or 30-day expiry get swept → `sources/state-machines.md`
-- [ ] **`state-machines/LIFE-3`** · P2 · M — `HandleAllocator::allocate()` has a check-then-insert race on `handle_lc`; the catch can't disambiguate the collision cause → `sources/state-machines.md`
-- [ ] **`state-machines/LIFE-2`** · P2 · S — Pre-account build IP abuse-cap is a check-then-act race with no lock → `sources/state-machines.md`
-- [ ] **`cache-edge-reconcile/LIFE-2`** · P2 · S — Subdomain-rename lock covers `subdomain_changed_at` but not `subdomain` itself, letting a rapid double-rename drop an alias hop → `sources/cache-edge-reconcile.md`
+- [x] **`state-machines/LIFE-4`** · P2 · M — `PreAccountBuild` has no reconcile path for a build stuck in `pending`/`building`; only `failed` or 30-day expiry get swept → `sources/state-machines.md`
+  - **Fixed.** New `builds:reconcile-stuck` command (hourly) marks builds stuck in pending/building past `partna.pre_account.stuck_build_sla_minutes` (default 30) as `failed`/`FAILURE_STUCK_TIMEOUT` — mirrors `CleanupStuckMediaProcessingCommand`'s "make state honest, don't re-dispatch from the sweep" design; re-trigger flows through `reserve()`, which was extended to re-dispatch a stale pending/building build (not just `failed`). SLA ≈ 3× the job's 300s timeout + 600s `ShouldBeUnique` TTL, so a fresh dispatch isn't dropped nor races a live job. No migration (`failure_code` is app-vocabulary, no CHECK).
+- [x] **`state-machines/LIFE-3`** · P2 · M — `HandleAllocator::allocate()` has a check-then-insert race on `handle_lc`; the catch can't disambiguate the collision cause → `sources/state-machines.md`
+  - **Fixed at the source (better than the audit's reactive-catch suggestion).** Provisional-user creation moved into a savepoint-retry helper (`createProvisionalUserWithRetry`/`tryCreateProvisionalUser`, 5 attempts, `report()`+throw on exhaustion) mirroring `SiteProvisioningService::tryCreateSite` — each attempt is its own nested pgsql transaction, so a `handle_lc` 23505 rolls back only that savepoint and the loop re-`allocate()`s the next suffix. This makes the existing outer catch's assumption (violation == `pre_account_builds_live_source_unique`) true by construction, so it needed no change. Postgres-gated savepoint test added.
+- [x] **`state-machines/LIFE-2`** · P2 · S — Pre-account build IP abuse-cap is a check-then-act race with no lock → `sources/state-machines.md`
+  - **Fixed.** The cap count-check moved inside the build transaction, preceded by `pg_advisory_xact_lock(hashtext("pre_account_build_ip:{ipHash}"))` — same idiom as `InsertWithSortOrder`/`ReorderService`; concurrent same-IP builds now serialize. Staff builds still skip.
+- [x] **`cache-edge-reconcile/LIFE-2`** · P2 · S — Subdomain-rename lock covers `subdomain_changed_at` but not `subdomain` itself, letting a rapid double-rename drop an alias hop → `sources/cache-edge-reconcile.md`
+  - **Fixed (isolated review — standalone).** The `lockForUpdate()` query now selects `subdomain` alongside `subdomain_changed_at`; `$site->subdomain`/`$current` derive from the locked row and the no-op check moved after the lock, so the intermediate subdomain's alias and `HandleChangeLog.old_handle` are correct under a double-rename. Cooldown (LIFE-5) ordering preserved. Regression test proves the fix (fails pre-fix). *Non-blocking follow-up: `$locked` could null-deref if the site row is hard-deleted mid-rename (narrow rename-vs-delete race; pre-existing failure mode in a different form).*
 
 ### Bundle B10 — Nightwatch blind spots: swallowed failures · **P2** · Effort S
 

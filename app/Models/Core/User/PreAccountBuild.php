@@ -48,6 +48,11 @@ class PreAccountBuild extends BaseModel
 
     public const FAILURE_SCRAPE_FAILED = 'scrape_failed';
 
+    // LIFE-4: stamped by builds:reconcile-stuck when a build sat in
+    // pending/building past partna.pre_account.stuck_build_sla_minutes —
+    // app-level vocabulary only (failure_code has no DB CHECK constraint).
+    public const FAILURE_STUCK_TIMEOUT = 'stuck_timeout';
+
     public const VIA_SIGNUP = 'signup';
 
     public const VIA_STAFF = 'staff';

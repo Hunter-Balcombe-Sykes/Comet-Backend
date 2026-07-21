@@ -29,24 +29,30 @@ class RenameSubdomainAction
     public function execute(Site $site, string $newSubdomain, User $professional, array $options = []): void
     {
         $incoming = strtolower($newSubdomain);
-        $current = strtolower((string) $site->subdomain);
 
-        // No-op when the subdomain isn't actually changing.
+        // LIFE-5/LIFE-2: re-read BOTH subdomain and subdomain_changed_at under a row
+        // lock INSIDE the tx — not just subdomain_changed_at (LIFE-5's original fix).
+        // $site->subdomain is only a pre-lock in-memory snapshot; under a rapid
+        // double-rename (allow_subdomain_override=true) it goes stale between the
+        // caller loading $site and this lock read, which silently drops the
+        // intermediate subdomain's alias/audit-log entry below. Locking both columns
+        // together keeps $site's in-memory subdomain in sync with what's actually
+        // being renamed FROM. (lockForUpdate is a no-op on SQLite — fine for tests.)
+        $locked = DB::table('site.sites')
+            ->where('id', $site->id)
+            ->lockForUpdate()
+            ->first(['subdomain', 'subdomain_changed_at']);
+        $site->subdomain = (string) $locked->subdomain;
+        $site->subdomain_changed_at = $locked->subdomain_changed_at !== null ? Carbon::parse($locked->subdomain_changed_at) : null;
+        $current = strtolower($site->subdomain);
+
+        // No-op when the subdomain isn't actually changing — checked AFTER the lock
+        // read so a stale pre-lock snapshot can't misjudge this.
         if ($incoming === $current) {
             return;
         }
 
         $allowSubdomainOverride = (bool) ($options['allow_subdomain_override'] ?? false);
-
-        // LIFE-5: re-read subdomain_changed_at under a row lock INSIDE the tx. Reading the
-        // pre-transaction snapshot let two concurrent renames both pass the 30-day cooldown;
-        // the FOR UPDATE makes the second rename block until the first commits, then see the
-        // updated timestamp. (lockForUpdate is a no-op on SQLite — fine for the test suite.)
-        $lockedChangedAt = DB::table('site.sites')
-            ->where('id', $site->id)
-            ->lockForUpdate()
-            ->value('subdomain_changed_at');
-        $site->subdomain_changed_at = $lockedChangedAt !== null ? Carbon::parse($lockedChangedAt) : null;
 
         if (! $allowSubdomainOverride && $site->subdomain_changed_at) {
             // Days between allowed subdomain changes; mirrored in UserSelfController::show.

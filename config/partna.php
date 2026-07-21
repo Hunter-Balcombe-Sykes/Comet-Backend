@@ -831,6 +831,14 @@ return [
         'failed_prune_hours' => (int) env('PARTNA_PRE_ACCOUNT_FAILED_PRUNE_HOURS', 24),
         'max_unclaimed_per_ip' => (int) env('PARTNA_PRE_ACCOUNT_MAX_UNCLAIMED_PER_IP', 3),
 
+        // LIFE-4: how long a build may sit in pending/building before it's treated
+        // as stuck (worker crash, never reached failed()). Used by both the hourly
+        // builds:reconcile-stuck watchdog and PreAccountBuildService::reserve() —
+        // deliberately well past GeneratePreAccountSiteJob's 300s timeout and 600s
+        // ShouldBeUnique window so a fresh dispatch is never dropped by the unique
+        // lock nor races a still-legitimately-running job.
+        'stuck_build_sla_minutes' => (int) env('PARTNA_PRE_ACCOUNT_STUCK_BUILD_SLA_MINUTES', 30),
+
         // account_type => allowed source_types. THE one pairing map (spec §4) —
         // relaxing a pairing later is a config edit, not a validation hunt.
         'sources' => [

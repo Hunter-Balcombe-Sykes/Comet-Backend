@@ -95,3 +95,38 @@ it('stages the new subdomain on the model without persisting to the database', f
         ->value('subdomain');
     expect($dbSubdomain)->toBe('oldhandle');
 });
+
+// cache-edge-reconcile/LIFE-2: the lockForUpdate() read must cover BOTH subdomain
+// and subdomain_changed_at, not just the latter. Simulates a rapid double-rename:
+// the DB row already holds 'bob' (an earlier rename committed by a first request)
+// while the in-memory $site the caller passes in still holds the stale 'alice' it
+// was loaded with before that first rename. Before the fix, $current stayed
+// 'alice', so the alias for 'bob' (the subdomain actually being renamed FROM) was
+// never created and the audit log recorded the wrong old_handle.
+it('re-reads subdomain under the lock so a stale in-memory value cannot skip its alias/audit entry', function () {
+    [$user, $site] = seedRenameActionUser('alice');
+
+    // A concurrent rename already committed 'bob' as the DB row's current
+    // subdomain, but $site (loaded earlier) still holds 'alice' in memory.
+    DB::connection('pgsql')->table('site.sites')->where('id', $site->id)->update(['subdomain' => 'bob']);
+    expect($site->subdomain)->toBe('alice'); // stale in-memory snapshot, unchanged
+
+    DB::connection('pgsql')->transaction(function () use ($site, $user) {
+        app(RenameSubdomainAction::class)->execute($site, 'carol', $user, ['allow_subdomain_override' => true]);
+    });
+
+    // The action must have renamed FROM the DB's actual current value ('bob'),
+    // not the stale in-memory one ('alice').
+    expect($site->subdomain)->toBe('carol');
+
+    $alias = DB::connection('pgsql')->table('site.site_subdomain_aliases')
+        ->where('site_id', $site->id)
+        ->first();
+    expect($alias)->not->toBeNull()
+        ->and($alias->subdomain)->toBe('bob');
+
+    $log = DB::connection('pgsql')->table('audit.handle_change_log')
+        ->where('user_id', $user->id)
+        ->first();
+    expect($log->old_handle)->toBe('bob');
+});

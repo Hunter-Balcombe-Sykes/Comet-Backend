@@ -77,40 +77,31 @@ class PreAccountBuildService
             );
         }
 
-        // Signup-path abuse cap: outstanding unclaimed builds per IP (F2).
-        if ($staff === null && $ipHash !== null) {
-            $cap = (int) config('partna.pre_account.max_unclaimed_per_ip', 3);
-            $outstanding = PreAccountBuild::live()->where('created_ip_hash', $ipHash)->count();
-            if ($outstanding >= $cap) {
-                throw new PreAccountBuildException(
-                    PreAccountBuildException::IP_BUILD_CAP,
-                    'Too many unclaimed builds from this address. Claim one first.'
-                );
-            }
-        }
-
         $expiresAt = now()->addDays($expiresDays ?? (int) config('partna.pre_account.expiry_days', 30));
 
         try {
             $build = DB::connection('pgsql')->transaction(function () use (
                 $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt
             ) {
-                $seed = $this->generators->for($sourceType)->handleSeed($ref, $sourceName);
-                $handle = $this->handles->allocate($seed);
+                // LIFE-2: signup-path abuse cap (F2), re-checked INSIDE the transaction
+                // under an advisory lock. The previous pre-transaction check-then-act let
+                // concurrent same-IP requests all read the same pre-commit count and all
+                // pass — the lock serializes builders for one IP so each sees the prior
+                // one's committed row before counting.
+                if ($staff === null && $ipHash !== null) {
+                    DB::connection('pgsql')->select('select pg_advisory_xact_lock(hashtext(?))', ["pre_account_build_ip:{$ipHash}"]);
+                    $cap = (int) config('partna.pre_account.max_unclaimed_per_ip', 3);
+                    $outstanding = PreAccountBuild::live()->where('created_ip_hash', $ipHash)->count();
+                    if ($outstanding >= $cap) {
+                        throw new PreAccountBuildException(
+                            PreAccountBuildException::IP_BUILD_CAP,
+                            'Too many unclaimed builds from this address. Claim one first.'
+                        );
+                    }
+                }
 
-                $user = new User([
-                    'handle' => $handle['handle'],
-                    'handle_lc' => $handle['handle_lc'],
-                    // Placeholder identity until the generator writes scraped values;
-                    // first_name/display_name are NOT NULL on live Postgres.
-                    'display_name' => $sourceName ?: $handle['handle'],
-                    'first_name' => $sourceName ?: $handle['handle'],
-                    'account_type' => AccountType::tryFrom($accountType) ?? AccountType::Partna,
-                    'status' => 'unclaimed',
-                    'onboarding_step' => 0,
-                ]);
-                // auth_user_id stays NULL — that IS the provisional-user model.
-                $user->save();
+                $seed = $this->generators->for($sourceType)->handleSeed($ref, $sourceName);
+                $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName);
 
                 // Real subdomain at build time, unpublished for signup builds; the
                 // staff publish knob flips AFTER generation succeeds (in the job).
@@ -166,10 +157,82 @@ class PreAccountBuildService
             ->first();
     }
 
-    /** Re-serve a live build; a FAILED one resets and re-runs (F3). */
+    /**
+     * LIFE-3: allocate + create the provisional user with savepoint-isolated
+     * retry. HandleAllocator::allocate() checks core.users for a free handle_lc
+     * BEFORE this INSERT — a genuine TOCTOU when two concurrent builds land on
+     * the same seed. Each attempt runs in its own nested transaction (mirrors
+     * SiteProvisioningService::tryCreateSite() / UserBootstrapService) so a
+     * core_users_handle_lc_unique violation only rolls back to the SAVEPOINT,
+     * leaving the outer build transaction healthy for the retry to re-allocate
+     * (now seeing the just-committed colliding row) instead of poisoning it or
+     * surfacing to the outer catch (UniqueConstraintViolationException), which
+     * assumes any such violation is pre_account_builds_live_source_unique.
+     */
+    private function createProvisionalUserWithRetry(string $seed, string $accountType, ?string $sourceName): User
+    {
+        for ($i = 0; $i < 5; $i++) {
+            $handle = $this->handles->allocate($seed);
+            if ($user = $this->tryCreateProvisionalUser($handle, $accountType, $sourceName)) {
+                return $user;
+            }
+        }
+
+        // Exhaustion is anomalous (5 handle collisions in a row) — surface it to
+        // Nightwatch rather than letting it fail silently as a generic 4xx.
+        report(new \RuntimeException("PreAccountBuildService: exhausted handle allocation retries for seed '{$seed}'"));
+
+        throw new PreAccountBuildException(
+            PreAccountBuildException::SOURCE_REF_INVALID,
+            'Could not allocate a unique handle. Try again.'
+        );
+    }
+
+    /** @param array{handle: string, handle_lc: string} $handle */
+    private function tryCreateProvisionalUser(array $handle, string $accountType, ?string $sourceName): ?User
+    {
+        try {
+            return DB::connection('pgsql')->transaction(function () use ($handle, $accountType, $sourceName) {
+                $user = new User([
+                    'handle' => $handle['handle'],
+                    'handle_lc' => $handle['handle_lc'],
+                    // Placeholder identity until the generator writes scraped values;
+                    // first_name/display_name are NOT NULL on live Postgres.
+                    'display_name' => $sourceName ?: $handle['handle'],
+                    'first_name' => $sourceName ?: $handle['handle'],
+                    'account_type' => AccountType::tryFrom($accountType) ?? AccountType::Partna,
+                    'status' => 'unclaimed',
+                    'onboarding_step' => 0,
+                ]);
+                // auth_user_id stays NULL — that IS the provisional-user model.
+                $user->save();
+
+                return $user;
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Handle taken by a concurrent build that committed first — caller's
+            // retry loop re-allocates and tries again.
+            return null;
+        }
+    }
+
+    /**
+     * Re-serve a live build. A FAILED build resets and re-runs (F3); LIFE-4:
+     * so does a build stuck in pending/building past the SLA — a worker crash
+     * (OOM/SIGKILL) mid-scrape never reaches GeneratePreAccountSiteJob::failed(),
+     * so without this a stuck build only recovers via the hourly
+     * builds:reconcile-stuck watchdog flipping it to failed first. SLA default
+     * (30min) is deliberately well past the job's 300s timeout and 600s
+     * ShouldBeUnique window, so a fresh dispatch here is never dropped by the
+     * unique lock nor races a still-legitimately-running job.
+     */
     private function reserve(PreAccountBuild $build): PreAccountBuild
     {
-        if ($build->build_state === PreAccountBuild::STATE_FAILED) {
+        $stuckSla = (int) config('partna.pre_account.stuck_build_sla_minutes', 30);
+        $isStuck = in_array($build->build_state, [PreAccountBuild::STATE_PENDING, PreAccountBuild::STATE_BUILDING], true)
+            && $build->updated_at->lt(now()->subMinutes($stuckSla));
+
+        if ($build->build_state === PreAccountBuild::STATE_FAILED || $isStuck) {
             $build->update(['build_state' => PreAccountBuild::STATE_PENDING, 'failure_code' => null]);
             GeneratePreAccountSiteJob::dispatch($build->id, false)->afterCommit();
         }

@@ -201,6 +201,16 @@ Schedule::command('builds:prune-expired')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('prune-expired-pre-account-builds'));
 
+// LIFE-4: hourly watchdog for pre_account_builds stuck in pending/building past
+// the SLA (worker crash mid-scrape never calls failed()). Mirrors
+// media:cleanup-stuck-processing's design — mark the stuck state honest
+// (-> failed); re-dispatch is reserve()'s job, not the sweep's.
+Schedule::command('builds:reconcile-stuck')
+    ->hourly()
+    ->onOneServer()
+    ->withoutOverlapping(30) // 30min lock — Postgres lookup + updates, typically seconds.
+    ->onFailure($reportScheduledFailure('builds:reconcile-stuck'));
+
 // Keep Laravel Cloud warm. Fires a 3-second HTTP request to the local /up
 // health endpoint every minute so the autoscaler doesn't park the web
 // pod between visitor bursts. Cold starts (when the pod has been parked)
