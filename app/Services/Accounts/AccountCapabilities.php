@@ -67,6 +67,11 @@ final class AccountCapabilities
             can_use_reservations: $isBusiness ? $isFood : true,
             can_use_booking: $isBusiness ? ! $isFood : true,
             can_use_online_ordering: $isBusiness && $isFood,
+            // DISC-7: consent gate — provisional/unclaimed subjects have not
+            // consented to auto-created platform connections from scraped
+            // data. Canonical predicate (isUnclaimed()), not a raw $status
+            // comparison — mirrors isActive()/isPendingDeletion() above.
+            can_autosync_scraped_connections: ! $pro->isUnclaimed(),
         );
     }
 }

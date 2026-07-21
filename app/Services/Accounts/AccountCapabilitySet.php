@@ -91,5 +91,10 @@ final readonly class AccountCapabilitySet
         // could meaningfully do with it) and a non-food business never had a
         // menu/store to order from in the first place.
         public bool $can_use_online_ordering,
+        // DISC-7: consent gate — a provisional/unclaimed subject has not
+        // consented to auto-created platform connections seeded from scraped
+        // data (e.g. InstagramAutoSync classifying a bio link). False only
+        // while unclaimed; true for every claimed status.
+        public bool $can_autosync_scraped_connections,
     ) {}
 }
