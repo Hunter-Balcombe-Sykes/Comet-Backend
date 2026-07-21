@@ -30,6 +30,12 @@ class ApplyMenuScanRequest extends FormRequest
             // scanned as 140000) without constraining any real-world price.
             'items.*.price' => ['nullable', 'numeric', 'min:0', 'max:100000'],
             'items.*.category' => ['nullable', 'string'],
+            // Dietary markers (GF/V/VG…) — MenuScanApplier normalizes against
+            // its canonical label vocabulary and drops anything unknown, so a
+            // loose string rule here is enough; without ANY rule, validated()
+            // stripped the key and manual scans silently lost their badges.
+            'items.*.dietary' => ['sometimes', 'nullable', 'array', 'max:7'],
+            'items.*.dietary.*' => ['string', 'max:20'],
         ];
     }
 }
