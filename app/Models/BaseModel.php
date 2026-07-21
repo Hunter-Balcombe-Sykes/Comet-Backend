@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Relations\SchemaQualifiedBelongsToMany;
+use App\Database\Relations\SchemaQualifiedBelongsToMany;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 

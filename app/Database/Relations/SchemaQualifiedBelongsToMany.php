@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models\Relations;
+namespace App\Database\Relations;
 
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
