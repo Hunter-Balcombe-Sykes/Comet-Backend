@@ -72,51 +72,51 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['category' => new ServiceCategoryResource($category)], 201);
     }
 
-    public function show(Request $request, User $professional, ServiceCategory $category): JsonResponse
+    public function show(Request $request, User $professional, ServiceCategory $serviceCategory): JsonResponse
     {
         // #SEC-2: gate the STAFF ACTOR (staffView, any role), not the professional.
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffView', $professional);
 
         $includeArchived = $request->boolean('include_archived');
-        if (! $includeArchived && $category->trashed()) {
+        if (! $includeArchived && $serviceCategory->trashed()) {
             abort(404);
         }
 
-        return $this->success(['category' => new ServiceCategoryResource($category)]);
+        return $this->success(['category' => new ServiceCategoryResource($serviceCategory)]);
     }
 
-    public function update(StaffUpdateServiceCategoryRequest $request, User $professional, ServiceCategory $category): JsonResponse
+    public function update(StaffUpdateServiceCategoryRequest $request, User $professional, ServiceCategory $serviceCategory): JsonResponse
     {
         // #SEC-2: staffManage (admin-only) — gates the staff actor.
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
-        if ($category->trashed()) {
+        if ($serviceCategory->trashed()) {
             abort(404);
         }
 
-        $category->fill($request->validated());
-        $category->save();
+        $serviceCategory->fill($request->validated());
+        $serviceCategory->save();
 
-        return $this->success(['category' => new ServiceCategoryResource($category->fresh())]);
+        return $this->success(['category' => new ServiceCategoryResource($serviceCategory->fresh())]);
     }
 
-    public function destroy(Request $request, User $professional, ServiceCategory $category): JsonResponse
+    public function destroy(Request $request, User $professional, ServiceCategory $serviceCategory): JsonResponse
     {
         // #SEC-2: staffManage (admin-only) — gates the staff actor.
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
-        if ($category->trashed()) {
+        if ($serviceCategory->trashed()) {
             abort(404);
         }
 
-        DB::transaction(function () use ($professional, $category) {
+        DB::transaction(function () use ($professional, $serviceCategory) {
             DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$professional->id}"]);
 
             // Move services to Uncategorized (category_id = null) and append to end
             $toMove = Service::query()
                 ->where('user_id', $professional->id)
-                ->where('category_id', $category->id)
+                ->where('category_id', $serviceCategory->id)
                 ->orderBy('sort_order')
                 ->orderBy('created_at')
                 ->pluck('id')
@@ -141,7 +141,7 @@ class StaffServiceCategoryManagementController extends ApiController
                 }
             }
 
-            $category->delete();
+            $serviceCategory->delete();
         });
 
         return $this->success(['deleted' => true]);
@@ -162,19 +162,19 @@ class StaffServiceCategoryManagementController extends ApiController
         return $this->success(['ok' => true]);
     }
 
-    public function forceDestroy(Request $request, User $professional, ServiceCategory $category): JsonResponse
+    public function forceDestroy(Request $request, User $professional, ServiceCategory $serviceCategory): JsonResponse
     {
         // #SEC-2: staffManage (admin-only) — gates the staff actor.
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
         // Optional: also uncategorise services on hard delete (FK ON DELETE SET NULL handles it if in DB)
-        $category->forceDelete();
+        $serviceCategory->forceDelete();
 
         return $this->success(['deleted' => true, 'hard' => true]);
     }
 
-    public function restore(Request $request, User $professional, ServiceCategory $category): JsonResponse
+    public function restore(Request $request, User $professional, ServiceCategory $serviceCategory): JsonResponse
     {
         // #SEC-2: staffManage (admin-only). restore() lives in the non-admin
         // route group — the policy is the actual enforcement point here,
@@ -182,17 +182,17 @@ class StaffServiceCategoryManagementController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
-        if ($category->trashed()) {
-            $category->restore();
+        if ($serviceCategory->trashed()) {
+            $serviceCategory->restore();
 
             $max = ServiceCategory::query()
                 ->where('user_id', $professional->id)
                 ->max('sort_order');
 
-            $category->sort_order = is_null($max) ? 0 : ((int) $max + 1);
-            $category->save();
+            $serviceCategory->sort_order = is_null($max) ? 0 : ((int) $max + 1);
+            $serviceCategory->save();
         }
 
-        return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($category->fresh())]);
+        return $this->success(['restored' => true, 'category' => new ServiceCategoryResource($serviceCategory->fresh())]);
     }
 }

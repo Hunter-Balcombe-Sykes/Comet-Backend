@@ -16,15 +16,16 @@
  * enforcement-point precedent StaffUserController::destroy/restore already
  * established for the User model itself.
  *
- * ServiceCategory routes are tested through the Gate directly rather than
- * HTTP: `{category}` implicit route-model-binding is broken independent of
- * this fix — Laravel's scoped-binding convention resolves the parent
- * relation as `Str::plural(Str::camel('category'))` = `categories()`, but
- * User's relation is named `serviceCategories()`, so EVERY staff route with
- * a `{category}` segment currently 500s with "Call to undefined method
- * User::categories()" (confirmed pre-existing on unmodified
- * routes/api/staff.php + User.php — out of this bundle's scope; flagged
- * separately, not fixed here).
+ * The ServiceCategory actor-gate cases below run through the Gate directly.
+ * They were originally Gate-only because `{category}` route-model-binding was
+ * broken: Laravel's scoped-binding convention resolved the parent relation as
+ * `Str::plural(Str::camel('category'))` = `categories()`, but User's relation
+ * is named `serviceCategories()`, so every staff route with a `{category}`
+ * segment 500'd with "Call to undefined method User::categories()". That bug
+ * is now fixed (DISC-5: the route param + controller arg were renamed to
+ * `{serviceCategory}`, matching the relation); real HTTP-level binding
+ * coverage lives in StaffServiceCategoryRouteBindingTest. The cases here
+ * remain the actor-authorization coverage for these controllers.
  */
 
 use App\Models\Core\Staff\PartnaStaff;

@@ -98,11 +98,11 @@ Route::prefix('staff')
 
         // View Service Categories
         Route::get('/professionals/{professional}/service-categories', [StaffServiceCategoryManagementController::class, 'index']);
-        Route::get('/professionals/{professional}/service-categories/{category}', [StaffServiceCategoryManagementController::class, 'show'])
-            ->whereUuid('category')
+        Route::get('/professionals/{professional}/service-categories/{serviceCategory}', [StaffServiceCategoryManagementController::class, 'show'])
+            ->whereUuid('serviceCategory')
             ->withTrashed();
-        Route::post('/professionals/{professional}/service-categories/{category}/restore', [StaffServiceCategoryManagementController::class, 'restore'])
-            ->whereUuid('category')
+        Route::post('/professionals/{professional}/service-categories/{serviceCategory}/restore', [StaffServiceCategoryManagementController::class, 'restore'])
+            ->whereUuid('serviceCategory')
             ->withTrashed();
 
         // View that professional's site data
@@ -211,12 +211,12 @@ Route::prefix('staff')
 
         // Edit Service Categories
         Route::post('/professionals/{professional}/service-categories', [StaffServiceCategoryManagementController::class, 'store']);
-        Route::patch('/professionals/{professional}/service-categories/{category}', [StaffServiceCategoryManagementController::class, 'update'])
-            ->whereUuid('category');
-        Route::delete('/professionals/{professional}/service-categories/{category}', [StaffServiceCategoryManagementController::class, 'destroy'])
-            ->whereUuid('category');
-        Route::delete('/professionals/{professional}/service-categories/{category}/hard', [StaffServiceCategoryManagementController::class, 'forceDestroy'])
-            ->whereUuid('category');
+        Route::patch('/professionals/{professional}/service-categories/{serviceCategory}', [StaffServiceCategoryManagementController::class, 'update'])
+            ->whereUuid('serviceCategory');
+        Route::delete('/professionals/{professional}/service-categories/{serviceCategory}', [StaffServiceCategoryManagementController::class, 'destroy'])
+            ->whereUuid('serviceCategory');
+        Route::delete('/professionals/{professional}/service-categories/{serviceCategory}/hard', [StaffServiceCategoryManagementController::class, 'forceDestroy'])
+            ->whereUuid('serviceCategory');
 
         // Reorder categories
         Route::post('/professionals/{professional}/service-categories/reorder', [StaffServiceCategoryManagementController::class, 'reorder']);
