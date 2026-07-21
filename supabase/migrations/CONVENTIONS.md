@@ -87,6 +87,12 @@ full-table scan while holding it. `NOT VALID` drops the lock immediately after t
 `VALIDATE CONSTRAINT` acquires only `SHARE UPDATE EXCLUSIVE`, which allows concurrent reads
 and writes.
 
+**Inline column CHECK counts too**: `ALTER TABLE … ADD COLUMN col … CHECK (…)` validates existing
+rows under `ACCESS EXCLUSIVE` exactly like a bare `ADD CONSTRAINT CHECK`. Split it — `ADD COLUMN`
+(no inline `CHECK`) first, then a named `ADD CONSTRAINT … NOT VALID` → `VALIDATE CONSTRAINT` in a
+separate transaction. Guard Check 3 matches only `ADD CONSTRAINT … CHECK`, so an inline column CHECK
+is a convention, not a lint (audit `migrations-early/MIG-3`).
+
 **Enforced**: `scripts/guard-no-unsafe-migrations.php` **Check 8** fails any file timestamped after
 `20260722000000` that runs `VALIDATE CONSTRAINT` in the same transaction as its `ADD CONSTRAINT …
 NOT VALID` (no `COMMIT` between them) — the bundling holds the heavier catalog-write lock through the
@@ -195,6 +201,49 @@ and check that no row-level lock waits exceed 100ms.
 
 ---
 
+## 7. Schema-qualify `DROP FUNCTION` / `DROP TRIGGER`
+
+Always name the schema when dropping a function or trigger:
+
+```sql
+-- BAD — resolves against search_path; if the function lives in `core` and core isn't
+-- on the path, `IF EXISTS` makes this a silent no-op, orphaning any trigger bound to it:
+DROP FUNCTION IF EXISTS set_default_theme_for_site CASCADE;
+
+-- GOOD — names the schema explicitly, so it always resolves:
+DROP FUNCTION IF EXISTS core.set_default_theme_for_site() CASCADE;
+```
+
+An unqualified `DROP FUNCTION IF EXISTS` that fails to resolve leaves a dependent trigger live and
+bound to a function whose body may reference columns the same migration then drops — the next write
+to the table 500s until the follow-up migration lands. Drop the trigger (schema-qualified) *before*
+dropping the column its function reads, in the same transaction. Convention only — the guard doesn't
+parse object resolution (audit `migrations-early/MIG-4`).
+
+---
+
+## 8. Lock and statement timeouts on hot-table DDL
+
+Every migration that runs DDL/DML against a live-traffic table (`site.design_kits`, `site.sites`,
+`site.blocks`, `core.users`) opens a transaction and sets bounded timeouts, so a blocked lock aborts
+fast instead of stalling the whole sequential `db push`:
+
+```sql
+BEGIN;
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
+-- … DDL …
+COMMIT;
+```
+
+**Enforced** by `scripts/guard-no-unsafe-migrations.php` **Check 5** for files timestamped after
+`20260711999999`. This is **forward-only**: the pre-convention files that lack the guards are
+grandfathered, not retrofitted — they re-apply against an empty, traffic-free DB at the prod cutover,
+where there is no live traffic to contend for the lock (audit `migrations-early/MIG-7`,
+`migrations-recent/MIG-8`). Add the guards to every *new* hot-table migration.
+
+---
+
 ## Summary cheat sheet
 
 | Operation | Unsafe | Safe |
@@ -205,3 +254,7 @@ and check that no row-level lock waits exceed 100ms.
 | Add FK | `ADD CONSTRAINT FOREIGN KEY` | `ADD CONSTRAINT ... NOT VALID` → `VALIDATE CONSTRAINT` |
 | Backfill data | `UPDATE` inside migration transaction | Separate file or dispatched job |
 | DDL/DML on a hot table | No timeout, or `SET LOCAL` with no `BEGIN` | `BEGIN;` + `SET LOCAL lock_timeout`/`statement_timeout` + `COMMIT;` |
+| Inline column CHECK | `ADD COLUMN col … CHECK (…)` | `ADD COLUMN` then `ADD CONSTRAINT … NOT VALID` → `VALIDATE` (see §2) |
+| Drop index (hot table) | `DROP INDEX` | `DROP INDEX CONCURRENTLY IF EXISTS` (own file, no transaction) (see §1) |
+| Drop function/trigger | Unqualified `DROP FUNCTION foo` | Schema-qualified `DROP FUNCTION schema.foo()` (see §7) |
+| Bundle VALIDATE with ADD | `ADD … NOT VALID; VALIDATE;` one txn | `COMMIT` between them — VALIDATE in its own txn/file (see §2) |
