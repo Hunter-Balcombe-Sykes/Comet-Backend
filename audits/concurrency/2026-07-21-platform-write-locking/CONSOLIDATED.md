@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 6/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 11 done** (PWL-1,2,3,4,5,6,11,12,13,14,15)
+- Tier 1: 7/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 12 done** (PWL-1,2,3,4,5,6,7,11,12,13,14,15)
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -127,7 +127,7 @@ but `forget()` (`:435`) deletes `ShopProduct`/`ShopBrand` (`:446`–`:447`) with
 **Fix:** wrap `forget()`'s delete block in the lock.
 
 ### PWL-7 — Instagram locks NOWHERE: controller + InstagramConnectJob/Seeder — MIXED (controller non-blocker; job/seeder BLOCKER), M–L
-- [ ] Fix
+- [x] Fix — BOTH sides now take platformConnectionLock('instagram', userId) (a controller-only fix is inert). Controller: connect() locks the placeholder write (job dispatch + 202 OUTSIDE — dispatch scrapes inline under sync); forget() via withConnectionLock; applySync() locks the IG-row mark-seeded write (applyFinding stays OUTSIDE). Seeder: only the final row upsert is locked (mirror/autoSync/identitySync stay outside); LockTimeout → bare terminal 'unavailable' (mirrors ConnectFetchJob, sync-driver Q5). Job markFailed() locked with a bare-write fallback so a failure is never lost. Re-mapped against DISC-7's InstagramAutoSync rework. Pre-account InstagramSourceGenerator caller verified safe on the timeout path. Independent review PASS; tests fail pre-fix (no lock → 202/'ok'), pass post-fix (~5s block / terminal 'unavailable').
 **Plain English:** Instagram is the worst case — no code path locks the IG connection row at all.
 Two quick connects, or a connect landing while the previous connect's background scrape is still
 writing, can clobber each other with no protection anywhere.
