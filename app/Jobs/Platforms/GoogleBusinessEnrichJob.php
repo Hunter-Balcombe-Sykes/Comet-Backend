@@ -361,20 +361,24 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
      * LIFE-10: serialize a re-read→mutate→write cycle behind the SAME
      * per-user/platform lock key ScheduledRefresh (the other writer that
      * actually contends for a google-business row) takes — same key builder
-     * (CacheKeyGenerator::platformConnectionLock), same suffix rule — so this
-     * multi-second job can never clobber that concurrent write with a stale
-     * in-memory read. ManagesIntegrationConnection::withConnectionLock uses the
-     * identical key builder, but no google-business controller action
-     * (connect/applySync/forget) calls it, so it is NOT actually a concurrent
-     * writer this lock serializes against today — see the note in handle().
+     * (CacheKeyGenerator::platformConnectionLock) — so this multi-second job
+     * can never clobber that concurrent write with a stale in-memory read.
+     * ManagesIntegrationConnection::withConnectionLock uses the identical key
+     * builder, but no google-business controller action (connect/applySync/
+     * forget) calls it, so it is NOT actually a concurrent writer this lock
+     * serializes against today — see the note in handle(). google-business is
+     * single-selection (resource_id always equals the platform slug), so the
+     * platform-wide key here was always equivalent to a per-account one for
+     * this platform — the 2026-07-21 removal of the suffix parameter changes
+     * nothing for this call site.
      *
-     * $connection is used ONLY to build the lock key (platform / user_id /
-     * resource_id never change across a reconnect of the same row); the row
-     * $mutate operates on is re-selected fresh from inside the lock via
-     * connection()'s own `WHERE place_id = ?` predicate — which doubles as an
-     * implicit compare-and-swap: if the user reconnected a DIFFERENT place
-     * while this job ran, the re-select comes back null and we abandon rather
-     * than write a payload describing a place they no longer have connected.
+     * $connection is used ONLY to build the lock key (platform / user_id
+     * never change across a reconnect of the same row); the row $mutate
+     * operates on is re-selected fresh from inside the lock via connection()'s
+     * own `WHERE place_id = ?` predicate — which doubles as an implicit
+     * compare-and-swap: if the user reconnected a DIFFERENT place while this
+     * job ran, the re-select comes back null and we abandon rather than write
+     * a payload describing a place they no longer have connected.
      *
      * $terminal marks a call made from failed(): Laravel has already called
      * Job::fail() (deleted=true, failed=true on the driver job) before our
@@ -395,11 +399,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
      */
     private function persist(IntegrationConnection $connection, string $stage, callable $mutate, bool $terminal = false): bool
     {
-        $key = CacheKeyGenerator::platformConnectionLock(
-            $connection->platform,
-            $connection->user_id,
-            $connection->resource_id === $connection->platform ? null : $connection->resource_id,
-        );
+        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, $connection->user_id);
 
         try {
             return Cache::lock($key, 10)->block(5, function () use ($stage, $mutate) {

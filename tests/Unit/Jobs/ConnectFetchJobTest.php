@@ -365,10 +365,20 @@ it('a lock timeout does not throw, does not silently rely on release(), and mark
     expect($fresh->consecutive_failures)->toBe(1);
 });
 
-// Sanity check on the lock key computation the job shares with ScheduledRefresh —
-// not a behavioural test, just pins the formula so a future edit to either side
-// is caught by a diff instead of silently drifting apart.
-it('computes the same lock key formula ScheduledRefresh uses (suffix only when resource_id differs from platform)', function () {
+// Sanity check on the lock key computation the job shares with ScheduledRefresh
+// and GenericPlatformController::highlights() — not a behavioural test, just
+// pins the formula so a future edit to any of the three sites is caught by a
+// diff instead of silently drifting apart.
+//
+// 2026-07-21: replaces a test of the same name that pinned the OLD, buggy
+// per-account suffix formula (CacheKeyGenerator::platformConnectionLock's
+// third parameter, since REMOVED). That formula was the root cause of a
+// lost-update bug: ScheduledRefresh/ConnectFetchJob suffixed by resource_id
+// while highlights() never did, so a multi-account platform's writers built
+// DIFFERENT key strings and never mutually excluded each other. See
+// PlatformConnectionLockConvergenceTest.php for the behavioural (real lock
+// contention) proof that the three sites now converge.
+it('computes the same platform-wide lock key regardless of resource_id (no per-account suffix)', function () {
     $user = cfjUser('cfj9');
     $multiAccountRow = IntegrationConnection::create([
         'user_id' => $user->id,
@@ -385,11 +395,11 @@ it('computes the same lock key formula ScheduledRefresh uses (suffix only when r
         'is_active' => true,
     ]);
 
-    $suffixA = $multiAccountRow->resource_id === $multiAccountRow->platform ? null : $multiAccountRow->resource_id;
-    $suffixB = $singleSelectionRow->resource_id === $singleSelectionRow->platform ? null : $singleSelectionRow->resource_id;
-
-    expect(CacheKeyGenerator::platformConnectionLock('bandcamp', $user->id, $suffixA))
-        ->toBe("platforms:bandcamp:lock:{$user->id}:acct-cfj9");
-    expect(CacheKeyGenerator::platformConnectionLock('strava', $user->id, $suffixB))
+    // Same (platform, userId) pair, different resource_id — must yield the
+    // IDENTICAL key. platformConnectionLock() takes no resource_id/suffix
+    // argument at all any more, so there is no parameter left to diverge by.
+    expect(CacheKeyGenerator::platformConnectionLock($multiAccountRow->platform, $user->id))
+        ->toBe("platforms:bandcamp:lock:{$user->id}");
+    expect(CacheKeyGenerator::platformConnectionLock($singleSelectionRow->platform, $user->id))
         ->toBe("platforms:strava:lock:{$user->id}");
 });

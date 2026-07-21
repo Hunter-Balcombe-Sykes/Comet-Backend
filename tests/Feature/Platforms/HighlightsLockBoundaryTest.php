@@ -14,15 +14,17 @@
 // reuses: acquire-and-immediately-release to detect contention).
 //
 // Lock key note: GenericPlatformController::highlights() calls
-// withConnectionLock($user, $callback) with NO $suffix argument — unlike
-// ScheduledRefresh::run(), which suffixes by resource_id when it differs from
-// the platform slug. So even though bandcamp is a multi-account platform (its
-// row's resource_id is 'acct-<hash>', not 'bandcamp'), the highlights() lock
-// is always the platform-wide, unsuffixed key. That's an existing property of
-// this controller (every /highlights save for one user+platform serialises
-// against every other, across all that platform's accounts) — not something
-// this unit changes — so the probes below use CacheKeyGenerator::
-// platformConnectionLock('bandcamp', $user->id) with no third argument.
+// withConnectionLock($user, $callback), which builds the platform-wide key
+// CacheKeyGenerator::platformConnectionLock('bandcamp', $user->id) — no
+// per-account suffix exists any more (removed 2026-07-21; ScheduledRefresh /
+// ConnectFetchJob / GoogleBusinessEnrichJob now build this exact same key for
+// every account of a platform, closing the lost-update gap where a suffixed
+// writer and an unsuffixed writer built different strings and never excluded
+// each other). So even though bandcamp is a multi-account platform (its row's
+// resource_id is 'acct-<hash>', not 'bandcamp'), the highlights() lock is
+// always the platform-wide key — every /highlights save for one user+platform
+// serialises against every other, across all that platform's accounts, AND
+// against a concurrent scheduled refresh or connect-fetch job on any of them.
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
