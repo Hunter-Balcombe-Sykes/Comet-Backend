@@ -680,7 +680,7 @@ it('applies instagram identity fields (sector/display_name) as part of the conne
 
     $user = User::create([
         'handle' => 'igidentity1', 'handle_lc' => 'igidentity1', 'display_name' => '',
-        'account_type' => 'individual', 'auth_user_id' => (string) Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'igidentity1@example.com', 'sector' => null, 'sector_source' => null,
     ]);
     $connection = IntegrationConnection::create([
