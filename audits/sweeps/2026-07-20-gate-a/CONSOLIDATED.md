@@ -677,6 +677,8 @@ that should live there. Purely mechanical — do last.
 Several of these are explicitly "accept the exemption, apply the pattern going forward" rather
 than edits — read each source entry before changing anything.
 
+**⚠️ PROMOTED 2026-07-22 (Josh): the 7 P2 migration-safety items below** (`migrations-early/MIG-3, MIG-4, MIG-5, MIG-6` and `migrations-recent/MIG-5, MIG-6, MIG-7`) **are routed to the fresh-db-concurrently-pipeline session** (`docs/superpowers/plans/2026-07-21-fresh-db-concurrently-pipeline-PROMPT.md`) — the session that owns `scripts/guard-no-unsafe-migrations.php` and the fresh-apply / cutover path, same home as `discovered/DISC-1`. They stay `[ ]` here and are worked + tracked THERE. B19's remaining **P3** items (`migrations-early/MIG-7`, `migrations-recent/MIG-8`, `pii-schema/SCHEMA-4/5/6`) stay in gate-a. (MIG-7/MIG-8 — the P3 `lock_timeout` guard gap — are the same theme as the promoted P2s; left in gate-a per the "P2s" scope, promote too if desired.)
+
 - [ ] **`migrations-early/MIG-3`** · P2 · M — Inline CHECK on `site.sites.skeleton_id` validates existing rows under `ACCESS EXCLUSIVE` → `sources/migrations-early.md`
 - [ ] **`migrations-early/MIG-4`** · P2 · S — Unqualified `DROP FUNCTION` leaves an orphaned trigger referencing a dropped column → `sources/migrations-early.md`
 - [ ] **`migrations-early/MIG-5`** · P2 · M — Full-table `UPDATE` backfills run inside migration transactions instead of being extracted (5 files) → `sources/migrations-early.md`
