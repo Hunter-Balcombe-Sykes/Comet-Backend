@@ -290,6 +290,22 @@ trait ManagesIntegrationConnection
         }
     }
 
+    /**
+     * Like withConnectionLock() but for a caller-supplied cross-platform lock
+     * key (e.g. CacheKeyGenerator::bookingXorLock / reservationsXorLock) — used
+     * by the single-slot booking/reservations families whose clear+write spans
+     * multiple platform rows and so cannot use the per-platform key. Same 10s
+     * TTL / block(5) / 423-on-timeout contract.
+     */
+    protected function withCrossPlatformLock(string $lockKey, callable $callback): JsonResponse
+    {
+        try {
+            return Cache::lock($lockKey, 10)->block(5, $callback);
+        } catch (LockTimeoutException) {
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
+    }
+
     // ── Multi-account support ────────────────────────────────────────────
     // A platform can hold several connected accounts as SEPARATE rows: the
     // legacy single row (resource_id = platform slug) plus rows keyed

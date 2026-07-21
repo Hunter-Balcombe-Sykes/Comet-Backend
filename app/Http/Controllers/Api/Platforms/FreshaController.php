@@ -13,6 +13,7 @@ use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
@@ -318,19 +319,28 @@ class FreshaController extends ApiController
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $this->forgetConnection($user);
 
-        $synced = Service::query()
-            ->where('user_id', $user->id)
-            ->where('source', 'fresha')
-            ->where('is_manual', false)
-            ->get();
-        foreach ($synced as $row) {
-            $row->deleted_origin = 'sync';
-            $row->saveQuietly();
-            $row->delete();
-        }
+        // The booking-XOR lock (not the per-platform withConnectionLock) —
+        // this delete has exactly one owner: BookingController::clearBooking()
+        // also deletes the fresha connection row as part of the single-slot
+        // booking-family clear, under this same cross-platform key. Serializing
+        // both on the per-platform 'fresha' key would leave clearBooking()
+        // free to race this delete.
+        return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user) {
+            $this->forgetConnection($user);
 
-        return $this->success(['url' => null, 'selection' => null]);
+            $synced = Service::query()
+                ->where('user_id', $user->id)
+                ->where('source', 'fresha')
+                ->where('is_manual', false)
+                ->get();
+            foreach ($synced as $row) {
+                $row->deleted_origin = 'sync';
+                $row->saveQuietly();
+                $row->delete();
+            }
+
+            return $this->success(['url' => null, 'selection' => null]);
+        });
     }
 }

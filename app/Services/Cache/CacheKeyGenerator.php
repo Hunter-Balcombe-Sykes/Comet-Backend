@@ -312,6 +312,25 @@ class CacheKeyGenerator
         return "platforms:{$platform}:lock:{$userId}";
     }
 
+    /**
+     * Cross-platform single-slot XOR lock: the ONLY serialization point for
+     * "at most one booking provider per user" (fresha/square/booking span
+     * multiple platform keys, so a per-platform lock cannot enforce it — see
+     * BuildsAutoSyncFindings::withBookingXorLock). Platform-suffix-free by
+     * design so every booking-family writer (seedBooking + the Booking/Fresha
+     * controllers) builds one identical key.
+     */
+    public static function bookingXorLock(string $userId): string
+    {
+        return "platforms:booking-xor:lock:{$userId}";
+    }
+
+    /** Cross-platform single-slot XOR lock for the reservations family (opentable/resdiary/nowbookit/custom). Mirrors bookingXorLock. */
+    public static function reservationsXorLock(string $userId): string
+    {
+        return "platforms:reservations-xor:lock:{$userId}";
+    }
+
     /** Global daily Apify claim counter across ALL actors (SCALE-2 cost ceiling). */
     public static function apifyGlobalDailyLimit(string $date): string
     {

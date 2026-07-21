@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 6/10 · Tier 2: 3/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 9 done** (PWL-1,2,3,4,5,6,11,12,13)
+- Tier 1: 6/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 11 done** (PWL-1,2,3,4,5,6,11,12,13,14,15)
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -201,7 +201,7 @@ locked path, or wrap `storeAccount`'s write. Bundle with PWL-4.
 ## Tier 3 — STRUCTURAL ODDITY (wrong-key) — Standalone, BLOCKER
 
 ### PWL-14 — BookingController holds the `booking` lock while deleting fresha/square rows; forget() unlocked — Standalone, M
-- [ ] Fix
+- [x] Fix — promoted the booking-XOR key to `CacheKeyGenerator::bookingXorLock` (string unchanged; BookingXorLockTest green proves seedBooking still shares it); added controller helper `withCrossPlatformLock`. BookingController detect()+forget() now take bookingXorLock around the whole clear+write; EnrichLinkCardJob dispatch moved OUTSIDE the lock (sync-inline scrape). FreshaController::forget() (PWL-5's deferred delete) now takes the SAME bookingXorLock → the Fresha delete has one owner. Independent review PASS; lost-update tests fail pre-fix (202/200→423). RESIDUAL (accepted, flagged to Josh): the booking-family CONNECT paths (FreshaController::connect on the per-platform 'fresha' lock, SquareController::connect unlocked) do NOT share the XOR lock, so a connect racing a custom detect is not mutually excluded — a rare two-tab single-slot case; closing it would need XOR-on-connect beyond this signed-off scope.
 **Plain English:** Booking is a single-slot card — connecting one provider clears the others. The
 code locks the "booking" slot but then deletes the Fresha and Square rows, which live under different
 locks, so a simultaneous Fresha connect isn't actually excluded. And "disconnect" clears them with no
@@ -214,7 +214,7 @@ one. **Fix (design decision):** guard the cross-platform clear with the shared b
 `forget()`. Coordinate with PWL-5 (Fresha) and PWL-9 (auto-sync seedBooking share the same lock).
 
 ### PWL-15 — ReservationsController holds the `reservations` lock while deleting opentable/resdiary/nowbookit rows; forget() unlocked — Standalone, M
-- [ ] Fix
+- [x] Fix — added `CacheKeyGenerator::reservationsXorLock`; ReservationsController detect()+forget() take it around the whole clear+write (mirrors PWL-14), EnrichLinkCardJob dispatch moved OUTSIDE the lock. Independent review PASS; lost-update test fails pre-fix (202/200→423). Same accepted connect-side residual as PWL-14 (keyless-provider connects don't share the reservations-XOR lock).
 **Plain English:** Same shape as Booking, for the reservations single-slot family.
 **Technical:** `ReservationsController::detect()` (`:76`) holds the `reservations` lock; `clearReservations()`
 deletes opentable/resdiary/nowbookit rows (`:172`) + `forgetConnection` (`:175`); `forget()` (`:123`)
