@@ -42,6 +42,11 @@ class WebsiteLogoCandidateExtractor
     {
         $out = [];
         foreach ($xpath->query('//link[@rel]') as $link) {
+            // '//link[@rel]' is a tag-name node test — DOMXPath never returns
+            // namespace nodes for it, so this is always a DOMElement at runtime.
+            if (! $link instanceof \DOMElement) {
+                continue;
+            }
             $rel = strtolower((string) $link->getAttribute('rel'));
             if (! str_contains($rel, 'icon')) {
                 continue;
@@ -65,6 +70,10 @@ class WebsiteLogoCandidateExtractor
     {
         $out = [];
         foreach ($xpath->query('//link[translate(@rel,"MANIFEST","manifest")="manifest"]') as $link) {
+            // Tag-name node test on 'link' — always a DOMElement at runtime.
+            if (! $link instanceof \DOMElement) {
+                continue;
+            }
             $href = $this->absolutize(trim((string) $link->getAttribute('href')), $baseUrl);
             if ($href !== null) {
                 $out[] = ['kind' => 'manifest', 'url' => $href];
@@ -79,6 +88,10 @@ class WebsiteLogoCandidateExtractor
         $out = [];
         foreach (['og:image' => 'og-image', 'twitter:image' => 'twitter-image'] as $property => $kind) {
             foreach ($xpath->query("//meta[@property=\"{$property}\" or @name=\"{$property}\"]") as $meta) {
+                // Tag-name node test on 'meta' — always a DOMElement at runtime.
+                if (! $meta instanceof \DOMElement) {
+                    continue;
+                }
                 $url = $this->absolutize(trim((string) $meta->getAttribute('content')), $baseUrl);
                 if ($url !== null) {
                     $out[] = ['kind' => $kind, 'url' => $url];
@@ -101,6 +114,10 @@ class WebsiteLogoCandidateExtractor
 
         $out = [];
         foreach ($xpath->query('.//img', $scope) as $img) {
+            // Tag-name node test on 'img' — always a DOMElement at runtime.
+            if (! $img instanceof \DOMElement) {
+                continue;
+            }
             $src = $this->absolutize(trim((string) $img->getAttribute('src')), $baseUrl);
             if ($src === null) {
                 continue;
@@ -116,6 +133,10 @@ class WebsiteLogoCandidateExtractor
         }
 
         foreach ($xpath->query('.//svg', $scope) as $svg) {
+            // Tag-name node test on 'svg' — always a DOMElement at runtime.
+            if (! $svg instanceof \DOMElement) {
+                continue;
+            }
             $svgHtml = $doc->saveHTML($svg);
             if ($svgHtml === false || strlen($svgHtml) > self::MAX_SVG_BYTES) {
                 continue;
