@@ -22,7 +22,8 @@ use Illuminate\Support\Carbon;
  * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
  * @property string|null $failure_code One of FAILURE_* (e.g. FAILURE_SOURCE_NOT_FOUND, FAILURE_SCRAPE_FAILED) when build_state is 'failed' — not DB-CHECK-enforced, app-level vocabulary only.
  * @property string|null $created_ip_hash sha256(CF-Connecting-IP); NULL for staff-built rows (no visitor IP to hash).
- * @property Carbon $expires_at Drives builds:prune-expired; irrelevant once claimed.
+ * @property Carbon|null $expires_at Drives builds:prune-expired; irrelevant once claimed. NULL = never-expire (early-access builds, until staff approval).
+ * @property string|null $contact_email Notify address + email-gate value; NULL = first-come claim.
  * @property Carbon|null $claimed_at NULL while the build is live (scopeLive); set once the visitor claims the site.
  * @property Carbon $created_at
  * @property Carbon $updated_at
@@ -57,6 +58,8 @@ class PreAccountBuild extends BaseModel
 
     public const VIA_STAFF = 'staff';
 
+    public const VIA_EARLY_ACCESS = 'early_access';
+
     protected $table = 'core.pre_account_builds';
 
     public $incrementing = false;
@@ -69,7 +72,7 @@ class PreAccountBuild extends BaseModel
     // dropped write here strands a build in the wrong state with zero error).
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',
-        'created_ip_hash', 'expires_at',
+        'created_ip_hash', 'expires_at', 'contact_email',
     ];
 
     protected $casts = [
