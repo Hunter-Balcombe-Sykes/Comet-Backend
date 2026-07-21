@@ -478,18 +478,6 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffDataExportController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\ServiceCategory\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceCategoryManagementController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$category_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceManagementController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$recipient_email\.$#'
 			identifier: property.notFound
 			count: 2
@@ -596,18 +584,6 @@ parameters:
 			identifier: argument.type
 			count: 1
 			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\ServiceCategory\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserServiceCategoryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserServiceController.php
 
 		-
 			message: '#^Parameter \#1 \$array \(list\<mixed\>\) of array_values is already a list, call has no effect\.$#'
@@ -1271,84 +1247,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/ServiceCategoryResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$category_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$currency_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$deleted_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$duration_minutes\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$is_active\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$price_cents\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$sort_order\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$updated_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceResource\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ServiceResource.php
 
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$artifact_type\.$#'
@@ -2275,12 +2173,6 @@ parameters:
 			path: app/Notifications/Moderation/ReportOutcomeNotification.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 7
-			path: app/Observers/Core/ServiceObserver.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 3
@@ -2995,36 +2887,6 @@ parameters:
 			path: app/Services/PublicSite/SiteActionsService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$currency_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$description\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$duration_minutes\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$price_cents\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Service\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
 			identifier: property.notFound
 			count: 1
@@ -3039,12 +2901,6 @@ parameters:
 		-
 			message: '#^Parameter \#1 \$array \(list\<string\>\) of array_values is already a list, call has no effect\.$#'
 			identifier: arrayValues.list
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\User\\Service\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
 			count: 1
 			path: app/Services/PublicSite/SitepageDataResolverService.php
 
