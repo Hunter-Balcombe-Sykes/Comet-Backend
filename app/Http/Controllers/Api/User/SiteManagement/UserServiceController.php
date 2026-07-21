@@ -250,7 +250,10 @@ class UserServiceController extends ApiController
     public function resyncBulk(Request $request): JsonResponse
     {
         $pro = $this->currentUser($request);
-        $this->authorizeForUser($pro, 'update', new Service(['user_id' => $pro->id]));
+        // SEC-1: user_id is not mass-assignable — direct assignment so the policy sees the owner.
+        $skeleton = new Service;
+        $skeleton->user_id = $pro->id;
+        $this->authorizeForUser($pro, 'update', $skeleton);
 
         $validated = $request->validate([
             'ids' => ['sometimes', 'array', 'max:500'],
