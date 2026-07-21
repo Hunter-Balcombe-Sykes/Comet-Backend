@@ -353,15 +353,17 @@ function setupUsersTable(): void
 }
 
 /**
- * Permissive core.pre_account_builds table — every column nullable except the
- * load-bearing default. Mirrors migration 20260718200000_pre_account_sites.sql.
+ * Permissive core.pre_account_builds table — columns nullable except the
+ * load-bearing default and user_id, which is NOT NULL to mirror prod
+ * (migration 20260718200000_pre_account_sites.sql). PARITY-1: every creation
+ * path already sets user_id via ->user()->associate(), so the constraint holds.
  */
 function setupPreAccountBuildsTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_builds (
         id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
+        user_id TEXT NOT NULL,
         source_type TEXT NULL,
         source_ref TEXT NULL,
         source_ref_lc TEXT NULL,
