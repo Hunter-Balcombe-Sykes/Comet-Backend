@@ -46,8 +46,8 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 45 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
-- P3 Low: 8 of 46 complete
+- P2 Medium: 46 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P3 Low: 12 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 3 of 7 complete (DISC-2, DISC-5, DISC-6).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
@@ -70,6 +70,7 @@ every draft rather than the scan reading nothing.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
 **P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)* · B11 ✅ *($fillable hardening across 4 findings; handle/handle_lc kept fillable per Josh to avoid a ~90-file test ripple; SEC-3/SEC-4 needed forceCreate/forceFill not the audit's "clean removal"; dual fresh-grep review)* · B12 ✅ *(GBP reviewer-PII strip durable across the 2-day refresh + self-heal on claim; IG narrowed to bioLinks/syncFindings/unmatched; logged DISC-7 InstagramAutoSync)*
+**P2 session part 3 (2026-07-21):** B15 ✅ *(EDGE-1 timeouts on 5 `Http::` calls — B1 had already done `purgeUrls`; SEC-1 `rawurlencode` handle+product-handle; CFG-1/2/3 moved token URLs, UA, enum caps to config)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -596,11 +597,11 @@ The Worker returned no P0/P1 — its read path is sound. These are defence-in-de
 The June 3rd SSRF fix (`SafeUrlFetcher` + host allowlist + image-only content-type) **held** —
 this run found no regression. These are the remaining rough edges.
 
-- [ ] **`outbound-ssrf/EDGE-1`** · P2 · M — Outbound Cloudflare and streaming-API calls have no explicit HTTP timeout (six `Http::` calls) → `sources/outbound-ssrf.md`
-- [ ] **`outbound-ssrf/SEC-1`** · P3 · S — `CloudflarePurgeService` interpolates handle and product-handle into purge URLs without URL-encoding → `sources/outbound-ssrf.md`
-- [ ] **`outbound-ssrf/CFG-1`** · P3 · S — OAuth token URLs hardcoded in `StreamingTokenManager` while sibling clients use config → `sources/outbound-ssrf.md`
-- [ ] **`outbound-ssrf/CFG-2`** · P3 · S — `SafeUrlFetcher` User-Agent strings hardcoded with no config override → `sources/outbound-ssrf.md`
-- [ ] **`outbound-ssrf/CFG-3`** · P3 · S — `CloudflarePurgeService` hardcodes deep-link enumeration caps as literals → `sources/outbound-ssrf.md`
+- [x] **`outbound-ssrf/EDGE-1`** · P2 · M — Outbound Cloudflare and streaming-API calls have no explicit HTTP timeout (six `Http::` calls) → `sources/outbound-ssrf.md`
+- [x] **`outbound-ssrf/SEC-1`** · P3 · S — `CloudflarePurgeService` interpolates handle and product-handle into purge URLs without URL-encoding → `sources/outbound-ssrf.md`
+- [x] **`outbound-ssrf/CFG-1`** · P3 · S — OAuth token URLs hardcoded in `StreamingTokenManager` while sibling clients use config → `sources/outbound-ssrf.md`
+- [x] **`outbound-ssrf/CFG-2`** · P3 · S — `SafeUrlFetcher` User-Agent strings hardcoded with no config override → `sources/outbound-ssrf.md`
+- [x] **`outbound-ssrf/CFG-3`** · P3 · S — `CloudflarePurgeService` hardcodes deep-link enumeration caps as literals → `sources/outbound-ssrf.md`
 
 ### Bundle B16 — Pin bare `DB::transaction()` to the pgsql connection · **P3** · Effort S ×6
 

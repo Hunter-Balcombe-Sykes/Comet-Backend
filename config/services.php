@@ -91,12 +91,17 @@ return [
         'client_secret' => env('TWITCH_CLIENT_SECRET'),
         // Helix streams endpoint — override if Twitch migrates the URL or for local stubs.
         'streams_url' => env('TWITCH_STREAMS_URL', 'https://api.twitch.tv/helix/streams'),
+        // CFG-1: OAuth Client Credentials token endpoint — was hardcoded in
+        // StreamingTokenManager::PLATFORM_CONFIG; override if Twitch migrates the URL.
+        'token_url' => env('TWITCH_TOKEN_URL', 'https://id.twitch.tv/oauth2/token'),
     ],
     'kick' => [
         'client_id' => env('KICK_CLIENT_ID'),
         'client_secret' => env('KICK_CLIENT_SECRET'),
         // Public channels endpoint — override if Kick changes their API path.
         'channels_url' => env('KICK_CHANNELS_URL', 'https://api.kick.com/public/v1/channels'),
+        // CFG-1: OAuth token endpoint — was hardcoded in StreamingTokenManager::PLATFORM_CONFIG.
+        'token_url' => env('KICK_TOKEN_URL', 'https://id.kick.com/oauth/token'),
     ],
 
     // Fresha's persisted-query hash + client version are pinned to a Fresha

@@ -19,15 +19,17 @@ class StreamingTokenManager
 
     private const EXPIRY_BUFFER_SECONDS = 300;
 
-    /** @var array<string, array{token_url: string, client_id_key: string, client_secret_key: string}> */
+    /** @var array<string, array{token_url_key: string, client_id_key: string, client_secret_key: string}> */
     private const PLATFORM_CONFIG = [
         'twitch' => [
-            'token_url' => 'https://id.twitch.tv/oauth2/token',
+            // CFG-1: token endpoint moved to config/services.php (env-backed)
+            // alongside client_id/client_secret, matching the streams_url pattern.
+            'token_url_key' => 'services.twitch.token_url',
             'client_id_key' => 'services.twitch.client_id',
             'client_secret_key' => 'services.twitch.client_secret',
         ],
         'kick' => [
-            'token_url' => 'https://id.kick.com/oauth/token',
+            'token_url_key' => 'services.kick.token_url',
             'client_id_key' => 'services.kick.client_id',
             'client_secret_key' => 'services.kick.client_secret',
         ],
@@ -72,11 +74,18 @@ class StreamingTokenManager
         }
 
         try {
-            $response = Http::asForm()->post($cfg['token_url'], [
-                'client_id' => $clientId,
-                'client_secret' => $clientSecret,
-                'grant_type' => 'client_credentials',
-            ]);
+            $tokenUrl = (string) config($cfg['token_url_key']);
+            // EDGE-1: explicit bounds — without these, Laravel's blanket defaults
+            // (connect 10s / total 30s) apply and a hung token endpoint can hold
+            // the refresh lock far longer than the 30s lock TTL expects.
+            $response = Http::asForm()
+                ->timeout(10)
+                ->connectTimeout(3)
+                ->post($tokenUrl, [
+                    'client_id' => $clientId,
+                    'client_secret' => $clientSecret,
+                    'grant_type' => 'client_credentials',
+                ]);
 
             if (! $response->successful()) {
                 Log::error('streaming.auth_failure', [

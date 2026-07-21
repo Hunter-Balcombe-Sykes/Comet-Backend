@@ -31,14 +31,15 @@ class SafeUrlFetcher
     /** 10 MB — fallback for config('partna.http_fetch.max_bytes'). */
     private const MAX_BYTES = 10 * 1024 * 1024;
 
-    /** Browser-ish UA — some providers 403 obvious bots / empty UAs. */
+    /** CFG-2: fallback for config('partna.http_fetch.user_agent') — browser-ish UA, some providers 403 obvious bots / empty UAs. */
     private const USER_AGENT = 'Mozilla/5.0 (compatible; PartnaBot/1.0; +https://partna.au)';
 
     /**
-     * Honest bot UA for the 403 retry. Some hosting WAFs (SiteGround et al.)
-     * 403 any `Mozilla/…` UA whose TLS fingerprint isn't a real browser —
-     * spoofed-browser and `Mozilla/5.0 (compatible; …)` strings both trip it,
-     * while a plain non-Mozilla bot UA passes. Must NOT start with "Mozilla/".
+     * CFG-2: fallback for config('partna.http_fetch.fallback_user_agent') — honest bot UA
+     * for the 403 retry. Some hosting WAFs (SiteGround et al.) 403 any `Mozilla/…` UA
+     * whose TLS fingerprint isn't a real browser — spoofed-browser and
+     * `Mozilla/5.0 (compatible; …)` strings both trip it, while a plain non-Mozilla bot
+     * UA passes. Must NOT start with "Mozilla/". Kept public — callers assert against it.
      */
     public const FALLBACK_USER_AGENT = 'PartnaBot/1.0 (+https://partna.au)';
 
@@ -53,6 +54,10 @@ class SafeUrlFetcher
 
     private readonly int $connectTimeoutSeconds;
 
+    private readonly string $userAgent;
+
+    private readonly string $fallbackUserAgent;
+
     /**
      * The wall-clock budget is NOT owned here — it's a request/job-scoped
      * concern shared with other collaborators (e.g. YoutubeThumbnailResolver,
@@ -66,6 +71,8 @@ class SafeUrlFetcher
         $this->timeoutSeconds = (int) config('partna.http_fetch.timeout_seconds', self::TIMEOUT_SECONDS);
         $this->maxBytes = (int) config('partna.http_fetch.max_bytes', self::MAX_BYTES);
         $this->connectTimeoutSeconds = (int) config('partna.http_fetch.connect_timeout_seconds', self::CONNECT_TIMEOUT_SECONDS);
+        $this->userAgent = (string) config('partna.http_fetch.user_agent', self::USER_AGENT);
+        $this->fallbackUserAgent = (string) config('partna.http_fetch.fallback_user_agent', self::FALLBACK_USER_AGENT);
     }
 
     /**
@@ -79,7 +86,7 @@ class SafeUrlFetcher
     public function fetch(string $url, array $headers = []): array
     {
         $merged = array_merge([
-            'User-Agent' => self::USER_AGENT,
+            'User-Agent' => $this->userAgent,
             'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
         ], $headers);
 
@@ -95,7 +102,7 @@ class SafeUrlFetcher
             try {
                 $retry = $this->fetchFollowingRedirects(
                     $url,
-                    array_merge($merged, ['User-Agent' => self::FALLBACK_USER_AGENT]),
+                    array_merge($merged, ['User-Agent' => $this->fallbackUserAgent]),
                 );
                 if ($retry['status'] < 400) {
                     return $retry;
@@ -218,7 +225,7 @@ class SafeUrlFetcher
         }
 
         $mergedHeaders = array_merge([
-            'User-Agent' => self::USER_AGENT,
+            'User-Agent' => $this->userAgent,
             'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
         ], $headers);
 
@@ -242,7 +249,7 @@ class SafeUrlFetcher
             if ($blocked !== []) {
                 $retry = $this->fetchManyFollowingRedirects(
                     $blocked,
-                    array_merge($mergedHeaders, ['User-Agent' => self::FALLBACK_USER_AGENT]),
+                    array_merge($mergedHeaders, ['User-Agent' => $this->fallbackUserAgent]),
                 );
                 foreach ($retry as $original => $res) {
                     if (is_array($res) && $res['status'] < 400) {

@@ -1139,6 +1139,17 @@ return [
         // FetchBudget's docblock). Opt-in per call site: callers that never open
         // a budget — the overwhelming majority — are unaffected.
         'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 20),
+
+        // CFG-2: browser-ish UA — some providers 403 obvious bots / empty UAs.
+        // Was a SafeUrlFetcher class constant; kept as a plain literal default
+        // (not derived from partna.public_domain) since that key is env-specific
+        // (dev-api.partna.au, localhost, …) and would make this contact URL wrong
+        // outside production.
+        'user_agent' => env('PARTNA_HTTP_FETCH_USER_AGENT', 'Mozilla/5.0 (compatible; PartnaBot/1.0; +https://partna.au)'),
+
+        // CFG-2: honest bot UA for the 403 retry — see SafeUrlFetcher::fetch()'s
+        // docblock. Must NOT start with "Mozilla/".
+        'fallback_user_agent' => env('PARTNA_HTTP_FETCH_FALLBACK_USER_AGENT', 'PartnaBot/1.0 (+https://partna.au)'),
     ],
 
     /*
@@ -1682,6 +1693,19 @@ return [
             'webhook_idempotency' => (int) env('PARTNA_CACHE_TTL_WEBHOOK_IDEMPOTENCY', env('CACHE_TTL_WEBHOOK_IDEMPOTENCY', 86400)),               // 24h
             'email_brand' => (int) env('PARTNA_CACHE_TTL_EMAIL_BRAND', 86400),                                                                     // 24h
         ],
+    ],
+
+    // CFG-3: DB-query caps for CloudflarePurgeService::purgeHandle()'s enrichment
+    // lookups (product/menu-item/event detail pages). Tunable without a redeploy;
+    // raising any of these also raises purgeHandle()'s worst-case URL count — see
+    // the CHUNK_PACING_MICROSECONDS docblock in CloudflarePurgeService for the
+    // full budget derivation. array_chunk(..., 30) in purgeUrls() is NOT here —
+    // that's Cloudflare's hard API ceiling, not a tunable cap.
+    'cloudflare_purge' => [
+        'products_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_PRODUCTS_LIMIT', 100),
+        'menu_items_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_MENU_ITEMS_LIMIT', 150),
+        'event_connections_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_EVENT_CONNECTIONS_LIMIT', 30),
+        'event_ids_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_EVENT_IDS_LIMIT', 100),
     ],
 
     /*
