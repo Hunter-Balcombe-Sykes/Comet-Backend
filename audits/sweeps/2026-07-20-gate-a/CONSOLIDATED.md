@@ -52,6 +52,15 @@ every draft rather than the scan reading nothing.
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
+> **Session 1 stopped here (2026-07-20), 8 units committed** (B2, S1+S2, S3, B1, B3, B4, B5, B6).
+> The remainder is handed off in two prompts in this folder:
+> - `PROMPT-execute-P2-remaining.md` — B7, B8, B9, B10, B11, B12, B13, B14, B15, B20, B21, S4
+> - `PROMPT-execute-P3-remaining.md` — B16, B17, B18, B19 (run after the P2 session)
+>
+> ⚠️ **B7 is partially done in the working tree, uncommitted:** `public-surface/PRIV-2` and `PRIV-3`
+> (`PublicCustomerLeadController.php` UA cap + `PublicCustomerLeadRequest.php` `strip_tags`) were
+> written by the second developer. The P2 session must reconcile them into B7, not duplicate them.
+
 > **⚠️ The "Findings at a glance" table above is wrong as generated.** It claims P1 13 / P2 62 /
 > P3 51. Counting the actual finding lines gives **P0 2 / P1 14 / P2 68 / P3 44** — both sum to 128,
 > but the per-tier split does not match. The counts tracked here are the line-level ones, adjusted
