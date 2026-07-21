@@ -884,7 +884,7 @@ it('scan apply carries dietary markers through validation onto the created item 
     ])->assertOk();
 
     $item = MenuItem::query()->where('name', 'Falafel Bowl')->firstOrFail();
-    $labels = array_map(fn ($b) => $b['label'] ?? null, (array) $item->badges);
+    $labels = array_map(fn ($b) => $b['text'] ?? null, (array) $item->badges);
     expect($labels)->toContain('Vegan');
     expect($labels)->toContain('Gluten free');
 });
