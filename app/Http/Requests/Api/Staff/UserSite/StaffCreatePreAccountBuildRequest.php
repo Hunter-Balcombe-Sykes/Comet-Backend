@@ -23,6 +23,7 @@ class StaffCreatePreAccountBuildRequest extends BaseFormRequest
             'source_name' => ['nullable', 'string', 'max:120', 'required_if:source_type,google_business'],
             'publish' => ['sometimes', 'boolean'],
             'expires_days' => ['sometimes', 'integer', 'min:1', 'max:365'],
+            'contact_email' => ['nullable', 'email:rfc', 'max:320'],
         ];
     }
 }

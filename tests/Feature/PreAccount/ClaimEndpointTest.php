@@ -89,3 +89,14 @@ it('PRIV-101: marketing_opt_in=true creates a sidest_updates subscription', func
     expect($row)->not->toBeNull()
         ->and($row->status)->toBe('subscribed');
 });
+
+it('409s a mismatched email on an email-gated build', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['contact_email' => 'owner@example.com'])->save();
+    Queue::fake();
+
+    actingAsUser(claimJwtUser('auth-uid-1', 'intruder@example.com'));
+    $this->postJson('/api/claim', ['subdomain' => 'janedoe'])
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'CLAIM_EMAIL_MISMATCH');
+});

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
@@ -81,11 +82,12 @@ it('exposes promoteToAdmin and demoteToSupport as the sanctioned role transition
 
 // SEC-1 (B11): user_id must not be mass-assignable on tenant-owned models —
 // it's set via the owning relation's create() or direct property assignment.
-it('does not allow user_id to be mass-assigned on Customer, Service, ServiceCategory, or UserConfirmationPreference', function () {
+it('does not allow user_id to be mass-assigned on Customer, Service, ServiceCategory, UserConfirmationPreference, or EarlyAccessSignup', function () {
     expect((new Customer)->getFillable())->not->toContain('user_id')
         ->and((new Service)->getFillable())->not->toContain('user_id')
         ->and((new ServiceCategory)->getFillable())->not->toContain('user_id')
-        ->and((new UserConfirmationPreference)->getFillable())->not->toContain('user_id');
+        ->and((new UserConfirmationPreference)->getFillable())->not->toContain('user_id')
+        ->and((new EarlyAccessSignup)->getFillable())->not->toContain('user_id');
 });
 
 // SEC-2 (B11): deletion lifecycle + status + admin_notes are server-managed on

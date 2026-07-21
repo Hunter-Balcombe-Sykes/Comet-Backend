@@ -375,6 +375,16 @@ function setupPreAccountBuildsTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTER for suites that created core.pre_account_builds before
+    // contact_email existed. Mirrors migration 20260721120000.
+    foreach (['contact_email TEXT NULL'] as $col) {
+        try {
+            DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**
@@ -1553,6 +1563,17 @@ function setupEarlyAccessTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTERs for suites that created core.early_access_signups
+    // before source_type/source_ref/user_id existed. Mirrors migration
+    // 20260721120000.
+    foreach (['source_type TEXT NULL', 'source_ref TEXT NULL', 'user_id TEXT NULL'] as $col) {
+        try {
+            DB::connection('pgsql')->statement('ALTER TABLE core.early_access_signups ADD COLUMN '.$col);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**

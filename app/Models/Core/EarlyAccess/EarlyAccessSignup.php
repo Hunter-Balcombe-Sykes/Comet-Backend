@@ -52,6 +52,8 @@ class EarlyAccessSignup extends BaseModel
         'type',
         'workplace_or_industry',
         'platforms',
+        'source_type',
+        'source_ref',
         'status',
         'source',
         'invited_at',

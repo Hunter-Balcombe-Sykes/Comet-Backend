@@ -123,6 +123,28 @@ class DataExportTestCase
             updated_at TEXT
         )');
 
+        // Permanent pre-account build origin record (1:1 with core.users via
+        // user_id UNIQUE + ON DELETE CASCADE). Column list mirrors PRODUCTION
+        // (supabase/migrations/20260718200000_pre_account_sites.sql +
+        // 20260721120000_signup_flows_early_access.sql's contact_email add).
+        $conn->statement('CREATE TABLE IF NOT EXISTS core.pre_account_builds (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            source_type TEXT,
+            source_ref TEXT,
+            source_ref_lc TEXT,
+            built_via TEXT,
+            built_by_staff_id TEXT,
+            build_state TEXT DEFAULT "pending",
+            failure_code TEXT,
+            created_ip_hash TEXT,
+            expires_at TEXT,
+            claimed_at TEXT,
+            contact_email TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )');
+
         // Rows persist post user-delete (ON DELETE SET NULL) — pre-deletion DSAR disclosure is important.
         $conn->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
             id TEXT PRIMARY KEY,

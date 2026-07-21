@@ -153,6 +153,7 @@ const CASCADE_ERASED = [
     'site.customers',   // customers_user_fk -> core.users ON DELETE CASCADE
     'site.enquiries',   // enquiries_professional_fk -> core.users ON DELETE CASCADE
     'site.workplaces',  // site_id PK -> site.sites ON DELETE CASCADE (site dies with the user)
+    'core.pre_account_builds',  // user_id UNIQUE FK -> core.users ON DELETE CASCADE (1:1 origin record dies with the user)
 ];
 
 /*
