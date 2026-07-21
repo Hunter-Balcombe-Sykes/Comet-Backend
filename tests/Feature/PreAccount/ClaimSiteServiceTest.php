@@ -179,6 +179,68 @@ it('auto-publishes the site on claim', function () {
     expect($site->fresh()->is_published)->toBeTrue();
 });
 
+// Review finding: the auto-publish block's plain $site->save() fires
+// SiteObserver::saved(), which unconditionally dispatches its own
+// CloudflareCachePurgeJob for this handle — on top of the EDGE-1 block's
+// explicit dispatch below the transaction. That contradicts EDGE-1's own
+// comment ("SiteObserver's own purge never fires for a claim").
+//
+// Queue::assertPushed(..., 1) alone can't distinguish the buggy plain-save()
+// from the fixed saveQuietly(): CloudflareCachePurgeJob implements
+// ShouldBeUnique with a 240s coalesce window keyed on handle+customDomain
+// (confirmed empirically — a raw double ::dispatch() for the same handle
+// collapses to 1 queued push even with no fix applied), so the count assertion
+// reads GREEN either way. The event-listener assertion below is what actually
+// flips RED->GREEN: it proves SiteObserver::saved() itself does not run for
+// the auto-publish write, which is the real fix (saveQuietly bypasses all
+// Eloquent model events, not just this one job's accidental dedup).
+it('does not fire SiteObserver for the auto-publish write, and purges the edge exactly once', function () {
+    makeReadyBuild();
+
+    $siteObserverFired = false;
+    \Illuminate\Support\Facades\Event::listen('eloquent.saved: ' . \App\Models\Core\Site\Site::class, function () use (&$siteObserverFired) {
+        $siteObserverFired = true;
+    });
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($siteObserverFired)->toBeFalse();
+    Queue::assertPushed(CloudflareCachePurgeJob::class, 1);
+});
+
+it('leaves an already-published site untouched (Flow 2 no-op)', function () {
+    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
+    $site = \App\Models\Core\Site\Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => true]);
+    $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
+    $build->user()->associate($user);
+    $build->save();
+
+    $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($result['professional']->status)->toBe('active')
+        ->and($site->fresh()->is_published)->toBeTrue()
+        ->and($site->fresh()->unpublished_at)->toBeNull();
+});
+
+it('falls back display_name to the handle when the provisional user has none, and persists it', function () {
+    $user = User::factory()->create([
+        'status' => 'unclaimed',
+        'auth_user_id' => null,
+        'primary_email' => null,
+        'display_name' => '',
+    ]);
+    \App\Models\Core\Site\Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
+    $build->user()->associate($user);
+    $build->save();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    $fresh = $user->fresh();
+    expect($fresh->display_name)->toBe($user->handle)
+        ->and(\App\Models\Core\Site\Site::query()->where('user_id', $user->id)->first()->is_published)->toBeTrue();
+});
+
 it('rejects a claim whose verified email does not match an email-gated build', function () {
     [$user, $site, $build] = makeReadyBuild();
     $build->forceFill(['contact_email' => 'owner@example.com'])->save();

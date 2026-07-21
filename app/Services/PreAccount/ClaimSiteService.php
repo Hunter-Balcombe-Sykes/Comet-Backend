@@ -116,7 +116,10 @@ class ClaimSiteService
             if (! (bool) $site->is_published) {
                 $site->is_published = true;
                 $site->unpublished_at = null;
-                $site->save();
+                // saveQuietly: the explicit post-commit block below already invalidates
+                // cache + purges the edge for this handle — a plain save() would
+                // double-dispatch via SiteObserver.
+                $site->saveQuietly();
             }
 
             // Claim-time side effects moved from the retired bootstrap create branch.
