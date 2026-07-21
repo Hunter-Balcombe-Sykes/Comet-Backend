@@ -28,6 +28,9 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 1;
 
+    /** @var list<int> */
+    public array $backoff = [30];
+
     public int $uniqueFor = 600;
 
     public function __construct(public readonly string $signupId)
