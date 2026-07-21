@@ -120,3 +120,18 @@ it('isolates a per-candidate teardown fault and still prunes the remaining candi
         ->and(User::query()->find($u2->id))->toBeNull()
         ->and(PreAccountBuild::query()->find($b2->id))->toBeNull();
 });
+
+it('never prunes an unapproved early-access build (null expires_at)', function () {
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    $build = PreAccountBuild::factory()->make([
+        'built_via' => PreAccountBuild::VIA_EARLY_ACCESS,
+        'expires_at' => null,
+    ]);
+    $build->build_state = PreAccountBuild::STATE_READY;
+    $build->user()->associate($user);
+    $build->save();
+
+    $this->artisan('builds:prune-expired')->assertExitCode(0);
+
+    expect(PreAccountBuild::whereKey($build->id)->exists())->toBeTrue();
+});
