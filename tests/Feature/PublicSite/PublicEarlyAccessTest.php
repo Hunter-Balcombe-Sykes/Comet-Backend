@@ -9,8 +9,11 @@
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Services\EarlyAccess\EarlyAccessService;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -247,4 +250,36 @@ it('treats an invite token older than the 14-day TTL as invalid', function () {
         ->update(['invited_at' => now()->subDays(13)]);
 
     expect(EarlyAccessSignup::findByInviteToken($token)?->email_lc)->toBe('stale@example.test');
+});
+
+// --- Rate limiter test (SEC-1: per-IP daily cap) ---
+//
+// Re-register with a tiny per-day cap and very high per-minute/per-hour limits
+// so only the daily gate can trip within this test — mirrors the pattern in
+// PublicSignupAvailabilityControllerTest.
+
+it('429s once the per-IP daily cap is exhausted (SEC-1)', function () {
+    RateLimiter::for('early-access', function (Request $request) {
+        $email = strtolower(trim((string) $request->input('email', '')));
+        $emailKey = $email !== '' ? hash('sha256', $email) : 'unknown';
+        $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+
+        return [
+            Limit::perMinute(1000)->by('early-access:ip:'.$key)
+                ->response(fn () => response()->json(['message' => 'Too many submissions. Please try again shortly.'], 429)),
+            Limit::perDay(5)->by('early-access:ip:day:'.$key)
+                ->response(fn () => response()->json(['message' => 'Too many submissions from this network today. Please try again tomorrow.'], 429)),
+            Limit::perHour(1000)->by('early-access:email:'.$emailKey)
+                ->response(fn () => response()->json(['message' => 'This email has been submitted recently. Please try again later.'], 429)),
+        ];
+    });
+
+    for ($i = 0; $i < 5; $i++) {
+        $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['email' => "daily{$i}@example.test"]))
+            ->assertStatus(200);
+    }
+
+    $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['email' => 'daily-overflow@example.test']))
+        ->assertStatus(429)
+        ->assertJson(['message' => 'Too many submissions from this network today. Please try again tomorrow.']);
 });

@@ -90,11 +90,10 @@ Route::get('/public/documents/{document}/download', PublicDocumentDownloadContro
 Route::get('/public/config/social-platforms', [PublicConfigController::class, 'socialPlatforms'])
     ->middleware('throttle:public-site');
 
-// Client-safe third-party integration keys (Google Maps, etc). Consumed by
-// the Hydrogen storefront — provider-side restrictions (HTTP referrer, etc)
-// keep exposure safe.
-Route::get('/public/config/integrations', [PublicConfigController::class, 'integrations'])
-    ->middleware('throttle:public-site');
+// public-surface/SEC-1: GET /public/config/integrations (Google Maps key) moved
+// behind auth — see routes/api/user.php's '/config/integrations'. The only named
+// consumer is the logged-in dashboard's address autocomplete; no product reason
+// for it to be reachable pre-auth.
 
 // Header/site-id based fallback for path-based frontend routing.
 Route::post('/public/analytics/pageviews', [AnalyticsController::class, 'pageview'])

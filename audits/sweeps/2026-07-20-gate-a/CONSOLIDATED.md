@@ -46,8 +46,8 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 54 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
-- P3 Low: 14 of 46 complete
+- P2 Medium: 58 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P3 Low: 15 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 3 of 7 complete (DISC-2, DISC-5, DISC-6).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
@@ -70,7 +70,7 @@ every draft rather than the scan reading nothing.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
 **P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)* · B11 ✅ *($fillable hardening across 4 findings; handle/handle_lc kept fillable per Josh to avoid a ~90-file test ripple; SEC-3/SEC-4 needed forceCreate/forceFill not the audit's "clean removal"; dual fresh-grep review)* · B12 ✅ *(GBP reviewer-PII strip durable across the 2-day refresh + self-heal on claim; IG narrowed to bioLinks/syncFindings/unmatched; logged DISC-7 InstagramAutoSync)*
-**P2 session part 3 (2026-07-21):** B15 ✅ *(EDGE-1 timeouts on 5 `Http::` calls — B1 had already done `purgeUrls`; SEC-1 `rawurlencode` handle+product-handle; CFG-1/2/3 moved token URLs, UA, enum caps to config)* · B21 ✅ *(SQLite `pre_account_builds.user_id` stub flipped NULL→NOT NULL for prod parity; blast radius 0 — every creation path already sets it via `->user()->associate()`)* · B20 ✅ *(5 findings; 11 new migration files authored UNPUSHED per Josh — 2-table RLS enable+force+policies, menu UUID defaults, design_kits backfill, pg_trgm + 7 CONCURRENTLY GIN indexes; gated for the cutover db-push window)* · B13 ✅ *(Worker: EDGE-2 strip Cookie/Authorization, EDGE-1 strip Vary before cache.put, PRIV-1 drop raw handle/host from 5 error logs, CFG-1 TTLs→wrangler.toml `[vars]`; CFG-3 closed no_change_needed — already guarded by `ReservedSubdomainWorkerSyncTest`; CFG-2 left open — stale premise, staging env was removed)*
+**P2 session part 3 (2026-07-21):** B15 ✅ *(EDGE-1 timeouts on 5 `Http::` calls — B1 had already done `purgeUrls`; SEC-1 `rawurlencode` handle+product-handle; CFG-1/2/3 moved token URLs, UA, enum caps to config)* · B21 ✅ *(SQLite `pre_account_builds.user_id` stub flipped NULL→NOT NULL for prod parity; blast radius 0 — every creation path already sets it via `->user()->associate()`)* · B20 ✅ *(5 findings; 11 new migration files authored UNPUSHED per Josh — 2-table RLS enable+force+policies, menu UUID defaults, design_kits backfill, pg_trgm + 7 CONCURRENTLY GIN indexes; gated for the cutover db-push window)* · B13 ✅ *(Worker: EDGE-2 strip Cookie/Authorization, EDGE-1 strip Vary before cache.put, PRIV-1 drop raw handle/host from 5 error logs, CFG-1 TTLs→wrangler.toml `[vars]`; CFG-3 closed no_change_needed — already guarded by `ReservedSubdomainWorkerSyncTest`; CFG-2 left open — stale premise, staging env was removed)* · B14 ✅ *(SEC-2 explicit same-site site_id/subdomain check on the no-Origin ingest path + regression test — defence-in-depth over the resolver's existing DB filter; SEC-1 added a 20/day per-IP early-access cap alongside 5/min + 12/h-email; public-surface/SEC-1 moved the Google Maps key off the public route into authed `GET /api/config/integrations`; CFG-1/CFG-2 no_change_needed — Nightwatch prod guard already live, `/horizon` Basic-auth-sealed + HORIZON_DOMAIN is an ops task)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -584,11 +584,11 @@ The Worker returned no P0/P1 — its read path is sound. These are defence-in-de
 
 **Models:** plan=Sonnet · impl=Sonnet · review=Sonnet
 
-- [ ] **`wiring/SEC-2`** · P2 · M — Analytics ingest endpoints validate no site/subdomain ownership, only rate limit → `sources/wiring.md`
-- [ ] **`wiring/SEC-1`** · P2 · S — Early-access marketing form is the only public mutation route with no bot-token gate → `sources/wiring.md`
-- [ ] **`public-surface/SEC-1`** · P2 · S — Public unauthenticated endpoint returns the Google Maps API key, relying solely on provider-side referrer restriction → `sources/public-surface.md`
-- [ ] **`wiring/CFG-1`** · P2 · S — Nightwatch enabled by default but the token has no explicit fallback or production guard → `sources/wiring.md`
-- [ ] **`wiring/CFG-2`** · P3 · S — Horizon dashboard domain unset, so `/horizon` is reachable from every visitor subdomain → `sources/wiring.md`
+- [x] **`wiring/SEC-2`** · P2 · M — Analytics ingest endpoints validate no site/subdomain ownership, only rate limit → `sources/wiring.md`
+- [x] **`wiring/SEC-1`** · P2 · S — Early-access marketing form is the only public mutation route with no bot-token gate → `sources/wiring.md`
+- [x] **`public-surface/SEC-1`** · P2 · S — Public unauthenticated endpoint returns the Google Maps API key, relying solely on provider-side referrer restriction → `sources/public-surface.md`
+- [x] **`wiring/CFG-1`** · P2 · S — Nightwatch enabled by default but the token has no explicit fallback or production guard → `sources/wiring.md`
+- [x] **`wiring/CFG-2`** · P3 · S — Horizon dashboard domain unset, so `/horizon` is reachable from every visitor subdomain → `sources/wiring.md`
 
 ### Bundle B15 — Outbound HTTP hardening · **P2** · Effort S–M
 

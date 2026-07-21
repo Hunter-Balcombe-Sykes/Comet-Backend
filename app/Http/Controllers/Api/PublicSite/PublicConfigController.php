@@ -7,17 +7,19 @@ use App\Services\Site\SocialLinkNormalizer;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Public, unauthenticated endpoints that expose static frontend-facing config.
+ * Frontend-facing static config endpoints, grouped by feature area rather than
+ * by auth requirement — some are public, some (see below) require auth.
  *
  * Used by the professional dashboard to drive UI affordances that depend on
- * backend config (currently: the social platform picker for link blocks). The
- * frontend caches these responses at app load and refreshes occasionally —
- * they're effectively static between deploys.
+ * backend config (social platform picker, third-party keys). Responses are
+ * effectively static between deploys.
  *
  * Security:
  *   - All responses go through dedicated services that strip internal-only
  *     fields (regex patterns, host allowlists, etc.) before returning.
- *   - No PII, no auth required. Aggressively cacheable via CDN.
+ *   - socialPlatforms(): no PII, no auth required, aggressively cacheable via CDN.
+ *   - integrations(): requires `user.api` auth (public-surface/SEC-1) — see its
+ *     own docblock.
  */
 class PublicConfigController extends ApiController
 {
@@ -42,12 +44,16 @@ class PublicConfigController extends ApiController
     }
 
     /**
-     * GET /api/public/config/integrations
+     * GET /api/config/integrations (authenticated — see routes/api/user.php)
      *
-     * Client-safe third-party keys for the frontend. Each key here must be
-     * HTTP-referrer-restricted (or equivalent) in its provider so exposing it
-     * publicly is safe — any bearer that isn't coming from an allowlisted
-     * domain gets rejected by the provider itself.
+     * Client-safe third-party keys for the dashboard.
+     *
+     * public-surface/SEC-1: moved behind `user.api` auth from the former
+     * unauthenticated `/public/config/integrations` — the only named consumer
+     * is this logged-in dashboard, so there's no product reason to serve it
+     * pre-auth. Uses plain success() (not successCached()) since that helper
+     * is for unauthenticated, CDN-cacheable routes only; AddPublicCacheHeaders
+     * would force no-store on this authenticated route anyway.
      *
      * Current consumers:
      *   - Address autocomplete (Google Places) on the professional dashboard.
@@ -56,7 +62,7 @@ class PublicConfigController extends ApiController
      */
     public function integrations(): JsonResponse
     {
-        return $this->successCached([
+        return $this->success([
             'googleMapsApiKey' => config('services.google_maps.api_key'),
         ]);
     }

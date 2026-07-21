@@ -569,8 +569,11 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Public early-access signups (OV-A). Same posture as the retired waitlist limiter:
-        // 5/min per IP (CF-Connecting-IP preferred) + 12/h per email.
+        // Public early-access signups (OV-A). Same posture as the retired waitlist limiter,
+        // plus a per-IP daily cap (SEC-1): 5/min + 20/day per IP (CF-Connecting-IP
+        // preferred) + 12/h per email. A bot-token bootstrap isn't available here — the
+        // marketing site posts cross-origin with no token round-trip — so the daily cap
+        // is the server-side backstop against a sustained sub-5/min script grinding all day.
         RateLimiter::for('early-access', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
@@ -586,6 +589,14 @@ class AppServiceProvider extends ServiceProvider
                     ->response(function () {
                         return response()->json([
                             'message' => 'Too many submissions. Please try again shortly.',
+                        ], 429);
+                    }),
+
+                Limit::perDay(20)
+                    ->by('early-access:ip:day:'.$key)
+                    ->response(function () {
+                        return response()->json([
+                            'message' => 'Too many submissions from this network today. Please try again tomorrow.',
                         ], 429);
                     }),
 
