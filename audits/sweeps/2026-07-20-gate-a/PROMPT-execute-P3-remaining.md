@@ -1,4 +1,14 @@
-# Gate A — execute prompt, PART 3 (remaining P3 units)
+# Gate A — execute prompt, PART 3 (remaining P3 units) — ⚠️ SUPERSEDED 2026-07-22
+
+> **⚠️ DO NOT RUN THIS PROMPT.** Superseded 2026-07-22 (Josh) — split into two parallelisable prompts so
+> the migration work and the app polish run independently, on separate branches/worktrees:
+> - **`PROMPT-execute-migration-safety.md`** — Bundle **B19** + `discovered/DISC-1` (migrations + guard).
+> - **`PROMPT-execute-p3-polish.md`** — Bundles **B16, B17, B18** (app services/controllers/config).
+>
+> (The deferred cutover schema — B20 + B8 — is separate again: `PROMPT-execute-deferred-cutover.md`,
+> gated to the cutover window.) Kept below for history only.
+
+---
 
 Finishes `audits/sweeps/2026-07-20-gate-a/CONSOLIDATED.md`. Run this **after** the P2 session
 (`PROMPT-execute-P2-remaining.md`) has completed — some of these units depend on earlier ones. Covers
