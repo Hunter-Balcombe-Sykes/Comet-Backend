@@ -4,6 +4,7 @@ namespace App\Jobs\Moderation\Concerns;
 
 use App\Models\Moderation\ActionLogEntry;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -63,7 +64,7 @@ trait HasActionLogLifecycle
         report($e);
         ActionLogEntry::query()->where('id', $this->actionLogId)->update([
             'status' => 'failed',
-            'failed_at' => now(),
+            'failure_reason' => Str::limit($e->getMessage(), 1000),
         ]);
         Log::error('Moderation job permanently failed', array_merge([
             'job' => static::class,

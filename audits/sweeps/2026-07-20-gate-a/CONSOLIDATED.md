@@ -48,7 +48,7 @@ every draft rather than the scan reading nothing.
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
 - P2 Medium: 59 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 16 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 5 of 9 complete (DISC-2, DISC-4, DISC-5, DISC-6, DISC-9).*
+- *Total reconciles to 128. Discovered during execution (outside the 128): 6 of 9 complete (DISC-2, DISC-4, DISC-5, DISC-6, DISC-8, DISC-9).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
@@ -111,7 +111,8 @@ from clean.**
   - **Where:** `tests/Pest.php::setupBlocksTable()` vs `supabase/migrations/20260526000000_baseline_standalone_user.sql` (`site.blocks`)
   - **What to do:** own decision — flip the two columns to NOT NULL in the stub (as B21 did for `pre_account_builds.user_id`) so a dropped FK fails loudly in tests instead of persisting null. S4 Tier 2b's value-assertion tests already cover the immediate risk; this closes the general gap.
   - **Why the audit missed it:** the `parity-jobs` lens found `pre_account_builds` but never enumerated `site.blocks`. Surfaced while converting Block writers in S4 Tier 2b.
-- [ ] **`discovered/DISC-8`** · P2 · S — `HasActionLogLifecycle` writes `'failed_at' => now()` to `moderation.action_log`, which has no `failed_at` column — a latent 42703 (undefined_column) on Postgres in the moderation action-failure path
+- [x] **`discovered/DISC-8`** · P2 · S — `HasActionLogLifecycle` writes `'failed_at' => now()` to `moderation.action_log`, which has no `failed_at` column — a latent 42703 (undefined_column) on Postgres in the moderation action-failure path
+  - **Done 2026-07-21 (Option B — Josh):** dropped the phantom `'failed_at' => now()` from `failed()`; failure is now recorded via `status='failed'` + the existing `failure_reason` column (`Str::limit($e->getMessage(), 1000)`), which this path never populated before. No schema change. The SQLite stub already lacked `failed_at` (matching prod), so the bug hid only because no test exercised the `failed()` hook — new `tests/Feature/Moderation/HasActionLogLifecycleTest.php` exercises it and is proven to fail against the pre-fix code (SQLite `no such column: failed_at`, the 42703 analogue). Full suite green (4695 passed); independent Sonnet review PASS (empirical load-bearing check).
   - **Where:** `app/Jobs/Moderation/Concerns/HasActionLogLifecycle.php:64` · `ActionLogEntry::query()->where('id', ...)->update(['status'=>'failed', 'failed_at'=>now(), ...])`
   - **What to do:** own decision — either add a `failed_at` column (new migration, gated) or drop the phantom column and record failure via the existing `status='failed'` + `failure_reason`. It's a query-builder update, so it bypasses `$fillable` — unrelated to S4's mechanism.
   - **Why the audit missed it:** no lens opened the moderation job `Concerns/`; the mismatch only manifests on a real Postgres write of the rarely-exercised failure path (the SQLite stub tolerates it). Surfaced while enumerating `action_log` columns for S4 Tier 1.
