@@ -1,227 +1,212 @@
-# Claim-Invite Outreach for Staff-Built Sites — Design
+# Claim-Invite Outreach — Extensions to the Shipped Claim-Notify System
 
-**Date:** 2026-07-21
+**Date:** 2026-07-21 (rewritten after discovering the core already ships)
 **Status:** Approved design, pre-implementation
-**Depends on:** Pre-account (site-first) signup — `docs/superpowers/specs/2026-07-18-pre-account-sites-design.md`
+**Extends:** `docs/superpowers/specs/2026-07-21-signup-flows-and-early-access-design.md`
+(the shipped claim-notify / email-gate design)
+**Builds on:** Pre-account signup — `docs/superpowers/specs/2026-07-18-pre-account-sites-design.md`
 
-## 1. Problem
+## 0. Why this spec was rewritten
 
-Staff can already build a published site for a prospect from their public presence via
-`POST /api/staff/builds` (`StaffPreAccountBuildController::store` →
-`PreAccountBuildService::requestBuild`). But nothing delivers that site's URL to the
-prospect — the spec deliberately treats invitation as an out-of-band, human/ManyChat
-step (pre-account spec §10). There is no field to record who to contact and no path to
-email them.
+An earlier draft of this document proposed building "staff records a contact email,
+site is built, an email invites them to claim it" from scratch, plus a bespoke
+suppression table and a first-come claim model. Investigation showed **most of that
+already ships** under the 2026-07-21 signup-flows spec. This rewrite discards the
+duplicated design and scopes down to the genuine gaps.
 
-This feature adds a first-party **email** invite: staff record a contact email when
-building a site, review the generated site, then manually send a "here's your site, come
-claim it" email that drops the prospect into the existing claim flow.
+### Already shipped — do NOT rebuild
+- `contact_email` column on `core.pre_account_builds` (migration `20260721120000`),
+  fillable on the model, validated on `StaffCreatePreAccountBuildRequest`, threaded
+  through `PreAccountBuildService::requestBuild(... contactEmail ...)`.
+- `App\Mail\PreAccount\ClaimInviteMail` — *"Your Partna site is ready — claim it"*.
+- `App\Services\PreAccount\ClaimNotifier::notify()` — fans the invite out to email now
+  (`ClaimInviteMail` to `contact_email`) and a stubbed DM channel (`ClaimDmChannel`).
+- **Auto-send on publish:** `GeneratePreAccountSiteJob:112-119` calls
+  `ClaimNotifier::notify()` whenever a build publishes; `ApproveEarlyAccessBuildJob`
+  fires it on early-access approval.
+- **Email-gated claim** (already stronger than the "first-come plain URL" the earlier
+  draft proposed): when `contact_email` is set, `ClaimSiteService.php:69` requires the
+  claimer's Supabase-verified email to match it (`CLAIM_EMAIL_MISMATCH`); staff can
+  clear `contact_email` to drop back to first-come.
+- GDPR export / purge already cover `contact_email`.
 
-## 2. Scope & constraints
+### The real gaps this spec covers
+1. **Manual review-then-send** — today the invite fires automatically the instant a
+   build publishes, so a wrong scraped photo/bio can land in a prospect's inbox
+   unreviewed. There is no "publish, eyeball the live site, then send" path.
+2. **Send idempotency** — nothing records that an invite was sent, so a job retry or a
+   re-publish can re-send. No `invited_at`.
+3. **CSV batch ingestion** — the "give us a list" case. Only single-build entry exists.
 
-**In scope:** email invites for staff-built pre-account sites, single-entry and CSV
-batch, manual send, bounce handling, minimal Spam Act compliance via the existing
-subscription system.
+Compliance hardening (unsubscribe, bounce auto-suppress, audit trail) is **deferred**
+to §8 — it matters for cold outreach, not the current warm/low-volume mode, and
+`ClaimInviteMail` is currently a transactional send.
+
+## 1. Scope
+
+**In scope:** `invited_at` tracking + notify idempotency; an `auto_invite` toggle so
+staff can defer the send; a manual send endpoint; CSV batch build.
 
 **Out of scope (deliberate):**
-- **Instagram / Google Business DMs** — the backend structurally cannot send these. IG's
-  Messaging API only permits replies inside a 24h window after the user messages first;
-  GBP has no outbound business-to-consumer messaging API. Cold DMs remain a ManyChat /
-  human task. This is a platform limitation, not a design choice.
-- **Claim tokens / pinned invite links** — the claim flow is intentionally "first-come,
-  any verified email" against an already-public site (pre-account spec left claim tokens
-  out of scope). We reuse it unchanged.
-- **Auto-send, scheduling, drip sequences, open/click tracking.**
+- Suppression / unsubscribe / bounce handling / audit trail — §8, deferred.
+- Claim gating changes — the email-gate already ships and is correct.
+- The DM channel — already a bound stub (`ClaimDmChannel`); IG/GBP cannot be sent from
+  the backend (platform limitation, unchanged).
 
-**Operating mode:** warm, staff-curated contacts (prior touchpoint / consent).
+## 2. Data model — two columns on `core.pre_account_builds`
 
-> **Honesty note — "warm" is a process promise, not a code guarantee.** Nothing in this
-> design *enforces* that a `contact_email` was obtained with consent; it assumes staff
-> only load warm contacts. The compliance surface (§7) — subscription-backed suppression,
-> unsubscribe, sender ID, bounce handling — is built so that a later move to colder lists
-> is a policy decision, not a rebuild. But if outreach turns cold, revisit consent
-> justification under the Spam Act before relying on this design.
+Raw SQL in `supabase/migrations/` (never Laravel migrations — composer guard rejects them).
 
-## 3. Data model
+- `invited_at TIMESTAMPTZ NULL` — NULL = invite not yet sent. Stamped by `ClaimNotifier`
+  after it queues the mail. Doubles as the idempotency guard and as the "already
+  invited" signal for the manual endpoint.
+- `auto_invite BOOLEAN NOT NULL DEFAULT true` — `true` preserves today's behaviour
+  (invite auto-sends on publish — the ManyChat / automated path is unchanged). `false`
+  means: publish the site but **defer** the invite for manual review + a manual send.
 
-Schema changes are raw SQL in `supabase/migrations/` (never Laravel migrations — composer
-guard rejects them).
+Both are plain staff-supplied / lifecycle scalars, consistent with the existing
+`contact_email` fillability posture. `invited_at` is written via `forceFill()` (like
+`build_state`/`claimed_at`) so a state write is never a silent no-op; `auto_invite` is
+fillable at build time.
 
-### 3.1 `pre_account_builds` — two new columns
+## 3. Idempotent, defer-aware `ClaimNotifier`
 
-- `contact_email TEXT NULL` — the invite target. **Outreach metadata only**; distinct
-  from the provisional user's `primary_email`, which stays NULL until claim and is set
-  from whatever email the user verifies via OTP. The two are allowed to differ; none of
-  the "unclaimed users are un-emailable" safety rules (pre-account spec §7) are weakened.
-- `invited_at TIMESTAMPTZ NULL` — NULL = not yet sent. Set on successful send; doubles as
-  the idempotency guard against re-sending.
-
-`contact_email` follows the existing fillability posture: it is a plain staff-supplied
-scalar (unlike `user_id` / `built_by_staff_id`, which are never fillable and set via
-`associate()`).
-
-### 3.2 Suppression reuses `notifications.email_subscriptions` — NO new table
-
-Suppression and unsubscribe are **not** a bespoke table. They reuse the existing
-`notifications.email_subscriptions` system (`EmailSubscription` model,
-`PublicEmailUnsubscribeController`, `config/subscriptions.php`) under a new list key.
-
-- **New list key `claim_invite`**, registered in `config/subscriptions.php`
-  `global_list_keys` (staff/internal, email-keyed, `user_id NULL`) — mirroring how
-  `sidest_updates` is declared. It is **not** added to `public_list_keys`.
-- The table already provides everything the standalone design would have reinvented:
-  email-keyed rows with `user_id` nullable, `status ∈ {subscribed, unsubscribed}`,
-  `unsubscribe_token`, consent provenance (`consent_source`, `consent_ip_hash`,
-  `consent_user_agent`), the `(list_key, email_lc) WHERE user_id IS NULL` uniqueness index
-  (one row per email per list), `List-Unsubscribe` header support, and the weekly
-  `notifications:prune-unsubscribed-subscriptions` prune.
-- **Suppressed** = an `email_subscriptions` row with `list_key='claim_invite'` and
-  `status='unsubscribed'` for that email. This covers both manual unsubscribes and
-  bounce-driven suppression (§6.1).
-
-No `core.outreach_suppressions` table is created.
-
-## 4. Ingestion — one path, two front doors
-
-### 4.1 Single entry (manual)
-
-`contact_email` becomes an optional, validated field (`nullable|email`) on
-`StaffCreatePreAccountBuildRequest`. The existing `store` endpoint gains it with no other
-change — `PreAccountBuildService::requestBuild` persists it onto the build.
-
-### 4.2 CSV batch
-
-New `POST /api/staff/builds/batch`. Parses rows of:
+`ClaimNotifier::notify(PreAccountBuild $build)` gains idempotency and stamps the send:
 
 ```
-source_type, source_ref, source_name, contact_email, account_type
+if ($build->invited_at !== null) {
+    return;                       // already invited — retries/re-publish are no-ops
+}
+// ... existing email + DM fan-out (unchanged) ...
+$build->forceFill(['invited_at' => now()])->save();
 ```
 
-and calls the **same** `PreAccountBuildService::requestBuild` per row in a loop. No
-parallel build logic — CSV is strictly a loop over the single-entry path. Per-row failures
-are collected and returned (row index + reason) so a bad row never aborts the batch. A row
-cap is enforced (implementation default; log any truncation). The endpoint honours the
-existing build dedupe / one-live-build-per-source rule; it does not bypass it.
+Stamping happens only after `Mail::queue(...)` succeeds, so a transport failure leaves
+the build re-sendable. This fixes gap #2 for the existing auto path too — a
+`GeneratePreAccountSiteJob` retry no longer double-sends.
 
-Response: a summary resource — counts of built / skipped / failed, with per-row detail.
+## 4. Defer the auto-send — `GeneratePreAccountSiteJob`
 
-## 5. Sending — manual, per build
+The auto-notify at `GeneratePreAccountSiteJob:112-119` becomes conditional on
+`auto_invite`:
 
-New `POST /api/staff/builds/{build}/invite`.
+```
+if ($this->publish) {
+    $site->update(['is_published' => true]);
+    SyncSubdomainToKvJob::dispatch($user->id);
+    if ($build->auto_invite) {
+        app(ClaimNotifier::class)->notify($build->fresh());
+    }
+}
+```
 
-**Guards (all must pass, else 4xx with a specific code):**
-- build `build_state = ready` and published (unpublished/unbuilt → 409)
-- `contact_email` present (else 422)
+A staff review build (`publish=true, auto_invite=false`) goes live so staff can open the
+real URL and check it, but no invite is sent until they trigger §5.
+
+`PreAccountBuildService::requestBuild` gains `bool $autoInvite = true`, persisted onto the
+build; `StaffCreatePreAccountBuildRequest` gains `'auto_invite' => ['sometimes','boolean']`
+and the controller passes it through. Default `true` keeps every existing caller
+(including early-access and the automated staff path) behaving exactly as today.
+
+## 5. Manual send endpoint
+
+`POST /api/staff/builds/{build}/invite`.
+
+**Guards (each rejection returns a specific code):**
+- build `build_state = ready` and site published (else 409 `BUILD_NOT_READY`)
+- `contact_email` present (else 422 `NO_CONTACT_EMAIL`)
 - `invited_at` IS NULL (else 409 `ALREADY_INVITED`)
-- no `email_subscriptions` row for `(list_key='claim_invite', email)` with
-  `status='unsubscribed'` (else 409 `SUPPRESSED`)
 
-**On pass:**
-1. Ensure a `claim_invite` subscription row exists for the email via `insertOrIgnore`
-   (status `subscribed`, `consent_source='staff_invite'`, fresh `unsubscribe_token`).
-   `insertOrIgnore` intentionally will **not** revive an existing `unsubscribed` row — but
-   that case is already blocked by the guard above.
-2. Dispatch `ClaimInviteMail` to `contact_email` via the existing Resend transport (same
-   transport as `MagicLinkMail` / `EmailConfirmMail` in `app/Mail/Auth`), carrying the
-   row's `unsubscribe_token` in the unsubscribe link and `List-Unsubscribe` headers.
-3. Stamp `invited_at` — only after successful queue dispatch, so a transport failure
-   leaves the build re-sendable.
-4. Write an audit record (§6.2).
+**On pass:** call `app(ClaimNotifier::class)->notify($build)` — which sends and stamps
+`invited_at` via §3. Return the `PreAccountBuildStatusResource`.
 
-Staff "review" needs no new screen — the site is already public at its URL; staff open it
-before clicking send.
+Authorization via the existing staff policy (`authorizeForUser($staff, 'staffCreate',
+PreAccountBuild::class)` or a dedicated `staffInvite` ability), never an inline 403 —
+consistent with `StaffPreAccountBuildController`.
 
-Authorization via policy (`authorizeForUser`, staff gate), never an inline 403 — consistent
-with the staff controllers.
+This reuses `ClaimNotifier` wholesale; the endpoint is a thin guarded trigger, so the
+email/DM fan-out logic lives in exactly one place.
 
-## 6. Deliverability & auditing
+## 6. CSV batch build
 
-### 6.1 Bounce → auto-suppress
+`POST /api/staff/builds/batch`. Parses rows of:
 
-Invite emails share the **same Resend account and sending domain** as the auth OTP /
-magic-link emails (`SupabaseEmailHookController`, `MagicLinkMail`). Repeated sends to dead
-addresses degrade *domain* reputation and can push genuine login OTPs toward spam. So hard
-bounces must suppress the address:
+```
+account_type, source_type, source_ref, source_name, contact_email, auto_invite
+```
 
-- A Resend **bounce webhook** (hard bounce / complaint) marks the matching
-  `claim_invite` subscription row `unsubscribed` (`markUnsubscribed()`), which the §5 send
-  guard then honours. Reuses the same suppression mechanism as manual unsubscribe.
+and calls the **same** `PreAccountBuildService::requestBuild` per row in a loop — no
+parallel build logic; CSV is strictly a loop over the single-entry path. Behaviour:
 
-### 6.2 Audit trail
+- Per-row failures are caught and collected (row index + `errorCode` + message) so one
+  bad row never aborts the batch.
+- The existing dedupe / one-live-build-per-source rule is honoured, not bypassed (a
+  duplicate row surfaces as a `reused` result, same as the single endpoint).
+- A row cap is enforced (implementation default, e.g. 500); any truncation is logged, not
+  silent.
+- `auto_invite` per row lets a batch be "publish now, send later" for staged review, or
+  "publish + invite immediately" for a trusted warm list.
 
-This is outbound commercial email to real people; a dispute needs a record. Use the
-existing append-only `audit` schema (`app_backend` has SELECT/INSERT only):
+Response: a summary resource — counts of `built` / `reused` / `failed`, with per-row
+detail. Authorization identical to the single staff endpoint.
 
-- On invite **send**: who sent (staff id), target email, build id, timestamp.
-- On **unsubscribe** and on **bounce-suppression**: email, list key, reason, timestamp.
+## 7. What does NOT change
 
-This is the evidentiary trail for consent/complaint handling.
+- `ClaimInviteMail`, the email-gate in `ClaimSiteService`, the claim flow, and
+  `ApproveEarlyAccessBuildJob`'s notify are untouched.
+- Default behaviour (`auto_invite=true`) is byte-for-byte the current auto-send-on-publish
+  path, plus the new retry-safety from idempotency.
+- `SyncSubdomainToKvJob` remains the only KV writer.
+- Provisional-user email nullability and null-email dispatcher guards stay as-is.
 
-## 7. Compliance — minimal but real
+## 8. Deferred — compliance hardening for cold outreach
 
-Australian Spam Act 2003 requires, on every commercial send (warm included): clear sender
-identification and a functional unsubscribe. Both are satisfied by reusing the existing
-subscription system:
+Not built now; documented so a later cold-outreach mode is a scoped follow-on, not a
+redesign. When outreach moves beyond warm/consented contacts:
 
-- **Sender identification** — `ClaimInviteMail` carries Partna's identity + a real
-  reply/contact address, matching the existing subscription mailables.
-- **Unsubscribe** — the invite includes the standard token unsubscribe link
-  (`route('public.unsubscribe', $token)`) and `List-Unsubscribe` /
-  `List-Unsubscribe-Post` headers, handled by the existing
-  `PublicEmailUnsubscribeController`. No new endpoint.
-- **Suppression scope — outreach only, never transactional.** Suppression lives entirely
-  in the `claim_invite` list. Claim OTP and the claim-time welcome email do **not** flow
-  through `email_subscriptions`, so a `claim_invite` unsubscribe can never block a
-  suppressed person's login or a legitimate claim they later initiate themselves.
+- **Unsubscribe + suppression** via the existing `notifications.email_subscriptions`
+  system (a new `claim_invite` list key in `config/subscriptions.php` `global_list_keys`,
+  reusing `PublicEmailUnsubscribeController` / `route('public.unsubscribe')` and the
+  `List-Unsubscribe` header pattern). `ClaimInviteMail` would move from purely
+  transactional to carrying an unsubscribe link, and the §5/auto paths would gate on
+  suppression.
+- **Bounce auto-suppress** — a Resend bounce webhook marking the address suppressed;
+  matters because invites share the auth-OTP sending domain, so bad-address volume can
+  hurt login deliverability.
+- **Audit trail** — send / unsubscribe / bounce rows in the append-only `audit` schema.
 
-## 8. The invite email — `ClaimInviteMail`
+Trigger to build §8: the first time staff load a list that is not demonstrably
+warm/consented. (Reminder: "warm" is a process promise, not a code guarantee.)
 
-Contents:
-- the site URL (`<handle>.partna.au`) and a **"Claim your site"** CTA → lands on the
-  published site, which already carries the email-OTP claim entry point
-  (`ClaimController` / `ClaimSiteService`). No new claim machinery.
-- sender identification (§7) and the token unsubscribe link + `List-Unsubscribe` headers.
-- Reuses the app's existing mail layout/branding used by the auth / subscription mailables.
+## 9. Components summary
 
-## 9. What does NOT change
+| Unit | Purpose | Type |
+|------|---------|------|
+| Migration (`invited_at`, `auto_invite` on `pre_account_builds`) | Track sends; allow deferral | new SQL |
+| `ClaimNotifier::notify` (edit) | Idempotency + stamp `invited_at` | modify |
+| `GeneratePreAccountSiteJob` (edit, ~L112-119) | Gate auto-invite on `auto_invite` | modify |
+| `PreAccountBuildService::requestBuild` (edit) | `$autoInvite` param, persist | modify |
+| `StaffCreatePreAccountBuildRequest` (edit) | Validate `auto_invite` | modify |
+| `PreAccountBuild` model (edit) | `auto_invite` fillable, `invited_at` cast + @property | modify |
+| `POST /api/staff/builds/{build}/invite` | Guarded manual send | new endpoint + controller |
+| `POST /api/staff/builds/batch` | CSV loop over `requestBuild` | new endpoint + controller |
 
-- The existing claim flow (`ClaimController`, `ClaimSiteService`, claim-time welcome
-  notification + `sidest_updates` opt-in in `SignupSideEffects`) is untouched.
-- Provisional-user email nullability and every null-email dispatcher guard stay as-is.
-- `SyncSubdomainToKvJob` remains the only KV writer; this feature adds no KV path.
-- No change to the public self-serve signup (`POST /api/public/signup/build`).
-- The `email_subscriptions` schema is unchanged — we only add a new `list_key` value in
-  config and register the bounce webhook.
+Reused as-is: `ClaimNotifier`, `ClaimInviteMail`, `ClaimDmChannel`,
+`PreAccountBuildStatusResource`, the staff policy.
 
-## 10. Components summary
+## 10. Testing focus
 
-| Unit | Purpose | Depends on |
-|------|---------|-----------|
-| Migration (2 cols on `pre_account_builds`) | Store contact + invited stamp | `pre_account_builds` |
-| `config/subscriptions.php` (edit) | Register `claim_invite` global list key | existing config |
-| `StaffCreatePreAccountBuildRequest` (edit) | Validate `contact_email` | existing request |
-| `POST /api/staff/builds/batch` | CSV loop over `requestBuild` | `PreAccountBuildService` |
-| `POST /api/staff/builds/{build}/invite` | Guarded manual send + subscription + audit | build model, `EmailSubscription`, mailable |
-| `ClaimInviteMail` | The email | Resend transport, existing mail layout, `unsubscribe_token` |
-| Resend bounce webhook handler | Hard bounce → suppress | `EmailSubscription::markUnsubscribed` |
-| Policy method | Staff authorization for invite/batch | `BasePolicy` |
-
-Reused as-is (no new code): `PublicEmailUnsubscribeController` / `route('public.unsubscribe')`,
-`notifications:prune-unsubscribed-subscriptions`, `List-Unsubscribe` header pattern.
-
-## 11. Testing focus
-
-- Send guards: each rejection path (unpublished, no email, already invited, suppressed)
-  returns its specific code.
-- `invited_at` stamped only after dispatch; transport failure leaves it re-sendable.
-- Suppression persists across a second build for the same email (the `email_subscriptions`
-  row, not the build, carries it).
-- `insertOrIgnore` does not revive an `unsubscribed` row; the guard blocks the send first.
-- Bounce webhook marks the `claim_invite` row unsubscribed and blocks the next send.
-- Audit rows written on send, unsubscribe, and bounce-suppression.
-- CSV: a bad row is reported, not fatal; dedupe rule still applies; row cap enforced.
-- Constraint drift: `contact_email` / subscription writes verified against the raw Postgres
+- Idempotency: two `notify()` calls / a job retry send **one** email; `invited_at`
+  stamped once.
+- `auto_invite=false` + `publish=true` → site published, **no** invite; `invited_at` NULL.
+- `auto_invite=true` (default) → unchanged auto-send on publish (existing tests stay green).
+- Manual endpoint: each guard rejection (`BUILD_NOT_READY`, `NO_CONTACT_EMAIL`,
+  `ALREADY_INVITED`) returns its code; success sends once and stamps.
+- Transport failure leaves `invited_at` NULL / re-sendable.
+- CSV: a bad row is reported not fatal; dedupe surfaces as `reused`; row cap enforced +
+  logged; per-row `auto_invite` honoured.
+- Constraint drift: `invited_at` / `auto_invite` writes verified against the raw Postgres
   DDL, not just the SQLite suite (unknown quoted identifiers become string literals in
   SQLite — assert returned data, not just "query ran").
-- Suppression scope: a suppressed email can still receive claim OTP / welcome (transactional
-  paths bypass `email_subscriptions`).
+- Email-gate regression: a build with `contact_email` still rejects a mismatched claimer
+  (existing behaviour must survive these changes).
