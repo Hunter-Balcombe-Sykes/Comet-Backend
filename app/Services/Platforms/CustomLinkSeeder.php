@@ -5,7 +5,11 @@ namespace App\Services\Platforms;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Job-triggered custom-link creation — new callers only (Instagram bio-link
@@ -39,23 +43,44 @@ class CustomLinkSeeder
         }
 
         $rid = 'link-'.substr(sha1(strtolower($normalized)), 0, 16);
-        $existing = IntegrationConnection::query()
-            ->where('user_id', $user->id)->where('platform', 'custom')->where('resource_id', $rid)->first();
+        // Built outside the lock — pure/local (no HTTP fetch; see LinkCardScraper).
+        $payload = ['kind' => 'link', ...$this->scraper->minimalCard($normalized)];
 
-        if ($existing === null) {
-            $currentCount = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'custom')->count();
-            if ($currentCount >= self::MAX_LINKS) {
-                return null;
-            }
+        // Races CustomLinksController::addLink(), which takes the same
+        // per-user/platform lock (ManagesIntegrationConnection::withConnectionLock)
+        // around its own existing-row check + MAX_LINKS count + write. Only the
+        // authoritative read + write go inside the lock — the pre-checks above
+        // and the payload build stay outside, and the job dispatch below stays
+        // outside too (never hold a lock across an inline dispatch).
+        $key = CacheKeyGenerator::platformConnectionLock('custom', (string) $user->id);
+        try {
+            [$row, $isNew] = Cache::lock($key, 10)->block(5, function () use ($user, $rid, $payload) {
+                $existing = IntegrationConnection::query()
+                    ->where('user_id', $user->id)->where('platform', 'custom')->where('resource_id', $rid)->first();
+
+                if ($existing === null) {
+                    $currentCount = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'custom')->count();
+                    if ($currentCount >= self::MAX_LINKS) {
+                        return [null, false];
+                    }
+                }
+
+                $row = IntegrationConnection::updateOrCreate(
+                    ['user_id' => $user->id, 'platform' => 'custom', 'resource_id' => $rid],
+                    ['resource_kind' => 'link', 'payload' => $payload, 'is_active' => true, 'last_refresh_status' => 'pending'],
+                );
+
+                return [$row, $existing === null];
+            });
+        } catch (LockTimeoutException) {
+            // Best-effort job-triggered seed — the ?IntegrationConnection contract
+            // already returns null on "couldn't seed".
+            Log::warning('platforms.custom_link_seeder.lock_timeout', ['user_id' => (string) $user->id, 'resource_id' => $rid]);
+
+            return null;
         }
 
-        $payload = ['kind' => 'link', ...$this->scraper->minimalCard($normalized)];
-        $row = IntegrationConnection::updateOrCreate(
-            ['user_id' => $user->id, 'platform' => 'custom', 'resource_id' => $rid],
-            ['resource_kind' => 'link', 'payload' => $payload, 'is_active' => true, 'last_refresh_status' => 'pending'],
-        );
-
-        if ($existing === null) {
+        if ($row !== null && $isNew) {
             EnrichLinkCardJob::dispatch((string) $user->id, 'custom', $rid, $normalized)->afterCommit();
         }
 

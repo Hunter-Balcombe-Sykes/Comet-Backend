@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 8/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 13 done** (PWL-1,2,3,4,5,6,7,8,11,12,13,14,15)
+- Tier 1: 9/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 14 done** (PWL-1,2,3,4,5,6,7,8,10,11,12,13,14,15). Remaining: PWL-9 (deferred, own prompt) + PWL-16 (record-only).
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -164,7 +164,7 @@ row directly (`:615`). These run inside `GeneratePreAccountSiteJob` / `Instagram
 Depends on the controller fixes (PWL-1..5,7) to close the pairs. **Blocker:** live job paths, L → sign-off.
 
 ### PWL-10 — CustomLinkSeeder::seed() vs CustomLinksController::addLink (controller locks, seeder doesn't) — BLOCKER (job path), S
-- [ ] Fix
+- [x] Fix — wrapped the existing-row/MAX_LINKS read + updateOrCreate write in platformConnectionLock('custom', userId) — byte-identical to addLink's withConnectionLock key (Platform::Custom->value='custom'), so they genuinely exclude. minimalCard/normalizeUrl confirmed non-fetching; EnrichLinkCardJob dispatch stays outside. Q5 = log-and-skip → return null (matches the ?IntegrationConnection contract). Independent review PASS; test fails pre-fix (instant write-through, non-null), passes post-fix (~5s block, no row, null) with Queue::fake() isolating the seeder's own EnrichLinkCardJob (which shares the 'custom' key).
 **Plain English:** Job-triggered custom-link creation writes the same card row your dashboard
 "add link" writes — but the job path doesn't lock while the dashboard path does.
 **Technical:** `CustomLinkSeeder` (`app/Services/Platforms/CustomLinkSeeder.php:53` `updateOrCreate`),
