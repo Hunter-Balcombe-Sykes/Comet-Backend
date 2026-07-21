@@ -21,6 +21,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  *
  * Wired through BaseModel::newBelongsToMany() so every belongsToMany in the
  * codebase gets it automatically.
+ *
+ * @template TRelatedModel of \Illuminate\Database\Eloquent\Model
+ * @template TDeclaringModel of \Illuminate\Database\Eloquent\Model
+ * @template TPivotModel of \Illuminate\Database\Eloquent\Relations\Pivot = \Illuminate\Database\Eloquent\Relations\Pivot
+ * @template TAccessor of string = 'pivot'
+ *
+ * @extends BelongsToMany<TRelatedModel, TDeclaringModel, TPivotModel, TAccessor>
  */
 class SchemaQualifiedBelongsToMany extends BelongsToMany
 {

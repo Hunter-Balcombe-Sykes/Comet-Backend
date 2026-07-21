@@ -618,7 +618,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * (categories AND items — both are menu-scoped name pools now): each
      * rebuilt row shifts the oldest unclaimed id sharing its name.
      *
-     * @param  Collection<int, MenuCategory|MenuItem>  $rows
+     * @param  \Illuminate\Database\Eloquent\Collection<int, MenuCategory>|\Illuminate\Database\Eloquent\Collection<int, MenuItem>  $rows
      * @return array<string, list<string>>
      */
     private function idsByNormalizedName($rows): array

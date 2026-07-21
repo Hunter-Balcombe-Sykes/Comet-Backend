@@ -131,10 +131,10 @@ class BandcampHighlights implements HighlightsStrategy, PreparesHighlightItems
         // and must survive this rewrite, unlike prepare()'s pricing subset,
         // where order is irrelevant.
         $indices = $this->chosenIndices($items, $chosenIds);
-        $selection['highlights'] = array_values(array_map(
+        $selection['highlights'] = array_map(
             fn (int $i) => $items[$i],
             array_keys($indices),
-        ));
+        );
 
         // Keep the picker's private snapshot (HighlightsPicker::SNAPSHOT_KEY)
         // warm with the items this save was handed, so the picker stays fast

@@ -97,12 +97,6 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/FreshaController.php
 
 		-
-			message: '#^Using nullsafe property access "\?\-\>payload" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/GenericPlatformController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -119,6 +113,15 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/InstagramController.php
+
+		# U6 (2026-07-22): $scrapedCategory = $model->categories->first(fn ...) —
+		# Collection::first(callback) returns TValue|null and CAN be null at
+		# runtime (no match); the ?-> is correct, this analyzer verdict is unsound.
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$content_source\.$#'
@@ -464,12 +467,6 @@ parameters:
 			identifier: argument.type
 			count: 1
 			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		-
-			message: '#^Parameter \#1 \$array \(list\<mixed\>\) of array_values is already a list, call has no effect\.$#'
-			identifier: arrayValues.list
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserServiceController.php
 
 		-
 			# Surfaced by the M1 property sweep: account_type is now known non-nullable
@@ -1644,6 +1641,17 @@ parameters:
 			count: 1
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
+		# U6 (2026-07-22): 2 hits merged under one message. Line 97 guards
+		# $unmatched entries from a by-reference array param (list<array<string,
+		# mixed>> per docblock only, not enforced at runtime); line 132 guards
+		# IntegrationConnection::$payload, a jsonb column that could diverge at
+		# runtime. Both defensive, neither dead.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Jobs/Platforms/LinkInBioScanJob.php
+
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$fetch_status\.$#'
 			identifier: property.notFound
@@ -2334,6 +2342,32 @@ parameters:
 			count: 1
 			path: app/Services/Platforms/EventsPayload.php
 
+		# U6 (2026-07-22): defensive is_array() guard on
+		# IntegrationConnection::$payload — a jsonb column that could diverge at
+		# runtime.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/FreshaServiceProjector.php
+
+		# U6 (2026-07-22): $row->categories->first()?->title — no-arg first()
+		# returns null at runtime on an empty collection; the ?-> is correct,
+		# this analyzer verdict is unsound.
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/FreshaServiceProjector.php
+
+		# U6 (2026-07-22): defensive is_array() guard on Workplace::$field_sources
+		# — a jsonb column that could diverge at runtime.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/GoogleBusinessAutoSync.php
+
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
@@ -2591,12 +2625,6 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
 
 		-
 			message: '#^Method App\\Services\\PublicSite\\SitepageDataResolverService\:\:buildMediaItem\(\) never returns null so it can be removed from the return type\.$#'
@@ -2929,6 +2957,15 @@ parameters:
 			count: 1
 			path: app/Services/Platforms/InstagramConnectionSeeder.php
 
+		# U6 (2026-07-22): defensive is_array() guard on $unmatched entries built
+		# via a by-reference array param (list<array<string,mixed>> per docblock
+		# only, not enforced at runtime) — same pattern as LinkInBioScanJob above.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/InstagramConnectionSeeder.php
+
 		-
 			message: '#^Strict comparison using \!\=\= between non\-empty\-list\<array\{externalId\: null, name\: string, description\: string\|null, price\: float\|null, currency\: string\|null, image\: string\|null, rating\: null, ratingCount\: null, \.\.\.\}\> and array\{\} will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
@@ -2948,6 +2985,15 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/IdentitySync.php
+
+		# U6 (2026-07-22): defensive is_array() guard on Workplace::$field_sources
+		# — a jsonb column that could diverge at runtime — same pattern as
+		# IdentitySync.php above.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/InstagramIdentitySync.php
 
 		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
 		-
@@ -3198,15 +3244,6 @@ parameters:
 			count: 1
 			path: app/Http/Resources/UserStaffResource.php
 
-		# Model-property sweep 2026-07-20 (M5): PreAccountBuild::$expires_at is non-null Carbon
-		# (irrelevant-once-claimed, but always set) — ?-> is redundant. $claimed_at (nullable) is
-		# correctly NOT flagged here, confirming the annotation's nullability split is accurate. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
 		# Model-property sweep 2026-07-20 (M5): the IntegrationConnection @mixin now correctly types
 		# $this->shopBrands as Collection<int, ShopBrand>, so $b->brand_id here resolves against the
 		# ShopBrand model — which carries NO @property block at all (out of scope for M5's model list;
@@ -3220,3 +3257,12 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
+
+		# U6 (2026-07-22): defensive is_array() guard on Workplace::$field_sources
+		# — a jsonb column that could diverge at runtime — same pattern as
+		# IdentitySync.php / InstagramIdentitySync.php above.
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/WebsiteScan/WorkplaceContentApplier.php
