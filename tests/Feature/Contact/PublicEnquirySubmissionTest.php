@@ -151,6 +151,25 @@ it('accepts a valid submission and saves a site.enquiries row', function () {
     expect($row->site_id)->toBe($siteId);
 });
 
+// user_id/site_id/customer_id are not fillable on Enquiry (tenancy FKs) —
+// the controller sets them via ->associate(). Assert through the Eloquent
+// model too (not just the raw row above) so a regression back to a bare
+// create() call — which would silently drop these on the model instance —
+// fails here even if the DB row happened to look right.
+it('persists user_id/site_id/customer_id on the Enquiry model instance via associate()', function () {
+    [$proId, $siteId] = seedPublishedContactSite();
+    Bus::fake();
+
+    $this->postJson('/api/public/enquiry', validEnquiryPayload(), [
+        'X-Site-Subdomain' => 'testpro',
+    ])->assertOk();
+
+    $enquiry = Enquiry::query()->latest()->firstOrFail()->fresh();
+    expect($enquiry->user_id)->toBe($proId);
+    expect($enquiry->site_id)->toBe($siteId);
+    expect($enquiry->customer_id)->not->toBeNull();
+});
+
 it('upserts submitter as a Customer with source=enquiry', function () {
     [$proId] = seedPublishedContactSite();
     Bus::fake();

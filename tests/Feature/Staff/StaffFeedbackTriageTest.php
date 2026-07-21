@@ -105,14 +105,20 @@ function triageSeedFeedback(string $userId, array $overrides = []): string
 // ── Policy abilities (Gate-resolved — house rule: never `new Policy()`) ──
 
 it('allows support and admin to staffTriage', function () {
-    $feedback = new Feedback(['status' => 'new']);
+    // status is not fillable — forceFill so the constructed skeleton still
+    // carries it (inert here: staffTriage/staffDelete never read status, but
+    // forceFill keeps this fixture honest rather than silently null).
+    $feedback = (new Feedback)->forceFill(['status' => 'new']);
 
     expect(Gate::forUser(triageSupportStaff())->allows('staffTriage', $feedback))->toBeTrue();
     expect(Gate::forUser(triageAdminStaff())->allows('staffTriage', $feedback))->toBeTrue();
 });
 
 it('allows only admin to staffDelete', function () {
-    $feedback = new Feedback(['status' => 'new']);
+    // status is not fillable — forceFill so the constructed skeleton still
+    // carries it (inert here: staffTriage/staffDelete never read status, but
+    // forceFill keeps this fixture honest rather than silently null).
+    $feedback = (new Feedback)->forceFill(['status' => 'new']);
 
     expect(Gate::forUser(triageSupportStaff())->allows('staffDelete', $feedback))->toBeFalse();
     expect(Gate::forUser(triageAdminStaff())->allows('staffDelete', $feedback))->toBeTrue();

@@ -40,8 +40,14 @@ class Feedback extends BaseModel
 
     protected $keyType = 'string';
 
+    // user_id is not mass-assignable (nullable but a silent drop would sever
+    // the row from its submitter): FeedbackController::store()'s policy-check
+    // skeleton sets it via direct property assignment; FeedbackService::submit()
+    // sets it via ->user()->associate(). status/internal_notes/tags all have
+    // DB defaults and are written only via direct assignment
+    // (FeedbackService::updateStatus() for status; no writer mass-assigns the
+    // other two), so excluding them here is inert, not a functional change.
     protected $fillable = [
-        'user_id',
         'reply_email',
         'kind',
         'severity',
@@ -54,9 +60,6 @@ class Feedback extends BaseModel
         'viewport',
         'app_version',
         'request_id',
-        'status',
-        'internal_notes',
-        'tags',
         'source',
         'ip_hash',
     ];

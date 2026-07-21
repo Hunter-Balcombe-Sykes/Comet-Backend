@@ -85,6 +85,28 @@ it('persists a valid submission and dispatches the notification job', function (
     Bus::assertDispatched(SendFeedbackEmailJob::class, fn ($job) => $job->feedbackId === (string) $row->id);
 });
 
+// user_id is not fillable on Feedback (FeedbackController::store()'s policy
+// skeleton sets it via direct property assignment; FeedbackService::submit()
+// via ->user()->associate()). A regression back to mass-assignment either
+// 403s every submission (skeleton->user_id stays null) or persists a
+// disowned row (service silently drops user_id) — assert neither happens.
+it('does not 403 the submission and persists user_id via associate(), not mass-assignment', function () {
+    Bus::fake();
+    $pro = seedFeedbackPro();
+
+    $response = actingAsUser($pro)->postJson('/api/me/feedback', [
+        'type' => 'idea',
+        'area' => 'analytics',
+        'message' => 'fillable regression guard',
+    ]);
+
+    $response->assertStatus(201);
+
+    $feedback = Feedback::query()->latest()->firstOrFail()->fresh();
+    expect($feedback->user_id)->not->toBeNull();
+    expect((string) $feedback->user_id)->toBe((string) $pro->id);
+});
+
 it('returns 422 when kind=bug but severity missing', function () {
     $pro = seedFeedbackPro();
 

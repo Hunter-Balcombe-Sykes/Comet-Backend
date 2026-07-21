@@ -76,8 +76,10 @@ class FeedbackService
                 throw new DuplicateFeedbackException;
             }
 
-            return Feedback::create([
-                'user_id' => $actor->id,
+            // user_id is not fillable (a silent drop would sever the row from
+            // its submitter) — set it explicitly via associate() rather than
+            // through the mass-assigned array below.
+            $feedback = new Feedback([
                 'reply_email' => $data['reply_email'] ?? null,
                 'kind' => $data['kind'] ?? self::TYPE_TO_KIND[$data['type']] ?? 'other',
                 'severity' => $data['severity'] ?? null,
@@ -99,6 +101,10 @@ class FeedbackService
                 'source' => 'dashboard',
                 'ip_hash' => $this->hashIp($request->ip()),
             ]);
+            $feedback->user()->associate($actor);
+            $feedback->save();
+
+            return $feedback;
         });
 
         // afterCommit so a queue / mail misconfig cannot roll back the insert.

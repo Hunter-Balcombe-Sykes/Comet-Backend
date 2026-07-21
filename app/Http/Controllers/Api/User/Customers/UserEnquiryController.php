@@ -121,10 +121,11 @@ class UserEnquiryController extends ApiController
         ]);
 
         // Sync both status and read_at together so they never diverge.
+        // status is not fillable — forceFill so the unread transition still persists it.
         if ($request->boolean('read')) {
             $enquiry->markRead();
         } else {
-            $enquiry->update(['status' => 'new', 'read_at' => null]);
+            $enquiry->forceFill(['status' => 'new', 'read_at' => null])->save();
         }
 
         return $this->success([

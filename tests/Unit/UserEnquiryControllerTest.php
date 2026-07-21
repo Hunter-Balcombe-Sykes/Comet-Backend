@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\EnquiryStatus;
 use App\Http\Controllers\Api\User\Customers\UserEnquiryController;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Support\Facades\DB;
@@ -66,12 +67,18 @@ it('marks an enquiry as read', function () {
 
 it('marks an enquiry as unread', function () {
     $pro = makeInboxUser();
-    $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid(), ['read_at' => now()->toDateTimeString()]);
+    $enquiryId = seedInboxEnquiry($pro->id, (string) Str::uuid(), [
+        'status' => 'read',
+        'read_at' => now()->toDateTimeString(),
+    ]);
 
     app(UserEnquiryController::class)->update(requestAs($pro, 'PATCH', '/api/me/enquiries', ['read' => false]), $enquiryId);
 
+    // status is not fillable — the controller's forceFill() must still persist
+    // 'new' here, not silently leave the row on its prior status.
     $fresh = Enquiry::query()->find($enquiryId);
     expect($fresh->read_at)->toBeNull();
+    expect($fresh->status)->toBe(EnquiryStatus::New);
 });
 
 it('soft-deletes an enquiry', function () {

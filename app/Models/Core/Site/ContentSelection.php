@@ -48,10 +48,11 @@ class ContentSelection extends BaseModel
     // Hard cap on the selection size (DB CHECK position 1..15).
     public const MAX_POSITION = 15;
 
-    // site_id is the tenancy FK — write paths set it explicitly (via the current
-    // site), not through mass-assignment, so it's intentionally excluded.
+    // site_id is the tenancy FK (NOT NULL, no default) — excluded from
+    // mass-assignment. The sole writer, ContentSelectionService::persist(),
+    // uses forceCreate() to set it from the server-resolved Site, never from
+    // client input.
     protected $fillable = [
-        'site_id',
         'position',
         'entry_type',
         'media_id',

@@ -35,7 +35,11 @@ class FeedbackController extends ApiController
     {
         $pro = $this->currentUser($request);
 
-        $skeleton = new Feedback(['user_id' => $pro->id]);
+        // user_id is not fillable — direct property assignment so the policy's
+        // skeleton->user_id === actor->id check still holds (mass-assignment
+        // here would silently leave user_id null and 403 every submission).
+        $skeleton = new Feedback;
+        $skeleton->user_id = $pro->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         $feedback = $this->service->submit($pro, $request->validated(), $request);
