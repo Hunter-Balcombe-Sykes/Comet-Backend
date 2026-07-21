@@ -12,6 +12,37 @@ one-shot, mostly-irreversible event, not a routine deploy.
 
 ---
 
+## ⚠ 2026-07-21 findings — read before Phase 1 and the drift/collapse steps
+
+Two things learned while resolving fresh-DB provisioning (memory: *Fresh-DB Provisioning*):
+
+**1. `supabase db push` CANNOT apply the repo's migrations from an empty DB.** The CLI pipelines each
+migration file's statements into one implicit transaction whenever the file has >1 statement of any kind,
+and `CREATE/DROP INDEX CONCURRENTLY` cannot run in a pipeline (`SQLSTATE 25001`). ~9 index files bundle
+multiple CONCURRENTLY, so a from-zero `db push` / `db reset` aborts. Verified on CLI v2.98.2 / v2.101.0 /
+v2.109.1 — not fixed upstream. **Consequences for this runbook:**
+- The **Fallback** below ("`db push --include-all` all the files") does **not** work on fresh prod. Apply
+  via a **`psql` simple-query loop** instead (each statement is a top-level command, no pipeline) — pattern
+  in `scripts/db/fresh-reset.sh` (local) and `CLAUDE.md` → "Push to Supabase / Fresh prod DB".
+- The **collapse path is preferred** partly because a `pg_dump` baseline emits plain `CREATE INDEX` (no
+  CONCURRENTLY), so `db push` of a *collapsed* baseline is unaffected.
+
+**2. Dev migration drift is now characterised and BENIGN — but dev is MISSING 10 additive migrations the
+repo has.** A per-migration catalog audit (all 73 repo-only versions vs the dev DB, 2026-07-21): 63 already
+effected on dev (present or provably superseded — e.g. the skeleton_id→architecture_id→'staple' path), and
+10 genuinely missing, **all additive**: `20260721010000` (workplaces/content_selection RLS — defense-in-depth
+only; `site.*` tables carry no `anon`/`authenticated` grant, so RLS-off exposes nothing), `20260721020000`
+(menu-platform `id` defaults), `20260721040000`+`040100..040700` (pg_trgm + 7 trigram search indexes,
+perf-only). **Nothing destructive is missing; dev's schema is fundamentally correct.** Josh chose NOT to
+apply the 10 to dev (none fix a live bug at pre-beta scale). **Consequences for this runbook:**
+- Snapshotting **dev** for the baseline (the collapse method below) would carry those 10 gaps into prod.
+  Prefer snapshotting a **repo-provisioned** scratch DB — `scripts/db/fresh-reset.sh` applies *all* repo
+  migrations cleanly (= the complete intended schema) — or apply the 10 to dev first, then snapshot.
+- The ledger-reconciliation dance below is therefore **optional for correctness**: the gaps are benign and
+  dev isn't relied on for clean `db push`. It only matters if you specifically want dev's *ledger* aligned.
+
+---
+
 ## Current state (verified 2026-07-17)
 
 Everything production already *exists*; it is stale and asleep, not missing. Cutover = reactivate +
@@ -206,6 +237,11 @@ and reliability on a fresh prod DB.
   Replaying repo history onto fresh prod reproduces the *repo*, which may silently differ from dev.
   **Snapshotting the verified dev schema is the only way to guarantee prod == dev** — which is exactly why
   the drift reconciliation above must come first.
+  > **2026-07-21 update:** the audit found the repo is a *superset* of dev — the repo has 10 additive
+  > migrations dev lacks, and nothing dev-only that the repo doesn't reproduce in schema terms. So the goal
+  > is **prod == repo (the intended schema)**, not prod == dev. Snapshotting *dev* would **under-provision**
+  > prod by those 10 (trgm indexes, RLS, defaults). Snapshot a **repo-provisioned** scratch DB instead
+  > (`scripts/db/fresh-reset.sh` → `pg_dump`), or apply the 10 to dev before snapshotting. See findings up top.
 
 **Method:**
 1. Complete "Drift reconciliation" above so dev is a known, reproducible state.
@@ -223,6 +259,10 @@ and reliability on a fresh prod DB.
 schema stabilizes — not under cutover-day pressure. Further migrations simply stack on the new baseline
 (same pattern as the 2026-05-26 one); collapse again only if churn re-accumulates.
 
-**Fallback (if not collapsing):** `supabase db push --include-all` all the files to fresh prod. It'll
-likely work (it works on dev), but only *after* the drift reconciliation above and a verifying schema
-diff — the reconciliation is mandatory either way.
+**Fallback (if not collapsing):** apply all the incremental files to fresh prod — but **NOT via
+`supabase db push`**, which aborts on the multi-statement `CONCURRENTLY` index files (`SQLSTATE 25001`;
+see the 2026-07-21 findings up top). Use a **`psql` simple-query loop** (pattern: `scripts/db/fresh-reset.sh`
+/ `CLAUDE.md` → "Push to Supabase / Fresh prod DB"), applying `supabase/migrations/*.sql` in filename order
+and recording each version in `supabase_migrations.schema_migrations`. Do it *after* a verifying schema diff.
+Note this replays the **repo** (which is the complete intended schema — it includes the 10 additive
+migrations dev is missing), so unlike snapshotting dev, the fallback does not propagate dev's gaps.
