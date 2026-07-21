@@ -57,9 +57,11 @@ every draft rather than the scan reading nothing.
 > - `PROMPT-execute-P2-remaining.md` — B7, B8, B9, B10, B11, B12, B13, B14, B15, B20, B21, S4
 > - `PROMPT-execute-P3-remaining.md` — B16, B17, B18, B19 (run after the P2 session)
 >
-> ⚠️ **B7 is partially done in the working tree, uncommitted:** `public-surface/PRIV-2` and `PRIV-3`
-> (`PublicCustomerLeadController.php` UA cap + `PublicCustomerLeadRequest.php` `strip_tags`) were
-> written by the second developer. The P2 session must reconcile them into B7, not duplicate them.
+> ⚠️ **B7 is partially landed:** `public-surface/PRIV-2` and `PRIV-3` (`PublicCustomerLeadController.php`
+> UA cap + `PublicCustomerLeadRequest.php` `strip_tags`) were written by the second developer and
+> committed early at Josh's direction (lint + targeted tests verified; did NOT go through this run's
+> plan→implement→independent-review cycle). **The other 8 B7 findings remain open** — the P2 session
+> must work them and reconcile, not duplicate the two already landed.
 
 > **⚠️ The "Findings at a glance" table above is wrong as generated.** It claims P1 13 / P2 62 /
 > P3 51. Counting the actual finding lines gives **P0 2 / P1 14 / P2 68 / P3 44** — both sum to 128,

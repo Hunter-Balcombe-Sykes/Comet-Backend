@@ -197,7 +197,10 @@ class PublicCustomerLeadController extends ApiController
             $sub->markSubscribed([
                 'source' => 'site_lead',
                 'ip_hash' => $this->hashIp($request->ip()),
-                'user_agent' => $request->userAgent(),
+                // PRIV-2: cap the UA — logLead() above already does this via the
+                // same sanitizer; this sibling call site was missed in the
+                // earlier PRIV-5/6 pass.
+                'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
             ]);
 
             $sub->save();

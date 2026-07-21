@@ -20,7 +20,9 @@ class PublicCustomerLeadRequest extends BaseFormRequest
             'full_name' => is_string($this->full_name) ? trim($this->full_name) : $this->full_name,
             'email' => is_string($this->email) ? strtolower(trim($this->email)) : $this->email,
             'phone' => is_string($this->phone) ? trim($this->phone) : $this->phone,
-            'notes' => is_string($this->notes) ? trim($this->notes) : $this->notes,
+            // PRIV-3: strip_tags to match the sibling PublicEnquiryRequest treatment
+            // of its equivalent free-text field (message) — was only trimmed here.
+            'notes' => is_string($this->notes) ? trim(strip_tags($this->notes)) : $this->notes,
             'marketing_opt_in' => $parsed ?? false,
             ...$this->botProtectionPrepare(),
         ]);
