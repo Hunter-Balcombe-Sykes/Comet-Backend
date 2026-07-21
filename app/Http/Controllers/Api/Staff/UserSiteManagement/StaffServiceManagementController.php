@@ -70,18 +70,25 @@ class StaffServiceManagementController extends ApiController
         // mirrors user-facing cap (UserServiceCategoryController::index limit(200))
         $categories = $catsQ->orderBy('sort_order')->orderBy('created_at')->limit(200)->get();
 
-        $servicesByCategory = $services->groupBy(fn (Service $s) => $s->category_id ?? '__uncategorised__');
+        // Multi-category: a service appears under EVERY category it belongs to;
+        // zero memberships = Uncategorised (mirrors UserServiceController::index).
+        $services->loadMissing('categories:id');
+        $categoryIds = fn (Service $s) => $s->categories->map(fn ($c) => (string) $c->id)->all();
 
-        $categoryPayload = $categories->map(function (ServiceCategory $c) use ($servicesByCategory) {
+        $categoryPayload = $categories->map(function (ServiceCategory $c) use ($services, $categoryIds) {
+            $members = $services->filter(fn (Service $s) => in_array((string) $c->id, $categoryIds($s), true))->values();
+
             return array_merge(
                 (new ServiceCategoryResource($c))->resolve(),
-                ['services' => ServiceResource::collection($servicesByCategory->get($c->id, collect())->values())->resolve()],
+                ['services' => ServiceResource::collection($members)->resolve()],
             );
         })->values();
 
+        $uncategorised = $services->filter(fn (Service $s) => $categoryIds($s) === [])->values();
+
         return $this->success([
             'categories' => $categoryPayload,
-            'uncategorised_services' => ServiceResource::collection($servicesByCategory->get('__uncategorised__', collect())->values()),
+            'uncategorised_services' => ServiceResource::collection($uncategorised),
             'filters' => [
                 'include_archived' => $includeArchived,
                 'only_archived' => $onlyArchived,
@@ -107,7 +114,6 @@ class StaffServiceManagementController extends ApiController
             function (int $next) use ($professional, $data) {
                 $service = Service::query()->create([
                     'user_id' => $professional->id,
-                    'category_id' => $data['category_id'] ?? null,
                     'title' => $data['title'],
                     'description' => $data['description'] ?? null,
                     'price_cents' => $data['price_cents'],
@@ -116,6 +122,10 @@ class StaffServiceManagementController extends ApiController
                     'is_active' => $data['is_active'] ?? true,
                     'sort_order' => $data['sort_order'] ?? $next,
                 ]);
+
+                if (($data['category_id'] ?? null) !== null) {
+                    $service->categories()->attach($data['category_id']);
+                }
 
                 return $service->fresh();
             },
@@ -152,15 +162,22 @@ class StaffServiceManagementController extends ApiController
         if (array_key_exists('category_id', $data)) {
             $this->assertCategoryBelongsToProfessional($professional->id, $data['category_id']);
 
-            // If moving categories and no explicit sort_order, place at end of new bucket
-            if (($data['category_id'] ?? null) !== $service->category_id && ! array_key_exists('sort_order', $data)) {
-                $max = Service::query()
-                    ->where('user_id', $professional->id)
-                    ->where('category_id', $data['category_id'] ?? null)
-                    ->max('sort_order');
-
-                $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
+            // Multi-category: the legacy single category_id REPLACES the
+            // membership set ([] for null). Appends at global end when moving
+            // without an explicit sort_order, mirroring the old per-bucket move.
+            $target = $data['category_id'] !== null ? [(string) $data['category_id']] : [];
+            $current = $service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all();
+            if ($target != $current) {
+                $service->categories()->sync($target);
+                if (! array_key_exists('sort_order', $data)) {
+                    $max = Service::query()
+                        ->where('user_id', $professional->id)
+                        ->whereNull('deleted_at')
+                        ->max('sort_order');
+                    $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
+                }
             }
+            unset($data['category_id']);
         }
 
         $service->fill($data);
@@ -223,9 +240,11 @@ class StaffServiceManagementController extends ApiController
             $activeServiceSet = array_flip($activeServiceIds);
 
             $providedCategoryIds = [];
-            $providedServiceIds = [];
+            $seenPerBlock = [];
+            $membershipsByService = [];
+            $uncategorisedIds = [];
 
-            foreach ($payload['categories'] as $catBlock) {
+            foreach ($payload['categories'] as $bi => $catBlock) {
                 $catId = $catBlock['id'] ?? null;
 
                 if ($catId !== null) {
@@ -239,15 +258,29 @@ class StaffServiceManagementController extends ApiController
                     if (! isset($activeServiceSet[$sid])) {
                         abort(422, 'One or more service IDs are invalid.');
                     }
-                    $providedServiceIds[] = $sid;
+                    // Multi-category: one membership per category block; never
+                    // twice in one block, never categorised AND uncategorised.
+                    if (isset($seenPerBlock[$bi][$sid])) {
+                        abort(422, 'Duplicate service IDs detected within a category block.');
+                    }
+                    $seenPerBlock[$bi][$sid] = true;
+
+                    if ($catId === null) {
+                        $uncategorisedIds[$sid] = true;
+                    } else {
+                        $membershipsByService[$sid][] = $catId;
+                    }
                 }
             }
 
-            // Ensure every service appears exactly once
-            if (count($providedServiceIds) !== count(array_unique($providedServiceIds))) {
-                abort(422, 'Duplicate service IDs detected in layout payload.');
+            foreach ($uncategorisedIds as $sid => $_) {
+                if (isset($membershipsByService[$sid])) {
+                    abort(422, 'A service cannot be both categorised and uncategorised.');
+                }
             }
-            if (count($providedServiceIds) !== count($activeServiceIds)) {
+
+            $coveredIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
+            if (count($coveredIds) !== count($activeServiceIds)) {
                 abort(422, 'Layout payload must include all service IDs for this professional.');
             }
 
@@ -261,8 +294,13 @@ class StaffServiceManagementController extends ApiController
                 abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
             }
 
-            // Apply category order + service order
+            // Apply category order + service order + memberships (mirrors
+            // UserServiceController::reorderLayout — global first-occurrence
+            // sort_order, two-pass park for the partial unique index, and the
+            // payload defining the full membership map).
             $categorySort = 0;
+            $orderedServiceIds = [];
+
             foreach ($payload['categories'] as $catBlock) {
                 $catId = $catBlock['id'] ?? null;
 
@@ -273,14 +311,43 @@ class StaffServiceManagementController extends ApiController
                         ->update(['sort_order' => $categorySort++]);
                 }
 
-                foreach ($catBlock['service_ids'] as $i => $serviceId) {
-                    Service::query()
-                        ->where('user_id', $professional->id)
-                        ->where('id', $serviceId)
-                        ->update([
-                            'category_id' => $catId,
-                            'sort_order' => $i,
-                        ]);
+                foreach ($catBlock['service_ids'] as $serviceId) {
+                    if (! in_array($serviceId, $orderedServiceIds, true)) {
+                        $orderedServiceIds[] = $serviceId;
+                    }
+                }
+            }
+
+            foreach ($orderedServiceIds as $i => $serviceId) {
+                Service::query()
+                    ->where('user_id', $professional->id)
+                    ->where('id', $serviceId)
+                    ->update(['sort_order' => 1_000_000 + $i]);
+            }
+            foreach ($orderedServiceIds as $i => $serviceId) {
+                Service::query()
+                    ->where('user_id', $professional->id)
+                    ->where('id', $serviceId)
+                    ->update(['sort_order' => $i]);
+            }
+
+            foreach ($orderedServiceIds as $serviceId) {
+                $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
+                $current = DB::table('site.service_category_assignments')
+                    ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
+                $toDetach = array_diff($current, $target);
+                $toAttach = array_diff($target, $current);
+                if ($toDetach !== []) {
+                    DB::table('site.service_category_assignments')
+                        ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
+                }
+                foreach ($toAttach as $categoryId) {
+                    DB::table('site.service_category_assignments')->insert([
+                        'service_id' => $serviceId,
+                        'service_category_id' => $categoryId,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
                 }
             }
         });

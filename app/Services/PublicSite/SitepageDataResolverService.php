@@ -843,7 +843,7 @@ class SitepageDataResolverService
         $manualBookingUrl = trim((string) ($site?->manual_booking_url ?? $settings['manual_booking_url'] ?? ''));
 
         $services = Service::query()
-            ->with('category:id,title')
+            ->with('categories:id,title')
             ->where('user_id', $proId)
             // Manual services only — Fresha projections belong to the booking
             // surface (the Fresha selection blob), never the services section.
@@ -860,7 +860,9 @@ class SitepageDataResolverService
                 'price_cents' => $service->price_cents,
                 'currency_code' => $service->currency_code,
                 'duration_minutes' => $service->duration_minutes,
-                'category' => $service->category?->title ?? 'Services',
+                // Multi-category: the public card shows the FIRST membership's
+                // title (display parity with the old single category).
+                'category' => $service->categories->first()?->title ?? 'Services',
             ])
             ->values()
             ->all();

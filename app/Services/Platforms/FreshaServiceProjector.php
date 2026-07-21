@@ -63,7 +63,10 @@ class FreshaServiceProjector
                 continue;
             }
             $sid = (string) ($entry['serviceId'] ?? '');
-            if ($sid === '' || isset($seen[$sid])) {
+            if ($sid === '') {
+                continue;
+            }
+            if (isset($seen[$sid])) {
                 continue;
             }
             $seen[$sid] = true;
@@ -71,6 +74,34 @@ class FreshaServiceProjector
         }
 
         return $out;
+    }
+
+    /**
+     * Every category label a serviceId is listed under, in scrape order —
+     * a duplicate listing means ONE service in SEVERAL categories, so the
+     * projection unions the labels into memberships.
+     *
+     * @param  array<int, mixed>  $services  the pre-dedup scrape
+     * @return array<string, list<string>> serviceId => unique labels
+     */
+    private function categoryLabelsByServiceId(array $services): array
+    {
+        $labels = [];
+        foreach ($services as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $sid = (string) ($entry['serviceId'] ?? '');
+            $label = is_string($entry['category'] ?? null) ? trim((string) $entry['category']) : '';
+            if ($sid === '' || $label === '') {
+                continue;
+            }
+            if (! in_array($label, $labels[$sid] ?? [], true)) {
+                $labels[$sid][] = $label;
+            }
+        }
+
+        return $labels;
     }
 
     /**
@@ -88,9 +119,10 @@ class FreshaServiceProjector
     public function sync(User $user, array $rawServices, array $previouslyHidden = []): array
     {
         $raw = $this->dedupe($rawServices);
+        $labelsById = $this->categoryLabelsByServiceId($rawServices);
         $hiddenSet = array_flip(array_values(array_filter($previouslyHidden, 'is_string')));
 
-        DB::connection('pgsql')->transaction(function () use ($user, $raw, $hiddenSet) {
+        DB::connection('pgsql')->transaction(function () use ($user, $raw, $labelsById, $hiddenSet) {
             // Same advisory key as InsertWithSortOrder's manual-service create —
             // the global (user_id, sort_order) partial unique means every
             // sort_order append must serialize behind one lock.
@@ -114,8 +146,10 @@ class FreshaServiceProjector
                 $seen[$sid] = true;
                 $row = $existing->get($sid);
 
+                $categoryIds = $this->resolveCategoryIds($user, $labelsById[$sid] ?? []);
+
                 if ($row === null) {
-                    Service::query()->create([
+                    $created = Service::query()->create([
                         'user_id' => $user->id,
                         'source' => 'fresha',
                         'external_id' => $sid,
@@ -124,6 +158,7 @@ class FreshaServiceProjector
                         'sort_order' => $next++,
                         ...$this->rawAttributes($user, $entry),
                     ]);
+                    $created->categories()->sync($categoryIds);
 
                     continue;
                 }
@@ -143,16 +178,19 @@ class FreshaServiceProjector
                         'deleted_origin' => null,
                         'deleted_at' => null,
                     ])->save();
+                    $row->categories()->sync($categoryIds);
 
                     continue;
                 }
 
-                // Detached (owner-edited) rows are owner content — never overwritten.
+                // Detached (owner-edited) rows are owner content — never overwritten
+                // (fields OR memberships: the owner may have re-categorised it).
                 if ($row->is_manual) {
                     continue;
                 }
 
                 $row->forceFill($this->rawAttributes($user, $entry))->save();
+                $row->categories()->sync($categoryIds);
             }
 
             // Departed: live synced rows whose serviceId vanished from the scrape.
@@ -187,7 +225,7 @@ class FreshaServiceProjector
         $rows = Service::query()
             ->where('user_id', $user->id)
             ->where('source', 'fresha')
-            ->with('category:id,title')
+            ->with('categories:id,title')
             ->get()
             ->keyBy(fn (Service $s) => (string) $s->external_id);
 
@@ -321,7 +359,6 @@ class FreshaServiceProjector
             'price_cents' => is_numeric($priceValue) ? (int) round(((float) $priceValue) * 100) : 0,
             'currency_code' => $currency,
             'duration_minutes' => $this->parseDuration($entry['duration'] ?? null),
-            'category_id' => $this->resolveCategoryId($user, $entry['category'] ?? null),
         ];
     }
 
@@ -344,48 +381,58 @@ class FreshaServiceProjector
             'price' => $this->formatPrice((int) $row->price_cents, (string) $row->currency_code),
             'priceValue' => round(((int) $row->price_cents) / 100, 2),
             'currency' => (string) $row->currency_code,
-            'category' => $row->category?->title ?? ($rawEntry['category'] ?? null),
+            'category' => $row->categories->first()?->title ?? ($rawEntry['category'] ?? null),
             'hasVariants' => (bool) ($rawEntry['hasVariants'] ?? false),
         ];
     }
 
     /**
-     * find-or-create the user's ServiceCategory for a Fresha category label
-     * (matched live, case-insensitive). A TRASHED same-title category means
-     * the owner deleted it — never resurrected; the service goes uncategorised.
+     * find-or-create the user's ServiceCategory rows for a set of Fresha
+     * category labels (matched live, case-insensitive) — the MEMBERSHIP ids a
+     * projected service syncs to. A TRASHED same-title category means the
+     * owner deleted it — never resurrected; that label contributes nothing.
+     *
+     * @param  list<string>  $labels
+     * @return list<string>
      */
-    private function resolveCategoryId(User $user, mixed $label): ?string
+    private function resolveCategoryIds(User $user, array $labels): array
     {
-        $title = is_string($label) ? trim($label) : '';
-        if ($title === '') {
-            return null;
+        $ids = [];
+        foreach ($labels as $label) {
+            $title = trim((string) $label);
+            if ($title === '') {
+                continue;
+            }
+            $needle = mb_strtolower($title);
+
+            $live = ServiceCategory::query()
+                ->where('user_id', $user->id)
+                ->get(['id', 'title'])
+                ->first(fn (ServiceCategory $c) => mb_strtolower(trim((string) $c->title)) === $needle);
+            if ($live !== null) {
+                $ids[] = (string) $live->id;
+
+                continue;
+            }
+
+            $trashedExists = ServiceCategory::onlyTrashed()
+                ->where('user_id', $user->id)
+                ->get(['id', 'title'])
+                ->contains(fn (ServiceCategory $c) => mb_strtolower(trim((string) $c->title)) === $needle);
+            if ($trashedExists) {
+                continue;
+            }
+
+            $max = ServiceCategory::query()->where('user_id', $user->id)->max('sort_order');
+            $ids[] = (string) ServiceCategory::query()->create([
+                'user_id' => $user->id,
+                'title' => $title,
+                'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
+                'source' => 'fresha',
+            ])->id;
         }
-        $needle = mb_strtolower($title);
 
-        $live = ServiceCategory::query()
-            ->where('user_id', $user->id)
-            ->get(['id', 'title'])
-            ->first(fn (ServiceCategory $c) => mb_strtolower(trim((string) $c->title)) === $needle);
-        if ($live !== null) {
-            return (string) $live->id;
-        }
-
-        $trashedExists = ServiceCategory::onlyTrashed()
-            ->where('user_id', $user->id)
-            ->get(['id', 'title'])
-            ->contains(fn (ServiceCategory $c) => mb_strtolower(trim((string) $c->title)) === $needle);
-        if ($trashedExists) {
-            return null;
-        }
-
-        $max = ServiceCategory::query()->where('user_id', $user->id)->max('sort_order');
-
-        return (string) ServiceCategory::query()->create([
-            'user_id' => $user->id,
-            'title' => $title,
-            'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
-            'source' => 'fresha',
-        ])->id;
+        return array_values(array_unique($ids));
     }
 
     /** "1h 15min" / "45min" / "2h" → minutes; null when unparsable. */

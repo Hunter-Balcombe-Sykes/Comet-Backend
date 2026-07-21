@@ -1196,7 +1196,6 @@ function setupServicesTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.services (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
-        category_id TEXT NULL,
         title TEXT NULL,
         description TEXT NULL,
         price_cents INTEGER NULL,
@@ -1231,6 +1230,15 @@ function setupServicesTable(): void
             // already exists — ignore
         }
     }
+
+    // Service ↔ category memberships (multi-category, 20260721180000).
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.service_category_assignments (
+        service_id TEXT NOT NULL,
+        service_category_id TEXT NOT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        PRIMARY KEY (service_id, service_category_id)
+    )');
 }
 
 /**
@@ -1295,6 +1303,12 @@ function createServiceFor(User $pro, array $overrides = []): Service
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
+    // Multi-category (20260721180000): category_id is no longer a services
+    // column — a passed override becomes a pivot membership instead, so the
+    // many existing call sites keep working unchanged.
+    $categoryId = $overrides['category_id'] ?? null;
+    unset($overrides['category_id']);
+
     $row = array_merge([
         'id' => $id,
         'user_id' => $pro->id,
@@ -1308,6 +1322,14 @@ function createServiceFor(User $pro, array $overrides = []): Service
     ], $overrides);
 
     DB::connection('pgsql')->table('site.services')->insert($row);
+    if ($categoryId !== null) {
+        DB::connection('pgsql')->table('site.service_category_assignments')->insert([
+            'service_id' => $id,
+            'service_category_id' => $categoryId,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
 
     return Service::withTrashed()->findOrFail($id);
 }

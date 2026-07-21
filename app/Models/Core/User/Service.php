@@ -5,6 +5,7 @@ namespace App\Models\Core\User;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 // V2: A bookable service offered by a professional. Stores pricing, duration,
@@ -27,7 +28,6 @@ class Service extends BaseModel
     protected $fillable = [
         'user_id',
         'title',
-        'category_id',
         'description',
         'price_cents',
         'currency_code',
@@ -53,8 +53,16 @@ class Service extends BaseModel
         return $this->belongsTo(User::class);
     }
 
-    public function category(): BelongsTo
+    /**
+     * Every category this service is listed under (multi-category, 2026-07-21).
+     * No pivot ordering — the grouped display orders by category sort_order
+     * then the service's global sort_order, exactly as before.
+     *
+     * @return BelongsToMany<ServiceCategory, $this>
+     */
+    public function categories(): BelongsToMany
     {
-        return $this->belongsTo(ServiceCategory::class, 'category_id');
+        return $this->belongsToMany(ServiceCategory::class, 'site.service_category_assignments', 'service_id', 'service_category_id')
+            ->withTimestamps();
     }
 }

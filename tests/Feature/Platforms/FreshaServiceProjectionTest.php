@@ -74,7 +74,7 @@ it('projects a scrape into deduped service rows with parsed fields and fresha ca
         freshaRawService('s:2', 'Beard Trim', 'Hair', priceValue: 27.5, duration: '30min'),
     ]);
 
-    $rows = Service::query()->with('category')->where('user_id', $user->id)->where('source', 'fresha')->orderBy('sort_order')->get();
+    $rows = Service::query()->with('categories')->where('user_id', $user->id)->where('source', 'fresha')->orderBy('sort_order')->get();
     expect($rows)->toHaveCount(2);
 
     $haircut = $rows->firstWhere('external_id', 's:1');
@@ -83,9 +83,10 @@ it('projects a scrape into deduped service rows with parsed fields and fresha ca
     expect($haircut->duration_minutes)->toBe(75);
     expect($haircut->is_manual)->toBeFalse();
     expect($haircut->is_active)->toBeTrue();
-    // First occurrence's category label wins; auto-created with source=fresha.
-    expect($haircut->category?->title)->toBe('Hair');
-    expect($haircut->category?->source)->toBe('fresha');
+    // A duplicate listing = MULTIPLE memberships (labels union), each category
+    // auto-created with source=fresha.
+    expect($haircut->categories->pluck('title')->sort()->values()->all())->toBe(['Hair', 'Packages']);
+    expect($haircut->categories->firstWhere('title', 'Hair')?->source)->toBe('fresha');
 
     expect($rows->firstWhere('external_id', 's:2')->price_cents)->toBe(2750);
 

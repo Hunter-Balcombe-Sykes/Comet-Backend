@@ -77,7 +77,7 @@ it('moves a service to a different category and persists the new category_id', f
     $response->assertOk();
 
     $moves->refresh();
-    expect((string) $moves->category_id)->toBe((string) $catB->id);
+    expect($moves->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB->id]);
 
     // Every active service's sort_order is globally unique post-reorder.
     $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
@@ -109,8 +109,8 @@ it('swaps the order of two services within a category and keeps sort_order globa
     $other->refresh();
 
     // Both stayed in category A; $second now sorts ahead of $first.
-    expect((string) $first->category_id)->toBe((string) $catA->id);
-    expect((string) $second->category_id)->toBe((string) $catA->id);
+    expect($first->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
+    expect($second->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catA->id]);
     expect($second->sort_order)->toBeLessThan($first->sort_order);
 
     // Globally unique across all three active services (the fix's core guarantee).

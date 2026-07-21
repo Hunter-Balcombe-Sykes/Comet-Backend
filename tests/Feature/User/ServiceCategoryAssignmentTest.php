@@ -38,7 +38,7 @@ it('assigns a service to one of the owner\'s categories', function () {
     expect((string) $response->json('service.category_id'))->toBe((string) $cat->id);
 
     $service->refresh();
-    expect((string) $service->category_id)->toBe((string) $cat->id);
+    expect($service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $cat->id]);
 });
 
 it('moves a service to Uncategorized when category_id is null', function () {
@@ -54,7 +54,7 @@ it('moves a service to Uncategorized when category_id is null', function () {
     expect($response->json('service.category_id'))->toBeNull();
 
     $service->refresh();
-    expect($service->category_id)->toBeNull();
+    expect($service->categories()->count())->toBe(0);
 });
 
 it('rejects assigning the owner\'s service to another owner\'s category (422)', function () {
@@ -71,7 +71,7 @@ it('rejects assigning the owner\'s service to another owner\'s category (422)', 
     $response->assertStatus(422);
 
     $service->refresh();
-    expect($service->category_id)->toBeNull();
+    expect($service->categories()->count())->toBe(0);
 });
 
 it('rejects re-filing a service owned by another professional (404, no existence leak)', function () {
@@ -88,7 +88,7 @@ it('rejects re-filing a service owned by another professional (404, no existence
     $response->assertNotFound();
 
     $service->refresh();
-    expect($service->category_id)->toBeNull();
+    expect($service->categories()->count())->toBe(0);
 });
 
 it('appends the moved service at global max(sort_order)+1', function () {
@@ -107,7 +107,7 @@ it('appends the moved service at global max(sort_order)+1', function () {
     $response->assertOk();
 
     $mover->refresh();
-    expect((string) $mover->category_id)->toBe((string) $cat->id);
+    expect($mover->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $cat->id]);
     // max live sort_order was 2 → mover appends at 3.
     expect($mover->sort_order)->toBe(3);
 
@@ -130,7 +130,7 @@ it('coexists with reorder-layout under the shared advisory-lock key', function (
     ])->assertOk();
 
     $s2->refresh();
-    expect((string) $s2->category_id)->toBe((string) $catB->id);
+    expect($s2->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB->id]);
     expect($s2->sort_order)->toBe(2);
 
     // 2) A full layout save afterwards still succeeds and stays collision-free —
@@ -146,5 +146,5 @@ it('coexists with reorder-layout under the shared advisory-lock key', function (
     $sortOrders = Service::query()->where('user_id', $pro->id)->pluck('sort_order');
     expect($sortOrders->unique())->toHaveCount(2);
     $s2->refresh();
-    expect((string) $s2->category_id)->toBe((string) $catB->id);
+    expect($s2->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all())->toBe([(string) $catB->id]);
 });

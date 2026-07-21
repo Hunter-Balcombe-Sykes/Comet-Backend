@@ -39,7 +39,7 @@ it('ships only the allowlisted fields', function () {
     $array = (new ServiceResource(makeService()))->resolve();
 
     expect(array_keys($array))->toEqual([
-        'id', 'user_id', 'category_id', 'title', 'description',
+        'id', 'user_id', 'category_id', 'category_ids', 'title', 'description',
         'price_cents', 'currency_code', 'duration_minutes', 'is_active',
         'sort_order', 'source', 'is_manual', 'external_id',
         'created_at', 'updated_at', 'deleted_at',
