@@ -100,6 +100,25 @@ it('dispatches again when a previously-unsubscribed address re-subscribes', func
     Bus::assertDispatched(SendSubscriptionConfirmationJob::class);
 });
 
+// S4 Tier 2b: user_id (site-owner attribution, NULLABLE — a silent drop would
+// orphan the row into a global-list subscription) and email_lc (backs the
+// per-list uniqueness index) were removed from EmailSubscription's $fillable.
+// PublicEmailSubscriptionController::subscribe() now sets both via direct
+// property assignment; assert they actually persist on a brand-new row.
+it('persists user_id and email_lc on a brand-new subscribe', function () {
+    $userId = seedPublishedSubscribeSite();
+    Bus::fake();
+
+    $this->postJson('/api/public/subscribe', ['email' => 'Fresh@Example.com', 'form_started_at_ms' => time() * 1000 - 5000], [
+        'X-Site-Subdomain' => 'subpro',
+    ])->assertOk();
+
+    $sub = EmailSubscription::query()->where('email', 'fresh@example.com')->firstOrFail()->fresh();
+
+    expect($sub->user_id)->toBe($userId)
+        ->and($sub->email_lc)->toBe('fresh@example.com');
+});
+
 function validSubscribePayload(array $overrides = []): array
 {
     return array_merge([

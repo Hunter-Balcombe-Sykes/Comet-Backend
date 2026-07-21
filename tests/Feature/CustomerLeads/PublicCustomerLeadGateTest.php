@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\FeatureAvailabilityRule;
+use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\User\Customer;
@@ -79,6 +80,27 @@ it('allows the customer-lead submit when no availability rule exists', function 
     ])->assertStatus(201)->assertJson(['ok' => true]);
 
     expect(Customer::query()->count())->toBe(1);
+});
+
+// S4 Tier 2b: user_id (site-owner attribution, NULLABLE — a silent drop would
+// orphan the row into a global-list subscription) and email_lc were removed
+// from EmailSubscription's $fillable. PublicCustomerLeadController's
+// upsertMarketingSubscription() now sets both via direct property
+// assignment; assert they actually persist for a lead that opts in.
+it('persists user_id and email_lc on a marketing-opt-in lead submission', function () {
+    $ownerId = seedPublishedLeadSite('optinpro');
+
+    $this->postJson('/api/public/customers', validLeadPayload([
+        'email' => 'OptIn@Example.com',
+        'marketing_opt_in' => true,
+    ]), [
+        'X-Site-Subdomain' => 'optinpro',
+    ])->assertStatus(201)->assertJson(['ok' => true]);
+
+    $sub = EmailSubscription::query()->where('email', 'optin@example.com')->firstOrFail()->fresh();
+
+    expect($sub->user_id)->toBe($ownerId)
+        ->and($sub->email_lc)->toBe('optin@example.com');
 });
 
 it('422s a customer-lead submitter whose owner is in a disabled segment', function () {

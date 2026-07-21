@@ -62,9 +62,9 @@ it('Block::create dispatches CloudflareCachePurgeJob via the touch() chain', fun
     Queue::fake();
     $fixture = seedTouchFixture();
 
-    Block::create([
-        'user_id' => $fixture['pro_id'],
-        'site_id' => $fixture['site_id'],
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — both NOT
+    // NULL, so Block::create() would now 500 on a dropped FK. Set directly.
+    $block = new Block([
         'block_type' => 'newsletter',
         'block_group' => 'sections',
         'sort_order' => 0,
@@ -72,6 +72,9 @@ it('Block::create dispatches CloudflareCachePurgeJob via the touch() chain', fun
         'is_enabled' => true,
         'settings' => ['body' => 'Hi'],
     ]);
+    $block->user_id = $fixture['pro_id'];
+    $block->site_id = $fixture['site_id'];
+    $block->save();
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
         return $job->handle === 'touchtest';
@@ -80,9 +83,8 @@ it('Block::create dispatches CloudflareCachePurgeJob via the touch() chain', fun
 
 it('Block::save (update) dispatches CloudflareCachePurgeJob via the touch() chain', function () {
     $fixture = seedTouchFixture();
-    $block = Block::create([
-        'user_id' => $fixture['pro_id'],
-        'site_id' => $fixture['site_id'],
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — set directly.
+    $block = new Block([
         'block_type' => 'link',
         'block_group' => 'links',
         'title' => 'Original',
@@ -92,6 +94,9 @@ it('Block::save (update) dispatches CloudflareCachePurgeJob via the touch() chai
         'is_enabled' => true,
         'settings' => [],
     ]);
+    $block->user_id = $fixture['pro_id'];
+    $block->site_id = $fixture['site_id'];
+    $block->save();
 
     // Fake AFTER create() so we only count purges fired by the update path.
     Queue::fake();
@@ -104,9 +109,8 @@ it('Block::save (update) dispatches CloudflareCachePurgeJob via the touch() chai
 
 it('Block::delete dispatches CloudflareCachePurgeJob via the touch() chain', function () {
     $fixture = seedTouchFixture();
-    $block = Block::create([
-        'user_id' => $fixture['pro_id'],
-        'site_id' => $fixture['site_id'],
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — set directly.
+    $block = new Block([
         'block_type' => 'link',
         'block_group' => 'links',
         'title' => 'About to die',
@@ -116,6 +120,9 @@ it('Block::delete dispatches CloudflareCachePurgeJob via the touch() chain', fun
         'is_enabled' => true,
         'settings' => [],
     ]);
+    $block->user_id = $fixture['pro_id'];
+    $block->site_id = $fixture['site_id'];
+    $block->save();
 
     Queue::fake();
     $block->delete();

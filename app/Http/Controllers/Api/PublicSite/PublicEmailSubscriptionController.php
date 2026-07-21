@@ -100,11 +100,14 @@ class PublicEmailSubscriptionController extends ApiController
 
         if (! $subscription) {
             $subscription = new EmailSubscription([
-                'user_id' => $site->user_id,
                 'list_key' => $listKey,
                 'email' => $email,
                 'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
             ]);
+            // user_id removed from $fillable (S4 Tier 2b) — set directly so a
+            // mass-assignment drop can't silently orphan this subscription from
+            // the site owner (email_lc is set below regardless of branch).
+            $subscription->user_id = $site->user_id;
         } else {
             $subscription->email = $email;
             if (! $subscription->unsubscribe_token) {

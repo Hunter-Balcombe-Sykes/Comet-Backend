@@ -117,7 +117,12 @@ class UserSectionBlockController extends ApiController
 
         // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
         // via SitePolicy::create), matching UserLinkBlockController::store/reorder.
-        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        // user_id/site_id removed from $fillable (S4 Tier 2b) — set directly so
+        // SitePolicy::ownerMatches() (reads the raw attribute) doesn't silently
+        // 403 every request.
+        $skeleton = new Block;
+        $skeleton->user_id = $pro->id;
+        $skeleton->site_id = $site->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         $data = $request->validated();
@@ -168,12 +173,26 @@ class UserSectionBlockController extends ApiController
         $block = DB::transaction(function () use ($pro, $site, $data, $blockType, $nextIsLive) {
             DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-sections:{$site->id}"]);
 
-            $block = Block::query()->firstOrNew([
-                'user_id' => $pro->id,
-                'site_id' => $site->id,
-                'block_group' => Block::GROUP_SECTIONS,
-                'block_type' => $blockType,
-            ]);
+            // firstOrNew()'s "not found" branch mass-assigns via fill(), which
+            // would silently drop user_id/site_id now that they're out of
+            // $fillable (S4 Tier 2b) — both NOT NULL, so a dropped value would
+            // 500 at save() instead of persisting. Replicate firstOrNew's
+            // search-then-construct manually so the FKs are set directly.
+            $block = Block::query()
+                ->where('user_id', $pro->id)
+                ->where('site_id', $site->id)
+                ->where('block_group', Block::GROUP_SECTIONS)
+                ->where('block_type', $blockType)
+                ->first();
+
+            if ($block === null) {
+                $block = new Block([
+                    'block_group' => Block::GROUP_SECTIONS,
+                    'block_type' => $blockType,
+                ]);
+                $block->user_id = $pro->id;
+                $block->site_id = $site->id;
+            }
 
             if (! $block->exists) {
                 // Use max+1, not count(), to stay gap-safe against the partial
@@ -237,7 +256,12 @@ class UserSectionBlockController extends ApiController
 
         // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
         // via SitePolicy::create), matching UserLinkBlockController::reorder.
-        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        // user_id/site_id removed from $fillable (S4 Tier 2b) — set directly so
+        // SitePolicy::ownerMatches() (reads the raw attribute) doesn't silently
+        // 403 every request.
+        $skeleton = new Block;
+        $skeleton->user_id = $pro->id;
+        $skeleton->site_id = $site->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         // Mass-update via the query builder bypasses BlockObserver. Explicit
@@ -265,7 +289,12 @@ class UserSectionBlockController extends ApiController
         // SEC-2: skeleton pattern (pre-create ownership + pending-deletion gate
         // via SitePolicy::create) — remove() is a soft-toggle (is_active=false),
         // not a delete, so the same skeleton+create gate as upsert()/reorder() applies.
-        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        // user_id/site_id removed from $fillable (S4 Tier 2b) — set directly so
+        // SitePolicy::ownerMatches() (reads the raw attribute) doesn't silently
+        // 403 every request.
+        $skeleton = new Block;
+        $skeleton->user_id = $pro->id;
+        $skeleton->site_id = $site->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         $allowedSections = config('partna.section_block_types', []);
@@ -341,12 +370,14 @@ class UserSectionBlockController extends ApiController
                     continue;
                 }
 
+                // user_id/site_id removed from $fillable (S4 Tier 2b) — set
+                // directly; both are NOT NULL so a silent drop would 500 at save().
                 $block = new Block([
-                    'user_id' => $userId,
-                    'site_id' => $siteId,
                     'block_group' => Block::GROUP_SECTIONS,
                     'block_type' => $blockType,
                 ]);
+                $block->user_id = $userId;
+                $block->site_id = $siteId;
 
                 $block->settings = [];
                 $block->is_active = false;

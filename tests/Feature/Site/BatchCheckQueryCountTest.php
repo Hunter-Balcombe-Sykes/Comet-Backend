@@ -25,7 +25,11 @@ it('batchCheck issues exactly one SQL query regardless of section count', functi
     $blocks = collect();
     $now = now()->toDateTimeString();
     foreach ($types as $i => $type) {
-        $blocks->push(new Block([
+        // id/user_id/site_id aren't in Block's $fillable (id never was; user_id
+        // /site_id removed S4 Tier 2b) — forceFill for this in-memory-only
+        // (never saved) fixture collection.
+        $block = new Block;
+        $block->forceFill([
             'id' => (string) Str::uuid(),
             'user_id' => $pro->id,
             'site_id' => $pro->site->id,
@@ -35,7 +39,8 @@ it('batchCheck issues exactly one SQL query regardless of section count', functi
             'is_active' => false,
             'is_enabled' => true,
             'settings' => [],
-        ]));
+        ]);
+        $blocks->push($block);
     }
 
     $queries = [];

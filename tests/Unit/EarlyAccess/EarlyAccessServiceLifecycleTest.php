@@ -44,7 +44,12 @@ beforeEach(function () {
 
 function eaLifecycleWaitlistRow(string $email): EarlyAccessSignup
 {
-    return EarlyAccessSignup::query()->create([
+    // status removed from $fillable (S4 Tier 2b) — create() would silently
+    // drop it, leaving the returned in-memory model's ->status null (line 69
+    // below reads it directly, pre-refresh). forceFill so the fixture is
+    // correct both on the DB row and the returned instance.
+    $signup = new EarlyAccessSignup;
+    $signup->forceFill([
         'email' => $email,
         'email_lc' => $email,
         'type' => 'partna',
@@ -52,6 +57,9 @@ function eaLifecycleWaitlistRow(string $email): EarlyAccessSignup
         'source' => 'marketing',
         'platforms' => [],
     ]);
+    $signup->save();
+
+    return $signup;
 }
 
 it('LIFE-4: invite() binds its signed-up guard to the DB row, not a stale pre-loaded instance', function () {
@@ -188,6 +196,35 @@ it('LIFE-4: invite() still mints a token and queues mail for the ordinary, non-r
         ->and($fresh->invited_by)->toBe('staff-1');
 
     Mail::assertQueued(EarlyAccessInviteMail::class);
+});
+
+/**
+ * S4 Tier 2b regression: status/invited_at/invite_token_hash were removed
+ * from EarlyAccessSignup's $fillable. EarlyAccessService::invite() flips
+ * these via a plain fill() — if that call were ever reverted to fill()
+ * instead of forceFill(), this would silently no-op: the invite email still
+ * sends (queued unconditionally once $token is minted), but the row never
+ * flips to 'invited' and invite_token_hash stays null, so findByInviteToken()
+ * can never match and every invite link 404s for the recipient, with zero
+ * error anywhere. Pin the persisted (post-->fresh()) state, not just the
+ * returned token.
+ */
+it('S4 Tier 2b: invite() persists status=invited and a non-null invite_token_hash', function () {
+    Mail::fake();
+
+    $row = eaLifecycleWaitlistRow('s4-tier2b@example.test');
+    $service = app(EarlyAccessService::class);
+
+    $token = $service->invite($row, 'staff-s4');
+
+    expect($token)->not->toBeNull();
+
+    $fresh = $row->fresh();
+    expect($fresh->status)->toBe(EarlyAccessSignup::STATUS_INVITED)
+        ->and($fresh->invite_token_hash)->not->toBeNull()
+        ->and($fresh->invite_token_hash)->toBe(hash('sha256', $token))
+        ->and($fresh->invited_at)->not->toBeNull()
+        ->and(EarlyAccessSignup::findByInviteToken($token)?->id)->toBe($row->id);
 });
 
 it('LIFE-8: markSignedUp() reports the exception to Nightwatch and still returns normally', function () {

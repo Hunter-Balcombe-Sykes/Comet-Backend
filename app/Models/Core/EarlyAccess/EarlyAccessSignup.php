@@ -46,19 +46,17 @@ class EarlyAccessSignup extends BaseModel
         'consent_user_agent',
     ];
 
+    // status/invited_at/invite_token_hash/invite_meta/invited_by/signed_up_at
+    // (S4 Tier 2b) removed — lifecycle fields, written only by trusted callers
+    // (EarlyAccessService::invite()/signupFromMarketing(), StaffEarlyAccessController)
+    // via forceFill/direct property assignment, never via request-bound fill().
     protected $fillable = [
         'email',
         'email_lc',
         'type',
         'workplace_or_industry',
         'platforms',
-        'status',
         'source',
-        'invited_at',
-        'invite_token_hash',
-        'invite_meta',
-        'invited_by',
-        'signed_up_at',
         'consent_ip_hash',
         'consent_user_agent',
     ];

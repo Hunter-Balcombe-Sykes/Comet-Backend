@@ -74,9 +74,13 @@ class StaffEarlyAccessController extends ApiController
             'type' => $data['type'],
             'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
             'platforms' => array_values($data['platforms'] ?? []),
-            'status' => EarlyAccessSignup::STATUS_WAITLIST,
             'source' => 'manual',
         ]);
+        // status removed from $fillable (S4 Tier 2b) — create() would silently
+        // drop it. DB DEFAULT already matches ('waitlist'), but set it directly
+        // so the in-memory model (returned in the response below) is correct
+        // without a round-trip refresh.
+        $signup->status = EarlyAccessSignup::STATUS_WAITLIST;
 
         return $this->success(['signup' => EarlyAccessSignupResource::make($signup)->resolve()], 201);
     }

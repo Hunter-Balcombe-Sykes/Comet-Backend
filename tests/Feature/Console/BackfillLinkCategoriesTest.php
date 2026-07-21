@@ -45,9 +45,8 @@ function createBackfillFixtureIds(): array
 it('backfills platform + category columns for pre-existing instagram links', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
-    $block = Block::create([
-        'user_id' => $proId,
-        'site_id' => $siteId,
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — set directly.
+    $block = new Block([
         'block_type' => 'link',
         'block_group' => 'links',
         'title' => 'My IG',
@@ -57,6 +56,9 @@ it('backfills platform + category columns for pre-existing instagram links', fun
         'is_active' => true,
         'settings' => [],
     ]);
+    $block->user_id = $proId;
+    $block->site_id = $siteId;
+    $block->save();
 
     Artisan::call('partna:backfill-social-links');
 
@@ -69,9 +71,8 @@ it('backfills platform + category columns for pre-existing instagram links', fun
 it('backfills category=other column for custom (icon_key=link) blocks', function () {
     [$proId, $siteId] = createBackfillFixtureIds();
 
-    $block = Block::create([
-        'user_id' => $proId,
-        'site_id' => $siteId,
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — set directly.
+    $block = new Block([
         'block_type' => 'link',
         'block_group' => 'links',
         'title' => 'My custom',
@@ -81,6 +82,9 @@ it('backfills category=other column for custom (icon_key=link) blocks', function
         'is_active' => true,
         'settings' => [],
     ]);
+    $block->user_id = $proId;
+    $block->site_id = $siteId;
+    $block->save();
 
     Artisan::call('partna:backfill-social-links');
 
@@ -94,9 +98,8 @@ it('is idempotent — existing column values are preserved on re-run', function 
     [$proId, $siteId] = createBackfillFixtureIds();
 
     // Pre-set both columns (the idempotency gate reads columns in Phase 2).
-    $block = Block::create([
-        'user_id' => $proId,
-        'site_id' => $siteId,
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — set directly.
+    $block = new Block([
         'block_type' => 'link',
         'block_group' => 'links',
         'title' => 'Already set',
@@ -108,6 +111,9 @@ it('is idempotent — existing column values are preserved on re-run', function 
         'category' => 'events', // manually overridden
         'settings' => [],
     ]);
+    $block->user_id = $proId;
+    $block->site_id = $siteId;
+    $block->save();
 
     Artisan::call('partna:backfill-social-links');
 
