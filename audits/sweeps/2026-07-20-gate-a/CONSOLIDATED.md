@@ -682,10 +682,10 @@ than edits — read each source entry before changing anything.
 - [ ] **`migrations-early/MIG-3`** · P2 · M — Inline CHECK on `site.sites.skeleton_id` validates existing rows under `ACCESS EXCLUSIVE` → `sources/migrations-early.md`
 - [ ] **`migrations-early/MIG-4`** · P2 · S — Unqualified `DROP FUNCTION` leaves an orphaned trigger referencing a dropped column → `sources/migrations-early.md`
 - [ ] **`migrations-early/MIG-5`** · P2 · M — Full-table `UPDATE` backfills run inside migration transactions instead of being extracted (5 files) → `sources/migrations-early.md`
-- [ ] **`migrations-early/MIG-6`** · P2 · S — `NOT VALID` + `VALIDATE` bundled into one long transaction spanning six unrelated fixes, including hot table `site.site_media` → `sources/migrations-early.md`
+- [x] **`migrations-early/MIG-6`** · P2 · S — `NOT VALID` + `VALIDATE` bundled into one long transaction spanning six unrelated fixes, including hot table `site.site_media` → `sources/migrations-early.md` — ✅ 2026-07-22: guard **Check 8** now catches this shape on new files; historical file grandfathered (empty-DB cutover), not rewritten.
 - [ ] **`migrations-recent/MIG-6`** · P2 · S — Non-CONCURRENTLY unique index build justified only by dev's row count, not the prod re-baseline → `sources/migrations-recent.md`
 - [ ] **`migrations-recent/MIG-7`** · P2 · S — Design-kit rework migrations drop hot-table columns with no transaction wrapper and no documented rollback (5 files) → `sources/migrations-recent.md`
-- [ ] **`migrations-recent/MIG-5`** · P2 · S — `VALIDATE CONSTRAINT` in the same transaction as `ADD CONSTRAINT NOT VALID`, wasting the two-step optimisation → `sources/migrations-recent.md`
+- [x] **`migrations-recent/MIG-5`** · P2 · S — `VALIDATE CONSTRAINT` in the same transaction as `ADD CONSTRAINT NOT VALID`, wasting the two-step optimisation → `sources/migrations-recent.md` — ✅ 2026-07-22: guard **Check 8** (VALIDATE deferred to a separate txn) + `CONVENTIONS.md §2` note; historical file grandfathered, not rewritten.
 - [ ] **`migrations-early/MIG-7`** · P3 · M — Missing `SET LOCAL lock_timeout`/`statement_timeout` guards on DDL touching live-traffic tables (~50 files) → `sources/migrations-early.md`
 - [ ] **`migrations-recent/MIG-8`** · P3 · M — Same guard gap across 30+ recent files; consider a runner-level default → `sources/migrations-recent.md`
 - [ ] **`pii-schema/SCHEMA-4`** · P3 · S — `CREATE UNIQUE INDEX` without CONCURRENTLY on live `site.platform_connections` (accept exemption) → `sources/pii-schema.md`

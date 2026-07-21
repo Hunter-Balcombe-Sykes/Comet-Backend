@@ -87,6 +87,12 @@ full-table scan while holding it. `NOT VALID` drops the lock immediately after t
 `VALIDATE CONSTRAINT` acquires only `SHARE UPDATE EXCLUSIVE`, which allows concurrent reads
 and writes.
 
+**Enforced**: `scripts/guard-no-unsafe-migrations.php` **Check 8** fails any file timestamped after
+`20260722000000` that runs `VALIDATE CONSTRAINT` in the same transaction as its `ADD CONSTRAINT …
+NOT VALID` (no `COMMIT` between them) — the bundling holds the heavier catalog-write lock through the
+whole validation scan, defeating the split. Put `VALIDATE CONSTRAINT` in its own transaction or file;
+pre-convention files are grandfathered. The same rule applies to FK constraints (§4).
+
 ---
 
 ## 3. `SET NOT NULL` on populated tables — four-step pattern

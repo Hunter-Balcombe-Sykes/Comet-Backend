@@ -327,3 +327,60 @@ it('Check 7 ignores a bare DROP INDEX on a non-hot table', function () {
 
     expect($r['exit'])->toBe(0, "Only HOT_TABLES drops are flagged; a cold-table drop is out of scope; output:\n{$r['output']}");
 });
+
+// ─── B19: guard Check 8 — VALIDATE CONSTRAINT bundled with its ADD ... NOT VALID ──
+// Reuses guardRunAgainstFixture() defined above. site.platform_connections is used
+// deliberately (not a HOT_TABLES table) so only Check 8 can fire, never Check 5.
+
+it('Check 8 flags VALIDATE in the same transaction as ADD ... NOT VALID (post-cutoff)', function () {
+    $r = guardRunAgainstFixture(
+        '20260722130000_b19_bad.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections\n".
+        "    ADD CONSTRAINT pc_demo_check CHECK (apify_status IS NULL OR apify_status IN ('ok')) NOT VALID;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(1, "Expected the guard to FAIL when VALIDATE shares the txn with ADD ... NOT VALID; output:\n{$r['output']}")
+        ->and($r['output'])->toContain('VALIDATE CONSTRAINT runs in the same transaction');
+});
+
+it('Check 8 allows VALIDATE in a separate transaction from ADD ... NOT VALID', function () {
+    $r = guardRunAgainstFixture(
+        '20260722130000_b19_ok.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections\n".
+        "    ADD CONSTRAINT pc_demo_check CHECK (apify_status IS NULL OR apify_status IN ('ok')) NOT VALID;\n".
+        "COMMIT;\n".
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "The two-transaction split is the safe pattern and must pass; output:\n{$r['output']}");
+});
+
+it('Check 8 allows a VALIDATE-only file (the two-file split, ADD lives elsewhere)', function () {
+    $r = guardRunAgainstFixture(
+        '20260722130000_b19_validate_only.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "A VALIDATE with no ADD ... NOT VALID in the same file is the correct split; output:\n{$r['output']}");
+});
+
+it('Check 8 grandfathers a pre-cutoff bundled VALIDATE', function () {
+    $r = guardRunAgainstFixture(
+        '20260701000000_b19_old.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections\n".
+        "    ADD CONSTRAINT pc_demo_check CHECK (apify_status IS NULL OR apify_status IN ('ok')) NOT VALID;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Files on/before VALIDATE_TXN_GUARD_CUTOFF are grandfathered; output:\n{$r['output']}");
+});
