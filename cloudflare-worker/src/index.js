@@ -118,17 +118,21 @@ const RESERVED = new Set([
   "towelhead", "dyke", "shemale", "porn", "porno", "xxx", "nsfw",
 ]);
 
-/** Primary cache TTL in seconds — 24 h, push-purged on mutation.
+/** Primary cache TTL in seconds — 24 h, push-purged on mutation. CFG-1:
+ *  the live value comes from wrangler.toml `[vars] PRIMARY_CACHE_TTL_S` —
+ *  this is only the fallback default if that var is absent/unparseable.
  *  @sync app/Services/Cloudflare/CloudflarePurgeService.php `purgeHandle()` docblock,
  *  which cites this same "24 h" figure (EDGE-3) — bump both together. */
-const PRIMARY_CACHE_TTL_S = 86_400;
+const PRIMARY_CACHE_TTL_S_DEFAULT = 86_400;
 
 /** Stale-shadow TTL — 7 d. Wide window so even multi-day backend outages
  * serve the last good render. SWR refresh re-extends the shadow each
- * successful origin hit.
+ * successful origin hit. CFG-1: the live value comes from wrangler.toml
+ * `[vars] STALE_SHADOW_TTL_S` — this is only the fallback default if that
+ * var is absent/unparseable.
  * @sync app/Services/Cloudflare/CloudflarePurgeService.php `purgeHandle()` docblock,
  * which cites this same "7-day TTL" (EDGE-3) — bump both together. */
-const STALE_SHADOW_TTL_S = 7 * 86_400;
+const STALE_SHADOW_TTL_S_DEFAULT = 7 * 86_400;
 
 /**
  * Content-Security-Policy for sitepage responses (EDGE-8). Shipped in
@@ -230,6 +234,10 @@ async function withCacheTtl(response, ttlSeconds) {
 
   // EDGE-1: a cached copy must never carry a per-visitor cookie.
   headers.delete("Set-Cookie");
+  // EDGE-1: a stale/varying origin Vary can't poison the shared edge cache —
+  // every visitor gets the same cached representation regardless of their
+  // own request headers.
+  headers.delete("Vary");
 
   const original = headers.get("Cache-Control") ?? "";
   const directives = original
@@ -329,17 +337,23 @@ async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
   const fresh = await env.PARTNA_PAGES.fetch(originRequest);
 
   if (fresh.ok && originRequest.method === "GET") {
+    // CFG-1: wrangler.toml `[vars]` is the configured source; fall back to the
+    // module default if the var is missing or not a valid number.
+    const primaryTtl = Number(env.PRIMARY_CACHE_TTL_S) || PRIMARY_CACHE_TTL_S_DEFAULT;
+    const shadowTtl = Number(env.STALE_SHADOW_TTL_S) || STALE_SHADOW_TTL_S_DEFAULT;
     // EDGE-13: surface cache.put failures instead of letting a rejected
     // waitUntil promise vanish silently.
     ctx.waitUntil(
-      withCacheTtl(fresh, PRIMARY_CACHE_TTL_S)
+      withCacheTtl(fresh, primaryTtl)
         .then((r) => cache.put(cacheKey, r))
-        .catch((err) => console.error("primary cache.put failed", {url: cacheKey.url, err: String(err)})),
+        // PRIV-1: don't put the raw cache-key URL in the structured field.
+        .catch((err) => console.error("primary cache.put failed", {err: String(err)})),
     );
     ctx.waitUntil(
-      withCacheTtl(fresh, STALE_SHADOW_TTL_S)
+      withCacheTtl(fresh, shadowTtl)
         .then((r) => cache.put(staleShadowKey(cacheKey), r))
-        .catch((err) => console.error("shadow cache.put failed", {url: cacheKey.url, err: String(err)})),
+        // PRIV-1: don't put the raw cache-key URL in the structured field.
+        .catch((err) => console.error("shadow cache.put failed", {err: String(err)})),
     );
   }
 
@@ -351,10 +365,15 @@ async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
  * visitor-supplied `x-partna-handle` — a router-only signal a spoofed value
  * must never reach partna-pages (it would let a visitor render someone else's
  * page). Sets our own value only for custom-domain requests.
+ *
+ * EDGE-2: also strips Cookie and Authorization — sitepages are public/static
+ * and must never receive visitor credentials on the forwarded request.
  */
 function withHandleHeader(request, handle) {
   const headers = new Headers(request.headers);
   headers.delete("x-partna-handle");
+  headers.delete("Cookie");
+  headers.delete("Authorization");
   if (handle) {
     headers.set("x-partna-handle", handle);
   }
@@ -446,7 +465,10 @@ export default {
         custom = await env.SUBDOMAIN_KV.get(`domain:${hostname}`, {type: "json"});
       } catch (err) {
         // KV transient failure — fail open to avoid blocking traffic.
-        console.error("KV custom-domain lookup failed", {hostname, err: String(err)});
+        // PRIV-1: keep the raw hostname out of structured logs — message + err
+        // is enough to act on, and hostname (a visitor-controlled value) is
+        // not something we want persisted verbatim in log storage.
+        console.error("KV custom-domain lookup failed", {err: String(err)});
         return passThrough(request);
       }
       if (custom && custom.type === "individual" && typeof custom.handle === "string") {
@@ -475,7 +497,8 @@ export default {
       // degrades gracefully instead of visibly differently — but tag the response
       // `X-Partna-Cache: kv-error` (vs a miss's own tag below) so ops can tell a
       // true KV outage apart from routine unclaimed-subdomain traffic in logs.
-      console.error("KV lookup failed", {subdomain, err: String(err)});
+      // PRIV-1: don't put the raw subdomain in the structured field.
+      console.error("KV lookup failed", {err: String(err)});
       kvErrored = true;
     }
 
@@ -519,7 +542,8 @@ export default {
         }
       } catch (err) {
         // Malformed redirect value — treat as untrusted (redirectBase stays null).
-        console.error("alias redirect parse failed", {subdomain, err: String(err)});
+        // PRIV-1: don't put the raw subdomain in the structured field.
+        console.error("alias redirect parse failed", {err: String(err)});
       }
 
       if (redirectBase) {

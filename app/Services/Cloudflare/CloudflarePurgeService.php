@@ -162,10 +162,10 @@ class CloudflarePurgeService
      *   • Every deep-link sub-page — `/shop`, `/book`, `/listen`, … (the SitepageId
      *     taxonomy). Each is a SEPARATE edge key; purging only the root left these
      *     serving pre-mutation HTML until their s-maxage lapsed (observed 24 h —
-     *     sync note: cloudflare-worker/src/index.js `PRIMARY_CACHE_TTL_S`, bump both together).
+     *     sync note: cloudflare-worker/wrangler.toml `[vars] PRIMARY_CACHE_TTL_S` (the index.js const is now a fallback default), bump both together).
      *   • The SWR stale shadow for each of the above (`/_swr-shadow<path>`, 7-day
      *     TTL — cloudflare-worker/src/index.js `staleShadowKey`, sync note: `STALE_SHADOW_TTL_S`
-     *     in the same file — bump both together). On a primary MISS
+     *     in cloudflare-worker/wrangler.toml `[vars]` — bump both together). On a primary MISS
      *     the Worker serves the shadow and refreshes in the background, so without
      *     purging it the first post-mutation visitor still sees stale content.
      *   • Backend API subrequest (`<app.url>/api/public/profiles/<handle>`), which
