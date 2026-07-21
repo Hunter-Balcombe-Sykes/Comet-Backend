@@ -15,12 +15,26 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 // token hash are hidden from default serialization; staff endpoints expose
 // email deliberately through EarlyAccessSignupResource.
 /**
- * Only user_id is annotated: it's read at dispatch time (not just in handlers) to
- * key the scrape rate limiter — StaffEarlyAccessController::buildSourceType() and
- * ApproveEarlyAccessBuildJob. The remaining dynamic columns stay covered by the
- * PHPStan baseline; a full @property block is a follow-up cleanup.
- *
+ * @property string $id
+ * @property string $email
+ * @property string $email_lc
+ * @property string $type
+ * @property string|null $workplace_or_industry
+ * @property array<int, string> $platforms
+ * @property string $status
+ * @property string $source
+ * @property \Illuminate\Support\Carbon|null $invited_at
+ * @property string|null $invite_token_hash
+ * @property array<string, mixed>|null $invite_meta
+ * @property string|null $invited_by
+ * @property \Illuminate\Support\Carbon|null $signed_up_at
+ * @property string|null $consent_ip_hash
+ * @property string|null $consent_user_agent
+ * @property string|null $source_type
+ * @property string|null $source_ref
  * @property string|null $user_id
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
  */
 class EarlyAccessSignup extends BaseModel
 {

@@ -229,24 +229,6 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEarlyAccessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEarlyAccessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$workplace_or_industry\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEarlyAccessController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$email\.$#'
 			identifier: property.notFound
 			count: 1
@@ -359,30 +341,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/Staff/Analytics/StaffAggregateAnalyticsController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$invite_meta\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/EarlyAccess/StaffEarlyAccessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/EarlyAccess/StaffEarlyAccessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/EarlyAccess/StaffEarlyAccessController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$workplace_or_industry\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Staff/EarlyAccess/StaffEarlyAccessController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\FeatureAvailabilityRule\:\:\$mode\.$#'
@@ -1267,66 +1225,6 @@ parameters:
 			path: app/Http/Resources/SiteMediaResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$created_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$invite_meta\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$invited_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$signed_up_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$source\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$type\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:\$workplace_or_industry\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
-			message: '#^Call to an undefined method App\\Http\\Resources\\Staff\\EarlyAccessSignupResource\:\:getAttribute\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Http/Resources/Staff/EarlyAccessSignupResource.php
-
-		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\FeatureAvailabilityRuleResource\:\:\$created_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1951,12 +1849,6 @@ parameters:
 			path: app/Mail/StaffBroadcastMail.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$invited_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/EarlyAccess/EarlyAccessSignup.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\FeatureAvailabilityRule\:\:\$feature_key\.$#'
 			identifier: property.notFound
 			count: 2
@@ -2369,24 +2261,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$invited_by\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/EarlyAccess/EarlyAccessService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/EarlyAccess/EarlyAccessService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\EarlyAccess\\EarlyAccessSignup\:\:\$workplace_or_industry\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/EarlyAccess/EarlyAccessService.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\FeatureAvailabilityRule\:\:\$mode\.$#'
