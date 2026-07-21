@@ -50,6 +50,7 @@ class ClaimController extends ApiController
                 'BUILD_FAILED' => $this->error("We couldn't finish building this site. Please try again.", 409, [], ['code' => 'BUILD_FAILED']),
                 'ACCOUNT_EXISTS' => $this->error('Your account already has a site.', 409, [], ['code' => 'ACCOUNT_EXISTS']),
                 'EMAIL_ALREADY_REGISTERED' => $this->error('This email is already registered.', 409, [], ['code' => 'EMAIL_ALREADY_REGISTERED']),
+                'CLAIM_EMAIL_MISMATCH' => $this->error('This site is reserved for a different email address.', 409, [], ['code' => 'CLAIM_EMAIL_MISMATCH']),
                 default => throw $e,
             };
         }

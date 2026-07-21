@@ -31,7 +31,7 @@ class ClaimSiteService
     /**
      * @return array{professional: User, site: Site}
      *
-     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED
+     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH
      */
     public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false): array
     {
@@ -65,6 +65,14 @@ class ClaimSiteService
                 throw new RuntimeException('BUILD_FAILED');
             }
 
+            // Email-gate (spec §3.2): a build carrying a contact_email may only be
+            // claimed by someone who verified control of THAT inbox via Supabase OTP.
+            // Absent contact_email = first-come (unchanged). Case-insensitive.
+            if ($build->contact_email !== null
+                && strtolower(trim($verifiedEmail)) !== strtolower(trim($build->contact_email))) {
+                throw new RuntimeException('CLAIM_EMAIL_MISMATCH');
+            }
+
             // One account, one site: the claimer must not already own a row.
             if (User::query()->where('auth_user_id', $uid)->exists()) {
                 throw new RuntimeException('ACCOUNT_EXISTS');
@@ -77,6 +85,13 @@ class ClaimSiteService
             $professional->auth_user_id = $uid; // not fillable — direct assignment
             $professional->primary_email = strtolower(trim($verifiedEmail));
             $professional->status = 'active';
+
+            // display_name is populated by the source generator, but fall back to
+            // the handle so auto-publish below can never be blocked by an empty name
+            // (the UpdateSiteRequest publish guard doesn't run on this direct write).
+            if (empty($professional->display_name)) {
+                $professional->display_name = $professional->handle;
+            }
 
             try {
                 // Savepoint: a 23505 rollback must not poison the outer transaction
@@ -95,6 +110,14 @@ class ClaimSiteService
             // SEC-4: claimed_at is no longer fillable — forceFill so a dropped write
             // can't leave the build re-servable forever (scopeLive() filters on it).
             $build->forceFill(['claimed_at' => now()])->save();
+
+            // Auto-publish on claim (spec §3.3). Flow 2 sites are already published
+            // (no-op); Flow 1 / early-access flip live here.
+            if (! (bool) $site->is_published) {
+                $site->is_published = true;
+                $site->unpublished_at = null;
+                $site->save();
+            }
 
             // Claim-time side effects moved from the retired bootstrap create branch.
             // PRIV-101: subscription is opt-in only — $marketingOptIn comes straight

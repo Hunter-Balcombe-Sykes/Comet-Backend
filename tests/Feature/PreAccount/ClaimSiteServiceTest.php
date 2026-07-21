@@ -169,3 +169,34 @@ it('PRIV-101: creates a sidest_updates subscription with consent_source=claim wh
         // (the "claim" flow) became the only live caller of this side effect.
         ->and($row->consent_source)->toBe('claim');
 });
+
+it('auto-publishes the site on claim', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    expect($site->fresh()->is_published)->toBeFalse();
+
+    app(App\Services\PreAccount\ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($site->fresh()->is_published)->toBeTrue();
+});
+
+it('rejects a claim whose verified email does not match an email-gated build', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['contact_email' => 'owner@example.com'])->save();
+
+    expect(fn () => app(App\Services\PreAccount\ClaimSiteService::class)
+        ->claim('auth-uid-1', 'someone-else@example.com', 'janedoe'))
+        ->toThrow(RuntimeException::class, 'CLAIM_EMAIL_MISMATCH');
+
+    expect($user->fresh()->status)->toBe('unclaimed');
+});
+
+it('allows a claim whose verified email matches an email-gated build (case-insensitive)', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['contact_email' => 'Owner@Example.com'])->save();
+
+    $result = app(App\Services\PreAccount\ClaimSiteService::class)
+        ->claim('auth-uid-1', 'owner@example.com', 'janedoe');
+
+    expect($result['professional']->status)->toBe('active')
+        ->and($site->fresh()->is_published)->toBeTrue();
+});
