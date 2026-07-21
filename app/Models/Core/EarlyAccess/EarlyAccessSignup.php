@@ -54,7 +54,6 @@ class EarlyAccessSignup extends BaseModel
         'platforms',
         'source_type',
         'source_ref',
-        'user_id',
         'status',
         'source',
         'invited_at',
