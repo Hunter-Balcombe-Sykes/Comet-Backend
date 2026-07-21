@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 9/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 14 done** (PWL-1,2,3,4,5,6,7,8,10,11,12,13,14,15). Remaining: PWL-9 (deferred, own prompt) + PWL-16 (record-only).
+- Tier 1: 9/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 1/1 (record-only) — **16 findings, 15 done** (PWL-1,2,3,4,5,6,7,8,10,11,12,13,14,15,16). Remaining: PWL-9 ONLY (deferred to its own prompt, PROMPT-execute-pwl9.md).
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -225,7 +225,7 @@ clears unlocked. **Fix:** a reservations-family XOR lock mirroring the booking d
 ## Tier 4 — NOT WORTH LOCKING (record-only, do NOT fix)
 
 ### PWL-16 — Deliberately-not-locking register — doc-only, XS
-- [ ] Record in an ADR/comment so a future sweep doesn't re-flag
+- [x] Record in an ADR/comment so a future sweep doesn't re-flag — added a `## Deliberately NOT locked (PWL-16 register)` comment block in ManagesIntegrationConnection.php (at the lock helpers' site, Q6) covering link-only socials, DisplaySettingsController::update, ConnectFetchJob status writes + PlatformRefresher, dead OnDemandRefresh, and the non-connection Menu/workplaces/design_kits writers. Comment-only (php -l clean, 0 code lines changed); notes that 'square's row delete IS covered by the booking-XOR lock.
 **Items & reasons:**
 - **Link-only socials** (facebook / tiktok / x / linkedin / threads / reddit / skool / square): never
   locked, no refreshable sibling, no second writer — nothing to race.

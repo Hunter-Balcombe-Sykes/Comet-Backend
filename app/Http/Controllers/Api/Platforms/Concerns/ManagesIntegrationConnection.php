@@ -306,6 +306,31 @@ trait ManagesIntegrationConnection
         }
     }
 
+    // ── Deliberately NOT locked (PWL-16 register) ────────────────────────
+    // The 2026-07-21 platform write-path locking audit reviewed every writer to
+    // site.platform_connections and DELIBERATELY left the following unlocked —
+    // recorded here (at the locking helpers' own site) so a future sweep does
+    // not re-flag them as missing-lock bugs. Each has no plausible concurrent
+    // writer racing the SAME row, so a lock would add contention for no safety.
+    //   • Link-only socials (facebook / tiktok / x / linkedin / threads /
+    //     reddit / skool / square): a single stored URL, never refreshed by a
+    //     job and with no sibling writer — nothing to race.
+    //   • DisplaySettingsController::update(): writes only the display_settings
+    //     column via Eloquent dirty-tracking; the only race is two concurrent
+    //     display-settings PATCHes (not a connection-payload clobber) — low.
+    //   • ConnectFetchJob::markTerminal/markOk + PlatformRefresher bookkeeping:
+    //     touch only status columns (last_refresh_*) through a single logical
+    //     writer — deliberately narrow, never a content write.
+    //   • OnDemandRefresh: dead code (no constructor references anywhere) —
+    //     flagged, not wired, so nothing to lock.
+    //   • Menu* / workplaces / design_kits writers (MenuContentController,
+    //     GoogleBusinessAutoSync::seedWorkplace, the website-scan appliers):
+    //     write NON-connection tables — out of scope for platform_connections
+    //     locking; they warrant their own row-locking audit if ever contended.
+    // NOTE: 'square' is link-only for its OWN connect, but its ROW is deleted by
+    // the booking single-slot clear (BookingController::clearBooking), which IS
+    // guarded by the booking-XOR lock (PWL-14) — the delete side is covered.
+
     // ── Multi-account support ────────────────────────────────────────────
     // A platform can hold several connected accounts as SEPARATE rows: the
     // legacy single row (resource_id = platform slug) plus rows keyed
