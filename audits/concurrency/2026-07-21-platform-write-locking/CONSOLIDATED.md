@@ -56,8 +56,9 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 4/10 · Tier 2: 0/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 4 done** (PWL-1..4)
-- Discovered during execution: 1 (PWL-D1, below)
+- Tier 1: 5/10 · Tier 2: 2/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 7 done** (PWL-1,2,3,4,6,11,12)
+- Session A COMPLETE (all non-blocker controller-side locks). Remaining: PWL-13 (Tier-2), the blocker units (PWL-5,7,8,9,10 + Tier-3 14,15), Tier-4 record.
+- Discovered during execution: 2 (PWL-D1, PWL-D2, below)
 - Verified against `42bc6141`; line numbers current as of this baseline.
 
 ---
@@ -117,7 +118,7 @@ toggling a service's visibility and the refresh cron do. A refresh mid-edit can 
 PWL-14 so the two fixes don't fight over which lock guards a Fresha delete.
 
 ### PWL-6 — ShopController::forget() vs the other (locked) Shop write paths — CONTROLLER-side, non-blocker, XS
-- [ ] Fix
+- [x] Fix — wrapped forget()'s child-row delete + forgetConnection in withConnectionLock (key 'shop'). Independent review PASS.
 **Plain English:** Every Shop edit locks except "disconnect", which deletes brands and products
 unlocked — so a disconnect racing a save can leave half-deleted state.
 **Technical:** `ShopController` locks `detect`/`update`/`delete`/product ops (`:147`/`:215`/`:297`/`:365`/`:487`/`:542`),
@@ -174,13 +175,13 @@ unlocked; `CustomLinksController::addLink()` (`:60`) locks. **Fix:** wrap the se
 ## Tier 2 — LOWER (user ⇄ user, fix only if cheap alongside a Tier-1 on the same file)
 
 ### PWL-11 — CustomLinksController removeLink/forget vs addLink — non-blocker, XS
-- [ ] Fix
+- [x] Fix — wrapped removeLink/forget in withConnectionLock. Independent review PASS.
 **Plain English:** Deleting a custom link in two tabs at once (or delete-while-add) is unguarded.
 **Technical:** `addLink()` (`:60`) locks; `removeLink()` (`:88`→`:94`) and `forget()` (`:100`→`:102`)
 don't. **Fix:** wrap both — trivial, do alongside any custom-link work.
 
 ### PWL-12 — OnlineOrderingController removeEntry/forget vs addEntry — non-blocker, XS
-- [ ] Fix
+- [x] Fix — wrapped removeEntry/forget; MenuFetchJob::dispatch moved OUTSIDE the lock (gated on actual delete) after review caught it holding the lock across a ~240s inline scrape. Independent review PASS (2 rounds).
 **Plain English:** Same shape for online-ordering entries.
 **Technical:** `addEntry()` (`:55`, lock `:80`) locks; `removeEntry()` (`:125`→`:145`) and `forget()`
 (`:153`→`:156`) don't. **Fix:** wrap both.
@@ -248,6 +249,14 @@ calls `($cfg['fetch'])(...)` INSIDE its `withConnectionLock` closure, so a slow/
 under the 10s-TTL lock — the lock can expire mid-fetch and a concurrent writer slips in.
 **Fix direction:** move the fetch outside the lock; re-read + write inside (mirror the `applySync`
 and `GenericPlatformController::highlights()` re-read-under-lock shape). Bundle with any Apple follow-up.
+
+### PWL-D2 — OnlineOrderingController::addEntry() dispatches MenuFetchJob inside its lock — Tier-1-adjacent, pre-existing, XS
+- [ ] Fix
+**Found:** during PWL-12 review (2026-07-21). Pre-existing, NOT introduced here. `addEntry()`
+(`OnlineOrderingController.php` ~80-106) dispatches `MenuFetchJob` (a ~240s inline scrape under the
+sync queue, no platform lock of its own) from INSIDE its `withConnectionLock` closure — the same
+lock-across-inline-scrape defect PWL-12 fixed for removeEntry/forget. **Fix direction:** move the
+dispatch after the lock returns (gated on the write succeeding), identical to the PWL-12 fix.
 
 ## Suggested bundled sessions & order
 

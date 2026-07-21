@@ -125,38 +125,63 @@ class OnlineOrderingController extends ApiController
     public function removeEntry(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        $target = $this->entryRows($user)->firstWhere('resource_id', $id);
-        if (! $target) {
-            return $this->error('Ordering link not found.', 404);
+
+        // MenuFetchJob runs a real menu scrape inline under sync queue and takes
+        // no platform lock of its own — dispatching it INSIDE the lock closure
+        // would hold the 10s lock across a scrape that can run up to ~240s,
+        // letting the lock expire mid-operation. Dispatch only after the lock
+        // releases, and only when a delete actually happened (never on 404/423).
+        $removed = false;
+        $response = $this->withConnectionLock($user, function () use ($user, $id, &$removed) {
+            $target = $this->entryRows($user)->firstWhere('resource_id', $id);
+            if (! $target) {
+                return $this->error('Ordering link not found.', 404);
+            }
+
+            // The id is the consolidated entry's id (the store's primary row). Remove
+            // EVERY row for that store so a pickup+delivery pair disappears in one
+            // click — not just the primary, which would leave the sibling orphaned.
+            $storeKey = $this->storeKey(CardPayload::fromArray($target->payload)->url());
+            $rids = $storeKey === null
+                ? [$id]
+                : $this->entryRows($user)
+                    ->filter(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey)
+                    ->pluck('resource_id')
+                    ->all();
+
+            foreach ($rids as $rid) {
+                $this->forgetConnection($user, $rid);
+            }
+            $removed = true;
+
+            return $this->success(['entries' => $this->entriesData($user)]);
+        });
+
+        if ($removed) {
+            MenuFetchJob::dispatch((string) $user->id);
         }
 
-        // The id is the consolidated entry's id (the store's primary row). Remove
-        // EVERY row for that store so a pickup+delivery pair disappears in one
-        // click — not just the primary, which would leave the sibling orphaned.
-        $storeKey = $this->storeKey(CardPayload::fromArray($target->payload)->url());
-        $rids = $storeKey === null
-            ? [$id]
-            : $this->entryRows($user)
-                ->filter(fn (IntegrationConnection $row) => $this->storeKey(CardPayload::fromArray($row->payload)->url()) === $storeKey)
-                ->pluck('resource_id')
-                ->all();
-
-        foreach ($rids as $rid) {
-            $this->forgetConnection($user, $rid);
-        }
-        MenuFetchJob::dispatch((string) $user->id);
-
-        return $this->success(['entries' => $this->entriesData($user)]);
+        return $response;
     }
 
     // DELETE /api/platforms/online-ordering — remove every entry.
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $this->forgetAllConnections($user);
-        MenuFetchJob::dispatch((string) $user->id);
 
-        return $this->success(['entries' => []]);
+        // See removeEntry() — MenuFetchJob dispatch stays outside the lock,
+        // gated on the response actually clearing (200, not a 423 lock timeout).
+        $response = $this->withConnectionLock($user, function () use ($user) {
+            $this->forgetAllConnections($user);
+
+            return $this->success(['entries' => []]);
+        });
+
+        if ($response->getStatusCode() === 200) {
+            MenuFetchJob::dispatch((string) $user->id);
+        }
+
+        return $response;
     }
 
     // ── internals ────────────────────────────────────────────────
