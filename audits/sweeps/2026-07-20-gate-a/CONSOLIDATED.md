@@ -48,7 +48,7 @@ every draft rather than the scan reading nothing.
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
 - P2 Medium: 45 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 8 of 46 complete
-- *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
+- *Total reconciles to 128. Discovered during execution (outside the 128): 3 of 7 complete (DISC-2, DISC-5, DISC-6).*
 
 **All P0 and P1 findings are now closed.** Everything remaining is P2/P3.
 
@@ -109,7 +109,8 @@ from clean.**
   - **Where:** `app/Services/Platforms/InstagramAutoSync.php` (called from `InstagramConnectionSeeder::seed()`) · pre-account IG generation path
   - **What to do:** own decision + commit — NOT folded into B12. B12's PRIV-2 trims the IG connection's own stored fields, but does not undo these auto-created sibling connections. Whether to skip `InstagramAutoSync` for provisional (`unclaimed`) builds needs its own call, since `seed()` is shared machinery (threading a provisional flag). This is arguably the larger "collects more pre-consent than needed" issue than the payload fields B12 addressed.
   - **Why the audit missed it:** the `state-machines`/`preaccount-claim` scopes opened the generator but not the transitive `InstagramAutoSync` write. Surfaced while planning B12.
-- [ ] **`discovered/DISC-6`** · P2 · S — `UserBootstrapService::bootstrap()` has the same `handle_lc` TOCTOU as the pre-account path (B9 LIFE-3), but its catch only disambiguates *email* reuse — a concurrent handle collision on `core_users_handle_lc_unique` re-throws as an unhandled 500
+- [x] **`discovered/DISC-6`** · P2 · S — `UserBootstrapService::bootstrap()` has the same `handle_lc` TOCTOU as the pre-account path (B9 LIFE-3), but its catch only disambiguates *email* reuse — a concurrent handle collision on `core_users_handle_lc_unique` re-throws as an unhandled 500
+  - **Done 2026-07-21 (`7db4f3c7`):** fixed as a friendly `HANDLE_ALREADY_TAKEN` → 409, **not** B9's retry — a deliberate, Josh-approved deviation. Bootstrap's create path is HTTP-dead (410 `SIGNUP_MOVED`), so the only live surface is the existing-user rename where the handle is **user-chosen**; re-allocating a different handle would be a new bug. Classified by re-query (never driver-message), symmetric with the email branch. Tests: CI classifier (SQLite `handle_lc` index) + Postgres-gated genuine-race sentinel + controller 409 translation.
   - **Where:** `app/Services/User/UserBootstrapService.php` (the `catch` that handles email reuse) · `app/Services/User/HandleAllocator.php` (shared `allocate()` — same lockless EXISTS loop)
   - **What to do:** apply the same savepoint-retry-past-handle-collision fix B9 applied to `PreAccountBuildService` (`tryCreateProvisionalUser` pattern). Own commit + review — NOT folded into B9 (different file/flow, and the authenticated signup path deserves isolated verification).
   - **Why the audit missed it:** `HandleAllocator`'s docblock notes it was "extracted verbatim from `BootstrapRequest::generateHandleFromDisplayName`", so both signup paths inherit the identical race; the `state-machines` scope opened `PreAccountBuildService` but the bootstrap caller's catch was out of that lens's frame. Surfaced while planning B9 LIFE-3.
@@ -118,7 +119,8 @@ from clean.**
   - **What to do:** fold into **B19**. This is a *strictly stronger* instance of what `migrations-early/MIG-1` (S1) complains about — `site.blocks` IS on the repo's own `HOT_TABLES` list (`scripts/guard-no-unsafe-migrations.php:34`), whereas `site.site_media` and `site.enquiries` are not. Found while planning S1/S2; `migrations-early`'s scope never opened this file.
   - **Why the audit missed it:** the file sits outside the `migrations-early` scope group, and the guard script has no `DROP INDEX` check of any kind — so nothing in either the automated or the audited path was looking at it.
 
-- [ ] **`discovered/DISC-5`** · P2 · S — Staff `{category}` routes 500 in production (broken scoped route-model binding)
+- [x] **`discovered/DISC-5`** · P2 · S — Staff `{category}` routes 500 in production (broken scoped route-model binding)
+  - **Done 2026-07-21 (`d1169d55`):** option (a) — renamed the route param + controller args `{category}` → `{serviceCategory}` (verified no `route('category')` / named-route / frontend coupling; URL path unchanged). Added an HTTP-level binding test asserting the resolved category id + a cross-tenant 404 (scopeBindings isolation preserved). Corrected the now-stale `StaffOwnedRecordActorGateTest` docblock that described this bug as still-open.
   - **Where:** `routes/api/staff.php` — every staff route with a `{category}` segment (service-category show/update/destroy/restore/forceDestroy, both route groups) · `app/Models/Core/User/User.php`
   - **What to do:** own commit + review, not folded into B6. Fix is one of: rename the route parameter `{category}` → `{serviceCategory}`, or add a `categories()` alias relation on `User`.
   - **Technical:** Laravel's `scopeBindings()` resolves the parent relation for a `{category}` child as `Str::plural(Str::camel('category'))` = `categories()`, but `User` defines the relation as `serviceCategories()`. So `User::categories()` does not exist and every such route 500s with "Call to undefined method". Independently reproduced in review with a probe request.
