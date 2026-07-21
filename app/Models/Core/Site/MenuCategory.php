@@ -5,12 +5,14 @@ namespace App\Models\Core\Site;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 // One menu category (e.g. "Mains", "Sides") under a site.menus row. Categories
 // are rebuilt wholesale on every scrape — no soft delete — so the menu always
 // mirrors the live store. `source_platform` records which platform's structure
-// this group came from (the content source).
+// this group came from (the content source). Items attach via the
+// site.menu_item_categories pivot — one dish can be listed under several
+// categories, positioned independently in each.
 class MenuCategory extends BaseModel
 {
     use HasUuids;
@@ -39,9 +41,17 @@ class MenuCategory extends BaseModel
         return $this->belongsTo(Menu::class, 'menu_id');
     }
 
-    /** @return HasMany<MenuItem, $this> */
-    public function items(): HasMany
+    /**
+     * The dishes listed under this category, in this category's display order
+     * (the pivot's per-membership `position`).
+     *
+     * @return BelongsToMany<MenuItem, $this>
+     */
+    public function items(): BelongsToMany
     {
-        return $this->hasMany(MenuItem::class, 'category_id')->orderBy('position');
+        return $this->belongsToMany(MenuItem::class, 'site.menu_item_categories', 'menu_category_id', 'menu_item_id')
+            ->withPivot('position')
+            ->withTimestamps()
+            ->orderByPivot('position');
     }
 }

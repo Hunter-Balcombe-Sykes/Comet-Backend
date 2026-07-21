@@ -377,6 +377,16 @@ function setupPreAccountBuildsTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTER for suites that created core.pre_account_builds before
+    // contact_email existed. Mirrors migration 20260721120000.
+    foreach (['contact_email TEXT NULL'] as $col) {
+        try {
+            DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**
@@ -647,13 +657,16 @@ function setupSitesTable(): void
     )');
 
     // site.menus + site.menu_categories + site.menu_items + site.menu_platform_links
-    // + site.menu_item_platforms — the relational fetched menu (Uber Eats / DoorDash),
+    // + site.menu_item_platforms + site.menu_item_categories — the relational
+    // fetched menu (Uber Eats / DoorDash),
     // one menu row per user. Mirrors migrations 20260617130000 + 20260619050000
     // (jsonb→TEXT, numeric→REAL) + 20260701140000 + 20260701140100 (child tables)
     // + 20260715090000 (menu_items.currency, menus.dining_modes)
     // + 20260717170000 (menu_items.images)
     // + 20260717210000 (menus.scan_items)
-    // + 20260718000000 (menu_items.is_manual, menus.suppressed_items).
+    // + 20260718000000 (menu_items.is_manual, menus.suppressed_items)
+    // + 20260721090000 (multi-category: menu_item_categories pivot; menu_items
+    //   loses category_id + position — they live per-membership on the pivot).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -706,8 +719,6 @@ function setupSitesTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_items (
         id TEXT PRIMARY KEY,
         menu_id TEXT NULL,
-        category_id TEXT NULL,
-        position INTEGER NULL,
         name TEXT NULL,
         description TEXT NULL,
         image_url TEXT NULL,
@@ -765,6 +776,17 @@ function setupSitesTable(): void
         delivery_url TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
+    )');
+
+    // Item ↔ category memberships (multi-category, 20260721090000). Display
+    // position is per-membership. Composite PK mirrors Postgres.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_item_categories (
+        menu_item_id TEXT NOT NULL,
+        menu_category_id TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        PRIMARY KEY (menu_item_id, menu_category_id)
     )');
 
     // Wire in workplace table so any test calling setupSitesTable() has the
@@ -1164,10 +1186,16 @@ function setupServiceCategoriesTable(): void
         user_id TEXT NULL,
         title TEXT NULL,
         sort_order INTEGER NULL,
+        source TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.service_categories ADD COLUMN source TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 }
 
 /**
@@ -1180,7 +1208,6 @@ function setupServicesTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.services (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
-        category_id TEXT NULL,
         title TEXT NULL,
         description TEXT NULL,
         price_cents INTEGER NULL,
@@ -1199,9 +1226,30 @@ function setupServicesTable(): void
         fresha_last_synced_at TEXT NULL,
         fresha_sync_error TEXT NULL,
         deleted_origin TEXT NULL,
+        source TEXT NULL,
+        is_manual INTEGER NOT NULL DEFAULT 0,
+        external_id TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
+    )');
+    // Defensive ALTERs for suites that created site.services before the Fresha
+    // projection columns existed (mirrors the site.menus pattern above).
+    foreach (['source TEXT NULL', 'is_manual INTEGER NOT NULL DEFAULT 0', 'external_id TEXT NULL'] as $col) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE site.services ADD COLUMN {$col}");
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
+
+    // Service ↔ category memberships (multi-category, 20260721180000).
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.service_category_assignments (
+        service_id TEXT NOT NULL,
+        service_category_id TEXT NOT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL,
+        PRIMARY KEY (service_id, service_category_id)
     )');
 }
 
@@ -1267,6 +1315,12 @@ function createServiceFor(User $pro, array $overrides = []): Service
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
+    // Multi-category (20260721180000): category_id is no longer a services
+    // column — a passed override becomes a pivot membership instead, so the
+    // many existing call sites keep working unchanged.
+    $categoryId = $overrides['category_id'] ?? null;
+    unset($overrides['category_id']);
+
     $row = array_merge([
         'id' => $id,
         'user_id' => $pro->id,
@@ -1280,6 +1334,14 @@ function createServiceFor(User $pro, array $overrides = []): Service
     ], $overrides);
 
     DB::connection('pgsql')->table('site.services')->insert($row);
+    if ($categoryId !== null) {
+        DB::connection('pgsql')->table('site.service_category_assignments')->insert([
+            'service_id' => $id,
+            'service_category_id' => $categoryId,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
 
     return Service::withTrashed()->findOrFail($id);
 }
@@ -1555,6 +1617,17 @@ function setupEarlyAccessTable(): void
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+
+    // Defensive ALTERs for suites that created core.early_access_signups
+    // before source_type/source_ref/user_id existed. Mirrors migration
+    // 20260721120000.
+    foreach (['source_type TEXT NULL', 'source_ref TEXT NULL', 'user_id TEXT NULL'] as $col) {
+        try {
+            DB::connection('pgsql')->statement('ALTER TABLE core.early_access_signups ADD COLUMN '.$col);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**

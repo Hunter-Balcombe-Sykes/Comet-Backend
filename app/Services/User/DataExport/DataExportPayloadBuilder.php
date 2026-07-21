@@ -36,6 +36,7 @@ class DataExportPayloadBuilder
     public const COVERED_PII_TABLES = [
         'core.users',
         'core.early_access_signups',
+        'core.pre_account_builds',
         'core.feedback',
         'site.customers',
         'site.enquiries',
@@ -74,7 +75,7 @@ class DataExportPayloadBuilder
      * tests and small-tenant scenarios. It iterates the same generators
      * stream() exposes, so memory usage scales with the largest section.
      *
-     * @return array{metadata: array, profile: array, site: array, early_access: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
+     * @return array{metadata: array, profile: array, site: array, early_access: array, pre_account_build: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
      */
     public function build(string $userId): array
     {
@@ -154,6 +155,12 @@ class DataExportPayloadBuilder
                 'kind' => 'rows',
                 'resolve' => fn () => $this->streamEarlyAccessSignups($lookupEmail),
                 'csv_columns' => ['id', 'email', 'type', 'workplace_or_industry', 'platforms', 'status', 'source', 'invited_at', 'signed_up_at', 'created_at', 'updated_at'],
+            ],
+            [
+                'name' => 'pre_account_build',
+                'kind' => 'rows',
+                'resolve' => fn () => $this->streamPreAccountBuilds($userId),
+                'csv_columns' => ['id', 'source_type', 'source_ref', 'contact_email', 'built_via', 'build_state', 'expires_at', 'claimed_at', 'created_at'],
             ],
             ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($siteId)],
             ['name' => 'design_kit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDesignKit($siteId)],
@@ -472,15 +479,32 @@ class DataExportPayloadBuilder
      */
     private function streamServices(string $userId): Generator
     {
+        // Multi-category (20260721180000): the single category_id column (and
+        // the legacy dead `category` text) are gone — memberships stream via
+        // the category_ids aggregate below. source/is_manual/external_id are
+        // the Fresha-projection provenance (20260721150000).
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.services')
                 ->select([
-                    'id', 'user_id', 'title', 'description', 'category', 'price_cents',
+                    'id', 'user_id', 'title', 'description', 'price_cents',
                     'currency_code', 'duration_minutes', 'is_active', 'sort_order',
-                    'category_id', 'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
+                    'source', 'is_manual', 'external_id',
+                    'deleted_origin', 'created_at', 'updated_at', 'deleted_at',
                 ])
-                ->where('user_id', $userId)
+                ->where('user_id', $userId),
+            transform: function (object $row): array {
+                $out = (array) $row;
+                $out['category_ids'] = DB::connection('pgsql')
+                    ->table('site.service_category_assignments')
+                    ->select(['service_category_id'])
+                    ->where('service_id', $row->id)
+                    ->pluck('service_category_id')
+                    ->map(fn ($id) => (string) $id)
+                    ->all();
+
+                return $out;
+            },
         );
     }
 
@@ -492,7 +516,7 @@ class DataExportPayloadBuilder
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('site.service_categories')
-                ->select(['id', 'user_id', 'title', 'sort_order', 'created_at', 'updated_at', 'deleted_at'])
+                ->select(['id', 'user_id', 'title', 'sort_order', 'source', 'created_at', 'updated_at', 'deleted_at'])
                 ->where('user_id', $userId)
         );
     }
@@ -673,6 +697,28 @@ class DataExportPayloadBuilder
                     'created_at', 'updated_at',
                 ])
                 ->where('email_lc', $emailLc)
+        );
+    }
+
+    /**
+     * Permanent pre-account build origin record (1:1 with the user via
+     * user_id UNIQUE + ON DELETE CASCADE — erased automatically when the
+     * account is deleted, no explicit purge needed). Explicit allow-list:
+     * drops built_by_staff_id (internal staff FK, third-party PII), failure_code
+     * (internal bookkeeping vocabulary), and created_ip_hash (a hash, not raw
+     * PII — mirrors the exclusion pattern for other *_ip_hash columns
+     * elsewhere in this builder, e.g. streamContentReports' reporter_ip_hash).
+     */
+    private function streamPreAccountBuilds(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('core.pre_account_builds')
+                ->select([
+                    'id', 'source_type', 'source_ref', 'contact_email',
+                    'built_via', 'build_state', 'expires_at', 'claimed_at', 'created_at',
+                ])
+                ->where('user_id', $userId)
         );
     }
 
@@ -961,10 +1007,10 @@ class DataExportPayloadBuilder
      * PDOStatement one at a time rather than building a full result array,
      * which keeps peak PHP memory bounded regardless of total row count.
      */
-    private function lazyRows(Builder $query): Generator
+    private function lazyRows(Builder $query, ?callable $transform = null): Generator
     {
         foreach ($query->cursor() as $row) {
-            yield (array) $row;
+            yield $transform !== null ? $transform($row) : (array) $row;
         }
     }
 

@@ -28,6 +28,15 @@ const GRANDFATHERED_CUTOFF = '20260514100000';
 // timeouts, or add the per-file disable marker with a written justification.
 const TIMEOUT_GUARD_CUTOFF = '20260711999999';
 
+// Check 6 (one CONCURRENTLY per file) shipped 2026-07-21, when the fresh-DB
+// CONCURRENTLY-in-pipeline issue was resolved (path C: psql-loop applier). It needs
+// its own boundary: 9 pre-existing files legitimately bundle multiple CONCURRENTLY
+// statements and were applied to dev incrementally via non-pipelined paths. Splitting
+// them retroactively would open migration-history gaps on the live dev DB, so they are
+// grandfathered here; only NEW files must keep one CONCURRENTLY per file. At this cutoff
+// the check flags 0 files on a clean tree.
+const CONCURRENTLY_GUARD_CUTOFF = '20260721000000';
+
 // Tables served by live traffic. The first three are named in
 // docs/migration-guidelines.md §Lock and statement timeouts; core.users is added
 // because it is read on every authenticated request.
@@ -204,6 +213,36 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
                 ."    COMMIT;\n"
                 .'  See: docs/migration-guidelines.md §Lock and statement timeouts';
             break;
+        }
+    }
+
+    // ── Check 6: a CONCURRENTLY statement must be ALONE in its file (pipeline/25001) ─
+    // `supabase db reset` / `db push` send a file's statements to Postgres as one libpq
+    // pipeline (implicit transaction) whenever the file has more than one statement — of
+    // ANY kind. CREATE/DROP/REINDEX ... CONCURRENTLY cannot run in a pipeline/transaction
+    // (SQLSTATE 25001), so a from-zero apply aborts on any file that pairs a CONCURRENTLY
+    // statement with anything else (another CONCURRENTLY, other DDL/DML, or BEGIN/COMMIT).
+    // The safe shape is one file, one CONCURRENTLY statement, nothing else. Comments are
+    // already stripped from $content, so CONCURRENTLY mentioned in a comment does not count.
+    if ($m[1] > CONCURRENTLY_GUARD_CUTOFF) {
+        $concurrentlyCount = preg_match_all('/\bCONCURRENTLY\b/i', $content);
+        if ($concurrentlyCount >= 1) {
+            // Count statements by ';'. A lone CONCURRENTLY file has exactly one. This is a
+            // heuristic: a ';' inside a string literal or a /* block comment */ (the shared
+            // stripper only removes -- line comments) could over-count and flag a compliant
+            // file. It fails CLOSED — it never lets an unsafe file through — and no current
+            // file trips it; use the -- guard:no-unsafe-migrations:disable-file marker if it
+            // ever mis-fires on a genuinely lone CONCURRENTLY statement.
+            $statementCount = preg_match_all('/;/', $content);
+            if ($statementCount > 1) {
+                $errors[] = "$basename: a CONCURRENTLY statement is not alone in its file "
+                    ."($concurrentlyCount CONCURRENTLY, ~$statementCount statements).\n"
+                    ."  The CLI pipelines any multi-statement file into one transaction; CONCURRENTLY\n"
+                    ."  cannot run in a pipeline (SQLSTATE 25001), so a from-zero db reset/db push aborts.\n"
+                    ."  Put each CREATE/DROP INDEX CONCURRENTLY in its OWN file — one statement, no other\n"
+                    ."  DDL/DML, no BEGIN/COMMIT (use sequential timestamp suffixes for a batch).\n"
+                    .'  See: supabase/migrations/CONVENTIONS.md §1 and scripts/db/fresh-reset.sh';
+            }
         }
     }
 }

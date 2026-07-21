@@ -18,6 +18,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Platforms\MenuPayloadComposer;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -100,7 +101,9 @@ class MenuContentController extends ApiController
     }
 
     // DELETE /api/platforms/menu/categories/{category} — delete a manual/scan
-    // category and its items.
+    // category. Member dishes are DETACHED; a dish left with no remaining
+    // category goes with it (suppressed by name when it wasn't owner-authored,
+    // so neither the scrape rebuild nor the automatic scan reapply resurrects it).
     public function deleteCategory(Request $request, string $category): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -108,18 +111,38 @@ class MenuContentController extends ApiController
             return $denied;
         }
 
+        $menu = Menu::query()->where('user_id', $user->id)->first();
         $model = $this->findCategory($user, $category);
-        if ($model === null) {
+        if ($menu === null || $model === null) {
             return $this->error('Not found.', 404);
         }
         if (! in_array($model->source_platform, self::EDITABLE_SOURCES, true)) {
             return $this->error("Synced categories can't be deleted.", 422);
         }
 
-        DB::connection('pgsql')->transaction(function () use ($model) {
-            $itemIds = MenuItem::query()->where('category_id', $model->id)->pluck('id');
-            MenuItemPlatform::query()->whereIn('menu_item_id', $itemIds)->delete();
-            MenuItem::query()->where('category_id', $model->id)->delete();
+        DB::connection('pgsql')->transaction(function () use ($menu, $model) {
+            $memberIds = DB::connection('pgsql')->table('site.menu_item_categories')
+                ->where('menu_category_id', $model->id)->pluck('menu_item_id');
+            DB::connection('pgsql')->table('site.menu_item_categories')
+                ->where('menu_category_id', $model->id)->delete();
+
+            // Members with no remaining membership anywhere are orphans — delete
+            // them (an item always belongs to ≥1 category), suppressing the
+            // non-manual ones by name.
+            $stillMemberIds = DB::connection('pgsql')->table('site.menu_item_categories')
+                ->whereIn('menu_item_id', $memberIds)->distinct()->pluck('menu_item_id');
+            $orphans = MenuItem::query()
+                ->whereIn('id', $memberIds)
+                ->whereNotIn('id', $stillMemberIds)
+                ->get();
+            foreach ($orphans as $orphan) {
+                if (! $orphan->is_manual) {
+                    $this->suppressItem($menu, (string) $model->name, (string) $orphan->name);
+                }
+            }
+            MenuItemPlatform::query()->whereIn('menu_item_id', $orphans->pluck('id'))->delete();
+            MenuItem::query()->whereIn('id', $orphans->pluck('id'))->delete();
+
             $model->delete();
         });
 
@@ -146,14 +169,14 @@ class MenuContentController extends ApiController
             $image = $this->imageFromMedia($media);
         }
 
-        // A supplied category must belong to the caller's menu (any source); when
-        // omitted, find-or-create the manual default 'Menu' category.
-        if (! empty($data['category_id'])) {
+        // Supplied categories (category_ids, or the legacy single category_id)
+        // must belong to the caller's menu (any source); when omitted,
+        // find-or-create the manual default 'Menu' category.
+        $categoryIds = $this->requestedCategoryIds($data);
+        if ($categoryIds !== []) {
             $menu = Menu::query()->where('user_id', $user->id)->first();
-            $category = $menu !== null
-                ? MenuCategory::query()->where('menu_id', $menu->id)->find($data['category_id'])
-                : null;
-            if ($category === null) {
+            $categories = $menu !== null ? $this->ownedCategories($menu, $categoryIds) : null;
+            if ($categories === null) {
                 return $this->error('Category not found.', 404);
             }
             // Freshen last_fetched_at like resolveMenu / MenuScanApplier so manual
@@ -161,13 +184,11 @@ class MenuContentController extends ApiController
             $menu->forceFill(['last_fetched_at' => now()])->save();
         } else {
             $menu = $this->resolveMenu($user);
-            $category = $this->manualDefaultCategory($menu);
+            $categories = collect([$this->manualDefaultCategory($menu)]);
         }
 
-        MenuItem::create([
+        $item = MenuItem::create([
             'menu_id' => $menu->id,
-            'category_id' => $category->id,
-            'position' => $this->nextPosition(MenuItem::query()->where('category_id', $category->id)),
             'name' => trim($data['name']),
             'description' => $this->cleanString($data['description'] ?? null),
             'base_price' => $data['price'] ?? null,
@@ -175,6 +196,9 @@ class MenuContentController extends ApiController
             'images' => $image['images'],
             'is_manual' => true,
         ]);
+        foreach ($categories as $category) {
+            $this->attachToCategory($item, $category);
+        }
 
         return $this->touchAndRespond($user, 'menu-manual-item-create');
     }
@@ -205,16 +229,17 @@ class MenuContentController extends ApiController
         if (array_key_exists('price', $data)) {
             $changes['base_price'] = $data['price'];
         }
-        // Move to another of the caller's categories (any source). A null value is
-        // treated as "no change" — a dish is never orphaned out of its category.
-        if (! empty($data['category_id'])) {
-            $category = MenuCategory::query()->where('menu_id', $model->menu_id)->find($data['category_id']);
-            if ($category === null) {
+        // Category memberships: category_ids (or the legacy single category_id)
+        // REPLACES the dish's category set. A null/omitted value is "no change" —
+        // a dish is never orphaned out of its categories (min 1 enforced by the
+        // request rules; an empty resolve is treated as no-change too).
+        $targetCategories = null;
+        $categoryIds = $this->requestedCategoryIds($data);
+        if ($categoryIds !== []) {
+            $menu = Menu::query()->where('user_id', $user->id)->first();
+            $targetCategories = $menu !== null ? $this->ownedCategories($menu, $categoryIds) : null;
+            if ($targetCategories === null) {
                 return $this->error('Category not found.', 404);
-            }
-            if ((string) $category->id !== (string) $model->category_id) {
-                $changes['category_id'] = $category->id;
-                $changes['position'] = $this->nextPosition(MenuItem::query()->where('category_id', $category->id));
             }
         }
         // Image: remove_image wins; otherwise a supplied image_media_id sets it.
@@ -231,21 +256,37 @@ class MenuContentController extends ApiController
             $changes['images'] = $image['images'];
         }
 
-        if ($changes !== []) {
-            // Editing a SCRAPED dish (is_manual=false in a scraper-owned category)
-            // detaches it from platform sync — the owner's version now wins every
-            // rebuild. Scan/manual dishes just update.
-            if (! $model->is_manual && $this->isScrapedCategory($model->category)) {
+        $currentIds = $model->categories->map(fn (MenuCategory $c) => (string) $c->id)->all();
+        $targetIds = $targetCategories?->map(fn (MenuCategory $c) => (string) $c->id)->all();
+        $membershipChanged = $targetIds !== null
+            && (array_diff($currentIds, $targetIds) !== [] || array_diff($targetIds, $currentIds) !== []);
+
+        if ($changes !== [] || $membershipChanged) {
+            // Editing a SCRAPED dish (is_manual=false with a scraper-owned
+            // membership) detaches it from platform sync — the owner's version
+            // now wins every rebuild. Scan/manual dishes just update.
+            if (! $model->is_manual && $this->hasScrapedMembership($model)) {
                 $changes['is_manual'] = true;
             }
-            $model->update($changes);
+            if ($changes !== []) {
+                $model->update($changes);
+            }
+            if ($membershipChanged) {
+                $model->categories()->detach(array_values(array_diff($currentIds, $targetIds)));
+                foreach ($targetCategories as $category) {
+                    if (! in_array((string) $category->id, $currentIds, true)) {
+                        $this->attachToCategory($model, $category);
+                    }
+                }
+            }
         }
 
         return $this->touchAndRespond($user, 'menu-manual-item-update');
     }
 
-    // DELETE /api/platforms/menu/items/{item} — remove a dish. A scraped dish is
-    // also suppressed so the next scrape doesn't resurrect it.
+    // DELETE /api/platforms/menu/items/{item} — remove a dish (from EVERY
+    // category it's listed under). A scraped dish is also suppressed so the
+    // next scrape doesn't resurrect it.
     public function deleteItem(Request $request, string $item): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -255,23 +296,53 @@ class MenuContentController extends ApiController
 
         $menu = Menu::query()->where('user_id', $user->id)->first();
         $model = $menu !== null
-            ? MenuItem::query()->where('menu_id', $menu->id)->with('category')->find($item)
+            ? MenuItem::query()->where('menu_id', $menu->id)->with('categories')->find($item)
             : null;
         if ($model === null) {
             return $this->error('Not found.', 404);
         }
 
         DB::connection('pgsql')->transaction(function () use ($menu, $model) {
-            // A scraped dish (not manual, in a scraper-owned category) is recorded
-            // as suppressed so the wholesale rebuild won't bring it back.
-            if (! $model->is_manual && $this->isScrapedCategory($model->category)) {
-                $this->suppressItem($menu, (string) $model->category?->name, (string) $model->name);
-            }
-            MenuItemPlatform::query()->where('menu_item_id', $model->id)->delete();
-            $model->delete();
+            $this->destroyItem($menu, $model);
         });
 
         return $this->touchAndRespond($user, 'menu-manual-item-delete');
+    }
+
+    // POST /api/platforms/menu/items/bulk-delete — remove a batch of dishes in
+    // one transaction (the categories table's bulk actions). Ids that don't
+    // resolve to the caller's own dishes are skipped, not errors — the table's
+    // selection can go stale between render and submit.
+    public function bulkDeleteItems(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        if ($denied = $this->denyWithoutCapability($user)) {
+            return $denied;
+        }
+
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:500'],
+            'ids.*' => ['uuid'],
+        ]);
+
+        $menu = Menu::query()->where('user_id', $user->id)->first();
+        if ($menu === null) {
+            return $this->error('Not found.', 404);
+        }
+
+        $models = MenuItem::query()
+            ->where('menu_id', $menu->id)
+            ->whereIn('id', array_unique($validated['ids']))
+            ->with('categories')
+            ->get();
+
+        DB::connection('pgsql')->transaction(function () use ($menu, $models) {
+            foreach ($models as $model) {
+                $this->destroyItem($menu, $model);
+            }
+        });
+
+        return $this->touchAndRespond($user, 'menu-manual-item-bulk-delete');
     }
 
     /* ------------------------------------------------------------------ */
@@ -298,14 +369,80 @@ class MenuContentController extends ApiController
             : null;
     }
 
-    /** The caller's item by id (with its category), scoped to their own menu. */
+    /** The caller's item by id (with its category memberships), scoped to their own menu. */
     private function findItem(User $user, string $itemId): ?MenuItem
     {
         $menu = Menu::query()->where('user_id', $user->id)->first();
 
         return $menu !== null
-            ? MenuItem::query()->where('menu_id', $menu->id)->with('category')->find($itemId)
+            ? MenuItem::query()->where('menu_id', $menu->id)->with('categories')->find($itemId)
             : null;
+    }
+
+    /**
+     * Delete one dish inside an open transaction: suppress it first when it's
+     * scraped (not manual, holding a scraper-owned membership) so neither the
+     * scrape rebuild nor the scan reapply resurrects it, then drop its
+     * platform child rows, memberships, and the row itself. Callers must have
+     * eager-loaded `categories`.
+     */
+    private function destroyItem(Menu $menu, MenuItem $model): void
+    {
+        if (! $model->is_manual && $this->hasScrapedMembership($model)) {
+            $scrapedCategory = $model->categories->first(
+                fn (MenuCategory $c) => ! in_array($c->source_platform, self::EDITABLE_SOURCES, true)
+            );
+            $this->suppressItem($menu, (string) ($scrapedCategory?->name ?? ''), (string) $model->name);
+        }
+        MenuItemPlatform::query()->where('menu_item_id', $model->id)->delete();
+        $model->categories()->detach();
+        $model->delete();
+    }
+
+    /**
+     * The ids a write addressed, from category_ids (multi) or the legacy
+     * single category_id — deduped, [] when neither was supplied.
+     *
+     * @param  array<string, mixed>  $data
+     * @return list<string>
+     */
+    private function requestedCategoryIds(array $data): array
+    {
+        $ids = $data['category_ids'] ?? null;
+        if (! is_array($ids) || $ids === []) {
+            $ids = empty($data['category_id']) ? [] : [$data['category_id']];
+        }
+
+        return array_values(array_unique(array_map('strval', $ids)));
+    }
+
+    /**
+     * The menu's categories for a set of requested ids — null when ANY id
+     * doesn't resolve to the caller's own menu (all-or-nothing, so a write
+     * can't silently drop a membership it couldn't see).
+     *
+     * @param  list<string>  $categoryIds
+     * @return Collection<int, MenuCategory>|null
+     */
+    private function ownedCategories(Menu $menu, array $categoryIds)
+    {
+        $categories = MenuCategory::query()
+            ->where('menu_id', $menu->id)
+            ->whereIn('id', $categoryIds)
+            ->get();
+
+        return $categories->count() === count($categoryIds) ? $categories : null;
+    }
+
+    /** Attach a dish to a category, appended after the category's current last slot. */
+    private function attachToCategory(MenuItem $item, MenuCategory $category): void
+    {
+        $position = 1 + (int) (DB::connection('pgsql')
+            ->table('site.menu_item_categories')
+            ->where('menu_category_id', $category->id)
+            ->max('position') ?? -1);
+
+        $item->categories()->attach($category->id, ['position' => $position]);
     }
 
     /**
@@ -364,10 +501,21 @@ class MenuContentController extends ApiController
     /*  Small helpers */
     /* ------------------------------------------------------------------ */
 
-    /** Whether a category is scraper-owned (its edits detach / its deletes suppress). */
-    private function isScrapedCategory(?MenuCategory $category): bool
+    /**
+     * Whether a dish holds any scraper-owned membership (its edits detach /
+     * its deletes suppress). A dish with no memberships at all is treated as
+     * scraped — the conservative reading the old single-category check used
+     * for a missing category.
+     */
+    private function hasScrapedMembership(MenuItem $item): bool
     {
-        return $category === null || ! in_array($category->source_platform, self::EDITABLE_SOURCES, true);
+        if ($item->categories->isEmpty()) {
+            return true;
+        }
+
+        return $item->categories->contains(
+            fn (MenuCategory $c) => ! in_array($c->source_platform, self::EDITABLE_SOURCES, true)
+        );
     }
 
     /** True when the menu already has a category whose name matches (case-insensitive). */

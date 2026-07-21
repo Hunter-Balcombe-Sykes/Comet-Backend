@@ -46,16 +46,23 @@ class EarlyAccessSignup extends BaseModel
         'consent_user_agent',
     ];
 
-    // status/invited_at/invite_token_hash/invite_meta/invited_by/signed_up_at
-    // (S4 Tier 2b) removed — lifecycle fields, written only by trusted callers
-    // (EarlyAccessService::invite()/signupFromMarketing(), StaffEarlyAccessController)
-    // via forceFill/direct property assignment, never via request-bound fill().
+    // invited_at/invite_token_hash/invite_meta/invited_by/signed_up_at (S4 Tier 2b)
+    // stay OUT of $fillable — invite-lifecycle fields written only by trusted
+    // callers (EarlyAccessService::invite(), ApproveEarlyAccessBuildJob) via
+    // forceFill. `status` is kept fillable on merge with the signup-flows feature:
+    // no writer mass-assigns it (every status write is direct assignment or
+    // forceFill, and StaffEarlyAccessUpdateRequest excludes it), so it carries no
+    // request-bound exposure. source_type/source_ref are that feature's
+    // build-provenance columns.
     protected $fillable = [
         'email',
         'email_lc',
         'type',
         'workplace_or_industry',
         'platforms',
+        'source_type',
+        'source_ref',
+        'status',
         'source',
         'consent_ip_hash',
         'consent_user_agent',

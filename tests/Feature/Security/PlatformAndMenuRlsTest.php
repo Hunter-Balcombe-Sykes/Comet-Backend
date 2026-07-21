@@ -24,6 +24,7 @@ dataset('rls_tables', [
     'menu_items' => ['site', 'menu_items',           'menu_items_app_backend_all'],
     'menu_platform_links' => ['site', 'menu_platform_links',  'menu_platform_links_app_backend_all'],
     'menu_item_platforms' => ['site', 'menu_item_platforms',  'menu_item_platforms_app_backend_all'],
+    'menu_item_categories' => ['site', 'menu_item_categories', 'menu_item_categories_app_backend_all'],
 ]);
 
 it('has RLS enabled and forced on each table', function (string $schema, string $table, string $_policy) {

@@ -3,7 +3,9 @@
 namespace App\Jobs\PreAccount;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
+use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
 use Illuminate\Bus\Queueable;
@@ -86,6 +88,20 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // Keep dark, unapproved early-access Instagram builds OFF the Apify refresh
+        // treadmill (spec §3.4): a site nobody has claimed must not be re-scraped via
+        // Apify on the ~12h cadence. GBP (official Places API) stays active. The
+        // signal is expires_at IS NULL = not yet approved; approval sets expires_at
+        // and re-scrapes, which the seeder reactivates.
+        if ($build->built_via === PreAccountBuild::VIA_EARLY_ACCESS
+            && $build->source_type === 'instagram'
+            && $build->expires_at === null) {
+            IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->where('platform', 'instagram')
+                ->update(['is_active' => false]);
+        }
+
         // SEC-4: build_state is no longer fillable — forceFill so this transition
         // isn't a silent no-op.
         $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
@@ -96,6 +112,11 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
         if ($this->publish) {
             $site->update(['is_published' => true]);
             SyncSubdomainToKvJob::dispatch($user->id);
+            // Cold/marketing builds (Flow 2) go live immediately — invite the
+            // person to claim via whatever channels we have (spec §3.1). Early-
+            // access builds are unpublished here, so they never notify from this
+            // path; their invite fires at staff approval instead.
+            app(ClaimNotifier::class)->notify($build->fresh());
         }
     }
 

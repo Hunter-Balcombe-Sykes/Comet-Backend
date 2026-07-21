@@ -35,15 +35,16 @@ function scanMenuWithItem(User $user, string $itemName, ?string $description, ?f
     $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
     $category = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
 
-    return MenuItem::create([
+    $item = MenuItem::create([
         'menu_id' => $menu->id,
-        'category_id' => $category->id,
-        'position' => 0,
         'name' => $itemName,
         'description' => $description,
         'base_price' => $price,
         'badges' => $badges,
     ]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+
+    return $item;
 }
 
 // ── Extractor parsing ────────────────────────────────────────────────────────
@@ -344,7 +345,7 @@ TXT;
         ->toBe(['BEERS & CIDER', 'COCKTAILS', 'RED WINES', 'SPARKLING']);
 
     foreach ($categories as $category) {
-        $categoryItems = MenuItem::query()->where('category_id', $category->id)->get();
+        $categoryItems = $category->items()->get();
         expect($categoryItems)->toHaveCount(2);
         // The bug under test: a category header must never itself land as
         // an item row (e.g. a bare "COCKTAILS" item with no price).

@@ -284,6 +284,11 @@ Route::prefix('staff')
         Route::patch('/early-access/{signup}', [StaffEarlyAccessController::class, 'update'])->whereUuid('signup');
         Route::delete('/early-access/{signup}', [StaffEarlyAccessController::class, 'destroy'])->whereUuid('signup');
 
+        // Approve — allow this lead(s) to claim: re-scrape/heal the linked
+        // build, open its claim window, notify (Task 7, spec Flow 3).
+        Route::post('/early-access/{signup}/approve', [StaffEarlyAccessController::class, 'approve'])->whereUuid('signup');
+        Route::post('/early-access/approve-bulk', [StaffEarlyAccessController::class, 'approveBulk']);
+
         // Feedback — junk/spam removal (soft delete; purged after 30 days).
         // FeedbackPolicy::staffDelete adds defence-in-depth on top of staff.admin.
         Route::delete('/feedback/{feedback}', [StaffFeedbackController::class, 'destroy'])

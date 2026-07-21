@@ -40,9 +40,10 @@ class PruneExpiredPreAccountBuilds extends Command
         // live() = claimed_at IS NULL (the same partial-unique-index predicate
         // the claim flow relies on) — a claimed build is never a candidate,
         // independent of the SKIP LOCKED race guard below.
+        // NULL expires_at = unapproved early-access build → never-expire (spec §3.5).
         $candidates = PreAccountBuild::live()
             ->where(fn ($q) => $q
-                ->where('expires_at', '<', $cutoff)
+                ->where(fn ($qq) => $qq->whereNotNull('expires_at')->where('expires_at', '<', $cutoff))
                 ->orWhere(fn ($qq) => $qq->where('build_state', PreAccountBuild::STATE_FAILED)->where('updated_at', '<', $failedCutoff)))
             ->pluck('id');
 

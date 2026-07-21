@@ -5,6 +5,8 @@ namespace App\Services\EarlyAccess;
 use App\Mail\EarlyAccess\EarlyAccessInviteMail;
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Models\Core\User\PreAccountBuild;
+use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -17,13 +19,17 @@ use Illuminate\Support\Str;
  */
 class EarlyAccessService
 {
+    public function __construct(
+        private readonly PreAccountBuildService $builds,
+    ) {}
+
     /**
      * Public marketing-form signup (upsert by email). Queues the thank-you
      * email on FIRST create only. Fields refresh only while the row is still
      * on the waitlist — an invited/signed-up row never loses its state to a
      * repeat form submission.
      *
-     * @param  array{email:string, type:string, workplace_or_industry?:?string, platforms?:array, consent_ip_hash?:?string, consent_user_agent?:?string}  $data
+     * @param  array{email:string, type:string, workplace_or_industry?:?string, platforms?:array, source_type?:?string, source_ref?:?string, consent_ip_hash?:?string, consent_user_agent?:?string}  $data
      * @return array{signup: EarlyAccessSignup, created: bool}
      */
     public function signupFromMarketing(array $data): array
@@ -47,10 +53,53 @@ class EarlyAccessService
                 'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
                 'platforms' => array_values($data['platforms'] ?? []),
                 'source' => 'marketing',
+                'source_type' => $data['source_type'] ?? null,
+                'source_ref' => $data['source_ref'] ?? null,
                 'consent_ip_hash' => $data['consent_ip_hash'] ?? null,
                 'consent_user_agent' => $data['consent_user_agent'] ?? null,
             ],
         );
+
+        // Site-first early access: build a dark site the person can later claim
+        // (spec Flow 3). Best-effort — a malformed handle still captures the lead
+        // (source_type/source_ref are already persisted above, unconditionally);
+        // staff see the row with its submitted source and no linked build, and can
+        // correct it. Only build once, on first create, when a source was supplied.
+        if ($signup->wasRecentlyCreated
+            && ! empty($data['source_type']) && ! empty($data['source_ref'])
+            && $signup->user_id === null) {
+            try {
+                $result = $this->builds->requestBuild(
+                    accountType: $data['type'],
+                    sourceType: $data['source_type'],
+                    rawSourceRef: $data['source_ref'],
+                    sourceName: null,
+                    ipHash: null,
+                    staff: null,
+                    publish: false,
+                    expiresDays: null,
+                    contactEmail: $emailLc,
+                    builtVia: PreAccountBuild::VIA_EARLY_ACCESS,
+                );
+                // Only link when the re-served build is genuinely early-access. The
+                // dedupe in requestBuild() re-serves ANY live build for this source
+                // ref regardless of who built it — if a Flow-1/2 build (built_via
+                // 'signup'/'staff', no contact_email) already exists for this handle,
+                // linking here would leave the site NON-email-gated. Capture the lead
+                // UNLINKED instead (source_type/source_ref already persisted at row
+                // creation above) and surface it — staff handle it manually rather
+                // than the flow silently mis-gating.
+                if ($result['build']->built_via === PreAccountBuild::VIA_EARLY_ACCESS) {
+                    $signup->forceFill(['user_id' => $result['build']->user_id])->save();
+                } else {
+                    Log::warning('early_access.build_collision', [
+                        'email_lc' => $emailLc, 'source_ref' => $data['source_ref'], 'built_via' => $result['build']->built_via,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
 
         if ($signup->wasRecentlyCreated) {
             $signup->status = EarlyAccessSignup::STATUS_WAITLIST;
@@ -100,6 +149,15 @@ class EarlyAccessService
                 ->first();
 
             if ($locked === null || $locked->status === EarlyAccessSignup::STATUS_SIGNED_UP) {
+                return [null, null];
+            }
+
+            // Build-linked early-access rows (user_id set) use the new approve flow
+            // (StaffEarlyAccessController::approve), not this dead invite path — the
+            // old /signup?invite= link never touches the linked build, so flipping
+            // status here would strand it (status='invited' but build stays dark,
+            // and bulk-approve's all_waitlisted query won't resurface it).
+            if ($locked->user_id !== null) {
                 return [null, null];
             }
 

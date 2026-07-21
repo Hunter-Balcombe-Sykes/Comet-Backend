@@ -18,6 +18,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // Fresha connect (storewide) projects services into site.services now.
+    setupServicesTable();
+    shimPgAdvisoryLockForSqlite();
 });
 
 function gateUser(string $h, string $accountType, ?string $sector = null): User

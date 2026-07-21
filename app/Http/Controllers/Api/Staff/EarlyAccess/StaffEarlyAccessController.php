@@ -6,10 +6,12 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HandlesSearchQueries;
 use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
+use App\Http\Requests\Api\Staff\EarlyAccess\StaffEarlyAccessApproveBulkRequest;
 use App\Http\Requests\Api\Staff\EarlyAccess\StaffEarlyAccessInviteRequest;
 use App\Http\Requests\Api\Staff\EarlyAccess\StaffEarlyAccessStoreRequest;
 use App\Http\Requests\Api\Staff\EarlyAccess\StaffEarlyAccessUpdateRequest;
 use App\Http\Resources\Staff\EarlyAccessSignupResource;
+use App\Jobs\PreAccount\ApproveEarlyAccessBuildJob;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Services\EarlyAccess\EarlyAccessService;
 use Illuminate\Http\JsonResponse;
@@ -167,5 +169,41 @@ class StaffEarlyAccessController extends ApiController
             'invited_ids' => $invited,
             'skipped_ids' => $skipped, // already signed up
         ]);
+    }
+
+    // POST /api/staff/early-access/{signup}/approve — allow this lead to claim.
+    public function approve(EarlyAccessSignup $signup): JsonResponse
+    {
+        $staff = request()->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', $signup);
+
+        ApproveEarlyAccessBuildJob::dispatch($signup->id);
+
+        return $this->success(['ok' => true], 202);
+    }
+
+    // POST /api/staff/early-access/approve-bulk — {ids?:[], all_waitlisted?:bool}.
+    public function approveBulk(StaffEarlyAccessApproveBulkRequest $request): JsonResponse
+    {
+        $staff = request()->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', EarlyAccessSignup::class);
+
+        $data = $request->validated();
+        $query = EarlyAccessSignup::query()->whereNotNull('user_id');
+        if (! empty($data['ids'])) {
+            $query->whereIn('id', $data['ids']);
+        } elseif (! empty($data['all_waitlisted'])) {
+            $query->where('status', EarlyAccessSignup::STATUS_WAITLIST);
+        } else {
+            return $this->error('Provide ids[] or all_waitlisted.', 422);
+        }
+
+        $count = 0;
+        $query->lazyById()->each(function (EarlyAccessSignup $s) use (&$count) {
+            ApproveEarlyAccessBuildJob::dispatch($s->id);
+            $count++;
+        });
+
+        return $this->success(['dispatched' => $count], 202);
     }
 }

@@ -55,6 +55,8 @@ class PublicEarlyAccessController extends ApiController
             'type' => $data['type'],
             'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
             'platforms' => $data['platforms'],
+            'source_type' => $data['source_type'],
+            'source_ref' => $data['source_ref'],
             'consent_ip_hash' => $this->hashIp($request->ip()),
             'consent_user_agent' => mb_substr((string) ($request->userAgent() ?? ''), 0, 500) ?: null,
         ]);

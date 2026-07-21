@@ -152,6 +152,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/services/{service}', [UserServiceController::class, 'destroy'])
             ->whereUuid('service');
         Route::post('/services/reorder', [UserServiceController::class, 'reorder']);
+        // Fresha revert ("resync"): un-break the live sync on an owner-edited
+        // (is_manual) projected service — single, or bulk (ids optional = all).
+        Route::post('/services/resync', [UserServiceController::class, 'resyncBulk']);
+        Route::post('/services/{service}/resync', [UserServiceController::class, 'resync'])
+            ->whereUuid('service');
         Route::post('/services/{service}/restore', [UserServiceController::class, 'restore'])
             ->whereUuid('service')
             ->withTrashed();

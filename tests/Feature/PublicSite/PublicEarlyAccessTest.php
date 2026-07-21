@@ -13,6 +13,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
@@ -20,6 +21,10 @@ beforeEach(function () {
     setupEarlyAccessTable();
     DB::connection('pgsql')->statement('DELETE FROM core.early_access_signups');
     Mail::fake();
+    // This file doesn't set up the pre-account tables (users/sites/builds) —
+    // the build trigger is best-effort and gets swallowed as a QueryException,
+    // but fake the queue anyway so no real job dispatch is ever attempted.
+    Queue::fake();
 });
 
 function ovaEarlyAccessPayload(array $overrides = []): array
@@ -29,6 +34,8 @@ function ovaEarlyAccessPayload(array $overrides = []): array
         'type' => 'partna',
         'workplace_or_industry' => 'Hair Dresser',
         'platforms' => ['instagram', 'fresha'],
+        'source_type' => 'instagram',
+        'source_ref' => 'jess_handle',
     ], $overrides);
 }
 
