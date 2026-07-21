@@ -56,7 +56,8 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 2/10 · Tier 2: 0/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 2 done** (PWL-1, PWL-2)
+- Tier 1: 4/10 · Tier 2: 0/3 · Tier 3: 0/2 · Tier 4: 0/1 (record-only) — **16 findings, 4 done** (PWL-1..4)
+- Discovered during execution: 1 (PWL-D1, below)
 - Verified against `42bc6141`; line numbers current as of this baseline.
 
 ---
@@ -88,7 +89,7 @@ Multi-account: the lock is platform-wide, so it serialises all of a user's accou
 correct and intended. Preserve the `pending`/merge semantics inside the closure.
 
 ### PWL-3 — AppleController connectFor/removeAccountFor/forgetFor vs highlightsFor + ScheduledRefresh — CONTROLLER-side, non-blocker, S–M
-- [ ] Fix
+- [x] Fix — wrapped connectFor/removeAccountFor/forgetFor (each covers music+podcast via $activePlatform); forget() takes both sub-platform locks per-iteration (partial-clear is idempotent-on-retry). Independent review PASS.
 **Plain English:** Apple Music / Podcasts connect, account-remove, and disconnect don't lock, but
 saving highlights and the refresh cron do. Editing while a refresh runs can lose one side's change.
 **Technical:** only the highlights path locks (`AppleController.php:305`, write `:324`). `connectFor`
@@ -97,7 +98,7 @@ saving highlights and the refresh cron do. Editing while a refresh runs can lose
 unlocked. Racing partners: `highlightsFor()` + `ScheduledRefresh`. **Fix:** wrap the connect/remove/forget paths.
 
 ### PWL-4 — EventsPlatformController addAccount/addStandaloneEvent/removeAccount/forget vs removeEvent + ScheduledRefresh — CONTROLLER-side, non-blocker, S–M
-- [ ] Fix
+- [x] Fix — wrapped addAccount/addStandaloneEvent/removeAccount/forget (shared base → covers Eventbrite+Humanitix); scrapes stay outside the lock. Independent review PASS.
 **Plain English:** Adding an events account or a standalone event, removing an account, or
 disconnecting doesn't lock; removing a single event and the refresh cron do. Concurrent edits collide.
 **Technical:** `EventsPlatformController` — `removeEvent()` (`:136`, lock `:140`) locks; `addAccount()`
@@ -236,6 +237,17 @@ clears unlocked. **Fix:** a reservations-family XOR lock mirroring the booking d
   website-scan appliers): write NON-connection tables — out of scope here, worth their own row-locking audit.
 
 ---
+
+## Discovered during execution
+
+### PWL-D1 — AppleController::highlightsFor() holds its lock across a network fetch — Tier-3-adjacent, pre-existing, S
+- [ ] Fix
+**Found:** during PWL-3 review (2026-07-21). Pre-existing (commit `2e4018e4`), NOT introduced by this
+audit. Same class as the PWL-1 `applySync` defect: `highlightsFor()` (`AppleController.php` ~327-349)
+calls `($cfg['fetch'])(...)` INSIDE its `withConnectionLock` closure, so a slow/network fetch is held
+under the 10s-TTL lock — the lock can expire mid-fetch and a concurrent writer slips in.
+**Fix direction:** move the fetch outside the lock; re-read + write inside (mirror the `applySync`
+and `GenericPlatformController::highlights()` re-read-under-lock shape). Bundle with any Apple follow-up.
 
 ## Suggested bundled sessions & order
 
