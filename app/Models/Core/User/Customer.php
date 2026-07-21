@@ -12,6 +12,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 // V2: A professional's customer record. Supports soft deletes, marketing opt-in caching from EmailSubscription, and external ID for POS integrations.
+/**
+ * @property string $id
+ * @property string $user_id
+ * @property string|null $email
+ * @property string|null $phone
+ * @property string|null $full_name
+ * @property string|null $source
+ * @property string|null $notes
+ * @property string|null $external_id
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property \Illuminate\Support\Carbon|null $deleted_at
+ * @property bool|null $marketing_opt_in_cached
+ * @property \Illuminate\Support\Carbon|null $redacted_at
+ */
 class Customer extends BaseModel
 {
     use HasUuids, SoftDeletes;

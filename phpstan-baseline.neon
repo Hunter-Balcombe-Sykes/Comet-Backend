@@ -121,18 +121,6 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/InstagramController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$source_platform\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Http/Controllers/Api/Platforms/MenuContentController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$content_source\.$#'
 			identifier: property.notFound
 			count: 1
@@ -227,60 +215,6 @@ parameters:
 			identifier: property.notFound
 			count: 2
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$source\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEmailSubscriptionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$full_name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$source\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicEnquiryController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$store_name\.$#'
@@ -497,18 +431,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$source\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
@@ -1699,12 +1621,6 @@ parameters:
 			path: app/Jobs/Notifications/SendEnquiryNotificationJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SendFeedbackEmailJob.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$primary_email\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1729,12 +1645,6 @@ parameters:
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$marketing_opt_in_cached\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$fetch_status\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1742,18 +1652,6 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Menu\:\:\$scan_items\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Platforms/MenuFetchJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Jobs/Platforms/MenuFetchJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$source_platform\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Jobs/Platforms/MenuFetchJob.php
@@ -1787,18 +1685,6 @@ parameters:
 			identifier: arguments.count
 			count: 1
 			path: app/Jobs/ProcessVideoVariantsJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$kind\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/FeedbackSubmittedMail.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$reply_email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Mail/FeedbackSubmittedMail.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
@@ -1963,30 +1849,6 @@ parameters:
 			path: app/Models/Core/Site/SiteMedia.php
 
 		-
-			message: '#^Access to an undefined property \$this\(App\\Models\\Core\\User\\Customer\)\:\:\$marketing_opt_in_cached\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/Customer.php
-
-		-
-			message: '#^Access to an undefined property \$this\(App\\Models\\Core\\User\\Customer\)\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/Customer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$marketing_opt_in_cached\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Models/Core/User/Customer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/User/Customer.php
-
-		-
 			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:withTrashed\(\)\.$#'
 			identifier: method.notFound
 			count: 1
@@ -2065,22 +1927,10 @@ parameters:
 			path: app/Notifications/Moderation/ReportOutcomeNotification.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\User\\Customer\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Policies/CustomerPolicy.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 2
 			path: app/Policies/EnquiryPolicy.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$user_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Policies/FeedbackPolicy.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$user_id\.$#'
@@ -2309,12 +2159,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Services/FeatureFlags/FeatureFlagService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Feedback\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Feedback/FeedbackService.php
 
 		-
 			message: '#^Offset 2 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
@@ -2599,12 +2443,6 @@ parameters:
 			path: app/Services/Platforms/MenuPayloadComposer.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$source_platform\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$delivery_price\.$#'
 			identifier: property.notFound
 			count: 1
@@ -2633,12 +2471,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Platforms/MenuScanApplier.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -2957,20 +2789,8 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
 
 		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuCategory\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
 			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$name\.$#'
-			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
 
@@ -2981,20 +2801,8 @@ parameters:
 			path: app/Models/Core/Site/ShopBrand.php
 
 		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuCategory\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
 			identifier: argument.unresolvableType
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuCategory\:\:\$name\.$#'
-			identifier: property.notFound
 			count: 1
 			path: app/Services/Platforms/MenuPayloadComposer.php
 

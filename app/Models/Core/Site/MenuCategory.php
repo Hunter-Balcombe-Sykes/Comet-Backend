@@ -13,6 +13,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 // this group came from (the content source). Items attach via the
 // site.menu_item_categories pivot — one dish can be listed under several
 // categories, positioned independently in each.
+/**
+ * @property string $id
+ * @property string $menu_id
+ * @property string $name
+ * @property int $position
+ * @property string|null $source_platform
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class MenuCategory extends BaseModel
 {
     use HasUuids;

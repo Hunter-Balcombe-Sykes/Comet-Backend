@@ -20,6 +20,29 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * tool). `type` is a separate taxonomy from the legacy `kind` column, not a
  * replacement — see FeedbackService::deriveKind() for how the two reconcile
  * on write. See supabase/migrations/20260711153000_feedback_type_area_target.sql.
+ *
+ * @property string $id
+ * @property string|null $user_id
+ * @property string|null $reply_email
+ * @property string $kind
+ * @property string|null $severity
+ * @property string $message
+ * @property string|null $page_url
+ * @property string|null $user_agent
+ * @property string|null $viewport
+ * @property string|null $app_version
+ * @property string|null $request_id
+ * @property string $status
+ * @property array<int, mixed> $internal_notes
+ * @property array<int, string> $tags
+ * @property string $source
+ * @property string|null $ip_hash
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property \Illuminate\Support\Carbon|null $deleted_at
+ * @property string|null $type
+ * @property string|null $area
+ * @property array<string, mixed>|null $target
  */
 class Feedback extends BaseModel
 {
