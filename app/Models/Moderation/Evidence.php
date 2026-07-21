@@ -19,7 +19,18 @@ class Evidence extends BaseModel
 
     public $incrementing = false;
 
-    protected $guarded = ['id'];
+    // Mass-assignment posture (SEC-1): explicit allowlist replaces the
+    // permissive `$guarded = ['id']`. `id` stays out (DB gen_random_uuid()
+    // default, PK). captured_at IS a business column (not Eloquent-managed —
+    // $timestamps=false, no created_at/updated_at on this table) so it stays fillable.
+    protected $fillable = [
+        'case_id',
+        'signal_id',
+        'evidence_type',
+        'payload',
+        'content_hash',
+        'captured_at',
+    ];
 
     protected $casts = [
         'payload' => 'array',

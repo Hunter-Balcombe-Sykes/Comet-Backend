@@ -20,8 +20,11 @@ class PublicSitePayload extends BaseModel
 
     public $timestamps = false;
 
-    // Views are read-only
-    protected $guarded = [];
+    // Read-only DB view, no ORM write path (SEC-1). `$guarded = []` was
+    // actually the MOST permissive setting (mass-assigns everything);
+    // `$guarded = ['*']` blocks all mass assignment so any future writer
+    // fails fast instead of silently succeeding against a view.
+    protected $guarded = ['*'];
 
     protected $casts = [
         'payload' => 'array',

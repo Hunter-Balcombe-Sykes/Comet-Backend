@@ -20,7 +20,21 @@ class CaseSignal extends BaseModel
 
     public $incrementing = false;
 
-    protected $guarded = ['id'];
+    // Mass-assignment posture (SEC-1): explicit allowlist replaces the
+    // permissive `$guarded = ['id']`. `id` stays out (DB gen_random_uuid()
+    // default, PK). created_at stays out — DB DEFAULT NOW() fills it; no
+    // writer (ContentReportService::submit() via forceCreate()) mass-assigns it.
+    protected $fillable = [
+        'case_id',
+        'signal_source',
+        'signal_data',
+        'reporter_user_id',
+        'reporter_email',
+        'reporter_ip_hash',
+        'reason_code',
+        'reason_details',
+        'dedup_hash',
+    ];
 
     protected $casts = [
         'signal_data' => 'array',

@@ -45,7 +45,25 @@ class ModerationCase extends BaseModel
 
     public $incrementing = false;
 
-    protected $guarded = ['id'];
+    // Mass-assignment posture (SEC-1): explicit allowlist replaces the
+    // permissive `$guarded = ['id']`. `id` stays out (DB gen_random_uuid()
+    // default, PK). created_at/updated_at stay out — Eloquent-managed
+    // ($timestamps default true), no writer mass-assigns them.
+    protected $fillable = [
+        'case_type',
+        'reportable_type',
+        'reportable_id',
+        'reportable_owner_user_id',
+        'severity',
+        'status',
+        'signal_count',
+        'auto_actioned',
+        'priority',
+        'sla_due_at',
+        'triaged_at',
+        'triaged_by_staff_id',
+        'resolved_at',
+    ];
 
     protected $casts = [
         'severity' => 'integer',
