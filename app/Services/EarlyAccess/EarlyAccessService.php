@@ -5,6 +5,7 @@ namespace App\Services\EarlyAccess;
 use App\Mail\EarlyAccess\EarlyAccessInviteMail;
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -74,7 +75,7 @@ class EarlyAccessService
                     publish: false,
                     expiresDays: null,
                     contactEmail: $emailLc,
-                    builtVia: \App\Models\Core\User\PreAccountBuild::VIA_EARLY_ACCESS,
+                    builtVia: PreAccountBuild::VIA_EARLY_ACCESS,
                 );
                 $signup->forceFill(['user_id' => $result['build']->user_id])->save();
             } catch (\Throwable $e) {

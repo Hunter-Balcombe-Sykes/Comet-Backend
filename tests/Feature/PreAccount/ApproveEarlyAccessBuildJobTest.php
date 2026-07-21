@@ -6,6 +6,8 @@ use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use App\Services\PreAccount\ClaimNotifier;
+use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\SourceGeneratorRegistry;
 use Illuminate\Support\Facades\Mail;
 
@@ -38,7 +40,7 @@ it('re-scrapes IG, opens the window, flips to invited, and emails the invite', f
     $signup->forceFill(['user_id' => $user->id])->save();
 
     $this->mock(SourceGeneratorRegistry::class, function ($mock) {
-        $gen = new class implements \App\Services\PreAccount\Generators\SiteSourceGenerator
+        $gen = new class implements SiteSourceGenerator
         {
             public function normalizeRef(string $raw): string
             {
@@ -55,12 +57,12 @@ it('re-scrapes IG, opens the window, flips to invited, and emails the invite', f
                 return $normalizedRef;
             }
 
-            public function generate(\App\Models\Core\User\User $user, \App\Models\Core\Site\Site $site, string $sourceRef): void {}
+            public function generate(User $user, Site $site, string $sourceRef): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(App\Services\PreAccount\ClaimNotifier::class));
+    (new ApproveEarlyAccessBuildJob($signup->id))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class));
 
     expect($build->fresh()->expires_at)->not->toBeNull()
         ->and($signup->fresh()->status)->toBe('invited');

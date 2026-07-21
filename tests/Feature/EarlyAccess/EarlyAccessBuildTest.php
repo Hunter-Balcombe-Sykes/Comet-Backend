@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\User\PreAccountBuild;
 use Illuminate\Support\Facades\Queue;
@@ -28,7 +29,7 @@ it('creates a dark early-access build and links the signup on first signup', fun
     expect($build->built_via)->toBe('early_access')
         ->and($build->expires_at)->toBeNull()
         ->and($build->contact_email)->toBe('lead@example.com');
-    Queue::assertPushed(App\Jobs\PreAccount\GeneratePreAccountSiteJob::class);
+    Queue::assertPushed(GeneratePreAccountSiteJob::class);
 });
 
 it('still captures the lead and persists the submitted source when the handle is malformed', function () {

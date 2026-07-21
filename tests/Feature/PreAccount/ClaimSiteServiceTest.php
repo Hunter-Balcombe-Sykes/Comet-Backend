@@ -1,10 +1,12 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimSiteService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -117,7 +119,7 @@ it('rejects a failed build', function () {
 
 it('rejects a claim with no build row at all', function () {
     $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
-    \App\Models\Core\Site\Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
 
     app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
 })->throws(RuntimeException::class, 'BUILD_FAILED');
@@ -174,7 +176,7 @@ it('auto-publishes the site on claim', function () {
     [$user, $site, $build] = makeReadyBuild();
     expect($site->fresh()->is_published)->toBeFalse();
 
-    app(App\Services\PreAccount\ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
 
     expect($site->fresh()->is_published)->toBeTrue();
 });
@@ -198,7 +200,7 @@ it('does not fire SiteObserver for the auto-publish write, and purges the edge e
     makeReadyBuild();
 
     $siteObserverFired = false;
-    \Illuminate\Support\Facades\Event::listen('eloquent.saved: ' . \App\Models\Core\Site\Site::class, function () use (&$siteObserverFired) {
+    Event::listen('eloquent.saved: '.Site::class, function () use (&$siteObserverFired) {
         $siteObserverFired = true;
     });
 
@@ -210,7 +212,7 @@ it('does not fire SiteObserver for the auto-publish write, and purges the edge e
 
 it('leaves an already-published site untouched (Flow 2 no-op)', function () {
     $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
-    $site = \App\Models\Core\Site\Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => true]);
+    $site = Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => true]);
     $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
     $build->user()->associate($user);
     $build->save();
@@ -229,7 +231,7 @@ it('falls back display_name to the handle when the provisional user has none, an
         'primary_email' => null,
         'display_name' => '',
     ]);
-    \App\Models\Core\Site\Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe', 'is_published' => false]);
     $build = PreAccountBuild::factory()->make(['build_state' => PreAccountBuild::STATE_READY]);
     $build->user()->associate($user);
     $build->save();
@@ -238,14 +240,14 @@ it('falls back display_name to the handle when the provisional user has none, an
 
     $fresh = $user->fresh();
     expect($fresh->display_name)->toBe($user->handle)
-        ->and(\App\Models\Core\Site\Site::query()->where('user_id', $user->id)->first()->is_published)->toBeTrue();
+        ->and(Site::query()->where('user_id', $user->id)->first()->is_published)->toBeTrue();
 });
 
 it('rejects a claim whose verified email does not match an email-gated build', function () {
     [$user, $site, $build] = makeReadyBuild();
     $build->forceFill(['contact_email' => 'owner@example.com'])->save();
 
-    expect(fn () => app(App\Services\PreAccount\ClaimSiteService::class)
+    expect(fn () => app(ClaimSiteService::class)
         ->claim('auth-uid-1', 'someone-else@example.com', 'janedoe'))
         ->toThrow(RuntimeException::class, 'CLAIM_EMAIL_MISMATCH');
 
@@ -256,7 +258,7 @@ it('allows a claim whose verified email matches an email-gated build (case-insen
     [$user, $site, $build] = makeReadyBuild();
     $build->forceFill(['contact_email' => 'Owner@Example.com'])->save();
 
-    $result = app(App\Services\PreAccount\ClaimSiteService::class)
+    $result = app(ClaimSiteService::class)
         ->claim('auth-uid-1', 'owner@example.com', 'janedoe');
 
     expect($result['professional']->status)->toBe('active')

@@ -3,7 +3,9 @@
 namespace App\Jobs\PreAccount;
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
+use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
 use Illuminate\Bus\Queueable;
@@ -94,7 +96,7 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
         if ($build->built_via === PreAccountBuild::VIA_EARLY_ACCESS
             && $build->source_type === 'instagram'
             && $build->expires_at === null) {
-            \App\Models\Core\Site\IntegrationConnection::query()
+            IntegrationConnection::query()
                 ->where('user_id', $user->id)
                 ->where('platform', 'instagram')
                 ->update(['is_active' => false]);
@@ -114,7 +116,7 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue
             // person to claim via whatever channels we have (spec §3.1). Early-
             // access builds are unpublished here, so they never notify from this
             // path; their invite fires at staff approval instead.
-            app(\App\Services\PreAccount\ClaimNotifier::class)->notify($build->fresh());
+            app(ClaimNotifier::class)->notify($build->fresh());
         }
     }
 

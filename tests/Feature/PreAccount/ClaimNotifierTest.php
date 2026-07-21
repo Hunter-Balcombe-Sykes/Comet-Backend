@@ -24,8 +24,7 @@ it('emails the claim link when a build has a contact_email', function () {
 
     app(ClaimNotifier::class)->notify($build->fresh());
 
-    Mail::assertQueued(ClaimInviteMail::class, fn ($m) =>
-        $m->recipientEmail === 'lead@example.com'
+    Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com'
         && $m->claimUrl === 'https://app.partna.au/claim/janedoe');
 });
 

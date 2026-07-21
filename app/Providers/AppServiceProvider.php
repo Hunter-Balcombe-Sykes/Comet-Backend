@@ -81,6 +81,8 @@ use App\Services\Notifications\Adapters\EmailEnquiryNotificationAdapter;
 use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\PreAccount\Notifications\ClaimDmChannel;
+use App\Services\PreAccount\Notifications\NullClaimDmChannel;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -148,8 +150,8 @@ class AppServiceProvider extends ServiceProvider
         // The real driver (ManyChat or open-source alternative) will implement
         // this interface later without changing the claim core.
         $this->app->bind(
-            \App\Services\PreAccount\Notifications\ClaimDmChannel::class,
-            \App\Services\PreAccount\Notifications\NullClaimDmChannel::class,
+            ClaimDmChannel::class,
+            NullClaimDmChannel::class,
         );
 
         // Design-kit preset factors. Registry is a singleton holding the

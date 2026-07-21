@@ -3,6 +3,7 @@
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Mail\PreAccount\ClaimInviteMail;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
@@ -161,7 +162,7 @@ it('deactivates the IG connection for a dark early-access build', function () {
 
             public function generate(User $user, Site $site, string $sourceRef): void
             {
-                App\Models\Core\Site\IntegrationConnection::create([
+                IntegrationConnection::create([
                     'user_id' => $this->user->id, 'platform' => 'instagram',
                     'resource_id' => 'instagram', 'payload' => [], 'is_active' => true,
                 ]);
@@ -172,6 +173,6 @@ it('deactivates the IG connection for a dark early-access build', function () {
 
     (new GeneratePreAccountSiteJob($build->id, publish: false))->handle(app(SourceGeneratorRegistry::class));
 
-    $conn = App\Models\Core\Site\IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
     expect((bool) $conn->is_active)->toBeFalse();
 });

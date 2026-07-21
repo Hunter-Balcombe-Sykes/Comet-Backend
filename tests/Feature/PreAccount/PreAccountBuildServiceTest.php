@@ -212,7 +212,7 @@ it('does not re-dispatch a re-served build still pending within the SLA', functi
 });
 
 it('creates an early-access build with null expiry and built_via early_access', function () {
-    $result = app(App\Services\PreAccount\PreAccountBuildService::class)->requestBuild(
+    $result = app(PreAccountBuildService::class)->requestBuild(
         accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'ea_prospect',
         sourceName: null, ipHash: null, staff: null, publish: false,
         expiresDays: null, contactEmail: 'lead@example.com',
