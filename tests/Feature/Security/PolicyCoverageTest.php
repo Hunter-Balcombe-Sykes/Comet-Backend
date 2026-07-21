@@ -4,6 +4,7 @@ use App\Models\Analytics\ItemView;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
+use App\Models\Core\EmailSuppression;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\MediaVariant;
 use App\Models\Core\Notifications\SupabaseEmailEvent;
@@ -95,6 +96,14 @@ const POLICY_EXEMPT = [
     // policy in the migration). A Laravel policy would be meaningless — there is no
     // controller action to gate and the Gate has no authenticated actor for this table.
     SupabaseEmailEvent::class,
+
+    // Send-time suppression list (Resend bounce/complaint). Internal system table,
+    // no user-facing API endpoint and no tenant ownership (keyed on email_hash,
+    // not user_id). Staff read is enforced by DB-level RLS (FORCE ROW LEVEL
+    // SECURITY + staff-only SELECT in the migration). A Laravel policy would be
+    // meaningless — no controller action to gate, no authenticated actor. Same
+    // posture as SupabaseEmailEvent above.
+    EmailSuppression::class,
 ];
 
 it('every tenant-owned model has a registered policy', function () {

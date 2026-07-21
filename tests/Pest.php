@@ -2432,3 +2432,24 @@ function setupSupabaseEmailEventsTable(): void
         updated_at TEXT NULL
     )");
 }
+
+/**
+ * core.email_suppressions — send-time suppression list (Resend bounce/complaint).
+ * Keeps the UNIQUE(email_hash) + reason CHECK from migration 20260721190000 so
+ * the idempotency-upsert and constraint tests exercise real behaviour (SQLite
+ * enforces both). email_hash stored as TEXT; timestamps as TEXT.
+ */
+function setupEmailSuppressionsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement("CREATE TABLE IF NOT EXISTS core.email_suppressions (
+        id TEXT PRIMARY KEY,
+        email_hash TEXT NOT NULL UNIQUE,
+        reason TEXT NOT NULL CHECK (reason IN ('hard_bounce','complaint','manual')),
+        source TEXT NULL,
+        detail TEXT NULL,
+        first_seen_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )");
+}
