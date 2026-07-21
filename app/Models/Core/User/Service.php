@@ -7,7 +7,13 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-// V2: A bookable service offered by a professional. Stores pricing, duration, and display metadata.
+// V2: A bookable service offered by a professional. Stores pricing, duration,
+// and display metadata. Provenance (2026-07-21): source NULL = owner-authored
+// (manual); source='fresha' = projected from the Fresha scrape, identified by
+// external_id (the Fresha serviceId). An owner edit on a projected row flips
+// is_manual ("sync broken") — the re-scrape then never overwrites it, and the
+// revert/resync endpoints re-project it from the stored raw scrape. Deleting a
+// projected row records suppression via soft delete + deleted_origin='user'.
 class Service extends BaseModel
 {
     use HasUuids, SoftDeletes;
@@ -28,7 +34,9 @@ class Service extends BaseModel
         'duration_minutes',
         'is_active',
         'sort_order',
-
+        'source',
+        'is_manual',
+        'external_id',
     ];
 
     protected $casts = [
@@ -36,6 +44,7 @@ class Service extends BaseModel
         'price_cents' => 'integer',
         'sort_order' => 'integer',
         'duration_minutes' => 'integer',
+        'is_manual' => 'boolean',
         'deleted_at' => 'datetime',
     ];
 

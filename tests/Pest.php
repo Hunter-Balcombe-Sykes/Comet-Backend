@@ -1174,10 +1174,16 @@ function setupServiceCategoriesTable(): void
         user_id TEXT NULL,
         title TEXT NULL,
         sort_order INTEGER NULL,
+        source TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.service_categories ADD COLUMN source TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
 }
 
 /**
@@ -1209,10 +1215,22 @@ function setupServicesTable(): void
         fresha_last_synced_at TEXT NULL,
         fresha_sync_error TEXT NULL,
         deleted_origin TEXT NULL,
+        source TEXT NULL,
+        is_manual INTEGER NOT NULL DEFAULT 0,
+        external_id TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');
+    // Defensive ALTERs for suites that created site.services before the Fresha
+    // projection columns existed (mirrors the site.menus pattern above).
+    foreach (['source TEXT NULL', 'is_manual INTEGER NOT NULL DEFAULT 0', 'external_id TEXT NULL'] as $col) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE site.services ADD COLUMN {$col}");
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
 }
 
 /**

@@ -24,6 +24,12 @@ class ServiceResource extends ApiResource
             'duration_minutes' => $this->duration_minutes,
             'is_active' => $this->is_active,
             'sort_order' => $this->sort_order,
+            // Fresha projection provenance: source 'fresha' + is_manual=false is
+            // live-synced; is_manual=true is owner-edited ("sync broken" chip +
+            // revert button). NULL source = plain manual service.
+            'source' => $this->source,
+            'is_manual' => (bool) $this->is_manual,
+            'external_id' => $this->external_id,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
             'deleted_at' => $this->deleted_at?->toIso8601String(),

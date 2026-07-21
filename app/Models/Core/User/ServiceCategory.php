@@ -23,6 +23,9 @@ class ServiceCategory extends BaseModel
         'user_id',
         'title',
         'sort_order',
+        // 'fresha' = auto-created from a Fresha category label during
+        // projection; NULL = owner-authored.
+        'source',
     ];
 
     protected $casts = [

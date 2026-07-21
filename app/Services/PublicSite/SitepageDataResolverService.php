@@ -259,8 +259,9 @@ class SitepageDataResolverService
                     $present['menu'] = true;
                 }
 
-                // Active services → the Services page.
-                if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->where('is_active', true)->whereNull('deleted_at')->exists(), false, 'active_services_exists', $site)) {
+                // Active MANUAL services → the Services page (Fresha projections
+                // never flip public page presence).
+                if ($this->safeQuery(fn () => Service::query()->where('user_id', $userId)->whereNull('source')->where('is_active', true)->whereNull('deleted_at')->exists(), false, 'active_services_exists', $site)) {
                     $present['services'] = true;
                 }
 
@@ -844,6 +845,9 @@ class SitepageDataResolverService
         $services = Service::query()
             ->with('category:id,title')
             ->where('user_id', $proId)
+            // Manual services only — Fresha projections belong to the booking
+            // surface (the Fresha selection blob), never the services section.
+            ->whereNull('source')
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderBy('sort_order')

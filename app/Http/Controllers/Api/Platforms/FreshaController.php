@@ -10,9 +10,11 @@ use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Requests\Platforms\SaveFreshaSelectionRequest;
 use App\Http\Requests\Platforms\SetFreshaServiceVisibilityRequest;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
+use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\FreshaScraper;
+use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Http\JsonResponse;
@@ -33,7 +35,10 @@ class FreshaController extends ApiController
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
-    public function __construct(private readonly FreshaScraper $scraper) {}
+    public function __construct(
+        private readonly FreshaScraper $scraper,
+        private readonly FreshaServiceProjector $projector,
+    ) {}
 
     protected function platform(): string
     {
@@ -74,15 +79,24 @@ class FreshaController extends ApiController
         // sees mode='storewide' and skips the picker. Capability-gated so the
         // account_type read stays inside AccountCapabilities.
         if (AccountCapabilities::for($user)->can_book_storewide) {
+            // Project the scrape into site.services rows (deduped by serviceId;
+            // owner edits + suppressions honoured) and store the EFFECTIVE list
+            // in the public selection; the raw scrape lands at payload.raw
+            // (private — the public allowlist ships only url+selection).
+            $projected = $this->projector->sync($user, $menu['services']);
             $selection = [
                 'url' => $url,
                 'storeName' => $menu['storeName'],
                 'mode' => 'storewide',
                 'employee' => null,
-                'services' => $menu['services'],
-                'hiddenServiceIds' => [],
+                'services' => $projected['services'],
+                'hiddenServiceIds' => $projected['hiddenServiceIds'],
             ];
-            $this->writeConnection($user, ['url' => $url, 'selection' => $selection]);
+            $this->writeConnection($user, [
+                'url' => $url,
+                'selection' => $selection,
+                'raw' => ['services' => $projected['raw']],
+            ]);
 
             return $this->success([
                 'url' => $url,
@@ -95,11 +109,15 @@ class FreshaController extends ApiController
         // keeps the saved team member); the dashboard re-picks via saveSelection.
         // FreshaSelection::toArray() returns the stored inner blob verbatim, so a
         // canonical stored selection round-trips byte-identically; a pending row
-        // (selection null) carries forward as null, exactly as before.
-        $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+        // (selection null) carries forward as null, exactly as before. The stored
+        // raw scrape (revert source for detached projections) rides along too.
+        $existingPayload = $this->readConnection($user) ?? [];
+        $existing = SelectionPayload::fromArray($existingPayload);
+        $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
         $this->writeConnection($user, [
             'url' => $url,
             'selection' => $existing->selection?->toArray(),
+            ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
         ]);
 
         return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
@@ -149,7 +167,9 @@ class FreshaController extends ApiController
             ?? $this->scraper->extractServices($location);
 
         // Preserve previously hidden services, dropping ids that no longer exist
-        // in the refreshed menu so the hidden list never drifts stale.
+        // in the refreshed menu so the hidden list never drifts stale. The kept
+        // list seeds is_active on first-time projections; projected rows then
+        // own the hidden state (compose() re-derives the list from is_active).
         $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
         $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
         $hidden = array_values(array_filter(
@@ -157,15 +177,20 @@ class FreshaController extends ApiController
             static fn ($id): bool => in_array($id, $serviceIds, true),
         ));
 
+        $projected = $this->projector->sync($user, $services, $hidden);
         $selection = [
             'url' => $url,
             'storeName' => $this->scraper->extractStoreName($location),
             'mode' => 'employee',
             'employee' => $employee,
-            'services' => $services,
-            'hiddenServiceIds' => $hidden,
+            'services' => $projected['services'],
+            'hiddenServiceIds' => $projected['hiddenServiceIds'],
         ];
-        $this->writeConnection($user, ['url' => $url, 'selection' => $selection]);
+        $this->writeConnection($user, [
+            'url' => $url,
+            'selection' => $selection,
+            'raw' => ['services' => $projected['raw']],
+        ]);
 
         return $this->success((new FreshaSelectionResource($selection))->resolve());
     }
@@ -243,6 +268,34 @@ class FreshaController extends ApiController
                 $hidden = array_values(array_filter($hidden, static fn ($id): bool => $id !== $validated['serviceId']));
             }
 
+            // The projection owns the hidden state: flip is_active on the row
+            // and let compose() re-derive hiddenServiceIds. Legacy connections
+            // (no payload.raw yet — the projection marker) fall through to the
+            // verbatim hidden-list write below, exactly as before.
+            $storedPayload = $this->readConnection($user) ?? [];
+            $rawServices = $storedPayload['raw']['services'] ?? null;
+            if (is_array($rawServices)) {
+                Service::query()
+                    ->where('user_id', $user->id)
+                    ->where('source', 'fresha')
+                    ->where('external_id', $validated['serviceId'])
+                    ->update(['is_active' => ! $validated['hidden']]);
+
+                $composed = $this->projector->compose($user, $rawServices);
+                $inner = [
+                    ...$selection->toArray(),
+                    'services' => $composed['services'],
+                    'hiddenServiceIds' => $composed['hiddenServiceIds'],
+                ];
+                $this->writeConnection($user, [
+                    'url' => $payload->url,
+                    'selection' => $inner,
+                    'raw' => ['services' => $rawServices],
+                ]);
+
+                return $this->success((new FreshaSelectionResource($inner))->resolve());
+            }
+
             // Write back the inner blob VERBATIM with only hiddenServiceIds replaced —
             // FreshaSelection::toArray() returns the stored blob unchanged, so the
             // public (verbatim) selection payload never gains a canonical-null key.
@@ -253,10 +306,26 @@ class FreshaController extends ApiController
         });
     }
 
-    // DELETE /api/platforms/fresha — clear the saved URL and selection.
+    // DELETE /api/platforms/fresha — clear the saved URL and selection. The
+    // synced projections soft-delete with deleted_origin='sync' so a later
+    // reconnect restores them (curation intact); owner-suppressed rows
+    // (deleted_origin='user') and detached (is_manual) rows keep their state —
+    // a detached row is owner content and survives the disconnect live.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetConnection($this->currentUser($request));
+        $user = $this->currentUser($request);
+        $this->forgetConnection($user);
+
+        $synced = Service::query()
+            ->where('user_id', $user->id)
+            ->where('source', 'fresha')
+            ->where('is_manual', false)
+            ->get();
+        foreach ($synced as $row) {
+            $row->deleted_origin = 'sync';
+            $row->saveQuietly();
+            $row->delete();
+        }
 
         return $this->success(['url' => null, 'selection' => null]);
     }

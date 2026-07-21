@@ -41,7 +41,8 @@ it('ships only the allowlisted fields', function () {
     expect(array_keys($array))->toEqual([
         'id', 'user_id', 'category_id', 'title', 'description',
         'price_cents', 'currency_code', 'duration_minutes', 'is_active',
-        'sort_order', 'created_at', 'updated_at', 'deleted_at',
+        'sort_order', 'source', 'is_manual', 'external_id',
+        'created_at', 'updated_at', 'deleted_at',
     ]);
 });
 

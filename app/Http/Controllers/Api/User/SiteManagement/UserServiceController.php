@@ -15,6 +15,7 @@ use App\Http\Resources\ServiceResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\UserCacheService;
+use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Site\InsertWithSortOrder;
 use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
@@ -182,9 +183,85 @@ class UserServiceController extends ApiController
         }
 
         $service->fill($data);
+
+        // Editing a Fresha-synced service's CONTENT detaches it from the live
+        // sync (is_manual — the scheduled re-scrape no longer overwrites it;
+        // the dashboard shows the "sync broken" warning + revert). Toggling
+        // is_active (the public show/hide) or sort_order is curation, not
+        // content — it never breaks sync.
+        $contentFields = ['title', 'description', 'price_cents', 'currency_code', 'duration_minutes'];
+        $contentChanged = array_intersect(array_keys($service->getDirty()), $contentFields) !== [];
+        if ($service->source === 'fresha' && ! $service->is_manual && $contentChanged) {
+            $service->is_manual = true;
+        }
+
         $service->save();
 
+        // Any change to a projected row re-composes the public booking blob
+        // (edited fields serialize into it; is_active re-derives hiddenServiceIds).
+        if ($service->source === 'fresha') {
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+        }
+
         return $this->success(['service' => new ServiceResource($service->fresh())]);
+    }
+
+    // POST /services/{service}/resync — revert one detached ("sync broken")
+    // Fresha service back to the live-synced version from the stored raw scrape.
+    public function resync(Request $request, Service $service): JsonResponse
+    {
+        $pro = $this->currentUser($request);
+
+        $this->authorizeForUser($pro, 'update', $service);
+
+        if ($service->source !== 'fresha') {
+            return $this->error('Only Fresha-synced services can be resynced.', 422);
+        }
+        if (! $service->is_manual) {
+            return $this->success(['service' => new ServiceResource($service)]);
+        }
+
+        $projector = app(FreshaServiceProjector::class);
+        if (! $projector->revert($pro, $service)) {
+            return $this->error('This service is no longer offered on Fresha — keep your edited version or delete it.', 422);
+        }
+        $projector->refreshBlob($pro);
+
+        return $this->success(['service' => new ServiceResource($service->fresh())]);
+    }
+
+    // POST /services/resync — bulk revert: the given ids, or EVERY detached
+    // Fresha service when ids are omitted. Rows whose service left Fresha are
+    // skipped (nothing to revert to) and reported.
+    public function resyncBulk(Request $request): JsonResponse
+    {
+        $pro = $this->currentUser($request);
+        $this->authorizeForUser($pro, 'update', new Service(['user_id' => $pro->id]));
+
+        $validated = $request->validate([
+            'ids' => ['sometimes', 'array', 'max:500'],
+            'ids.*' => ['uuid'],
+        ]);
+
+        $query = Service::query()
+            ->where('user_id', $pro->id)
+            ->where('source', 'fresha')
+            ->where('is_manual', true);
+        if (! empty($validated['ids'])) {
+            $query->whereIn('id', $validated['ids']);
+        }
+
+        $projector = app(FreshaServiceProjector::class);
+        $resynced = 0;
+        $skipped = 0;
+        foreach ($query->get() as $row) {
+            $projector->revert($pro, $row) ? $resynced++ : $skipped++;
+        }
+        if ($resynced > 0) {
+            $projector->refreshBlob($pro);
+        }
+
+        return $this->success(['resynced' => $resynced, 'skipped' => $skipped]);
     }
 
     // Move a single service into a category (or Uncategorized). Deliberately
@@ -231,7 +308,19 @@ class UserServiceController extends ApiController
 
         $this->authorizeForUser($pro, 'delete', $service);
 
+        // Deleting a Fresha-synced service records SUPPRESSION: the soft-deleted
+        // row with deleted_origin='user' is what the next sync consults to never
+        // resurrect this serviceId (PurgeSoftDeleted excludes these rows).
+        if ($service->source === 'fresha') {
+            $service->deleted_origin = 'user';
+            $service->saveQuietly();
+        }
+
         $service->delete();
+
+        if ($service->source === 'fresha') {
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+        }
 
         return $this->success(['deleted' => true]);
     }
@@ -417,10 +506,19 @@ class UserServiceController extends ApiController
                 ->max('sort_order');
 
             $service->sort_order = is_null($max) ? 0 : ((int) $max + 1);
+            // Restoring a suppressed Fresha service is the owner explicitly
+            // un-deleting it — clear the suppression so sync treats it live again.
+            if ($service->source === 'fresha') {
+                $service->deleted_origin = null;
+            }
             $service->saveQuietly(); // update sort_order while still soft-deleted
 
             $service->restore();
         });
+
+        if ($service->source === 'fresha') {
+            app(FreshaServiceProjector::class)->refreshBlob($pro);
+        }
 
         return $this->success(['restored' => true, 'service' => new ServiceResource($service->fresh())]);
     }
