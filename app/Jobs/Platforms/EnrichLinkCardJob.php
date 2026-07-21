@@ -3,12 +3,16 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\LinkCardScraper;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 // Slow-fetch enrichment for an async link-card connect (JOB-1). The connect action
 // writes a usable MINIMAL card synchronously (status 'pending') and returns 202;
@@ -57,22 +61,53 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
             return; // removed between dispatch and run
         }
 
-        $snapshot = $scraper->snapshot($this->url); // slow HTTP; null on failure
+        $snapshot = $scraper->snapshot($this->url); // slow HTTP; null on failure — OUTSIDE the lock
 
-        $payload = $row->payload;
-        if ($snapshot !== null) {
-            // Upgrade DISPLAY fields only — never the stored url (keeps dedup keys stable).
-            foreach (['name', 'description', 'favicon', 'logo'] as $field) {
-                if (($snapshot[$field] ?? null) !== null) {
-                    $payload[$field] = $snapshot[$field];
-                }
-            }
+        // PWL-8: only the re-read + write span is locked, behind the same
+        // per-user/platform key the connect-time controller writes hold
+        // (ManagesIntegrationConnection::withConnectionLock), so this job can't
+        // race a concurrent connect/forget on the same row. Re-read INSIDE the
+        // lock for authoritative state — the scrape above took time, so the
+        // row may have changed or been deleted while it ran. On contention:
+        // log-and-skip, not terminal-write — the minimal card written at
+        // connect is already an acceptable final state, so leave the row's
+        // pending/last-good state untouched rather than fail the job or burn
+        // a retry.
+        try {
+            Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform, $this->userId), 10)
+                ->block(5, function () use ($snapshot) {
+                    $row = IntegrationConnection::query()
+                        ->where('user_id', $this->userId)
+                        ->where('platform', $this->platform)
+                        ->where('resource_id', $this->resourceId)
+                        ->first();
+
+                    if ($row === null) {
+                        return; // removed while the scrape was in flight
+                    }
+
+                    $payload = $row->payload;
+                    if ($snapshot !== null) {
+                        // Upgrade DISPLAY fields only — never the stored url (keeps dedup keys stable).
+                        foreach (['name', 'description', 'favicon', 'logo'] as $field) {
+                            if (($snapshot[$field] ?? null) !== null) {
+                                $payload[$field] = $snapshot[$field];
+                            }
+                        }
+                    }
+
+                    $row->update([
+                        'payload' => $payload,
+                        'last_refreshed_at' => now(),
+                        'last_refresh_status' => 'ok',
+                    ]);
+                });
+        } catch (LockTimeoutException) {
+            Log::warning('platforms.enrich_link_card.lock_timeout', [
+                'user_id' => $this->userId,
+                'platform' => $this->platform,
+                'resource_id' => $this->resourceId,
+            ]);
         }
-
-        $row->update([
-            'payload' => $payload,
-            'last_refreshed_at' => now(),
-            'last_refresh_status' => 'ok',
-        ]);
     }
 }

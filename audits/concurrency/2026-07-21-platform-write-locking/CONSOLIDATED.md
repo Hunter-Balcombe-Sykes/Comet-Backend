@@ -56,7 +56,7 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 7/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 12 done** (PWL-1,2,3,4,5,6,7,11,12,13,14,15)
+- Tier 1: 8/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 0/1 (record-only) — **16 findings, 13 done** (PWL-1,2,3,4,5,6,7,8,11,12,13,14,15)
 - ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
 - REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
@@ -140,7 +140,7 @@ side locks, a controller-only fix is inert. **Fix:** wrap the controller writes 
 **Blocker:** the seeder/job half is a live job path → plan + sign-off before implementing.
 
 ### PWL-8 — EnrichLinkCardJob::handle() vs custom/online-ordering/booking/reservations connect-time locked writes — BLOCKER (job path), S–M
-- [ ] Fix
+- [x] Fix — snapshot() HTTP stays outside; the re-read + display-field merge + update() are wrapped in platformConnectionLock($this->platform, $this->userId), re-reading the row inside the lock (authoritative). Q5 = LOG-AND-SKIP on timeout (best-effort upgrade; keep the minimal card, no terminal write / fail / retry). Independent review PASS; test fails pre-fix (instant write-through), passes post-fix (~5s block → skip + warning). NOTE (accepted): since PWL-14/15 moved booking/reservations detect/forget onto the XOR key, this per-platform key excludes the custom/online-ordering writers but NOT the booking/reservations XOR-locked paths — low-stakes (display-only fields, ShouldBeUnique job, self-correcting on next connect/refresh).
 **Plain English:** After you add a custom link / online-ordering / booking / reservation card, a
 background job upgrades its display fields. That job doesn't lock, so it can overwrite an edit or a
 disconnect you make in the seconds while it runs.
