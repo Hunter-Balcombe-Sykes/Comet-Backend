@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 31 of 69 complete
+- P2 Medium: 33 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 8 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -69,7 +69,7 @@ every draft rather than the scan reading nothing.
 > for the three re-tiers recorded below.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
-**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)*
+**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -485,12 +485,15 @@ The *Waitlist retirement* work (2026-07-19) established the pattern: a table wit
 scheduled prune **and** export/purge wiring, guarded by `DataExportCoverageTest`. These are the
 tables that still lack it.
 
-- [ ] **`models-data/PRIV-2`** · P2 · M — `UserDeletionAuditEntry.professional_email_snapshot` has no retention bound or scheduled purge → `sources/models-data.md`
-- [ ] **`models-data/PRIV-3`** · P2 · M — `DataExportAudit.professional_email_snapshot` / `recipient_email` have no retention bound or scheduled purge → `sources/models-data.md`
-- [ ] **`wiring/PRIV-1`** · P2 · S — Feedback PII (email, handle, ip_hash) has no retention window or cleanup for non-deleted rows → `sources/wiring.md`
-- [ ] **`gdpr-deletion-export/PRIV-3`** · P2 · S — `analytics.item_views` has no FK to `core.users`, so visitor IP/UA rows outlive an account by up to 90 days → `sources/gdpr-deletion-export.md`
-  - Add `purgeItemViewsPii()` to `AccountDeletionService::purge()`; add `item_views` to `PURGED_PII_TABLES`.
-  - ⚠️ **Schema change** — see the schema-change list below.
+- [ ] ⏸ **`models-data/PRIV-2`** · P2 · M — `UserDeletionAuditEntry.professional_email_snapshot` has no retention bound or scheduled purge → `sources/models-data.md`
+  - **Deferred to the pre-cutover schema window (Josh, 2026-07-21).** `audit.user_deletion_audit` is append-only for `app_backend` (SELECT/INSERT only; `20260527010000` revokes UPDATE/DELETE schema-wide). Pruning needs a new SECURITY DEFINER prune function like `audit.prune_handle_change_log()` (`20260718010000`) = a NEW migration, which `db push` applies to the live dev DB. Zero rows today (pre-pilot, ~7yr window). Author it with PRIV-3 as one consistent prune in the cutover window — see the `## Requires a schema change` table.
+- [ ] ⏸ **`models-data/PRIV-3`** · P2 · M — `DataExportAudit.professional_email_snapshot` / `recipient_email` have no retention bound or scheduled purge → `sources/models-data.md`
+  - **Deferred to the pre-cutover schema window (Josh, 2026-07-21).** `audit.data_export_audit` *does* have a `GRANT UPDATE` (`20260624`), so this one could anonymise via a migration-free scheduled UPDATE — but deferred with PRIV-2 to keep the sibling tables on one consistent prune mechanism rather than splitting them.
+- [x] **`wiring/PRIV-1`** · P2 · S — Feedback PII (email, handle, ip_hash) has no retention window or cleanup for non-deleted rows → `sources/wiring.md`
+  - **`no_change_needed` — already shipped on this branch by `6ac34154` (2026-07-20, internal "PRIV-8"), default set to 90d by `905e04b9`.** `partna.feedback.retention_days` + `PruneOldFeedbackSubmissionsCommand` (batched hard-delete on `created_at`, `--dry-run`/`--days`, pgsql-pinned, logs counts only) + weekly Sunday schedule in `routes/console.php` + 5 tests. Verified in review.
+- [x] **`gdpr-deletion-export/PRIV-3`** · P2 · S — `analytics.item_views` has no FK to `core.users`, so visitor IP/UA rows outlive an account by up to 90 days → `sources/gdpr-deletion-export.md`
+  - **Fixed — code only, no migration.** Added `AccountDeletionService::purgeItemViewsPii()` (DELETE `analytics.item_views` WHERE `user_id = $professional->id`, pgsql-pinned, fault-tolerant), wired into `purge()` before `forceDelete()`, and added `analytics.item_views` to `PURGED_PII_TABLES`. `app_backend` already holds DELETE (used by `PurgeRawAnalyticsEvents`). Over-deletion guard test asserts a second professional's rows survive. Reviewed PASS on the irreversible path.
+  - ~~⚠️ Schema change~~ — no migration needed; the DELETE grant already exists.
 
 ### Bundle B9 — Pre-account lifecycle: races and stuck builds · **P2** · Effort M
 

@@ -51,6 +51,7 @@ class AccountDeletionService
         'core.early_access_signups',           // purgeEarlyAccessSignup() — email_lc keyed
         'core.feedback',                       // purgeFeedbackRows() — FK is SET NULL, not CASCADE
         'notifications.email_subscriptions',   // purgeGlobalEmailSubscriptions() + purgeCrossTenantSubscriptions()
+        'analytics.item_views',                // purgeItemViewsPii() — user_id is a denormalised column, no FK
     ];
 
     /**
@@ -671,6 +672,7 @@ class AccountDeletionService
         $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
         $this->purgeGlobalEmailSubscriptions($professional, $lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
+        $this->purgeItemViewsPii($professional);          // PRIV-3: analytics.item_views has no FK to core.users
 
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
         // 3 previously-RESTRICT FKs now SET NULL). forceDelete triggers model events.
@@ -960,6 +962,31 @@ class AccountDeletionService
                 ->delete();
         } catch (\Throwable $e) {
             Log::error('Cross-tenant email subscription erasure failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * PRIV-3: Delete analytics.item_views rows for this professional.
+     *
+     * user_id is a denormalised nullable column (no FK to core.users — see the
+     * table's migration comment: nullable = fail-open write path), so forceDelete's
+     * cascade never reaches it. Left alone, a deleted user's visitor ip_hash/user_agent
+     * would otherwise survive until the next PurgeRawAnalyticsEvents sweep (up to the
+     * 90-day analytics_raw_event_retention_days window) instead of being erased
+     * immediately on account deletion.
+     */
+    private function purgeItemViewsPii(User $professional): void
+    {
+        try {
+            DB::connection('pgsql')
+                ->table('analytics.item_views')
+                ->where('user_id', $professional->id)
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Item view analytics erasure failed during account purge', [
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);

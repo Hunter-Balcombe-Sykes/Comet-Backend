@@ -26,7 +26,7 @@ class AccountDeletionTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'brand', 'commerce', 'notifications', 'billing', 'site', 'audit', 'moderation'] as $schema) {
+        foreach (['core', 'brand', 'commerce', 'notifications', 'billing', 'site', 'audit', 'moderation', 'analytics'] as $schema) {
             try {
                 $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
             } catch (\Throwable) {
@@ -320,6 +320,26 @@ class AccountDeletionTestCase
             content_hash TEXT NULL,
             captured_at TEXT NULL
         )");
+
+        // analytics.item_views — PRIV-3: purge() deletes rows by user_id (denormalised, no FK).
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.item_views (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
+            site_id TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            item_title TEXT NULL,
+            section_key TEXT NULL,
+            occurred_at TEXT NOT NULL,
+            session_id TEXT NULL,
+            visitor_id TEXT NULL,
+            ip_hash TEXT NULL,
+            user_agent TEXT NULL,
+            referrer TEXT NULL,
+            country_code TEXT NULL,
+            device_type TEXT NULL,
+            created_at TEXT NULL
+        )');
 
         // notifications.email_subscriptions — purge() deletes global (user_id IS NULL) rows by email_lc.
         $conn->statement("CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (
