@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 37 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P2 Medium: 39 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
 - P3 Low: 8 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 1 of 4 complete.*
 
@@ -69,7 +69,7 @@ every draft rather than the scan reading nothing.
 > for the three re-tiers recorded below.
 
 **Units worked:** B2 ✅ · S1+S2 ✅ · S3 ✅ · B1 ✅ · B3 ✅ · B4 ✅ · B5 ✅ · B6 ✅ (2026-07-20)
-**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)*
+**P2 session (2026-07-21):** B7 ✅ *(3 fixed, 2 already-fixed, 2 landed-early-verified, 2 Josh decisions, 1 → B13)* · B8 ✅ *(item_views purge fixed, feedback retention already-shipped; 2 audit-table purges deferred to cutover — Josh)* · B9 ✅ *(4 races fixed: IP-cap advisory lock, handle savepoint-retry, stuck-build watchdog, rename-lock scope; dual independent review)* · B10 ✅ *(report() on 8 deletion/PII-erasure catches + request(); fixed a strict-Log-mock regression the full suite caught)*
 
 **Standing decision (Josh, 2026-07-20):** the prod cutover will collapse migration history
 into a fresh baseline, so **none of these migration files will replay against prod.** B2, S1,
@@ -524,8 +524,10 @@ These are the adjacent paths that lack the same rigour.
 note alerts fire on **issues**, not log queries — so these failures are currently invisible.
 All of them are on PII-erasure or deletion paths, where silent failure is the worst kind.
 
-- [ ] **`state-machines/LIFE-5`** · P2 · S — Seven PII-erasure sub-methods in `AccountDeletionService::purge()` log failures but never `report()` them → `sources/state-machines.md`
-- [ ] **`state-machines/LIFE-1`** · P2 · S — `AccountDeletionService::request()` swallows a transaction failure without `report()` → `sources/state-machines.md`
+- [x] **`state-machines/LIFE-5`** · P2 · S — Seven PII-erasure sub-methods in `AccountDeletionService::purge()` log failures but never `report()` them → `sources/state-machines.md`
+  - **Fixed.** Added `report($e)` alongside the existing `Log::error` in all seven named sub-methods **plus** `purgeItemViewsPii` (the 8th, added by B8 — same pattern). Additive only: log levels + swallow-and-continue fault tolerance unchanged. The pre-existing top-level `report()` precedents (Supabase-deletion, forceDelete) were undisturbed. A pre-existing strict-`Log`-mock test broke because `report()` cascades a 2nd `Log::error` via the framework handler in tests → fixed with `Exceptions::fake()` + an `assertReported` that strengthens it.
+- [x] **`state-machines/LIFE-1`** · P2 · S — `AccountDeletionService::request()` swallows a transaction failure without `report()` → `sources/state-machines.md`
+  - **Fixed.** Added `report($e)` before the 503 return, keeping the `Log::error`. New `AccountDeletionNightwatchReportingTest` proves both LIFE-1/LIFE-5 report (verified fail-before/pass-after in review).
 
 ### Bundle B11 — `$fillable` doctrine on tenant-owned models · **P2** · Effort M
 

@@ -2,7 +2,9 @@
 
 use App\Models\Core\User\User;
 use App\Services\User\AccountDeletionService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -217,6 +219,12 @@ it('logs an error and still completes forceDelete when evidence scrub throws (PR
     // Simulate a DB failure during the evidence scrub by dropping the table.
     DB::connection('pgsql')->statement('DROP TABLE IF EXISTS moderation.evidence');
 
+    // B10 (LIFE-5): the scrub failure is now also report()'d to Nightwatch. Fake the
+    // exception handler so report() is captured here rather than cascading a second
+    // Log::error (the framework handler's own log call) into the strict mock below,
+    // which asserts only the explicit "Evidence payload PII erasure failed" message.
+    Exceptions::fake();
+
     Log::shouldReceive('error')
         ->withArgs(fn ($msg) => str_contains((string) $msg, 'Evidence payload PII erasure failed'))
         ->once();
@@ -230,4 +238,7 @@ it('logs an error and still completes forceDelete when evidence scrub throws (PR
     // (e) forceDelete still returns true despite the scrub failure.
     $result = app(AccountDeletionService::class)->purge($professional);
     expect($result)->toBeTrue();
+
+    // ...and the failure is now visible to Nightwatch (the B10 fix under test).
+    Exceptions::assertReported(QueryException::class);
 });

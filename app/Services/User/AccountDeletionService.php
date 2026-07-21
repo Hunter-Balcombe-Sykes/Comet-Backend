@@ -152,6 +152,10 @@ class AccountDeletionService
                 'error' => $e->getMessage(),
             ]);
 
+            // LIFE-1: surface to Nightwatch — a swallowed failure here silently
+            // strands the user with no deletion request and no alert.
+            report($e);
+
             return [
                 'success' => false,
                 'code' => 503,
@@ -767,6 +771,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -793,6 +800,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -814,6 +824,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -844,6 +857,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -897,6 +913,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -927,6 +946,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -965,6 +987,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
@@ -990,6 +1015,9 @@ class AccountDeletionService
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);
+
+            // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
         }
     }
 
