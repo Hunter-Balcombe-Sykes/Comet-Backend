@@ -190,7 +190,7 @@ class IntegrationConnectionObserver
                 return;
             }
 
-            $payload = InstagramPayload::fromArray($connection->payload ?? []);
+            $payload = InstagramPayload::fromArray($connection->payload);
             if ($payload->videoUrl === null && ($payload->images[0] ?? null) === null) {
                 return;
             }

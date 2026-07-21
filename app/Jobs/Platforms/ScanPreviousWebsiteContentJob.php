@@ -26,6 +26,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
 // Single entry point for everything that happens when a user's
 // previous_website is set/changed: about text, menu (HTML + PDF),
@@ -173,7 +174,16 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             $logoCandidates[] = ['kind' => 'icon', 'url' => $favicon['url'], 'sizes' => '', 'type' => ''];
         }
         if ($logoCandidates !== []) {
-            $logoAutoGrabber->grabIfEmpty($user, $site, $logoCandidates);
+            // The decisions array is the grabber's per-candidate audit trail
+            // (LogoAutoGrabber's docblock expects the caller to keep it) —
+            // logged, not persisted: "why didn't my logo get picked up" is a
+            // support question answered from logs, not a product surface.
+            $decisions = $logoAutoGrabber->grabIfEmpty($user, $site, $logoCandidates);
+            Log::info('website_scan.logo_grab', [
+                'user_id' => $this->userId,
+                'site_id' => $this->siteId,
+                'decisions' => $decisions,
+            ]);
         }
     }
 
