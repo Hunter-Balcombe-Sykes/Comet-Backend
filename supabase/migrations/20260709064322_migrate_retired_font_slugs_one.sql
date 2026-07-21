@@ -21,15 +21,17 @@
 --
 -- Down (restore):
 --   UPDATE site.design_kits d SET typography_font_family = b.typography_font_family
---     FROM site.design_kits_font_backup_20260709 b WHERE b.id = d.id;
+--     FROM site.design_kits_font_backup_20260709 b WHERE b.site_id = d.site_id;
 --   UPDATE site.design_kit_contributions c SET value = b.value
 --     FROM site.design_kit_contributions_font_backup_20260709 b WHERE b.id = c.id;
 --   DROP TABLE site.design_kits_font_backup_20260709;
 --   DROP TABLE site.design_kit_contributions_font_backup_20260709;
 
 -- Reversible backups of exactly the rows about to change.
+-- design_kits is keyed by site_id (no `id` column — the consolidated baseline's PK),
+-- so the backup and its restore below reference site_id.
 CREATE TABLE IF NOT EXISTS site.design_kits_font_backup_20260709 AS
-  SELECT id, typography_font_family
+  SELECT site_id, typography_font_family
   FROM site.design_kits
   WHERE typography_font_family IN (
     'work-sans','roboto','tex-gyre-heros','mplus','quicksand','office-code-pro',
