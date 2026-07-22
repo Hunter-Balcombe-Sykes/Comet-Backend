@@ -216,7 +216,12 @@ jobs:
 
       - name: npm audit (cloudflare-worker)
         working-directory: cloudflare-worker
-        run: npm audit --audit-level=high
+        # --omit=dev: the Worker's only dependency is wrangler (devDependency),
+        # a build/deploy tool that is never bundled into the deployed Worker.
+        # Its transitive sharp/libvips CVEs (via miniflare) can't reach the
+        # Worker runtime and have no non-breaking fix (every wrangler >=4.16.0
+        # pulls the flagged miniflare). Audit what actually ships.
+        run: npm audit --omit=dev --audit-level=high
 
       - name: npm audit (repo root)
         # Root package.json (Vite build tooling) was previously unaudited —

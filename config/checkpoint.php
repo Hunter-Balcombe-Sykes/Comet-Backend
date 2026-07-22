@@ -176,6 +176,8 @@ return [
         '7c06737326a6', // ComputeContentPopularityScores — driver-conditional day expr
         '6e4b3296bd03', // SiteProvisioningSavepointTest — local const table name
         '731db7a5ac32', // SiteProvisioningSavepointTest — local const table name
+        '55939d4857c2', // PreAccountBuildHandleRaceTest — CREATE TEMP TABLE, local const table name
+        '2d77dfcb34d9', // PreAccountBuildHandleRaceTest — DROP TABLE, local const table name
 
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
         // All are `Authorization: Bearer ` headers concatenating a VARIABLE
