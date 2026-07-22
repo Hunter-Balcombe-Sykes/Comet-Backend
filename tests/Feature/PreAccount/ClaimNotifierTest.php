@@ -5,6 +5,8 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimNotifier;
+use App\Services\PreAccount\Notifications\ClaimDmChannel;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 beforeEach(function () {
@@ -68,4 +70,44 @@ it('does not stamp invited_at when there is no contact_email', function () {
     app(ClaimNotifier::class)->notify($build->fresh());
 
     expect($build->fresh()->invited_at)->toBeNull();
+});
+
+it('fans out to the DM channel even when there is no contact_email', function () {
+    Mail::fake();
+    $dm = Mockery::spy(ClaimDmChannel::class);
+    app()->instance(ClaimDmChannel::class, $dm);
+
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
+    $build = PreAccountBuild::factory()->make(['contact_email' => null]);
+    $build->user()->associate($user);
+    $build->save();
+
+    app(ClaimNotifier::class)->notify($build->fresh());
+
+    Mail::assertNothingQueued();                          // no email channel
+    $dm->shouldHaveReceived('send')->once();              // but DM fan-out fired
+    expect($build->fresh()->invited_at)->toBeNull();      // and stays re-sendable
+});
+
+it('claims the send under an advisory lock before queueing mail', function () {
+    Mail::fake();
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
+    $build = PreAccountBuild::factory()->make(['contact_email' => 'lead@example.com']);
+    $build->user()->associate($user);
+    $build->save();
+
+    $lockSql = null;
+    DB::listen(function ($query) use (&$lockSql) {
+        if (str_contains($query->sql, 'pg_advisory_xact_lock')) {
+            $lockSql = $query->sql;
+        }
+    });
+
+    app(ClaimNotifier::class)->notify($build->fresh());
+
+    expect($lockSql)->not->toBeNull()             // lock was acquired
+        ->and($build->fresh()->invited_at)->not->toBeNull();
+    Mail::assertQueued(ClaimInviteMail::class, 1);
 });

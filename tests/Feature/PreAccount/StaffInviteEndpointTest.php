@@ -59,7 +59,10 @@ it('sends the invite and stamps invited_at', function () {
     actingAsStaff(inviteStaffActor());
     $build = readyBuild();
 
-    $this->postJson("/api/staff/builds/{$build->id}/invite")->assertStatus(200);
+    $this->postJson("/api/staff/builds/{$build->id}/invite")
+        ->assertStatus(200)
+        ->assertJsonPath('auto_invite', false)          // staff resource confirms outreach state
+        ->assertJson(fn ($json) => $json->where('invited_at', fn ($v) => $v !== null)->etc());
 
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
     expect($build->fresh()->invited_at)->not->toBeNull();

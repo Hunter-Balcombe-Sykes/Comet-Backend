@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Staff\UserSite\StaffBatchPreAccountBuildRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffCreatePreAccountBuildRequest;
 use App\Http\Resources\PreAccountBuildStatusResource;
+use App\Http\Resources\StaffPreAccountBuildResource;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\PreAccountBuildException;
@@ -76,9 +77,14 @@ class StaffPreAccountBuildController extends ApiController
 
         app(ClaimNotifier::class)->notify($build);
 
-        $build->loadMissing('user.site');
+        // Re-read from DB (not loadMissing, which only fills relations) so the
+        // response reflects the committed invited_at even on the race-loser
+        // path, where ClaimNotifier synced the winner's model, not this one.
+        $build = $build->fresh('user.site');
 
-        return $this->success((new PreAccountBuildStatusResource($build))->resolve());
+        // Staff variant so the caller can confirm invited_at was stamped —
+        // the public resource deliberately hides outreach state (spec §8).
+        return $this->success((new StaffPreAccountBuildResource($build))->resolve());
     }
 
     // POST /api/staff/builds/batch — CSV loop over requestBuild. Per-row failures

@@ -391,6 +391,11 @@ function setupPreAccountBuildsTable(): void
             // already exists — ignore
         }
     }
+
+    // ClaimNotifier::notify() serializes concurrent sends with
+    // pg_advisory_xact_lock(hashtext(...)); register the SQLite no-op shims so
+    // pre-account tests exercise the real locked code path.
+    shimPgAdvisoryLockForSqlite();
 }
 
 /**
