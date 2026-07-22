@@ -276,3 +276,23 @@ it('logs user_id when global email subscription erasure fails (LIFE-103)', funct
         })
         ->once();
 });
+
+it('purges to completion on the SQLite test driver without invoking the pgsql-only helper', function () {
+    // Proves the driver guard holds: if purge() called audit.null_user_audit_links()
+    // unconditionally, SQLite would throw "no such function" here.
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    expect((new AccountDeletionService)->purge($pro))->toBeTrue();
+    expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeFalse();
+});
+
+it('does not hard-delete the row when the Supabase auth-delete fails (retryable)', function () {
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 500)]);
+
+    expect((new AccountDeletionService)->purge($pro))->toBeFalse();
+    expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeTrue();
+});

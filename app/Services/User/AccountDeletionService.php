@@ -687,6 +687,15 @@ class AccountDeletionService
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
         $this->purgeItemViewsPii($professional);          // PRIV-3: analytics.item_views has no FK to core.users
 
+        // Pre-null the two append-only audit links (staff_audit_log, handle_change_log) so
+        // forceDelete's ON DELETE SET NULL cascade matches 0 rows there and never trips
+        // their reject-mutation triggers. Postgres-only: the helper/triggers don't exist
+        // under the SQLite test driver (the 'pgsql' connection is aliased to SQLite in
+        // tests, so getDriverName() returns 'sqlite' and this is skipped).
+        if (DB::connection('pgsql')->getDriverName() === 'pgsql') {
+            DB::connection('pgsql')->select('SELECT audit.null_user_audit_links(?)', [$professional->id]);
+        }
+
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
         // 3 previously-RESTRICT FKs now SET NULL). forceDelete triggers model events.
         try {
