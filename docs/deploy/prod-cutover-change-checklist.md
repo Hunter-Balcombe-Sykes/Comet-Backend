@@ -51,7 +51,8 @@ list. The narrative + rationale live in `production-cutover.md`; **this is the t
 
 Generate `APP_KEY` fresh for prod (`php artisan key:generate --show`). Set `APP_ENV=production`,
 `APP_URL=https://api.partna.au`. Carry all `PARTNA_*` feature flags / tuning knobs from dev's env unchanged
-unless you want different prod values.
+unless you want different prod values. **Caveat:** the "carry all `PARTNA_*`" rule only covers `PARTNA_`-prefixed
+keys — several live vars are **not** prefixed (see "App / notifications / internal" below) and are missed by it.
 
 ### ⛔ Boot-critical — prod hard-fails to start without these (`AppServiceProvider::boot`)
 - [ ] `APP_DEBUG=false`
@@ -88,6 +89,8 @@ unless you want different prod values.
       each other's `<handle>.partna.au` routing.
 - [ ] `CLOUDFLARE_ACCOUNT_ID` · `CLOUDFLARE_API_TOKEN` · `CLOUDFLARE_ZONE_ID` (prod zone) ·
       `CLOUDFLARE_CACHE_PURGE_TOKEN`
+- [ ] `CLOUDFLARE_SAAS_API_TOKEN` (prod) — Cloudflare-for-SaaS custom hostnames (`CloudflareCustomHostnameService`);
+      required for the custom-domain path verified in §E. Optional `CLOUDFLARE_SAAS_CNAME_TARGET` (defaults `cname.partna.au`).
 
 ### Origins / URLs
 - [ ] `PARTNA_FRONTEND_ORIGINS=https://partna.au,https://www.partna.au,https://app.partna.au`
@@ -107,7 +110,20 @@ unless you want different prod values.
 - [ ] Bot protection: `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` (or `HCAPTCHA_*`) + `BOT_PROTECTION_*` = prod keys.
 - [ ] **`GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_SERVER_API_KEY`** — the only uncapped paid API (Places); confirm
       prod quota/billing before launch.
-- [ ] Streaming/platform keys as used: `TWITCH_CLIENT_*`, `KICK_CLIENT_*`, Apify token, `FRESHA_*`.
+- [ ] **`APIFY_TOKEN`** (prod) — powers the pre-account signup scrapers: Instagram, Google-Business enrich,
+      and Menu (`MenuApifyScraper`). **Core to pilot signup** — unset and those paths silently no-op.
+- [ ] **AI menu extraction:** `MISTRAL_API_KEY` **and** `DEEPSEEK_API_KEY` (`MenuAiExtractor` needs the pair;
+      with either blank the extractor is disabled).
+- [ ] Other streaming/platform keys **only if that platform is live in prod**: `TWITCH_CLIENT_*`, `KICK_CLIENT_*`,
+      `FRESHA_*` — none are currently set in dev, so confirm the feature is on before adding.
+
+### App / notifications / internal (non-`PARTNA_`-prefixed — the "carry all `PARTNA_*`" rule does NOT reach these)
+- [ ] `INTERNAL_ENV_CHECK_TOKEN=<new prod secret>` — gates the internal env-check endpoint (`EnvCheckController`);
+      set a fresh prod value, do not reuse dev's.
+- [ ] **`NOTIFICATIONS_EMAIL_ENABLED=true`** — master email switch; **defaults FALSE**, so if unset every email
+      notification goes silently dark in prod. (Or set the `PARTNA_NOTIFICATIONS_EMAIL_ENABLED` override.)
+- [ ] `FEEDBACK_NOTIFY_EMAILS=<prod recipients>` — defaults empty → feedback emails reach no one. Optional tuning
+      (code defaults exist): `FEEDBACK_RATE_LIMIT_HOUR` / `FEEDBACK_RATE_LIMIT_DAY` / `FEEDBACK_DUPLICATE_WINDOW`.
 
 ## D. Supabase Pro + deploy (go-live)
 
