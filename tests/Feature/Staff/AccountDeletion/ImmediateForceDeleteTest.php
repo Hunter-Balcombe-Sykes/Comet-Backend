@@ -76,6 +76,18 @@ function makeImmediateForceDeleteAdmin(): PartnaStaff
     return $staff;
 }
 
+function makeImmediateForceDeleteNonAdmin(): PartnaStaff
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->auth_user_id = (string) Str::uuid();
+    // Non-admin role — isAdmin() returns false, so EnsurePartnaAdmin rejects
+    // the request before it ever reaches the controller/adminPurgeNow.
+    $staff->role = PartnaStaff::ROLE_SUPPORT;
+
+    return $staff;
+}
+
 /**
  * Full valid professional row, including auth_user_id — the happy-path test
  * asserts the Supabase DELETE was sent for it, so it must be present.
@@ -146,4 +158,16 @@ it('maps an auth-delete failure to 502 and leaves the account present', function
         ->assertStatus(502);
 
     expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeTrue();
+});
+
+it('rejects a non-admin staff member with 403 before touching the account', function () {
+    $staff = makeImmediateForceDeleteNonAdmin();
+    $pro = seedImmediateForceDeletePro();
+
+    actingAsStaff($staff)
+        ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Non-admin attempt — ticket #1'])
+        ->assertStatus(403);
+
+    expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeTrue();
+    Http::assertNothingSent();
 });

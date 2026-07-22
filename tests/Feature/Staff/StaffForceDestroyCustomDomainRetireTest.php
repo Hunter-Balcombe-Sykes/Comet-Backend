@@ -1,11 +1,13 @@
 <?php
 
 /**
- * EDGE-1 — staff hard-delete (forceDestroy) must retire the custom-domain KV
- * pointer. forceDelete() cascade-deletes the site row before the queued KV sync
- * runs, so retire() can no longer resolve $pro->site; forceDestroy captures the
- * active custom domain up front and threads it through the job's
- * $retireCustomDomain param. See app/Jobs/Cloudflare/SyncSubdomainToKvJob.php.
+ * EDGE-1 — staff hard-delete (via the /force endpoint's
+ * AccountDeletionService::adminPurgeNow → purge() path) must retire the
+ * custom-domain KV pointer. forceDelete() cascade-deletes the site row before
+ * the queued KV sync runs, so retire() can no longer resolve $pro->site;
+ * purge() captures the active custom domain up front and threads it through
+ * the job's $retireCustomDomain param. See
+ * app/Jobs/Cloudflare/SyncSubdomainToKvJob.php.
  */
 
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
