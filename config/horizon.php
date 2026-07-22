@@ -323,12 +323,16 @@ return [
             'supervisor-videos' => ['maxProcesses' => 2],
         ],
 
+        // Deployed dev runs on a 1 GiB worker; each booted process is ~90 MiB RSS.
+        // Trimmed to 1 process per lane (4 workers total) so Horizon fits with headroom
+        // for an ffmpeg transcode — the 7-process default OOM-looped the box at boot.
+        // Bump these when real pilot load arrives.
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
                 'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
                 'balance' => 'simple',
-                'maxProcesses' => 3,
+                'maxProcesses' => 1,
                 'tries' => 1,
                 'timeout' => 300,
             ],
@@ -348,7 +352,7 @@ return [
                 'connection' => 'redis_scraping',
                 'queue' => ['scraping'],
                 'balance' => false,
-                'maxProcesses' => 2,
+                'maxProcesses' => 1,
                 'tries' => 1,
                 'timeout' => 660,
             ],
