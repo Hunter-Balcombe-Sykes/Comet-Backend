@@ -248,9 +248,8 @@ final class SectorTaxonomy
     }
 
     /**
-     * The CategoryStylePresets bucket a sector belongs to — the styling hook
-     * the taxonomy was built to carry (consumed by SectorFactor). Null for
-     * unknown slugs.
+     * The SectorStylePresets bucket a sector belongs to — read by
+     * ProfileDesignPresets to auto-style a sitepage. Null for unknown slugs.
      */
     public static function bucketFor(string $slug): ?string
     {

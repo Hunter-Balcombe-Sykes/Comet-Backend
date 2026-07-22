@@ -139,7 +139,6 @@ class AppServiceProvider extends ServiceProvider
             ClaimDmChannel::class,
             NullClaimDmChannel::class,
         );
-
     }
 
     /**
