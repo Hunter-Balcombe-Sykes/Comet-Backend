@@ -193,12 +193,16 @@ describe('bulkUpdateStatus — fresh-AAL2 gate', function () {
 // ---------------------------------------------------------------------------
 
 describe('forceDestroy — fresh-AAL2 gate', function () {
+    beforeEach(function () {
+        Http::fake(['*/auth/v1/admin/users/*' => Http::response('', 200)]);
+    });
+
     it('rejects with 401 + mfa_fresh_required when MFA is stale (3600s)', function () {
         $staff = makeStaff();
         $pro = makeProfessional();
 
         actingAsStaff($staff, aal2ClaimsWithFreshTotp(3600))
-            ->deleteJson("/api/staff/professionals/{$pro->id}/force")
+            ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Force delete — ticket #123'])
             ->assertStatus(401)
             ->assertJsonFragment(['code' => 'mfa_fresh_required']);
     });
@@ -208,7 +212,7 @@ describe('forceDestroy — fresh-AAL2 gate', function () {
         $pro = makeProfessional();
 
         actingAsStaff($staff, ['aal' => 'aal2', 'amr' => []])
-            ->deleteJson("/api/staff/professionals/{$pro->id}/force")
+            ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Force delete — ticket #123'])
             ->assertStatus(401)
             ->assertJsonFragment(['code' => 'mfa_fresh_required']);
     });
@@ -218,9 +222,9 @@ describe('forceDestroy — fresh-AAL2 gate', function () {
         $pro = makeProfessional();
 
         // Default actingAsStaff provides a fresh totp entry. The delete itself may
-        // fail with 409 if the model has related data, but it will NOT be 401.
+        // fail with 502 if the Supabase auth-delete call fails, but it will NOT be 401.
         $response = actingAsStaff($staff)
-            ->deleteJson("/api/staff/professionals/{$pro->id}/force");
+            ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Force delete — ticket #123']);
 
         expect($response->status())->not->toBe(401);
     });
@@ -230,7 +234,7 @@ describe('forceDestroy — fresh-AAL2 gate', function () {
         $pro = makeProfessional();
 
         $response = actingAsStaff($staff, aal2ClaimsWithFreshTotp(0))
-            ->deleteJson("/api/staff/professionals/{$pro->id}/force");
+            ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Force delete — ticket #123']);
 
         expect($response->status())->not->toBe(401);
     });

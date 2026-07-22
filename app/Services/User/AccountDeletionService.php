@@ -237,6 +237,7 @@ class AccountDeletionService
         ?string $actorId = null,
         ?string $actorHandle = null,
         ?string $reason = null,
+        bool $suppressMail = false,
     ): Carbon {
         $retentionDays = (int) config('partna.soft_delete_retention_days', 30);
         $deletesAt = now()->addDays($retentionDays);
@@ -329,21 +330,23 @@ class AccountDeletionService
 
         $cancelUrl = rtrim((string) config('app.frontend_url'), '/').'/account/deletion/cancel';
 
-        try {
-            Mail::to($realEmail)->queue(
-                new AccountDeletionScheduledMail(
-                    displayName: (string) ($professional->display_name ?? 'there'),
-                    deletesAt: $deletesAt->toDayDateTimeString(),
-                    cancelUrl: $cancelUrl,
-                )
-            );
-        } catch (\Throwable $e) {
-            Log::error('Account deletion scheduled mail dispatch failed', [
-                'user_id' => $professional->id,
-                'error' => $e->getMessage(),
-            ]);
-            // Do not fail the confirmation — the deletion is more important
-            // than the mail. Cancel flow remains available via logged-in session.
+        if (! $suppressMail) {
+            try {
+                Mail::to($realEmail)->queue(
+                    new AccountDeletionScheduledMail(
+                        displayName: (string) ($professional->display_name ?? 'there'),
+                        deletesAt: $deletesAt->toDayDateTimeString(),
+                        cancelUrl: $cancelUrl,
+                    )
+                );
+            } catch (\Throwable $e) {
+                Log::error('Account deletion scheduled mail dispatch failed', [
+                    'user_id' => $professional->id,
+                    'error' => $e->getMessage(),
+                ]);
+                // Do not fail the confirmation — the deletion is more important
+                // than the mail. Cancel flow remains available via logged-in session.
+            }
         }
 
         return $deletesAt;
@@ -477,6 +480,64 @@ class AccountDeletionService
             'code' => 200,
             'deletes_at' => $deletesAt->toIso8601String(),
         ];
+    }
+
+    /**
+     * Staff immediate hard-delete: run the confirmation writes (WITHOUT the
+     * grace-period email) then purge() right away — deleting the Supabase auth
+     * user so the email frees up. Skips the 30-day window; reuses the same
+     * hardened machinery as the daily purge. Idempotent for an account already
+     * in the grace period (skips the confirmation writes and purges).
+     *
+     * @return array{success: bool, code: int, error?: string, reasons?: array<string>}
+     */
+    public function adminPurgeNow(
+        User $professional,
+        string $staffActorId,
+        string $staffActorHandle,
+        string $reason,
+        bool $overrideObligations,
+        Request $request,
+    ): array {
+        $obligations = $this->checkObligations($professional);
+
+        if (! empty($obligations) && ! $overrideObligations) {
+            return [
+                'success' => false,
+                'code' => 422,
+                'error' => 'Outstanding obligations must be settled or explicitly overridden.',
+                'reasons' => $obligations,
+            ];
+        }
+
+        // A live account needs the confirmation writes (pseudonymise PII + write the
+        // ADMIN_INITIATED audit snapshot that purge() reads for email-keyed erasure).
+        // An account already pending_deletion already has them — go straight to purge.
+        if ($professional->status !== 'pending_deletion') {
+            $metadata = ! empty($obligations) ? ['obligations_overridden' => $obligations] : [];
+
+            $this->executeConfirmation(
+                $professional,
+                UserDeletionAuditEntry::EVENT_ADMIN_INITIATED,
+                $request,
+                $metadata,
+                UserDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN,
+                $staffActorId,
+                $staffActorHandle,
+                $reason,
+                suppressMail: true,
+            );
+        }
+
+        if (! $this->purge($professional)) {
+            return [
+                'success' => false,
+                'code' => 502,
+                'error' => 'Auth deletion failed; the account is marked for deletion and will be retried automatically.',
+            ];
+        }
+
+        return ['success' => true, 'code' => 200];
     }
 
     /**
@@ -686,6 +747,40 @@ class AccountDeletionService
         $this->purgeGlobalEmailSubscriptions($professional, $lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
         $this->purgeItemViewsPii($professional);          // PRIV-3: analytics.item_views has no FK to core.users
+
+        // Pre-null the two append-only audit links (staff_audit_log, handle_change_log) so
+        // forceDelete's ON DELETE SET NULL cascade matches 0 rows there and never trips
+        // their reject-mutation triggers. Postgres-only: the helper/triggers don't exist
+        // under the SQLite test driver (the 'pgsql' connection is aliased to SQLite in
+        // tests, so getDriverName() returns 'sqlite' and this is skipped).
+        //
+        // Wrapped like the forceDelete block below: this is the only teardown step that
+        // could throw (e.g. the helper not yet applied to this DB), and a throw here would
+        // abort the nightly purge batch or surface as an uncaught 500 on /force — after the
+        // Step-1 auth-delete already ran. Log EVENT_PURGE_FAILED, report, and return false so
+        // the caller maps it to a retryable 502 and the daily command continues to the next
+        // row (the retry's auth-delete sees a 404 and proceeds once the helper exists).
+        if (DB::connection('pgsql')->getDriverName() === 'pgsql') {
+            try {
+                DB::connection('pgsql')->select('SELECT audit.null_user_audit_links(?)', [$professional->id]);
+            } catch (\Throwable $e) {
+                Log::error('null_user_audit_links failed during purge', [
+                    'user_id' => $professional->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->logAuditEvent(
+                    $professional,
+                    UserDeletionAuditEntry::EVENT_PURGE_FAILED,
+                    null,
+                    ['reason' => 'null_audit_links_failed', 'error' => $e->getMessage()],
+                    UserDeletionAuditEntry::ACTOR_TYPE_SYSTEM,
+                );
+
+                report($e);
+
+                return false;
+            }
+        }
 
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
         // 3 previously-RESTRICT FKs now SET NULL). forceDelete triggers model events.
