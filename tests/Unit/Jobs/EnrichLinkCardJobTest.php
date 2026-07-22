@@ -79,5 +79,10 @@ it('no-ops when the row is gone', function () {
     $user = enrichUser();
     $this->mock(LinkCardScraper::class, fn ($m) => $m->shouldReceive('snapshot')->never());
 
+    // No ->throwsNoExceptions() here: it marks the test as expecting zero
+    // assertions, but Mockery's ->never() verification (run in tearDown)
+    // always counts as one — the combination is flagged risky ("not
+    // expected to perform assertions but performed 1"). An uncaught
+    // exception from handle() still fails the test on its own.
     (new EnrichLinkCardJob($user->id, 'custom', 'missing', 'https://x.com'))->handle(app(LinkCardScraper::class));
-})->throwsNoExceptions();
+});
