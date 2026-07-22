@@ -6,15 +6,16 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HandlesSearchQueries;
 use App\Http\Controllers\Concerns\NormalizesPerPage;
 use App\Http\Controllers\Concerns\ReturnsPaginatedResponse;
+use App\Http\Requests\Api\Staff\StaffForceDestroyRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffBulkUpdateStatusRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
 use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
-use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
-use Exception;
+use App\Services\User\AccountDeletionService;
 use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -319,7 +320,7 @@ class StaffUserController extends ApiController
         return app(Aal2FreshnessGate::class)->check($request, $maxAgeSeconds);
     }
 
-    public function forceDestroy(Request $request, User $professional): JsonResponse
+    public function forceDestroy(StaffForceDestroyRequest $request, User $professional): JsonResponse
     {
         $gate = $this->requiresFreshAal2($request);
         if (! $gate->allowed()) {
@@ -329,46 +330,37 @@ class StaffUserController extends ApiController
             ], $gate->status() ?? 401);
         }
 
-        // Explicit policy gate — defence-in-depth for the most destructive operation.
-        // staffForceDelete is admin-only even if the route group ever grants access
-        // to support staff (which would otherwise be able to permanently delete).
+        // Admin-only even if the route group ever widened to support staff.
+        /** @var PartnaStaff $staff */
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffForceDelete', $professional);
 
-        // Hard delete - PERMANENT
         $handle = $professional->handle;
 
-        // EDGE-1: capture the ACTIVE custom domain BEFORE forceDelete. The site row
-        // is cascade-deleted (sites_user_fk ON DELETE CASCADE) as part of this delete,
-        // so the KV retire that fires from UserObserver::deleted can no longer resolve
-        // $pro->site to clear the domain:<host> pointer — leaving the user's own domain
-        // routing to their now-deleted page. Thread it through the job's idempotent
-        // $retireCustomDomain param, mirroring CustomDomainController's disconnect path.
-        $retireCustomDomain = null;
-        $siteToRetire = $professional->site;
-        if ($siteToRetire && ($siteToRetire->custom_domain_status ?? null) === 'active') {
-            $retireCustomDomain = $siteToRetire->custom_domain;
-        }
+        // Full immediate purge: pseudonymise + delete the Supabase auth user (frees the
+        // email) + hard-delete + retire KV. Skips the 30-day grace period.
+        $result = app(AccountDeletionService::class)->adminPurgeNow(
+            professional: $professional,
+            staffActorId: (string) $staff->id,
+            staffActorHandle: (string) ($staff->name ?? $staff->primary_email ?? ''),
+            reason: (string) $request->validated('reason'),
+            overrideObligations: (bool) $request->validated('override_obligations', false),
+            request: $request,
+        );
 
-        try {
-            $professional->forceDelete();
-
-            // UserObserver::deleted retires the handle key; this dispatch clears the
-            // now-orphaned custom-domain pointer. Only fires when an active custom
-            // domain existed (nothing to retire otherwise).
-            if ($retireCustomDomain) {
-                SyncSubdomainToKvJob::dispatch((string) $professional->id, $handle, $retireCustomDomain);
-            }
-
-            return $this->success([
-                'message' => "Professional '{$handle}' permanently deleted",
-                'permanently_deleted' => true,
-            ]);
-        } catch (Exception $e) {
+        if (! ($result['success'] ?? false)) {
             return $this->error(
-                'Cannot delete:  Professional has related data that must be removed first.',
-                409
+                $result['error'] ?? 'Account deletion failed.',
+                $result['code'] ?? 400,
+                [],
+                isset($result['reasons']) ? ['reasons' => $result['reasons']] : [],
             );
         }
+
+        return $this->success([
+            'message' => "Professional '{$handle}' permanently deleted",
+            'permanently_deleted' => true,
+            'email_freed' => true,
+        ]);
     }
 }

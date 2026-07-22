@@ -12,6 +12,7 @@ use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Staff\PartnaStaff;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -20,6 +21,32 @@ beforeEach(function () {
     setupSitesTable();
     setupHandleAliasesTable();
     attachTestSchemas();
+
+    // Task 5: /force now runs the FULL immediate purge (AccountDeletionService::
+    // adminPurgeNow → executeConfirmation + purge()), not a bare forceDelete().
+    // executeConfirmation forceFills deletion_*/admin_notes columns that the
+    // shared setupUsersTable() stub doesn't carry (it predates the full-purge
+    // write path) — defensive ALTER, same pattern as the sector/sector_source
+    // block in setupUsersTable() itself. purgeMediaArtifacts() also queries
+    // site.site_media unconditionally once a site exists.
+    foreach ([
+        'deletion_token_hash TEXT NULL',
+        'deletion_requested_at TEXT NULL',
+        'deletion_confirmed_at TEXT NULL',
+        'deletion_previous_status TEXT NULL',
+        'deletion_mail_sent_at TEXT NULL',
+        'admin_notes TEXT NULL',
+        'stripe_manual_balance_cents INTEGER NULL DEFAULT 0',
+    ] as $col) {
+        try {
+            DB::connection('pgsql')->statement('ALTER TABLE core.users ADD COLUMN '.$col);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
+    setupMediaTables();
+    setupUserDeletionAuditTable();
+
     // staff.audit middleware (RecordStaffAuditEntry) writes to audit.staff_audit_log
     // after the response — set it up so terminate() doesn't throw on SQLite.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
@@ -38,6 +65,12 @@ beforeEach(function () {
         user_agent TEXT,
         created_at TEXT
     )');
+
+    config([
+        'supabase.url' => 'https://test.supabase.co',
+        'supabase.service_role_key' => 'test-service-role-key',
+    ]);
+    Http::fake(['*/auth/v1/admin/users/*' => Http::response('', 200)]);
 });
 
 function makeForceDestroyAdmin(): PartnaStaff
@@ -77,7 +110,7 @@ it('retires the custom-domain KV pointer when force-deleting a user with an acti
     ]);
 
     actingAsStaff(makeForceDestroyAdmin())
-        ->deleteJson("/api/staff/professionals/{$proId}/force")
+        ->deleteJson("/api/staff/professionals/{$proId}/force", ['reason' => 'Force delete — ticket #EDGE1'])
         ->assertStatus(200);
 
     // The orphan-able custom-domain pointer is retired via $retireCustomDomain.
@@ -113,7 +146,7 @@ it('does not thread a custom-domain retirement when force-deleting a user withou
     ]);
 
     actingAsStaff(makeForceDestroyAdmin())
-        ->deleteJson("/api/staff/professionals/{$proId}/force")
+        ->deleteJson("/api/staff/professionals/{$proId}/force", ['reason' => 'Force delete — ticket #EDGE1'])
         ->assertStatus(200);
 
     // No dispatch should carry a non-null retireCustomDomain.
