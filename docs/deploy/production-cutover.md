@@ -39,28 +39,32 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
 
 - [ ] **All P0/P1 audit findings resolved**, including any that carry Supabase migrations (they must land
       on dev first so the schema is final before we snapshot it).
-- [ ] **Land the deferred Gate-A P2 schema on dev** — P2 findings that carry migrations, so they must be on
-      the live dev DB before the snapshot (the P0/P1 line above does **not** cover them). Status 2026-07-22:
+- [x] **Land the deferred Gate-A P2 schema on dev** — P2 findings that carry migrations, so they must be on
+      the live dev DB before the snapshot (the P0/P1 line above does **not** cover them). **DONE 2026-07-22
+      — both applied + ledger-aligned.** Status:
       - **B8 (`models-data/PRIV-2`+`PRIV-3`, audit-retention prune) — ✅ APPLIED.**
         `audit.prune_user_deletion_audit()` + `audit.prune_data_export_audit()` applied to dev via MCP
         `apply_migration` (repo file `20260722010000_audit_pii_snapshot_retention_prune.sql`); verified live
         (SECURITY DEFINER, pinned `search_path`, `app_backend` EXECUTE only). Already in the schema to be
         snapshotted — nothing to do at cutover.
-      - **B20 (11 migrations `20260721010000…040700`) — ⏸ NOT YET APPLIED.** Additive/passive schema (RLS
-        enable+force+policies on `site.workplaces`/`content_selection`, menu-platform UUID defaults,
-        `design_kits` backfill, `pg_trgm` + 7 GIN indexes). Apply to dev during the drift reconciliation
-        below **surgically, not via `db push`** (drift note); apply the 7 `CONCURRENTLY` index files
-        **individually in autocommit** (`execute_sql`/`psql`), never inside a transaction (SQLSTATE 25001).
-        Then it's part of the snapshot.
+      - **B20 (11 migrations `20260721010000…040700`) — ✅ APPLIED 2026-07-22.** RLS enable+force+policies
+        on `site.workplaces`/`content_selection` (verified `true/true` + 3 policies each; `app_backend` is
+        `BYPASSRLS` so reads are unaffected — same live pattern as `site.design_kit_contributions`),
+        menu-platform UUID defaults, `design_kits` backfill (0 rows — already complete), `pg_trgm` + 7
+        trigram GIN indexes. Applied surgically to dev via `execute_sql` (indexes as plain `CREATE INDEX` —
+        identical objects, sidesteps the `CONCURRENTLY`-in-transaction 25001), recorded in the ledger under
+        the **exact repo versions** (aligned — no cutover reconciliation needed). Already in the schema to
+        be snapshotted — nothing to do at cutover.
 - [ ] **Reconcile dev migration drift** — the **non-negotiable prerequisite** for a trustworthy prod DB
       (you chose to **snapshot dev into a fresh baseline**, so dev must be a known, reproducible state).
       The dev DB has changes applied out-of-band that aren't in the repo (and repo files not applied to
       dev). **A 2026-07-21 audit already catalogued this drift**: 73 repo-only + 55 dev-only versions, of
       which only 10 are genuinely missing and all additive (RLS defense-in-depth, pg_trgm perf indexes,
       likely-unused defaults) — reviewed and judged skip-safe. Start from that catalog rather than
-      rediscovering it. ⚠️ **That catalog predates the Gate-A P2 schema** (checkbox above): B8 is now
-      applied; B20's 11 files are additional repo-only still to land. **Full step-by-step below → see
-      "Drift reconciliation (detailed steps)".**
+      rediscovering it. ✅ **The deferred Gate-A P2 schema (B8 + B20's 11) is now applied to dev and
+      recorded under its exact repo versions** (2026-07-22, checkbox above) — so it needs no reconciliation
+      here; it's already part of the verified dev schema. **Full step-by-step below → see "Drift
+      reconciliation (detailed steps)".**
 - [ ] **Collapse the migration history into a fresh baseline** (see "Migration collapse" below). Snapshot
       the *verified dev schema*, archive the incrementals, verify parity with a schema diff — **and prove
       the baseline applies from an empty DB via `scripts/db/fresh-reset.sh`** (the CONCURRENTLY-safe psql
