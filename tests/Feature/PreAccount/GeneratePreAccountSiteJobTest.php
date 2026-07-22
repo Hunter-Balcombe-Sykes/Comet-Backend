@@ -186,9 +186,21 @@ it('does not notify when auto_invite is false even if published', function () {
     $this->mock(SourceGeneratorRegistry::class, function ($mock) {
         $gen = new class implements SiteSourceGenerator
         {
-            public function normalizeRef(string $raw): string { return $raw; }
-            public function dedupeKey(string $normalizedRef): string { return $normalizedRef; }
-            public function handleSeed(string $normalizedRef, ?string $sourceName): string { return $normalizedRef; }
+            public function normalizeRef(string $raw): string
+            {
+                return $raw;
+            }
+
+            public function dedupeKey(string $normalizedRef): string
+            {
+                return $normalizedRef;
+            }
+
+            public function handleSeed(string $normalizedRef, ?string $sourceName): string
+            {
+                return $normalizedRef;
+            }
+
             public function generate($user, $site, $ref): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
