@@ -726,8 +726,7 @@ class DataExportPayloadBuilder
      * Per-category email opt-in/out preferences. Required for GDPR Article 15
      * (right of access) — users must be able to see every preference we store
      * about them, not just the marketing subscription list.
-     */
-    /**
+     *
      * PRIV-2: explicit allow-list, equal to the table's current full column set.
      */
     private function streamNotificationPreferences(string $userId): Generator
@@ -915,8 +914,7 @@ class DataExportPayloadBuilder
      * alerts mentioning the account holder). Broadcast notifications
      * (user_id IS NULL) are NOT included — they're sent to every user
      * and contain no personal data.
-     */
-    /**
+     *
      * PRIV-2: explicit allow-list, equal to the table's current full column set.
      */
     private function streamNotifications(string $userId): Generator
@@ -939,8 +937,7 @@ class DataExportPayloadBuilder
      * Per-notification read/dismiss timestamps. Behavioural data tied to the
      * identified user — EDPB Guidelines 01/2022 treats this as in-scope for
      * Article 15.
-     */
-    /**
+     *
      * PRIV-2: explicit allow-list, equal to the table's current full column set.
      */
     private function streamNotificationReceipts(string $userId): Generator
@@ -958,8 +955,7 @@ class DataExportPayloadBuilder
      * Per-action UI confirmation preferences. Same shape as
      * notification_email_preferences (which is already exported); structural
      * symmetry makes inclusion the consistent choice.
-     */
-    /**
+     *
      * PRIV-2: explicit allow-list, equal to the table's current full column set.
      */
     private function streamConfirmationPreferences(string $userId): Generator

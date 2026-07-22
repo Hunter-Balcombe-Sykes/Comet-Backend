@@ -341,7 +341,6 @@ class MenuApifyScraper
         return 'name:'.mb_strtolower(trim((string) ($item['name'] ?? '')));
     }
 
-    /** Total item count across a scraped menu's categories. */
     private function itemCount(array $menu): int
     {
         $n = 0;

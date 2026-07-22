@@ -533,8 +533,6 @@ class SitepageDataResolverService
      *
      * Returns snake_case keys (id, sort_order, url, url_hd, alt_text,
      * caption, kind, poster, duration_ms) — the resolver-internal shape.
-     * IndividualProfilePayloadBuilder::buildDesignMedia remaps to camelCase
-     * for the wire.
      *
      * @return list<array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}>
      */

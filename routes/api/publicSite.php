@@ -9,8 +9,6 @@ use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Middleware\Moderation\PerTargetReportThrottle;
 use Illuminate\Support\Facades\Route;
 
-// TODO(v1): all routes in this file should be prefixed /v1/ once frontend is ready for the migration
-
 // Fallback to 'partna.au' so a missing/typo'd PARTNA_PUBLIC_DOMAIN env doesn't
 // silently produce an unmatched domain pattern that breaks every public route.
 // AppServiceProvider::boot() additionally hard-fails the deploy in production

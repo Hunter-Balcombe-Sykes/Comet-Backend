@@ -177,7 +177,6 @@ return [
         'discord',
         'reddit',
         'telegram',
-        'whatsapp',
         // Booking platform icons
         'fresha',
         'booksy',

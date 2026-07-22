@@ -25,8 +25,6 @@ use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
 use Illuminate\Support\Facades\Route;
 
-// TODO(v1): all routes below should be prefixed /v1/ once frontend is ready for the migration
-
 // Ping
 Route::get('/ping', fn () => response()->json(['pong' => true]))->middleware('throttle:health-check');
 

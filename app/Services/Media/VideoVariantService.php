@@ -290,7 +290,7 @@ class VideoVariantService
                 ]
             );
 
-            // --- 8. Update SiteMedia ---
+            // --- Update SiteMedia ---
             $this->markReady($mediaId, $durationMs, $posterRemotePath);
 
             Log::info('VideoVariantService: completed', [

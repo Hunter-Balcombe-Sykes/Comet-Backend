@@ -97,10 +97,6 @@ return [
             'prefix_indexes' => true,
             'search_path' => env('DB_SEARCH_PATH', 'public,core,site,notifications,analytics'),
             'sslmode' => env('DB_SSLMODE', 'require'),
-            'options' => [
-                // Set a lock timeout to prevent deadlocks
-                // PDO::ATTR_EMULATE_PREPARES => true,
-            ],
             // Set statement timeout (30 seconds)
             'statement_timeout' => env('DB_STATEMENT_TIMEOUT', 30000),
             // Set lock timeout (10 seconds)

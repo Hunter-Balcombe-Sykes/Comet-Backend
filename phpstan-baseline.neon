@@ -351,7 +351,7 @@ parameters:
 		-
 			message: '#^Using nullsafe property access "\?\-\>mode" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
-			count: 2
+			count: 1
 			path: app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationEmailPolicyController.php
 
 		-
@@ -400,12 +400,6 @@ parameters:
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$phone\.$#'
 			identifier: property.notFound
 			count: 1
-			path: app/Http/Controllers/Api/User/Customers/UserCustomerController.php
-
-		-
-			message: '#^Call to function method_exists\(\) with App\\Models\\Core\\User\\Customer and ''trashed'' will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 3
 			path: app/Http/Controllers/Api/User/Customers/UserCustomerController.php
 
 		-
@@ -518,12 +512,6 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Http/Requests/Api/User/Site/UpdateSiteRequest.php
-
-		-
-			message: '#^Access to an undefined property App\\Http\\Resources\\ApiResource\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/ApiResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\CustomerResource\:\:\$created_at\.$#'

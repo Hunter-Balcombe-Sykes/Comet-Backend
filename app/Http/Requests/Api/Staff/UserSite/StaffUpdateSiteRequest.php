@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\Staff\UserSite;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
+use App\Http\Requests\Concerns\NormalizesSiteUpdateInput;
 use App\Http\Requests\Concerns\SiteOrderingValidationRules;
 use App\Models\Core\Site\Site;
 use App\Rules\SubdomainValidationRule;
@@ -16,37 +17,7 @@ use Illuminate\Validation\Rule;
 // is processed separately by the controller (writes to site.design_kits).
 class StaffUpdateSiteRequest extends BaseFormRequest
 {
-    use DesignKitValidationRules, SiteOrderingValidationRules;
-
-    protected function prepareForValidation(): void
-    {
-        $merge = [];
-
-        if (is_string($this->subdomain ?? null)) {
-            $merge['subdomain'] = strtolower(trim($this->subdomain));
-        }
-
-        // Legacy field-name compat: old clients send skeleton_id. Merge it into
-        // architecture_id, then normalize legacy VALUES — same collapse
-        // affordance as UpdateSiteRequest (the platform is single-architecture).
-        if (is_string($this->skeleton_id ?? null) && $this->architecture_id === null) {
-            $merge['architecture_id'] = $this->skeleton_id;
-        }
-        if (is_string($merge['architecture_id'] ?? $this->architecture_id ?? null)) {
-            $v = $merge['architecture_id'] ?? $this->architecture_id;
-            $merge['architecture_id'] = UpdateSiteRequest::LEGACY_ARCHITECTURE_IDS[$v] ?? $v;
-        }
-
-        // Normalize legacy page-ids ('book' → 'services') in the ordering block
-        // so a stale client's manual_page_order / page action refs still validate.
-        if (is_array($this->settings ?? null)) {
-            $merge['settings'] = $this->normalizeOrderingPageIds($this->settings);
-        }
-
-        if ($merge !== []) {
-            $this->merge($merge);
-        }
-    }
+    use DesignKitValidationRules, NormalizesSiteUpdateInput, SiteOrderingValidationRules;
 
     public function rules(): array
     {
