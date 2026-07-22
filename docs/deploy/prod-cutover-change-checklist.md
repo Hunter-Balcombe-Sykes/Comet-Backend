@@ -21,8 +21,14 @@ list. The narrative + rationale live in `production-cutover.md`; **this is the t
 - [ ] **Assert both role attributes:** `SELECT rolcanlogin, rolbypassrls FROM pg_roles WHERE rolname='app_backend';`
       → must be **`t / t`**. BYPASSRLS is load-bearing (FORCE-RLS tables have no `app_backend` policy; without
       it the app is default-denied at runtime).
-- [ ] **Verify grants** match dev: `audit` = SELECT/INSERT only, `moderation` grants present, functions have
-      pinned `search_path`. (Collapse plan Task-8 `role_table_grants` + `pg_default_acl` diff.)
+- [ ] **Verify grants** match dev (Collapse plan Task-8 `role_table_grants` + `pg_default_acl` diff):
+      - `audit`: SELECT/INSERT on tables **plus** UPDATE on `audit.data_export_audit` (export lifecycle +
+        GDPR keep-row retention) **plus** EXECUTE on the 3 SECURITY-DEFINER prune fns
+        (`audit.prune_handle_change_log`, `audit.prune_user_deletion_audit`, `audit.prune_data_export_audit`).
+        "SELECT/INSERT only" is **stale** — without these, the scheduled `audit:prune-pii-snapshots` (03:55),
+        handle-audit-log prune, and completed-export cleanup jobs are all permission-denied on prod.
+      - `moderation`: append-only — SELECT/INSERT on `decisions`, SELECT/INSERT/UPDATE on `action_log`.
+      - Functions have pinned `search_path`.
 - [ ] **Seed reference/bootstrap data** the app needs on a fresh DB (platform/feature config, any bootstrap
       rows). Task-4 census note: old prod held only `billing.plans`(5) + `site.themes`(3) — both vestigial
       under the standalone schema; seed only what the *current* baseline actually requires.
@@ -141,7 +147,8 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
 
 ## E. Verify (Phase 4)
 
-- [ ] `api.partna.au` health responds.
+- [ ] `api.partna.au` health responds (`GET /up` liveness; `GET /api/internal/env-check` with
+      `INTERNAL_ENV_CHECK_TOKEN` for the full resolved-config assertion).
 - [ ] End-to-end: signup → create site → `SyncSubdomainToKvJob` wrote prod KV → `<handle>.partna.au` renders.
 - [ ] **Auth email arrives `From: hello@partna.au`, DKIM-signed by `partna.au`** (NOT `*.supabase.co`) — proves
       the Send Email Hook is registered + secret matches.
