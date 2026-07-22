@@ -374,7 +374,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 5 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 7 of 8 complete
 
 ---
 
@@ -382,7 +382,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SCHEMA-6** · P3 — `core.feedback.type` has a 4-value vocabulary but no `CHECK` constraint
+- [x] **#SCHEMA-6** · P3 — `core.feedback.type` has a 4-value vocabulary but no `CHECK` constraint _(DONE 2026-07-22 — migration `20260722030000_feedback_type_check.sql`, NOT VALID→VALIDATE; applied to dev; Postgres rehearsal confirms it rejects a bad value)_
     - **Where:** supabase/migrations/20260711153000_feedback_type_area_target.sql:46
     - **Affects:** Internal staff feedback-triage tool only — bad `type` values would confuse the staff list but touch no end-user or public surface.
     - **Effort:** S (~0.5–1h)
@@ -396,7 +396,7 @@ None.
             ADD COLUMN type text NULL
         ```
 
-- [ ] **#SCHEMA-7** · P3 — `core.user_segment_members` is granted `UPDATE, DELETE` for `app_backend` despite being an insert-only table at the model layer
+- [x] **#SCHEMA-7** · P3 — `core.user_segment_members` is granted `UPDATE, DELETE` for `app_backend` despite being an insert-only table at the model layer _(no_change_needed 2026-07-22 — PREMISE FALSE: `StaffSegmentController::removeMembers()` runs a live bulk `UserSegmentMember::query()->...->delete()` behind `DELETE /staff/segments/{segment}/members`. `app_backend` is BYPASSRLS but grants still bind — `REVOKE DELETE` would 500 that endpoint. Grant left intact by decision.)_
     - **Where:** supabase/migrations/20260711000100_user_segments.sql:55; app/Models/Core/Segments/UserSegmentMember.php:21
     - **Affects:** Defence-in-depth only — no code path issues UPDATE/DELETE against this table today.
     - **Effort:** S (~0.5–1h)
@@ -426,7 +426,7 @@ None.
         // 300s), not a DB column — same pattern as section-seen.
         ```
 
-- [ ] **#SCHEMA-9** · P3 — `core.user_segments` and `core.user_segment_members` have RLS enabled but not `FORCE ROW LEVEL SECURITY`
+- [x] **#SCHEMA-9** · P3 — `core.user_segments` and `core.user_segment_members` have RLS enabled but not `FORCE ROW LEVEL SECURITY` _(DONE 2026-07-22 — migration `20260722020000_force_rls_core_segment_feature_tables.sql`; applied to dev; both tables `relforcerowsecurity=t` with policies still bound)_
     - **Where:** supabase/migrations/20260711000100_user_segments.sql:51-52
     - **Affects:** Forward-looking defence-in-depth only.
     - **Effort:** S (~0.5–1h)
@@ -440,7 +440,7 @@ None.
         ALTER TABLE core.user_segment_members ENABLE ROW LEVEL SECURITY;
         ```
 
-- [ ] **#SCHEMA-10** · P3 — `core.feature_availability` has RLS enabled but not `FORCE ROW LEVEL SECURITY`
+- [x] **#SCHEMA-10** · P3 — `core.feature_availability` has RLS enabled but not `FORCE ROW LEVEL SECURITY` _(DONE 2026-07-22 — migration `20260722020000`; applied to dev; `relforcerowsecurity=t`)_
     - **Where:** supabase/migrations/20260711000200_feature_availability.sql:40
     - **Affects:** Same forward-looking defence-in-depth gap as `#SCHEMA-9`; this table controls which features/integrations are gated per segment.
     - **Effort:** S (~0.5–1h)
@@ -453,7 +453,7 @@ None.
         ALTER TABLE core.feature_availability ENABLE ROW LEVEL SECURITY;
         ```
 
-- [ ] **#SCHEMA-11** · P3 — `core.early_access_signups` has RLS enabled but not `FORCE ROW LEVEL SECURITY`
+- [x] **#SCHEMA-11** · P3 — `core.early_access_signups` has RLS enabled but not `FORCE ROW LEVEL SECURITY` _(DONE 2026-07-22 — migration `20260722020000`; applied to dev; `relforcerowsecurity=t`)_
     - **Where:** supabase/migrations/20260711000300_early_access_signups.sql:47
     - **Affects:** Same forward-looking defence-in-depth gap as `#SCHEMA-9`/`#SCHEMA-10`; this table holds PII (email, consent IP hash, invite token hash), slightly raising the stakes of a future ownership-change scenario even though today's exposure is nil.
     - **Effort:** S (~0.5–1h)
@@ -466,7 +466,7 @@ None.
         ALTER TABLE core.early_access_signups ENABLE ROW LEVEL SECURITY;
         ```
 
-- [ ] **#SCHEMA-12** · P3 — `site.content_selection` has no RLS at all
+- [x] **#SCHEMA-12** · P3 — `site.content_selection` has no RLS at all _(no_change_needed 2026-07-22 — PREMISE SUPERSEDED: repo migration `20260721010000_rls_workplaces_content_selection.sql` (applied to dev 07-21) already ENABLE+FORCE RLS + owner/staff/service_role policies. Live DB confirms enabled+forced+3 policies.)_
     - **Where:** supabase/migrations/20260705150200_create_content_selection.sql:13-16
     - **Affects:** Defence-in-depth against PostgREST/Supabase client leakage. `app_backend` carries `BYPASSRLS` for the app path, so exposure is limited to a misconfigured PostgREST role.
     - **Effort:** M (~2–4h)
@@ -483,7 +483,7 @@ None.
         -- CRUD grant.
         ```
 
-- [ ] **#SCHEMA-13** · P3 — `site.workplaces` has no RLS at all
+- [x] **#SCHEMA-13** · P3 — `site.workplaces` has no RLS at all _(no_change_needed 2026-07-22 — PREMISE SUPERSEDED: same repo migration `20260721010000` already ENABLE+FORCE RLS + owner/staff/service_role policies. Live DB confirms enabled+forced+3 policies.)_
     - **Where:** supabase/migrations/20260701150000_create_workplaces.sql (entire `CREATE TABLE`)
     - **Affects:** Same exposure class as `#SCHEMA-12`; `site.workplaces` holds PII-adjacent identity fields (name, address, phone, opening hours, contact email) — the most sensitive of the RLS-only-gap findings in this audit.
     - **Effort:** M (~2–4h)
@@ -751,7 +751,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 1 complete
 - P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -761,7 +761,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#DINT-3** · P3 — `site.shop_brands` TEXT enum columns (`provider`, `selection_mode`, `link_mode`) have no DB CHECK constraint
+- [x] **#DINT-3** · P3 — `site.shop_brands` TEXT enum columns (`provider`, `selection_mode`, `link_mode`) have no DB CHECK constraint _(no_change_needed 2026-07-22 — PREMISE SUPERSEDED: repo migration `20260720100200_shop_brands_mode_checks.sql` already adds `shop_brands_selection_mode_check` + `shop_brands_link_mode_check` (confirmed live). `provider` intentionally left unconstrained per the finding — new scraper = new provider, no migration.)_
     - **Where:** supabase/migrations/20260704160000_shop_brands_products.sql:13,21; supabase/migrations/20260707030000_shop_brand_modes.sql:19-22
     - **Affects:** Shop brand data — a direct DB write, buggy job, or migration error can insert an invalid `provider`, `selection_mode`, or `link_mode` value that the app's `toBrandArray()` coalesce logic wasn't written to expect.
     - **Effort:** M (~2–4h)
