@@ -237,6 +237,7 @@ class AccountDeletionService
         ?string $actorId = null,
         ?string $actorHandle = null,
         ?string $reason = null,
+        bool $suppressMail = false,
     ): Carbon {
         $retentionDays = (int) config('partna.soft_delete_retention_days', 30);
         $deletesAt = now()->addDays($retentionDays);
@@ -329,21 +330,23 @@ class AccountDeletionService
 
         $cancelUrl = rtrim((string) config('app.frontend_url'), '/').'/account/deletion/cancel';
 
-        try {
-            Mail::to($realEmail)->queue(
-                new AccountDeletionScheduledMail(
-                    displayName: (string) ($professional->display_name ?? 'there'),
-                    deletesAt: $deletesAt->toDayDateTimeString(),
-                    cancelUrl: $cancelUrl,
-                )
-            );
-        } catch (\Throwable $e) {
-            Log::error('Account deletion scheduled mail dispatch failed', [
-                'user_id' => $professional->id,
-                'error' => $e->getMessage(),
-            ]);
-            // Do not fail the confirmation — the deletion is more important
-            // than the mail. Cancel flow remains available via logged-in session.
+        if (! $suppressMail) {
+            try {
+                Mail::to($realEmail)->queue(
+                    new AccountDeletionScheduledMail(
+                        displayName: (string) ($professional->display_name ?? 'there'),
+                        deletesAt: $deletesAt->toDayDateTimeString(),
+                        cancelUrl: $cancelUrl,
+                    )
+                );
+            } catch (\Throwable $e) {
+                Log::error('Account deletion scheduled mail dispatch failed', [
+                    'user_id' => $professional->id,
+                    'error' => $e->getMessage(),
+                ]);
+                // Do not fail the confirmation — the deletion is more important
+                // than the mail. Cancel flow remains available via logged-in session.
+            }
         }
 
         return $deletesAt;
@@ -477,6 +480,64 @@ class AccountDeletionService
             'code' => 200,
             'deletes_at' => $deletesAt->toIso8601String(),
         ];
+    }
+
+    /**
+     * Staff immediate hard-delete: run the confirmation writes (WITHOUT the
+     * grace-period email) then purge() right away — deleting the Supabase auth
+     * user so the email frees up. Skips the 30-day window; reuses the same
+     * hardened machinery as the daily purge. Idempotent for an account already
+     * in the grace period (skips the confirmation writes and purges).
+     *
+     * @return array{success: bool, code: int, error?: string, reasons?: array<string>}
+     */
+    public function adminPurgeNow(
+        User $professional,
+        string $staffActorId,
+        string $staffActorHandle,
+        string $reason,
+        bool $overrideObligations,
+        Request $request,
+    ): array {
+        $obligations = $this->checkObligations($professional);
+
+        if (! empty($obligations) && ! $overrideObligations) {
+            return [
+                'success' => false,
+                'code' => 422,
+                'error' => 'Outstanding obligations must be settled or explicitly overridden.',
+                'reasons' => $obligations,
+            ];
+        }
+
+        // A live account needs the confirmation writes (pseudonymise PII + write the
+        // ADMIN_INITIATED audit snapshot that purge() reads for email-keyed erasure).
+        // An account already pending_deletion already has them — go straight to purge.
+        if ($professional->status !== 'pending_deletion') {
+            $metadata = ! empty($obligations) ? ['obligations_overridden' => $obligations] : [];
+
+            $this->executeConfirmation(
+                $professional,
+                UserDeletionAuditEntry::EVENT_ADMIN_INITIATED,
+                $request,
+                $metadata,
+                UserDeletionAuditEntry::ACTOR_TYPE_STAFF_ADMIN,
+                $staffActorId,
+                $staffActorHandle,
+                $reason,
+                suppressMail: true,
+            );
+        }
+
+        if (! $this->purge($professional)) {
+            return [
+                'success' => false,
+                'code' => 502,
+                'error' => 'Auth deletion failed; the account is marked for deletion and will be retried automatically.',
+            ];
+        }
+
+        return ['success' => true, 'code' => 200];
     }
 
     /**
