@@ -13,18 +13,26 @@
 --     guard trigger off. SET NULL keeps the audit event, severs the user link — the
 --     schema's own declared intent and GDPR-appropriate.
 
-BEGIN;
-SET LOCAL lock_timeout = '2s';
-
 -- (a) auth_user_id FK: CASCADE -> SET NULL. Safe: auth_user_id is nullable (unclaimed /
 -- pre-account users already carry NULL) and users_auth_user_id_unique is a partial index
 -- (WHERE deleted_at IS NULL) with btree treating NULLs as distinct, so nulling during
--- purge cannot collide. Existing rows already satisfy the FK, so ADD validates cleanly.
+-- purge cannot collide. Existing rows already satisfy the FK. Per CONVENTIONS.md §4 the
+-- new FK is added NOT VALID then validated in a separate transaction, so swapping it never
+-- takes an ACCESS EXCLUSIVE full-table-validation lock on core.users.
+BEGIN;
+SET LOCAL lock_timeout = '2s';
 ALTER TABLE core.users DROP CONSTRAINT users_auth_user_id_fkey;
 ALTER TABLE core.users ADD CONSTRAINT users_auth_user_id_fkey
-    FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+    FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE SET NULL NOT VALID;
+COMMIT;
+
+-- Back-fill validation of existing rows under SHARE UPDATE EXCLUSIVE (writes continue).
+BEGIN;
+ALTER TABLE core.users VALIDATE CONSTRAINT users_auth_user_id_fkey;
+COMMIT;
 
 -- (b) Null the append-only audit links for the user being hard-deleted.
+BEGIN;
 CREATE OR REPLACE FUNCTION audit.null_user_audit_links(p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql

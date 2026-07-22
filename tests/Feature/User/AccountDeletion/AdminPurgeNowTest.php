@@ -34,7 +34,7 @@ function seedAdminPurgeUser(array $overrides = []): User
     return User::query()->where('id', $id)->first();
 }
 
-function makeStaffRequest(): Request
+function makeAdminPurgeStaffRequest(): Request
 {
     $request = Request::create('/', 'DELETE');
     $request->attributes->set('supabase_uid', (string) Str::uuid());
@@ -53,7 +53,7 @@ it('purges immediately and does NOT queue the grace-period email', function () {
         staffActorHandle: 'Admin One',
         reason: 'Spam account — support ticket #999',
         overrideObligations: false,
-        request: makeStaffRequest(),
+        request: makeAdminPurgeStaffRequest(),
     );
 
     expect($result['success'])->toBeTrue()
@@ -76,7 +76,7 @@ it('returns 502 and leaves the row present when the auth-delete fails', function
         staffActorHandle: 'Admin One',
         reason: 'Spam account — support ticket #999',
         overrideObligations: false,
-        request: makeStaffRequest(),
+        request: makeAdminPurgeStaffRequest(),
     );
 
     expect($result['success'])->toBeFalse()
@@ -101,7 +101,7 @@ it('skips the confirmation writes for an account already in the grace period', f
         staffActorHandle: 'Admin One',
         reason: 'Finishing an in-progress deletion now',
         overrideObligations: false,
-        request: makeStaffRequest(),
+        request: makeAdminPurgeStaffRequest(),
     );
 
     expect($result['success'])->toBeTrue();
