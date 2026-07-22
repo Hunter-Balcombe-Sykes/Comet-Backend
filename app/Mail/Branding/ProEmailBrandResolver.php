@@ -8,7 +8,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
-use App\Services\Design\Presets\DesignPresetResolver;
+use App\Services\Design\ProfileDesignPresets;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -64,18 +64,16 @@ class ProEmailBrandResolver
             ? 'https://'.$user->handle.'.partna.au'
             : 'https://partna.au';
 
-        // Merge the integration-driven preset layer under the user's manual kit
-        // (manual wins) so white-label emails reflect the same auto-styling as
-        // the sitepage. Falls back to the raw manual kit if resolution fails.
-        try {
-            $kit = app(DesignPresetResolver::class)->mergedFlatKit($siteId);
-        } catch (\Throwable $e) {
-            report($e);
-            $kit = (array) (DB::connection('pgsql')
-                ->table('site.design_kits')
-                ->where('site_id', $siteId)
-                ->first() ?? []);
-        }
+        // Merge the profile-derived preset layer under the user's manual kit
+        // (manual wins) so white-label emails reflect the same auto-styling
+        // as the sitepage.
+        $manualRow = (array) (DB::connection('pgsql')
+            ->table('site.design_kits')
+            ->where('site_id', $siteId)
+            ->first() ?? []);
+        unset($manualRow['site_id']);
+        $manual = array_filter($manualRow, static fn ($v) => $v !== null);
+        $kit = array_merge(ProfileDesignPresets::forUser($user), $manual);
 
         return new EmailBrand(
             isPartna: false,
