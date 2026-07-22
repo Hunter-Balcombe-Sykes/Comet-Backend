@@ -380,7 +380,11 @@ function setupPreAccountBuildsTable(): void
 
     // Defensive ALTER for suites that created core.pre_account_builds before
     // contact_email existed. Mirrors migration 20260721120000.
-    foreach (['contact_email TEXT NULL'] as $col) {
+    foreach ([
+        'contact_email TEXT NULL',
+        'invited_at TEXT NULL',
+        'auto_invite INTEGER NOT NULL DEFAULT 1',
+    ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);
         } catch (Throwable $e) {

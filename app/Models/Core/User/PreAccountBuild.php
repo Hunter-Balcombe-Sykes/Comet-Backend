@@ -24,6 +24,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $created_ip_hash sha256(CF-Connecting-IP); NULL for staff-built rows (no visitor IP to hash).
  * @property Carbon|null $expires_at Drives builds:prune-expired; irrelevant once claimed. NULL = never-expire (early-access builds, until staff approval).
  * @property string|null $contact_email Notify address + email-gate value; NULL = first-come claim.
+ * @property Carbon|null $invited_at When the claim invite was sent (ClaimNotifier stamps it after queueing the mail). NULL = not yet invited — the idempotency guard.
+ * @property bool $auto_invite false = publish the site but DEFER the claim invite for manual review + POST /builds/{build}/invite. Default true = auto-send on publish (unchanged).
  * @property Carbon|null $claimed_at NULL while the build is live (scopeLive); set once the visitor claims the site.
  * @property Carbon $created_at
  * @property Carbon $updated_at
@@ -72,12 +74,14 @@ class PreAccountBuild extends BaseModel
     // dropped write here strands a build in the wrong state with zero error).
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',
-        'created_ip_hash', 'expires_at', 'contact_email',
+        'created_ip_hash', 'expires_at', 'contact_email', 'auto_invite',
     ];
 
     protected $casts = [
         'expires_at' => 'datetime',
         'claimed_at' => 'datetime',
+        'invited_at' => 'datetime',
+        'auto_invite' => 'boolean',
     ];
 
     /** @return BelongsTo<User, $this> */
