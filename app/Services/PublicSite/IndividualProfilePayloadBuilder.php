@@ -544,7 +544,7 @@ class IndividualProfilePayloadBuilder
         $manual = [];
         if ($row) {
             $cols = (array) $row;
-            unset($cols['site_id']);
+            unset($cols['site_id'], $cols['created_at'], $cols['updated_at']);
             $manual = array_filter($cols, fn ($v) => $v !== null);
         }
 

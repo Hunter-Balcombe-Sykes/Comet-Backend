@@ -64,6 +64,7 @@ $searchPathFunctions = [
     ['audit', 'prune_handle_change_log'],
     ['audit', 'prune_user_deletion_audit'],
     ['audit', 'prune_data_export_audit'],
+    ['audit', 'null_user_audit_links'],
 ];
 
 dataset('search_path_functions', array_map(

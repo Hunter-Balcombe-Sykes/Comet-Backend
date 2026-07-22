@@ -47,4 +47,9 @@ it('prefers CF-Connecting-IP over the resolved client IP for public limiters', f
     expect($keyed)->toContain('203.0.113.9')
         ->and($keyed)->not->toContain('10.0.0.1')
         ->and($keyed)->toBe($fallback);
-})->with(['public-site', 'analytics', 'leads', 'public-subscribe']);
+})->with([
+    'public-site', 'analytics', 'leads', 'public-subscribe',
+    // SCALE-1/2/3 (scale-health audit): analytics-click, document-download, and
+    // partna.moderation.report were still keying on $request->ip() alone.
+    'analytics-click', 'document-download', 'partna.moderation.report',
+]);
