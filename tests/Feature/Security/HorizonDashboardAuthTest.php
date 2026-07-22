@@ -10,13 +10,16 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 |--------------------------------------------------------------------------
 | Behavior matrix for AppServiceProvider::authorizeHorizonRequest:
 |
-|   env       creds set    auth header                 result
-|   --------  -----------  --------------------------  -------
-|   non-prod  any          any                         allow
-|   prod      no           any                         deny (403 via Horizon)
-|   prod      yes          missing                     401 + WWW-Authenticate
-|   prod      yes          wrong                       401 + WWW-Authenticate
-|   prod      yes          correct                     allow
+|   env            creds set    auth header                 result
+|   -------------  -----------  --------------------------  -------
+|   local/testing  any          any                         allow
+|   dev/prod       no           any                         deny (403 via Horizon)
+|   dev/prod       yes          missing                     401 + WWW-Authenticate
+|   dev/prod       yes          wrong                       401 + WWW-Authenticate
+|   dev/prod       yes          correct                     allow
+|
+| "development" is deployed and publicly reachable (dev-api.partna.au), so it
+| follows the production credential gate — only local/testing bypass auth.
 |
 | Why a static method instead of an inline closure: the closure needs to
 | run inside Horizon's auth middleware which we can't reach from a test
@@ -36,8 +39,56 @@ afterEach(function () {
     $this->app->detectEnvironment(fn () => 'testing');
 });
 
-it('allows access in non-production environments', function () {
+it('allows access in the testing environment', function () {
     $request = Request::create('/horizon');
+
+    expect(AppServiceProvider::authorizeHorizonRequest($request))->toBeTrue();
+});
+
+it('allows access in the local environment', function () {
+    $this->app->detectEnvironment(fn () => 'local');
+
+    $request = Request::create('/horizon');
+
+    expect(AppServiceProvider::authorizeHorizonRequest($request))->toBeTrue();
+});
+
+it('denies access in development when credentials are not configured', function () {
+    $this->app->detectEnvironment(fn () => 'development');
+
+    $request = Request::create('/horizon');
+
+    expect(AppServiceProvider::authorizeHorizonRequest($request))->toBeFalse();
+});
+
+it('challenges with 401 in development when basic auth is missing', function () {
+    $this->app->detectEnvironment(fn () => 'development');
+    config([
+        'horizon.dashboard.username' => 'admin',
+        'horizon.dashboard.password' => 'secret-pass',
+    ]);
+
+    $request = Request::create('/horizon');
+
+    try {
+        AppServiceProvider::authorizeHorizonRequest($request);
+        $this->fail('Expected HttpException but none was thrown.');
+    } catch (HttpException $e) {
+        expect($e->getStatusCode())->toBe(401);
+    }
+});
+
+it('allows access in development with valid basic auth credentials', function () {
+    $this->app->detectEnvironment(fn () => 'development');
+    config([
+        'horizon.dashboard.username' => 'admin',
+        'horizon.dashboard.password' => 'secret-pass',
+    ]);
+
+    $request = Request::create('/horizon', 'GET', [], [], [], [
+        'PHP_AUTH_USER' => 'admin',
+        'PHP_AUTH_PW' => 'secret-pass',
+    ]);
 
     expect(AppServiceProvider::authorizeHorizonRequest($request))->toBeTrue();
 });

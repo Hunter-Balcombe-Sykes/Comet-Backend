@@ -355,9 +355,11 @@ class AppServiceProvider extends ServiceProvider
      * Authorize a request to the Horizon dashboard.
      *
      * Behavior:
-     * - Non-production: always allowed (dev/staging convenience).
-     * - Production with no HORIZON_DASHBOARD credentials: denied → 403.
-     * - Production with credentials configured:
+     * - local / testing: always allowed (genuinely private envs).
+     * - Any deployed env (development, production) with no HORIZON_DASHBOARD
+     *   credentials: denied → 403. dev-api.partna.au is publicly reachable and
+     *   Horizon renders live job payloads, so "non-prod" is not a safe bypass.
+     * - Deployed env with credentials configured:
      *     - Missing/invalid Basic auth header → 401 + WWW-Authenticate challenge.
      *     - Valid credentials (constant-time compare) → allowed.
      *
@@ -366,14 +368,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public static function authorizeHorizonRequest(Request $request): bool
     {
-        if (! app()->isProduction()) {
+        if (app()->environment('local', 'testing')) {
             return true;
         }
 
         $expectedUser = (string) config('horizon.dashboard.username', '');
         $expectedPassword = (string) config('horizon.dashboard.password', '');
 
-        // Unset credentials = sealed prod (matches prior behavior).
+        // Unset credentials = sealed (matches prior prod behavior).
         if ($expectedUser === '' || $expectedPassword === '') {
             return false;
         }

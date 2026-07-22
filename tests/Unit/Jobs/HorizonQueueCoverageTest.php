@@ -8,6 +8,7 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -87,6 +88,34 @@ it('platform_connect queue is covered in the development environment', function 
 it('platform_connect queue is covered in the local environment', function () {
     expect(envCoversQueue('local', 'platform_connect'))->toBeTrue(
         'platform_connect queue must appear in at least one local supervisor queue list'
+    );
+});
+
+// Generic sweep: the per-queue tests above pin four historically-bitten lanes,
+// but a NEW queue name added without a supervisor strands its jobs silently
+// (JOB-2: InstagramConnectJob never ran in any env). This discovers every queue
+// name app code can dispatch to — onQueue()/viaQueue() literals, config-driven
+// names, $queue property defaults, per-connection defaults — and asserts each
+// has a consuming supervisor in every Horizon environment block.
+it('every queue any app code can dispatch to is consumed by a supervisor in every environment', function () {
+    $queues = discoveredQueueNames();
+
+    // Sanity floor: the historically known set is 14 queues. A smaller result
+    // means the discovery regexes rotted, not that the platform shrank.
+    expect(count($queues))->toBeGreaterThanOrEqual(14);
+
+    $missing = [];
+    foreach (['production', 'development', 'local'] as $env) {
+        foreach ($queues as $queue) {
+            if (! envCoversQueue($env, $queue)) {
+                $missing[] = "{$env}: {$queue}";
+            }
+        }
+    }
+
+    expect($missing)->toBeEmpty(
+        "Queue with no consuming supervisor — jobs dispatched there strand as a silent backlog:\n - "
+        .implode("\n - ", $missing)
     );
 });
 
@@ -220,6 +249,65 @@ function envCoversQueue(string $env, string $queue): bool
     return false;
 }
 
+/**
+ * Every queue name app code can dispatch to: onQueue()/viaQueue() calls with a
+ * literal or config-driven name (tolerating a (string) cast), $queue property
+ * defaults, and the per-connection default queues from config/queue.php.
+ * Dynamic names (onQueue($var)) are invisible to this scan — the count floor in
+ * the calling test guards against the regexes rotting outright.
+ */
+function discoveredQueueNames(): array
+{
+    $queues = ['default'];
+
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($files as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $src = (string) file_get_contents($file->getPathname());
+
+        preg_match_all(
+            "/(?:onQueue|viaQueue)\\(\\s*(?:\\(string\\)\\s*)?(?:config\\(\\s*'([^']+)'|'([^']+)')/",
+            $src,
+            $matches
+        );
+        foreach ($matches[1] as $i => $configKey) {
+            $queues[] = $configKey !== '' ? config($configKey) : $matches[2][$i];
+        }
+
+        preg_match_all("/public\\s+(?:string\\s+)?\\\$queue\\s*=\\s*'([^']+)'/", $src, $propMatches);
+        foreach ($propMatches[1] as $literal) {
+            $queues[] = $literal;
+        }
+
+        // Constructor-style assignment ($this->queue = ...), used by the
+        // moderation jobs to dodge a PHP 8.4 typed-trait-property conflict.
+        preg_match_all(
+            "/\\\$this->queue\\s*=\\s*(?:\\(string\\)\\s*)?(?:config\\(\\s*'([^']+)'|'([^']+)')/",
+            $src,
+            $assignMatches
+        );
+        foreach ($assignMatches[1] as $i => $configKey) {
+            $queues[] = $configKey !== '' ? config($configKey) : $assignMatches[2][$i];
+        }
+    }
+
+    // Jobs routed by onConnection() alone land on the connection's default queue.
+    foreach (config('queue.connections') as $connection) {
+        $queues[] = $connection['queue'] ?? null;
+    }
+
+    return array_values(array_unique(array_filter(
+        $queues,
+        fn ($queue) => is_string($queue) && $queue !== ''
+    )));
+}
+
 // Sweep: every ShouldBeUnique job whose run can outlast its own dedupe lock is a
 // duplicate waiting to happen. ShouldBeUnique's lock is a cache lock with
 // TTL = $uniqueFor, force-released only on CLEAN completion — a timeout-kill or
@@ -269,6 +357,67 @@ it('every ShouldBeUnique job holds its lock at least as long as it can run', fun
         "A ShouldBeUnique job can outrun its own dedupe lock, so a duplicate can slip in mid-run:\n - "
         .implode("\n - ", $violations)
     );
+});
+
+// Generic companion to the explicit list above: reflection over DEFAULT property
+// values needs no constructor args, so it auto-covers every ShouldBeUnique job in
+// app/Jobs with zero maintenance — the hardcoded list stays for jobs whose knobs
+// are assigned in the constructor (invisible to getDefaultProperties()).
+// ShouldBeUniqueUntilProcessing is excluded on purpose: its lock releases when
+// processing STARTS, so uniqueFor only guards queue-wait and may legitimately be
+// shorter than timeout (SyncSubdomainToKvJob documents exactly this trade).
+it('every ShouldBeUnique job with property-default knobs holds its lock longer than it can run', function () {
+    $violations = [];
+    $checked = 0;
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(app_path('Jobs'), FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $class = 'App\\'.str_replace('/', '\\', substr($file->getPathname(), strlen(app_path()) + 1, -4));
+        if (! class_exists($class)) {
+            continue;
+        }
+
+        $reflection = new ReflectionClass($class);
+        if ($reflection->isAbstract()
+            || ! $reflection->implementsInterface(ShouldBeUnique::class)
+            || $reflection->implementsInterface(ShouldBeUniqueUntilProcessing::class)) {
+            continue;
+        }
+
+        $defaults = $reflection->getDefaultProperties();
+        $uniqueFor = $defaults['uniqueFor'] ?? null;
+        $timeout = $defaults['timeout'] ?? null;
+
+        if (! is_int($uniqueFor) || ! is_int($timeout)) {
+            continue; // constructor-driven knobs — covered by the explicit list above
+        }
+
+        $checked++;
+
+        if ($uniqueFor <= $timeout) {
+            $violations[] = sprintf(
+                '%s: uniqueFor=%d must exceed timeout=%d',
+                class_basename($class),
+                $uniqueFor,
+                $timeout
+            );
+        }
+    }
+
+    // Floor guards the reflection plumbing itself — ~20 plain-unique jobs exist
+    // today, so a near-zero count means the scan broke, not that jobs vanished.
+    expect($checked)->toBeGreaterThanOrEqual(15)
+        ->and($violations)->toBeEmpty(
+            "A ShouldBeUnique job can outrun its own dedupe lock, so a duplicate can slip in mid-run:\n - "
+            .implode("\n - ", $violations)
+        );
 });
 
 // The deliberate exception, pinned so it reads as intentional rather than as a

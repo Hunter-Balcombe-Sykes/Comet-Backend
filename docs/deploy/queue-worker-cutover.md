@@ -1,6 +1,7 @@
 # Queue worker cutover — sync → Horizon readiness
 
 **Compiled:** 2026-07-20 · **Status:** pre-cutover · **Sibling doc:** [`production-cutover.md`](./production-cutover.md)
+**Re-verified 2026-07-22** against live dev env + post-07-20 code delta — see §9 for item status and new findings.
 
 ## Why this document exists
 
@@ -146,23 +147,27 @@ Checklist:
 `docs/deploy/production-cutover.md` already flags this as a manual, easy-to-miss step
 ("**prod must not inherit** dev's `queue=sync` + 0 masters").
 
-### B2 — Horizon dashboard is unauthenticated outside production
+### B2 — Horizon dashboard is unauthenticated outside production · **FIXED IN CODE 2026-07-22**
 
 **Where:** `app/Providers/AppServiceProvider.php::authorizeHorizonRequest()`
 
+The gate now opens only for `local`/`testing`; **every deployed env** (development
+included) follows the credential gate:
+
 | Condition | Behaviour |
 |---|---|
-| `! app()->isProduction()` | **Always allowed — no auth at all** |
-| Production, no dashboard credentials set | Sealed (403) |
-| Production, both credentials set | HTTP Basic, constant-time compare |
+| `local` / `testing` | Always allowed |
+| Deployed env, no dashboard credentials set | Sealed (403) |
+| Deployed env, both credentials set | HTTP Basic, constant-time compare |
 
-Fine by design for a genuinely private non-prod env. But once real workers process jobs,
-`/horizon` displays **live job payloads** — GDPR export IDs, email addresses, connection IDs —
-alongside a retry button.
+Rationale: `dev-api.partna.au/horizon` was confirmed publicly reachable (HTTP 200,
+2026-07-22) and once real workers process jobs, `/horizon` displays **live job
+payloads** — GDPR export IDs, email addresses, connection IDs — alongside a retry
+button. "Non-prod" stopped being a safe proxy for "private network".
 
-- [ ] Confirm this env's `APP_ENV` value and whether the host is externally reachable.
-- [ ] If there is any doubt, set `HORIZON_DASHBOARD_USERNAME` / `HORIZON_DASHBOARD_PASSWORD`
-      regardless of the prod-only gate, or restrict network access.
+- [x] Gate fixed — `HorizonDashboardAuthTest` pins the new matrix.
+- [ ] Set `HORIZON_DASHBOARD_USERNAME` / `HORIZON_DASHBOARD_PASSWORD` on the **dev**
+      env (else `/horizon` is sealed after the next deploy — safe, but unusable).
 
 ---
 
@@ -370,6 +375,62 @@ Ranked by impact:
 
 **A1** and **A2** resolve themselves at step 4 — no work required beyond confirming the
 `RetryUnavailableMenusCommand` stagger actually paces once workers exist.
+
+---
+
+## 9. 2026-07-22 pre-flip verification — item status + new findings
+
+Re-verified before enabling workers on the dev env: live probes via `cloud tinker development`
++ `environment:get`, a hand re-check of queue coverage, and a review of every queue-touching
+commit since this doc's 07-20 compile.
+
+### Status of this doc's action items
+
+| Item | Status |
+|---|---|
+| A1 / A2 (delay discarded, serial fan-out) | Still present under sync; self-fix on flip as documented |
+| A3 (Redis DB docs) | ✅ Fixed — `CLAUDE.md` + worker-kill drill now say DB 0 |
+| B1 (worker/scheduler provisioning) | Still a dashboard action — see new findings below |
+| B2 (Horizon dashboard auth) | ✅ **Fixed in code** — gate requires creds on every deployed env; set the dashboard env vars |
+| C1 (`ReconcilePlatformTakedownJob::failed()`) | ✅ Added — reports + logs partial-takedown context |
+| C2 (broadcast subscriber job queue) | ✅ Added — self-owned `mail` queue in constructor |
+| §6 queue coverage ("nothing will tell you") | ✅ Now pinned generically — `HorizonQueueCoverageTest` discovers every dispatchable queue name from source and asserts supervisor coverage in all three env blocks, plus a reflection sweep of every `ShouldBeUnique` job's `uniqueFor > timeout` |
+
+### New findings from live-env probing (all pre-flip actions)
+
+1. **Deployed dev cache shares Redis DB 0 with queue+Horizon.** `config('database.redis.cache.database')`
+   resolves to `0` on the dev env (Cloud-injected `REDIS_CACHE_DB=0`; repo default is 1). The whole
+   DB-split exists because `Cache::flush()` issues a raw `FLUSHDB` — on DB 0 that would wipe pending
+   jobs and Horizon state. `SELECT 1` verified working on Cloud Redis, so the split is achievable:
+   **set `REDIS_CACHE_DB=1` explicitly on the env before flipping** (cache cold-starts, harmless).
+   Same trap applies to prod — checklist §C updated.
+2. **The dev scheduler has never ticked.** Zero `scheduler:last_run:*` heartbeat keys exist in dev
+   Redis — daily prunes (`builds:prune-expired`, `handles:prune-expired-aliases`,
+   `queue:prune-failed`) and `horizon:snapshot` have never run. Enable the scheduler in the Cloud
+   dashboard alongside the worker.
+3. **`GET /api/health/scheduler` was vacuously healthy — fixed in code.** `routes/console.php` only
+   loads for console processes, so over HTTP the Schedule singleton was empty and the endpoint
+   reported `healthy: true, tasks: []` even with cron off (exactly what dev returned live). The
+   controller now loads the schedule on demand; the checklist §E/§F verification step is meaningful again.
+4. **Dev env has `usesHibernation: true`.** A hibernated env cannot drain queues; confirm Cloud's
+   worker/hibernation interplay when provisioning (expect to disable hibernation, or verify Cloud
+   blocks it once a worker exists).
+5. **The dev deploy command runs `partna:backfill-subdomain-kv --all --queue` on every deploy.**
+   Inline (slow deploys) today; post-flip it enqueues a full KV backfill burst onto `cloudflare`
+   per deploy. Harmless but noisy — decide keep vs remove.
+
+### Post-07-20 code delta — verified clean
+
+Every queue-touching change since compile (claim-invite outreach, per-vendor scraping throttles,
+platform write-locking, Fresha→services projection, early-access builds, Resend suppression):
+scalar-only constructors, correct `->afterCommit()` on every in-transaction dispatch, queued
+mailables (`ClaimInviteMail` via `Mail::queue`), no request-scoped state, `uniqueFor`/`retryUntil`
+sane, PWL dispatches moved outside lock closures (also avoids a `ConnectFetchJob` self-deadlock
+under sync). Two sync-mode-only operational notes, both self-fixing on flip: the staff CSV batch
+endpoint (`StaffPreAccountBuildController::batch`) currently runs up to 500 scrapes inline in one
+request — don't exercise it at scale before the flip; the two one-shot backfill commands
+(`BackfillPreviousWebsiteContentScanCommand`, `SweepStaleDesignKitContributionsCommand`) lose their
+`->delay()` pacing if run before workers exist.
 
 ---
 

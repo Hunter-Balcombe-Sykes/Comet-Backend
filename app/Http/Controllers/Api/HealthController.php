@@ -37,6 +37,16 @@ class HealthController extends ApiController
     public function scheduler(): JsonResponse
     {
         $schedule = app(Schedule::class);
+
+        // routes/console.php is only loaded for console processes (bootstrap wires
+        // it via withRouting(commands:), gated on runningInConsole()), so over HTTP
+        // the Schedule singleton starts EMPTY and every check passes vacuously —
+        // "healthy" with zero tasks even when cron has never fired. Load the
+        // definitions on demand so this endpoint audits the real schedule.
+        if ($schedule->events() === []) {
+            require base_path('routes/console.php');
+        }
+
         $now = now();
         $tasks = [];
         $healthy = true;

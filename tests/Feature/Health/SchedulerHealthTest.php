@@ -53,6 +53,20 @@ it('flags a task stale when its heartbeat is older than 2x its cron interval', f
     expect($targetReport['stale'])->toBeTrue();
 });
 
+it('loads the schedule on demand when the singleton starts empty, as over real HTTP', function () {
+    // Over real HTTP, routes/console.php never loads (bootstrap gates it on
+    // runningInConsole), so the Schedule singleton is empty and the endpoint
+    // used to return healthy:true with zero tasks — a vacuous pass that hid a
+    // never-enabled cron. Simulate that state with a fresh, empty Schedule.
+    app()->instance(Schedule::class, new Schedule);
+    \Illuminate\Support\Facades\Schedule::clearResolvedInstance(Schedule::class);
+
+    $response = $this->getJson('/api/health/scheduler')->assertStatus(503);
+
+    expect($response->json('tasks'))->not->toBeEmpty()
+        ->and($response->json('healthy'))->toBeFalse();
+});
+
 it('records a heartbeat when a ScheduledTaskStarting event fires', function () {
     $schedule = app(Schedule::class);
     $event = $schedule->events()[0];

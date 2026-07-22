@@ -55,80 +55,104 @@ list. The narrative + rationale live in `production-cutover.md`; **this is the t
 
 ## C. Laravel Cloud — prod env vars (wake the stopped env; set a COMPLETE, separate secret set)
 
-Generate `APP_KEY` fresh for prod (`php artisan key:generate --show`). Set `APP_ENV=production`,
-`APP_URL=https://api.partna.au`. Carry all `PARTNA_*` feature flags / tuning knobs from dev's env unchanged
+`NEW` Generate `APP_KEY` fresh for prod (`php artisan key:generate --show`). `NEW` `APP_ENV=production` ·
+`NEW` `APP_URL=https://api.partna.au`. `SAME` Carry all `PARTNA_*` feature flags / tuning knobs from dev unchanged
 unless you want different prod values. **Caveat:** the "carry all `PARTNA_*`" rule only covers `PARTNA_`-prefixed
 keys — several live vars are **not** prefixed (see "App / notifications / internal" below) and are missed by it.
 
+**Same-vs-different legend** — every var below is tagged, answering "can I paste dev's value?":
+- `SAME` — copy dev's value verbatim (non-secret config, or a value identical across envs).
+- `SPLIT` — the same third-party **account** works, so copy-paste launches fine, but **mint a separate prod
+  token/key** (independent rotation + per-env cost attribution). Hygiene call, not a blocker.
+- `NEW` — **must differ**: a distinct prod resource/URL, a prod project ref, or a fresh secret. Pasting dev's
+  value is wrong or unsafe.
+
+> A few boot-critical vars aren't set in dev at all (dev relies on framework defaults) — prod must set them
+> **explicitly** because the boot guard requires the literal. Tags are relative to dev's *effective* value.
+
 ### ⛔ Boot-critical — prod hard-fails to start without these (`AppServiceProvider::boot`)
-- [ ] `APP_DEBUG=false`
-- [ ] `PARTNA_PUBLIC_DOMAIN=partna.au`
-- [ ] `PARTNA_THROTTLE_ENABLED=true` (must not be false)
-- [ ] `SUPABASE_JWKS_FAIL_CLOSED=true`
-- [ ] `SUPABASE_JWT_ISSUER=https://edplucmvkcnokyygxqsb.supabase.co/auth/v1`
-- [ ] `SUPABASE_JWT_AUD=authenticated`
-- [ ] `SUPABASE_EMAIL_HOOK_SECRET=<prod, matches §B hook>`
-- [ ] `SUPABASE_AUTH_HOOK_SECRET=<prod, matches §B hook>`
-- [ ] `FEEDBACK_IP_HASH_PEPPER=<new prod random secret>`
-- [ ] `NIGHTWATCH_TOKEN=<prod project>` (required whenever `NIGHTWATCH_ENABLED=true`)
+- [ ] `SAME` `APP_DEBUG=false`
+- [ ] `SAME` `PARTNA_PUBLIC_DOMAIN=partna.au`
+- [ ] `SAME` `PARTNA_THROTTLE_ENABLED=true` (must not be false)
+- [ ] `SAME` `SUPABASE_JWKS_FAIL_CLOSED=true`
+- [ ] `NEW` `SUPABASE_JWT_ISSUER=https://edplucmvkcnokyygxqsb.supabase.co/auth/v1` — **prod** ref; dev's
+      `glncumufgaqcmqhzwrxm` issuer here 401s every request.
+- [ ] `SAME` `SUPABASE_JWT_AUD=authenticated`
+- [ ] `NEW` `SUPABASE_EMAIL_HOOK_SECRET=<prod, matches §B hook>`
+- [ ] `NEW` `SUPABASE_AUTH_HOOK_SECRET=<prod, matches §B hook>`
+- [ ] `NEW` `FEEDBACK_IP_HASH_PEPPER=<new prod random secret>`
+- [ ] `NEW` `NIGHTWATCH_TOKEN=<prod project>` (required whenever `NIGHTWATCH_ENABLED=true`)
 
 ### Identity / Supabase (must be the PROD project's values)
-- [ ] `SUPABASE_URL=https://edplucmvkcnokyygxqsb.supabase.co`
-- [ ] `SUPABASE_ANON_KEY=<prod>` · `SUPABASE_SERVICE_ROLE_KEY=<prod>`
-- [ ] `SUPABASE_JWKS_URL=<prod project JWKS endpoint>` (Supabase → Project Settings → API/JWT)
-- [ ] `SUPABASE_ADMIN_BASE_URL` (defaults to `{SUPABASE_URL}/auth/v1/admin` — OK once `SUPABASE_URL` is set)
-- [ ] `SUPABASE_REQUIRE_SESSION_ID=true` (default; keeps "sign out everywhere" working)
+- [ ] `NEW` `SUPABASE_URL=https://edplucmvkcnokyygxqsb.supabase.co`
+- [ ] `NEW` `SUPABASE_ANON_KEY=<prod>` · `NEW` `SUPABASE_SERVICE_ROLE_KEY=<prod>`
+- [ ] `NEW` `SUPABASE_JWKS_URL=<prod project JWKS endpoint>` (Supabase → Project Settings → API/JWT)
+- [ ] `SAME` `SUPABASE_ADMIN_BASE_URL` (leave unset — derives from `{SUPABASE_URL}/auth/v1/admin`)
+- [ ] `SAME` `SUPABASE_REQUIRE_SESSION_ID=true` (default; keeps "sign out everywhere" working)
 
 ### Database → prod Supabase
-- [ ] `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` (Supavisor tenant prefix)
-- [ ] `DB_PASSWORD=<the password set in §A ALTER ROLE>`
-- [ ] `DB_HOST=<prod Supavisor pooler host>` · `DB_PORT=5432` (session mode) · `DB_DATABASE=postgres`
-- [ ] `DB_CONNECTION=pgsql` · `DB_SEARCH_PATH` + `DB_SSLMODE=require` (carry from dev)
+- [ ] `NEW` `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` (Supavisor tenant prefix — prod ref)
+- [ ] `NEW` `DB_PASSWORD=<the password set in §A ALTER ROLE>`
+- [ ] `NEW` `DB_HOST=<prod Supavisor pooler host>` · `SAME` `DB_PORT=5432` (session mode) · `SAME` `DB_DATABASE=postgres`
+- [ ] `SAME` `DB_CONNECTION=pgsql` · `DB_SEARCH_PATH` + `DB_SSLMODE=require` (all carry from dev)
 
 ### Queue / Redis (SYNC at go-live — see §F for the later Redis flip)
-- [ ] `QUEUE_CONNECTION=sync` **at go-live** (do NOT set `redis` until §F, when a worker is provisioned)
-- [ ] `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` = prod Redis instance (needed for cache/session/locks
-      even while queue is sync); carry the `REDIS_*_DB` index split from dev.
+- [ ] `SAME` `QUEUE_CONNECTION=sync` **at go-live** (do NOT set `redis` until §F, when a worker is provisioned)
+- [ ] `NEW` `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` = prod Redis instance (Laravel Cloud usually
+      auto-injects these when you attach prod Redis).
+- [ ] `NEW` **`REDIS_CACHE_DB=1` set EXPLICITLY — do NOT carry dev's effective values.** Verified
+      2026-07-22: deployed dev resolves cache to **DB 0** (Cloud-injected `REDIS_CACHE_DB=0`), putting
+      cache on the same DB as queue+Horizon — `Cache::flush()` is a raw `FLUSHDB` and would wipe job
+      state once workers exist. Cloud Redis supports `SELECT`, so the split works; set `REDIS_DB=0`,
+      `REDIS_CACHE_DB=1`, leave `REDIS_CACHE_LOCKS_DB`/`REDIS_SESSION_DB` on code defaults (4 / 2).
 
 ### Cloudflare / KV — a SEPARATE prod namespace (critical)
-- [ ] `CLOUDFLARE_KV_NAMESPACE_ID=<NEW prod KV namespace>` — if prod writes dev's KV, the two envs clobber
+- [ ] `NEW` `CLOUDFLARE_KV_NAMESPACE_ID=<NEW prod KV namespace>` — if prod writes dev's KV, the two envs clobber
       each other's `<handle>.partna.au` routing.
-- [ ] `CLOUDFLARE_ACCOUNT_ID` · `CLOUDFLARE_API_TOKEN` · `CLOUDFLARE_ZONE_ID` (prod zone) ·
-      `CLOUDFLARE_CACHE_PURGE_TOKEN`
-- [ ] `CLOUDFLARE_SAAS_API_TOKEN` (prod) — Cloudflare-for-SaaS custom hostnames (`CloudflareCustomHostnameService`);
+- [ ] `SAME` `CLOUDFLARE_ACCOUNT_ID` · `SAME` `CLOUDFLARE_ZONE_ID` (same `partna.au` zone) ·
+      `SPLIT` `CLOUDFLARE_API_TOKEN` · `SPLIT` `CLOUDFLARE_CACHE_PURGE_TOKEN`
+- [ ] `SPLIT` `CLOUDFLARE_SAAS_API_TOKEN` — Cloudflare-for-SaaS custom hostnames (`CloudflareCustomHostnameService`);
       required for the custom-domain path verified in §E. Optional `CLOUDFLARE_SAAS_CNAME_TARGET` (defaults `cname.partna.au`).
 
 ### Origins / URLs
-- [ ] `PARTNA_FRONTEND_ORIGINS=https://partna.au,https://www.partna.au,https://app.partna.au`
-- [ ] `FRONTEND_URL=https://app.partna.au` · `PARTNA_MARKETING_URL=https://partna.au`
-- [ ] `SESSION_SECURE_COOKIE=true` · `SESSION_DOMAIN` as appropriate
+- [ ] `NEW` `PARTNA_FRONTEND_ORIGINS=https://partna.au,https://www.partna.au,https://app.partna.au` — **drop**
+      dev's wider value (it also lists `dev-app.partna.au` + `localhost:*`); do NOT paste dev's origins into prod.
+- [ ] `SAME` `FRONTEND_URL=https://app.partna.au` · `SAME` `PARTNA_MARKETING_URL=https://partna.au`
+- [ ] `SAME` `SESSION_SECURE_COOKIE=true` · `SESSION_DOMAIN` as appropriate
 
 ### Mail / Resend
-- [ ] `RESEND_API_KEY=<prod>` · `RESEND_WEBHOOK_SECRET=<prod>` (register the bounce/complaint webhook at the
-      prod URL) · `MAIL_FROM_ADDRESS=hello@partna.au` · `MAIL_FROM_NAME` · `MAIL_MAILER`/host per dev.
+- [ ] `SPLIT` `RESEND_API_KEY` · `NEW` `RESEND_WEBHOOK_SECRET` (its own secret — register the bounce/complaint
+      webhook at the prod URL) · `SAME` `MAIL_FROM_ADDRESS=hello@partna.au` · `MAIL_FROM_NAME` · `MAIL_MAILER`/host.
 
 ### Media / storage (R2)
-- [ ] `MEDIA_DISK_BUCKET` / `MEDIA_DISK_ENDPOINT` / `MEDIA_DISK_KEY` / `MEDIA_DISK_SECRET` /
-      `MEDIA_DISK_REGION` / `MEDIA_DISK_URL` = prod bucket; `AWS_*` if used; `FILESYSTEM_DISK` / `PARTNA_MEDIA_DISK`.
+- [ ] `NEW` a **separate prod R2 bucket + its own keys**, set via the **`AWS_*`** vars the disk actually reads
+      (`AWS_BUCKET` / `AWS_ENDPOINT` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION` /
+      `AWS_URL` / `AWS_USE_PATH_STYLE_ENDPOINT`) — Laravel Cloud auto-injects these when you attach the bucket,
+      and dev + prod already run on them. `MEDIA_DISK_*` are **optional overrides** that fall back to `AWS_*`
+      (`config/filesystems.php`); set only `MEDIA_DISK_URL` if the public media-CDN domain differs. `SAME`
+      `FILESYSTEM_DISK` / `PARTNA_MEDIA_DISK` (disk selector, default `media`).
 
 ### Monitoring + third-party API keys
-- [ ] `NIGHTWATCH_TOKEN` = prod project (also in boot-critical above).
-- [ ] Bot protection: `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` (or `HCAPTCHA_*`) + `BOT_PROTECTION_*` = prod keys.
-- [ ] **`GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_SERVER_API_KEY`** — the only uncapped paid API (Places); confirm
-      prod quota/billing before launch.
-- [ ] **`APIFY_TOKEN`** (prod) — powers the pre-account signup scrapers: Instagram, Google-Business enrich,
-      and Menu (`MenuApifyScraper`). **Core to pilot signup** — unset and those paths silently no-op.
-- [ ] **AI menu extraction:** `MISTRAL_API_KEY` **and** `DEEPSEEK_API_KEY` (`MenuAiExtractor` needs the pair;
-      with either blank the extractor is disabled).
-- [ ] Other streaming/platform keys **only if that platform is live in prod**: `TWITCH_CLIENT_*`, `KICK_CLIENT_*`,
-      `FRESHA_*` — none are currently set in dev, so confirm the feature is on before adding.
+- [ ] `NEW` `NIGHTWATCH_TOKEN` = prod project (also in boot-critical above).
+- [ ] `NEW` Bot protection: `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` (or `HCAPTCHA_*`) — widgets are domain-bound,
+      so prod needs its own pair; `SAME` `BOT_PROTECTION_*` flags.
+- [ ] `SPLIT` **`GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_SERVER_API_KEY`** — the only uncapped paid API (Places).
+      Use a **separate prod key** so it carries its own quota cap + billing alert (a key shared with dev can't be
+      capped per-env — a dev runaway would burn prod budget). Confirm prod quota/billing before launch.
+- [ ] `SPLIT` **`APIFY_TOKEN`** — pre-account signup scrapers: Instagram, Google-Business enrich, Menu
+      (`MenuApifyScraper`). Same Apify account works; mint a **separate prod token** (rotation + per-env cost
+      attribution). **Core to pilot signup** — unset and those paths silently no-op.
+- [ ] `SPLIT` **AI menu extraction:** `MISTRAL_API_KEY` **and** `DEEPSEEK_API_KEY` (`MenuAiExtractor` needs the
+      pair; with either blank the extractor is disabled).
+- [ ] `SPLIT` Other streaming/platform keys **only if that platform is live in prod**: `TWITCH_CLIENT_*`,
+      `KICK_CLIENT_*`, `FRESHA_*` — none are currently set in dev, so confirm the feature is on before adding.
 
 ### App / notifications / internal (non-`PARTNA_`-prefixed — the "carry all `PARTNA_*`" rule does NOT reach these)
-- [ ] `INTERNAL_ENV_CHECK_TOKEN=<new prod secret>` — gates the internal env-check endpoint (`EnvCheckController`);
+- [ ] `NEW` `INTERNAL_ENV_CHECK_TOKEN=<new prod secret>` — gates the internal env-check endpoint (`EnvCheckController`);
       set a fresh prod value, do not reuse dev's.
-- [ ] **`NOTIFICATIONS_EMAIL_ENABLED=true`** — master email switch; **defaults FALSE**, so if unset every email
+- [ ] `SAME` **`NOTIFICATIONS_EMAIL_ENABLED=true`** — master email switch; **defaults FALSE**, so if unset every email
       notification goes silently dark in prod. (Or set the `PARTNA_NOTIFICATIONS_EMAIL_ENABLED` override.)
-- [ ] `FEEDBACK_NOTIFY_EMAILS=<prod recipients>` — defaults empty → feedback emails reach no one. Optional tuning
+- [ ] `SAME` `FEEDBACK_NOTIFY_EMAILS=<recipients>` — defaults empty → feedback emails reach no one. Optional tuning
       (code defaults exist): `FEEDBACK_RATE_LIMIT_HOUR` / `FEEDBACK_RATE_LIMIT_DAY` / `FEEDBACK_DUPLICATE_WINDOW`.
 
 ## D. Supabase Pro + deploy (go-live)
@@ -160,10 +184,13 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
 ## F. Post-cutover
 
 - [ ] **Turn workers on** (the deferred queue flip): provision + start a Horizon worker (`php artisan horizon`),
-      set `QUEUE_CONNECTION=redis`, set `HORIZON_DASHBOARD_USERNAME`/`HORIZON_DASHBOARD_PASSWORD`
-      (`APP_ENV=production` → Horizon resolves the `production` supervisor block). Then run the
-      `queue-worker-cutover.md` soak (probe job drains through Redis; watch `analytics`/`images`/`videos` +
-      `->delay()` staggers). Env-var-only without a running worker = silent unbounded backlog.
+      set `QUEUE_CONNECTION=redis`, set `HORIZON_DASHBOARD_USERNAME`/`HORIZON_DASHBOARD_PASSWORD` — since
+      2026-07-22 the auth gate requires these on **every deployed env**, not just prod (`APP_ENV=production`
+      → Horizon resolves the `production` supervisor block). Pre-flip asserts: `REDIS_CACHE_DB=1` is live
+      (§C — cache off the queue DB), scheduler enabled (`GET /api/health/scheduler` now audits the real
+      schedule over HTTP), hibernation off/compatible with a worker. Then run the `queue-worker-cutover.md`
+      soak (probe job drains through Redis; watch `analytics`/`images`/`videos` + `->delay()` staggers).
+      Env-var-only without a running worker = silent unbounded backlog.
 - [ ] **Re-point the weekly R2 backup** (`partna-db-backup` Action) from dev's `SUPABASE_DB_URL` to prod;
       rename the dump prefix; re-run the drill-04 restore rehearsal against the new target.
 - [ ] Confirm Supabase Pro is on prod (moved to §D) and drop it from dev if not needed there.

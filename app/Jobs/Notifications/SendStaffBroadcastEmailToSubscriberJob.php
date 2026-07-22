@@ -35,7 +35,12 @@ class SendStaffBroadcastEmailToSubscriberJob implements ShouldQueue
     public function __construct(
         public string $notificationId,
         public string $subscriptionId
-    ) {}
+    ) {
+        // Normally inherited from the batch's ->onQueue('mail') in
+        // SendStaffBroadcastEmailsJob, but a future direct ::dispatch() (retry
+        // tooling, a new caller) must not silently land on 'default'.
+        $this->onQueue(config('partna.queues.mail', 'mail'));
+    }
 
     public function handle(): void
     {

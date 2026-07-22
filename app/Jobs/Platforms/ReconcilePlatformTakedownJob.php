@@ -10,6 +10,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
 /**
  * OV-A staff kill-switch takedown. Flips is_active=false on connections of a
@@ -64,5 +65,19 @@ class ReconcilePlatformTakedownJob implements ShouldQueue
                 $connection->save(); // per-model save so the observer busts each site's cache
             }
         });
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        // A takedown that exhausts retries mid-sweep leaves some connections still
+        // active — a partially applied compliance action. Surface it with context;
+        // re-dispatching completes the sweep (flips are idempotent).
+        report($e);
+
+        Log::error('Platform takedown reconciliation permanently failed — takedown may be partially applied', [
+            'platform' => $this->platform,
+            'segment_id' => $this->segmentId,
+            'message' => $e->getMessage(),
+        ]);
     }
 }
