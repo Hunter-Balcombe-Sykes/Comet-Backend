@@ -78,12 +78,21 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
 - [ ] **Env-var parity audit.** Diff the dev Laravel Cloud env's keys against `.env.example` and build the
       complete prod secret set (see Phase 2). Every key dev has, prod needs — with prod values.
 - [ ] **Decide reference/seed data** a fresh prod needs: platform config, feature flags, any bootstrap rows.
-- [ ] **Decide the fate of currently-live dev-served sitepages.** Prod starts EMPTY: at go-live the Worker
+- [x] **Decide the fate of currently-live dev-served sitepages.** Prod starts EMPTY: at go-live the Worker
       flips to the prod KV and api.partna.au to the prod DB, so every `<handle>.partna.au` page published
       from dev — including pre-account builds with claim invites in flight — 404s unless migrated. Count
       them first (published sites + live builds + `invited_at IS NOT NULL` on dev), then decide: migrate
       those users/builds to prod, or accept the breakage and pause outreach around cutover. Record the
       decision here.
+      - **Inventory (dev `glncumufgaqcmqhzwrxm`, read-only, 2026-07-22):** 19 published sites (`is_published=true`)
+        — **all owned by `active` users, 0 by `unclaimed`**; **1 has a custom domain (`tuesdae.co`)**. 4 live
+        pre-account builds (`claimed_at IS NULL`), all `build_state=ready`. **Invites in flight
+        (`invited_at IS NOT NULL AND claimed_at IS NULL`) = 0.** 25 users total (21 active + 4 unclaimed).
+      - **Decision (Josh, 2026-07-22): _accept the breakage + pause outreach around cutover._** The 19 are
+        founder/test accounts (pre-beta, no customers) and **0 invites are in flight**, so cutover strands
+        nobody mid-claim; migrating 19+4 rows is not worth a planned migration task. **Carve-out:** eyeball
+        `tuesdae.co` before cutover — if it is a real user, hand-recreate that one page on prod post-go-live.
+        The 4 `ready` builds are Apify-billed scrape work that would need re-scraping if ever rebuilt on prod.
 - [ ] **Rehearse the queue flip on dev first.** Prod has never run async workers; go-live must not be the
       first-ever `QUEUE_CONNECTION=redis` + Horizon boot. Flip dev to redis + Horizon and soak before
       cutover day — `docs/deploy/queue-worker-cutover.md` inventories exactly what changes behavior under
@@ -105,9 +114,19 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
 - [ ] **Final archive dump of the old prod DB — BEFORE any wipe.** Prod was live until 2026-05-21 and may
       hold real signup/waitlist PII (verify with row counts first). One `pg_dump` (schema + data, all
       non-managed schemas) to the R2 backup bucket is free insurance for an irreversible step.
+      - **Row census (prod `edplucmvkcnokyygxqsb`, read-only `count(*)` per table, 2026-07-22):** the old
+        pre-standalone app schemas are **empty of user data**. Only non-zero tables are **`billing.plans` = 5**
+        and **`site.themes` = 3** — both reference/seed rows, both dropped by the wipe anyway. **0 rows** in
+        every PII-shaped table: `core.professionals`, `core.customers`, `core.waitlist_signups`,
+        `core.gdpr_requests`, `site.enquiries`, all `brand.*`/`commerce.*`/`analytics.*`, `notifications.*`.
+        → **No real signup/waitlist PII exists.** The archive dump is optional (a snapshot of 8 seed rows),
+        not the "free insurance for real PII" the step assumed. Re-verify on the day — the env can drift.
 - [ ] **Purge stale Supabase Auth users.** The wipe below leaves the Supabase-managed `auth` schema, so
       pre-standalone accounts in `auth.users` survive into the new prod — colliding with fresh signups and
       the claim/OTP flow. Count them, then delete (Dashboard or admin API). If keeping any, write down why.
+      - **`SELECT count(*) FROM auth.users` = 0 (0 with email; no earliest/latest) as of 2026-07-22.**
+        → **Verified no-op — nothing to purge.** No pre-standalone accounts to collide with fresh signups
+        or the claim/OTP flow. Re-verify on the day before relying on this.
 - [ ] **Wipe to a clean slate** — run as the `postgres` admin connection, NOT `app_backend`; leave
       Supabase-managed `auth`/`storage` alone:
       ```sql
