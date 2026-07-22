@@ -108,7 +108,7 @@ class SiteResource extends ApiResource
             $this->withRationale
                 ? ['design_rationale' => app(DesignRationaleService::class)->forSite(
                     (string) $this->id,
-                    $this->user_id !== null ? (string) $this->user_id : null,
+                    $this->user_id,
                 )]
                 : [],
             // Booking settings surfaced at the top level for the dashboard's
