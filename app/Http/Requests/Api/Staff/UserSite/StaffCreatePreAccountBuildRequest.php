@@ -24,6 +24,7 @@ class StaffCreatePreAccountBuildRequest extends BaseFormRequest
             'publish' => ['sometimes', 'boolean'],
             'expires_days' => ['sometimes', 'integer', 'min:1', 'max:365'],
             'contact_email' => ['nullable', 'email:rfc', 'max:320'],
+            'auto_invite' => ['sometimes', 'boolean'],
         ];
     }
 }

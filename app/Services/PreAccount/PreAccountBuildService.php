@@ -38,6 +38,7 @@ class PreAccountBuildService
         ?int $expiresDays = null,
         ?string $contactEmail = null,
         ?string $builtVia = null,
+        bool $autoInvite = true,
     ): array {
         // A source type unknown to the registry (never configured, or configured
         // but its generator class doesn't exist yet — e.g. GoogleBusinessSourceGenerator
@@ -87,7 +88,7 @@ class PreAccountBuildService
 
         try {
             $build = DB::connection('pgsql')->transaction(function () use (
-                $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt, $contactEmail, $builtVia
+                $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt, $contactEmail, $builtVia, $autoInvite
             ) {
                 // LIFE-2: signup-path abuse cap (F2), re-checked INSIDE the transaction
                 // under an advisory lock. The previous pre-transaction check-then-act let
@@ -125,6 +126,7 @@ class PreAccountBuildService
                     'created_ip_hash' => $staff ? null : $ipHash,
                     'expires_at' => $expiresAt,
                     'contact_email' => $contactEmail,
+                    'auto_invite' => $autoInvite,
                 ]);
                 // SEC-4: build_state is no longer fillable. Set explicitly (not left to
                 // the DB DEFAULT 'pending') so the in-memory model matches the row

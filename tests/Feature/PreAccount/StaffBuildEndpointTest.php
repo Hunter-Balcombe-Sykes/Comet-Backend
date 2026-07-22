@@ -115,3 +115,15 @@ it('stores a contact_email on a staff build', function () {
 
     expect(PreAccountBuild::firstOrFail()->contact_email)->toBe('prospect@example.com');
 });
+
+it('persists auto_invite=false on a staff build', function () {
+    actingAsStaff(staffBuildActor());
+    Queue::fake();
+
+    $this->postJson('/api/staff/builds', [
+        'account_type' => 'partna', 'source_type' => 'instagram',
+        'source_ref' => 'review_me', 'contact_email' => 'p@example.com', 'auto_invite' => false,
+    ])->assertStatus(202);
+
+    expect(PreAccountBuild::firstOrFail()->auto_invite)->toBeFalse();
+});

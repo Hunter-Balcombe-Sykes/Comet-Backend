@@ -171,6 +171,36 @@ it('does not notify when an unpublished build with contact_email reaches ready',
     Mail::assertNothingQueued();
 });
 
+it('does not notify when auto_invite is false even if published', function () {
+    Mail::fake();
+    Queue::fake([SyncSubdomainToKvJob::class]);
+    $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janereview', 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make([
+        'source_type' => 'instagram', 'contact_email' => 'lead@example.com', 'auto_invite' => false,
+    ]);
+    $build->build_state = PreAccountBuild::STATE_PENDING;
+    $build->user()->associate($user);
+    $build->save();
+
+    $this->mock(SourceGeneratorRegistry::class, function ($mock) {
+        $gen = new class implements SiteSourceGenerator
+        {
+            public function normalizeRef(string $raw): string { return $raw; }
+            public function dedupeKey(string $normalizedRef): string { return $normalizedRef; }
+            public function handleSeed(string $normalizedRef, ?string $sourceName): string { return $normalizedRef; }
+            public function generate($user, $site, $ref): void {}
+        };
+        $mock->shouldReceive('for')->andReturn($gen);
+    });
+
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: true))->handle(app(SourceGeneratorRegistry::class));
+
+    expect($build->user->fresh()->site->is_published)->toBeTrue() // still publishes
+        ->and($build->fresh()->invited_at)->toBeNull();
+    Mail::assertNothingQueued();                                   // but no invite
+});
+
 it('deactivates the IG connection for a dark early-access build', function () {
     $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_jane', 'is_published' => false]);
