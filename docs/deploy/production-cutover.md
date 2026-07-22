@@ -190,6 +190,52 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
       project's Auth settings against dev — Site URL, redirect-URL allowlist, OTP expiry/length, email
       rate limits, MFA/TOTP settings (staff AAL2 depends on them). None of this lives in the DB dump or
       the env-var set; prod currently holds stale pre-standalone values.
+      - **Reference = DEV Auth config captured 2026-07-22 (dashboard screenshots). Prod checklist below is a
+        transcription job — set each in the PROD Supabase project (`edplucmvkcnokyygxqsb`) → Authentication.**
+        Format: setting — dev value now → **required prod value** — why.
+        - **Site URL** — dev `https://app.partna.au` → **`https://app.partna.au`** — base for auth
+          redirect/confirm links; must equal `FRONTEND_URL` (`config/app.php`). Same on both.
+        - **Redirect URLs allowlist** — dev has **14** entries (`app.partna.au/auth/callback`,
+          `localhost:3000/auth/callback`, + 12 Vercel preview wildcards: `sidest-*`, `partna-*-partnateam`,
+          `partna-*-partnaadmin`) → **prod = TIGHT list: `https://app.partna.au/auth/callback` only** (plus
+          `https://app.partna.au/auth/confirm` IF the confirm flow needs it — see fix-candidate #1).
+          **Do NOT copy `localhost:3000` or ANY `*.vercel.app` preview into prod** — the allowlist is where
+          Supabase will bounce a user post-auth, so preview/localhost entries in prod are an open-redirect
+          surface. This is the one place prod must be *narrower* than dev, not a mirror.
+        - **Email OTP expiration** — dev `3600` s → **≤ 3600 s** (3600 is Supabase's recommended ceiling;
+          consider 900 s for prod) — shorter = smaller replay window; code assumes no fixed value.
+        - **Email OTP length** — dev `6` digits → **`6` (MUST)** — `EmailConfirmMail` + the signup-OTP path
+          assume a 6-digit code (`SupabaseEmailHookController`); any other length desyncs the emailed code
+          from the UI copy.
+        - **MFA → TOTP (App Authenticator)** — dev **Enabled** → **Enabled (MUST)** — staff `require.aal2`
+          (`RequireAal2` middleware) needs TOTP enrollable; if Disabled, staff can never reach `aal2` and
+          **every staff endpoint returns 401 `mfa_required`**. Highest-severity parity item.
+        - **MFA max per-user factors** — dev `10` → `10` (default) — non-critical.
+        - **SMS / Phone MFA** — dev **Disabled** → **Disabled** — app is TOTP-only
+          (`docs/auth/mfa-foundation.md`); SMS MFA is Pro-only and unused.
+        - **Rate limit — sending emails** — dev `50`/h → `50`/h acceptable for pilot — auth emails actually
+          deliver via the **Send Email Hook → Resend** (separate checkbox above), so this caps Supabase-
+          *triggered* auth-email volume, not Resend throughput; raise for launch if bursts expected.
+        - **Rate limit — token verifications (OTP/magic-link)** — dev `30`/5 min per IP → default OK.
+        - **Rate limit — sign-ups & sign-ins** — dev `30`/5 min per IP → default OK. (App-side claim cap is
+          separate: 5/min per `supabase_uid`, `AppServiceProvider`.)
+        - **Password — min length** dev `6`, **leaked-password protection OFF** → prod: min `6` OK (consider
+          `8` + enable leaked-password protection at launch; Pro-tier). Only bites if email/password signup
+          is used.
+      - **Fix-on-dev candidates (look wrong TODAY, independent of cutover):**
+        1. **Redirect allowlist has no `/auth/confirm`** — only `app.partna.au/auth/callback` is listed, but
+           the backend builds the email-confirm link as `{FRONTEND_URL}/auth/confirm`
+           (`SupabaseEmailHookController::buildConfirmUrl`). **VERIFY with the frontend** whether the
+           signup/confirm flow passes `emailRedirectTo=…/auth/confirm` (which Supabase validates against this
+           allowlist); if it does, email-confirm redirects are being rejected on dev today → add
+           `https://app.partna.au/auth/confirm` on **both** dev and prod. Highest-value catch of this audit.
+        2. **Dev Site URL = `app.partna.au`** (the *prod* dashboard domain), not a dev/preview domain —
+           confirm dev auth links are meant to point at the prod app rather than `dev-app.partna.au` / a
+           preview. Low confidence; may be intentional.
+        3. OTP expiry `3600` s sits at Supabase's recommended maximum — acceptable; optionally tighten.
+      - Cross-ref: the **Send Email Hook + MFA Verification Hook** registration is the SEPARATE checkbox above
+        (Phase 1 hooks); this checklist covers only the non-hook Auth surface. Staff AAL2 depends on both the
+        MFA hook AND TOTP-enabled here.
 
 ---
 
