@@ -66,12 +66,28 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
       here; it's already part of the verified dev schema. **Full step-by-step below → see "Drift
       reconciliation (detailed steps)".**
 - [ ] **Collapse the migration history into a fresh baseline** (see "Migration collapse" below). Snapshot
-      the *verified dev schema*, archive the incrementals, verify parity with a schema diff — **and prove
+      the *verified dev schema*, archive the incrementals, verify parity with a schema diff **plus the
+      grant/role-posture assertions** (a schema diff cannot see grants or role attributes) — **and prove
       the baseline applies from an empty DB via `scripts/db/fresh-reset.sh`** (the CONCURRENTLY-safe psql
-      applier; see Phase 1 for why `db push` can't do a from-zero apply).
+      applier; see Phase 1 for why `db push` can't do a from-zero apply). **Execute via the plan**
+      `docs/superpowers/plans/2026-07-22-reconcile-and-collapse-baseline.md` (Tasks 0–10; bootstrap:
+      `PROMPT-execute-reconcile-and-collapse-baseline.md`) — it carries the 2026-07-22 review corrections
+      (BYPASSRLS stitch, `db diff --from/--to` fallback, grant-matrix parity, `pg_trgm` stitch).
+- [ ] **Merge the collapse branch to `development`** after Josh's review — Phase 1 applies the baseline
+      from the deployed branch's `supabase/migrations/`, so the unpushed prep branch must land first.
 - [ ] **Env-var parity audit.** Diff the dev Laravel Cloud env's keys against `.env.example` and build the
       complete prod secret set (see Phase 2). Every key dev has, prod needs — with prod values.
 - [ ] **Decide reference/seed data** a fresh prod needs: platform config, feature flags, any bootstrap rows.
+- [ ] **Decide the fate of currently-live dev-served sitepages.** Prod starts EMPTY: at go-live the Worker
+      flips to the prod KV and api.partna.au to the prod DB, so every `<handle>.partna.au` page published
+      from dev — including pre-account builds with claim invites in flight — 404s unless migrated. Count
+      them first (published sites + live builds + `invited_at IS NOT NULL` on dev), then decide: migrate
+      those users/builds to prod, or accept the breakage and pause outreach around cutover. Record the
+      decision here.
+- [ ] **Rehearse the queue flip on dev first.** Prod has never run async workers; go-live must not be the
+      first-ever `QUEUE_CONNECTION=redis` + Horizon boot. Flip dev to redis + Horizon and soak before
+      cutover day — `docs/deploy/queue-worker-cutover.md` inventories exactly what changes behavior under
+      workers (e.g. `->delay()` becomes real, sync-masked races shift).
 - [ ] **Confirm the prod Laravel deploy command** is current. The last prod build (`fa69c2b1`) **already**
       uses `ffmpeg.sh` + `composer install --no-dev` + `php artisan optimize` (no npm) — just confirm it's
       unchanged and still **without** an auto `migrate --force` (schema is Supabase-side). Check the PHP
@@ -86,13 +102,28 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
 
 - [ ] **No restore needed** — the project is already `ACTIVE_HEALTHY` (verified 2026-07-21). It just holds
       the stale pre-standalone schema.
-- [ ] **Wipe to a clean slate.** Drop/reset the app schemas so no pre-standalone objects or stale ledger
-      rows survive (`public`, `core`, `site`, `notifications`, `analytics`, `audit`, `moderation`; leave
-      Supabase-managed `auth`/`storage`). Confirm `supabase_migrations.schema_migrations` is empty before
-      applying the baseline.
+- [ ] **Final archive dump of the old prod DB — BEFORE any wipe.** Prod was live until 2026-05-21 and may
+      hold real signup/waitlist PII (verify with row counts first). One `pg_dump` (schema + data, all
+      non-managed schemas) to the R2 backup bucket is free insurance for an irreversible step.
+- [ ] **Purge stale Supabase Auth users.** The wipe below leaves the Supabase-managed `auth` schema, so
+      pre-standalone accounts in `auth.users` survive into the new prod — colliding with fresh signups and
+      the claim/OTP flow. Count them, then delete (Dashboard or admin API). If keeping any, write down why.
+- [ ] **Wipe to a clean slate** — run as the `postgres` admin connection, NOT `app_backend`; leave
+      Supabase-managed `auth`/`storage` alone:
+      ```sql
+      DROP SCHEMA IF EXISTS core, site, notifications, analytics, audit, moderation CASCADE;
+      -- public: drop AND recreate — never leave it dropped (default grants + some extension
+      -- objects live here; check `\dx` / objects in public first and recreate what the platform needs).
+      DROP SCHEMA IF EXISTS public CASCADE;
+      CREATE SCHEMA public;
+      GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+      -- Stale ledger rows do NOT go away with the schemas:
+      TRUNCATE supabase_migrations.schema_migrations;
+      ```
+      Then confirm `supabase_migrations.schema_migrations` is empty before applying the baseline.
 - [ ] **Apply the collapsed baseline via `psql`, gated — NOT `db push`.** `supabase db reset`/`db push`
       pipeline any multi-statement file and **abort on `CREATE/DROP INDEX CONCURRENTLY`** (`SQLSTATE
-      25001`); a from-zero apply of the raw migrations hits the 9 grandfathered CONCURRENTLY bundles and
+      25001`); a from-zero apply of the raw migrations hits the 11 grandfathered CONCURRENTLY bundles and
       fails. (A single `db dump` baseline is CONCURRENTLY-free so it *might* push, but the sanctioned prod
       mechanism — CLAUDE.md → "Push to Supabase / Fresh prod DB"; `CONVENTIONS.md §1` — is psql either way.)
       ```bash
@@ -105,9 +136,14 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
       Always dry-review and confirm before running.
 - [ ] **Bootstrap the login role.** The baseline creates `app_backend` as `NOLOGIN` (fail-closed). In the
       SQL editor: `ALTER ROLE app_backend WITH LOGIN PASSWORD '<from-secret>';` — the app cannot connect
-      until this runs.
+      until this runs. Then assert BOTH attributes: `SELECT rolcanlogin, rolbypassrls FROM pg_roles WHERE
+      rolname = 'app_backend';` → `t / t`. **BYPASSRLS is load-bearing** — several FORCE-RLS tables have
+      no `app_backend` policy, so without it the app is default-denied at runtime; it is cluster-level
+      state the baseline's stitched bootstrap must set (a `db dump` never emits role attributes).
 - [ ] **Verify grants**: `app_backend` has the intended per-schema grants (esp. `audit` = SELECT/INSERT
       only, `moderation` grants present). RLS policies applied. Functions have pinned `search_path`.
+      Diff the full grant matrix against dev using the collapse plan's Task-8 queries
+      (`role_table_grants` + `pg_default_acl`) — the parity schema diff does NOT cover grants.
 - [ ] **Seed** reference/bootstrap data from Phase 0.
 - [ ] **Re-register the Supabase Auth hooks on the prod project** (Dashboard → Authentication → Hooks). A
       fresh / re-baselined prod Supabase project has **no hooks configured**, so it silently falls back to
@@ -122,6 +158,10 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
         secret = the prod auth-hook secret.
       The secret on each side (Supabase Dashboard ↔ prod Laravel env) **must match**, or the signature
       middleware returns 401/503 and the path fails closed. Verify with a real send in Phase 4.
+- [ ] **Auth project-config parity.** The hooks above are only part of the Auth surface: audit the prod
+      project's Auth settings against dev — Site URL, redirect-URL allowlist, OTP expiry/length, email
+      rate limits, MFA/TOTP settings (staff AAL2 depends on them). None of this lives in the DB dump or
+      the env-var set; prod currently holds stale pre-standalone values.
 
 ---
 
@@ -135,6 +175,8 @@ missed:
 - [ ] **`QUEUE_CONNECTION=redis` + real Horizon masters running.** Dev runs `queue=sync` with 0 Horizon
       masters (every job inline) — **prod must not inherit that.** Confirm Horizon supervisors are
       configured and running, else jobs like `SyncSubdomainToKvJob` run synchronously on the request.
+      This flip must already be rehearsed on dev (Phase 0) — `docs/deploy/queue-worker-cutover.md`
+      inventories what changes behavior under workers.
 - [ ] **Cloudflare `SUBDOMAIN_KV`: a separate prod namespace.** If prod's `SyncSubdomainToKvJob` writes the
       same KV as dev, the two environments clobber each other's `<handle>.partna.au` routing.
 - [ ] **Supabase JWT secret** = the **prod** project's secret (auth verification fails otherwise).
@@ -146,6 +188,8 @@ missed:
       hook must also be registered on the prod Supabase project, see Phase 1**), **media S3 bucket**
       (`MEDIA_DISK_URL`), **Nightwatch** (prod project), **Horizon
       basic-auth** creds, **Cloudflare** API tokens (prod zone), any provider API keys.
+- [ ] **Supabase Pro on the prod project BEFORE go-live** — managed daily backups + paid-tier limits must
+      cover the riskiest window (the first live days), not arrive in Phase 5.
 - [ ] `migrate --force` stays **off** — schema is applied Supabase-side (the Phase 1 `psql` baseline), never
       Laravel migrate (guard forbids Laravel migrations anyway).
 
@@ -179,6 +223,9 @@ prod IS the public go-live. Sequence accordingly:
 - [ ] End-to-end smoke: signup → create a site → confirm `SyncSubdomainToKvJob` wrote prod KV →
       `<handle>.partna.au` renders from prod.
 - [ ] Horizon dashboard shows masters up and jobs draining (not sync).
+- [ ] **Scheduler runs.** The prod Cloud env's scheduler is enabled and a scheduled task actually fired
+      (`handles:prune-expired-aliases`, `builds:prune-expired` are load-bearing) — check the schedule
+      output / Nightwatch task monitoring, don't assume.
 - [ ] Nightwatch (prod project) clean — no boot exceptions, no eager-scraper / connection errors.
 - [ ] **Auth email arrives from Resend, not Supabase.** Trigger a real OTP / magic-link on prod and confirm
       the message is `From: hello@partna.au` and DKIM-signed by `partna.au` (not a `*.supabase.co` sender) —
@@ -196,8 +243,11 @@ prod IS the public go-live. Sequence accordingly:
       **dev**'s `SUPABASE_DB_URL` today — move it to the prod ref (the `--schema` flags stay valid because
       prod is re-baselined with the same standalone migrations). Rename the dump prefix (`partna-dev-` →
       live). Then **re-run the drill-04 restore rehearsal** against the new target.
-- [ ] **Move the Supabase Pro upgrade** (managed daily backups) onto the prod project — the paid tier
-      follows the live data.
+- [ ] **Confirm the Supabase Pro upgrade is on the prod project** (moved at Phase 2, before go-live —
+      not here) and drop it from dev if it isn't needed there — the paid tier follows the live data.
+- [ ] **Rewrite CLAUDE.md's "Current reality" block** (+ the env table if needed): after cutover,
+      "dev serves both domains / prod inactive" is wrong — prod serves api.partna.au from the prod
+      Supabase. Stale env docs misdirect every future session.
 
 ---
 
@@ -248,6 +298,17 @@ Anything in `dev-drift.sql` is schema that exists on dev but the local migration
 out-of-band drift, made concrete. **Empty output** = the repo already reproduces dev and only ledger
 bookkeeping (steps 3–4) remains.
 
+**Expect this exact command to FAIL pre-collapse** (`SQLSTATE 25001`): `--linked` builds a shadow DB by
+applying all of `supabase/migrations/` through the same pipelined applier that `db reset`/`db push` use,
+which aborts on the 11 CONCURRENTLY-bundle files — the very defect `fresh-reset.sh` exists to bypass.
+Fallback (no shadow build; diffs two live DBs directly):
+```bash
+supabase start && scripts/db/fresh-reset.sh   # realize the repo migrations into the local DB (psql loop)
+supabase db diff --from local --to linked \
+  --schema public,core,site,notifications,analytics,audit,moderation > /tmp/dev-drift.sql
+```
+Post-collapse, plain `--linked` works again (the baseline is CONCURRENTLY-free).
+
 **3. Resolve remote-only rows (applied-but-no-file).** For each, pick one:
 - **Adopt into the repo** (preferred when it's real schema you want to keep): create a migration file that
   reproduces it — hand-author from the `dev-drift.sql` output, or `supabase db pull` to generate a capture
@@ -264,10 +325,11 @@ bookkeeping (steps 3–4) remains.
 **5. Converge and verify — repeat 3–4 until both are clean:**
 ```bash
 supabase migration list      # Local and Remote columns aligned, no orphans
-supabase db diff --linked    # EMPTY — repo migrations reproduce dev exactly
+supabase db diff --linked    # EMPTY (pre-collapse: use the --from local --to linked form from step 2)
 ```
-An **empty `db diff` + aligned `migration list`** means dev is now a known, reproducible state. Only then
-proceed to the collapse/snapshot.
+An **empty `db diff` + aligned `migration list`** means dev is now a known, reproducible state — for
+schema objects; grants and role attributes are invisible to the diff and get asserted separately (collapse
+plan, Task 8). Only then proceed to the collapse/snapshot.
 
 **6. Commit the reconciliation** (adopted migration files + any notes on repaired ledger rows) so the repo
 records the resolved state *before* the baseline is regenerated. This is the checkpoint the collapse builds
@@ -293,17 +355,23 @@ and reliability on a fresh prod DB.
   **Snapshotting the verified dev schema is the only way to guarantee prod == dev** — which is exactly why
   the drift reconciliation above must come first.
 
-**Method:**
+**Method** (executable version: `docs/superpowers/plans/2026-07-22-reconcile-and-collapse-baseline.md`
+Tasks 0–10 + its bootstrap `PROMPT-execute-reconcile-and-collapse-baseline.md`; the plan carries the
+2026-07-22 review corrections and wins on conflict):
 1. Complete "Drift reconciliation" above so dev is a known, reproducible state.
 2. `supabase db dump` the dev schema — **all** app schemas (`public`, `core`, `site`, `notifications`,
-   `analytics`, `audit`, `moderation`), roles/grants (incl. `app_backend` NOLOGIN + audit append-only),
-   RLS policies, functions (pinned search_path), triggers, views (`all_site_data`, `public_site_payload`,
-   …), CHECK constraints. **Exclude** Supabase-managed schemas (`auth`, `storage`, …).
+   `analytics`, `audit`, `moderation`), RLS policies, functions (pinned search_path), triggers, views
+   (`all_site_data`, `public_site_payload`, …), CHECK constraints, object grants + per-schema default
+   privileges. **Exclude** Supabase-managed schemas (`auth`, `storage`, …). A dump can NOT emit
+   cluster-level state — the `app_backend` role, its `NOLOGIN`/**`BYPASSRLS`** attributes, or
+   `CREATE EXTENSION` (`pg_trgm`) — the stitch step adds those (collapse plan, Task 5).
 3. Make it the new baseline (e.g. `2026NNNN000000_baseline_pilot.sql`); move the incrementals to
    `supabase/migrations-archive/`.
 4. **Verify parity:** apply the new baseline to a scratch DB **via `scripts/db/fresh-reset.sh`** (the psql
    simple-query loop — a from-zero `db reset`/`db push` can't, per the CONCURRENTLY note in Phase 1), then
-   `supabase db diff` against dev — expect **empty**. Don't trust it for prod until the diff is clean.
+   `supabase db diff --from local --to linked` against dev — expect **empty**. A clean diff proves schema
+   objects only: also run the collapse plan's Task-8 grant-matrix + `pg_roles` assertions (NOLOGIN,
+   BYPASSRLS). Don't trust it for prod until both are clean.
 5. Update `CLAUDE.md`'s baseline-filename reference and any audit-pipeline path references.
 
 **Timing:** do the collapse as a discrete, calm task *after* the P0/P1 migration-bearing fixes land and the
@@ -312,6 +380,6 @@ schema stabilizes — not under cutover-day pressure. Further migrations simply 
 
 **Fallback (if not collapsing):** apply all the migration files to fresh prod **via `psql -f` in filename
 order** (the same simple-protocol procedure as Phase 1) — **not** `supabase db push`, which aborts from zero
-on the 9 CONCURRENTLY-bundle files (`SQLSTATE 25001`; the regression guard
+on the 11 CONCURRENTLY-bundle files (`SQLSTATE 25001`; the regression guard
 `scripts/guard-no-unsafe-migrations.php` Check 6 + `CONVENTIONS.md §1` document this). Still requires the
 drift reconciliation above and a verifying schema diff — mandatory either way.

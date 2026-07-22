@@ -37,7 +37,9 @@ kind — and `CONCURRENTLY` cannot run inside a pipeline/transaction (`SQLSTATE 
 Split multi-index changes into consecutive one-statement files sharing the timestamp prefix with
 sequential suffixes (`…000001`, `…000002`, …); put any accompanying non-index DDL in its own
 `BEGIN`/`COMMIT` file. Enforced by `scripts/guard-no-unsafe-migrations.php` **Check 6** for files
-timestamped after `20260721000000`; nine pre-convention files are grandfathered.
+timestamped after `20260721000000`; eleven pre-convention files are grandfathered (nine bundling
+several `CONCURRENTLY` statements, two pairing a single `CONCURRENTLY` with other DDL — equally
+fatal to a pipelined from-zero apply).
 
 **Dropping an index on a hot table** follows the same rule: use `DROP INDEX CONCURRENTLY IF EXISTS`
 in its own one-statement file, never inside a `BEGIN`/`COMMIT`. A bare `DROP INDEX` takes

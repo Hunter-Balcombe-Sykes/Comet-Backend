@@ -33,8 +33,9 @@ const TIMEOUT_GUARD_CUTOFF = '20260711999999';
 
 // Check 6 (one CONCURRENTLY per file) shipped 2026-07-21, when the fresh-DB
 // CONCURRENTLY-in-pipeline issue was resolved (path C: psql-loop applier). It needs
-// its own boundary: 9 pre-existing files legitimately bundle multiple CONCURRENTLY
-// statements and were applied to dev incrementally via non-pipelined paths. Splitting
+// its own boundary: 11 pre-existing files pair a CONCURRENTLY statement with other
+// statements (9 bundle several CONCURRENTLY; 2 pair one CONCURRENTLY with other DDL)
+// and were applied to dev incrementally via non-pipelined paths. Splitting
 // them retroactively would open migration-history gaps on the live dev DB, so they are
 // grandfathered here; only NEW files must keep one CONCURRENTLY per file. At this cutoff
 // the check flags 0 files on a clean tree.
