@@ -121,7 +121,7 @@ class IndividualProfilePayloadBuilder
             'design_media' => $this->buildDesignMedia($site),
             'site_images' => $this->buildSiteImages($site),
             'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
-            'public_config' => $this->buildPublicConfig(),
+            'public_config' => $this->buildPublicConfig($pro),
             // Taxonomy page order for the ONE architecture — presence + business
             // gated, popularity-ranked (or the owner's manual order when
             // smart_page_order is off), canonical fallback. Top-level key.
@@ -636,16 +636,29 @@ class IndividualProfilePayloadBuilder
 
     /**
      * Build the publicConfig object — platform-wide knobs the skeleton needs
-     * at render time. Currently only analyticsEndpoint; other fields will be
-     * added as features need them.
+     * at render time.
+     *
+     * `claim.unclaimed` (2026-07-22, signup-flows frontend handoff): the
+     * pages app has no other way to know a rendered site is a pre-account
+     * build (site-first signup / staff / early-access) — the publish flag
+     * alone already gates visibility (PublicSiteResolver), so an unclaimed
+     * site renders here exactly like a claimed one unless we say otherwise.
+     * Omitted (not sent false) when claimed, so LKG snapshots and existing
+     * consumers predating this field see no change.
      *
      * @return array<string, mixed>
      */
-    private function buildPublicConfig(): array
+    private function buildPublicConfig(User $pro): array
     {
-        return [
+        $config = [
             'analyticsEndpoint' => config('partna.public_profile.analytics_endpoint'),
         ];
+
+        if ($pro->isUnclaimed()) {
+            $config['claim'] = ['unclaimed' => true];
+        }
+
+        return $config;
     }
 
     /**
