@@ -137,3 +137,57 @@ it('rejects bulk approval with neither ids nor all_waitlisted', function () {
 
     Queue::assertNotPushed(ApproveEarlyAccessBuildJob::class);
 });
+
+// A signup with no linked build (user_id null) — e.g. a manually-added lead or
+// a build that collided/failed. approve-bulk has nothing to dispatch for it.
+function earlyAccessApproveBuildlessSignup(): EarlyAccessSignup
+{
+    $email = Str::uuid().'@e.com';
+
+    return EarlyAccessSignup::create([
+        'email' => $email, 'email_lc' => $email, 'type' => 'partna',
+        'status' => 'waitlist', 'source' => 'manual',
+    ]); // user_id deliberately left null — no build to approve
+}
+
+it('bulk approve by ids reports dispatched_ids and skips build-less rows honestly', function () {
+    Queue::fake();
+    $withBuild = earlyAccessApproveSignup();        // user_id set
+    $noBuild = earlyAccessApproveBuildlessSignup(); // user_id null
+
+    actingAsStaff(earlyAccessApproveAdminStaff());
+    $this->postJson('/api/staff/early-access/approve-bulk', ['ids' => [$withBuild->id, $noBuild->id]])
+        ->assertStatus(202)
+        ->assertJsonPath('dispatched', 1)                 // count unchanged (backward compatible)
+        ->assertJsonPath('dispatched_ids', [$withBuild->id])
+        ->assertJsonPath('skipped_ids', [$noBuild->id]);  // was silently dropped before
+
+    Queue::assertPushed(ApproveEarlyAccessBuildJob::class, 1);
+    Queue::assertPushed(ApproveEarlyAccessBuildJob::class, fn ($j) => $j->signupId === $withBuild->id);
+});
+
+it('bulk approve dedupes duplicate ids so a double-click dispatches once', function () {
+    Queue::fake();
+    $signup = earlyAccessApproveSignup();
+
+    actingAsStaff(earlyAccessApproveAdminStaff());
+    $this->postJson('/api/staff/early-access/approve-bulk', ['ids' => [$signup->id, $signup->id]])
+        ->assertStatus(202)
+        ->assertJsonPath('dispatched', 1)
+        ->assertJsonPath('dispatched_ids', [$signup->id]);
+
+    Queue::assertPushed(ApproveEarlyAccessBuildJob::class, 1);
+});
+
+it('bulk approve by all_waitlisted reports dispatched_ids with no skips', function () {
+    Queue::fake();
+    $withBuild = earlyAccessApproveSignup();
+    earlyAccessApproveBuildlessSignup(); // waitlisted but build-less — simply out of scope, not "skipped"
+
+    actingAsStaff(earlyAccessApproveAdminStaff());
+    $this->postJson('/api/staff/early-access/approve-bulk', ['all_waitlisted' => true])
+        ->assertStatus(202)
+        ->assertJsonPath('dispatched', 1)
+        ->assertJsonPath('dispatched_ids', [$withBuild->id])
+        ->assertJsonPath('skipped_ids', []);
+});
