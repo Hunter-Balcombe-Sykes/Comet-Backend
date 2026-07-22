@@ -127,7 +127,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 if (! $e instanceof HttpException) {
                     return null;
                 }
-                $nonApiResponse = response('', $e->getStatusCode());
+                // Keep the exception's own headers — the Horizon gate's 401 carries
+                // WWW-Authenticate, without which browsers never prompt for Basic auth.
+                $nonApiResponse = response('', $e->getStatusCode(), $e->getHeaders());
                 SecureHeaders::apply($nonApiResponse, $request);
 
                 return $nonApiResponse;

@@ -2,6 +2,7 @@
 
 use App\Providers\AppServiceProvider;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /*
@@ -191,6 +192,21 @@ it('allows access in production with valid basic auth credentials', function () 
     ]);
 
     expect(AppServiceProvider::authorizeHorizonRequest($request))->toBeTrue();
+});
+
+it('preserves the WWW-Authenticate challenge through the exception renderer', function () {
+    // The gate's 401 travels through the bootstrap/app.php non-API HttpException
+    // branch. If that branch drops the exception's headers, browsers get a bare
+    // 401 with no challenge and never show the Basic-auth prompt — the dashboard
+    // reads as "down" instead of asking for credentials.
+    Route::get('/horizon-challenge-probe', function () {
+        abort(401, 'Authentication required', ['WWW-Authenticate' => 'Basic realm="Horizon"']);
+    });
+
+    $response = $this->get('/horizon-challenge-probe');
+
+    $response->assertStatus(401);
+    expect($response->headers->get('WWW-Authenticate'))->toBe('Basic realm="Horizon"');
 });
 
 it('uses constant-time comparison resistant to length-mismatch leaks', function () {
