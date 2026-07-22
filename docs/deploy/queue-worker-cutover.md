@@ -2,6 +2,7 @@
 
 **Compiled:** 2026-07-20 · **Status:** pre-cutover · **Sibling doc:** [`production-cutover.md`](./production-cutover.md)
 **Re-verified 2026-07-22** against live dev env + post-07-20 code delta — see §9 for item status and new findings.
+**Prod reuses this doc:** §1–§7 are env-agnostic (prod runs the same code); §10 adds only the prod-specific post-cutover flip.
 
 ## Why this document exists
 
@@ -431,6 +432,66 @@ endpoint (`StaffPreAccountBuildController::batch`) currently runs up to 500 scra
 request — don't exercise it at scale before the flip; the two one-shot backfill commands
 (`BackfillPreviousWebsiteContentScanCommand`, `SweepStaleDesignKitContributionsCommand`) lose their
 `->delay()` pacing if run before workers exist.
+
+---
+
+## 10. Production post-cutover worker flip
+
+The prod counterpart of §9. **§1–§7 apply unchanged** — prod runs the exact same code (a
+fast-forward of `development`), so every code-level finding (A1/A2 self-fix, B1/B2 blockers,
+C1/C2 already shipped, the §4 day-one watch list, the §6 verified-clean bank) transfers
+verbatim. Only the **live-env facts** below differ, and they can't be probed until prod exists.
+
+**When this runs.** Per Josh's 2026-07-22 cutover decision (`production-cutover.md` Phase 0
+rehearsal note + Phase 2 queue checkbox), prod goes live on `QUEUE_CONNECTION=sync` — jobs
+inline, the same known-good mode dev ran for months — and the worker flip is a **separate,
+post-cutover step**, not part of go-live. Do it as its own calm task once prod is stable on sync
+(Phase 4 verify green), exactly as dev's flip was standalone. This decouples the two riskiest
+events: the DB re-baseline/go-live, and the first-ever prod Horizon boot.
+
+### Prod-specific actions (each mirrors a §9 dev finding)
+
+- [ ] **Set `REDIS_CACHE_DB=1` on the prod env before flipping** (§9 finding 1). Dev shipped
+      with Cloud-injected `REDIS_CACHE_DB=0`; prod almost certainly inherits the same default.
+      On DB 0 the queue + Horizon share the connection, and `Cache::flush()`'s raw `FLUSHDB`
+      wipes pending jobs and Horizon state. Set it explicitly (cache cold-start is harmless),
+      then verify: `config('database.redis.cache.database')` → `1` via `cloud tinker production`.
+- [ ] **Provision + confirm a *running* Horizon worker (B1) — hard blocker.** Setting
+      `QUEUE_CONNECTION=redis` without a running master is strictly worse than sync: jobs enqueue
+      to Redis and nobody drains them — a silent unbounded backlog instead of inline execution.
+      Confirm in the Cloud dashboard that a Horizon process is provisioned and running, not merely
+      that the env var is set.
+- [ ] **Set `HORIZON_DASHBOARD_USERNAME` / `HORIZON_DASHBOARD_PASSWORD` on prod (B2).** The gate
+      (`AppServiceProvider::authorizeHorizonRequest()`, pinned by `HorizonDashboardAuthTest`) seals
+      `/horizon` with a 403 on every deployed env until both creds are set. Once workers run,
+      `/horizon` renders **live job payloads** — GDPR export IDs, email addresses, connection IDs —
+      beside a retry button. Set both with (or before) the flip, else the dashboard is sealed but
+      unusable.
+- [ ] **Enable the prod scheduler and prove it ticked** (§9 finding 2). Dev's scheduler had never
+      fired — zero `scheduler:last_run:*` heartbeat keys. Enable cron in the Cloud dashboard, then
+      hit `GET /api/health/scheduler` (meaningful after the §9 finding-3 fix) to confirm a task
+      actually fired, not just that the app booted. Load-bearing prunes depend on it
+      (`builds:prune-expired`, `handles:prune-expired-aliases`, `queue:prune-failed`,
+      `horizon:snapshot`). Overlaps `production-cutover.md` Phase 4's scheduler checkbox — same assertion.
+- [ ] **Confirm prod hibernation is off** (§9 finding 4). A hibernated env cannot drain queues.
+      This is sharper on prod than dev: prod's documented rollback is *hibernate the env*
+      (`production-cutover.md` Rollback), so the worker/hibernation interplay is load-bearing —
+      expect to disable hibernation, or verify Cloud blocks it once a worker exists.
+- [ ] **Decide keep-vs-remove the KV-backfill deploy step** (§9 finding 5). If the prod deploy
+      command runs `partna:backfill-subdomain-kv --all --queue`, post-flip it enqueues a full KV
+      backfill burst onto `cloudflare` on every deploy. Harmless but noisy — decide before the flip.
+
+### Self-fixing on the prod flip — confirm, don't fix
+
+A1 and A2 resolve themselves the moment prod workers exist, same as dev: the
+`RetryUnavailableMenusCommand` `->delay()` stagger against Google Places starts pacing, and the
+`RefreshIntegrationConnectionsCommand` fan-out stops running serially inside the cron tick.
+Nothing to build — just confirm the stagger actually paces once prod workers are up.
+
+C1, C2, and the generic §6 queue-coverage guard already shipped to `development`, so they are **not**
+prod-specific work — prod inherits them in the fast-forward. Re-running the §4 day-one watch
+(`analytics`, `images`, `videos` queues) on the first prod deploy after the flip is the only
+monitoring posture that carries over.
 
 ---
 

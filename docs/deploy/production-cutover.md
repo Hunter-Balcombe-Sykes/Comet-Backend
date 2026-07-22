@@ -254,10 +254,12 @@ missed:
       - **SEQUENCING CHANGE (Josh, 2026-07-22): workers are turned on AFTER cutover, not at go-live.** So at
         go-live prod deliberately launches on **`QUEUE_CONNECTION=sync`** (jobs inline, same as dev today) —
         acceptable because jobs like `SyncSubdomainToKvJob` still run, just synchronously on the request.
-        This checkbox becomes a **post-cutover** step: provision the Horizon worker (B1), set
-        `QUEUE_CONNECTION=redis` + `HORIZON_DASHBOARD_USERNAME`/`PASSWORD` (B2), then run the
-        `queue-worker-cutover.md` soak once prod is stable. The Phase-0 rehearsal is skipped for the same
-        reason (see that checkbox's note).
+        This checkbox becomes a **post-cutover** step, fully specified in **`queue-worker-cutover.md` §10
+        (Production post-cutover worker flip)** — the prod checklist: `REDIS_CACHE_DB=1`, provision +
+        confirm a running Horizon worker (B1), set `QUEUE_CONNECTION=redis` +
+        `HORIZON_DASHBOARD_USERNAME`/`PASSWORD` (B2), enable the scheduler, confirm hibernation off, then
+        run the §4 day-one watch once prod is stable. The Phase-0 rehearsal is skipped for the same reason
+        (see that checkbox's note).
 - [ ] **Cloudflare `SUBDOMAIN_KV`: a separate prod namespace.** If prod's `SyncSubdomainToKvJob` writes the
       same KV as dev, the two environments clobber each other's `<handle>.partna.au` routing.
 - [ ] **Supabase JWT secret** = the **prod** project's secret (auth verification fails otherwise).
