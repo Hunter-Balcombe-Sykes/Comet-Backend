@@ -3130,3 +3130,27 @@ parameters:
 			count: 1
 			path: app/Services/WebsiteScan/WorkplaceContentApplier.php
 
+
+		-
+			message: '#^Offset ''code'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Offset ''error'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Offset ''reasons'' on \*NEVER\* in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Offset ''success'' on array\{success\: bool, code\: int, error\?\: string, reasons\?\: array\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
