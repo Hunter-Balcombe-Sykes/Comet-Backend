@@ -2,49 +2,43 @@
 
 namespace App\Services\Design;
 
-use App\Models\Core\Site\DesignKitContribution;
+use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Produces the user-facing TRANSPARENCY LINE data for a site's design — the plain-
- * language "your info sets the design, not you (unless you override)" promise made
- * legible (spec §3).
+ * Produces the user-facing TRANSPARENCY LINE data for a site's design — the
+ * plain-language "your profile sets the design, not you (unless you
+ * override)" promise made legible.
  *
- * Reads the site's DesignKitContribution rows (which record source + integration +
- * target_var per contributed column) and the manual design_kits row (non-null
- * columns = explicit user picks), and returns:
+ * Computes the profile preset overlay (ProfileDesignPresets) at read time,
+ * subtracts manually-set design_kits columns (manual wins), and returns:
  *   { summary, hasOverrides, items: [{ area, sourceLabel, reason }] }
  *
- * SAFETY (spec §3 + §4.4): it maps each source to a FRIENDLY reason and NEVER
- * exposes a raw column name, a factor key, or any sensitive/demographic detail.
- * The aesthetic-expression source surfaces only as a neutral "your profile's
- * style" — never anything about presentation or demographics. Manual columns are
- * labelled "You set this."
+ * SAFETY: never exposes a raw column name or field value — columns collapse
+ * into friendly AREAS and the one auto-source surfaces as "Your industry".
+ * Wire shape is FROZEN (frontend renders it verbatim).
  */
 class DesignRationaleService
 {
     /**
-     * User-facing AREAS a column belongs to. Columns collapse into these five so
-     * the transparency line talks about "your colours / fonts / layout", never a
-     * raw variable. Any column not listed maps to the generic 'style' area.
+     * User-facing AREAS a targetable column belongs to. Any column not
+     * listed maps to the generic 'Style' area.
      *
      * @var array<string, string>
      */
     private const COLUMN_AREAS = [
+        'theme_mode' => 'Colours',
         'color_accent' => 'Colours',
-        'text_caption' => 'Typography',
+        'theme_contrast' => 'Colours',
         'text_body' => 'Typography',
-        'text_h3' => 'Typography',
-        'text_h2' => 'Typography',
-        'text_h1' => 'Typography',
-        'text_display' => 'Typography',
         'text_desktop_body' => 'Typography',
-        'text_desktop_h1' => 'Typography',
-        'text_desktop_display' => 'Typography',
         'weight_regular' => 'Typography',
+        'weight_heading' => 'Typography',
         'typography_line_height' => 'Typography',
         'typography_logo_height' => 'Typography',
         'typography_font_family' => 'Typography',
+        'typography_uppercase' => 'Typography',
+        'typography_tracking' => 'Typography',
         'border_thickness' => 'Layout',
         'border_radius' => 'Layout',
         'space_regular' => 'Layout',
@@ -58,91 +52,36 @@ class DesignRationaleService
     ];
 
     /**
-     * Source PREFIX (the stable part before ':') → { label, reason }. The label is
-     * a short provenance name; the reason is the friendly sentence. Ordered by the
-     * conceptual precedence a user would expect to read them in.
-     *
-     * NOTE the aesthetic-expression entry is deliberately neutral — it never hints
-     * at what the "style" reading was derived from.
-     *
-     * @var array<string, array{label: string, reason: string}>
-     */
-    private const SOURCE_LABELS = [
-        'previous-website' => [
-            'label' => 'Your previous website',
-            'reason' => 'Your fonts and colours carry over from your previous website.',
-        ],
-        'launch-recipe' => [
-            'label' => 'A curated look',
-            'reason' => 'A curated look chosen to match your profile.',
-        ],
-        'aesthetic-expression' => [
-            'label' => "Your profile's style",
-            'reason' => "Tuned to your profile's style.",
-        ],
-        'profile' => [
-            'label' => 'Your profession',
-            'reason' => 'Your design reflects the profession you chose.',
-        ],
-        'store' => [
-            'label' => 'Your store',
-            'reason' => "Your layout reflects your store's price points.",
-        ],
-        'cuisine' => [
-            'label' => 'Your menu',
-            'reason' => 'Tuned to the kind of food you serve.',
-        ],
-        'google-business' => [
-            'label' => 'Your Google Business listing',
-            'reason' => 'Your design adapts from your Google Business listing.',
-        ],
-        'music-genre' => [
-            'label' => 'Your music',
-            'reason' => 'Tuned to the style of your music.',
-        ],
-        'instagram' => [
-            'label' => 'Your Instagram',
-            'reason' => 'Your colours and style adapt from your Instagram.',
-        ],
-        'hours-rhythm' => [
-            'label' => 'Your opening hours',
-            'reason' => 'Tuned to your opening hours.',
-        ],
-        'imagery-palette' => [
-            'label' => 'Your photos',
-            'reason' => 'Your colours adapt from your own photos.',
-        ],
-        'own-media' => [
-            'label' => 'Your photos',
-            'reason' => 'Your accent colour adapts from your own photos.',
-        ],
-        'platform-mix' => [
-            'label' => 'Your linked platforms',
-            'reason' => 'Your style reflects the platforms you link.',
-        ],
-        'outside-websites' => [
-            'label' => 'Your linked websites',
-            'reason' => 'Your fonts and colours adapt from the websites you link.',
-        ],
-    ];
-
-    /**
-     * Build the rationale structure for a site.
-     *
      * @return array{
      *     summary: string,
      *     hasOverrides: bool,
      *     items: list<array{area: string, sourceLabel: string, reason: string}>
      * }
      */
-    public function forSite(string $siteId): array
+    public function forSite(string $siteId, ?string $userId = null): array
     {
         $manualColumns = $this->manualColumns($siteId);
-        $items = $this->contributionItems($siteId, $manualColumns);
+        $items = [];
+
+        $user = $userId !== null ? User::query()->find($userId) : null;
+        $preset = ProfileDesignPresets::forUser($user);
+        $surviving = array_diff_key($preset, array_flip($manualColumns));
+
+        if ($surviving !== []) {
+            $areas = array_values(array_unique(array_map(
+                static fn (string $col): string => self::COLUMN_AREAS[$col] ?? 'Style',
+                array_keys($surviving),
+            )));
+            sort($areas);
+            $items[] = [
+                'area' => implode(' & ', $areas),
+                'sourceLabel' => 'Your industry',
+                'reason' => 'Your design reflects the industry you chose.',
+            ];
+        }
 
         $hasOverrides = $manualColumns !== [];
         if ($hasOverrides) {
-            // Manual picks are the user's own — one line, always first.
             array_unshift($items, [
                 'area' => 'Your changes',
                 'sourceLabel' => 'You',
@@ -158,76 +97,10 @@ class DesignRationaleService
     }
 
     /**
-     * One friendly line per SOURCE that contributed at least one column NOT
-     * overridden manually. Ordered by SOURCE_LABELS declaration order (a stable,
-     * user-sensible reading order), each carrying the area(s) it touched.
-     *
-     * @param  list<string>  $manualColumns
-     * @return list<array{area: string, sourceLabel: string, reason: string}>
-     */
-    private function contributionItems(string $siteId, array $manualColumns): array
-    {
-        try {
-            $rows = DesignKitContribution::query()
-                ->where('site_id', $siteId)
-                ->get(['source', 'target_var', 'priority']);
-        } catch (\Throwable) {
-            // Fail-closed to "no attributions" — a rationale read must NEVER break
-            // the SiteResource response that embeds it (symmetric with presetLayer
-            // / designKitVars). Also covers the SQLite mirror when a test hasn't
-            // created site.design_kit_contributions.
-            return [];
-        }
-
-        // For each column, only the WINNING source (highest priority; ties break
-        // by source asc — mirrors the resolver) actually shows. A column overridden
-        // manually shows nothing here (the manual line covers it).
-        /** @var array<string, array{priority:int, source:string}> $winners */
-        $winners = [];
-        foreach ($rows as $row) {
-            $var = (string) $row->target_var;
-            if (in_array($var, $manualColumns, true)) {
-                continue; // manual wins — not attributed to a factor
-            }
-            $current = $winners[$var] ?? null;
-            $wins = $current === null
-                || (int) $row->priority > $current['priority']
-                || ((int) $row->priority === $current['priority'] && (string) $row->source < $current['source']);
-            if ($wins) {
-                $winners[$var] = ['priority' => (int) $row->priority, 'source' => (string) $row->source];
-            }
-        }
-
-        // Group winning columns by source prefix → the set of areas it drives.
-        /** @var array<string, array<string, true>> $sourceAreas */
-        $sourceAreas = [];
-        foreach ($winners as $var => $winner) {
-            $prefix = $this->sourcePrefix($winner['source']);
-            $area = self::COLUMN_AREAS[$var] ?? 'Style';
-            $sourceAreas[$prefix][$area] = true;
-        }
-
-        // Emit in SOURCE_LABELS order so the reading order is stable + sensible.
-        $items = [];
-        foreach (self::SOURCE_LABELS as $prefix => $meta) {
-            if (! isset($sourceAreas[$prefix])) {
-                continue;
-            }
-            $areas = array_keys($sourceAreas[$prefix]);
-            sort($areas);
-            $items[] = [
-                'area' => implode(' & ', $areas),
-                'sourceLabel' => $meta['label'],
-                'reason' => $meta['reason'],
-            ];
-        }
-
-        return $items;
-    }
-
-    /**
-     * The design_kits columns the user has set manually (non-null). Fail-closed to
-     * "none" on any read error (SQLite test mirror has no site.design_kits table).
+     * The design_kits columns the user has set manually (non-null).
+     * Fail-closed to "none" on any read error (SQLite test mirror may lack
+     * site.design_kits) — a rationale read must never break the SiteResource
+     * response embedding it.
      *
      * @return list<string>
      */
@@ -252,29 +125,15 @@ class DesignRationaleService
         return array_keys(array_filter($vars, static fn ($v): bool => $v !== null));
     }
 
-    /** The stable source prefix (before the first ':'), e.g. 'instagram:category' → 'instagram'. */
-    private function sourcePrefix(string $source): string
-    {
-        $pos = strpos($source, ':');
-
-        return $pos === false ? $source : substr($source, 0, $pos);
-    }
-
-    /**
-     * The one-line summary the frontend renders above the editor. Reflects both
-     * whether anything was auto-derived and whether the user has overridden.
-     *
-     * @param  list<array{area: string, sourceLabel: string, reason: string}>  $items
-     */
+    /** @param  list<array{area: string, sourceLabel: string, reason: string}>  $items */
     private function summary(array $items, bool $hasOverrides): string
     {
-        // Count factor-driven items (exclude the leading manual line, if present).
         $derived = $hasOverrides ? count($items) - 1 : count($items);
 
         if ($derived === 0) {
             return $hasOverrides
                 ? 'Your design is set from your own choices.'
-                : 'Your design uses the default look — connect your profiles to tailor it automatically.';
+                : 'Your design uses the default look — set your industry to tailor it automatically.';
         }
 
         $base = 'Your design is tailored automatically from the information on your profile.';
