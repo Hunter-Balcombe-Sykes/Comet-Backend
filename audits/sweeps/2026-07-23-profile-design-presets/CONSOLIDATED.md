@@ -74,8 +74,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 5 of 7 complete
-- P3 Low: 7 of 8 complete
+- P2 Medium: 6 of 7 complete
+- P3 Low: 8 of 8 complete
 
 ---
 
@@ -101,7 +101,7 @@
         });
         ```
 
-- [ ] **#DINT-1** · P2 — `core.users.sector` / `sector_source` have no DB-level CHECK constraint
+- [x] **#DINT-1** · P2 — `core.users.sector` / `sector_source` have no DB-level CHECK constraint
     - **Where:** supabase/migrations/20260705150100_users_sector_columns.sql:15-17
     - **Affects:** Any write path to `core.users.sector`/`sector_source` that bypasses `UpdateSectorRequest` — staff tooling, a future job, a raw SQL fix — and, indirectly, `ProfileDesignPresets::forUser()` styling that silently returns `[]` for an invalid slug with no error trail.
     - **Effort:** S (~0.5–1h)
@@ -300,7 +300,7 @@
             : 'https://partna.au';
         ```
 
-- [ ] **#MIG-1** · P3 — `DROP TABLE` migration lacks a rollback note and lock-timeout guard
+- [x] **#MIG-1** · P3 — `DROP TABLE` migration lacks a rollback note and lock-timeout guard
     - **Where:** supabase/migrations/20260722100000_drop_design_kit_contributions.sql:4
     - **Affects:** Pattern hygiene for future destructive migrations; this specific drop is low-risk since the table was fully retired ahead of the drop (commits `f15e53b0`, `e2180ef9`).
     - **Effort:** S (~0.5–1h)
