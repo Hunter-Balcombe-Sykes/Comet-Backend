@@ -2394,29 +2394,6 @@ function setupDesignKitsTable(): void
 }
 
 /**
- * site.design_kit_contributions — per-factor design-kit preset contributions.
- * priority is INTEGER; UNIQUE(site_id, source, target_var) mirrors production.
- * Mirrors migration 20260701130000.
- */
-function setupDesignKitContributionsTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kit_contributions (
-        id TEXT PRIMARY KEY,
-        site_id TEXT NOT NULL,
-        source TEXT NOT NULL,
-        integration TEXT NOT NULL,
-        priority INTEGER NOT NULL,
-        mode TEXT NOT NULL,
-        target_var TEXT NOT NULL,
-        value TEXT NOT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        UNIQUE(site_id, source, target_var)
-    )');
-}
-
-/**
  * WHK-3: core.supabase_email_events — forensic trail for auth-email webhook outcomes.
  * All columns nullable (SQLite permissiveness); raw_payload stored as TEXT.
  * Mirrors columns from migration 20260625000000.
