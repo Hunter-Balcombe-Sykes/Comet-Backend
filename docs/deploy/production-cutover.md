@@ -8,57 +8,30 @@ resolved. Promoting `production` ships the entire dev divergence + every migrati
 one-shot, mostly-irreversible event, not a routine deploy.
 
 > **Status: NOT YET EXECUTED.** This is the forward plan. Re-verify every "current state" fact below on
-> the day — this doc was last verified **2026-07-17** and the environment drifts.
+> the day — the environment drifts. The facts below were **re-verified live 2026-07-21** (Supabase project
+> status, DNS/CNAMEs, prod deploy state, git divergence). Note the DB is applied with a **`psql` loop, not
+> `supabase db push`** — see Phase 1 for why.
 
 ---
 
-## ⚠ 2026-07-21 findings — read before Phase 1 and the drift/collapse steps
+## Current state (verified 2026-07-21)
 
-Two things learned while resolving fresh-DB provisioning (memory: *Fresh-DB Provisioning*):
-
-**1. `supabase db push` CANNOT apply the repo's migrations from an empty DB.** The CLI pipelines each
-migration file's statements into one implicit transaction whenever the file has >1 statement of any kind,
-and `CREATE/DROP INDEX CONCURRENTLY` cannot run in a pipeline (`SQLSTATE 25001`). ~9 index files bundle
-multiple CONCURRENTLY, so a from-zero `db push` / `db reset` aborts. Verified on CLI v2.98.2 / v2.101.0 /
-v2.109.1 — not fixed upstream. **Consequences for this runbook:**
-- The **Fallback** below ("`db push --include-all` all the files") does **not** work on fresh prod. Apply
-  via a **`psql` simple-query loop** instead (each statement is a top-level command, no pipeline) — pattern
-  in `scripts/db/fresh-reset.sh` (local) and `CLAUDE.md` → "Push to Supabase / Fresh prod DB".
-- The **collapse path is preferred** partly because a `pg_dump` baseline emits plain `CREATE INDEX` (no
-  CONCURRENTLY), so `db push` of a *collapsed* baseline is unaffected.
-
-**2. Dev migration drift is now characterised and BENIGN — but dev is MISSING 10 additive migrations the
-repo has.** A per-migration catalog audit (all 73 repo-only versions vs the dev DB, 2026-07-21): 63 already
-effected on dev (present or provably superseded — e.g. the skeleton_id→architecture_id→'staple' path), and
-10 genuinely missing, **all additive**: `20260721010000` (workplaces/content_selection RLS — defense-in-depth
-only; `site.*` tables carry no `anon`/`authenticated` grant, so RLS-off exposes nothing), `20260721020000`
-(menu-platform `id` defaults), `20260721040000`+`040100..040700` (pg_trgm + 7 trigram search indexes,
-perf-only). **Nothing destructive is missing; dev's schema is fundamentally correct.** Josh chose NOT to
-apply the 10 to dev (none fix a live bug at pre-beta scale). **Consequences for this runbook:**
-- Snapshotting **dev** for the baseline (the collapse method below) would carry those 10 gaps into prod.
-  Prefer snapshotting a **repo-provisioned** scratch DB — `scripts/db/fresh-reset.sh` applies *all* repo
-  migrations cleanly (= the complete intended schema) — or apply the 10 to dev first, then snapshot.
-- The ledger-reconciliation dance below is therefore **optional for correctness**: the gaps are benign and
-  dev isn't relied on for clean `db push`. It only matters if you specifically want dev's *ledger* aligned.
-
----
-
-## Current state (verified 2026-07-17)
-
-Everything production already *exists*; it is stale and asleep, not missing. Cutover = reactivate +
-re-baseline + repoint, not build-from-scratch.
+Everything production already *exists*; it is stale and asleep, not missing. Cutover = wake the stopped
+Laravel env + re-baseline the DB + re-key secrets — **not** build-from-scratch, and **not** a DNS repoint
+(api.partna.au already points at the prod env; see the DNS row).
 
 | Piece | State | Implication |
 |-------|-------|-------------|
-| `production` git branch | Exists, is the **default branch**. **0 commits ahead / 1,155 behind** `development`. | Fast-forward — no merge conflicts. But one push ships 1,155 commits + all migrations. |
-| Laravel Cloud **production** env | Exists. Last deploy 2026-05-21 on a **pre-standalone** commit (`fa69c2b1`). Hibernating/stopped. | Would run the *old* app on the *old* schema if woken as-is. Needs redeploy + full secret set. |
-| Supabase **Partna Development** (`glncumufgaqcmqhzwrxm`) | `ACTIVE_HEALTHY`, PG 17, ap-southeast-2. | The live DB for everything today (incl. prod sitepages). Source of truth for the prod baseline. |
-| Supabase **Partna Production** (`edplucmvkcnokyygxqsb`) | `INACTIVE` (paused), PG 17, ap-southeast-2. | On old pre-standalone schema (~`20260512145025`); current migrations un-applied. Re-baseline target. |
-| DNS | `api.partna.au` currently resolves to the **dev** env. | The go-live moment is repointing it to prod. |
+| `production` git branch | Exists, is the **default branch**. **0 ahead / 1,518 behind** `development` (2026-07-21). | Fast-forward — no merge conflicts. But one push ships 1,518 commits + all migrations. |
+| Laravel Cloud **production** env | Exists. Last deploy 2026-05-21 on a **pre-standalone** commit (`fa69c2b1`), hibernating (returns 404). Build command already = `ffmpeg.sh + composer --no-dev + optimize` (no npm), **PHP 8.4**. | Would run the *old* app if woken as-is. The Phase 3 branch push redeploys it — and because api.partna.au already CNAMEs here, **that deploy is the public go-live** (no DNS valve). |
+| Supabase **Partna Development** (`glncumufgaqcmqhzwrxm`) | `ACTIVE_HEALTHY`, PG 17.6.1.104, ap-southeast-2. | The live DB for everything today (incl. prod sitepages). Source of truth for the prod baseline. |
+| Supabase **Partna Production** (`edplucmvkcnokyygxqsb`) | **`ACTIVE_HEALTHY`** (not paused), PG 17.6.1.121, ap-southeast-2 (2026-07-21). | Active but **on the old pre-standalone schema** (~`20260512145025`); current migrations un-applied. **No "restore" needed** — but must be wiped and re-baselined (reuse this ref, reset in place). |
+| DNS | `api.partna.au` → **prod** env vanity (`partna-production-uovh3z.laravel.cloud`), currently 404 (prod stopped). `dev-api.partna.au` → dev vanity (200). `app.partna.au` → **Vercel** (the dashboard). | **No DNS repoint at go-live** — api.partna.au already targets prod. Go-live = waking/deploying prod (Phase 3). The dashboard is a Vercel deploy whose API base is frontend config, not DNS. |
 
 The three genuinely risky steps: **(1)** the prod DB re-baseline (irreversible data event), **(2)** the prod
-secret set (Redis/queue, KV namespace, JWT, mail, media), **(3)** the `api.partna.au` DNS repoint (the
-visible go-live). Everything else is copy-config.
+secret set (Redis/queue, KV namespace, JWT, mail, media), **(3)** the prod **deploy/wake** — the visible
+go-live, because api.partna.au already routes to the prod env, so the moment prod deploys it serves the live
+domain (there is **no** separate DNS valve to stage behind). Everything else is copy-config.
 
 ---
 
@@ -66,57 +39,70 @@ visible go-live). Everything else is copy-config.
 
 - [ ] **All P0/P1 audit findings resolved**, including any that carry Supabase migrations (they must land
       on dev first so the schema is final before we snapshot it).
-- [ ] **Land the deferred Gate-A P2 schema items on dev before the collapse snapshot** (so they are captured
-      in the baseline) — runbook: `audits/sweeps/2026-07-20-gate-a/PROMPT-execute-deferred-cutover.md`.
-      - **B20** — 11 authored, currently-unpushed migrations (`supabase/migrations/20260721010000…040700`):
-        RLS enable+FORCE+policies on `site.workplaces` + `site.content_selection`, `gen_random_uuid()`
-        defaults on `menu_platform_links`/`menu_item_platforms.id`, a `design_kits` backfill, and `pg_trgm`
-        + GIN trigram indexes on the staff-search columns.
-      - **B8** `models-data/PRIV-2` + `PRIV-3` — retention/prune for the `audit.user_deletion_audit` and
-        `audit.data_export_audit` email snapshots. **Not yet authored:** needs a new SECURITY DEFINER prune
-        function mirroring `audit.prune_handle_change_log()` (`20260718010000`) + scheduler wiring.
-      All are catalog-only/additive with zero live-app impact today (`app_backend` has BYPASSRLS; the UUID
-      writers already supply ids) — they were held off live dev deliberately and land here so the snapshot
-      schema is final. NB the B20 file version-numbers must be reconciled in the drift step below (dev already
-      carries the sibling menu/services migrations under different versions).
-- [ ] **Reconcile dev migration drift** — the **non-negotiable prerequisite** for a trustworthy prod DB.
-      The dev DB has changes applied out-of-band that aren't in the repo (and possibly repo files not
-      applied to dev). Reconcile so the schema we snapshot/replay is a known, reproducible state. **Full
-      step-by-step below → see "Drift reconciliation (detailed steps)".**
+- [ ] **Reconcile dev migration drift** — the **non-negotiable prerequisite** for a trustworthy prod DB
+      (you chose to **snapshot dev into a fresh baseline**, so dev must be a known, reproducible state).
+      The dev DB has changes applied out-of-band that aren't in the repo (and repo files not applied to
+      dev). **A 2026-07-21 audit already catalogued this drift**: 73 repo-only + 55 dev-only versions, of
+      which only 10 are genuinely missing and all additive (RLS defense-in-depth, pg_trgm perf indexes,
+      likely-unused defaults) — reviewed and judged skip-safe. Start from that catalog rather than
+      rediscovering it. **Full step-by-step below → see "Drift reconciliation (detailed steps)".**
 - [ ] **Collapse the migration history into a fresh baseline** (see "Migration collapse" below). Snapshot
-      the *verified dev schema*, archive the incrementals, verify parity with a schema diff.
+      the *verified dev schema*, archive the incrementals, verify parity with a schema diff — **and prove
+      the baseline applies from an empty DB via `scripts/db/fresh-reset.sh`** (the CONCURRENTLY-safe psql
+      applier; see Phase 1 for why `db push` can't do a from-zero apply).
 - [ ] **Env-var parity audit.** Diff the dev Laravel Cloud env's keys against `.env.example` and build the
       complete prod secret set (see Phase 2). Every key dev has, prod needs — with prod values.
 - [ ] **Decide reference/seed data** a fresh prod needs: platform config, feature flags, any bootstrap rows.
-- [ ] **Confirm the prod Laravel deploy command** is current (the last prod build predates the standalone
-      rework). It should match dev's build (ffmpeg script + `composer install --no-dev` + `php artisan
-      optimize`), **without** an auto `migrate --force` — schema is Supabase-side.
+- [ ] **Confirm the prod Laravel deploy command** is current. The last prod build (`fa69c2b1`) **already**
+      uses `ffmpeg.sh` + `composer install --no-dev` + `php artisan optimize` (no npm) — just confirm it's
+      unchanged and still **without** an auto `migrate --force` (schema is Supabase-side). Check the PHP
+      version matches intended (the last prod build ran 8.4; the project targets 8.2).
 
 ---
 
 ## Phase 1 — Production database (`edplucmvkcnokyygxqsb`)
 
-The one irreversible step. Pre-beta = no customer data, so prod starts clean.
+The one irreversible step. Pre-beta = no customer data, so prod starts clean. **Decision: reuse this ref,
+reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the existing connection strings).
 
-- [ ] **Restore** the INACTIVE project (Supabase dashboard → Restore, or MCP `restore_project`). It returns
-      on the *old* schema.
-- [ ] **Reset to a clean slate.** Because it carries stale migration history, either reset its schema or
-      (tidier) provision a brand-new prod project and retire this ref. Reusing `edplucmvkcnokyygxqsb`
-      keeps the Laravel `DB_USERNAME` prefix stable; a new project is cleaner. Judgment call.
-- [ ] **Apply the (collapsed) baseline, gated:**
+- [ ] **No restore needed** — the project is already `ACTIVE_HEALTHY` (verified 2026-07-21). It just holds
+      the stale pre-standalone schema.
+- [ ] **Wipe to a clean slate.** Drop/reset the app schemas so no pre-standalone objects or stale ledger
+      rows survive (`public`, `core`, `site`, `notifications`, `analytics`, `audit`, `moderation`; leave
+      Supabase-managed `auth`/`storage`). Confirm `supabase_migrations.schema_migrations` is empty before
+      applying the baseline.
+- [ ] **Apply the collapsed baseline via `psql`, gated — NOT `db push`.** `supabase db reset`/`db push`
+      pipeline any multi-statement file and **abort on `CREATE/DROP INDEX CONCURRENTLY`** (`SQLSTATE
+      25001`); a from-zero apply of the raw migrations hits the 9 grandfathered CONCURRENTLY bundles and
+      fails. (A single `db dump` baseline is CONCURRENTLY-free so it *might* push, but the sanctioned prod
+      mechanism — CLAUDE.md → "Push to Supabase / Fresh prod DB"; `CONVENTIONS.md §1` — is psql either way.)
       ```bash
-      supabase link --project-ref edplucmvkcnokyygxqsb
-      supabase db push --dry-run          # REVIEW every statement
-      # confirm with Josh, then:
-      supabase db push --include-all
+      # Review first: read the baseline in full, or apply to a scratch DB via fresh-reset.sh + `db diff`.
+      # Then, against the prod DB URL (simple protocol — NOT --single-transaction), in filename order:
+      psql "$PROD_DB_URL" -f supabase/migrations/<baseline>.sql
+      # Record each applied file's version in supabase_migrations.schema_migrations so a future
+      # incremental `db push` treats it as applied (see the fresh-prod procedure for the INSERT shape).
       ```
-      `--include-all` matters — prod is far behind. Always show the dry-run and confirm before the real push.
+      Always dry-review and confirm before running.
 - [ ] **Bootstrap the login role.** The baseline creates `app_backend` as `NOLOGIN` (fail-closed). In the
       SQL editor: `ALTER ROLE app_backend WITH LOGIN PASSWORD '<from-secret>';` — the app cannot connect
       until this runs.
 - [ ] **Verify grants**: `app_backend` has the intended per-schema grants (esp. `audit` = SELECT/INSERT
       only, `moderation` grants present). RLS policies applied. Functions have pinned `search_path`.
 - [ ] **Seed** reference/bootstrap data from Phase 0.
+- [ ] **Re-register the Supabase Auth hooks on the prod project** (Dashboard → Authentication → Hooks). A
+      fresh / re-baselined prod Supabase project has **no hooks configured**, so it silently falls back to
+      Supabase's *built-in* email sender — auth OTPs / magic-links / invites would then arrive from a
+      `*.supabase.co` domain (wrong branding, cold/unwarmed reputation → spam) and bypass the WHK-5
+      stable-Message-ID dedup in `BaseTransactionalMail`. This is the highest-risk email trap of the whole
+      cutover: the funnel keeps "working" in tests while OTPs quietly land in spam. Register **both**:
+      - **Send Email Hook** → `https://api.partna.au/api/internal/email-hooks/supabase`, secret =
+        the prod `SUPABASE_EMAIL_HOOK_SECRET` (format `v1,whsec_<base64>`). This is what keeps every auth
+        email on the Resend / `partna.au` DKIM pipeline instead of Supabase's sender.
+      - **MFA Verification Hook** → `https://api.partna.au/api/webhooks/supabase/auth/mfa-verification`,
+        secret = the prod auth-hook secret.
+      The secret on each side (Supabase Dashboard ↔ prod Laravel env) **must match**, or the signature
+      middleware returns 401/503 and the path fails closed. Verify with a real send in Phase 4.
 
 ---
 
@@ -136,24 +122,35 @@ missed:
 - [ ] **Origins / URLs:** `PARTNA_FRONTEND_ORIGINS` (`https://partna.au,https://www.partna.au,https://app.partna.au`),
       `FRONTEND_URL=https://app.partna.au`, `PARTNA_MARKETING_URL=https://partna.au`,
       `PARTNA_PUBLIC_DOMAIN=partna.au`.
-- [ ] **Redis** (prod instance / DB indices), **mail** (from-address, transport, Supabase email hook
-      secret), **media S3 bucket** (`MEDIA_DISK_URL`), **Nightwatch** (prod project), **Horizon
+- [ ] **Redis** (prod instance / DB indices), **mail** (from-address, transport, `RESEND_API_KEY`,
+      `RESEND_WEBHOOK_SECRET`, and the Supabase email-hook secret — **the secret alone is not enough; the
+      hook must also be registered on the prod Supabase project, see Phase 1**), **media S3 bucket**
+      (`MEDIA_DISK_URL`), **Nightwatch** (prod project), **Horizon
       basic-auth** creds, **Cloudflare** API tokens (prod zone), any provider API keys.
-- [ ] `migrate --force` stays **off** — schema is Supabase `db push`, never Laravel migrate (guard forbids
-      Laravel migrations anyway).
+- [ ] `migrate --force` stays **off** — schema is applied Supabase-side (the Phase 1 `psql` baseline), never
+      Laravel migrate (guard forbids Laravel migrations anyway).
 
 ---
 
-## Phase 3 — Branch, edge, DNS (the cutover moment)
+## Phase 3 — Branch, edge, go-live (the cutover moment)
 
+**No DNS repoint here** — api.partna.au already CNAMEs to the prod env's vanity domain, so waking/deploying
+prod IS the public go-live. Sequence accordingly:
+
+- [ ] **Pre-flight (before the push): smoke-test prod on its raw `*.laravel.cloud` URL** — health, auth, a
+      create-site path — because once you push, api.partna.au serves it live with no DNS valve to hold
+      traffic back.
 - [ ] **Update the branch:** fast-forward `development → production` and push. This triggers the prod build
-      (the env deploys from `production`). Verify build succeeds (`cloud deployment:list production`).
+      and wakes the env (the env deploys from `production`). Verify build succeeds
+      (`cloud deployment:list production`). **This deploy is the go-live instant** — api.partna.au flips
+      from 404 to live-prod automatically.
 - [ ] **Deploy the prod Cloudflare Worker** bound to the prod `SUBDOMAIN_KV`, so `<handle>.partna.au`
-      serves from prod.
-- [ ] **Repoint DNS** — the go-live instant:
-      - `api.partna.au` → prod Laravel env (currently → dev).
-      - `app.partna.au` → prod dashboard build (already targets `api.partna.au`, so it follows).
-- [ ] Confirm `dev-api.partna.au` / `dev-app.partna.au` still point at dev (unchanged).
+      serves from prod. Do this in lock-step with go-live so sitepage routing matches the API cutover.
+- [ ] **Point the dashboard at prod** — `app.partna.au` is a **Vercel** deploy, not DNS. Confirm its
+      production build's API base is `https://api.partna.au` (now prod) and that its origin is in the
+      backend `PARTNA_FRONTEND_ORIGINS`. No DNS change; this is a frontend-repo / Vercel-env check.
+- [ ] Confirm `dev-api.partna.au` / `dev-app.partna.au` still point at dev (unchanged) — they use separate
+      vanity domains, so go-live doesn't touch them.
 
 ---
 
@@ -164,14 +161,33 @@ missed:
       `<handle>.partna.au` renders from prod.
 - [ ] Horizon dashboard shows masters up and jobs draining (not sync).
 - [ ] Nightwatch (prod project) clean — no boot exceptions, no eager-scraper / connection errors.
+- [ ] **Auth email arrives from Resend, not Supabase.** Trigger a real OTP / magic-link on prod and confirm
+      the message is `From: hello@partna.au` and DKIM-signed by `partna.au` (not a `*.supabase.co` sender) —
+      this proves the Send Email Hook is registered and the signature secret matches (Phase 1).
+- [ ] **Deliverability DNS is prod-ready** (see `docs/superpowers/plans/2026-07-21-email-deliverability-hardening-PROMPT.md`):
+      `partna.au` has an MX + a reachable `hello@partna.au` inbox, DMARC `rua` points at a report parser you
+      read, and the Resend bounce/complaint webhook is registered against the prod URL.
 - [ ] Custom-domain path (if in pilot scope) resolves.
+
+---
+
+## Phase 5 — Post-cutover (customer data now lives in prod)
+
+- [ ] **Re-point the off-platform backup.** The weekly R2 backup (`partna-db-backup` GitHub Action) targets
+      **dev**'s `SUPABASE_DB_URL` today — move it to the prod ref (the `--schema` flags stay valid because
+      prod is re-baselined with the same standalone migrations). Rename the dump prefix (`partna-dev-` →
+      live). Then **re-run the drill-04 restore rehearsal** against the new target.
+- [ ] **Move the Supabase Pro upgrade** (managed daily backups) onto the prod project — the paid tier
+      follows the live data.
 
 ---
 
 ## Rollback
 
-- **Fastest:** repoint `api.partna.au` DNS back to the dev env. The dashboard follows. Prod stays up but
-      untrafficked.
+- **Fastest:** **stop/hibernate the prod Laravel env** so api.partna.au returns to 404 (it CNAMEs to prod,
+      so there is no "point back to dev" — dev lives on its own `dev-api` vanity). If you need the domain to
+      *serve* during rollback, re-point the api.partna.au CNAME at the dev env's vanity
+      (`partna-development-fsh3vz.laravel.cloud`) as a deliberate, separate step.
 - **DB:** the re-baseline is the irreversible part — there is no "undo" once prod carries real signups.
       This is why cutover happens only after P0/P1 are closed and the pilot is genuinely ready.
 
@@ -250,11 +266,6 @@ and reliability on a fresh prod DB.
   Replaying repo history onto fresh prod reproduces the *repo*, which may silently differ from dev.
   **Snapshotting the verified dev schema is the only way to guarantee prod == dev** — which is exactly why
   the drift reconciliation above must come first.
-  > **2026-07-21 update:** the audit found the repo is a *superset* of dev — the repo has 10 additive
-  > migrations dev lacks, and nothing dev-only that the repo doesn't reproduce in schema terms. So the goal
-  > is **prod == repo (the intended schema)**, not prod == dev. Snapshotting *dev* would **under-provision**
-  > prod by those 10 (trgm indexes, RLS, defaults). Snapshot a **repo-provisioned** scratch DB instead
-  > (`scripts/db/fresh-reset.sh` → `pg_dump`), or apply the 10 to dev before snapshotting. See findings up top.
 
 **Method:**
 1. Complete "Drift reconciliation" above so dev is a known, reproducible state.
@@ -264,7 +275,8 @@ and reliability on a fresh prod DB.
    …), CHECK constraints. **Exclude** Supabase-managed schemas (`auth`, `storage`, …).
 3. Make it the new baseline (e.g. `2026NNNN000000_baseline_pilot.sql`); move the incrementals to
    `supabase/migrations-archive/`.
-4. **Verify parity:** apply the new baseline to a scratch DB (local stack or a Supabase branch), then
+4. **Verify parity:** apply the new baseline to a scratch DB **via `scripts/db/fresh-reset.sh`** (the psql
+   simple-query loop — a from-zero `db reset`/`db push` can't, per the CONCURRENTLY note in Phase 1), then
    `supabase db diff` against dev — expect **empty**. Don't trust it for prod until the diff is clean.
 5. Update `CLAUDE.md`'s baseline-filename reference and any audit-pipeline path references.
 
@@ -272,10 +284,8 @@ and reliability on a fresh prod DB.
 schema stabilizes — not under cutover-day pressure. Further migrations simply stack on the new baseline
 (same pattern as the 2026-05-26 one); collapse again only if churn re-accumulates.
 
-**Fallback (if not collapsing):** apply all the incremental files to fresh prod — but **NOT via
-`supabase db push`**, which aborts on the multi-statement `CONCURRENTLY` index files (`SQLSTATE 25001`;
-see the 2026-07-21 findings up top). Use a **`psql` simple-query loop** (pattern: `scripts/db/fresh-reset.sh`
-/ `CLAUDE.md` → "Push to Supabase / Fresh prod DB"), applying `supabase/migrations/*.sql` in filename order
-and recording each version in `supabase_migrations.schema_migrations`. Do it *after* a verifying schema diff.
-Note this replays the **repo** (which is the complete intended schema — it includes the 10 additive
-migrations dev is missing), so unlike snapshotting dev, the fallback does not propagate dev's gaps.
+**Fallback (if not collapsing):** apply all the migration files to fresh prod **via `psql -f` in filename
+order** (the same simple-protocol procedure as Phase 1) — **not** `supabase db push`, which aborts from zero
+on the 9 CONCURRENTLY-bundle files (`SQLSTATE 25001`; the regression guard
+`scripts/guard-no-unsafe-migrations.php` Check 6 + `CONVENTIONS.md §1` document this). Still requires the
+drift reconciliation above and a verifying schema diff — mandatory either way.
