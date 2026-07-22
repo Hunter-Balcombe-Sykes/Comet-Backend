@@ -10,6 +10,7 @@ use Closure;
 use Firebase\JWT\JWK;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -461,8 +462,17 @@ class VerifySupabaseJwt
         // the 60s TTL is the throttle window. Wrapped in try/catch so a throttle
         // layer outage can never mask the underlying JWKS classification.
         try {
-            $lock = Cache::store('cache_locks')->lock('jwt:jwks-failure-reported', 60);
-            if ($lock->get()) {
+            // Repository::lock() is resolved via __call to the underlying store,
+            // so PHPStan can't see it on the Repository contract. Reach the store
+            // and narrow to LockProvider: cache_locks is Redis (a LockProvider) in
+            // prod and array in tests. A store without lock support throws, which
+            // the catch surfaces as a report — matching the "over-report once,
+            // never silently suppress" rule below.
+            $store = Cache::store('cache_locks')->getStore();
+            if (! $store instanceof LockProvider) {
+                throw new \RuntimeException('cache_locks store is not a LockProvider');
+            }
+            if ($store->lock('jwt:jwks-failure-reported', 60)->get()) {
                 report($outage);
             }
         } catch (\Throwable) {

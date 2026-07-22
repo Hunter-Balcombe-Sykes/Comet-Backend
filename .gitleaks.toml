@@ -21,5 +21,6 @@ paths = [
     '''^tests/''',          # test fixtures + feature tests use fake / sk_test_ / whsec_ values
     '''^docs/''',           # planning docs carry illustrative example secrets
     '''^\.audit-work/''',   # audit-pipeline logs quote scanned source (incl. the test fixtures above)
+    '''^audits/''',         # committed audit-sweep output — prose quoting scanned source (e.g. `apify_status:` state names trip generic-api-key)
     '''\.example$''',       # .env.example and friends — placeholders, never real
 ]

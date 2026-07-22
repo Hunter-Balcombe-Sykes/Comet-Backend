@@ -64,7 +64,9 @@ class StaffPreAccountBuildController extends ApiController
         $staff = request()->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffCreate', PreAccountBuild::class);
 
-        $published = (bool) ($build->user?->site?->is_published ?? false);
+        // user_id is a NOT NULL 1:1 FK and a site is created together with the
+        // build, so user->site is non-null here; is_published is NOT NULL bool.
+        $published = $build->user->site->is_published;
         if ($build->build_state !== PreAccountBuild::STATE_READY || ! $published) {
             return $this->error('Build is not ready to invite.', 409, [], ['code' => 'BUILD_NOT_READY']);
         }
