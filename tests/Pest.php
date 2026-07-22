@@ -2359,7 +2359,9 @@ function setupDesignKitsTable(): void
         color_accent_contrast TEXT NULL,
         color_text TEXT NULL,
         color_text_muted TEXT NULL,
+        border_thickness TEXT NULL,
         border_radius TEXT NULL,
+        border_style TEXT NULL,
         text_caption TEXT NULL,
         text_body TEXT NULL,
         text_h3 TEXT NULL,
@@ -2369,33 +2371,25 @@ function setupDesignKitsTable(): void
         text_desktop_body TEXT NULL,
         text_desktop_h1 TEXT NULL,
         text_desktop_display TEXT NULL,
+        typography_font_family TEXT NULL,
+        typography_line_height TEXT NULL,
+        typography_logo_height TEXT NULL,
+        typography_uppercase INTEGER NULL,
+        typography_tracking TEXT NULL,
+        weight_regular TEXT NULL,
+        weight_heading TEXT NULL,
+        space_regular TEXT NULL,
+        space_desktop_regular TEXT NULL,
+        layout_density TEXT NULL,
+        motion_pace TEXT NULL,
+        effect_shadow_style TEXT NULL,
+        effect_link_style TEXT NULL,
+        effect_image_treatment TEXT NULL,
         theme_mode TEXT NULL,
+        theme_contrast TEXT NULL,
         theme_night_shift_auto INTEGER NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
-    )');
-}
-
-/**
- * site.design_kit_contributions — per-factor design-kit preset contributions.
- * priority is INTEGER; UNIQUE(site_id, source, target_var) mirrors production.
- * Mirrors migration 20260701130000.
- */
-function setupDesignKitContributionsTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kit_contributions (
-        id TEXT PRIMARY KEY,
-        site_id TEXT NOT NULL,
-        source TEXT NOT NULL,
-        integration TEXT NOT NULL,
-        priority INTEGER NOT NULL,
-        mode TEXT NOT NULL,
-        target_var TEXT NOT NULL,
-        value TEXT NOT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
-        UNIQUE(site_id, source, target_var)
     )');
 }
 

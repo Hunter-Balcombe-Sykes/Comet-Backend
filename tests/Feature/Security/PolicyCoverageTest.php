@@ -8,7 +8,6 @@ use App\Models\Core\EmailSuppression;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\MediaVariant;
 use App\Models\Core\Notifications\SupabaseEmailEvent;
-use App\Models\Core\Site\DesignKitContribution;
 use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
@@ -39,12 +38,6 @@ use Symfony\Component\Finder\Finder;
 const POLICY_EXEMPT = [
     // Catalog & system tables — no tenant ownership; admin-only or read-only.
     MediaVariant::class,           // owned via parent SiteMedia
-
-    // System-managed design-kit preset contributions — written only by the
-    // server-side DesignPresetResolver (integration factors), never
-    // user-authorized directly. No API surface to gate; RLS denies all
-    // non-app_backend roles.
-    DesignKitContribution::class,
 
     // Public ingestion — write-only via public site endpoints; scoped by
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics

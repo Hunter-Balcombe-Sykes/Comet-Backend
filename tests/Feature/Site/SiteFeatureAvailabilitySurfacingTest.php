@@ -9,8 +9,7 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    setupDesignKitsTable();              // GET /api/site calls SiteResource->withRationale()
-    setupDesignKitContributionsTable();  // -> DesignRationaleService reads these two
+    setupDesignKitsTable(); // GET /api/site calls SiteResource->withRationale() -> DesignRationaleService
     setupSegmentsTables();
     setupFeatureAvailabilityTable();
 });

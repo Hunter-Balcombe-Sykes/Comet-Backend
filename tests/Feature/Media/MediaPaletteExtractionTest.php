@@ -1,19 +1,17 @@
 <?php
 
 /**
- * End-to-end coverage for #76 Part A: ImageVariantService extracts + stores a
- * colour palette during variant processing, IdentityEvidence::mediaPalette()
- * aggregates the stored rows, and ImageryPaletteFactor turns that into an
- * image-treatment nudge. Proves the previously-dormant factor is now LIVE.
+ * Coverage for ImageVariantService's palette extraction (#76 Part A):
+ * processing a gallery image stores a dominant colour + {saturation, warm}
+ * palette jsonb on the media row. The design-preset consumer that used to
+ * read this (ImageryPaletteFactor, via IdentityEvidence::mediaPalette()) was
+ * retired with the integration factor machine — this metadata is now a
+ * write-only, future-useful column (candidate follow-up deletion if it never
+ * grows a reader).
  */
 
-use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\User\User;
-use App\Services\Design\Presets\Factors\ImageryPaletteFactor;
-use App\Services\Design\Presets\IdentityEvidence;
 use App\Services\Media\ImageVariantService;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -80,105 +78,4 @@ it('stores a palette on the media row during variant processing', function () {
         ->and($row->palette)->toBeArray()
         ->and($row->palette['warm'])->toBeTrue()
         ->and($row->palette['saturation'])->toBeGreaterThan(0.5);
-});
-
-it('a warm mid-saturation gallery lights up ImageryPaletteFactor with a warm treatment', function () {
-    $siteId = (string) Str::uuid();
-    $imageId = seedPaletteMediaRow($siteId);
-    // Warm hue (~30°) with MID saturation (~0.30): between the LOW (0.20) and
-    // HIGH (0.65) thresholds, so the factor falls through to the warm branch
-    // rather than the muted / "vibrant speaks for itself" branches.
-    $fixture = paletteImageFixture(200, 170, 140);
-
-    (new ImageVariantService)->processVariants(
-        originalTmpPath: $fixture,
-        imageId: $imageId,
-        basePath: "images/test/{$imageId}",
-        siteId: $siteId,
-    );
-    @unlink($fixture);
-
-    $evidence = new IdentityEvidence(
-        (new User)->forceFill(['id' => 'u1']),
-        (new Site)->forceFill(['id' => $siteId]),
-        new Collection,
-        new Collection,
-    );
-
-    // mediaPalette() aggregates the stored row → the factor emits.
-    $palette = $evidence->mediaPalette();
-    expect($palette)->toMatchArray(['warm' => true])
-        ->and($palette['saturation'])->toBeGreaterThan(0.20)
-        ->and($palette['saturation'])->toBeLessThan(0.65);
-
-    // Treatment only — the old warm bg tint retired with the 2026-07-10
-    // theme_mode rework (backgrounds are user-owned).
-    $out = (new ImageryPaletteFactor)->detect($evidence);
-    expect($out)->toBe(['effect_image_treatment' => 'warm']);
-});
-
-it('a vivid gallery yields a high-saturation read → treatment none', function () {
-    $siteId = (string) Str::uuid();
-    $imageId = seedPaletteMediaRow($siteId);
-    $fixture = paletteImageFixture(255, 20, 20); // vivid red, saturation >= 0.65
-
-    (new ImageVariantService)->processVariants(
-        originalTmpPath: $fixture,
-        imageId: $imageId,
-        basePath: "images/test/{$imageId}",
-        siteId: $siteId,
-    );
-    @unlink($fixture);
-
-    $evidence = new IdentityEvidence(
-        (new User)->forceFill(['id' => 'u1']),
-        (new Site)->forceFill(['id' => $siteId]),
-        new Collection,
-        new Collection,
-    );
-
-    // High saturation → "let the vibrant imagery speak" → treatment none.
-    $out = (new ImageryPaletteFactor)->detect($evidence);
-    expect($out)->toBe(['effect_image_treatment' => 'none']);
-});
-
-it('a low-saturation (grey) gallery yields a muted/mono treatment', function () {
-    $siteId = (string) Str::uuid();
-    $imageId = seedPaletteMediaRow($siteId);
-    $fixture = paletteImageFixture(128, 128, 128); // neutral grey
-
-    (new ImageVariantService)->processVariants(
-        originalTmpPath: $fixture,
-        imageId: $imageId,
-        basePath: "images/test/{$imageId}",
-        siteId: $siteId,
-    );
-    @unlink($fixture);
-
-    $evidence = new IdentityEvidence(
-        (new User)->forceFill(['id' => 'u1']),
-        (new Site)->forceFill(['id' => $siteId]),
-        new Collection,
-        new Collection,
-    );
-
-    $out = (new ImageryPaletteFactor)->detect($evidence);
-    // Very low saturation → mono; low → muted. Grey is ~0 → mono.
-    expect($out['effect_image_treatment'])->toBeIn(['muted', 'mono']);
-});
-
-it('abstains cleanly when no gallery image has a palette', function () {
-    $siteId = (string) Str::uuid();
-    // A row with no palette (processing never ran / extraction produced nothing).
-    seedPaletteMediaRow($siteId);
-
-    $evidence = new IdentityEvidence(
-        (new User)->forceFill(['id' => 'u1']),
-        (new Site)->forceFill(['id' => $siteId]),
-        new Collection,
-        new Collection,
-    );
-
-    expect($evidence->mediaPalette())->toBe([])
-        ->and((new ImageryPaletteFactor)->detect($evidence))->toBe([]);
 });

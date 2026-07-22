@@ -12,7 +12,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Design\Presets\DesignPresetResolver;
+use App\Services\Design\ProfileDesignPresets;
 use App\Services\Site\ContentSelectionService;
 use App\Services\Site\SitePolicyResolver;
 use Illuminate\Support\Collection;
@@ -62,7 +62,6 @@ class IndividualProfilePayloadBuilder
 {
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
-        private readonly DesignPresetResolver $presetResolver,
         private readonly ContentPopularityReader $popularity,
         private readonly SiteActionsService $actions,
         private readonly ContentSelectionService $selection,
@@ -118,7 +117,7 @@ class IndividualProfilePayloadBuilder
 
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
-            'design_kit' => $this->loadDesignKit($site),
+            'design_kit' => $this->loadDesignKit($site, $pro),
             'design_media' => $this->buildDesignMedia($site),
             'site_images' => $this->buildSiteImages($site),
             'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
@@ -539,7 +538,7 @@ class IndividualProfilePayloadBuilder
      *
      * @return array<string, array<string, mixed>>
      */
-    private function loadDesignKit(?Site $site): array
+    private function loadDesignKit(?Site $site, ?User $pro): array
     {
         if (! $site) {
             return [];
@@ -559,13 +558,9 @@ class IndividualProfilePayloadBuilder
             $manual = array_filter($cols, fn ($v) => $v !== null);
         }
 
-        // Overlay manual on the integration-driven preset layer:
-        //   defaults <- presets <- manual   (manual non-null wins per column).
-        // presetLayer() is defensive internally (catches \Throwable, report()s,
-        // returns [] on any failure) — a preset bug can never break this render.
-        $preset = $this->presetResolver->presetLayer((string) $site->id);
-
-        $merged = array_merge($preset, $manual);
+        // Overlay manual on the profile-derived preset layer:
+        //   defaults <- profile presets <- manual   (manual non-null wins per column).
+        $merged = array_merge(ProfileDesignPresets::forUser($pro), $manual);
         if ($merged === []) {
             return [];
         }

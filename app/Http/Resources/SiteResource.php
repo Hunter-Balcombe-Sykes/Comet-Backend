@@ -106,7 +106,10 @@ class SiteResource extends ApiResource
             // — only the design-editor round-trips pay its two DB reads; the
             // dashboard renders the summary + an expandable per-area list.
             $this->withRationale
-                ? ['design_rationale' => app(DesignRationaleService::class)->forSite((string) $this->id)]
+                ? ['design_rationale' => app(DesignRationaleService::class)->forSite(
+                    (string) $this->id,
+                    $this->user_id,
+                )]
                 : [],
             // Booking settings surfaced at the top level for the dashboard's
             // booking editor — mirrors the dedicated updateBookingSettings endpoint.

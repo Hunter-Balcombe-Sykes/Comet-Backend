@@ -59,7 +59,7 @@ it('loads the schedule on demand when the singleton starts empty, as over real H
     // used to return healthy:true with zero tasks — a vacuous pass that hid a
     // never-enabled cron. Simulate that state with a fresh, empty Schedule.
     app()->instance(Schedule::class, new Schedule);
-    \Illuminate\Support\Facades\Schedule::clearResolvedInstance(Schedule::class);
+    Illuminate\Support\Facades\Schedule::clearResolvedInstance(Schedule::class);
 
     $response = $this->getJson('/api/health/scheduler')->assertStatus(503);
 

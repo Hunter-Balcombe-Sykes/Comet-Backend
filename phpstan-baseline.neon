@@ -2031,94 +2031,10 @@ parameters:
 			path: app/Services/Cloudflare/CloudflarePurgeService.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$priority\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/Design/DesignRationaleService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$source\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Design/DesignRationaleService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$target_var\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/DesignRationaleService.php
-
-		-
 			message: '#^Offset ''mime'' on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/Design/LogoAutoGrabber.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$integration\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$mode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$priority\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$source\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$target_var\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$value\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/Design/Presets/DesignPresetResolver.php
-
-		-
-			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php
-
-		-
-			message: '#^Offset ''body'' on array\{status\: 200, body\: string, finalUrl\: string, contentType\: string, etag\: string\|null, lastModified\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php
-
-		-
-			message: '#^Offset ''status'' on array\{status\: int, body\: string, finalUrl\: string, contentType\: string, etag\: string\|null, lastModified\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$target_var\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\DesignKitContribution\:\:\$value\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\FeatureAvailabilityRule\:\:\$mode\.$#'
@@ -2940,12 +2856,6 @@ parameters:
 			path: app/Services/Media/ImagePaletteExtractor.php
 
 		-
-			message: '#^Strict comparison using \=\=\= between non\-empty\-list\<float\> and array\{\} will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Services/Design/Presets/RecipeSignals.php
-
-		-
 			message: '#^Strict comparison using \=\=\= between array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} and null will always evaluate to false\.$#'
 			identifier: identical.alwaysFalse
 			count: 1
@@ -3042,20 +2952,6 @@ parameters:
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 2
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Design/Presets/RecipeSignals.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
 			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
 
 		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
@@ -3081,13 +2977,6 @@ parameters:
 
 		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period; is_array() guard kept defensive. R9.
 		-
-			message: '#^Call to function is_array\(\) with array\{open\: string, close\: string\} will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		# Model-property sweep 2026-07-20: SiteMedia::$path now typed non-nullable string; is_string() guard kept defensive. R9.
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -3101,20 +2990,6 @@ parameters:
 			path: app/Models/Core/Site/IntegrationConnection.php
 
 		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period to a fixed open/close shape; ?? kept defensive. R9.
-		-
-			message: '#^Offset ''close'' on array\{open\: string, close\: string\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period to a fixed open/close shape; ?? kept defensive. R9.
-		-
-			message: '#^Offset ''open'' on array\{open\: string, close\: string\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Design/Presets/IdentityEvidence.php
-
-		# Model-property sweep 2026-07-20: known case — Site::$user_id is NOT NULL, so the null comparison is now provably constant; guard kept defensive. R9.
 		-
 			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
@@ -3266,3 +3141,4 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/WebsiteScan/WorkplaceContentApplier.php
+
