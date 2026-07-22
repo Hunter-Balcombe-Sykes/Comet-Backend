@@ -13,15 +13,17 @@
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
     setupBlocksTable();
 });
 
-function sectionBlockPendingPro(string $handle): \App\Models\Core\User\User
+function sectionBlockPendingPro(string $handle): User
 {
     $pro = createTenant($handle);
     DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([
@@ -50,7 +52,7 @@ it('blocks a pending-deletion professional from upserting a section block (423)'
 it('blocks a pending-deletion professional from reordering section blocks (423)', function () {
     $pro = sectionBlockPendingPro('sb-reorder-pending');
 
-    $req = tenantRequestAs($pro, ['ids' => [(string) \Illuminate\Support\Str::uuid()]], 'POST');
+    $req = tenantRequestAs($pro, ['ids' => [(string) Str::uuid()]], 'POST');
     $formReq = ReorderBlocksRequest::createFrom($req);
     $formReq->setContainer(app());
     $formReq->validateResolved();

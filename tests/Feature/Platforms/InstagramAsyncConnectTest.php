@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\InstagramConnectJob;
+use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
@@ -663,7 +664,7 @@ it('BE2: captures website + bioLinks and auto-syncs a bio social link, using the
     expect($connection->payload['unmatched'])->toBe([
         ['url' => 'https://docpizza.example.com', 'label' => 'docpizza.example.com'],
     ]);
-    Queue::assertPushed(\App\Jobs\Platforms\LinkInBioScanJob::class, fn ($job) => $job->bioPageUrl === 'https://linktr.ee/docpizza');
+    Queue::assertPushed(LinkInBioScanJob::class, fn ($job) => $job->bioPageUrl === 'https://linktr.ee/docpizza');
 });
 
 // ── A1.4: InstagramIdentitySync wired into the connect job ──────────────────

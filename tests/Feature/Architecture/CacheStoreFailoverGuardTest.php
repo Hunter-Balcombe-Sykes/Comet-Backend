@@ -25,7 +25,7 @@ it('.env.example does not select a failover-chained CACHE_STORE', function () {
 
     expect($store)->not->toBe(
         'failover',
-        "CACHE_STORE=failover in .env.example silently disables the analytics fault escalation: ".
+        'CACHE_STORE=failover in .env.example silently disables the analytics fault escalation: '.
         'FailoverStore swallows the Throwable from its primary (redis) leg and returns the fallback '.
         "(array) leg's result instead, so Cache::add()/increment() never throw. That makes the catch ".
         'blocks in AnalyticsCacheService::bumpVersion() and AnalyticsDedupGuard::claim() unreachable, '.

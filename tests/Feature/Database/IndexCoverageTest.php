@@ -55,12 +55,12 @@ function assertIndexExists(string $schema, string $table, string $index): void
 // CONCURRENTLY build). Keep in lockstep with PurgeRawAnalyticsEvents::TABLES.
 
 dataset('analyticsPurgeIndexes', [
-    'link_clicks'      => ['link_clicks', 'link_clicks_occurred_at_idx'],
-    'site_visits'      => ['site_visits', 'site_visits_occurred_at_idx'],
+    'link_clicks' => ['link_clicks', 'link_clicks_occurred_at_idx'],
+    'site_visits' => ['site_visits', 'site_visits_occurred_at_idx'],
     'lead_submissions' => ['lead_submissions', 'lead_submissions_occurred_at_idx'],
-    'section_views'    => ['section_views', 'section_views_occurred_at_idx'],
-    'item_views'       => ['item_views', 'item_views_occurred_at_idx'],
-    'site_sessions'    => ['site_sessions', 'site_sessions_last_seen_at_idx'],
+    'section_views' => ['section_views', 'section_views_occurred_at_idx'],
+    'item_views' => ['item_views', 'item_views_occurred_at_idx'],
+    'site_sessions' => ['site_sessions', 'site_sessions_last_seen_at_idx'],
 ]);
 
 it('has a timestamp-leading purge index on each raw analytics table', function (string $table, string $index) {

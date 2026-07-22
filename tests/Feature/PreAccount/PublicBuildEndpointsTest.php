@@ -2,6 +2,7 @@
 
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\User\PreAccountBuild;
+use App\Services\PreAccount\ClaimSiteService;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -82,7 +83,7 @@ it('stays reachable and correct after the build has been claimed — no new auth
     setupNotificationsTable();
     setupSubdomainAliasesTable();
     $subdomain = $build->user->site->subdomain;
-    app(App\Services\PreAccount\ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', $subdomain);
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', $subdomain);
 
     // Same opaque-UUID, unauthenticated response shape as pre-claim — the
     // dashboard can keep polling this exact endpoint by the build_id it

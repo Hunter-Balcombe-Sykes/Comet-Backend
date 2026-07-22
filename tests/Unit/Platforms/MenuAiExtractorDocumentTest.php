@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Platforms\MenuAiExtractor;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -22,7 +23,7 @@ it('posts a document_url-typed request body to Mistral OCR', function () {
 
 it('returns null on a transport-level failure, matching ocrImageUrl error handling', function () {
     config(['services.mistral.key' => 'k1']);
-    Http::fake(['api.mistral.ai/v1/ocr' => fn () => throw new \Illuminate\Http\Client\ConnectionException('down')]);
+    Http::fake(['api.mistral.ai/v1/ocr' => fn () => throw new ConnectionException('down')]);
 
     expect((new MenuAiExtractor)->ocrDocumentUrl('https://venue.example/menu.pdf'))->toBeNull();
 });

@@ -4,6 +4,7 @@ namespace Tests;
 
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -44,7 +45,7 @@ abstract class TestCase extends BaseTestCase
             $db = (int) $token;
             foreach (['default', 'cache', 'session', 'queue', 'cache_locks'] as $name) {
                 config(["database.redis.{$name}.database" => $db]);
-                \Illuminate\Support\Facades\Redis::purge($name);
+                Redis::purge($name);
             }
         }
 

@@ -10,6 +10,7 @@
 
 use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Requests\Api\User\Site\UpsertWorkplaceRequest;
+use App\Models\Core\User\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -19,7 +20,7 @@ beforeEach(function () {
     setupBlocksTable();
 });
 
-function workplacePendingPro(string $handle): \App\Models\Core\User\User
+function workplacePendingPro(string $handle): User
 {
     $pro = createTenant($handle);
     DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update([

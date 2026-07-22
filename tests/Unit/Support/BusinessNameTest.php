@@ -47,9 +47,9 @@ it('returns an empty string for whitespace-only input', function () {
 });
 
 it('strips trailing punctuation off a single-token hard cut (contract: never end mid-punctuation)', function () {
-    expect(App\Support\BusinessName::wordTrim('ABCDEFGHIJKLMN-O'))->toBe('ABCDEFGHIJKLMN');
+    expect(BusinessName::wordTrim('ABCDEFGHIJKLMN-O'))->toBe('ABCDEFGHIJKLMN');
 });
 
 it('keeps the hard cut for a degenerate all-punctuation token rather than returning empty', function () {
-    expect(App\Support\BusinessName::wordTrim(str_repeat('!', 20)))->toBe(str_repeat('!', 15));
+    expect(BusinessName::wordTrim(str_repeat('!', 20)))->toBe(str_repeat('!', 15));
 });

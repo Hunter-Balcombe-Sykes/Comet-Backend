@@ -7,6 +7,7 @@
 // SQLite test connection, so only the dry-run + retention-floor guard are
 // exercised here; the real-delete path is gated behind a Postgres-only test.
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -14,7 +15,7 @@ beforeEach(function () {
     setupHandleChangeLogTable();
 });
 
-function seedHandleChangeLogRow(string $handle, \Carbon\Carbon $changedAt): void
+function seedHandleChangeLogRow(string $handle, Carbon $changedAt): void
 {
     DB::connection('pgsql')->table('audit.handle_change_log')->insert([
         'id' => (string) Str::uuid(),

@@ -3,6 +3,10 @@
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\InstagramAutoSync;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -36,10 +40,10 @@ it('unrolls a link-in-bio page into a seeded integration and a custom link, with
     ]);
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
@@ -60,10 +64,10 @@ it('falls back to CustomLinkSeeder for a classified-but-gated link instead of dr
     ]);
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeFalse();
@@ -92,10 +96,10 @@ it("excludes links back to the bio page's own host — platform chrome, not the 
     ]);
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
@@ -107,10 +111,10 @@ it('does nothing when the fetch fails', function () {
     Http::fake(['linktr.ee/*' => Http::response('', 404)]);
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     expect(IntegrationConnection::where('user_id', $user->id)->exists())->toBeFalse();
@@ -135,10 +139,10 @@ it('merges a conflict finding into the IG payload syncFindings and notifies the 
     ]);
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     $findings = $ig->fresh()->payload['syncFindings'] ?? [];
@@ -169,10 +173,10 @@ it('does not duplicate a finding for a platform the direct bio scan already reco
     ]);
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     $findings = $ig->fresh()->payload['syncFindings'] ?? [];
@@ -185,10 +189,10 @@ it('does not duplicate a finding for a platform the direct bio scan already reco
 it('does nothing when the user no longer exists', function () {
     // Must not throw — mirrors ScanPreviousWebsiteContentJob's own null-user guard.
     (new LinkInBioScanJob((string) Str::uuid(), 'https://linktr.ee/venue'))->handle(
-        app(App\Services\Http\SafeUrlFetcher::class),
-        app(App\Services\Platforms\WebsiteLinkHarvester::class),
-        app(App\Services\Platforms\InstagramAutoSync::class),
-        app(App\Services\Platforms\CustomLinkSeeder::class),
+        app(SafeUrlFetcher::class),
+        app(WebsiteLinkHarvester::class),
+        app(InstagramAutoSync::class),
+        app(CustomLinkSeeder::class),
     );
 
     expect(true)->toBeTrue(); // reaching here without throwing is the assertion

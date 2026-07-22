@@ -34,6 +34,7 @@ use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\Writers\PostgresEventWriter;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 // visitRow()/clickRow() call now()->toISOString() for created_at — needs the
@@ -220,9 +221,9 @@ it('actually mass-assigns every non-guarded writer column via fill() (not just p
 
             // occurred_at is cast to datetime, so fill() hands back a Carbon
             // instance rather than the original string — compare ISO strings.
-            if ($actual instanceof Illuminate\Support\Carbon) {
+            if ($actual instanceof Carbon) {
                 $actual = $actual->toISOString();
-                $value = Illuminate\Support\Carbon::parse($value)->toISOString();
+                $value = Carbon::parse($value)->toISOString();
             }
 
             expect($actual)->toBe($value, "{$modelClass}::{$key} did not round-trip through fill()");

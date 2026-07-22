@@ -165,7 +165,7 @@ it('beauty-soft archetype resolves to the soft recipe, coherently', function () 
     expect($r['kit']['border_radius'])->toBe('1.5rem')
         ->and($r['kit']['weight_regular'])->toBe('300')
         ->and($r['kit']['typography_font_family'])->toBe('helvetica-now')
-                ->and($r['kit']['effect_shadow_style'])->toBe('soft');
+        ->and($r['kit']['effect_shadow_style'])->toBe('soft');
     assertCoherent($r['kit']);
 });
 
@@ -180,7 +180,7 @@ it('fitness-bold archetype resolves to the bold recipe, coherently', function ()
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['weight_regular'])->toBe('600')
         ->and($r['kit']['border_radius'])->toBe('0') // square — the 2-signal poster archetype earns the extreme stop
-                ->and($r['kit']['effect_shadow_style'])->toBe('hard')
+        ->and($r['kit']['effect_shadow_style'])->toBe('hard')
         ->and($r['kit']['color_accent'])->toBe('#c81e1e');
     assertCoherent($r['kit']);
 });
@@ -193,7 +193,7 @@ it('hospitality-warm archetype resolves to the warm recipe, coherently', functio
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['typography_font_family'])->toBe('general-sans')
-                ->and($r['kit']['effect_image_treatment'])->toBe('warm');
+        ->and($r['kit']['effect_image_treatment'])->toBe('warm');
     assertCoherent($r['kit']);
 });
 
@@ -208,7 +208,7 @@ it('fine-dining archetype resolves to the editorial recipe, coherently', functio
     expect($r['kit']['typography_font_family'])->toBe('helvetica-neue')
         ->and($r['kit']['color_accent'])->toBe('#c9a24b')
         ->and($r['kit']['weight_regular'])->toBe('300')
-                ->and($r['kit']['effect_image_treatment'])->toBe('duotone');
+        ->and($r['kit']['effect_image_treatment'])->toBe('duotone');
     assertCoherent($r['kit']);
 });
 
@@ -220,7 +220,7 @@ it('creative archetype resolves to the creative recipe, coherently', function ()
 
     expect($r['recipe'])->not->toBe([]);
     expect($r['kit']['typography_font_family'])->toBe('geist')
-                ->and($r['kit']['effect_image_treatment'])->toBe('none'); // portfolio work is never filtered
+        ->and($r['kit']['effect_image_treatment'])->toBe('none'); // portfolio work is never filtered
     assertCoherent($r['kit']);
 });
 

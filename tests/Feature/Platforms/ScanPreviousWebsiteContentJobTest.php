@@ -8,7 +8,6 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\Design\LogoAutoGrabber;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessAutoSync;

@@ -71,12 +71,12 @@ function assertPurgeCutoffUsesIndex(string $table, string $column, string $index
 // Keep in lockstep with PurgeRawAnalyticsEvents::TABLES + the SCALE-2 migration —
 // same dataset shape as IndexCoverageTest's analyticsPurgeIndexes.
 dataset('purgeCutoffPredicates', [
-    'link_clicks'      => ['link_clicks', 'occurred_at', 'link_clicks_occurred_at_idx'],
-    'site_visits'      => ['site_visits', 'occurred_at', 'site_visits_occurred_at_idx'],
+    'link_clicks' => ['link_clicks', 'occurred_at', 'link_clicks_occurred_at_idx'],
+    'site_visits' => ['site_visits', 'occurred_at', 'site_visits_occurred_at_idx'],
     'lead_submissions' => ['lead_submissions', 'occurred_at', 'lead_submissions_occurred_at_idx'],
-    'section_views'    => ['section_views', 'occurred_at', 'section_views_occurred_at_idx'],
-    'item_views'       => ['item_views', 'occurred_at', 'item_views_occurred_at_idx'],
-    'site_sessions'    => ['site_sessions', 'last_seen_at', 'site_sessions_last_seen_at_idx'],
+    'section_views' => ['section_views', 'occurred_at', 'section_views_occurred_at_idx'],
+    'item_views' => ['item_views', 'occurred_at', 'item_views_occurred_at_idx'],
+    'site_sessions' => ['site_sessions', 'last_seen_at', 'site_sessions_last_seen_at_idx'],
 ]);
 
 it('purge retention-cutoff predicate uses the timestamp-leading index, not a sequential scan', function (string $table, string $column, string $index) {
