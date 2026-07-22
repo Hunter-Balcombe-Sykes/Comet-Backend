@@ -753,8 +753,33 @@ class AccountDeletionService
         // their reject-mutation triggers. Postgres-only: the helper/triggers don't exist
         // under the SQLite test driver (the 'pgsql' connection is aliased to SQLite in
         // tests, so getDriverName() returns 'sqlite' and this is skipped).
+        //
+        // Wrapped like the forceDelete block below: this is the only teardown step that
+        // could throw (e.g. the helper not yet applied to this DB), and a throw here would
+        // abort the nightly purge batch or surface as an uncaught 500 on /force — after the
+        // Step-1 auth-delete already ran. Log EVENT_PURGE_FAILED, report, and return false so
+        // the caller maps it to a retryable 502 and the daily command continues to the next
+        // row (the retry's auth-delete sees a 404 and proceeds once the helper exists).
         if (DB::connection('pgsql')->getDriverName() === 'pgsql') {
-            DB::connection('pgsql')->select('SELECT audit.null_user_audit_links(?)', [$professional->id]);
+            try {
+                DB::connection('pgsql')->select('SELECT audit.null_user_audit_links(?)', [$professional->id]);
+            } catch (\Throwable $e) {
+                Log::error('null_user_audit_links failed during purge', [
+                    'user_id' => $professional->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->logAuditEvent(
+                    $professional,
+                    UserDeletionAuditEntry::EVENT_PURGE_FAILED,
+                    null,
+                    ['reason' => 'null_audit_links_failed', 'error' => $e->getMessage()],
+                    UserDeletionAuditEntry::ACTOR_TYPE_SYSTEM,
+                );
+
+                report($e);
+
+                return false;
+            }
         }
 
         // Step 4: hard-delete professional row. DB handles cascades (42 FKs CASCADE,
