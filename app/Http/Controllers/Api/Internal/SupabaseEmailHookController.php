@@ -75,11 +75,14 @@ class SupabaseEmailHookController extends ApiController
 
         // Dedup against Supabase retries. webhook-id is the Standard Webhooks
         // idempotency key and the surrounding middleware has already proven
-        // the signature is valid. TTL matches the signature verifier's
-        // TIMESTAMP_TOLERANCE (300s) — beyond that, replays fail signature
-        // verification anyway, so the cache entry is no longer load-bearing.
+        // the signature is valid. TTL is sourced from the SAME config key as
+        // StandardWebhookVerifier's replay-tolerance window (CFG-1/WHK-2) —
+        // beyond that window, replays fail signature verification anyway, so
+        // the cache entry is no longer load-bearing; the two can no longer
+        // drift apart since both read one value.
         $dedupKey = 'supabase:email_hook:seen:'.$webhookId;
-        if (! Cache::add($dedupKey, 1, now()->addSeconds(300))) {
+        $dedupTtl = (int) config('partna.cache.ttls.webhook_timestamp_tolerance', 300);
+        if (! Cache::add($dedupKey, 1, now()->addSeconds($dedupTtl))) {
             Log::info('supabase.email_hook.duplicate', [
                 'webhook_id' => $webhookId,
                 'request_id' => $requestId,

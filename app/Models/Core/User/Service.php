@@ -3,11 +3,32 @@
 namespace App\Models\Core\User;
 
 use App\Models\BaseModel;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $id
+ * @property string $user_id
+ * @property string $title
+ * @property string|null $description
+ * @property int $price_cents
+ * @property string $currency_code
+ * @property int|null $duration_minutes
+ * @property bool $is_active
+ * @property int $sort_order
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
+ * @property string|null $deleted_origin
+ * @property string|null $source
+ * @property bool $is_manual
+ * @property string|null $external_id
+ * @property-read Collection<int, ServiceCategory> $categories
+ */
 // V2: A bookable service offered by a professional. Stores pricing, duration,
 // and display metadata. Provenance (2026-07-21): source NULL = owner-authored
 // (manual); source='fresha' = projected from the Fresha scrape, identified by

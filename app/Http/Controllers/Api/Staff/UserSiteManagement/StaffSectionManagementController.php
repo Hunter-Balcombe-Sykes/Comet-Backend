@@ -52,12 +52,26 @@ class StaffSectionManagementController extends ApiController
         $block = DB::transaction(function () use ($professional, $site, $data, $blockType) {
             DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-sections:{$site->id}"]);
 
-            $block = Block::query()->firstOrNew([
-                'user_id' => $professional->id,
-                'site_id' => $site->id,
-                'block_group' => Block::GROUP_SECTIONS,
-                'block_type' => $blockType,
-            ]);
+            // firstOrNew()'s "not found" branch mass-assigns via fill(), which
+            // would silently drop user_id/site_id now that they're out of
+            // $fillable (S4 Tier 2b) — both NOT NULL, so a dropped value would
+            // 500 at save() instead of persisting. Replicate firstOrNew's
+            // search-then-construct manually so the FKs are set directly.
+            $block = Block::query()
+                ->where('user_id', $professional->id)
+                ->where('site_id', $site->id)
+                ->where('block_group', Block::GROUP_SECTIONS)
+                ->where('block_type', $blockType)
+                ->first();
+
+            if ($block === null) {
+                $block = new Block([
+                    'block_group' => Block::GROUP_SECTIONS,
+                    'block_type' => $blockType,
+                ]);
+                $block->user_id = $professional->id;
+                $block->site_id = $site->id;
+            }
 
             if (array_key_exists('is_active', $data)) {
                 $block->is_active = (bool) $data['is_active'];

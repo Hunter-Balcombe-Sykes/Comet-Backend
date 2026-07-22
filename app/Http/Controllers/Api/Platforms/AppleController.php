@@ -139,9 +139,20 @@ class AppleController extends ApiController
     {
         $user = $this->currentUser($request);
         // Gate runs per-platform so each delete ability fires independently.
+        // PWL-3: music and podcast are separate rows under separate lock keys
+        // (the key is derived from platform()), so one withConnectionLock call
+        // can't cover both — each iteration acquires its OWN platform's lock.
+        // A 423 on either surfaces immediately rather than silently skipping it.
         foreach ([self::MUSIC, self::PODCAST] as $platform) {
             $this->activePlatform = $platform;
-            $this->forgetAllConnections($user);
+            $response = $this->withConnectionLock($user, function () use ($user): JsonResponse {
+                $this->forgetAllConnections($user);
+
+                return $this->success([]);
+            });
+            if ($response->getStatusCode() === 423) {
+                return $response;
+            }
         }
 
         return $this->success(['music' => null, 'podcast' => null]);
@@ -237,12 +248,19 @@ class AppleController extends ApiController
         // whitelists its keys so `genre` never leaks to the wire).
         $selection = $this->withGenre($selection, $cfg, $input);
 
-        $row = $this->writeAccountConnection($user, $input, $selection);
-        if ($row === null) {
-            return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
-        }
+        // PWL-3: this write races highlightsFor() (already locked) and
+        // ScheduledRefresh (locks on the same platform+user key). The fetch +
+        // genre resolver above are network calls to AppleSearch and stay
+        // OUTSIDE the lock; only the read→mutate→write against the stored
+        // row is wrapped.
+        return $this->withConnectionLock($user, function () use ($user, $cfg, $input, $selection): JsonResponse {
+            $row = $this->writeAccountConnection($user, $input, $selection);
+            if ($row === null) {
+                return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+            }
 
-        return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
+            return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
+        });
     }
 
     private function selectionFor(Request $request, string $platform): JsonResponse
@@ -267,15 +285,19 @@ class AppleController extends ApiController
     {
         $this->activePlatform = $platform;
         $user = $this->currentUser($request);
-        if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
-            return $this->error('Account not found.', 404);
-        }
-        $this->forgetConnection($user, $id);
 
-        return $this->success(['accounts' => $this->accountsListData(
-            $user,
-            fn (array $payload) => $this->wrapAppleSelection($platform, $payload),
-        )]);
+        // PWL-3: races connectFor()/highlightsFor() (both locked) + ScheduledRefresh.
+        return $this->withConnectionLock($user, function () use ($user, $platform, $id): JsonResponse {
+            if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
+                return $this->error('Account not found.', 404);
+            }
+            $this->forgetConnection($user, $id);
+
+            return $this->success(['accounts' => $this->accountsListData(
+                $user,
+                fn (array $payload) => $this->wrapAppleSelection($platform, $payload),
+            )]);
+        });
     }
 
     private function recentFor(Request $request, array $cfg): JsonResponse
@@ -296,21 +318,37 @@ class AppleController extends ApiController
 
     // $validated is the pre-validated input (from the typed Form Request on the
     // public action). The helper no longer calls $request->validate().
+    //
+    // PWL-D1: mirrors GenericPlatformController::highlights() — the network
+    // call (AppleSearch fetch, via $cfg['fetch']) runs OUTSIDE the lock, keyed
+    // off an identity read that also happens outside it. The lock then wraps
+    // only the authoritative RE-READ of the account row + the write: writing
+    // off the outside-lock $row would reintroduce the lost update the lock
+    // exists to prevent (a concurrent save or ScheduledRefresh landing in the
+    // gap between that read and the lock being acquired would be silently
+    // clobbered). $items themselves are NOT re-fetched inside the lock — only
+    // the row they're applied to is re-read fresh.
     private function highlightsFor(Request $request, array $cfg, array $validated): JsonResponse
     {
         $this->activePlatform = $cfg['platform'];
         $user = $this->currentUser($request);
         $accountId = $request->query('account');
 
-        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated, $accountId): JsonResponse {
-            $row = $this->requestedAccountRow($user, $accountId);
-            $selection = $row?->payload;
-            if (! $row || ! $selection) {
+        $row = $this->requestedAccountRow($user, $accountId);
+        $selection = $row?->payload;
+        if (! $row || ! $selection) {
+            return $this->error($cfg['connectFirst'], 404);
+        }
+        $items = ($cfg['fetch'])(data_get($selection, 'input'));
+        if ($items === null) {
+            return $this->error($cfg['loadError'], 422);
+        }
+
+        return $this->withConnectionLock($user, function () use ($user, $cfg, $validated, $accountId, $items): JsonResponse {
+            $fresh = $this->requestedAccountRow($user, $accountId);
+            $selection = $fresh?->payload;
+            if (! $fresh || ! $selection) {
                 return $this->error($cfg['connectFirst'], 404);
-            }
-            $items = ($cfg['fetch'])(data_get($selection, 'input'));
-            if ($items === null) {
-                return $this->error($cfg['loadError'], 422);
             }
 
             // Refresh the "Most recent" tile too — a release/episode published since
@@ -321,18 +359,24 @@ class AppleController extends ApiController
             }
 
             $selection['highlights'] = $this->snapshot($items, $cfg['idField'], $validated[$cfg['idsField']]);
-            $this->writeConnection($user, $selection, $row->resource_id);
+            $this->writeConnection($user, $selection, $fresh->resource_id);
 
-            return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
+            return $this->success(['id' => $fresh->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
         });
     }
 
     private function forgetFor(Request $request, string $platform, string $responseKey): JsonResponse
     {
         $this->activePlatform = $platform;
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success([$responseKey => null]);
+        // PWL-3: races connectFor()/highlightsFor()/removeAccountFor() (all
+        // locked) + ScheduledRefresh, all on this same platform+user key.
+        return $this->withConnectionLock($user, function () use ($user, $responseKey): JsonResponse {
+            $this->forgetAllConnections($user);
+
+            return $this->success([$responseKey => null]);
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

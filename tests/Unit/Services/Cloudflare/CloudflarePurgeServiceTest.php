@@ -406,3 +406,44 @@ it('purgeHandle also purges shop product detail pages + their shadows', function
     // Root + sub-pages still there — the product URLs are additive.
     expect($files)->toContain("{$base}/", "{$base}/shop");
 });
+
+it('percent-encodes the handle and product handle before they land in a purge URL (SEC-1)', function () {
+    // Handles are validated to [a-z0-9-] at write time, but purgeHandle() must not
+    // assume that holds for every caller/legacy row — a stray space or slash must
+    // be percent-encoded, not dropped straight into a URL. Product handles come
+    // from scraped shop data (Shopify), which is even less trustworthy.
+    setupUsersTable();
+    setupSitesTable();
+    Config::set('services.cloudflare.zone_id', 'zoneXYZ');
+    Config::set('services.cloudflare.cache_purge_token', 'tok');
+    Config::set('app.url', 'https://dev-api.partna.au');
+    Config::set('partna.public_domain', 'partna.au');
+    Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+    $db = DB::connection('pgsql');
+    $db->table('core.users')->insert([
+        'id' => 'u-1', 'handle' => 'jane doe', 'handle_lc' => 'jane doe',
+        'display_name' => 'Jane Doe', 'account_type' => 'business',
+        'status' => 'active', 'auth_user_id' => 'auth-1',
+        'primary_email' => 'jane@example.com',
+    ]);
+    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'platform' => 'shopify']);
+    $db->table('site.shop_brands')->insert(['id' => 'b-1', 'connection_id' => 'c-1', 'provider' => 'shopify']);
+    $db->table('site.shop_products')->insert([
+        'id' => 'p-1', 'brand_id' => 'b-1', 'product_id' => 'sp1', 'data' => json_encode(['handle' => 'foo/bar']),
+    ]);
+
+    (new CloudflarePurgeService)->purgeHandle('jane doe');
+
+    $files = cfRecordedFiles();
+    expect($files)->toContain(
+        'https://jane%20doe.partna.au/',
+        'https://dev-api.partna.au/api/public/profiles/jane%20doe',
+        'https://dev-api.partna.au/api/public/profiles/jane%20doe/integrations',
+        'https://jane%20doe.partna.au/products/foo%2Fbar',
+        'https://jane%20doe.partna.au/_swr-shadow/products/foo%2Fbar',
+    )->not->toContain(
+        'https://jane doe.partna.au/',
+        'https://jane%20doe.partna.au/products/foo/bar',
+    );
+});

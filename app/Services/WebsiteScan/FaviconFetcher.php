@@ -25,11 +25,11 @@ class FaviconFetcher
         }
 
         $response = $this->fetcher->tryFetch($url);
-        if (! is_array($response) || ($response['status'] ?? 0) !== 200) {
+        if (! is_array($response) || $response['status'] !== 200) {
             return null;
         }
 
-        $bytes = (string) ($response['body'] ?? '');
+        $bytes = (string) $response['body'];
         if ($bytes === '' || strlen($bytes) > self::MAX_BYTES) {
             return null;
         }
@@ -39,7 +39,7 @@ class FaviconFetcher
 
     private function findIconUrl(string $html, string $baseUrl): ?string
     {
-        $doc = new \DOMDocument();
+        $doc = new \DOMDocument;
         libxml_use_internal_errors(true);
         $doc->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
         libxml_clear_errors();
@@ -48,6 +48,10 @@ class FaviconFetcher
         $best = null;
         $bestScore = -1;
         foreach ($xpath->query('//link[@rel]') as $link) {
+            // Tag-name node test on 'link' — always a DOMElement at runtime.
+            if (! $link instanceof \DOMElement) {
+                continue;
+            }
             $rel = strtolower((string) $link->getAttribute('rel'));
             if (! str_contains($rel, 'icon')) {
                 continue;

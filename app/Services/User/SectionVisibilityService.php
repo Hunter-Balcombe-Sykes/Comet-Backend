@@ -198,12 +198,21 @@ class SectionVisibilityService
             ->where('block_type', $blockType)
             ->first();
 
-        return $block ?? new Block([
-            'user_id' => $userId,
-            'site_id' => $siteId,
+        if ($block !== null) {
+            return $block;
+        }
+
+        // Transient null-object — never saved. user_id/site_id removed from
+        // $fillable (S4 Tier 2b); set directly for consistency even though no
+        // rule reads them off this skeleton today (only ->settings is read).
+        $skeleton = new Block([
             'block_group' => Block::GROUP_SECTIONS,
             'block_type' => $blockType,
             'settings' => [],
         ]);
+        $skeleton->user_id = $userId;
+        $skeleton->site_id = $siteId;
+
+        return $skeleton;
     }
 }

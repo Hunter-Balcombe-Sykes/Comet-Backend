@@ -36,7 +36,7 @@ class StaffSiteManagementController extends ApiController
                 'reason' => HandleChangeLog::REASON_STAFF_RENAME,
                 'actor_id' => $staff?->id,
                 'ip' => $request->ip(),
-                'user_agent' => mb_substr((string) $request->userAgent(), 0, 1024),
+                'user_agent' => mb_substr((string) $request->userAgent(), 0, (int) config('partna.staff.audit_user_agent_max_length', 1024)),
             ]
         );
 

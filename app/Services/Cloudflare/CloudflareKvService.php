@@ -51,8 +51,13 @@ class CloudflareKvService
             $url .= '?expiration_ttl='.$expirationTtl;
         }
 
+        // EDGE-1: explicit bounds — without these, Laravel's blanket defaults
+        // (connect 10s / total 30s) apply and a slow-but-not-hung KV write can
+        // ride along far longer than the caller (a job/observer) budgets for.
         Http::withToken($this->apiToken)
             ->withBody((string) json_encode($value), 'text/plain')
+            ->timeout(10)
+            ->connectTimeout(3)
             ->put($url)
             ->throw();
     }
@@ -98,7 +103,10 @@ class CloudflareKvService
                 return $item;
             }, $chunk);
 
+            // EDGE-1: same explicit bounds as put() — see that comment.
             Http::withToken($this->apiToken)
+                ->timeout(10)
+                ->connectTimeout(3)
                 ->put($url, $payload)
                 ->throw();
         }
@@ -115,7 +123,10 @@ class CloudflareKvService
             return;
         }
 
+        // EDGE-1: same explicit bounds as put() — see that comment.
         Http::withToken($this->apiToken)
+            ->timeout(10)
+            ->connectTimeout(3)
             ->delete($this->url($key))
             ->throw();
     }

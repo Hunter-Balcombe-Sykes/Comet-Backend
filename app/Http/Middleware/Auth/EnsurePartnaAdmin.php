@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware\Auth;
 
-use App\Models\Core\Staff\PartnaStaff;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,11 +18,6 @@ class EnsurePartnaAdmin
         }
 
         $staff = $request->attributes->get('partna_staff');
-
-        // If EnsurePartnaStaff ran before this, we already have the staff record
-        if (! $staff) {
-            $staff = PartnaStaff::query()->where('auth_user_id', $uid)->first();
-        }
 
         if (! $staff || ! $staff->isAdmin()) {
             return response()->json(['error' => 'admin_required', 'message' => 'Admin access required'], 403);

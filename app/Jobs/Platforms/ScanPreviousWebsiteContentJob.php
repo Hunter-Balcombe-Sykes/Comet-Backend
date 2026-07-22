@@ -93,7 +93,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         }
 
         $response = $fetcher->tryFetch($this->url);
-        $html = is_array($response) && ($response['status'] ?? 0) === 200 ? (string) ($response['body'] ?? '') : '';
+        $html = is_array($response) && $response['status'] === 200 ? (string) $response['body'] : '';
         if ($html === '') {
             return;
         }
@@ -118,8 +118,8 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 $menuPageUrl = $this->findMenuPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl);
                 if ($menuPageUrl !== null) {
                     $menuResponse = $fetcher->tryFetch($menuPageUrl);
-                    $menuHtml = is_array($menuResponse) && ($menuResponse['status'] ?? 0) === 200
-                        ? (string) ($menuResponse['body'] ?? '') : '';
+                    $menuHtml = is_array($menuResponse) && $menuResponse['status'] === 200
+                        ? (string) $menuResponse['body'] : '';
                     if ($menuHtml !== '') {
                         $menuBaseUrl = $menuResponse['finalUrl'] ?? $menuPageUrl;
                         $items = $menuText->extract($menuHtml, $menuBaseUrl);

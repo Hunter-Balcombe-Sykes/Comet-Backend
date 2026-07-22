@@ -365,10 +365,18 @@ class AnalyticsController extends ApiController
         $originHost = $this->parseOriginHost($request);
 
         if ($originHost === null) {
-            // No origin signal — allow only when both site_id and subdomain were
-            // provided and survived the resolver cross-check (the resolver already
-            // confirmed they match, so subdomain will be in $data here).
-            return ! empty($data['site_id']) && ! empty($data['subdomain']);
+            // No origin signal — a synthetic/server-side caller must prove
+            // ownership by supplying BOTH site_id and subdomain, and those two
+            // must resolve to this exact $site (SEC-2). Checked explicitly against
+            // the already-resolved model here rather than trusting
+            // resolveSiteFromData()'s own cross-check implicitly, so this stays
+            // fail-closed even if that resolver's matching logic changes later.
+            if (empty($data['site_id']) || empty($data['subdomain'])) {
+                return false;
+            }
+
+            return (string) $data['site_id'] === $site->id
+                && strtolower((string) $data['subdomain']) === strtolower($site->subdomain);
         }
 
         return in_array($originHost, $allowed, true);

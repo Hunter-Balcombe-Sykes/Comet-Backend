@@ -48,9 +48,11 @@ class Block extends BaseModel
 
     protected $keyType = 'string';
 
+    // user_id/site_id (S4 Tier 2b) removed — both NOT NULL FKs; SitePolicy's
+    // create()/ownerMatches() reads user_id off the raw attribute array, so a
+    // silent drop here doesn't just orphan a row, it 403s every Block-create
+    // endpoint. Trusted writers set both via direct property assignment.
     protected $fillable = [
-        'user_id',
-        'site_id',
         'block_type',
         'block_group',
         'title',

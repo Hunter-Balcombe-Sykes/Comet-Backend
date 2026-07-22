@@ -461,7 +461,7 @@ class VerifySupabaseJwt
         // the 60s TTL is the throttle window. Wrapped in try/catch so a throttle
         // layer outage can never mask the underlying JWKS classification.
         try {
-            $lock = Cache::lock('jwt:jwks-failure-reported', 60);
+            $lock = Cache::store('cache_locks')->lock('jwt:jwks-failure-reported', 60);
             if ($lock->get()) {
                 report($outage);
             }

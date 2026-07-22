@@ -6,6 +6,7 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Carbon;
 
 // One menu category (e.g. "Mains", "Sides") under a site.menus row. Categories
 // are rebuilt wholesale on every scrape — no soft delete — so the menu always
@@ -13,6 +14,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 // this group came from (the content source). Items attach via the
 // site.menu_item_categories pivot — one dish can be listed under several
 // categories, positioned independently in each.
+/**
+ * @property string $id
+ * @property string $menu_id
+ * @property string $name
+ * @property int $position
+ * @property string|null $source_platform
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ */
 class MenuCategory extends BaseModel
 {
     use HasUuids;

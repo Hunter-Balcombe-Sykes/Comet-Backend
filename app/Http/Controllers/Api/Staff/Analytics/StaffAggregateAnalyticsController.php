@@ -22,8 +22,6 @@ use Throwable;
  */
 class StaffAggregateAnalyticsController extends ApiController
 {
-    private const CACHE_TTL_SECONDS = 60;
-
     public function __construct(
         private readonly AnalyticsQueryService $queries,
         private readonly SegmentResolver $resolver,
@@ -82,7 +80,8 @@ class StaffAggregateAnalyticsController extends ApiController
             $to->timestamp,
         );
 
-        $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($scope, $from, $to) {
+        $ttlSeconds = (int) config('partna.cache.ttls.staff_aggregate_analytics_summary', 60);
+        $payload = Cache::remember($cacheKey, $ttlSeconds, function () use ($scope, $from, $to) {
             $hourly = $from->diffInHours($to) <= 48;
 
             $visits = $this->queries->visitsAggregate($scope, $from, $to);

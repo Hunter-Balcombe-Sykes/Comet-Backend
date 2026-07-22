@@ -70,7 +70,13 @@ function ovaBootstrapRequest(array $body, string $uid, ?string $claimEmail): Boo
 
 function ovaInvitedRow(string $email, ?Carbon $invitedAt = null): EarlyAccessSignup
 {
-    return EarlyAccessSignup::query()->create([
+    // status/invited_at/invite_token_hash removed from $fillable (S4 Tier 2b) —
+    // create() would silently drop them (status doesn't match the DB default
+    // here, so the row would persist as 'waitlist' instead of 'invited').
+    // forceFill so the fixture actually lands in the invited state the tests
+    // below assert against.
+    $signup = new EarlyAccessSignup;
+    $signup->forceFill([
         'email' => $email,
         'email_lc' => mb_strtolower($email),
         'type' => 'partna',
@@ -80,6 +86,9 @@ function ovaInvitedRow(string $email, ?Carbon $invitedAt = null): EarlyAccessSig
         'invite_token_hash' => hash('sha256', 'tok-'.$email),
         'platforms' => ['instagram', 'fresha'],
     ]);
+    $signup->save();
+
+    return $signup;
 }
 
 // Task 14: the WAITLIST_ONLY bypass-without-a-token block only ever fired for

@@ -3,10 +3,14 @@
 namespace App\Http\Resources\Staff;
 
 use App\Http\Resources\ApiResource;
+use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 
 // OV-A: staff-facing early-access row. Deliberately exposes email (hidden on
 // the model) — the staff early-access screens exist to manage these people.
 // The invite token hash NEVER leaves the server.
+/**
+ * @mixin EarlyAccessSignup
+ */
 class EarlyAccessSignupResource extends ApiResource
 {
     public function toArray($request): array

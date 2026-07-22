@@ -108,7 +108,7 @@ class ExportUserDataJob implements ShouldQueue
             // Lock the row to prevent concurrent workers both seeing email_sent_at = null.
             // At-least-once: a crash between send and stamp causes a retry to re-send —
             // preferable to silent loss for GDPR right-of-access requests.
-            $shouldSendEmail = DB::transaction(function () use ($audit): bool {
+            $shouldSendEmail = DB::connection('pgsql')->transaction(function () use ($audit): bool {
                 $fresh = DataExportAudit::query()->lockForUpdate()->find($audit->id);
 
                 return $fresh !== null && $fresh->email_sent_at === null;

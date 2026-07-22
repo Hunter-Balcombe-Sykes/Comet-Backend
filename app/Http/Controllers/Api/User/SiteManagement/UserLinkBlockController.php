@@ -68,7 +68,12 @@ class UserLinkBlockController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
         // Skeleton pattern: pre-create ownership + pending-deletion check via SitePolicy::create.
-        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        // user_id/site_id removed from $fillable (S4 Tier 2b) — set directly so
+        // SitePolicy::ownerMatches() (reads the raw attribute) doesn't silently
+        // 403 every request.
+        $skeleton = new Block;
+        $skeleton->user_id = $pro->id;
+        $skeleton->site_id = $site->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         $data = $request->validated();
@@ -168,7 +173,12 @@ class UserLinkBlockController extends ApiController
         $pro = $this->currentUser($request);
         $site = $this->currentSite($pro);
         // Skeleton pattern: pre-create ownership + pending-deletion check via SitePolicy::create.
-        $skeleton = new Block(['user_id' => $pro->id, 'site_id' => $site->id]);
+        // user_id/site_id removed from $fillable (S4 Tier 2b) — set directly so
+        // SitePolicy::ownerMatches() (reads the raw attribute) doesn't silently
+        // 403 every request.
+        $skeleton = new Block;
+        $skeleton->user_id = $pro->id;
+        $skeleton->site_id = $site->id;
         $this->authorizeForUser($pro, 'create', $skeleton);
 
         // Mass-update via the query builder bypasses Eloquent's `updated`

@@ -96,6 +96,7 @@ it('rejects live_check_enabled=true when site already has max_live_check_per_sit
     foreach (['a', 'b'] as $suffix) {
         DB::connection('pgsql')->table('site.blocks')->insert([
             'id' => (string) Str::uuid(),
+            'user_id' => $professional->id,
             'site_id' => $site->id,
             'block_group' => 'links',
             'block_type' => 'link',
@@ -114,6 +115,7 @@ it('rejects live_check_enabled=true when site already has max_live_check_per_sit
     $newBlockId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => $newBlockId,
+        'user_id' => $professional->id,
         'site_id' => $site->id,
         'block_group' => 'links',
         'block_type' => 'link',

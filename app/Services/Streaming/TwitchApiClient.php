@@ -48,10 +48,16 @@ class TwitchApiClient
 
         try {
             $streamsUrl = (string) config('services.twitch.streams_url', self::STREAMS_URL_DEFAULT);
+            // EDGE-1: explicit bounds — without these, Laravel's blanket defaults
+            // (connect 10s / total 30s) apply and a hung Twitch call can ride
+            // along far longer than the polling job's own budget expects.
             $response = Http::withHeaders([
                 'Authorization' => "Bearer {$token}",
                 'Client-ID' => (string) config('services.twitch.client_id'),
-            ])->get($streamsUrl.'?'.$query);
+            ])
+                ->timeout(10)
+                ->connectTimeout(3)
+                ->get($streamsUrl.'?'.$query);
 
             if ($response->status() === 429) {
                 $retryAfter = (int) $response->header('Retry-After') ?: null;

@@ -84,24 +84,66 @@ class CustomLinksController extends ApiController
         ]);
     }
 
+    // PUT /api/platforms/custom/links/order — persist the user's manual order
+    // (W13 reorder). `ids` is the full desired order; rows omitted from it
+    // keep their relative order after the listed ones. sort_order is the same
+    // column connectionsFor() and the public resolver already order by, so
+    // the dashboard, payload, and sitepage all follow.
+    public function reorderLinks(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $ids = $request->validate([
+            'ids' => ['required', 'array', 'max:'.self::MAX_LINKS],
+            'ids.*' => ['string'],
+        ])['ids'];
+
+        return $this->withConnectionLock($user, function () use ($user, $ids) {
+            $rows = $this->linkRows($user)->keyBy('resource_id');
+            foreach ($ids as $id) {
+                if (! $rows->has($id)) {
+                    return $this->error('Link not found.', 404);
+                }
+            }
+
+            $position = 0;
+            foreach ($ids as $id) {
+                $rows[$id]->update(['sort_order' => $position++]);
+            }
+            foreach ($rows as $rid => $row) {
+                if (! in_array($rid, $ids, true)) {
+                    $row->update(['sort_order' => $position++]);
+                }
+            }
+
+            return $this->success(['links' => $this->linksData($user)]);
+        });
+    }
+
     // DELETE /api/platforms/custom/links/{id} — remove one link.
     public function removeLink(Request $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
-        if (! $this->linkRows($user)->firstWhere('resource_id', $id)) {
-            return $this->error('Link not found.', 404);
-        }
-        $this->forgetConnection($user, $id);
 
-        return $this->success(['links' => $this->linksData($user)]);
+        return $this->withConnectionLock($user, function () use ($user, $id) {
+            if (! $this->linkRows($user)->firstWhere('resource_id', $id)) {
+                return $this->error('Link not found.', 404);
+            }
+            $this->forgetConnection($user, $id);
+
+            return $this->success(['links' => $this->linksData($user)]);
+        });
     }
 
     // DELETE /api/platforms/custom — remove every link.
     public function forget(Request $request): JsonResponse
     {
-        $this->forgetAllConnections($this->currentUser($request));
+        $user = $this->currentUser($request);
 
-        return $this->success(['links' => []]);
+        return $this->withConnectionLock($user, function () use ($user) {
+            $this->forgetAllConnections($user);
+
+            return $this->success(['links' => []]);
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

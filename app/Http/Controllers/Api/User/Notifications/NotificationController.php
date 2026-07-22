@@ -35,8 +35,8 @@ class NotificationController extends ApiController
     {
         $pro = $this->currentUser($request);
 
-        $limit = (int) $request->query('limit', 50);
-        $limit = max(1, min($limit, 200));
+        $limit = (int) $request->query('limit', config('partna.limits.pagination.notifications_limit_default', 50));
+        $limit = max(1, min($limit, (int) config('partna.limits.pagination.notifications_limit_max', 200)));
 
         $includeDismissed = filter_var($request->query('include_dismissed', false), FILTER_VALIDATE_BOOLEAN);
 

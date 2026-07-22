@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\User\Account\MfaController;
 use App\Http\Controllers\Api\User\Account\SessionController;
@@ -44,6 +45,13 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Show & Edit Details
         Route::get('/me', [UserSelfController::class, 'show']);
         Route::patch('/me', [UserSelfController::class, 'update']);
+
+        // Client-safe third-party integration keys (Google Maps, etc) for the
+        // dashboard. public-surface/SEC-1: moved here from /public/config/integrations
+        // — its only named consumer is this authenticated dashboard, so there's no
+        // reason to serve it pre-auth.
+        Route::get('/config/integrations', [PublicConfigController::class, 'integrations'])
+            ->name('user.config.integrations');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync

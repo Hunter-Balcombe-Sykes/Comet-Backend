@@ -20,7 +20,21 @@ class AuditEvent extends BaseModel
 
     public $incrementing = false;
 
-    protected $guarded = ['id'];
+    // Mass-assignment posture (SEC-1): explicit allowlist replaces the
+    // permissive `$guarded = ['id']`. `id` stays out (DB gen_random_uuid()
+    // default, PK) — ModerationAuditService::recordStaffAction()/
+    // recordSystemAction() call AuditEvent::create() (not forceCreate(), so
+    // this guard is live) and pass an explicit 'id' key, but it's silently
+    // dropped same as under the old $guarded=['id']; the DB default fills it.
+    // created_at stays out too — DB DEFAULT NOW() fills it, no writer mass-assigns it.
+    protected $fillable = [
+        'actor_kind',
+        'actor_staff_id',
+        'action',
+        'target_type',
+        'target_id',
+        'payload',
+    ];
 
     protected $casts = [
         'payload' => 'array',

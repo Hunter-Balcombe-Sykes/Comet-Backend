@@ -62,6 +62,8 @@ it('catches poller exceptions and logs per-platform error without crashing the j
     // Phase 1: live_check_enabled + platform are promoted columns; handle stays in settings.
     DB::connection('pgsql')->table('site.blocks')->insert([
         'id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
+        'site_id' => (string) Str::uuid(),
         'block_group' => 'links',
         'is_active' => 1,
         'live_check_enabled' => 1,

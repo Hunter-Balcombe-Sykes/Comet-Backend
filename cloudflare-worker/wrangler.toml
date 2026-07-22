@@ -14,6 +14,15 @@ compatibility_date = "2025-01-01"
 pattern = "*/*"
 zone_name = "partna.au"
 
+# CFG-1: edge cache TTLs, in seconds. Read in the Worker via
+# `Number(env.PRIMARY_CACHE_TTL_S) || <default>` — the module-level default
+# is used only if this var is absent or fails to parse. Keep in sync with
+# app/Services/Cloudflare/CloudflarePurgeService.php `purgeHandle()` docblock
+# (EDGE-3), same as the defaults they mirror.
+[vars]
+PRIMARY_CACHE_TTL_S = 86_400
+STALE_SHADOW_TTL_S = 604_800
+
 # KV namespace holding the subdomain routing table — this is the PRODUCTION
 # namespace (used by the default/production deploy).
 # Replace `id` with the namespace ID from `wrangler kv:namespace create`.

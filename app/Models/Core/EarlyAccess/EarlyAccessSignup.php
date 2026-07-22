@@ -5,6 +5,7 @@ namespace App\Models\Core\EarlyAccess;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Support\Carbon;
 
 // OV-A: early-access signup lifecycle row (waitlist → invited → signed_up).
 // Created by the public marketing endpoint (source=marketing) or staff manual
@@ -14,6 +15,28 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 // PII posture mirrors WaitlistSignup: email + consent telemetry + the invite
 // token hash are hidden from default serialization; staff endpoints expose
 // email deliberately through EarlyAccessSignupResource.
+/**
+ * @property string $id
+ * @property string $email
+ * @property string $email_lc
+ * @property string $type
+ * @property string|null $workplace_or_industry
+ * @property array<int, string> $platforms
+ * @property string $status
+ * @property string $source
+ * @property Carbon|null $invited_at
+ * @property string|null $invite_token_hash
+ * @property array<string, mixed>|null $invite_meta
+ * @property string|null $invited_by
+ * @property Carbon|null $signed_up_at
+ * @property string|null $consent_ip_hash
+ * @property string|null $consent_user_agent
+ * @property string|null $source_type
+ * @property string|null $source_ref
+ * @property string|null $user_id
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ */
 class EarlyAccessSignup extends BaseModel
 {
     use HasUuids;
@@ -46,6 +69,14 @@ class EarlyAccessSignup extends BaseModel
         'consent_user_agent',
     ];
 
+    // invited_at/invite_token_hash/invite_meta/invited_by/signed_up_at (S4 Tier 2b)
+    // stay OUT of $fillable — invite-lifecycle fields written only by trusted
+    // callers (EarlyAccessService::invite(), ApproveEarlyAccessBuildJob) via
+    // forceFill. `status` is kept fillable on merge with the signup-flows feature:
+    // no writer mass-assigns it (every status write is direct assignment or
+    // forceFill, and StaffEarlyAccessUpdateRequest excludes it), so it carries no
+    // request-bound exposure. source_type/source_ref are that feature's
+    // build-provenance columns.
     protected $fillable = [
         'email',
         'email_lc',
@@ -56,11 +87,6 @@ class EarlyAccessSignup extends BaseModel
         'source_ref',
         'status',
         'source',
-        'invited_at',
-        'invite_token_hash',
-        'invite_meta',
-        'invited_by',
-        'signed_up_at',
         'consent_ip_hash',
         'consent_user_agent',
     ];

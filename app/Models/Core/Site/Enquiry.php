@@ -22,9 +22,16 @@ class Enquiry extends BaseModel
 
     protected $keyType = 'string';
 
+    // user_id/site_id (tenancy FKs, NOT NULL) and status/customer_id/notification_id
+    // are excluded from mass-assignment. Writers set them explicitly:
+    //   user_id/site_id/customer_id — PublicEnquiryController::submit() via
+    //     ->user()/->site()/->customer()->associate() (never client input).
+    //   status — the transition methods below (markRead/markReplied/archive/
+    //     markSpam/restoreToNew) and UserEnquiryController::update() via
+    //     forceFill(), never taken directly from a request payload.
+    //   notification_id — InAppEnquiryNotificationAdapter via direct property
+    //     assignment after the Notification row is created.
     protected $fillable = [
-        'user_id',
-        'site_id',
         'name',
         'email',
         'phone',
@@ -35,9 +42,6 @@ class Enquiry extends BaseModel
         'read_at',
         'email_sent_at',
         'confirmation_sent_at',
-        'status',
-        'customer_id',
-        'notification_id',
         'replied_at',
         'archived_at',
         'spam_at',
@@ -98,23 +102,24 @@ class Enquiry extends BaseModel
 
     public function markRead(): void
     {
+        // status is not fillable — forceFill so this transition still persists it.
         // Preserve existing read_at if already read (idempotent timestamp).
-        $this->update(['status' => 'read', 'read_at' => $this->read_at ?? now()]);
+        $this->forceFill(['status' => 'read', 'read_at' => $this->read_at ?? now()])->save();
     }
 
     public function markReplied(): void
     {
-        $this->update(['status' => 'replied', 'replied_at' => now()]);
+        $this->forceFill(['status' => 'replied', 'replied_at' => now()])->save();
     }
 
     public function archive(): void
     {
-        $this->update(['status' => 'archived', 'archived_at' => now()]);
+        $this->forceFill(['status' => 'archived', 'archived_at' => now()])->save();
     }
 
     public function markSpam(): void
     {
-        $this->update(['status' => 'spam', 'spam_at' => now()]);
+        $this->forceFill(['status' => 'spam', 'spam_at' => now()])->save();
     }
 
     /**
@@ -125,7 +130,7 @@ class Enquiry extends BaseModel
      */
     public function restoreToNew(): void
     {
-        $this->update(['status' => 'new']);
+        $this->forceFill(['status' => 'new'])->save();
     }
 
     /**

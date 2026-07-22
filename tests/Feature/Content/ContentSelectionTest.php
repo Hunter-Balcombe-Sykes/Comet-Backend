@@ -201,7 +201,7 @@ it('delete removes the upload and any selection row referencing it', function ()
     $media = contentUpload($site);
 
     // Put the upload into the selection at position 1.
-    ContentSelection::create([
+    ContentSelection::forceCreate([
         'site_id' => $site->id,
         'position' => 1,
         'entry_type' => ContentSelection::TYPE_UPLOAD,
@@ -261,6 +261,25 @@ it('PUT selection persists the ordered entries', function () {
     expect($rows[1]->entry_type)->toBe('upload');
     expect($rows[1]->position)->toBe(2);
     expect((string) $rows[1]->media_id)->toBe((string) $m1->id);
+});
+
+// site_id is not fillable (tenancy FK, NOT NULL) — ContentSelectionService::
+// persist() must set it via forceCreate() from the server-resolved Site.
+// Querying by site_id already proves this indirectly (a dropped write would
+// return 0 rows above), but assert the persisted value directly too so a
+// regression back to a bare create() call fails loudly here, not just via a
+// filtered query returning empty.
+it('persist() writes site_id on every row via forceCreate, not mass-assignment', function () {
+    [$user, $site] = contentUserWithSite('sel5');
+    $m1 = contentUpload($site);
+
+    app(ContentSelectionService::class)->replace($site, [
+        ['type' => 'upload', 'mediaId' => $m1->id],
+    ]);
+
+    $row = ContentSelection::query()->firstOrFail();
+    expect($row->fresh()->site_id)->not->toBeNull();
+    expect((string) $row->fresh()->site_id)->toBe((string) $site->id);
 });
 
 it('PUT selection rejects more than 15 entries', function () {
@@ -347,7 +366,7 @@ it('instagram-auto disable removes ig-* rows and compacts positions', function (
 
     // Enable, then add a manual upload at the end.
     app(ContentSelectionService::class)->setInstagramAuto($site, true);
-    ContentSelection::create([
+    ContentSelection::forceCreate([
         'site_id' => $site->id,
         'position' => 3,
         'entry_type' => ContentSelection::TYPE_UPLOAD,
@@ -380,7 +399,7 @@ it('instagram-auto enable only reserves slots for the kinds the user has', funct
 it('instagram-auto toggle rolls back the flag when slot rebuild fails', function () {
     [$user, $site] = contentUserWithSite('ig4');
     $upload = contentUpload($site);
-    $original = ContentSelection::create([
+    $original = ContentSelection::forceCreate([
         'site_id' => $site->id,
         'position' => 1,
         'entry_type' => ContentSelection::TYPE_UPLOAD,
@@ -433,7 +452,7 @@ it('GB connect auto-seeds google photos only when the selection is empty', funct
 it('GB connect does NOT seed when the selection already has real content', function () {
     [$user, $site] = contentUserWithSite('hook2');
     $upload = contentUpload($site);
-    ContentSelection::create([
+    ContentSelection::forceCreate([
         'site_id' => $site->id,
         'position' => 1,
         'entry_type' => ContentSelection::TYPE_UPLOAD,
@@ -556,7 +575,7 @@ it('resolve() expands uploads and instagram reel/post rows', function () {
 
     // ig-reel@1 + ig-post@2 were auto-reserved by the connect hook (the payload
     // above already carries both kinds) — only the upload row is added manually.
-    ContentSelection::create([
+    ContentSelection::forceCreate([
         'site_id' => $site->id, 'position' => 3,
         'entry_type' => 'upload', 'media_id' => $upload->id,
     ]);
@@ -578,8 +597,8 @@ it('resolve() expands uploads and instagram reel/post rows', function () {
 
 it('resolve() drops ig rows when instagram is disconnected', function () {
     [$user, $site] = contentUserWithSite('res3');
-    ContentSelection::create(['site_id' => $site->id, 'position' => 1, 'entry_type' => 'ig-reel']);
-    ContentSelection::create(['site_id' => $site->id, 'position' => 2, 'entry_type' => 'ig-post']);
+    ContentSelection::forceCreate(['site_id' => $site->id, 'position' => 1, 'entry_type' => 'ig-reel']);
+    ContentSelection::forceCreate(['site_id' => $site->id, 'position' => 2, 'entry_type' => 'ig-post']);
 
     $resolved = app(ContentSelectionService::class)->resolve($site);
     expect($resolved)->toBe([]);

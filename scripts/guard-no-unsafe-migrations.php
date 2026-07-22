@@ -3,12 +3,15 @@
 /**
  * Guard: no unsafe migration patterns (Master Pattern 20).
  *
- * Fails on five patterns that cause lock-induced downtime on populated tables:
+ * Fails on eight patterns that cause lock-induced downtime (or a failed from-zero apply):
  *   1. CREATE INDEX without CONCURRENTLY
  *   2. ADD CONSTRAINT ... FOREIGN KEY without NOT VALID
  *   3. ADD CONSTRAINT ... CHECK without NOT VALID
  *   4. ALTER COLUMN ... SET NOT NULL (must use the four-step NOT VALID pattern)
  *   5. DDL/DML on a hot table (HOT_TABLES) without a BEGIN + SET LOCAL lock_timeout
+ *   6. more than one statement in a file that contains a CONCURRENTLY statement (pipeline/25001)
+ *   7. DROP INDEX without CONCURRENTLY on a HOT_TABLES table
+ *   8. VALIDATE CONSTRAINT in the same transaction as its ADD CONSTRAINT ... NOT VALID
  *
  * Migrations with timestamps <= GRANDFATHERED_CUTOFF are skipped — they ran safely on
  * empty tables before this convention was established (2026-05-14, timestamp 20260514100000).
@@ -36,6 +39,22 @@ const TIMEOUT_GUARD_CUTOFF = '20260711999999';
 // grandfathered here; only NEW files must keep one CONCURRENTLY per file. At this cutoff
 // the check flags 0 files on a clean tree.
 const CONCURRENTLY_GUARD_CUTOFF = '20260721000000';
+
+// Check 7 (DROP INDEX non-CONCURRENTLY on a hot table) shipped 2026-07-22. Like
+// Checks 5 and 6 it needs its own boundary: one pre-existing file
+// (20260701180000_strip_block_settings_keys_and_views.sql) drops a hot-table index
+// inside a transaction and is already applied to dev, so it is grandfathered here.
+// (The two core.users drops in 20260718200000_pre_account_sites.sql are already
+// covered by that file's -- guard:no-unsafe-migrations:disable-file marker.) At this
+// cutoff the check flags 0 files on a clean tree; only NEW files are subject to it.
+const DROP_INDEX_GUARD_CUTOFF = '20260722000000';
+
+// Check 8 (VALIDATE CONSTRAINT bundled in the same transaction as its ADD ... NOT
+// VALID) shipped 2026-07-22. Its own boundary grandfathers the pre-existing bundled
+// files (e.g. 20260701220000, 20260624010000) — harmless because the prod cutover
+// re-applies against an empty, traffic-free DB. At this cutoff the check flags 0
+// files on a clean tree; only NEW files must defer VALIDATE to a separate transaction.
+const VALIDATE_TXN_GUARD_CUTOFF = '20260722000000';
 
 // Tables served by live traffic. The first three are named in
 // docs/migration-guidelines.md §Lock and statement timeouts; core.users is added
@@ -242,6 +261,106 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
                     ."  Put each CREATE/DROP INDEX CONCURRENTLY in its OWN file — one statement, no other\n"
                     ."  DDL/DML, no BEGIN/COMMIT (use sequential timestamp suffixes for a batch).\n"
                     .'  See: supabase/migrations/CONVENTIONS.md §1 and scripts/db/fresh-reset.sh';
+            }
+        }
+    }
+
+    // ── Check 7: DROP INDEX (non-CONCURRENTLY) on a HOT_TABLES table ───────────
+    // A bare DROP INDEX takes ACCESS EXCLUSIVE on the index's table for the catalog
+    // write, blocking every writer until it completes -- on a hot table it queues
+    // behind, and stalls, live traffic. DROP INDEX names the index, not the table,
+    // so the target table is inferred from the index name: flag a non-CONCURRENTLY
+    // drop whose (schema-stripped) index name contains a hot table's bare name as an
+    // underscore/anchor-delimited token. Heuristic in both directions: an index whose
+    // name omits the table name slips through (false negative), and one whose name
+    // collides with a hot table's token (e.g. user_sites_summary_idx matching `sites`)
+    // is flagged spuriously (false positive). It fails toward the safe pattern; use
+    // CONCURRENTLY, or the -- guard:no-unsafe-migrations:disable-file marker, to opt out.
+    if ($m[1] > DROP_INDEX_GUARD_CUTOFF) {
+        if (preg_match_all(
+            '/\bDROP\s+INDEX\b(\s+CONCURRENTLY\b)?(?:\s+IF\s+EXISTS\b)?\s+([\w.]+)/i',
+            $content,
+            $dropMatches,
+            PREG_SET_ORDER,
+        )) {
+            foreach ($dropMatches as $match) {
+                $hasConcurrently = ($match[1] ?? '') !== '';
+                if ($hasConcurrently) {
+                    continue;
+                }
+
+                // Strip an optional schema qualifier: site.idx_foo -> idx_foo.
+                $idxName = $match[2];
+                if (($dot = strrpos($idxName, '.')) !== false) {
+                    $idxName = substr($idxName, $dot + 1);
+                }
+
+                foreach (HOT_TABLES as $hotTable) {
+                    // Bare table name (strip schema): site.blocks -> blocks.
+                    $bare = $hotTable;
+                    if (($dotB = strrpos($bare, '.')) !== false) {
+                        $bare = substr($bare, $dotB + 1);
+                    }
+
+                    // \b is useless in snake_case (_blocks_ has no boundary), so match
+                    // the bare name delimited by underscores or the string ends.
+                    if (preg_match('/(^|_)'.preg_quote($bare, '/').'(_|$)/i', $idxName)) {
+                        $errors[] = "$basename: DROP INDEX without CONCURRENTLY on hot table `$hotTable` (index `{$match[2]}`).\n"
+                            ."  Use: DROP INDEX CONCURRENTLY IF EXISTS ... (in its OWN file, outside any transaction)\n"
+                            ."  A bare DROP INDEX takes ACCESS EXCLUSIVE and blocks writes for its duration.\n"
+                            .'  See: supabase/migrations/CONVENTIONS.md §1';
+                        break 2; // one error per file is enough
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Check 8: VALIDATE CONSTRAINT in the same txn as its ADD ... NOT VALID ──
+    // NOT VALID takes a brief metadata lock and releases it; VALIDATE then re-scans
+    // under the lighter SHARE UPDATE EXCLUSIVE -- but ONLY if it runs in a separate
+    // transaction. Bundled in one BEGIN/COMMIT, the txn holds the ADD's heavier lock
+    // through the whole VALIDATE scan, defeating the split (audit migrations-recent/
+    // MIG-5, migrations-early/MIG-6). Check 3 only verifies NOT VALID is present, not
+    // that VALIDATE is deferred. A file that legitimately contains both (the 4-step
+    // SET NOT NULL pattern, or two BEGIN/COMMIT blocks in one file) puts a COMMIT
+    // between the ADD ... NOT VALID and the VALIDATE -- which is exactly what we check.
+    if ($m[1] > VALIDATE_TXN_GUARD_CUTOFF) {
+        if (preg_match_all('/\bVALIDATE\s+CONSTRAINT\b/i', $content, $vMatches, PREG_OFFSET_CAPTURE)) {
+            // Byte offset of every `ADD CONSTRAINT ... NOT VALID` (NOT VALID must fall
+            // within the same statement -- [^;] can't cross a statement terminator).
+            $addPositions = [];
+            if (preg_match_all('/\bADD\s+CONSTRAINT\b[^;]*?\bNOT\s+VALID\b/i', $content, $addMatches, PREG_OFFSET_CAPTURE)) {
+                foreach ($addMatches[0] as $am) {
+                    $addPositions[] = $am[1];
+                }
+            }
+
+            foreach ($vMatches[0] as $vm) {
+                $validatePos = $vm[1];
+
+                // The nearest ADD ... NOT VALID that appears before this VALIDATE.
+                $addBefore = -1;
+                foreach ($addPositions as $ap) {
+                    if ($ap < $validatePos) {
+                        $addBefore = $ap;
+                    }
+                }
+
+                // A VALIDATE with no preceding ADD ... NOT VALID in this file is the
+                // correct two-file split (the ADD lives in an earlier migration).
+                if ($addBefore === -1) {
+                    continue;
+                }
+
+                $between = substr($content, $addBefore, $validatePos - $addBefore);
+                if (! preg_match('/\bCOMMIT\s*;/i', $between)) {
+                    $errors[] = "$basename: VALIDATE CONSTRAINT runs in the same transaction as its ADD CONSTRAINT ... NOT VALID.\n"
+                        ."  Put VALIDATE CONSTRAINT in a SEPARATE transaction (COMMIT the ADD ... NOT VALID first),\n"
+                        ."  so the validation scan runs under SHARE UPDATE EXCLUSIVE, not the ADD's heavier lock.\n"
+                        .'  See: supabase/migrations/CONVENTIONS.md §2';
+                    break; // one error per file is enough
+                }
             }
         }
     }

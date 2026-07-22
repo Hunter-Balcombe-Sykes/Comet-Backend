@@ -63,7 +63,7 @@ class UserServiceController extends ApiController
         }
 
         // Bound the query at scale (B18/API-4). True pagination is a frontend-coordinated change, deferred.
-        $services = $servicesQuery->with('categories:id')->orderBy('sort_order')->orderBy('created_at')->limit(500)->get();
+        $services = $servicesQuery->with('categories:id')->orderBy('sort_order')->orderBy('created_at')->limit((int) config('partna.limits.pagination.services_max', 500))->get();
 
         if (! $grouped) {
             return $this->success([

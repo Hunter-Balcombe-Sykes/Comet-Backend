@@ -5,6 +5,7 @@ use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
+use App\Models\Core\Site\Block;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Routing\Route;
@@ -169,6 +170,42 @@ it('allows active professional to create a link block (no 423 thrown)', function
     }
 
     expect($authBlocked)->toBeFalse();
+});
+
+// S4 Tier 2b: Block's SitePolicy::create() check reads user_id off the
+// skeleton's raw attributes (App\Policies\SitePolicy::resolveOwnerId). Before
+// converting UserLinkBlockController::store()'s skeleton to set user_id/
+// site_id via direct property assignment, removing them from Block's
+// $fillable made the skeleton's user_id silently null — resolveOwnerId
+// returns null, ownerMatches() is false, and every store() call 403'd for
+// every professional. Exercise the full write (shimming the Postgres-only
+// advisory lock so SQLite completes it) and assert both the response is not
+// a 403 and the persisted row carries the correct owner FKs via ->fresh().
+it('S4 Tier 2b: create succeeds for the owner and persists the correct user_id/site_id', function () {
+    shimPgAdvisoryLockForSqlite();
+    $pro = createTenant('lb-store-cross-tenant');
+
+    $req = tenantRequestAs($pro, [
+        'title' => 'My Link',
+        'url' => 'https://example.com',
+        'category' => 'other',
+    ], 'POST');
+    $req->headers->set('Accept', 'application/json');
+
+    $formReq = StoreLinkBlockRequest::createFrom($req);
+    $formReq->setContainer(app());
+    $formReq->validateResolved();
+
+    $response = app(UserLinkBlockController::class)->store($formReq);
+
+    expect($response->getStatusCode())->toBe(201);
+
+    $blockId = $response->getData(true)['block']['id'] ?? null;
+    expect($blockId)->not->toBeNull();
+
+    $fresh = Block::query()->findOrFail($blockId)->fresh();
+    expect($fresh->user_id)->toBe($pro->id)
+        ->and($fresh->site_id)->toBe($pro->site->id);
 });
 
 // ── reorder() ──────────────────────────────────────────────────────────────

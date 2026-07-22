@@ -12,6 +12,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Moderation\Evidence;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
@@ -403,7 +404,7 @@ class AccountDeletionService
 
         try {
             $connection = Redis::connection('cache');
-            $indexKey = "idempotency:index:{$authUserId}";
+            $indexKey = CacheKeyGenerator::idempotencyIndexKey($authUserId);
 
             $cacheKeys = $connection->smembers($indexKey);
             foreach ($cacheKeys as $cacheKey) {

@@ -3,17 +3,20 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -140,12 +143,24 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         }
     }
 
+    // PWL-7 (job/seeder half): this is the failure path, so it must NEVER fail to
+    // record the terminal state — lock it against a concurrent writer of the same
+    // row (same platformConnectionLock key seed()/ConnectFetchJob use) but fall
+    // back to a bare write on contention rather than leaving the row stuck.
     private function markFailed(IntegrationConnection $connection, string $error): void
     {
-        $connection->forceFill([
-            'last_refresh_status' => 'unavailable',
-            'last_refresh_error' => $error,
-            'consecutive_failures' => (int) $connection->consecutive_failures + 1,
-        ])->saveQuietly();
+        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, (string) $connection->user_id);
+        $write = function () use ($connection, $error) {
+            $connection->forceFill([
+                'last_refresh_status' => 'unavailable',
+                'last_refresh_error' => $error,
+                'consecutive_failures' => (int) $connection->consecutive_failures + 1,
+            ])->saveQuietly();
+        };
+        try {
+            Cache::lock($key, 10)->block(5, $write);
+        } catch (LockTimeoutException) {
+            $write();   // best-effort terminal write; a failure must always be recorded
+        }
     }
 }

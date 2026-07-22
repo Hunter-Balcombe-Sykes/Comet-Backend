@@ -21,8 +21,8 @@ class ReorderService
      */
     public function reorder(array $ids, Builder $scopeQuery, string $lockKey, ?Closure $afterCommit = null): void
     {
-        DB::transaction(function () use ($ids, $scopeQuery, $lockKey) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
+        DB::connection('pgsql')->transaction(function () use ($ids, $scopeQuery, $lockKey) {
+            DB::connection('pgsql')->select('select pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
 
             $allIds = (clone $scopeQuery)
                 ->lockForUpdate()

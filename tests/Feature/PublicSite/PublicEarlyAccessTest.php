@@ -9,9 +9,12 @@
 use App\Mail\EarlyAccess\EarlyAccessThankYouMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Services\EarlyAccess\EarlyAccessService;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -146,7 +149,10 @@ it('LIFE-1: absorbs a concurrent double-submit UniqueConstraintViolationExceptio
 
 it('LIFE-1: is idempotent for a same-email different-case call straight through the service', function () {
     $emailLc = 'lower@example.test';
-    $existing = EarlyAccessSignup::query()->create([
+    // status removed from $fillable (S4 Tier 2b) — forceFill so this fixture
+    // row is unambiguously created in the waitlist state.
+    $existing = new EarlyAccessSignup;
+    $existing->forceFill([
         'email' => $emailLc,
         'email_lc' => $emailLc,
         'type' => 'partna',
@@ -155,6 +161,7 @@ it('LIFE-1: is idempotent for a same-email different-case call straight through 
         'status' => EarlyAccessSignup::STATUS_WAITLIST,
         'source' => 'marketing',
     ]);
+    $existing->save();
 
     $result = app(EarlyAccessService::class)->signupFromMarketing([
         'email' => 'LOWER@Example.Test',
@@ -171,7 +178,11 @@ it('LIFE-1: is idempotent for a same-email different-case call straight through 
 });
 
 it('never downgrades an invited row back to waitlist state', function () {
-    EarlyAccessSignup::query()->create([
+    // status/invited_at/invite_token_hash removed from $fillable (S4 Tier 2b) —
+    // forceFill so this fixture actually lands 'invited', not the DB default
+    // 'waitlist' a plain create() would silently fall back to.
+    $seed = new EarlyAccessSignup;
+    $seed->forceFill([
         'email' => 'jess@example.test',
         'email_lc' => 'jess@example.test',
         'type' => 'business',
@@ -180,6 +191,7 @@ it('never downgrades an invited row back to waitlist state', function () {
         'invited_at' => now(),
         'invite_token_hash' => hash('sha256', 'tok'),
     ]);
+    $seed->save();
 
     $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['type' => 'partna']))
         ->assertStatus(200);
@@ -195,7 +207,11 @@ it('never downgrades an invited row back to waitlist state', function () {
 
 it('resolves a valid invite token to its prefill payload and 404s otherwise', function () {
     $token = 'AbCdEf123456AbCdEf123456AbCdEf123456AbCdEf123456';
-    EarlyAccessSignup::query()->create([
+    // status/invited_at/invite_token_hash removed from $fillable (S4 Tier 2b) —
+    // forceFill so the token actually resolves (findByInviteToken requires a
+    // non-null invited_at within the TTL window and a matching hash).
+    $seed = new EarlyAccessSignup;
+    $seed->forceFill([
         'email' => 'invited@example.test',
         'email_lc' => 'invited@example.test',
         'type' => 'business',
@@ -206,6 +222,7 @@ it('resolves a valid invite token to its prefill payload and 404s otherwise', fu
         'invited_at' => now(),
         'invite_token_hash' => hash('sha256', $token),
     ]);
+    $seed->save();
 
     $this->getJson('/api/public/early-access/invite/'.$token)
         ->assertStatus(200)
@@ -231,7 +248,11 @@ it('resolves a valid invite token to its prefill payload and 404s otherwise', fu
 
 it('treats an invite token older than the 14-day TTL as invalid', function () {
     $token = 'ExpiredToken000000000000000000000000000000000000';
-    EarlyAccessSignup::query()->create([
+    // status/invited_at/invite_token_hash removed from $fillable (S4 Tier 2b) —
+    // forceFill so this row actually carries the stale invited_at the TTL
+    // assertion below depends on.
+    $seed = new EarlyAccessSignup;
+    $seed->forceFill([
         'email' => 'stale@example.test',
         'email_lc' => 'stale@example.test',
         'type' => 'partna',
@@ -241,6 +262,7 @@ it('treats an invite token older than the 14-day TTL as invalid', function () {
         'invited_at' => now()->subDays(15),
         'invite_token_hash' => hash('sha256', $token),
     ]);
+    $seed->save();
 
     // Model-level: the shared resolver refuses the expired token.
     expect(EarlyAccessSignup::findByInviteToken($token))->toBeNull();
@@ -254,4 +276,36 @@ it('treats an invite token older than the 14-day TTL as invalid', function () {
         ->update(['invited_at' => now()->subDays(13)]);
 
     expect(EarlyAccessSignup::findByInviteToken($token)?->email_lc)->toBe('stale@example.test');
+});
+
+// --- Rate limiter test (SEC-1: per-IP daily cap) ---
+//
+// Re-register with a tiny per-day cap and very high per-minute/per-hour limits
+// so only the daily gate can trip within this test — mirrors the pattern in
+// PublicSignupAvailabilityControllerTest.
+
+it('429s once the per-IP daily cap is exhausted (SEC-1)', function () {
+    RateLimiter::for('early-access', function (Request $request) {
+        $email = strtolower(trim((string) $request->input('email', '')));
+        $emailKey = $email !== '' ? hash('sha256', $email) : 'unknown';
+        $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+
+        return [
+            Limit::perMinute(1000)->by('early-access:ip:'.$key)
+                ->response(fn () => response()->json(['message' => 'Too many submissions. Please try again shortly.'], 429)),
+            Limit::perDay(5)->by('early-access:ip:day:'.$key)
+                ->response(fn () => response()->json(['message' => 'Too many submissions from this network today. Please try again tomorrow.'], 429)),
+            Limit::perHour(1000)->by('early-access:email:'.$emailKey)
+                ->response(fn () => response()->json(['message' => 'This email has been submitted recently. Please try again later.'], 429)),
+        ];
+    });
+
+    for ($i = 0; $i < 5; $i++) {
+        $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['email' => "daily{$i}@example.test"]))
+            ->assertStatus(200);
+    }
+
+    $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['email' => 'daily-overflow@example.test']))
+        ->assertStatus(429)
+        ->assertJson(['message' => 'Too many submissions from this network today. Please try again tomorrow.']);
 });

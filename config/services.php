@@ -19,20 +19,26 @@ return [
     ],
 
     // Google Maps / Places — client-side key for the professional dashboard's
-    // address autocomplete, returned (CDN-cached) by /public/config/integrations.
-    // Exposing it publicly is safe ONLY because it MUST be HTTP-referrer-restricted
-    // to *.partna.au/* in the Google Cloud Console. Re-verify that restriction on
-    // every key rotation and fresh-environment deploy — see .env.example.
+    // address autocomplete, returned by the AUTHENTICATED GET /api/config/integrations
+    // (moved off the public/CDN route — audit public-surface/SEC-1). Defence-in-depth:
+    // it MUST also be HTTP-referrer-restricted to *.partna.au/* in the Google Cloud
+    // Console. Re-verify that restriction on every key rotation and fresh-environment
+    // deploy — see .env.example.
     'google_maps' => [
         'api_key' => env('GOOGLE_MAPS_API_KEY'),
         // Server-side key for google-business Place Details enrichment.
         // API-restricted to Places API (New) in the Cloud Console; lives only
-        // in server env vars — NEVER returned by /public/config/integrations.
+        // in server env vars — NEVER returned by GET /api/config/integrations.
         'server_api_key' => env('GOOGLE_MAPS_SERVER_API_KEY'),
     ],
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
+        // Svix signing secret for the Resend bounce/complaint webhook, verified
+        // by VerifyResendWebhookSignature. Copy from Resend Dashboard → Webhooks →
+        // (endpoint) → Signing Secret. Format: `whsec_<base64>`. Without it,
+        // POST /internal/webhooks/resend returns 503 (fail-closed).
+        'webhook_secret' => env('RESEND_WEBHOOK_SECRET'),
     ],
 
     // Supabase Send Email Hook — secret used to verify the HMAC signature
@@ -91,12 +97,17 @@ return [
         'client_secret' => env('TWITCH_CLIENT_SECRET'),
         // Helix streams endpoint — override if Twitch migrates the URL or for local stubs.
         'streams_url' => env('TWITCH_STREAMS_URL', 'https://api.twitch.tv/helix/streams'),
+        // CFG-1: OAuth Client Credentials token endpoint — was hardcoded in
+        // StreamingTokenManager::PLATFORM_CONFIG; override if Twitch migrates the URL.
+        'token_url' => env('TWITCH_TOKEN_URL', 'https://id.twitch.tv/oauth2/token'),
     ],
     'kick' => [
         'client_id' => env('KICK_CLIENT_ID'),
         'client_secret' => env('KICK_CLIENT_SECRET'),
         // Public channels endpoint — override if Kick changes their API path.
         'channels_url' => env('KICK_CHANNELS_URL', 'https://api.kick.com/public/v1/channels'),
+        // CFG-1: OAuth token endpoint — was hardcoded in StreamingTokenManager::PLATFORM_CONFIG.
+        'token_url' => env('KICK_TOKEN_URL', 'https://id.kick.com/oauth/token'),
     ],
 
     // Fresha's persisted-query hash + client version are pinned to a Fresha

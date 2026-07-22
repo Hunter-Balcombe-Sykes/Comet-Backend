@@ -75,14 +75,15 @@ it('denies view with 404 when the actor does not own the NotificationEmailPrefer
 
 it('allows view when the actor owns an EmailSubscription', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $sub = new EmailSubscription(['user_id' => 'pro-1']);
+    // user_id removed from EmailSubscription's $fillable (S4 Tier 2b) — forceFill.
+    $sub = (new EmailSubscription)->forceFill(['user_id' => 'pro-1']);
 
     expect($this->policy->view($actor, $sub))->toBeTrue();
 });
 
 it('denies view with 404 when the actor does not own the EmailSubscription', function () {
     $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $sub = new EmailSubscription(['user_id' => 'pro-2']);
+    $sub = (new EmailSubscription)->forceFill(['user_id' => 'pro-2']);
 
     $result = $this->policy->view($actor, $sub);
 

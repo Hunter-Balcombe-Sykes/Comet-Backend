@@ -64,6 +64,16 @@ class IntegrationConnection extends BaseModel
 
     protected $keyType = 'string';
 
+    // Mass-assignment posture (SEC-1): `user_id` is KEPT fillable on purpose —
+    // mirrors the User.handle precedent. The updateOrCreate() idiom in
+    // ManagesIntegrationConnection::writeConnection() (and the analogous calls
+    // in GoogleBusinessAutoSync/CustomLinkSeeder/EventsCatalog/InstagramController)
+    // passes `user_id` in the lookup-attributes array, which Eloquent
+    // mass-assigns through create() on the not-found path — removing it from
+    // $fillable would silently null out the tenant on every new connection.
+    // The saving() guard below (TenantAnchorImmutableException) already blocks
+    // reassignment on existing rows, so the defence-in-depth gap SEC-1 flags
+    // elsewhere doesn't apply here.
     protected $fillable = [
         'user_id',
         'platform',

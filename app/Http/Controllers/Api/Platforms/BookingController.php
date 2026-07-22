@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
@@ -73,11 +74,16 @@ class BookingController extends ApiController
         }
         $meta = $this->scraper->minimalCard($url);
 
-        return $this->withConnectionLock($user, function () use ($user, $meta, $url) {
+        // Cross-platform XOR lock (not the per-platform withConnectionLock) —
+        // clearBooking() below can delete fresha/square rows, which a
+        // per-platform 'booking' key can't mutually exclude against those
+        // controllers. The EnrichLinkCardJob dispatch is deliberately OUTSIDE
+        // the lock: under QUEUE_CONNECTION=sync it runs inline and can take
+        // seconds, which would hold the lock far past its 10s TTL (rule #1).
+        $response = $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $meta) {
             $this->clearBooking($user);   // single-slot
             $payload = ['provider' => 'custom', 'source' => 'manual', ...$meta];
             $this->writePendingLinkCard($user, $payload);
-            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $this->defaultResourceId(), $url)->afterCommit();
 
             return $this->success([
                 'provider' => 'custom',
@@ -87,6 +93,12 @@ class BookingController extends ApiController
                 'statusUrl' => url('/api/platforms/booking/detect/status'),
             ], 202);
         });
+
+        if ($response->getStatusCode() === 202) {
+            EnrichLinkCardJob::dispatch((string) $user->id, $this->platform(), $this->defaultResourceId(), $url)->afterCommit();
+        }
+
+        return $response;
     }
 
     // GET /api/platforms/booking/detect/status — poll the custom-card enrichment.
@@ -109,9 +121,12 @@ class BookingController extends ApiController
     public function forget(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $this->clearBooking($user);
 
-        return $this->success($this->statusFor($user));
+        return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user) {
+            $this->clearBooking($user);
+
+            return $this->success($this->statusFor($user));
+        });
     }
 
     // ── internals ────────────────────────────────────────────────

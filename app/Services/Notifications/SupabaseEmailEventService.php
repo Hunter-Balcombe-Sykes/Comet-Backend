@@ -3,6 +3,7 @@
 namespace App\Services\Notifications;
 
 use App\Models\Core\Notifications\SupabaseEmailEvent;
+use App\Support\EmailHasher;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -130,20 +131,15 @@ class SupabaseEmailEventService
 
     /**
      * Hash the recipient email with SHA256 HMAC using app.key as the pepper.
-     * Matches the scheme used throughout the codebase (HashesClientData, PerTargetReportThrottle)
-     * so the same pepper produces correlatable hashes across tables.
-     * Returns null when email is absent (defensive — controller already validates presence).
+     * Delegates to the shared App\Support\EmailHasher so this WHK-3 trail and the
+     * core.email_suppressions lookup + send-time gate all hash identically —
+     * without that parity a suppressed address would never match at send time.
+     * The digest is unchanged from the pre-refactor inline scheme (regression-tested
+     * in EmailHasherTest + SupabaseEmailHookTest).
      */
     private function hashEmail(?string $email): ?string
     {
-        if ($email === null || $email === '') {
-            return null;
-        }
-
-        // Lowercase before hashing so tobias@example.com and Tobias@example.com
-        // produce the same hash (email addresses are case-insensitive on the
-        // local-part in practice, and Supabase normalises to lowercase).
-        return hash_hmac('sha256', strtolower($email), config('app.key'));
+        return EmailHasher::hash($email);
     }
 
     /**

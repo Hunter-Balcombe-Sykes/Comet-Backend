@@ -40,6 +40,11 @@ class EarlyAccessService
         // createOrFirst catches the UniqueConstraintViolationException a concurrent
         // double-submit throws on the INSERT and re-fetches the winner off the write
         // PDO instead of 500ing.
+        // status removed from $fillable (S4 Tier 2b) — firstOrCreate()'s internal
+        // create() would silently drop it from the values array. Harmless for the
+        // DB row itself (status has DEFAULT 'waitlist'), but the in-memory model
+        // would read status=null instead of 'waitlist' until refreshed, so it's
+        // set explicitly below once we know this call actually created the row.
         $signup = EarlyAccessSignup::query()->firstOrCreate(
             ['email_lc' => $emailLc],
             [
@@ -47,7 +52,6 @@ class EarlyAccessService
                 'type' => $data['type'],
                 'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
                 'platforms' => array_values($data['platforms'] ?? []),
-                'status' => EarlyAccessSignup::STATUS_WAITLIST,
                 'source' => 'marketing',
                 'source_type' => $data['source_type'] ?? null,
                 'source_ref' => $data['source_ref'] ?? null,
@@ -98,6 +102,8 @@ class EarlyAccessService
         }
 
         if ($signup->wasRecentlyCreated) {
+            $signup->status = EarlyAccessSignup::STATUS_WAITLIST;
+
             Mail::queue(new EarlyAccessThankYouMail($emailLc));
 
             return ['signup' => $signup, 'created' => true];
@@ -157,7 +163,12 @@ class EarlyAccessService
 
             $token = Str::random(48);
 
-            $locked->fill([
+            // status/invited_at/invite_token_hash removed from $fillable (S4 Tier
+            // 2b) — forceFill so this trusted lifecycle transition doesn't
+            // silently no-op. A silent drop here would still send the invite
+            // email but never flip status/store the token hash, so every
+            // invite link would 404 for the recipient with zero error anywhere.
+            $locked->forceFill([
                 'status' => EarlyAccessSignup::STATUS_INVITED,
                 'invited_at' => now(),
                 'invite_token_hash' => hash('sha256', $token),

@@ -51,8 +51,11 @@ class EmailSubscription extends BaseModel
         'consent_user_agent',
     ];
 
+    // user_id/email_lc (S4 Tier 2b) removed — user_id is the site-owner
+    // attribution FK, email_lc backs the per-list uniqueness indexes; both are
+    // written only by trusted controller code via direct property assignment,
+    // never via request-bound fill().
     protected $fillable = [
-        'user_id',
         'list_key',
         'email',
         'full_name',
@@ -63,7 +66,6 @@ class EmailSubscription extends BaseModel
         'consent_source',
         'consent_ip_hash',
         'consent_user_agent',
-        'email_lc',
         'confirmation_sent_at',
     ];
 

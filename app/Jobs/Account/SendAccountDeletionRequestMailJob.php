@@ -62,7 +62,7 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
         // Idempotency guard: lock the row so two concurrent workers (retry overlapping
         // with the original, or Horizon scale-out) cannot both read deletion_mail_sent_at
         // = null and both deliver the email. Mirrors SendEnquiryConfirmationJob.
-        $professional = DB::transaction(function () {
+        $professional = DB::connection('pgsql')->transaction(function () {
             $user = User::query()->lockForUpdate()->find($this->userId);
             if ($user === null) {
                 return null;

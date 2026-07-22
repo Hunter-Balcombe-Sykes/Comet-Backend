@@ -3,6 +3,7 @@
 namespace App\Services\Platforms\Concerns;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Cache\CacheKeyGenerator;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
@@ -132,7 +133,7 @@ trait BuildsAutoSyncFindings
 
     private function bookingXorLockKey(string $userId): string
     {
-        return "platforms:booking-xor:lock:{$userId}";
+        return CacheKeyGenerator::bookingXorLock($userId);
     }
 
     /**
@@ -156,10 +157,10 @@ trait BuildsAutoSyncFindings
      * what makes it shared across both services and across every booking
      * platform for one user.
      *
-     * Home for this belongs on CacheKeyGenerator (it's a lock-key builder like
-     * platformConnectionLock() there), but is kept on this trait for now to
-     * avoid touching CacheKeyGenerator.php in this run (owned by a different
-     * unit). Follow-up: promote to CacheKeyGenerator::bookingXorLock().
+     * The key itself now lives on CacheKeyGenerator::bookingXorLock() (PWL-14
+     * promoted it so controllers can share the identical string); this helper
+     * just delegates so withBookingXorLock()'s call sites and the TTL/block
+     * constants above stay unchanged.
      *
      * @template T
      *

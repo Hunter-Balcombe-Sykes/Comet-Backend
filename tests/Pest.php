@@ -353,15 +353,17 @@ function setupUsersTable(): void
 }
 
 /**
- * Permissive core.pre_account_builds table — every column nullable except the
- * load-bearing default. Mirrors migration 20260718200000_pre_account_sites.sql.
+ * Permissive core.pre_account_builds table — columns nullable except the
+ * load-bearing default and user_id, which is NOT NULL to mirror prod
+ * (migration 20260718200000_pre_account_sites.sql). PARITY-1: every creation
+ * path already sets user_id via ->user()->associate(), so the constraint holds.
  */
 function setupPreAccountBuildsTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_builds (
         id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
+        user_id TEXT NOT NULL,
         source_type TEXT NULL,
         source_ref TEXT NULL,
         source_ref_lc TEXT NULL,
@@ -496,11 +498,6 @@ function setupSitesTable(): void
         custom_domain_verified_at TEXT NULL,
         custom_domain_cf_id TEXT NULL,
         custom_domain_primary INTEGER NOT NULL DEFAULT 0,
-        hero_title TEXT NULL,
-        hero_subtitle TEXT NULL,
-        primary_button_text TEXT NULL,
-        primary_button_url TEXT NULL,
-        bio_text TEXT NULL,
         show_branding INTEGER NULL,
         charlie_enabled INTEGER NULL,
         services_auto_sync_enabled INTEGER NULL,
@@ -540,11 +537,6 @@ function setupSitesTable(): void
 
     // FOUND-16 promoted columns — defensive ALTER for any pre-existing test table.
     $promotedCols = [
-        'hero_title' => 'TEXT NULL',
-        'hero_subtitle' => 'TEXT NULL',
-        'primary_button_text' => 'TEXT NULL',
-        'primary_button_url' => 'TEXT NULL',
-        'bio_text' => 'TEXT NULL',
         'show_branding' => 'INTEGER NULL',
         'charlie_enabled' => 'INTEGER NULL',
         'services_auto_sync_enabled' => 'INTEGER NULL',
@@ -959,16 +951,17 @@ function shimPgAdvisoryLockForSqlite(): void
 }
 
 /**
- * site.blocks — all columns nullable except the PK. Used by backfill command
- * tests and any test that exercises Block Eloquent operations in SQLite.
+ * site.blocks — user_id/site_id NOT NULL (prod parity, DISC-9); other columns
+ * nullable. Used by backfill command tests and any test that exercises Block
+ * Eloquent operations in SQLite.
  */
 function setupBlocksTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.blocks (
         id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        site_id TEXT NULL,
+        user_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
         block_group TEXT NULL,
         block_type TEXT NULL,
         title TEXT NULL,
@@ -1213,16 +1206,6 @@ function setupServicesTable(): void
         duration_minutes INTEGER NULL,
         is_active INTEGER NULL,
         sort_order INTEGER NULL,
-        square_catalog_object_id TEXT NULL,
-        square_variation_id TEXT NULL,
-        square_catalog_version INTEGER NULL,
-        square_last_synced_at TEXT NULL,
-        square_sync_error TEXT NULL,
-        fresha_service_id TEXT NULL,
-        fresha_variation_id TEXT NULL,
-        fresha_service_version INTEGER NULL,
-        fresha_last_synced_at TEXT NULL,
-        fresha_sync_error TEXT NULL,
         deleted_origin TEXT NULL,
         source TEXT NULL,
         is_manual INTEGER NOT NULL DEFAULT 0,
@@ -2426,6 +2409,27 @@ function setupSupabaseEmailEventsTable(): void
         error TEXT NULL,
         queued_at TEXT NULL,
         failed_at TEXT NULL,
+        created_at TEXT NULL,
+        updated_at TEXT NULL
+    )");
+}
+
+/**
+ * core.email_suppressions — send-time suppression list (Resend bounce/complaint).
+ * Keeps the UNIQUE(email_hash) + reason CHECK from migration 20260721190000 so
+ * the idempotency-upsert and constraint tests exercise real behaviour (SQLite
+ * enforces both). email_hash stored as TEXT; timestamps as TEXT.
+ */
+function setupEmailSuppressionsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement("CREATE TABLE IF NOT EXISTS core.email_suppressions (
+        id TEXT PRIMARY KEY,
+        email_hash TEXT NOT NULL UNIQUE,
+        reason TEXT NOT NULL CHECK (reason IN ('hard_bounce','complaint','manual')),
+        source TEXT NULL,
+        detail TEXT NULL,
+        first_seen_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )");

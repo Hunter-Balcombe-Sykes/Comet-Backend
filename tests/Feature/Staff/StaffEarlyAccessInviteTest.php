@@ -52,7 +52,11 @@ function ovaAdminStaff(): PartnaStaff
 
 function ovaWaitlistRow(string $email): EarlyAccessSignup
 {
-    return EarlyAccessSignup::query()->create([
+    // status removed from $fillable (S4 Tier 2b) — forceFill so the returned
+    // in-memory instance is correct immediately (DB DEFAULT happens to match
+    // 'waitlist' here, but the in-memory attribute would otherwise read null).
+    $signup = new EarlyAccessSignup;
+    $signup->forceFill([
         'email' => $email,
         'email_lc' => $email,
         'type' => 'partna',
@@ -60,6 +64,9 @@ function ovaWaitlistRow(string $email): EarlyAccessSignup
         'source' => 'marketing',
         'platforms' => ['instagram', 'fresha'],
     ]);
+    $signup->save();
+
+    return $signup;
 }
 
 it('invites existing waitlist rows: status flips, token hash stored, mail queued', function () {
@@ -113,7 +120,10 @@ it('creates manual-entry rows with invite_meta prefills and invites them', funct
 
 it('skips already-signed-up rows and reports them', function () {
     $done = ovaWaitlistRow('done@example.test');
-    $done->update(['status' => 'signed_up']);
+    // status removed from $fillable (S4 Tier 2b) — Model::update() calls
+    // fill() internally, so a plain ->update() here would silently no-op and
+    // leave the row 'waitlist', defeating the assertion this test exists for.
+    $done->forceFill(['status' => 'signed_up'])->save();
 
     actingAsStaff(ovaAdminStaff())
         ->postJson('/api/staff/early-access/invite', ['ids' => [$done->id]])

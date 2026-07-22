@@ -21,7 +21,25 @@ class Decision extends BaseModel
 
     public $incrementing = false;
 
-    protected $guarded = ['id'];
+    // Mass-assignment posture (SEC-1): explicit allowlist replaces the
+    // permissive `$guarded = ['id']`. `id` stays out (DB gen_random_uuid()
+    // default, PK). No created_at/updated_at on this table (only decided_at,
+    // a business column, so it stays fillable). ModerationReverseDecisionCommand
+    // calls Decision::create() directly (not forceCreate()) — every column it
+    // passes (case_id, decision_type, reason, decided_by_staff_id,
+    // decided_by_system, auto_actioned, supersedes_decision_id) must stay listed.
+    protected $fillable = [
+        'case_id',
+        'decision_type',
+        'reason',
+        'decided_by_staff_id',
+        'decided_by_system',
+        'auto_actioned',
+        'supersedes_decision_id',
+        'second_staff_approval_id',
+        'second_staff_approved_at',
+        'decided_at',
+    ];
 
     protected $casts = [
         'decided_by_system' => 'boolean',

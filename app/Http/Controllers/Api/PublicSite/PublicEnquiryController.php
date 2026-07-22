@@ -119,11 +119,10 @@ class PublicEnquiryController extends ApiController
                 ->firstOrFail();
         }
 
-        // 6) Save the enquiry, linking the upserted customer.
-        $enquiry = Enquiry::query()->create([
-            'user_id' => $site->user_id,
-            'site_id' => $site->id,
-            'customer_id' => $customer->id,
+        // 6) Save the enquiry, linking the upserted customer. user_id/site_id/
+        // customer_id are not fillable (tenancy FKs) — associate() sets them
+        // explicitly from server-resolved models, never from client input.
+        $enquiry = new Enquiry([
             'name' => $data['name'],
             'email' => $data['email'],
             'phone' => $data['phone'] ?? null,
@@ -132,6 +131,10 @@ class PublicEnquiryController extends ApiController
             'ip_hash' => $this->hashIp($request->ip()),
             'user_agent' => mb_substr((string) $request->userAgent(), 0, 500),
         ]);
+        $enquiry->user()->associate($site->user_id);
+        $enquiry->site()->associate($site);
+        $enquiry->customer()->associate($customer);
+        $enquiry->save();
 
         // 7) Log unified lead analytics.
         $this->logLead($request, $subdomain, $site->id, (string) $site->user_id, 'created', $startedMs);

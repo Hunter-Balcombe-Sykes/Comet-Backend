@@ -348,6 +348,10 @@ class ContentSelectionService
      * transient collisions an in-place re-numbering would hit. Positions in
      * $rows are already assigned 1..n by the caller.
      *
+     * site_id is not fillable (tenancy FK) — forceCreate() so the row still
+     * persists it, since every $row here is server-built with $row['site_id']
+     * already set to $site->id.
+     *
      * @param  list<array<string, mixed>>  $rows
      */
     private function persist(Site $site, array $rows): void
@@ -356,7 +360,7 @@ class ContentSelectionService
             ContentSelection::query()->where('site_id', $site->id)->delete();
 
             foreach ($rows as $row) {
-                ContentSelection::create($row);
+                ContentSelection::forceCreate($row);
             }
         });
     }

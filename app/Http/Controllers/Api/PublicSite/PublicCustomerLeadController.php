@@ -178,13 +178,16 @@ class PublicCustomerLeadController extends ApiController
 
             if (! $sub) {
                 $sub = new EmailSubscription([
-                    'user_id' => $userId,
                     'list_key' => $listKey,
                     'email' => $email,
-                    'email_lc' => $email,
                     'full_name' => $fullName,
                     'unsubscribe_token' => EmailSubscription::newUnsubscribeToken(),
                 ]);
+                // user_id/email_lc removed from $fillable (S4 Tier 2b) — set directly
+                // so a mass-assignment drop can't silently orphan this subscription
+                // from the site owner or break the per-list uniqueness index.
+                $sub->user_id = $userId;
+                $sub->email_lc = $email;
             } else {
                 if ($fullName) {
                     $sub->full_name = $fullName;

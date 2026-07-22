@@ -137,14 +137,15 @@ describe('SiteMedia', function () {
 describe('Block', function () {
     it('allows view when the actor owns the block', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $block = new Block(['user_id' => 'pro-actor']);
+        // user_id removed from Block's $fillable (S4 Tier 2b) — forceFill.
+        $block = (new Block)->forceFill(['user_id' => 'pro-actor']);
 
         expect($this->policy->view($actor, $block))->toBeTrue();
     });
 
     it('denies view with 404 when the actor does not own the block', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $block = new Block(['user_id' => 'pro-other']);
+        $block = (new Block)->forceFill(['user_id' => 'pro-other']);
 
         $result = $this->policy->view($actor, $block);
 
@@ -187,14 +188,16 @@ describe('SiteSubdomainAlias', function () {
 describe('Enquiry', function () {
     it('allows view when the actor owns the enquiry', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $enquiry = new Enquiry(['user_id' => 'pro-actor']);
+        // user_id is not fillable (tenancy FK) — forceFill so the test fixture
+        // still sets it, matching how PublicEnquiryController::submit() does it.
+        $enquiry = (new Enquiry)->forceFill(['user_id' => 'pro-actor']);
 
         expect($this->policy->view($actor, $enquiry))->toBeTrue();
     });
 
     it('denies view with 404 when the actor does not own the enquiry', function () {
         $actor = (new User)->forceFill(['id' => 'pro-actor', 'status' => 'active']);
-        $enquiry = new Enquiry(['user_id' => 'pro-other']);
+        $enquiry = (new Enquiry)->forceFill(['user_id' => 'pro-other']);
 
         $result = $this->policy->view($actor, $enquiry);
 

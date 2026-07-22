@@ -73,7 +73,7 @@ class SiteObserver
             $userId = (string) ($site->user_id ?? '');
 
             try {
-                SyncSubdomainToKvJob::dispatch($userId);
+                SyncSubdomainToKvJob::dispatch($userId)->afterCommit();
             } catch (\Throwable $e) {
                 Log::warning('SiteObserver: KV sync dispatch failed on subdomain change', $this->logContext(__METHOD__, [
                     'site_id' => $site->id,

@@ -18,13 +18,19 @@ beforeEach(function () {
 it('has new fillable + casts + relationships', function () {
     $enquiry = new Enquiry;
 
-    $expected = ['user_id', 'site_id', 'name', 'email', 'phone', 'subject',
+    // user_id/site_id (tenancy FKs) and status/customer_id/notification_id are
+    // deliberately NOT fillable — writers set them via associate()/forceFill()/
+    // direct assignment (see the model's $fillable docblock).
+    $expected = ['name', 'email', 'phone', 'subject',
         'message', 'ip_hash', 'user_agent', 'read_at', 'email_sent_at',
-        'status', 'customer_id', 'notification_id',
         'replied_at', 'archived_at', 'spam_at', 'redacted_at'];
 
     foreach ($expected as $field) {
         expect($enquiry->getFillable())->toContain($field);
+    }
+
+    foreach (['user_id', 'site_id', 'status', 'customer_id', 'notification_id'] as $field) {
+        expect($enquiry->getFillable())->not->toContain($field);
     }
 
     expect($enquiry->getCasts()['status'])->toBe(EnquiryStatus::class);

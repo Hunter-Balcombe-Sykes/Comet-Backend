@@ -162,3 +162,45 @@ it('rejects a pageview with no Origin when only site_id is provided (IDOR attack
     $response->assertStatus(404);
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
 });
+
+// ── SEC-2 — no-Origin caller: site_id/subdomain must resolve to the SAME site ─
+
+// (g) No-Origin + no-Referer + site_id of one real site paired with the subdomain
+// of a DIFFERENT real site → rejected. Both identifiers exist, but they don't
+// agree on which site is being claimed, so this must fail closed.
+it('rejects a pageview with no Origin when site_id and subdomain resolve to different sites', function () {
+    $siteA = createTenant('idor-mismatch-a');
+    $siteB = createTenant('idor-mismatch-b');
+
+    $response = $this->postJson('/api/public/analytics/pageviews', [
+        'site_id' => $siteA->site->id,
+        'subdomain' => 'idor-mismatch-b',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+    ]);
+
+    // 422 — site_id was supplied but the pair didn't resolve (matches the
+    // resolvePublishedSite() status convention for a supplied-but-wrong site_id).
+    $response->assertStatus(422);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
+
+    // Neither site's row leaked an event either.
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $siteA->site->id)->count())->toBe(0);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $siteB->site->id)->count())->toBe(0);
+});
+
+// (h) No-Origin + no-Referer + matching site_id/subdomain pair → accepted (control
+// case — mirrors test (e), restated here for locality with the mismatch test above).
+it('accepts a pageview with no Origin when site_id and subdomain resolve to the same site', function () {
+    $tenant = createTenant('idor-match-h');
+
+    $response = $this->postJson('/api/public/analytics/pageviews', [
+        'site_id' => $tenant->site->id,
+        'subdomain' => 'idor-match-h',
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+    ]);
+
+    $response->assertStatus(201);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $tenant->site->id)->count())->toBe(1);
+});

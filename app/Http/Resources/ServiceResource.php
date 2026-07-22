@@ -2,8 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Core\User\Service;
 use Illuminate\Http\Request;
 
+/**
+ * @mixin Service
+ */
 // V2: API resource for site.services rows. Explicit allowlist — future columns
 // (e.g. internal_cost_cents, deleted_origin) don't auto-ship to dashboard/staff.
 class ServiceResource extends ApiResource

@@ -13,8 +13,7 @@ beforeEach(function () {
 
     // The shared mirror (services + categories + the multi-category pivot) —
     // ServiceResource reads memberships now, so the hand-rolled minimal table
-    // no longer suffices. Includes square_variation_id (the controller adds
-    // whereNull('square_variation_id') when the 'square' param is absent).
+    // no longer suffices.
     setupServicesTable();
 });
 

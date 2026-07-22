@@ -37,7 +37,7 @@ class SupabaseAdminService
         }
 
         $response = Http::withHeaders($this->headers())
-            ->timeout(10)
+            ->timeout((int) config('supabase.http_timeout_seconds', 5))
             ->post("{$this->baseUrl}/auth/v1/admin/users", [
                 'email' => $email,
                 'email_confirm' => true,
@@ -106,7 +106,7 @@ class SupabaseAdminService
         }
 
         $response = Http::withHeaders($this->headers())
-            ->timeout(10)
+            ->timeout((int) config('supabase.http_timeout_seconds', 5))
             ->get("{$this->baseUrl}/auth/v1/admin/users", [
                 'email' => $email,
                 'per_page' => 1,
@@ -163,7 +163,7 @@ class SupabaseAdminService
             throw new RuntimeException('Supabase admin config missing');
         }
 
-        $response = Http::timeout(5)
+        $response = Http::timeout((int) config('supabase.http_timeout_seconds', 5))
             ->withHeaders([
                 'apikey' => $serviceRoleKey,
                 'Authorization' => 'Bearer '.$serviceRoleKey,

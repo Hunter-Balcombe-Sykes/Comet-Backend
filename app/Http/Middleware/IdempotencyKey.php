@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use Closure;
 use Illuminate\Http\Request;
@@ -223,7 +224,7 @@ final class IdempotencyKey
 
     private function userIndexKey(string $userId): string
     {
-        return "idempotency:index:{$userId}";
+        return CacheKeyGenerator::idempotencyIndexKey($userId);
     }
 
     private function lockKey(string $version, string $userId, string $route, string $key): string

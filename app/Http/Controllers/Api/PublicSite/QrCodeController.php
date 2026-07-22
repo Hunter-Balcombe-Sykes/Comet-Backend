@@ -36,15 +36,15 @@ class QrCodeController extends ApiController
         }
 
         $qrCode = QrCode::create($professional->partna_url)
-            ->setSize(320)
-            ->setMargin(10);
+            ->setSize((int) config('partna.public_profile.qr_code_size', 320))
+            ->setMargin((int) config('partna.public_profile.qr_code_margin', 10));
 
         $writer = new SvgWriter;
         $result = $writer->write($qrCode);
 
         return response($result->getString(), 200, [
             'Content-Type' => $result->getMimeType(),
-            'Cache-Control' => 'public, max-age=86400',
+            'Cache-Control' => 'public, max-age='.(int) config('partna.cache.ttls.qr_code_svg', 86400),
         ]);
     }
 }

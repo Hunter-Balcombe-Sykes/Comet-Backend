@@ -312,6 +312,25 @@ class CacheKeyGenerator
         return "platforms:{$platform}:lock:{$userId}";
     }
 
+    /**
+     * Cross-platform single-slot XOR lock: the ONLY serialization point for
+     * "at most one booking provider per user" (fresha/square/booking span
+     * multiple platform keys, so a per-platform lock cannot enforce it — see
+     * BuildsAutoSyncFindings::withBookingXorLock). Platform-suffix-free by
+     * design so every booking-family writer (seedBooking + the Booking/Fresha
+     * controllers) builds one identical key.
+     */
+    public static function bookingXorLock(string $userId): string
+    {
+        return "platforms:booking-xor:lock:{$userId}";
+    }
+
+    /** Cross-platform single-slot XOR lock for the reservations family (opentable/resdiary/nowbookit/custom). Mirrors bookingXorLock. */
+    public static function reservationsXorLock(string $userId): string
+    {
+        return "platforms:reservations-xor:lock:{$userId}";
+    }
+
     /** Global daily Apify claim counter across ALL actors (SCALE-2 cost ceiling). */
     public static function apifyGlobalDailyLimit(string $date): string
     {
@@ -365,5 +384,26 @@ class CacheKeyGenerator
     public static function sitePopularityRanks(string $siteId): string
     {
         return "site:{$siteId}:popularity:ranks";
+    }
+
+    /**
+     * Shared `:stale` suffix for every SWR (stale-while-revalidate) primary key
+     * in this app. Single point of change if the convention is ever renamed —
+     * previously hand-concatenated at each call site (CCH-2).
+     */
+    public static function staleKey(string $key): string
+    {
+        return $key.':stale';
+    }
+
+    /**
+     * Per-user Redis SET tracking every idempotency response-cache key issued
+     * for that user (App\Http\Middleware\IdempotencyKey — writer/indexer) so
+     * AccountDeletionService::purgeIdempotencyCache() (reader/purger) can find
+     * and forget every entry at GDPR-erasure time without a key scan (CCH-1).
+     */
+    public static function idempotencyIndexKey(string $userId): string
+    {
+        return "idempotency:index:{$userId}";
     }
 }

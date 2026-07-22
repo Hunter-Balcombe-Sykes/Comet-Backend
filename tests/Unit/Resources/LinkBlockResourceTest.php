@@ -10,7 +10,9 @@ uses(TestCase::class)->in(__FILE__);
 it('ships only the allowlisted fields and drops extras', function () {
     // Phase 2: platform/category/live_check_enabled are promoted columns emitted
     // at the top level; settings no longer carries these keys.
-    $block = new Block([
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — forceFill.
+    $block = new Block;
+    $block->forceFill([
         'user_id' => '11111111-1111-1111-1111-111111111111',
         'site_id' => '22222222-2222-2222-2222-222222222222',
         'block_type' => 'link',
@@ -49,7 +51,9 @@ it('ships only the allowlisted fields and drops extras', function () {
 });
 
 it('emits settings as an object so {} round-trips correctly', function () {
-    $block = new Block([
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — forceFill.
+    $block = new Block;
+    $block->forceFill([
         'user_id' => '11111111-1111-1111-1111-111111111111',
         'site_id' => '22222222-2222-2222-2222-222222222222',
         'block_type' => 'link',

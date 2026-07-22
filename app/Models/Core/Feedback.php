@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 /**
  * User-submitted feedback (bug/idea/praise/question/other).
@@ -20,6 +21,29 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * tool). `type` is a separate taxonomy from the legacy `kind` column, not a
  * replacement — see FeedbackService::deriveKind() for how the two reconcile
  * on write. See supabase/migrations/20260711153000_feedback_type_area_target.sql.
+ *
+ * @property string $id
+ * @property string|null $user_id
+ * @property string|null $reply_email
+ * @property string $kind
+ * @property string|null $severity
+ * @property string $message
+ * @property string|null $page_url
+ * @property string|null $user_agent
+ * @property string|null $viewport
+ * @property string|null $app_version
+ * @property string|null $request_id
+ * @property string $status
+ * @property array<int, mixed> $internal_notes
+ * @property array<int, string> $tags
+ * @property string $source
+ * @property string|null $ip_hash
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
+ * @property string|null $type
+ * @property string|null $area
+ * @property array<string, mixed>|null $target
  */
 class Feedback extends BaseModel
 {
@@ -40,8 +64,14 @@ class Feedback extends BaseModel
 
     protected $keyType = 'string';
 
+    // user_id is not mass-assignable (nullable but a silent drop would sever
+    // the row from its submitter): FeedbackController::store()'s policy-check
+    // skeleton sets it via direct property assignment; FeedbackService::submit()
+    // sets it via ->user()->associate(). status/internal_notes/tags all have
+    // DB defaults and are written only via direct assignment
+    // (FeedbackService::updateStatus() for status; no writer mass-assigns the
+    // other two), so excluding them here is inert, not a functional change.
     protected $fillable = [
-        'user_id',
         'reply_email',
         'kind',
         'severity',
@@ -54,9 +84,6 @@ class Feedback extends BaseModel
         'viewport',
         'app_version',
         'request_id',
-        'status',
-        'internal_notes',
-        'tags',
         'source',
         'ip_hash',
     ];

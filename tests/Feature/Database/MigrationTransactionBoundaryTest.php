@@ -258,3 +258,129 @@ it('drops enquiries_user_created_idx AFTER its replacement index is built in 202
         'coverage on this access path.'
     );
 });
+
+// ─── DISC-1: guard Check 7 — DROP INDEX (non-CONCURRENTLY) on a hot table ──────
+//
+// Unlike the file-text assertions above, these run the guard SCRIPT itself against
+// synthetic fixtures to prove Check 7 actually fires (Checks 1-6 have no behavioral
+// test). The guard reads a RELATIVE path (supabase/migrations), so pointing its
+// working directory at a temp dir scans the fixtures instead of the repo -- no
+// change to the guard script required. No DB, so it runs on SQLite in every CI pass.
+
+function guardRunAgainstFixture(string $sqlBasename, string $sql): array
+{
+    $tmp = sys_get_temp_dir().'/migguard_'.uniqid();
+    mkdir($tmp.'/supabase/migrations', 0777, true);
+    file_put_contents($tmp.'/supabase/migrations/'.$sqlBasename, $sql);
+
+    $guard = base_path('scripts/guard-no-unsafe-migrations.php');
+    $output = [];
+    $exit = 0;
+    exec('cd '.escapeshellarg($tmp).' && php '.escapeshellarg($guard).' 2>&1', $output, $exit);
+
+    @unlink($tmp.'/supabase/migrations/'.$sqlBasename);
+    @rmdir($tmp.'/supabase/migrations');
+    @rmdir($tmp.'/supabase');
+    @rmdir($tmp);
+
+    return ['exit' => $exit, 'output' => implode("\n", $output)];
+}
+
+it('Check 7 flags a bare DROP INDEX on a hot table in a post-cutoff migration', function () {
+    $r = guardRunAgainstFixture(
+        '20260722120000_disc1_bad.sql',
+        "DROP INDEX IF EXISTS site.idx_blocks_live_check_enabled;\n"
+    );
+
+    // toContain() takes a variadic needle list, not a (needle, message) pair --
+    // a second string argument is matched as an ADDITIONAL required needle, not
+    // rendered as a failure message. The failure-source assertion is carried by
+    // the needle text itself ("DROP INDEX without CONCURRENTLY on hot table" is
+    // Check 7's unique error string).
+    expect($r['exit'])->toBe(1, "Expected the guard to FAIL on a bare DROP INDEX on hot site.blocks; output:\n{$r['output']}")
+        ->and($r['output'])->toContain('DROP INDEX without CONCURRENTLY on hot table');
+});
+
+it('Check 7 allows DROP INDEX CONCURRENTLY on a hot table', function () {
+    $r = guardRunAgainstFixture(
+        '20260722120000_disc1_ok.sql',
+        "DROP INDEX CONCURRENTLY IF EXISTS site.idx_blocks_live_check_enabled;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "DROP INDEX CONCURRENTLY is the safe pattern and must pass; output:\n{$r['output']}");
+});
+
+it('Check 7 grandfathers a pre-cutoff bare DROP INDEX on a hot table', function () {
+    $r = guardRunAgainstFixture(
+        '20260701180000_disc1_old.sql',
+        "BEGIN;\nDROP INDEX IF EXISTS site.idx_blocks_live_check_enabled;\nCOMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Files timestamped on/before DROP_INDEX_GUARD_CUTOFF are grandfathered; output:\n{$r['output']}");
+});
+
+it('Check 7 ignores a bare DROP INDEX on a non-hot table', function () {
+    $r = guardRunAgainstFixture(
+        '20260722120000_disc1_cold.sql',
+        "DROP INDEX IF EXISTS site.enquiries_user_created_idx;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Only HOT_TABLES drops are flagged; a cold-table drop is out of scope; output:\n{$r['output']}");
+});
+
+// ─── B19: guard Check 8 — VALIDATE CONSTRAINT bundled with its ADD ... NOT VALID ──
+// Reuses guardRunAgainstFixture() defined above. site.platform_connections is used
+// deliberately (not a HOT_TABLES table) so only Check 8 can fire, never Check 5.
+
+it('Check 8 flags VALIDATE in the same transaction as ADD ... NOT VALID (post-cutoff)', function () {
+    $r = guardRunAgainstFixture(
+        '20260722130000_b19_bad.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections\n".
+        "    ADD CONSTRAINT pc_demo_check CHECK (apify_status IS NULL OR apify_status IN ('ok')) NOT VALID;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(1, "Expected the guard to FAIL when VALIDATE shares the txn with ADD ... NOT VALID; output:\n{$r['output']}")
+        ->and($r['output'])->toContain('VALIDATE CONSTRAINT runs in the same transaction');
+});
+
+it('Check 8 allows VALIDATE in a separate transaction from ADD ... NOT VALID', function () {
+    $r = guardRunAgainstFixture(
+        '20260722130000_b19_ok.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections\n".
+        "    ADD CONSTRAINT pc_demo_check CHECK (apify_status IS NULL OR apify_status IN ('ok')) NOT VALID;\n".
+        "COMMIT;\n".
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "The two-transaction split is the safe pattern and must pass; output:\n{$r['output']}");
+});
+
+it('Check 8 allows a VALIDATE-only file (the two-file split, ADD lives elsewhere)', function () {
+    $r = guardRunAgainstFixture(
+        '20260722130000_b19_validate_only.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "A VALIDATE with no ADD ... NOT VALID in the same file is the correct split; output:\n{$r['output']}");
+});
+
+it('Check 8 grandfathers a pre-cutoff bundled VALIDATE', function () {
+    $r = guardRunAgainstFixture(
+        '20260701000000_b19_old.sql',
+        "BEGIN;\n".
+        "ALTER TABLE site.platform_connections\n".
+        "    ADD CONSTRAINT pc_demo_check CHECK (apify_status IS NULL OR apify_status IN ('ok')) NOT VALID;\n".
+        "ALTER TABLE site.platform_connections VALIDATE CONSTRAINT pc_demo_check;\n".
+        "COMMIT;\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Files on/before VALIDATE_TXN_GUARD_CUTOFF are grandfathered; output:\n{$r['output']}");
+});

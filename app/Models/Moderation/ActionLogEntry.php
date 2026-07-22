@@ -17,7 +17,22 @@ class ActionLogEntry extends BaseModel
 
     public $incrementing = false;
 
-    protected $guarded = ['id'];
+    // Mass-assignment posture (SEC-1): explicit allowlist replaces the
+    // permissive `$guarded = ['id']`. `id` stays out (DB gen_random_uuid()
+    // default, PK). created_at/updated_at stay out — Eloquent-managed
+    // ($timestamps default true); HasActionLogLifecycle's markDispatched()/
+    // markCompleted() only ever touch status/dispatched_at/attempts/completed_at.
+    protected $fillable = [
+        'decision_id',
+        'action_type',
+        'action_target',
+        'job_uuid',
+        'status',
+        'attempts',
+        'failure_reason',
+        'dispatched_at',
+        'completed_at',
+    ];
 
     protected $casts = [
         'action_target' => 'array',

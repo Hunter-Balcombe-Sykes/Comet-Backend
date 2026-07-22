@@ -39,7 +39,7 @@ class UserEnquiryController extends ApiController
         }
 
         $page = $query->orderByDesc('created_at')
-            ->paginate((int) $request->integer('per_page', 20));
+            ->paginate((int) $request->integer('per_page', config('partna.limits.pagination.enquiries_per_page', 20)));
 
         // through() transforms items in place; the paginator's count metadata
         // is untouched so paginatedResponse() still emits the canonical
@@ -121,10 +121,11 @@ class UserEnquiryController extends ApiController
         ]);
 
         // Sync both status and read_at together so they never diverge.
+        // status is not fillable — forceFill so the unread transition still persists it.
         if ($request->boolean('read')) {
             $enquiry->markRead();
         } else {
-            $enquiry->update(['status' => 'new', 'read_at' => null]);
+            $enquiry->forceFill(['status' => 'new', 'read_at' => null])->save();
         }
 
         return $this->success([

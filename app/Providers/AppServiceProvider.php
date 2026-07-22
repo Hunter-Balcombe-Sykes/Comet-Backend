@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
@@ -90,6 +91,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -338,6 +340,12 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(CacheMissed::class, RecordCacheMetrics::class);
         Event::listen(KeyWritten::class, RecordCacheMetrics::class);
 
+        // Send-time suppression gate — cancels any outbound mail to an address on
+        // core.email_suppressions (hard bounce / spam complaint from Resend). The
+        // one chokepoint that makes suppression bite for OTP, claim-invite, and
+        // transactional mail alike. Fails open on lookup error (see the listener).
+        Event::listen(MessageSending::class, BlockSuppressedRecipients::class);
+
         // Strict-mode N+1 trap: throw on unloaded relation access outside production
         // so tests/local catch lazy loading instead of leaking slow queries to prod.
         Model::preventLazyLoading(! app()->isProduction());
@@ -508,7 +516,7 @@ class AppServiceProvider extends ServiceProvider
 
             $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
-            return Limit::perMinute(120)
+            return Limit::perMinute((int) config('partna.throttle.analytics_per_minute', 120))
                 ->by((string) $key);
         });
 
@@ -520,7 +528,7 @@ class AppServiceProvider extends ServiceProvider
 
             $blockId = $request->input('block_id', 'unknown');
 
-            return Limit::perMinute(5)
+            return Limit::perMinute((int) config('partna.throttle.analytics_click_per_minute', 5))
                 ->by($request->ip().':click:'.$blockId);
         });
 
@@ -537,7 +545,7 @@ class AppServiceProvider extends ServiceProvider
 
             return [
                 // Per IP:  3 submissions per minute
-                Limit::perMinute(3)
+                Limit::perMinute((int) config('partna.throttle.leads_per_minute_ip', 3))
                     ->by((string) $key)
                     ->response(function () {
                         return response()->json([
@@ -546,7 +554,7 @@ class AppServiceProvider extends ServiceProvider
                     }),
 
                 // Per subdomain: 100 submissions per minute (prevent abuse)
-                Limit::perMinute(100)
+                Limit::perMinute((int) config('partna.throttle.leads_per_minute_subdomain', 100))
                     ->by($subdomain)
                     ->response(function () {
                         return response()->json([
@@ -579,8 +587,11 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Public early-access signups (OV-A). Same posture as the retired waitlist limiter:
-        // 5/min per IP (CF-Connecting-IP preferred) + 12/h per email.
+        // Public early-access signups (OV-A). Same posture as the retired waitlist limiter,
+        // plus a per-IP daily cap (SEC-1): 5/min + 20/day per IP (CF-Connecting-IP
+        // preferred) + 12/h per email. A bot-token bootstrap isn't available here — the
+        // marketing site posts cross-origin with no token round-trip — so the daily cap
+        // is the server-side backstop against a sustained sub-5/min script grinding all day.
         RateLimiter::for('early-access', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
@@ -591,7 +602,7 @@ class AppServiceProvider extends ServiceProvider
             $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return [
-                Limit::perMinute(5)
+                Limit::perMinute((int) config('partna.throttle.early_access_per_minute', 5))
                     ->by('early-access:ip:'.$key)
                     ->response(function () {
                         return response()->json([
@@ -599,7 +610,15 @@ class AppServiceProvider extends ServiceProvider
                         ], 429);
                     }),
 
-                Limit::perHour(12)
+                Limit::perDay((int) config('partna.throttle.early_access_per_day', 20))
+                    ->by('early-access:ip:day:'.$key)
+                    ->response(function () {
+                        return response()->json([
+                            'message' => 'Too many submissions from this network today. Please try again tomorrow.',
+                        ], 429);
+                    }),
+
+                Limit::perHour((int) config('partna.throttle.early_access_per_hour_email', 12))
                     ->by('early-access:email:'.$emailKey)
                     ->response(function () {
                         return response()->json([
@@ -623,10 +642,10 @@ class AppServiceProvider extends ServiceProvider
             $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return [
-                Limit::perMinute(5)->by((string) $key)->response(function () {
+                Limit::perMinute((int) config('partna.throttle.public_subscribe_per_minute', 5))->by((string) $key)->response(function () {
                     return response()->json(['message' => 'Too many subscription attempts. Please wait before trying again.'], 429);
                 }),
-                Limit::perHour(12)->by($email !== '' ? "email:{$email}" : 'no-email')->response(function () {
+                Limit::perHour((int) config('partna.throttle.public_subscribe_per_hour_email', 12))->by($email !== '' ? "email:{$email}" : 'no-email')->response(function () {
                     return response()->json(['message' => 'Too many subscription attempts for this email. Please try later.'], 429);
                 }),
             ];
@@ -641,7 +660,7 @@ class AppServiceProvider extends ServiceProvider
             $uid = $request->attributes->get('supabase_uid')
                 ?? throw new \RuntimeException('supabase_uid missing on authenticated route — JWT middleware not applied');
 
-            return Limit::perMinute(300)
+            return Limit::perMinute((int) config('partna.throttle.authenticated_per_minute', 300))
                 ->by($uid)
                 ->response(function () {
                     return response()->json([
@@ -686,7 +705,7 @@ class AppServiceProvider extends ServiceProvider
             $uid = $request->attributes->get('supabase_uid')
                 ?? throw new \RuntimeException('supabase_uid missing on staff route — JWT middleware not applied');
 
-            return Limit::perMinute(300)
+            return Limit::perMinute((int) config('partna.throttle.staff_per_minute', 300))
                 ->by($uid)
                 ->response(function () {
                     return response()->json([
@@ -701,7 +720,7 @@ class AppServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            return Limit::perMinute(200)
+            return Limit::perMinute((int) config('partna.throttle.webhooks_per_minute', 200))
                 ->by($request->ip())
                 ->response(function () {
                     return response()->json([
@@ -719,7 +738,7 @@ class AppServiceProvider extends ServiceProvider
             $uid = $request->attributes->get('supabase_uid')
                 ?? throw new \RuntimeException('supabase_uid missing on bootstrap route — JWT middleware not applied');
 
-            return Limit::perMinute(5)
+            return Limit::perMinute((int) config('partna.throttle.bootstrap_per_minute', 5))
                 ->by($uid)
                 ->response(function () {
                     return response()->json([
@@ -760,7 +779,7 @@ class AppServiceProvider extends ServiceProvider
             // these routes sit behind VerifySupabaseJwt).
             $key = $request->attributes->get('supabase_uid') ?? $request->ip();
 
-            return Limit::perMinute(10)
+            return Limit::perMinute((int) config('partna.throttle.session_writes_per_minute', 10))
                 ->by((string) $key)
                 ->response(function () {
                     return response()->json([
@@ -796,7 +815,7 @@ class AppServiceProvider extends ServiceProvider
 
             $documentId = $request->route('document') ?? 'unknown';
 
-            return Limit::perHour(10)
+            return Limit::perHour((int) config('partna.throttle.document_download_per_hour', 10))
                 ->by($request->ip().':doc:'.$documentId)
                 ->response(function () {
                     return response()->json([

@@ -225,6 +225,7 @@ class User extends BaseModel
         return $this->hasMany(LinkClick::class, 'user_id');
     }
 
+    /** @return HasMany<Service, $this> */
     public function services(): HasMany
     {
         return $this->hasMany(Service::class, 'user_id');

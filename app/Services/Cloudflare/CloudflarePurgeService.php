@@ -125,6 +125,8 @@ class CloudflarePurgeService
         // sub-paths + each one's SWR shadow + the API subrequest) exceeds that, so
         // chunk into <=30-URL batches — one POST each, paced up to a bounded
         // total budget (SCALE-101).
+        // CFG-3: this 30 stays a literal, unlike the DB-query caps below in
+        // purgeHandle() — it's Cloudflare's hard API ceiling, not a tunable knob.
         foreach (array_chunk(array_values($urls), 30) as $i => $chunk) {
             if ($i > 0 && $this->microsecondsPacedSoFar < self::PACING_BUDGET_MICROSECONDS) {
                 $this->paceBetweenChunks();
@@ -160,10 +162,10 @@ class CloudflarePurgeService
      *   • Every deep-link sub-page — `/shop`, `/book`, `/listen`, … (the SitepageId
      *     taxonomy). Each is a SEPARATE edge key; purging only the root left these
      *     serving pre-mutation HTML until their s-maxage lapsed (observed 24 h —
-     *     sync note: cloudflare-worker/src/index.js `PRIMARY_CACHE_TTL_S`, bump both together).
+     *     sync note: cloudflare-worker/wrangler.toml `[vars] PRIMARY_CACHE_TTL_S` (the index.js const is now a fallback default), bump both together).
      *   • The SWR stale shadow for each of the above (`/_swr-shadow<path>`, 7-day
      *     TTL — cloudflare-worker/src/index.js `staleShadowKey`, sync note: `STALE_SHADOW_TTL_S`
-     *     in the same file — bump both together). On a primary MISS
+     *     in cloudflare-worker/wrangler.toml `[vars]` — bump both together). On a primary MISS
      *     the Worker serves the shadow and refreshes in the background, so without
      *     purging it the first post-mutation visitor still sees stale content.
      *   • Backend API subrequest (`<app.url>/api/public/profiles/<handle>`), which
@@ -180,6 +182,13 @@ class CloudflarePurgeService
             return;
         }
 
+        // SEC-1: encode before the handle lands in any purge URL. Handles are
+        // validated to [a-z0-9-] at write time — a value in that set is left
+        // byte-for-byte unchanged by rawurlencode() (unreserved chars), so this
+        // is defence-in-depth against a malformed/legacy value injecting an
+        // extra path segment or query string, not a behaviour change for valid ones.
+        $encodedHandle = rawurlencode($h);
+
         // Canonical public-site base domain — the single source of truth shared
         // with PublicSiteController/ResolvesSubdomainFromHost. Drives the zone
         // these purge targets hit, so staging/non-prod TLDs resolve correctly
@@ -190,7 +199,7 @@ class CloudflarePurgeService
         // .partna.au subdomain, plus a custom domain (Cloudflare for SaaS) which is
         // cached under its OWN host key — the router keys caches.default by full URL
         // incl. Host, so a content change must bust both. Same zone → one purge run.
-        $bases = ["https://{$h}.{$baseDomain}"];
+        $bases = ["https://{$encodedHandle}.{$baseDomain}"];
         $domain = strtolower(trim((string) $customDomain));
         if ($domain !== '') {
             $bases[] = "https://{$domain}";
@@ -227,7 +236,7 @@ class CloudflarePurgeService
                 ->whereNull('c.deleted_at')
                 ->whereRaw("p.data->>'handle' IS NOT NULL")
                 ->selectRaw("DISTINCT p.data->>'handle' AS product_handle")
-                ->limit(100)
+                ->limit((int) config('partna.cloudflare_purge.products_limit', 100))
                 ->pluck('product_handle')
                 ->all();
         } catch (\Throwable $e) {
@@ -247,7 +256,7 @@ class CloudflarePurgeService
                 ->join('site.menus as m', 'm.id', '=', 'mi.menu_id')
                 ->join('core.users as u', 'u.id', '=', 'm.user_id')
                 ->where('u.handle_lc', $h)
-                ->limit(150)
+                ->limit((int) config('partna.cloudflare_purge.menu_items_limit', 150))
                 ->pluck('mi.id')
                 ->all();
         } catch (\Throwable $e) {
@@ -271,7 +280,7 @@ class CloudflarePurgeService
                 ->where('u.handle_lc', $h)
                 ->whereIn('c.platform', ['eventbrite', 'humanitix', 'events-custom'])
                 ->whereNull('c.deleted_at')
-                ->limit(30)
+                ->limit((int) config('partna.cloudflare_purge.event_connections_limit', 30))
                 ->pluck('c.payload')
                 ->all();
 
@@ -295,7 +304,7 @@ class CloudflarePurgeService
                     }
                 }
             }
-            $eventIds = array_slice(array_keys($eventIdSet), 0, 100);
+            $eventIds = array_slice(array_keys($eventIdSet), 0, (int) config('partna.cloudflare_purge.event_ids_limit', 100));
         } catch (\Throwable $e) {
             // OBS-101: same bug as the product-handle catch above — bump to
             // warning + report() so a stale-event-page regression pages instead
@@ -318,8 +327,11 @@ class CloudflarePurgeService
             }
             // Each product detail page + its shadow.
             foreach ($productHandles as $productHandle) {
-                $urls[] = "{$base}/products/{$productHandle}";
-                $urls[] = "{$base}/_swr-shadow/products/{$productHandle}";
+                // SEC-1: product handles come from scraped shop data (Shopify), not
+                // our own validated handle format — encode before it lands in a URL.
+                $encodedProductHandle = rawurlencode($productHandle);
+                $urls[] = "{$base}/products/{$encodedProductHandle}";
+                $urls[] = "{$base}/_swr-shadow/products/{$encodedProductHandle}";
             }
             // Each menu item detail page + its shadow.
             foreach ($menuItemIds as $menuItemId) {
@@ -339,12 +351,12 @@ class CloudflarePurgeService
             // Without this entry the §28.8 endpoint's edge cache (`cacheTtl: 300`)
             // pins the rendered HTML to stale data for up to 5 minutes after a
             // mutation, regardless of how aggressively we purge the page URLs.
-            $urls[] = "{$apiBase}/api/public/profiles/{$h}";
+            $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}";
             // The platform-integrations subrequest (`PublicIntegrationController`)
             // that the sitepage reads for cards (e.g. the Instagram gallery card).
             // Its own fetch is `cacheTtl: 0`, so this is belt-and-braces — but it
             // guarantees a display-toggle flip never leaves a stale card wire.
-            $urls[] = "{$apiBase}/api/public/profiles/{$h}/integrations";
+            $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/integrations";
         }
 
         // cache-edge-reconcile/LIFE-1 residual: surface a catalog approaching the

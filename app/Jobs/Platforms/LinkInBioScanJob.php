@@ -57,7 +57,7 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         }
 
         $response = $fetcher->tryFetch($this->bioPageUrl);
-        $html = is_array($response) && ($response['status'] ?? 0) === 200 ? (string) ($response['body'] ?? '') : '';
+        $html = is_array($response) && $response['status'] === 200 ? (string) $response['body'] : '';
         if ($html === '') {
             return;
         }

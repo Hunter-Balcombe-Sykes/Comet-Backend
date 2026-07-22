@@ -152,7 +152,7 @@ class PreAccountBuildService
             );
         }
 
-        GeneratePreAccountSiteJob::dispatch($build->id, $publish)->afterCommit();
+        GeneratePreAccountSiteJob::dispatch($build->id, $build->source_type, $publish)->afterCommit();
 
         return ['build' => $build, 'reused' => false];
     }
@@ -249,7 +249,7 @@ class PreAccountBuildService
             // this re-serve write isn't a silent no-op (a dropped write here would
             // leave the build stuck in 'failed' forever).
             $build->forceFill(['build_state' => PreAccountBuild::STATE_PENDING, 'failure_code' => null])->save();
-            GeneratePreAccountSiteJob::dispatch($build->id, false)->afterCommit();
+            GeneratePreAccountSiteJob::dispatch($build->id, $build->source_type, false)->afterCommit();
         }
 
         return $build;

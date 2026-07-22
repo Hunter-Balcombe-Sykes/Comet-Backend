@@ -38,7 +38,7 @@ class RenameSubdomainAction
         // intermediate subdomain's alias/audit-log entry below. Locking both columns
         // together keeps $site's in-memory subdomain in sync with what's actually
         // being renamed FROM. (lockForUpdate is a no-op on SQLite — fine for tests.)
-        $locked = DB::table('site.sites')
+        $locked = DB::connection('pgsql')->table('site.sites')
             ->where('id', $site->id)
             ->lockForUpdate()
             ->first(['subdomain', 'subdomain_changed_at']);
@@ -66,7 +66,7 @@ class RenameSubdomainAction
             }
         }
 
-        $conflictInSites = DB::table('site.sites')
+        $conflictInSites = DB::connection('pgsql')->table('site.sites')
             ->whereRaw('lower(subdomain) = ?', [$incoming])
             ->where('id', '!=', $site->id)
             ->exists();
@@ -81,7 +81,7 @@ class RenameSubdomainAction
         // previously held subdomain is allowed (the alias will be collapsed below).
         // Only ACTIVE aliases block: an expired-but-unpruned alias has released
         // the subdomain back to the pool, so it must not lock anyone out.
-        $conflictInAliases = DB::table('site.site_subdomain_aliases')
+        $conflictInAliases = DB::connection('pgsql')->table('site.site_subdomain_aliases')
             ->whereRaw('lower(subdomain) = ?', [$incoming])
             ->where('site_id', '!=', $site->id)
             ->where(function ($q) {

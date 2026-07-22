@@ -9,7 +9,9 @@ uses(TestCase::class)->in(__FILE__);
 
 function makeSectionBlock(array $overrides = []): Block
 {
-    $block = new Block([
+    // user_id/site_id removed from Block's $fillable (S4 Tier 2b) — forceFill.
+    $block = new Block;
+    $block->forceFill([
         'user_id' => '11111111-1111-1111-1111-111111111111',
         'site_id' => '22222222-2222-2222-2222-222222222222',
         'block_type' => 'gallery',

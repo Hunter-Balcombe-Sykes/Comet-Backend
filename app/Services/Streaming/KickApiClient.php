@@ -50,10 +50,14 @@ class KickApiClient
 
         try {
             $channelsUrl = (string) config('services.kick.channels_url', self::CHANNELS_URL_DEFAULT);
+            // EDGE-1: explicit bounds — same rationale as TwitchApiClient.
             $response = Http::withHeaders([
                 'Authorization' => "Bearer {$token}",
                 'Accept' => 'application/json',
-            ])->get($channelsUrl, ['slug' => $handles]);
+            ])
+                ->timeout(10)
+                ->connectTimeout(3)
+                ->get($channelsUrl, ['slug' => $handles]);
 
             if ($response->status() === 429) {
                 $retryAfter = (int) ($response->header('Retry-After') ?? 60);
