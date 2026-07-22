@@ -61,6 +61,11 @@ Route::prefix('staff')
         // publish by default since the site IS the pitch.
         Route::post('/builds', [StaffPreAccountBuildController::class, 'store']);
 
+        // Manual claim-invite send for a staff-built site (spec §5). Any staff
+        // role; guards enforce ready+published+contact_email+not-already-sent.
+        Route::post('/builds/{build}/invite', [StaffPreAccountBuildController::class, 'invite'])
+            ->whereUuid('build');
+
         // Staff can see Site
         Route::get('/sites/{subdomain}', [StaffSiteController::class, 'show'])
             ->where('subdomain', '[A-Za-z0-9-]+');
