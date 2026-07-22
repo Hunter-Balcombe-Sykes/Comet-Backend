@@ -41,11 +41,12 @@ function fetchFunctionSearchPathConfig(string $schema, string $name): ?object
     );
 }
 
-// The 12 functions pinned in 20260606040000_pin_function_search_paths.sql, plus
-// audit.prune_handle_change_log (PRIV-2, 20260718000000) — a SECURITY DEFINER
-// function, so an unpinned search_path there is a privilege-escalation vector,
-// not just a resolution-hijack one: every identifier in its body is already
-// fully schema-qualified, so the empty path is safe.
+// The 12 functions pinned in 20260606040000_pin_function_search_paths.sql, plus the
+// three audit-retention prune functions — audit.prune_handle_change_log (PRIV-2,
+// 20260718010000) and audit.prune_user_deletion_audit / audit.prune_data_export_audit
+// (B8 PRIV-2/PRIV-3, 20260722010000). All are SECURITY DEFINER, so an unpinned
+// search_path is a privilege-escalation vector, not just a resolution-hijack one:
+// every identifier in their bodies is fully schema-qualified, so the empty path is safe.
 // Each is [schema, name].
 $searchPathFunctions = [
     ['public', 'set_updated_at'],
@@ -61,6 +62,8 @@ $searchPathFunctions = [
     ['site', 'create_empty_design_kit'],
     ['site', 'trg_sites_url_sync'],
     ['audit', 'prune_handle_change_log'],
+    ['audit', 'prune_user_deletion_audit'],
+    ['audit', 'prune_data_export_audit'],
 ];
 
 dataset('search_path_functions', array_map(

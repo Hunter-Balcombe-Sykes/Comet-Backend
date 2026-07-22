@@ -58,6 +58,15 @@ return [
         'audit_retention_years' => (int) env('SIDEST_HANDLE_AUDIT_RETENTION_YEARS', 7),
     ],
 
+    'audit' => [
+        // B8 / models-data PRIV-2 + PRIV-3: years before the PII email/handle snapshots
+        // on audit.user_deletion_audit and audit.data_export_audit are redacted in place
+        // (the event row is kept). 7y aligns with the handle_change_log fraud window;
+        // kept as its own key so the two policies can diverge later. Floor of 1y is
+        // enforced by the audit:prune-pii-snapshots command.
+        'pii_retention_years' => (int) env('PARTNA_AUDIT_PII_RETENTION_YEARS', 7),
+    ],
+
     'public_domain' => env(
         'PARTNA_PUBLIC_DOMAIN',
         env(
