@@ -66,6 +66,9 @@ Route::prefix('staff')
         Route::post('/builds/{build}/invite', [StaffPreAccountBuildController::class, 'invite'])
             ->whereUuid('build');
 
+        // CSV batch marketing builds (spec §6): one requestBuild per row.
+        Route::post('/builds/batch', [StaffPreAccountBuildController::class, 'batch']);
+
         // Staff can see Site
         Route::get('/sites/{subdomain}', [StaffSiteController::class, 'show'])
             ->where('subdomain', '[A-Za-z0-9-]+');
