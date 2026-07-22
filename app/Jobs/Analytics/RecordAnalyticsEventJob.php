@@ -17,7 +17,7 @@ use Throwable;
 
 // Writes one analytics event to its raw table, then bumps the per-user analytics
 // summary cache version (debounced). Dispatched onto the 'analytics' queue (default
-// redis connection — already consumed by Horizon's supervisor-analytics).
+// redis connection — already consumed by Horizon's main lane, supervisor-1).
 //
 // At-least-once: the writer's insertOrIgnore on the minted PK neutralises a retry that
 // lands after a partial success, so a worker restart never double-counts.

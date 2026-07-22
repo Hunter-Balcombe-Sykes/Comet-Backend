@@ -21,7 +21,7 @@ use Throwable;
  * is now orphaned — this job reclaims it (CONS-21). Dispatched from
  * IntegrationConnectionObserver with the folder recorded in `payload._folder`.
  *
- * Queued on `scraping` (the platform queue, consumed by supervisor-scraping)
+ * Queued on `scraping` (the platform queue, consumed by supervisor-long)
  * since cleanup is not latency-sensitive — isolated from the `default` queue so
  * a burst of disconnects can't crowd out user-facing jobs. ShouldBeUnique keyed
  * on the folder so a burst of writes can't queue duplicate deletes of the prefix.

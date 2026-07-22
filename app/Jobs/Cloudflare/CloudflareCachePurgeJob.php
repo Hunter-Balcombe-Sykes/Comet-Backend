@@ -52,7 +52,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     // Sanity-checked against the queue: the job's OWN $timeout wins over Horizon's
     // supervisor-level timeout (Illuminate\Queue\Worker::timeoutForJob() prefers
     // $job->timeout() over $options->timeout), so config/horizon.php's
-    // supervisor-cloudflare timeout=60 doesn't cap this. What DOES matter is the
+    // supervisor-level timeout doesn't cap this. What DOES matter is the
     // 'cloudflare' queue's connection — config/queue.php 'redis' has
     // retry_after=360 (default) — 180 stays comfortably under that so Redis can't
     // re-reserve this job to a second worker while the first is still purging
