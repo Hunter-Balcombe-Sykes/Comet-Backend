@@ -74,8 +74,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 4 of 7 complete
-- P3 Low: 4 of 8 complete
+- P2 Medium: 5 of 7 complete
+- P3 Low: 7 of 8 complete
 
 ---
 
@@ -195,7 +195,7 @@
         });
         ```
 
-- [ ] **#OBS-1** · P2 — `DesignRationaleService::manualColumns()` swallows DB read failures with zero observability
+- [x] **#OBS-1** · P2 — `DesignRationaleService::manualColumns()` swallows DB read failures with zero observability
     - **Where:** app/Services/Design/DesignRationaleService.php:105-108
     - **Affects:** Operators debugging design-transparency issues; any owner whose manual design overrides silently stop being attributed if the `site.design_kits` read starts failing in production.
     - **Effort:** S (~0.5–1h)
@@ -238,7 +238,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** · P3 — Double, contradictory docblock on `buildDesignMedia`
+- [x] **#SLOP-1** · P3 — Double, contradictory docblock on `buildDesignMedia`
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php (immediately before `private function buildDesignMedia`)
     - **Affects:** Developers reading the file — the first docblock describes behavior (design-pool media, snake_case remapping) that was replaced by the curated content-selection logic described in the second docblock.
     - **Effort:** S (~0.5–1h)
@@ -317,7 +317,7 @@
         drop table if exists site.design_kit_contributions;
         ```
 
-- [ ] **#CACHE-3** · P3 — `DesignRationaleService::forSite()` runs two uncached DB reads on every design-editor round-trip
+- [x] **#CACHE-3** · P3 — `DesignRationaleService::forSite()` runs two uncached DB reads on every design-editor round-trip
     - **Where:** app/Services/Design/DesignRationaleService.php:75, 105-108
     - **Affects:** The `/account/design` editor's site GET/PATCH endpoints (opt-in via `SiteResource::withRationale()`) — not the public sitepage path.
     - **Effort:** S (~0.5–1h)
@@ -356,7 +356,7 @@
             ->first() ?? []);
         ```
 
-- [ ] **#DINT-2** · P3 — `loadDesignKit()` doesn't strip `created_at`/`updated_at`, unlike the equivalent read in `DesignRationaleService`
+- [x] **#DINT-2** · P3 — `loadDesignKit()` doesn't strip `created_at`/`updated_at`, unlike the equivalent read in `DesignRationaleService`
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:313-320; cf. app/Services/Design/DesignRationaleService.php:112-116
     - **Affects:** No leak today (timestamps fall through `groupKitColumns()`'s prefix filter harmlessly), but a future `site.design_kits` column whose name happens to share a recognized prefix would pass through this path but not the other.
     - **Effort:** S (~0.5–1h)

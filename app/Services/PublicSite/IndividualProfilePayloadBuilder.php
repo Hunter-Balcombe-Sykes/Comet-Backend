@@ -248,16 +248,6 @@ class IndividualProfilePayloadBuilder
     }
 
     /**
-     * Design media engine — DesignMediaItem[] (empty array when nothing in pool).
-     *
-     * Remaps the resolver's snake_case keys (sort_order, alt_text, url_hd,
-     * duration_ms) to the camelCase wire shape per the §5 wire convention.
-     * Mirrors buildGallery's pattern — same projection style across the two
-     * polymorphic-media surfaces.
-     *
-     * @return list<array{id: string, sortOrder: int, kind: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, poster: string|null, durationMs: int|null}>
-     */
-    /**
      * The sitepage background media = the owner's curated content SELECTION
      * (ordered by position on /account/content), NOT the raw content-media
      * library. ContentSelectionService::resolve returns the servable entries in
@@ -554,7 +544,7 @@ class IndividualProfilePayloadBuilder
         $manual = [];
         if ($row) {
             $cols = (array) $row;
-            unset($cols['site_id']);
+            unset($cols['site_id'], $cols['created_at'], $cols['updated_at']);
             $manual = array_filter($cols, fn ($v) => $v !== null);
         }
 

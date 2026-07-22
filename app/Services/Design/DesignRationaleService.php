@@ -52,6 +52,20 @@ class DesignRationaleService
     ];
 
     /**
+     * Request-scoped memo, keyed by siteId + userId. The service isn't bound
+     * as a singleton (each `app(DesignRationaleService::class)` call gets a
+     * fresh instance), so this only pays off when a caller holds onto one
+     * instance and calls forSite() more than once — but it's free otherwise.
+     *
+     * @var array<string, array{
+     *     summary: string,
+     *     hasOverrides: bool,
+     *     items: list<array{area: string, sourceLabel: string, reason: string}>
+     * }>
+     */
+    private array $memo = [];
+
+    /**
      * @return array{
      *     summary: string,
      *     hasOverrides: bool,
@@ -60,6 +74,11 @@ class DesignRationaleService
      */
     public function forSite(string $siteId, ?string $userId = null): array
     {
+        $memoKey = $siteId.'|'.($userId ?? '');
+        if (array_key_exists($memoKey, $this->memo)) {
+            return $this->memo[$memoKey];
+        }
+
         $manualColumns = $this->manualColumns($siteId);
         $items = [];
 
@@ -89,7 +108,7 @@ class DesignRationaleService
             ]);
         }
 
-        return [
+        return $this->memo[$memoKey] = [
             'summary' => $this->summary($items, $hasOverrides),
             'hasOverrides' => $hasOverrides,
             'items' => $items,
@@ -111,7 +130,9 @@ class DesignRationaleService
                 ->table('site.design_kits')
                 ->where('site_id', $siteId)
                 ->first();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            report($e);
+
             return [];
         }
 
