@@ -74,14 +74,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 6 of 7 complete
+- P2 Medium: 7 of 7 complete
 - P3 Low: 8 of 8 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#TEST-1** · P2 — `SectorTaxonomy`'s ordered-keyword classifier is only pinned against two collisions
+- [x] **#TEST-1** · P2 — `SectorTaxonomy`'s ordered-keyword classifier is only pinned against two collisions
     - **Where:** tests/Unit/Profile/SectorTaxonomyClassificationTest.php:9-20
     - **Affects:** `IdentitySync`'s Google/Instagram category folding — any future reorder of `KEYWORD_SECTORS` (~50 entries) that isn't specific-before-generic silently misclassifies a business's sector, which then drives the wrong `ProfileDesignPresets` auto-styling.
     - **Effort:** M (~2–4h)
