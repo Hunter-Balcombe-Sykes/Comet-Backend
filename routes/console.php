@@ -184,6 +184,20 @@ Schedule::command('handles:prune-audit-logs')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('handles-prune-audit-logs'));
 
+// B8 / models-data PRIV-2 + PRIV-3: enforces config('partna.audit.pii_retention_years')
+// (default 7y) on the two sibling audit tables (audit.user_deletion_audit,
+// audit.data_export_audit) via the SECURITY DEFINER audit.prune_user_deletion_audit() /
+// audit.prune_data_export_audit() RPCs (app_backend cannot UPDATE the audit schema
+// directly). Anonymise-in-place — keeps the compliance/fraud event row, redacts the PII.
+// Daily like the sibling handle-audit prune; the sentinel guard makes a re-run a cheap
+// no-op, so the 7y window doesn't need a rarer cadence.
+Schedule::command('audit:prune-pii-snapshots')
+    ->dailyAt('03:55')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('audit-prune-pii-snapshots'));
+
 Schedule::command('feature-flags:prune-expired')
     ->dailyAt('03:30')
     ->withoutOverlapping(30)

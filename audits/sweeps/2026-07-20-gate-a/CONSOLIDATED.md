@@ -46,7 +46,7 @@ every draft rather than the scan reading nothing.
 
 - P0 Blocker: 0 of 0 complete *(both P0s re-tiered to P3 — see S1/S2)*
 - P1 High: **13 of 13 complete ✅** *(14 originally; WHK-1 re-tiered to P2 — see S3)*
-- P2 Medium: 59 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` deferred to the pre-cutover schema window — Josh)*
+- P2 Medium: 61 of 69 complete *(B8 `models-data/PRIV-2`+`PRIV-3` authored 2026-07-22 UNPUSHED — applied to live dev at cutover Phase 0 with B20, like the rest of the deferred schema — Josh)*
 - P3 Low: 16 of 46 complete
 - *Total reconciles to 128. Discovered during execution (outside the 128): 8 of 9 complete (DISC-2, DISC-3, DISC-4, DISC-5, DISC-6, DISC-7, DISC-8, DISC-9). Remaining: DISC-1 (routed to the fresh-db-pipeline session — see its note).*
 
@@ -510,10 +510,12 @@ The *Waitlist retirement* work (2026-07-19) established the pattern: a table wit
 scheduled prune **and** export/purge wiring, guarded by `DataExportCoverageTest`. These are the
 tables that still lack it.
 
-- [ ] ⏸ **`models-data/PRIV-2`** · P2 · M — `UserDeletionAuditEntry.professional_email_snapshot` has no retention bound or scheduled purge → `sources/models-data.md`
+- [x] ⏸ **`models-data/PRIV-2`** · P2 · M — `UserDeletionAuditEntry.professional_email_snapshot` has no retention bound or scheduled purge → `sources/models-data.md`
   - **Deferred to the pre-cutover schema window (Josh, 2026-07-21).** `audit.user_deletion_audit` is append-only for `app_backend` (SELECT/INSERT only; `20260527010000` revokes UPDATE/DELETE schema-wide). Pruning needs a new SECURITY DEFINER prune function like `audit.prune_handle_change_log()` (`20260718010000`) = a NEW migration, which `db push` applies to the live dev DB. Zero rows today (pre-pilot, ~7yr window). Author it with PRIV-3 as one consistent prune in the cutover window — see the `## Requires a schema change` table.
-- [ ] ⏸ **`models-data/PRIV-3`** · P2 · M — `DataExportAudit.professional_email_snapshot` / `recipient_email` have no retention bound or scheduled purge → `sources/models-data.md`
+  - **⏸ Authored (UNPUSHED) 2026-07-22 · branch `audit-fix/gate-a-b8-cutover-2026-07-22`.** Josh's calls: **anonymise-in-place** (redact PII columns, keep the event row — the deletion/export record survives for compliance/fraud, only the personal data is bounded, mirroring `gdpr:prune-completed-exports`), **7-year** window, **shared SECURITY DEFINER** path. Migration `20260722010000_audit_pii_snapshot_retention_prune.sql` adds `audit.prune_user_deletion_audit()` (no trigger-disable needed — unlike `handle_change_log`, this table has only the schema-wide REVOKE, no append-only trigger). Command `audit:prune-pii-snapshots` (daily 03:55, floor 1yr), config `partna.audit.pii_retention_years` (default 7), test `PruneAuditPiiSnapshotsTest`, registered in `FunctionSearchPathTest`. **Not `db push`'d** — applied at cutover Phase 0 with B20.
+- [x] ⏸ **`models-data/PRIV-3`** · P2 · M — `DataExportAudit.professional_email_snapshot` / `recipient_email` have no retention bound or scheduled purge → `sources/models-data.md`
   - **Deferred to the pre-cutover schema window (Josh, 2026-07-21).** `audit.data_export_audit` *does* have a `GRANT UPDATE` (`20260624`), so this one could anonymise via a migration-free scheduled UPDATE — but deferred with PRIV-2 to keep the sibling tables on one consistent prune mechanism rather than splitting them.
+  - **⏸ Authored (UNPUSHED) 2026-07-22 · same branch/migration/command as PRIV-2.** Kept on the **shared SECURITY DEFINER** path (Josh) rather than the migration-free UPDATE split: `audit.prune_data_export_audit()` in the same `20260722010000` migration, called by the same `audit:prune-pii-snapshots` command. Redacts `recipient_email`/`professional_handle_snapshot` → `'[redacted]'`, `professional_email_snapshot`/`error_message` → NULL; event row kept. **Not `db push`'d** — cutover Phase 0.
 - [x] **`wiring/PRIV-1`** · P2 · S — Feedback PII (email, handle, ip_hash) has no retention window or cleanup for non-deleted rows → `sources/wiring.md`
   - **`no_change_needed` — already shipped on this branch by `6ac34154` (2026-07-20, internal "PRIV-8"), default set to 90d by `905e04b9`.** `partna.feedback.retention_days` + `PruneOldFeedbackSubmissionsCommand` (batched hard-delete on `created_at`, `--dry-run`/`--days`, pgsql-pinned, logs counts only) + weekly Sunday schedule in `routes/console.php` + 5 tests. Verified in review.
 - [x] **`gdpr-deletion-export/PRIV-3`** · P2 · S — `analytics.item_views` has no FK to `core.users`, so visitor IP/UA rows outlive an account by up to 90 days → `sources/gdpr-deletion-export.md`
