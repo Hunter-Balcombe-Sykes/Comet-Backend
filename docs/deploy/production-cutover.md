@@ -93,10 +93,19 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
         nobody mid-claim; migrating 19+4 rows is not worth a planned migration task. **Carve-out:** eyeball
         `tuesdae.co` before cutover — if it is a real user, hand-recreate that one page on prod post-go-live.
         The 4 `ready` builds are Apify-billed scrape work that would need re-scraping if ever rebuilt on prod.
-- [ ] **Rehearse the queue flip on dev first.** Prod has never run async workers; go-live must not be the
+- [~] **Rehearse the queue flip on dev first.** Prod has never run async workers; go-live must not be the
       first-ever `QUEUE_CONNECTION=redis` + Horizon boot. Flip dev to redis + Horizon and soak before
       cutover day — `docs/deploy/queue-worker-cutover.md` inventories exactly what changes behavior under
       workers (e.g. `->delay()` becomes real, sync-masked races shift).
+      - **Decision (Josh, 2026-07-22): NOT NEEDED before cutover — workers get turned on AFTER cutover, not
+        at go-live.** Prod therefore launches on `QUEUE_CONNECTION=sync` (the same known-good mode dev runs
+        today, jobs inline), and the worker flip becomes a **separate post-cutover step** that no longer
+        coincides with go-live — so a pre-cutover dev rehearsal is unnecessary. The `queue-worker-cutover.md`
+        rehearsal/soak (verify `config=redis`, Horizon masters up, probe job drains through Redis; watch the
+        `analytics`/`images`/`videos` day-one queues and the `->delay()` staggers becoming real) moves to
+        **that later flip**, along with its open blockers **B1** (provision + run a Horizon worker — env var
+        alone without a running worker is strictly worse: silent backlog) and **B2** (lock down `/horizon`
+        with dashboard creds; it exposes live job payloads). See the Phase-2 queue checkbox note below.
 - [ ] **Confirm the prod Laravel deploy command** is current. The last prod build (`fa69c2b1`) **already**
       uses `ffmpeg.sh` + `composer install --no-dev` + `php artisan optimize` (no npm) — just confirm it's
       unchanged and still **without** an auto `migrate --force` (schema is Supabase-side). Check the PHP
@@ -196,6 +205,13 @@ missed:
       configured and running, else jobs like `SyncSubdomainToKvJob` run synchronously on the request.
       This flip must already be rehearsed on dev (Phase 0) — `docs/deploy/queue-worker-cutover.md`
       inventories what changes behavior under workers.
+      - **SEQUENCING CHANGE (Josh, 2026-07-22): workers are turned on AFTER cutover, not at go-live.** So at
+        go-live prod deliberately launches on **`QUEUE_CONNECTION=sync`** (jobs inline, same as dev today) —
+        acceptable because jobs like `SyncSubdomainToKvJob` still run, just synchronously on the request.
+        This checkbox becomes a **post-cutover** step: provision the Horizon worker (B1), set
+        `QUEUE_CONNECTION=redis` + `HORIZON_DASHBOARD_USERNAME`/`PASSWORD` (B2), then run the
+        `queue-worker-cutover.md` soak once prod is stable. The Phase-0 rehearsal is skipped for the same
+        reason (see that checkbox's note).
 - [ ] **Cloudflare `SUBDOMAIN_KV`: a separate prod namespace.** If prod's `SyncSubdomainToKvJob` writes the
       same KV as dev, the two environments clobber each other's `<handle>.partna.au` routing.
 - [ ] **Supabase JWT secret** = the **prod** project's secret (auth verification fails otherwise).
