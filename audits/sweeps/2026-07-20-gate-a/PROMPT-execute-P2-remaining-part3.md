@@ -1,8 +1,10 @@
 # Gate A — execute prompt, PART 3 (final P2 units)
 
 Continues `audits/sweeps/2026-07-20-gate-a/CONSOLIDATED.md`. **PART 2 completed six units**
-(B7, B8, B9, B10, B11, B12) — all committed on branch `audit-fix/gate-a-2026-07-20`
-(tip `df0ea28c`). This prompt covers the **six remaining P2 units: B14, B15, B21 (non-blockers)
+(B7, B8, B9, B10, B11, B12), plus discovered items DISC-5 and DISC-6 — all committed on branch
+`audit-fix/gate-a-2026-07-20`. On 2026-07-21 origin/development was merged into that branch and
+`development` was fast-forwarded to it and **deployed to the live dev API** (branch tip `ea9df2ab`).
+This prompt covers the **six remaining P2 units: B14, B15, B21 (non-blockers)
 and B13, B20, S4 (blockers)**. The P3-only units (B16, B17, B18, B19) still have their own prompt:
 `PROMPT-execute-P3-remaining.md` — run that AFTER this one.
 
@@ -15,16 +17,17 @@ and B13, B20, S4 (blockers)**. The P3-only units (B16, B17, B18, B19) still have
 === PROMPT START ===
 
 Continue executing audit audits/sweeps/2026-07-20-gate-a/CONSOLIDATED.md. Branch
-audit-fix/gate-a-2026-07-20 already has 6 committed units (B7–B12, tip df0ea28c). Check it out
-and continue on it — do NOT create a new branch, do NOT re-do finished units. Follow
-scripts/audit/fix-flow.md with the overrides below.
+audit-fix/gate-a-2026-07-20 already has units B7–B12 + DISC-5/DISC-6 committed and now contains
+origin/development (merged 2026-07-21; branch tip ea9df2ab). Check it out and continue on it — do
+NOT create a new branch, do NOT re-do finished units. Follow scripts/audit/fix-flow.md with the
+overrides below.
 
 ## First: orient yourself
 - `git fetch && git checkout audit-fix/gate-a-2026-07-20 && git rev-parse --abbrev-ref HEAD`
-  — CONFIRM the branch name reads exactly `audit-fix/gate-a-2026-07-20` and `git log --oneline -8`
-  shows fix(audit): B7…B12. (A concurrent session moved this repo's shared branch to `development`
-  mid-run last time; five commits landed on the wrong branch before it was caught. See the git rule
-  below.)
+  — CONFIRM the branch name reads exactly `audit-fix/gate-a-2026-07-20` and `git log --oneline -12`
+  shows the origin/development merge commit (ea9df2ab) + DISC-6/DISC-5 + fix(audit): B7…B12.
+  (A concurrent session moved this repo's shared branch to `development` mid-run last time; five
+  commits landed on the wrong branch before it was caught. See the git rule below.)
 - Read CONSOLIDATED.md end to end, especially `## Progress` (P2 45/69 done), `## Discovered during
   execution` (DISC-1..DISC-7), and the per-finding resolution notes on B7–B12 (they record several
   audit premises that were WRONG). The one-line finding text points at a `sources/<run>.md` file that
@@ -40,8 +43,9 @@ scripts/audit/fix-flow.md with the overrides below.
   commit.** A concurrent `git checkout` in this shared single worktree silently switches your branch.
   Also `git diff --cached --stat` and confirm the exact file list before committing. NEVER `git stash`
   / `git checkout <file>` / `git restore` / `git reset` (a second dev + prior stashes live here) — to
-  see old content use `git show <ref>:<path>`. Do NOT push to development/production. `development` was
-  reset to origin/development (5aedff88) at part-2 end; your work stays on audit-fix only.
+  see old content use `git show <ref>:<path>`. Do NOT push to development/production. `development` is
+  at ea9df2ab (B7–B12 + DISC-5/6, deployed 2026-07-21) and audit-fix now contains it; your work stays
+  on audit-fix only — Josh merges it to development when ready.
 - **Subagents stall.** Two implementer subagents hit an infra stall (600s watchdog) and one a network
   error in part 2. Keep implementer tasks TIGHTLY scoped. If one dies mid-run it usually leaves
   lint-clean partial edits — do NOT revert; assess state with the full suite and complete forward.
@@ -166,8 +170,9 @@ sign-off; this is L-effort — expect it to be large.
 
 ## Discovered items (in CONSOLIDATED `## Discovered during execution`) — leave for their own units
 DISC-1 (→B19), DISC-2 (accepted), DISC-3 (191-file stub sweep), DISC-4 (ffprobe test), DISC-5 (staff
-{category} 500), DISC-6 (UserBootstrapService handle TOCTOU), DISC-7 (InstagramAutoSync pre-consent
-sibling connections). Do NOT work these here unless one blocks a unit.
+{category} 500 — DONE, shipped 2026-07-21), DISC-6 (UserBootstrapService handle TOCTOU — DONE, shipped
+2026-07-21), DISC-7 (InstagramAutoSync pre-consent sibling connections). Do NOT work the remaining
+ones here unless one blocks a unit.
 
 ## Also still open (do NOT forget at archive time)
 - B8 `models-data/PRIV-2` + `PRIV-3`: audit.user_deletion_audit + audit.data_export_audit retention
