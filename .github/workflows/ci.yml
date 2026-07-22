@@ -132,6 +132,15 @@ jobs:
           #   - AppleSearch                 — iTunes API response cache, key via CacheKeyGenerator (same pattern as YoutubeThumbnailResolver)
           #   - RefreshController           — Cache::add SETNX per-user refresh cooldown (key is user+platform scoped)
           #   - DispatchEnquiryNotificationsJob — Cache::put notify-once idempotency guard (enquiry-id scoped)
+          # File-level exceptions (audited 2026-07-22 — same story: the whole gate
+          # chain after composer audit was masked, so these pre-existing callers were
+          # never caught until the chain was fixed. Each key is scoped/content-addressed
+          # — vetted, not a tenant leak):
+          #   - StaffAggregateAnalyticsController — staff-only aggregate; key encodes the full scope (all|segment-hash)+window; cross-tenant BY DESIGN (staff see all), so tenant isolation is N/A
+          #   - GoogleBusinessEnrichJob     — paid-Apify inflight/result guard, keys via CacheKeyGenerator::googleBusinessApify*(userId, placeId) (same pattern as InstagramController)
+          #   - OwnMediaAccentFactor        — content-addressed memo (key = md5 of image URL); value is a non-sensitive computed hex colour
+          #   - StorePricePointFactor       — site-scoped streak key (design:store-price-streak:<site_id>)
+          #   - AccountDeletionService      — Cache::forget of the user's OWN idempotency keys (enumerated from idempotencyIndexKey(authUserId)) during account teardown
           set +e
           BAD=$(git grep -n -E '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
             'app/' \
@@ -152,7 +161,12 @@ jobs:
             ':!app/Http/Controllers/Api/Platforms/RefreshController.php' \
             ':!app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php' \
             ':!app/Services/Platforms/YoutubeThumbnailResolver.php' \
-            ':!app/Services/Platforms/AppleSearch.php')
+            ':!app/Services/Platforms/AppleSearch.php' \
+            ':!app/Http/Controllers/Api/Staff/Analytics/StaffAggregateAnalyticsController.php' \
+            ':!app/Jobs/Platforms/GoogleBusinessEnrichJob.php' \
+            ':!app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php' \
+            ':!app/Services/Design/Presets/Factors/StorePricePointFactor.php' \
+            ':!app/Services/User/AccountDeletionService.php')
           set -e
           if [ -n "$BAD" ]; then
             echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."
