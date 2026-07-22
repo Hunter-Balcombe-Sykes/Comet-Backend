@@ -196,9 +196,11 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'development' || '' }}
 
       - name: Dependency advisories (composer audit)
-        # Reads composer.lock against the Packagist advisory DB — no vendor
-        # install needed; the runner's preinstalled PHP/composer suffice.
-        run: composer audit
+        # --locked audits composer.lock against the Packagist advisory DB without
+        # a vendor install; the runner's preinstalled PHP/composer suffice. Plain
+        # `composer audit` errors ("No installed packages found") when vendor is
+        # absent, which is why this job skips install but must pass --locked.
+        run: composer audit --locked
 
       - name: Secret scan (gitleaks, full history)
         run: |
