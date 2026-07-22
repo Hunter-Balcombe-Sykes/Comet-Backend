@@ -307,31 +307,39 @@ return [
 
     'environments' => [
 
+        // Pilot-sized for a 2 GiB Flex worker. Two process-count gotchas shape this:
+        // every supervisor block costs its own horizon:supervisor process (~90 MiB)
+        // on top of its workers, and 'simple'/'auto' balancing floors at one worker
+        // PER QUEUE (Supervisor::scale raises maxProcesses to the pool count) — so
+        // the 13-lane per-queue layout above needs a ~4 GiB box. Until real load
+        // justifies that, run one priority-ordered lane (balance=false: a single
+        // queue:work drains the list in listed order) plus the three lanes whose
+        // dedicated retry_after connections must stay isolated (JOB-103).
         'production' => [
-            'supervisor-moderation-high' => ['minProcesses' => 1, 'maxProcesses' => 3],
-            'supervisor-notifications' => ['minProcesses' => 1, 'maxProcesses' => 3],
-            'supervisor-default' => ['minProcesses' => 1, 'maxProcesses' => 3],
-            'supervisor-cloudflare' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-cache-warm' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-analytics' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-streaming' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-images' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-scraping' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-platform-refresh' => ['minProcesses' => 1, 'maxProcesses' => 2],
-            'supervisor-platform-connect' => ['minProcesses' => 1, 'maxProcesses' => 3],
+            'supervisor-1' => [
+                'connection' => 'redis',
+                'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
+                'balance' => false,
+                'maxProcesses' => 2,
+                'tries' => 1,
+                'timeout' => 300,
+            ],
             'supervisor-gdpr' => ['maxProcesses' => 1],
-            'supervisor-videos' => ['maxProcesses' => 2],
+            'supervisor-scraping' => ['balance' => false, 'maxProcesses' => 1],
+            'supervisor-videos' => ['maxProcesses' => 1],
         ],
 
-        // Deployed dev runs on a 1 GiB worker; each booted process is ~90 MiB RSS.
-        // Trimmed to 1 process per lane (4 workers total) so Horizon fits with headroom
-        // for an ffmpeg transcode — the 7-process default OOM-looped the box at boot.
-        // Bump these when real pilot load arrives.
+        // Deployed dev worker; each booted process is ~90 MiB RSS. balance MUST be
+        // false here: 'simple' creates a pool per queue and Supervisor::scale raises
+        // maxProcesses to the pool count, so 11 queues spawned 11 workers no matter
+        // what maxProcesses said (~19 processes total incl. the 4 horizon:supervisor
+        // middlemen ≈ 1.7 GiB — the OOM loop). With balance=false one worker drains
+        // all 11 queues in listed order: 9 processes total, fits with ffmpeg headroom.
         'development' => [
             'supervisor-1' => [
                 'connection' => 'redis',
                 'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
-                'balance' => 'simple',
+                'balance' => false,
                 'maxProcesses' => 1,
                 'tries' => 1,
                 'timeout' => 300,
@@ -366,14 +374,16 @@ return [
         ],
 
         'local' => [
-            // Single supervisor for local dev — processes all queues in priority order.
-            // `gdpr` and `scraping` are split into their own supervisors because they
-            // require dedicated Redis connections (see supervisor-gdpr /
-            // supervisor-scraping notes above).
+            // Single supervisor for local dev — processes all queues in priority order
+            // (balance=false is what actually does that; 'simple' would spawn one
+            // worker per queue — see the development block note). `gdpr` and
+            // `scraping` are split into their own supervisors because they require
+            // dedicated Redis connections (see supervisor-gdpr / supervisor-scraping
+            // notes above).
             'supervisor-1' => [
                 'connection' => 'redis',
                 'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
-                'balance' => 'simple',
+                'balance' => false,
                 'maxProcesses' => 3,
                 'tries' => 1,
                 'timeout' => 300,
