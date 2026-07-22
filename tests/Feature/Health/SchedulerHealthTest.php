@@ -30,6 +30,29 @@ it('reports 200 when every scheduled task has a fresh heartbeat', function () {
         ->assertJsonPath('healthy', true);
 });
 
+it('forgives a never-run task while another task proves the scheduler is alive', function () {
+    $schedule = app(Schedule::class);
+    $events = $schedule->events();
+    expect(count($events))->toBeGreaterThan(1);
+
+    // Only ONE task has ever run. That fresh heartbeat proves the cron runner is
+    // alive; the rest are null purely because they haven't hit their first firing
+    // since the scheduler came online (e.g. a 3am daily task at 11am). Those must
+    // not drag the endpoint to 503 — that was the false positive on the dev flip.
+    $alive = $events[0];
+    $aliveKey = RecordScheduledTaskHeartbeat::taskKey($alive);
+    Cache::forever(RecordScheduledTaskHeartbeat::CACHE_PREFIX.$aliveKey, now()->toIso8601String());
+
+    $response = $this->getJson('/api/health/scheduler')->assertOk();
+    expect($response->json('healthy'))->toBeTrue();
+
+    // A never-run task is reported not-stale and flagged as awaiting its first run.
+    $neverRun = collect($response->json('tasks'))->firstWhere('last_run_at', null);
+    expect($neverRun)->not->toBeNull()
+        ->and($neverRun['stale'])->toBeFalse()
+        ->and($neverRun['pending_first_run'])->toBeTrue();
+});
+
 it('flags a task stale when its heartbeat is older than 2x its cron interval', function () {
     $schedule = app(Schedule::class);
     $events = $schedule->events();

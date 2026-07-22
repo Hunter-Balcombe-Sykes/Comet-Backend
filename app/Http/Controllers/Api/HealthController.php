@@ -30,10 +30,12 @@ class HealthController extends ApiController
         return $this->success($status, $allHealthy ? 200 : 503);
     }
 
-    // Scheduler heartbeat check. Returns 503 if any task hasn't reported a
-    // "task starting" event within 2× its cron interval (min 1h buffer).
-    // Catches a stopped Laravel Cloud cron runner — onFailure() can't, since
-    // it only fires when a task actually runs.
+    // Scheduler heartbeat check. Returns 503 if a task that HAS run goes quiet for
+    // longer than 2× its cron interval (min 1h buffer), or if no task has ever run
+    // at all (stopped/never-started cron). A never-run task is forgiven while any
+    // other task is still firing on time — otherwise a 3am daily task falsely 503s
+    // the endpoint from deploy until its first firing. Catches a stopped Laravel
+    // Cloud cron runner — onFailure() can't, since it only fires when a task runs.
     public function scheduler(): JsonResponse
     {
         $schedule = app(Schedule::class);
@@ -48,8 +50,11 @@ class HealthController extends ApiController
         }
 
         $now = now();
-        $tasks = [];
-        $healthy = true;
+
+        // First pass: resolve each task's last heartbeat and its staleness window,
+        // and decide whether the cron runner is demonstrably alive right now.
+        $rows = [];
+        $schedulerProvenAlive = false;
 
         foreach ($schedule->events() as $event) {
             $name = RecordScheduledTaskHeartbeat::taskKey($event);
@@ -65,18 +70,49 @@ class HealthController extends ApiController
             $maxAgeSeconds = max($intervalSeconds * 2, 3600);
 
             $ageSeconds = $lastRun ? $now->getTimestamp() - $lastRun->getTimestamp() : null;
-            $stale = $ageSeconds === null || $ageSeconds > $maxAgeSeconds;
-            if ($stale) {
-                $healthy = false;
+
+            // Any task that ran within its own window proves the runner is up — the
+            // one thing this probe exists to verify.
+            if ($ageSeconds !== null && $ageSeconds <= $maxAgeSeconds) {
+                $schedulerProvenAlive = true;
             }
 
-            $tasks[] = [
+            $rows[] = [
                 'name' => $name,
                 'expression' => $event->expression,
                 'last_run_at' => $lastRunIso,
                 'age_seconds' => $ageSeconds,
                 'max_age_seconds' => $maxAgeSeconds,
+            ];
+        }
+
+        // Second pass: a never-run task (null heartbeat) is only stale when the
+        // scheduler ISN'T demonstrably alive. A not-yet-due daily task right after
+        // the cron comes online is null through no fault of the runner — forgive it
+        // as long as some other task is firing on time. If NOTHING has run at all,
+        // null is genuine evidence of a stopped/never-started cron and stays stale
+        // (503) — the vacuous-healthy case this endpoint was built to catch.
+        // Trade-off: a task broken from its very first firing while the runner is
+        // otherwise healthy won't surface here — that's the per-task onFailure()
+        // hooks' job, not the runner-liveness probe's.
+        $tasks = [];
+        $healthy = true;
+
+        foreach ($rows as $row) {
+            $neverRun = $row['age_seconds'] === null;
+            $pendingFirstRun = $neverRun && $schedulerProvenAlive;
+
+            $stale = $neverRun
+                ? ! $schedulerProvenAlive
+                : $row['age_seconds'] > $row['max_age_seconds'];
+
+            if ($stale) {
+                $healthy = false;
+            }
+
+            $tasks[] = $row + [
                 'stale' => $stale,
+                'pending_first_run' => $pendingFirstRun,
             ];
         }
 
