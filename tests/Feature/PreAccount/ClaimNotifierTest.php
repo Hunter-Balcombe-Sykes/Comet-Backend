@@ -40,3 +40,32 @@ it('sends no email when contact_email is null', function () {
 
     Mail::assertNothingQueued();
 });
+
+it('stamps invited_at and does not re-send on a second notify', function () {
+    Mail::fake();
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
+    $build = PreAccountBuild::factory()->make(['contact_email' => 'lead@example.com']);
+    $build->user()->associate($user);
+    $build->save();
+
+    app(ClaimNotifier::class)->notify($build->fresh());
+    expect($build->fresh()->invited_at)->not->toBeNull();
+
+    app(ClaimNotifier::class)->notify($build->fresh());
+
+    Mail::assertQueued(ClaimInviteMail::class, 1); // exactly one, not two
+});
+
+it('does not stamp invited_at when there is no contact_email', function () {
+    Mail::fake();
+    $user = User::factory()->create(['status' => 'unclaimed']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
+    $build = PreAccountBuild::factory()->make(['contact_email' => null]);
+    $build->user()->associate($user);
+    $build->save();
+
+    app(ClaimNotifier::class)->notify($build->fresh());
+
+    expect($build->fresh()->invited_at)->toBeNull();
+});
