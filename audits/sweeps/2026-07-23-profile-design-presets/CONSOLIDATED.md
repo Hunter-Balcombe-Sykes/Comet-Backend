@@ -74,8 +74,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 3 of 7 complete
-- P3 Low: 2 of 8 complete
+- P2 Medium: 4 of 7 complete
+- P3 Low: 4 of 8 complete
 
 ---
 
@@ -215,7 +215,7 @@
         }
         ```
 
-- [ ] **#SEC-1** · P2 — `ProEmailBrandResolver::resolveReplyTo()` falls back to the pro's private account email
+- [x] **#SEC-1** · P2 — `ProEmailBrandResolver::resolveReplyTo()` falls back to the pro's private account email
     - **Where:** app/Mail/Branding/ProEmailBrandResolver.php:169-174
     - **Affects:** Any pro who enables a contact form but leaves the block's `notification_email` blank — visitors submitting the form see the pro's private login email in the Reply-To header of the confirmation/enquiry email.
     - **Effort:** S (~0.5–1h)
@@ -285,7 +285,7 @@
         });
         ```
 
-- [ ] **#CFG-2** · P3 — Public domain hardcoded as `'partna.au'` in `ProEmailBrandResolver`
+- [x] **#CFG-2** · P3 — Public domain hardcoded as `'partna.au'` in `ProEmailBrandResolver`
     - **Where:** app/Mail/Branding/ProEmailBrandResolver.php:86-88
     - **Affects:** Any environment where `partna.public_domain` differs from `partna.au` (staging, preview, a future rebrand) — white-label emails would embed the wrong domain.
     - **Effort:** S (~0.5–1h)
@@ -335,7 +335,7 @@
             ->first();
         ```
 
-- [ ] **#CACHE-2** · P3 — `ProEmailBrandResolver::build()` runs 5 sequential DB queries inside the cache lock
+- [x] **#CACHE-2** · P3 — `ProEmailBrandResolver::build()` runs 5 sequential DB queries inside the cache lock
     - **Where:** app/Mail/Branding/ProEmailBrandResolver.php:78-118
     - **Affects:** Email send path for white-label visitor emails. Cached per site at 86400s TTL, so impact is bounded to once-per-day-per-site cold-key resolution.
     - **Effort:** S (~0.5–1h)

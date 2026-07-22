@@ -5,7 +5,6 @@ namespace App\Mail\Branding;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Design\ProfileDesignPresets;
@@ -52,17 +51,21 @@ class ProEmailBrandResolver
 
     private function build(string $siteId): EmailBrand
     {
-        $site = Site::query()->find($siteId);
+        $site = Site::query()->with('user')->find($siteId);
         if ($site === null) {
             return EmailBrand::partna();
         }
 
-        $user = $site->user_id ? User::query()->find($site->user_id) : null;
+        $user = $site->user;
 
         $proName = trim((string) ($user->display_name ?? '')) ?: 'the team';
+        // Eager-loaded relation preserves the null-handling of the old
+        // `$site->user_id ? User::find(...) : null` lookup — a null FK simply
+        // yields a null relation, no extra branching needed.
+        $domain = (string) (config('partna.public_domain') ?: 'partna.au');
         $siteUrl = ($user && $user->handle)
-            ? 'https://'.$user->handle.'.partna.au'
-            : 'https://partna.au';
+            ? 'https://'.$user->handle.'.'.$domain
+            : 'https://'.$domain;
 
         // Merge the profile-derived preset layer under the user's manual kit
         // (manual wins) so white-label emails reflect the same auto-styling
@@ -80,7 +83,7 @@ class ProEmailBrandResolver
             proName: $proName,
             siteUrl: $siteUrl,
             logoUrl: $this->resolveLogoUrl($siteId),
-            replyToEmail: $this->resolveReplyTo($siteId, $user),
+            replyToEmail: $this->resolveReplyTo($siteId),
             palette: EmailBrandDefaults::palette($kit),
         );
     }
@@ -131,8 +134,12 @@ class ProEmailBrandResolver
         return $expectedHost === null || $expectedHost === $actualHost;
     }
 
-    /** Contact-block inbox, else account email, else null (→ Partna default). */
-    private function resolveReplyTo(string $siteId, ?User $user): ?string
+    /**
+     * Contact-block inbox, else null (→ Partna default). Never the pro's
+     * private Supabase account email — that must not leak into a public
+     * Reply-To header just because no contact-block inbox is configured.
+     */
+    private function resolveReplyTo(string $siteId): ?string
     {
         $block = Block::query()
             ->where('site_id', $siteId)
@@ -143,12 +150,7 @@ class ProEmailBrandResolver
             ->first();
 
         $email = $block ? trim((string) data_get($block->settings, 'notification_email', '')) : '';
-        if ($email !== '') {
-            return $email;
-        }
 
-        $account = trim((string) ($user->email ?? ''));
-
-        return $account !== '' ? $account : null;
+        return $email !== '' ? $email : null;
     }
 }
