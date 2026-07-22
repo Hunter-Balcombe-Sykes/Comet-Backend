@@ -44,21 +44,6 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
 
     public function handle(LiveStatusPoller $poller): void
     {
-        try {
-            $kickRateLimited = Redis::exists('streaming:kick:rate_limited');
-        } catch (\Throwable $e) {
-            // Redis-down is reported to Nightwatch here (OBS-11). Not $this->fail(): in the
-            // sync/unit path $this->job is null so fail() — and thus failed()/its report() — no-ops.
-            Log::error('streaming.redis_unavailable', ['message' => $e->getMessage()]);
-            report($e);
-
-            return;
-        }
-
-        if ($kickRateLimited) {
-            Log::warning('streaming: skipping Kick — rate limited from previous cycle');
-        }
-
         $streamingPlatforms = config('partna.streaming_platforms', []);
 
         /** @var array<string, list<string>> $handlesByPlatform */
@@ -86,6 +71,29 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
                     }
                 }
             });
+
+        // Short-circuit: no live-check-enabled blocks means nothing to poll, so skip
+        // the Kick circuit-breaker read and the poll pipeline. Gathering handles first
+        // (the query runs regardless) lets the every-2-min tick stay near-free — one
+        // indexed query, no Redis round-trip — while the feature is unused.
+        if (array_filter($handlesByPlatform) === []) {
+            return;
+        }
+
+        try {
+            $kickRateLimited = Redis::exists('streaming:kick:rate_limited');
+        } catch (\Throwable $e) {
+            // Redis-down is reported to Nightwatch here (OBS-11). Not $this->fail(): in the
+            // sync/unit path $this->job is null so fail() — and thus failed()/its report() — no-ops.
+            Log::error('streaming.redis_unavailable', ['message' => $e->getMessage()]);
+            report($e);
+
+            return;
+        }
+
+        if ($kickRateLimited) {
+            Log::warning('streaming: skipping Kick — rate limited from previous cycle');
+        }
 
         foreach ($handlesByPlatform as $platform => $handles) {
             if (empty($handles)) {

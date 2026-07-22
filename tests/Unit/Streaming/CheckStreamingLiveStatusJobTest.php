@@ -20,11 +20,29 @@ it('skips Kick entirely when rate_limited key is set in Redis', function () {
     config(['partna.streaming_platforms' => ['twitch', 'kick']]);
     Redis::set('streaming:kick:rate_limited', '1', 'EX', 300);
 
+    // Real blocks on both platforms — the short-circuit exits before the breaker
+    // logic when there is nothing to poll, so this test must supply actual work.
+    foreach ([['twitch', 'twitchuser'], ['kick', 'kickuser']] as [$platform, $handle]) {
+        DB::connection('pgsql')->table('site.blocks')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => (string) Str::uuid(),
+            'site_id' => (string) Str::uuid(),
+            'block_group' => 'links',
+            'is_active' => 1,
+            'live_check_enabled' => 1,
+            'platform' => $platform,
+            'settings' => json_encode(['handle' => $handle]),
+            'deleted_at' => null,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+    }
+
     $poller = Mockery::mock(LiveStatusPoller::class);
-    // Kick should NOT be dispatched
+    // Kick should NOT be dispatched (circuit-breaker set)
     $poller->shouldReceive('poll')->with('kick', Mockery::any())->never();
-    // Twitch may be dispatched (with empty handles since no DB rows in this test)
-    $poller->shouldReceive('poll')->with('twitch', Mockery::any())->zeroOrMoreTimes();
+    // Twitch is still dispatched
+    $poller->shouldReceive('poll')->with('twitch', Mockery::any())->once();
 
     Log::shouldReceive('warning')->once()->withArgs(fn ($msg) => str_contains((string) $msg, 'rate limited'));
 
@@ -33,7 +51,24 @@ it('skips Kick entirely when rate_limited key is set in Redis', function () {
 });
 
 it('logs critical and aborts when Redis is unavailable', function () {
+    setupBlocksTable();
     config(['partna.streaming_platforms' => ['twitch', 'kick']]);
+
+    // A pollable block is required so the job reaches the Kick circuit-breaker read;
+    // with none, the short-circuit returns before Redis is ever consulted.
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
+        'site_id' => (string) Str::uuid(),
+        'block_group' => 'links',
+        'is_active' => 1,
+        'live_check_enabled' => 1,
+        'platform' => 'twitch',
+        'settings' => json_encode(['handle' => 'testuser']),
+        'deleted_at' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
 
     Redis::shouldReceive('exists')
         ->once()
@@ -90,6 +125,36 @@ it('catches poller exceptions and logs per-platform error without crashing the j
     $job->handle($poller);
 
     Exceptions::assertReported(RuntimeException::class);
+});
+
+it('short-circuits before Redis and the poller when no block has live-checking enabled', function () {
+    setupBlocksTable();
+    config(['partna.streaming_platforms' => ['twitch', 'kick']]);
+
+    // A streaming block exists but live-checking is OFF — no pollable work.
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => (string) Str::uuid(),
+        'site_id' => (string) Str::uuid(),
+        'block_group' => 'links',
+        'is_active' => 1,
+        'live_check_enabled' => 0,
+        'platform' => 'twitch',
+        'settings' => json_encode(['handle' => 'idlestreamer']),
+        'deleted_at' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    // With nothing to poll, the job must not consult the Kick circuit-breaker...
+    Redis::shouldReceive('exists')->never();
+
+    // ...nor dispatch any polling.
+    $poller = Mockery::mock(LiveStatusPoller::class);
+    $poller->shouldNotReceive('poll');
+
+    $job = new CheckStreamingLiveStatusJob;
+    $job->handle($poller);
 });
 
 it('logs job failure via failed() callback', function () {
