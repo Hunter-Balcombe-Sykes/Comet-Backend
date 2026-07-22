@@ -139,22 +139,33 @@ class GoogleBusinessAutoSync
     private function seedReservation(string $userId, array $enrichment, ?string $businessName): array
     {
         try {
+            // Pure — no DB — so it stays outside the lock below.
             $write = $this->resolveReservationWrite($enrichment, $businessName);
             if ($write === null) {
                 return [];
             }
 
             $label = $write['payload']['name'] ?? 'Reservations';
-            if ($this->hasAnyReservation($userId)) {
-                return [$this->conflictFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write), [
-                    'remove' => self::RESERVATION_PLATFORMS,
-                    'write' => $write,
-                ])];
-            }
 
-            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+            // PWL-9: hasAnyReservation()-then-write() spans opentable/resdiary/
+            // nowbookit/reservations — a cross-platform single-slot check
+            // structurally identical to seedBooking's XOR, so it needs the
+            // shared reservations-XOR lock (not a per-platform lock — that
+            // would be the wrong-key bug PWL-14/15 fixed for the controller
+            // side). The has-check MUST re-run INSIDE the closure — it's the
+            // read half of check-then-write.
+            return $this->withReservationsXorLock($userId, function () use ($userId, $write, $label) {
+                if ($this->hasAnyReservation($userId)) {
+                    return [$this->conflictFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write), [
+                        'remove' => self::RESERVATION_PLATFORMS,
+                        'write' => $write,
+                    ])];
+                }
 
-            return [$this->seededFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write))];
+                $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+
+                return [$this->seededFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write))];
+            }, []);
         } catch (Throwable $e) {
             report($e);
 
@@ -380,8 +391,8 @@ class GoogleBusinessAutoSync
      */
     private function seedOrdering(string $userId, array $enrichment): array
     {
-        $findings = [];
         try {
+            // Pure grouping — no DB — so it stays outside the lock below.
             $providers = data_get($enrichment, 'order.providers');
             if (! is_array($providers)) {
                 return [];
@@ -399,76 +410,101 @@ class GoogleBusinessAutoSync
                 $stores[$key][] = $p;
             }
 
-            // Eager-load all existing ordering rows once. Without this, hasStoreKey
-            // and count() both query the table on every iteration of $stores, turning
-            // an N-store enrichment into 2N+1 round-trips.
-            $existingOrdering = IntegrationConnection::query()
-                ->where('user_id', $userId)
-                ->where('platform', Platform::OnlineOrdering->value)
-                ->get();
-            $existingCount = $existingOrdering->count();
-            // Key by storeKey for O(1) duplicate detection.
-            $existingStoreKeys = $existingOrdering->mapWithKeys(function (IntegrationConnection $row) {
-                $key = $this->storeKey(CardPayload::fromArray($row->payload)->url()) ?? '';
+            // PWL-9: the eager-load + per-store only-if-empty write loop is a
+            // classic read-then-write span against this user's online-ordering
+            // rows, so it needs the same lock a concurrent dashboard write to
+            // one of those rows would take. $ran tracks whether the closure
+            // actually executed (vs. skipped on lock contention) — the
+            // MenuFetchJob dispatch below must NOT fire on a dropped seed
+            // (nothing changed), but MUST fire whenever the seed ran, even if
+            // every store in this batch was a dupe (mirrors the pre-lock
+            // unconditional dispatch for that case).
+            $ran = false;
+            $findings = $this->withPlatformSeedLock($userId, Platform::OnlineOrdering->value, function () use ($userId, $stores, &$ran) {
+                $ran = true;
+                $findings = [];
 
-                return [$key => true];
-            })->all();
+                // Eager-load all existing ordering rows once. Without this, hasStoreKey
+                // and count() both query the table on every iteration of $stores, turning
+                // an N-store enrichment into 2N+1 round-trips.
+                $existingOrdering = IntegrationConnection::query()
+                    ->where('user_id', $userId)
+                    ->where('platform', Platform::OnlineOrdering->value)
+                    ->get();
+                $existingCount = $existingOrdering->count();
+                // Key by storeKey for O(1) duplicate detection.
+                $existingStoreKeys = $existingOrdering->mapWithKeys(function (IntegrationConnection $row) {
+                    $key = $this->storeKey(CardPayload::fromArray($row->payload)->url()) ?? '';
 
-            foreach ($stores as $storeKey => $group) {
-                if ($existingCount >= self::MAX_ORDERING) {
-                    break;
+                    return [$key => true];
+                })->all();
+
+                foreach ($stores as $storeKey => $group) {
+                    if ($existingCount >= self::MAX_ORDERING) {
+                        break;
+                    }
+                    if ($existingStoreKeys[$storeKey] ?? false) {
+                        continue;   // only-if-empty per store — never clobber an existing one
+                    }
+
+                    // Representative row identity: prefer a delivery-typed provider
+                    // (the common ordering intent), else the first in the group.
+                    $primary = $this->preferredProvider($group);
+                    $repUrl = $this->safeUrl(data_get($primary, 'url'));
+                    if ($repUrl === null) {
+                        continue;
+                    }
+                    $name = $this->clean(data_get($primary, 'name'));
+                    $rid = 'order-'.substr(sha1(strtolower($repUrl)), 0, 16);
+
+                    // Gather the pickup + delivery URLs across the store's providers.
+                    $pickupUrl = $this->modeUrl($group, 'pickup');
+                    $deliveryUrl = $this->modeUrl($group, 'delivery');
+
+                    $this->write($userId, Platform::OnlineOrdering->value, $rid, [
+                        'id' => $rid,
+                        'provider' => 'custom',
+                        'url' => $repUrl,
+                        'name' => $name ?? 'Order online',
+                        'favicon' => null,
+                        'logo' => null,
+                        'source' => 'google-business',
+                        'data' => array_filter([
+                            'type' => $this->clean(data_get($primary, 'type')),
+                            'fees' => $this->clean(data_get($primary, 'fees')),
+                            'time' => $this->clean(data_get($primary, 'time')),
+                            'sourcePlatform' => $name,
+                            'pickupUrl' => $pickupUrl,
+                            'deliveryUrl' => $deliveryUrl,
+                        ], fn ($v) => $v !== null),
+                    ]);
+                    // Track the newly written store in-memory so the cap and dupe
+                    // checks stay accurate without re-querying on each iteration.
+                    $existingCount++;
+                    $existingStoreKeys[$storeKey] = true;
+                    // Online-ordering is multi-entry — every new store is just added (no
+                    // conflict concept), so each is a 'seeded' finding.
+                    $findings[] = $this->seededFinding(Platform::OnlineOrdering->value, $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
                 }
-                if ($existingStoreKeys[$storeKey] ?? false) {
-                    continue;   // only-if-empty per store — never clobber an existing one
-                }
 
-                // Representative row identity: prefer a delivery-typed provider
-                // (the common ordering intent), else the first in the group.
-                $primary = $this->preferredProvider($group);
-                $repUrl = $this->safeUrl(data_get($primary, 'url'));
-                if ($repUrl === null) {
-                    continue;
-                }
-                $name = $this->clean(data_get($primary, 'name'));
-                $rid = 'order-'.substr(sha1(strtolower($repUrl)), 0, 16);
+                return $findings;
+            }, []);
 
-                // Gather the pickup + delivery URLs across the store's providers.
-                $pickupUrl = $this->modeUrl($group, 'pickup');
-                $deliveryUrl = $this->modeUrl($group, 'delivery');
-
-                $this->write($userId, Platform::OnlineOrdering->value, $rid, [
-                    'id' => $rid,
-                    'provider' => 'custom',
-                    'url' => $repUrl,
-                    'name' => $name ?? 'Order online',
-                    'favicon' => null,
-                    'logo' => null,
-                    'source' => 'google-business',
-                    'data' => array_filter([
-                        'type' => $this->clean(data_get($primary, 'type')),
-                        'fees' => $this->clean(data_get($primary, 'fees')),
-                        'time' => $this->clean(data_get($primary, 'time')),
-                        'sourcePlatform' => $name,
-                        'pickupUrl' => $pickupUrl,
-                        'deliveryUrl' => $deliveryUrl,
-                    ], fn ($v) => $v !== null),
-                ]);
-                // Track the newly written store in-memory so the cap and dupe
-                // checks stay accurate without re-querying on each iteration.
-                $existingCount++;
-                $existingStoreKeys[$storeKey] = true;
-                // Online-ordering is multi-entry — every new store is just added (no
-                // conflict concept), so each is a 'seeded' finding.
-                $findings[] = $this->seededFinding(Platform::OnlineOrdering->value, $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
+            // Ordering links changed → (re)derive the shared menu from them. Kept
+            // OUTSIDE the lock (dispatch, not DB work) — MenuFetchJob runs INLINE
+            // under the sync queue driver, so holding the lock across it would
+            // needlessly extend the contention window. Suppressed on a lock
+            // timeout ($ran stays false): nothing changed, so nothing to re-derive.
+            if ($ran) {
+                MenuFetchJob::dispatch($userId);
             }
 
-            // Ordering links changed → (re)derive the shared menu from them.
-            MenuFetchJob::dispatch($userId);
+            return $findings;
         } catch (Throwable $e) {
             report($e);
-        }
 
-        return $findings;
+            return [];
+        }
     }
 
     /**
@@ -602,7 +638,8 @@ class GoogleBusinessAutoSync
 
     /**
      * Write the pending Instagram placeholder + dispatch the budgeted scrape.
-     * Returns false when there's no token or the daily budget is spent.
+     * Returns false when there's no token, the daily budget is spent, or the
+     * platform seed lock timed out (skip: no card, no dispatch).
      */
     private function dispatchInstagram(string $userId, string $username): bool
     {
@@ -610,19 +647,30 @@ class GoogleBusinessAutoSync
             return false;
         }
 
-        // Pending placeholder tagged source so the synced step + undo can find it;
-        // InstagramConnectJob preserves that tag when it writes the scrape result.
-        $connection = IntegrationConnection::updateOrCreate(
-            ['user_id' => $userId, 'platform' => Platform::Instagram->value, 'resource_id' => Platform::Instagram->value],
-            [
-                'payload' => ['source' => 'google-business'],
-                'is_active' => false,
-                'last_refreshed_at' => null,
-                'last_refresh_status' => 'pending',
-                'last_refresh_error' => null,
-                'consecutive_failures' => 0,
-            ],
-        );
+        // PWL-9: only the placeholder write is locked. InstagramConnectJob —
+        // dispatched below, OUTSIDE the lock — takes the SAME platformConnectionLock
+        // key (InstagramConnectionSeeder::seed) and runs INLINE under the sync
+        // queue driver; dispatching it while still holding this lock would
+        // self-deadlock (or time itself out against its own holder).
+        $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId) {
+            // Pending placeholder tagged source so the synced step + undo can find it;
+            // InstagramConnectJob preserves that tag when it writes the scrape result.
+            return IntegrationConnection::updateOrCreate(
+                ['user_id' => $userId, 'platform' => Platform::Instagram->value, 'resource_id' => Platform::Instagram->value],
+                [
+                    'payload' => ['source' => 'google-business'],
+                    'is_active' => false,
+                    'last_refreshed_at' => null,
+                    'last_refresh_status' => 'pending',
+                    'last_refresh_error' => null,
+                    'consecutive_failures' => 0,
+                ],
+            );
+        }, null);
+
+        if ($connection === null) {
+            return false;   // lock timeout — skip: no card, no dispatch
+        }
 
         InstagramConnectJob::dispatch($userId, $username, $connection->id);
 

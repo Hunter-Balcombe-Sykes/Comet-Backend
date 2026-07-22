@@ -18,13 +18,17 @@ use Illuminate\Support\Facades\Log;
 // LIFE-105/106: also carries the booking-XOR lock both services take before
 // touching a booking-category slot (fresha/square/booking) — see
 // withBookingXorLock() below for why this can't live per-platform.
+//
+// PWL-9: generalised into runUnderSeedLock() so the reservations-XOR and
+// per-platform seed locks below (withReservationsXorLock / withPlatformSeedLock)
+// share the same acquire/timeout/log shape instead of re-deriving it.
 trait BuildsAutoSyncFindings
 {
-    /** Cache::lock TTL (seconds) for the booking-XOR lock — auto-released if a hung request never reaches block()'s timeout. */
-    private const BOOKING_LOCK_TTL = 10;
+    /** Cache::lock TTL (seconds) for an auto-sync seed lock — auto-released if a hung request never reaches block()'s timeout. */
+    private const SEED_LOCK_TTL = 10;
 
     /** Cache::lock block() wait (seconds) before giving up and taking the caller's default outcome. */
-    private const BOOKING_LOCK_BLOCK = 3;
+    private const SEED_LOCK_BLOCK = 3;
 
     /** @return array<string,mixed> */
     private function seededFinding(string $platform, string $resourceId, string $category, string $label, ?string $foundUrl): array
@@ -159,21 +163,101 @@ trait BuildsAutoSyncFindings
      *
      * The key itself now lives on CacheKeyGenerator::bookingXorLock() (PWL-14
      * promoted it so controllers can share the identical string); this helper
-     * just delegates so withBookingXorLock()'s call sites and the TTL/block
-     * constants above stay unchanged.
+     * just delegates to runUnderSeedLock() so withBookingXorLock()'s call
+     * sites, its log message, and the TTL/block constants above stay unchanged.
      *
      * @template T
      *
      * @param  Closure(): T  $callback
-     * @param  T  $default  returned when the lock can't be acquired within BOOKING_LOCK_BLOCK seconds
+     * @param  T  $default  returned when the lock can't be acquired within SEED_LOCK_BLOCK seconds
      * @return T
      */
     protected function withBookingXorLock(string $userId, Closure $callback, mixed $default): mixed
     {
+        return $this->runUnderSeedLock(
+            $this->bookingXorLockKey($userId),
+            'platforms.auto_sync.booking_lock_timeout',
+            ['user_id' => $userId],
+            $callback,
+            $default,
+        );
+    }
+
+    // ── PWL-9: reservations-XOR + per-platform seed locks ───────────────────
+
+    /**
+     * Serializes the check-then-write for "at most one live reservation
+     * connection per user" — the invariant spans FOUR platforms (opentable /
+     * resdiary / nowbookit / reservations, GoogleBusinessAutoSync::
+     * RESERVATION_PLATFORMS), so — exactly like booking above — it cannot be
+     * enforced by a per-platform lock or the per-platform unique index. Only
+     * GoogleBusinessAutoSync::seedReservation takes this today; kept as its
+     * own method (not folded into withBookingXorLock) because the two XOR
+     * families are independent slots and must never share a key — see
+     * CacheKeyGenerator::reservationsXorLock's docblock.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $callback
+     * @param  T  $default  returned when the lock can't be acquired within SEED_LOCK_BLOCK seconds
+     * @return T
+     */
+    protected function withReservationsXorLock(string $userId, Closure $callback, mixed $default): mixed
+    {
+        return $this->runUnderSeedLock(
+            CacheKeyGenerator::reservationsXorLock($userId),
+            'platforms.auto_sync.reservations_lock_timeout',
+            ['user_id' => $userId],
+            $callback,
+            $default,
+        );
+    }
+
+    /**
+     * Serializes a single-platform auto-sync write against a concurrent
+     * dashboard/controller write to the SAME (platform, user) row — the
+     * counterpart, on the seeder side, to ManagesIntegrationConnection::
+     * withConnectionLock() on the controller side. Uses the identical key
+     * (CacheKeyGenerator::platformConnectionLock) so both sides serialize
+     * against each other, not just against themselves.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $callback
+     * @param  T  $default  returned when the lock can't be acquired within SEED_LOCK_BLOCK seconds
+     * @return T
+     */
+    protected function withPlatformSeedLock(string $userId, string $platform, Closure $callback, mixed $default): mixed
+    {
+        return $this->runUnderSeedLock(
+            CacheKeyGenerator::platformConnectionLock($platform, $userId),
+            'platforms.auto_sync.platform_lock_timeout',
+            ['user_id' => $userId, 'platform' => $platform],
+            $callback,
+            $default,
+        );
+    }
+
+    /**
+     * Shared acquire/block/timeout shape for every auto-sync seed lock above:
+     * try the lock for SEED_LOCK_BLOCK seconds, log + fall back to $default on
+     * timeout. `source` is stamped on the log line so a timeout can be traced
+     * to GoogleBusinessAutoSync vs InstagramAutoSync without the message text
+     * needing to encode it.
+     *
+     * @template T
+     *
+     * @param  array<string,mixed>  $timeoutContext
+     * @param  Closure(): T  $callback
+     * @param  T  $default
+     * @return T
+     */
+    private function runUnderSeedLock(string $key, string $timeoutLog, array $timeoutContext, Closure $callback, mixed $default): mixed
+    {
         try {
-            return Cache::lock($this->bookingXorLockKey($userId), self::BOOKING_LOCK_TTL)->block(self::BOOKING_LOCK_BLOCK, $callback);
-        } catch (LockTimeoutException $e) {
-            Log::warning('platforms.auto_sync.booking_lock_timeout', ['user_id' => $userId, 'source' => static::class]);
+            return Cache::lock($key, self::SEED_LOCK_TTL)->block(self::SEED_LOCK_BLOCK, $callback);
+        } catch (LockTimeoutException) {
+            Log::warning($timeoutLog, $timeoutContext + ['source' => static::class]);
 
             return $default;
         }

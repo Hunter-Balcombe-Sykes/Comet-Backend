@@ -56,9 +56,9 @@ so wrapping a controller write cannot self-deadlock.
 
 ## Progress
 
-- Tier 1: 9/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 1/1 (record-only) — **16 findings, 15 done** (PWL-1,2,3,4,5,6,7,8,10,11,12,13,14,15,16). Remaining: PWL-9 ONLY (deferred to its own prompt, PROMPT-execute-pwl9.md).
-- ALL NON-BLOCKER work COMPLETE (Session A controller locks + PWL-13 + both discovered). tests/Feature/Platforms 929 green.
-- REMAINING = blocker units only (need sign-off): PWL-5 (Fresha), PWL-7 (Instagram), PWL-8 (EnrichLinkCardJob), PWL-9 (auto-sync, L), PWL-10 (CustomLinkSeeder), PWL-14/15 (Tier-3 XOR) + PWL-16 (Tier-4 record-only). Prompt: PROMPT-execute-blockers.md
+- Tier 1: 10/10 · Tier 2: 3/3 · Tier 3: 2/2 · Tier 4: 1/1 (record-only) — **16 findings, 16 done** (PWL-1..16). COMPLETE.
+- ALL work COMPLETE. Non-blocker (Session A controller locks + PWL-13 + both discovered) + all blockers (PWL-5,7,8,9,10,14,15,16) shipped. Full Platforms suite 955 green.
+- PWL-9 (auto-sync seeders, L) done 2026-07-22 on branch audit-fix/platform-write-locking-autosync-2026-07-22 — REFINED from the baked-in "per-platform lock on every non-booking seed": reservation seeds use the reservations-XOR lock (cross-platform single-slot, like booking), online-ordering + instagram get per-platform locks, link-only socials + InstagramAutoSync deliberately untouched (PWL-16).
 - Discovered during execution: 2/2 FIXED (PWL-D1, PWL-D2, below)
 - Verified against `42bc6141`; line numbers current as of this baseline.
 
@@ -151,7 +151,7 @@ wrap the job's update in `platformConnectionLock(row->platform, row->user_id)`; 
 terminal/skip state (sync-driver: no `release()`). **Blocker:** live job path → sign-off.
 
 ### PWL-9 — Auto-sync seeders (BuildsAutoSyncFindings::write + GoogleBusinessAutoSync::seedInstagram) write connection rows unlocked — BLOCKER (job path), L
-- [ ] Fix
+- [x] Fix — three seed write-paths locked (only three actually race): **seedReservation** → `withReservationsXorLock` (its `hasAnyReservation()` check spans opentable/resdiary/nowbookit/reservations — a cross-platform single-slot check like seedBooking, so it takes the shared reservations-XOR key PWL-15 promoted; a per-platform lock here would be the SAME wrong-key bug PWL-14/15 fixed on the controller side); **seedOrdering** → `withPlatformSeedLock('online-ordering')` with `MenuFetchJob::dispatch` moved OUTSIDE the lock (gated on a `$ran` flag; suppressed on a lock timeout — it's a ~240s INLINE scrape under sync); **dispatchInstagram** → `withPlatformSeedLock('instagram')` around ONLY the placeholder `updateOrCreate`, with `InstagramConnectJob::dispatch` kept OUTSIDE (self-deadlock guard — the job takes the identical `platforms:instagram:lock` and runs inline under sync). Trait gained `withReservationsXorLock` + `withPlatformSeedLock` delegating to a shared `runUnderSeedLock`; `withBookingXorLock` refactored to delegate but behaviour-identical (BookingXorLockTest green). **Deliberately untouched:** link-only socials in seedSocials + all of InstagramAutoSync (writes only booking, already XOR-locked, + link-only socials) — consistent with PWL-16. Independent review PASS; three lost-update tests fail pre-fix (row written despite a held lock), pass post-fix (~3s block → skip + timeout log); assert on DATA. Full Platforms suite 955 green.
 **Plain English:** When we auto-build or auto-sync a site (pre-account builds, GB/IG enrichment), we
 seed platform cards straight into the connection table without locking. These often land on platforms
 whose own controllers are also unlocked, so both sides of the race are wide open.
