@@ -15,6 +15,7 @@ beforeEach(function () {
     setupSiteSessionsTable();
     setupSectionViewsTable();
     setupItemViewsTable();
+    setupActionEventsTable();
 
     // No shared Pest.php helper for this table — mirrors the minimal DDL used by
     // tests/Feature/Middleware/LogLeadRateLimitsTest.php.
@@ -72,9 +73,9 @@ it('no longer claims aggregate data is preserved in the command description', fu
 // #TEST-1 sub-item 2 — every raw table PurgeRawAnalyticsEvents::TABLES lists, seeded
 // with one row older than the default 90-day retention and one row inside it. Proves
 // the purge is scoped per-table by the RIGHT timestamp column (site_sessions ages on
-// last_seen_at, the other five on occurred_at — see the class const) and never
+// last_seen_at, the other six on occurred_at — see the class const) and never
 // touches a fresh row while clearing every stale one.
-it('purges only rows older than the retention cutoff, independently, across all six raw analytics tables', function () {
+it('purges only rows older than the retention cutoff, independently, across all seven raw analytics tables', function () {
     $old = now()->subDays(100)->toDateTimeString();
     $fresh = now()->subDays(1)->toDateTimeString();
 
@@ -98,6 +99,10 @@ it('purges only rows older than the retention cutoff, independently, across all 
         ['id' => (string) Str::uuid(), 'site_id' => (string) Str::uuid(), 'item_type' => 'product', 'item_id' => 'p1', 'occurred_at' => $old],
         ['id' => (string) Str::uuid(), 'site_id' => (string) Str::uuid(), 'item_type' => 'product', 'item_id' => 'p2', 'occurred_at' => $fresh],
     ]);
+    DB::connection('pgsql')->table('analytics.action_events')->insert([
+        ['id' => (string) Str::uuid(), 'site_id' => (string) Str::uuid(), 'action_id' => 'menu', 'event' => 'seen', 'occurred_at' => $old],
+        ['id' => (string) Str::uuid(), 'site_id' => (string) Str::uuid(), 'action_id' => 'menu', 'event' => 'seen', 'occurred_at' => $fresh],
+    ]);
     // site_sessions ages on last_seen_at, not occurred_at — this is the one table
     // in the loop with a different timestamp column (PurgeRawAnalyticsEvents::TABLES).
     DB::connection('pgsql')->table('analytics.site_sessions')->insert([
@@ -117,6 +122,8 @@ it('purges only rows older than the retention cutoff, independently, across all 
         ->and(DB::connection('pgsql')->table('analytics.section_views')->value('occurred_at'))->toBe($fresh)
         ->and(DB::connection('pgsql')->table('analytics.item_views')->count())->toBe(1)
         ->and(DB::connection('pgsql')->table('analytics.item_views')->value('occurred_at'))->toBe($fresh)
+        ->and(DB::connection('pgsql')->table('analytics.action_events')->count())->toBe(1)
+        ->and(DB::connection('pgsql')->table('analytics.action_events')->value('occurred_at'))->toBe($fresh)
         ->and(DB::connection('pgsql')->table('analytics.site_sessions')->count())->toBe(1)
         ->and(DB::connection('pgsql')->table('analytics.site_sessions')->value('last_seen_at'))->toBe($fresh);
 });

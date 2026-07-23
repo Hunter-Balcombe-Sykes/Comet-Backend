@@ -60,6 +60,7 @@ dataset('analyticsPurgeIndexes', [
     'lead_submissions' => ['lead_submissions', 'lead_submissions_occurred_at_idx'],
     'section_views' => ['section_views', 'section_views_occurred_at_idx'],
     'item_views' => ['item_views', 'item_views_occurred_at_idx'],
+    'action_events' => ['action_events', 'action_events_occurred_at_idx'],
     'site_sessions' => ['site_sessions', 'site_sessions_last_seen_at_idx'],
 ]);
 
