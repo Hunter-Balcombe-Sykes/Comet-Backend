@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
+use App\Jobs\Platforms\WebsiteGalleryScanJob;
 use App\Jobs\Platforms\WebsiteMenuHtmlScanJob;
 use App\Jobs\Platforms\WebsiteMenuPdfScanJob;
 use App\Models\Core\Site\IntegrationConnection;
@@ -16,7 +17,9 @@ use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\WebsiteScan\AboutProseExtractor;
 use App\Services\WebsiteScan\AboutTextExtractor;
+use App\Services\WebsiteScan\ContactEmailExtractor;
 use App\Services\WebsiteScan\DesignKitAccentApplier;
 use App\Services\WebsiteScan\FaviconFetcher;
 use App\Services\WebsiteScan\MenuTextExtractor;
@@ -24,6 +27,7 @@ use App\Services\WebsiteScan\PdfLinkDetector;
 use App\Services\WebsiteScan\SquarespaceMenuExtractor;
 use App\Services\WebsiteScan\VisibleTextExtractor;
 use App\Services\WebsiteScan\WebsiteAccentExtractor;
+use App\Services\WebsiteScan\WebsiteGalleryCandidateExtractor;
 use App\Services\WebsiteScan\WebsiteLogoCandidateExtractor;
 use App\Services\WebsiteScan\WorkplaceContentApplier;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +55,7 @@ beforeEach(function () {
     setupWorkplacesTable();
     setupDesignKitsTable();
     setupNotificationsTable();
+    setupSiteMediaTable();
 });
 
 function spwcjUser(string $handle, string $accountType = 'business', string $sector = 'restaurant'): array
@@ -71,6 +76,8 @@ function spwcjRun(string $userId, string $siteId, string $url): void
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
         app(AboutTextExtractor::class),
+        app(AboutProseExtractor::class),
+        app(ContactEmailExtractor::class),
         app(MenuTextExtractor::class),
         app(PdfLinkDetector::class),
         app(WorkplaceContentApplier::class),
@@ -84,6 +91,7 @@ function spwcjRun(string $userId, string $siteId, string $url): void
         app(MetadataParser::class),
         app(SquarespaceMenuExtractor::class),
         app(VisibleTextExtractor::class),
+        app(WebsiteGalleryCandidateExtractor::class),
     );
 }
 
@@ -380,4 +388,107 @@ it('does nothing when the user or site no longer exists', function () {
     Http::fake();
     spwcjRun((string) Str::uuid(), (string) Str::uuid(), 'https://example.com');
     Http::assertNothingSent();
+});
+
+// ── Contact email (item 8) ────────────────────────────────────────────────────
+
+it('fills contact_email from a mailto: link on the homepage', function () {
+    [$user, $site] = spwcjUser('spwcj18', 'partna');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response('<a href="mailto:owner@example.com">Email us</a>', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    expect(Workplace::where('site_id', (string) $site->id)->first()->contact_email)->toBe('owner@example.com');
+});
+
+// ── About-text prose precedence (item 8) ──────────────────────────────────────
+
+it('overwrites a Google-sourced description with heading-prose found on the homepage', function () {
+    [$user, $site] = spwcjUser('spwcj19', 'partna');
+    Workplace::create([
+        'site_id' => (string) $site->id,
+        'description' => "Google's editorial summary.",
+        'field_sources' => ['description' => ['source' => 'google-business', 'at' => now()->toIso8601String()]],
+    ]);
+
+    Http::fake(['example.com' => Http::response(
+        '<h2>About Us</h2><p>A properly long paragraph of authored prose describing exactly who we are and what we do.</p>',
+        200
+    )]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    expect(Workplace::where('site_id', (string) $site->id)->first()->description)
+        ->toBe('A properly long paragraph of authored prose describing exactly who we are and what we do.');
+});
+
+it('never overwrites a manually-set description even when heading-prose is found', function () {
+    [$user, $site] = spwcjUser('spwcj20', 'partna');
+    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
+    // field_sources is system-written, not in $fillable — forceFill bypasses
+    // mass-assignment protection, same convention IdentitySyncTest uses.
+    $workplace->forceFill(['field_sources' => ['description' => ['source' => 'manual', 'at' => now()->toIso8601String()]]])->save();
+
+    Http::fake(['example.com' => Http::response(
+        '<h2>About Us</h2><p>A properly long paragraph of authored prose that should never overwrite anything here.</p>',
+        200
+    )]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    expect(Workplace::where('site_id', (string) $site->id)->first()->description)->toBe('Owner-written description.');
+});
+
+// ── One-hop /about + /contact (item 8) ────────────────────────────────────────
+
+it('follows one-hop /about and /contact links concurrently when the homepage has neither', function () {
+    [$user, $site] = spwcjUser('spwcj21', 'partna');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake([
+        'example.com/about*' => Http::response(
+            '<h2>About Us</h2><p>A properly long paragraph of authored prose found one hop away on the about page.</p>',
+            200
+        ),
+        'example.com/contact*' => Http::response('<a href="mailto:hello@example.com">Email</a>', 200),
+        'example.com' => Http::response('<a href="/about/">About</a><a href="/contact/">Contact</a>', 200),
+    ]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    $workplace = Workplace::where('site_id', (string) $site->id)->first();
+    expect($workplace->description)->toBe('A properly long paragraph of authored prose found one hop away on the about page.');
+    expect($workplace->contact_email)->toBe('hello@example.com');
+});
+
+// ── Gallery photos (item 8) ────────────────────────────────────────────────────
+
+it('dispatches WebsiteGalleryScanJob when the homepage carries gallery-candidate photos', function () {
+    Queue::fake();
+    [$user, $site] = spwcjUser('spwcj22', 'partna');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response(
+        '<body><img src="/photos/dining-room.jpg" width="800" height="600"></body>',
+        200
+    )]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Queue::assertPushed(WebsiteGalleryScanJob::class, fn ($job) => $job->userId === (string) $user->id
+        && in_array('https://example.com/photos/dining-room.jpg', $job->candidateUrls, true));
+});
+
+it('does not dispatch WebsiteGalleryScanJob when the homepage has no gallery-candidate photos', function () {
+    Queue::fake();
+    [$user, $site] = spwcjUser('spwcj23', 'partna');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response('<p>No photos here.</p>', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Queue::assertNotPushed(WebsiteGalleryScanJob::class);
 });

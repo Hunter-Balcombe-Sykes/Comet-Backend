@@ -13,7 +13,9 @@ use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\WebsiteScan\AboutProseExtractor;
 use App\Services\WebsiteScan\AboutTextExtractor;
+use App\Services\WebsiteScan\ContactEmailExtractor;
 use App\Services\WebsiteScan\DesignKitAccentApplier;
 use App\Services\WebsiteScan\FaviconFetcher;
 use App\Services\WebsiteScan\MenuTextExtractor;
@@ -21,6 +23,7 @@ use App\Services\WebsiteScan\PdfLinkDetector;
 use App\Services\WebsiteScan\SquarespaceMenuExtractor;
 use App\Services\WebsiteScan\VisibleTextExtractor;
 use App\Services\WebsiteScan\WebsiteAccentExtractor;
+use App\Services\WebsiteScan\WebsiteGalleryCandidateExtractor;
 use App\Services\WebsiteScan\WebsiteLogoCandidateExtractor;
 use App\Services\WebsiteScan\WorkplaceContentApplier;
 use Illuminate\Bus\Queueable;
@@ -32,11 +35,12 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 // Single entry point for everything that happens when a user's
-// previous_website is set/changed: about text, menu (HTML + PDF),
-// general link-harvesting, accent colour, and logo candidates — one plain
-// fetch, no headless render, no separate "design scan" job. Independent of
-// (and, since Part B, the sole replacement for) the old headless-browser
-// website-style-analysis pipeline.
+// previous_website is set/changed: about text (JSON-LD/meta + a richer
+// heading-prose heuristic), contact email, menu (HTML + PDF),
+// general link-harvesting, accent colour, logo candidates, and gallery
+// photos — one plain fetch, no headless render, no separate "design scan"
+// job. Independent of (and, since Part B, the sole replacement for) the old
+// headless-browser website-style-analysis pipeline.
 //
 // Consciously-accepted side effect: GoogleBusinessAutoSync::seed()'s social
 // branch, when it finds an Instagram link among the harvested links,
@@ -93,6 +97,8 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         SafeUrlFetcher $fetcher,
         WebsiteLinkHarvester $harvester,
         AboutTextExtractor $about,
+        AboutProseExtractor $aboutProse,
+        ContactEmailExtractor $contactEmailExtractor,
         MenuTextExtractor $menuText,
         PdfLinkDetector $pdfLinks,
         WorkplaceContentApplier $contentApplier,
@@ -106,6 +112,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         MetadataParser $metadataParser,
         SquarespaceMenuExtractor $squarespaceExtractor,
         VisibleTextExtractor $visibleTextExtractor,
+        WebsiteGalleryCandidateExtractor $galleryCandidateExtractor,
     ): void {
         $user = User::find($this->userId);
         $site = Site::find($this->siteId);
@@ -120,9 +127,60 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         }
         $baseUrl = $response['finalUrl'] ?? $this->url;
 
-        // About text — fill-if-empty.
+        // About text — plain JSON-LD/meta fill-if-empty first, then the
+        // richer heading-prose heuristic (preferred when found — see
+        // WorkplaceContentApplier::applyProseDescription()'s precedence).
+        // Contact email — mailto: + JSON-LD, homepage first.
         $workplace = Workplace::firstOrNew(['site_id' => $this->siteId]);
         $contentApplier->applyDescription($workplace, $about->extract($html, $baseUrl));
+        $proseText = $aboutProse->extract($html);
+        $email = $contactEmailExtractor->extract($html, $baseUrl);
+
+        // One-hop /about + /contact — only for whichever came up empty on the
+        // homepage, fetched CONCURRENTLY (stacking sequential one-hop fetches
+        // risks this job's 60s timeout before reaching accent/logo below).
+        if ($proseText === null || $email === null) {
+            $outboundLinks = $harvester->allOutboundLinks($html, $baseUrl);
+            $hopUrls = [];
+            if ($proseText === null) {
+                $aboutUrl = $this->findPageLink($outboundLinks, $baseUrl, 'about');
+                if ($aboutUrl !== null) {
+                    $hopUrls['about'] = $aboutUrl;
+                }
+            }
+            if ($email === null) {
+                $contactUrl = $this->findPageLink($outboundLinks, $baseUrl, 'contact');
+                if ($contactUrl !== null) {
+                    $hopUrls['contact'] = $contactUrl;
+                }
+            }
+
+            if ($hopUrls !== []) {
+                $hopResponses = $fetcher->fetchMany(array_values($hopUrls));
+
+                if ($proseText === null && isset($hopUrls['about'])) {
+                    $aboutResponse = $hopResponses[$hopUrls['about']] ?? null;
+                    $aboutHtml = is_array($aboutResponse) && $aboutResponse['status'] === 200
+                        ? (string) $aboutResponse['body'] : '';
+                    if ($aboutHtml !== '') {
+                        $proseText = $aboutProse->extract($aboutHtml);
+                    }
+                }
+
+                if ($email === null && isset($hopUrls['contact'])) {
+                    $contactResponse = $hopResponses[$hopUrls['contact']] ?? null;
+                    $contactHtml = is_array($contactResponse) && $contactResponse['status'] === 200
+                        ? (string) $contactResponse['body'] : '';
+                    if ($contactHtml !== '') {
+                        $contactBaseUrl = $contactResponse['finalUrl'] ?? $hopUrls['contact'];
+                        $email = $contactEmailExtractor->extract($contactHtml, $contactBaseUrl);
+                    }
+                }
+            }
+        }
+
+        $contentApplier->applyProseDescription($workplace, $proseText);
+        $contentApplier->applyContactEmail($workplace, $email);
 
         // Menu (HTML) — food-Business only.
         if (AccountCapabilities::for($user)->can_use_menu) {
@@ -239,6 +297,16 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 'decisions' => $decisions,
             ]);
         }
+
+        // Gallery photos — its own dispatched job (like the PDF/HTML menu
+        // scans above): downloading+validating+uploading several candidate
+        // photos can run long, same rationale as those jobs being split out
+        // of this job's own 60s window. Fills an EMPTY gallery pool only.
+        $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
+        if ($galleryCandidates !== []) {
+            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
+                ->delay(now()->addSeconds(30));
+        }
     }
 
     /**
@@ -251,7 +319,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
     private function resolveMenuPageUrl(string $html, string $baseUrl, WebsiteLinkHarvester $harvester, MetadataParser $metadataParser): ?string
     {
         return $this->menuPointerUrl($html, $baseUrl, $metadataParser)
-            ?? $this->findMenuPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl);
+            ?? $this->findPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl, 'menu');
     }
 
     /**
@@ -281,15 +349,16 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * First same-site link whose path looks like a menu page — a bounded
-     * single hop, not a crawl. Same-site only: a third-party ordering
-     * platform's own "menu" page (e.g. an OrderMate/UberEats deep link) isn't
-     * the business's own content and is already captured separately by the
-     * general link-harvesting below.
+     * First same-site link whose path contains the given keyword — a bounded
+     * single hop, not a crawl. Same-site only: a third-party page carrying
+     * the keyword (e.g. an OrderMate/UberEats "menu" deep link) isn't the
+     * business's own content and is already captured separately by the
+     * general link-harvesting below. Shared by the menu/about/contact
+     * one-hop resolvers — same path-substring guess, different keyword.
      *
      * @param  list<string>  $links
      */
-    private function findMenuPageLink(array $links, string $baseUrl): ?string
+    private function findPageLink(array $links, string $baseUrl, string $keyword): ?string
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
         if ($ownHost === '') {
@@ -300,7 +369,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             if (strtolower((string) parse_url($url, PHP_URL_HOST)) !== $ownHost) {
                 continue;
             }
-            if (preg_match('~menu~i', (string) parse_url($url, PHP_URL_PATH)) === 1) {
+            if (preg_match('~'.preg_quote($keyword, '~').'~i', (string) parse_url($url, PHP_URL_PATH)) === 1) {
                 return $url;
             }
         }

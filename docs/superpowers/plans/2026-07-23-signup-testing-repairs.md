@@ -695,6 +695,51 @@ the network response for the snapshot/`role` field in the moment right after red
 tracing the backend endpoint that serves this snapshot field for the claim/redirect
 moment specifically — not yet done.
 
-**Fix:** not started — once the exact backend cause is confirmed, likely either a backend
-fix (correct the role computation for a freshly-claimed account) or, if it's a genuine
-transient race, a frontend fix (don't act on a not-yet-settled role value before redirecting).
+**Further investigation (2026-07-23), root cause still not fully pinned down:** re-traced
+both sides end to end looking specifically for a staleness/caching bug, since that's the
+most plausible "worked on reload" shape a transient race would take:
+- Frontend: `/me` and `/staff/me` both fetch with `cache: 'no-store'` plus a `_ts`
+  cache-busting query param (`lib/account/me-request.ts`, `lib/account/snapshot-fetcher.ts`)
+  — no HTTP/browser caching layer in play. The `/staff/me` fallback path (triggered on a
+  403 from `/me`) is a dead end for this bug specifically: that route's own middleware
+  chain includes `require.aal2`, so it would 401/403 on the SAME aal2 gate regardless of
+  real staff status for a fresh, MFA-less claim — it can't be the mechanism that produces
+  a false `role: 'staff'`.
+- Backend: `UserSelfController::show()` deliberately does NOT trust a cached `is_staff`
+  value — it re-queries `PartnaStaff::where('auth_user_id', ...)` FRESH on every request
+  and attaches it via `setRelation()` right before building the resource, specifically so
+  staff promotion/demotion (and, by the same logic, correct non-staff classification)
+  reflects immediately rather than riding a stale cache window. `UserCacheService`'s
+  hydrated-model cache (60s) is separately guarded against auth_user_id drift (explicit
+  mismatch check + self-healing cache-bust). No caching bug found on either side.
+- New finding: the dashboard layout (`app/(app)/account/(dashboard)/layout.tsx`) has its
+  OWN independent-looking path-allowlist redirect ("Path not allowed → redirect to
+  capabilities.defaultRoute") that runs on every protected-route render, not just once at
+  Overview. Live-confirmed it correctly bounces a genuine non-staff account (ollies test
+  account) straight back to the real dashboard on a direct navigation attempt to
+  `/account/staff/overview`. But it is NOT actually independent verification: it's driven
+  by the exact same `role` field from the exact same single `/me` snapshot as the Overview
+  page's own redirect, so a wrongly-classified account would sail through both checks
+  identically — there is no genuinely separate signal anywhere in the stack that could
+  catch a bad `role` value before it does damage.
+
+**Fix shipped (2026-07-23) — defense-in-depth, not a root-cause fix:** since every guard
+in the stack traces back to one unverified upstream read, and the exact backend trigger
+couldn't be confirmed without live-reproducing a fresh claim (blocked — requires creating
+a new account, prohibited even under this run's blanket autonomy), shipped the safe half
+of the two options the earlier pass proposed: a frontend escape hatch. `StaffMfaGate`
+(`app/(app)/account/(dashboard)/staff/_staff-mfa-gate.tsx`) now renders a "Not staff?
+Return to your dashboard" link in its shared `GateShell` wrapper — covers the loading
+state, EnrollFlow, and ChallengeFlow alike, since it's rendered once in the wrapper all
+three share. Clicking it calls `router.replace('/account/overview')`. This doesn't fix
+the (still-unconfirmed) cause of a wrong `role` value, but it does directly fix the
+reported user harm: nobody wrongly routed here is ever stuck behind a blocking 2FA wall
+again, regardless of what causes the misroute. Tested (4 new tests: aal2 bypass unaffected,
+escape hatch present + navigates correctly from all three gate states) and typecheck/lint/
+full suite green.
+
+**Still open — needs live reproduction to fully close:** the exact backend trigger for a
+false `role: 'staff'`/`is_staff: true'` on a freshly-claimed, definitely-non-staff account
+remains unconfirmed. If this recurs, the highest-value next step is watching the raw `/me`
+network response in the moment right after a fresh claim (not after the fact) — everything
+reachable by reading code has now been checked twice without finding the mechanism.
