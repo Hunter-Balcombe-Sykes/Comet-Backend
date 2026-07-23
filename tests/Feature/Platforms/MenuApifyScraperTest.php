@@ -1,6 +1,9 @@
 <?php
 
+use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\MenuApifyScraper;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 // Fixtures mirror the REAL actor output:
@@ -226,6 +229,10 @@ it('falls back to a sequential retry when the concurrent attempt for a mode is e
 
     expect($item['pickupPrice'])->toBeNull();     // pickup never resolved
     expect($item['deliveryPrice'])->toBe(20.0);
+    // R4-RES-1 regression pin: 2 pooled + FALLBACK_ATTEMPTS(2) fallback calls for
+    // pickup = 4. Pre-fix this fell back to fetch()'s own MAX_ATTEMPTS=4 loop and
+    // sent 6 — this is the exact assertion that was missing when the bug shipped.
+    Http::assertSentCount(4);
 });
 
 it('scrapes both platforms concurrently and returns a fused menu per platform', function () {
@@ -275,4 +282,159 @@ it('fetchStores() scrapes no target when the menu budget is exhausted', function
 
     expect($result)->toBe([]);
     Http::assertNothingSent();
+});
+
+// ── R4-RES-1: claims == calls invariant ─────────────────────────────────────
+
+it('fetch() claims exactly one budget slot per billed call, at the cap', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.menu', 4); // == MAX_ATTEMPTS
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]); // always empty => always retryable
+
+    $menu = app(MenuApifyScraper::class)->fetch('https://ubereats.com/store/x', 'uber-eats', 'user-1');
+
+    expect($menu)->toBeNull();
+    Http::assertSentCount(4);
+    expect(app(ApifyBudget::class)->remaining('menu'))->toBe(0);
+});
+
+it('fetch() stops issuing calls the moment the cap is one short of MAX_ATTEMPTS', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.menu', 3); // MAX_ATTEMPTS - 1
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]);
+
+    $menu = app(MenuApifyScraper::class)->fetch('https://ubereats.com/store/x', 'uber-eats', 'user-1');
+
+    expect($menu)->toBeNull();
+    // Proves the claim binds at the CALL, not the logical operation: under the
+    // pre-fix code the cap could sit at 3 and still see 4 calls go out.
+    Http::assertSentCount(3);
+    expect(app(ApifyBudget::class)->remaining('menu'))->toBe(0);
+});
+
+it('fetchStores() 4-target worst case claims exactly 12 for 12 real calls', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.menu', 12); // 4 targets × (1 pooled + FALLBACK_ATTEMPTS)
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]); // always empty => always retryable, never mapped
+
+    $links = [
+        'uber-eats' => ['pickupUrl' => 'https://ue/p', 'deliveryUrl' => 'https://ue/d', 'storeUrl' => null, 'modes' => ['pickup', 'delivery']],
+        'doordash' => ['pickupUrl' => 'https://dd/p', 'deliveryUrl' => 'https://dd/d', 'storeUrl' => null, 'modes' => ['pickup', 'delivery']],
+    ];
+
+    $result = app(MenuApifyScraper::class)->fetchStores($links, 'user-1');
+
+    expect($result)->toBe(['uber-eats' => null, 'doordash' => null]);
+    Http::assertSentCount(12);
+    expect(app(ApifyBudget::class)->remaining('menu'))->toBe(0);
+});
+
+it('exhausts the budget gracefully mid-ladder — no fallback call, no exception', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.limits.apify.actors.menu', 2); // exactly enough for the 2 pooled calls, none left for fallback
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]); // always empty => always retryable
+
+    $links = [
+        'uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://ue/s', 'modes' => ['pickup', 'delivery']],
+        'doordash' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://dd/s', 'modes' => ['pickup', 'delivery']],
+    ];
+
+    $result = app(MenuApifyScraper::class)->fetchStores($links, 'user-1');
+
+    // Normal per-platform shape preserved — null for each unresolved platform,
+    // not an exception and not a partial/malformed structure.
+    expect($result)->toBe(['uber-eats' => null, 'doordash' => null]);
+    Http::assertSentCount(2);
+});
+
+// ── R4-RES-1: per-target negative cache ─────────────────────────────────────
+
+it('writes a negative-cache marker for a target that never resolves', function () {
+    config()->set('services.apify.token', 'test-token');
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]);
+
+    $url = 'https://ubereats.com/store/x';
+    app(MenuApifyScraper::class)->fetchStores(
+        ['uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => $url, 'modes' => ['pickup', 'delivery']]],
+        'user-1',
+    );
+
+    $key = CacheKeyGenerator::menuScrapeBlocked('uber-eats', $url);
+    expect(Cache::has($key))->toBeTrue();
+    expect(Cache::get($key)['reason'])->toBe('blocked');
+});
+
+it('a pre-seeded negative-cache marker suppresses the call AND the claim', function () {
+    config()->set('services.apify.token', 'test-token');
+    $url = 'https://ubereats.com/store/x';
+    Cache::put(CacheKeyGenerator::menuScrapeBlocked('uber-eats', $url), ['at' => now()->toIso8601String(), 'reason' => 'blocked'], 600);
+    Http::fake();
+
+    $before = app(ApifyBudget::class)->remaining('menu');
+    $result = app(MenuApifyScraper::class)->fetchStores(
+        ['uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => $url, 'modes' => ['pickup', 'delivery']]],
+        'user-1',
+    );
+    $after = app(ApifyBudget::class)->remaining('menu');
+
+    // Matches the existing budget-exhausted contract (MenuApifyScraperTest's
+    // "scrapes no target" case): every target suppressed => [] , not a null map.
+    expect($result)->toBe([]);
+    Http::assertNothingSent();
+    // The negative-cache check runs BEFORE the budget claim, so a suppressed
+    // target must not move the counter either.
+    expect($after)->toBe($before);
+});
+
+it('a block on the pickup URL does not suppress the delivery URL of the same store', function () {
+    config()->set('services.apify.token', 'test-token');
+    $pickupUrl = 'https://ubereats.com/store/x?diningMode=PICKUP';
+    $deliveryUrl = 'https://ubereats.com/store/x?diningMode=DELIVERY';
+    Cache::put(CacheKeyGenerator::menuScrapeBlocked('uber-eats', $pickupUrl), ['at' => now()->toIso8601String(), 'reason' => 'blocked'], 600);
+    Http::fake(['api.apify.com/*' => Http::response([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Burrito', 'section' => 'Cat', 'price' => 17.0]]]], 201)]);
+
+    $item = app(MenuApifyScraper::class)->fetchStores(
+        ['uber-eats' => ['pickupUrl' => $pickupUrl, 'deliveryUrl' => $deliveryUrl, 'storeUrl' => null, 'modes' => ['pickup', 'delivery']]],
+        'user-1',
+    )['uber-eats']['categories'][0]['items'][0];
+
+    expect($item['pickupPrice'])->toBeNull();
+    expect($item['deliveryPrice'])->toBe(17.0);
+    Http::assertSentCount(1); // only delivery — pickup suppressed by its own key
+});
+
+it('a target recovers once the negative-cache TTL has passed, leaving no stale marker', function () {
+    config()->set('services.apify.token', 'test-token');
+    $url = 'https://ubereats.com/store/x';
+    $key = CacheKeyGenerator::menuScrapeBlocked('uber-eats', $url);
+    Cache::put($key, ['at' => now()->toIso8601String(), 'reason' => 'blocked'], 600);
+
+    $this->travel(601)->seconds(); // past the TTL — the read gate no longer suppresses this target
+    Http::fake(['api.apify.com/*' => Http::response([['currencyCode' => 'AUD', 'menuItems' => [['name' => 'Combo', 'section' => 'Cat', 'price' => 5.0]]]], 201)]);
+
+    $result = app(MenuApifyScraper::class)->fetchStores(
+        ['uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => $url, 'modes' => ['pickup', 'delivery']]],
+        'user-1',
+    );
+
+    expect($result['uber-eats'])->not->toBeNull();
+    Http::assertSentCount(1);
+    expect(Cache::has($key))->toBeFalse(); // recovered scrape clears the marker rather than leaving it stale
+});
+
+it('honours partna.menu.blocked_ttl_seconds from config', function () {
+    config()->set('services.apify.token', 'test-token');
+    config()->set('partna.menu.blocked_ttl_seconds', 30);
+    Http::fake(['api.apify.com/*' => Http::response([], 201)]);
+
+    app(MenuApifyScraper::class)->fetchStores(
+        ['uber-eats' => ['pickupUrl' => null, 'deliveryUrl' => null, 'storeUrl' => 'https://ubereats.com/store/x', 'modes' => ['pickup', 'delivery']]],
+        'user-1',
+    );
+
+    $key = CacheKeyGenerator::menuScrapeBlocked('uber-eats', 'https://ubereats.com/store/x');
+    expect(Cache::has($key))->toBeTrue();
+
+    $this->travel(31)->seconds();
+    expect(Cache::has($key))->toBeFalse();
 });

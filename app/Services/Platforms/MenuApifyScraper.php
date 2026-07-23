@@ -3,8 +3,10 @@
 namespace App\Services\Platforms;
 
 use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -35,6 +37,13 @@ class MenuApifyScraper
     // giving up. A hard 4xx (unknown store / unrented actor) is NOT retried.
     private const MAX_ATTEMPTS = 4;
 
+    // Extra sequential attempts for a target whose pooled attempt missed. Small and
+    // explicit: the pooled attempt already spent one billed run, and menu:retry-unavailable
+    // re-dispatches every 15 min, so the ladder does not need to be exhaustive here.
+    // Also keeps worst-case wall time (60s pool + T × FALLBACK_ATTEMPTS × 60s) under
+    // MenuFetchJob::$timeout for the 4-target case.
+    private const FALLBACK_ATTEMPTS = 2;
+
     // Per-attempt HTTP timeout (seconds). MAX_ATTEMPTS × this stays under the
     // MenuFetchJob timeout.
     private const ATTEMPT_TIMEOUT = 60;
@@ -57,17 +66,23 @@ class MenuApifyScraper
             return null;
         }
 
-        // SCALE-2: one budget slot per store-scrape (retries below are reliability
-        // for THIS store, not extra spend). Null = existing skip contract.
-        if (! app(ApifyBudget::class)->tryClaim('menu')) {
-            return null;
-        }
+        // R4-RES-1: the budget is claimed inside attemptScrape() now, per real
+        // actor run — this method is just the retry-loop driver.
+        return $this->scrapeLoop($actor, $token, $storeUrl, $platform, $address, $userId, 1, self::MAX_ATTEMPTS);
+    }
 
-        // Retry empty / transient misses (the actor is flaky and returns []
-        // on a fraction of runs even for a valid store). Stop early on a mapped
-        // menu (success) or a non-retryable hard error (4xx).
-        for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
-            $result = $this->attemptScrape($actor, $token, $storeUrl, $platform, $address, $userId, $attempt);
+    /**
+     * Run up to $attempts sequential scrape attempts for one URL, numbering them from
+     * $firstAttempt (so a fallback continues the pooled attempt's counter rather than
+     * restarting it in the logs). Each attempt claims its own budget slot inside
+     * attemptScrape(). Stops on a mapped menu or a non-retryable result.
+     *
+     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null
+     */
+    private function scrapeLoop(string $actor, string $token, string $url, string $platform, ?string $address, ?string $userId, int $firstAttempt, int $attempts): ?array
+    {
+        for ($i = 0; $i < $attempts; $i++) {
+            $result = $this->attemptScrape($actor, $token, $url, $platform, $address, $userId, $firstAttempt + $i);
             if ($result['menu'] !== null) {
                 return $result['menu'];
             }
@@ -90,9 +105,9 @@ class MenuApifyScraper
      * One Http::pool round fires all targets at once, so wall time ≈ the slowest
      * single scrape, not the sum (a 4-scrape UE+DD menu drops from ~4× to ~1×). A
      * target that comes back empty/transient on the concurrent attempt falls back
-     * to the robust sequential fetch() (full retry loop + 4xx handling) for just
-     * that one — the reliable actors make this rare. An untyped store (one bare
-     * URL) scrapes once and applies that price to both modes it offers.
+     * to a bounded number of sequential attempts (FALLBACK_ATTEMPTS, R4-RES-1) for
+     * just that one — the reliable actors make this rare. An untyped store (one
+     * bare URL) scrapes once and applies that price to both modes it offers.
      *
      * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $links  platform => MenuSource::storeLinks entry
      * @return array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null> platform => fused menu (null when nothing scraped)
@@ -131,6 +146,16 @@ class MenuApifyScraper
             return [];
         }
 
+        // R4-RES-1: drop targets we scraped and failed on within the last TTL. Checked
+        // BEFORE the budget claim so a suppressed target neither claims nor bills.
+        $targets = array_filter(
+            $targets,
+            fn (array $t) => ! Cache::has(CacheKeyGenerator::menuScrapeBlocked($t['platform'], $t['url'])),
+        );
+        if ($targets === []) {
+            return [];
+        }
+
         // SCALE-2: claim one budget slot per target before firing the pool; drop
         // targets with no budget so the metered pool never exceeds the daily cap.
         $budget = app(ApifyBudget::class);
@@ -150,17 +175,38 @@ class MenuApifyScraper
             array_keys($targets),
         ));
 
-        // Map each response; a concurrent miss falls back to the sequential fetch()
-        // (its own retry loop) for that single target.
+        // Map each response; a concurrent miss falls back to a small bounded number
+        // of sequential attempts for that single target (R4-RES-1 — never re-enters
+        // fetch(), which would re-claim a budget slot and restart a full MAX_ATTEMPTS
+        // ladder for a target already paid for by the pooled attempt above).
         $menus = [];
+        $ttl = (int) config('partna.menu.blocked_ttl_seconds');
         foreach ($targets as $key => $target) {
             $resp = $responses[$key] ?? null;
             $mapped = $this->mapResponse($resp, $target['platform'], $userId);
             if ($mapped === null && $this->responseRetryable($resp)) {
-                $mapped = $this->fetch($target['url'], $target['platform'], $userId, $address);
+                $actor = $this->actorFor($target['platform']);
+                // actorFor() is guaranteed non-null here — targets are only built
+                // for platforms that already passed that guard above.
+                $mapped = $actor === null ? null : $this->scrapeLoop(
+                    $actor,
+                    $token,
+                    $target['url'],
+                    $target['platform'],
+                    $address,
+                    $userId,
+                    2,
+                    self::FALLBACK_ATTEMPTS,
+                );
             }
+
+            $blockedKey = CacheKeyGenerator::menuScrapeBlocked($target['platform'], $target['url']);
             if ($mapped !== null) {
                 $menus[$key] = $mapped;
+                Cache::forget($blockedKey);     // recovered — don't hold a stale block
+            } else {
+                // Never a bare null: a bare null is indistinguishable from a cache miss.
+                Cache::put($blockedKey, ['at' => now()->toIso8601String(), 'reason' => $this->responseRetryable($resp) ? 'blocked' : 'hard_error'], $ttl);
             }
         }
 
@@ -360,6 +406,15 @@ class MenuApifyScraper
      */
     private function attemptScrape(string $actor, string $token, string $storeUrl, string $platform, ?string $address, ?string $userId, int $attempt): array
     {
+        // R4-RES-1: the budget is claimed HERE, at the billed call site, not by the
+        // caller — one claim per real actor run. A denied claim is non-retryable so
+        // the enclosing loop stops rather than spinning against an exhausted cap.
+        if (! app(ApifyBudget::class)->tryClaim('menu')) {
+            Log::info('menu.apify.budget_exhausted', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt]);
+
+            return ['menu' => null, 'retryable' => false];
+        }
+
         try {
             $response = Http::withToken($token)
                 ->timeout(self::ATTEMPT_TIMEOUT)

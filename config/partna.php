@@ -831,6 +831,11 @@ return [
                 'driver' => DoorDashMenuDriver::class,
             ],
         ],
+
+        // R4-RES-1: how long a failed menu scrape target is suppressed before it may
+        // be re-billed. Kept BELOW the menu:retry-unavailable cadence (15 min) so the
+        // scheduled self-heal always sees a clear key on its next tick.
+        'blocked_ttl_seconds' => (int) env('PARTNA_MENU_BLOCKED_TTL_SECONDS', 600),
     ],
 
     // `contact` = visitor-submitted contact form (notification_email lives here).

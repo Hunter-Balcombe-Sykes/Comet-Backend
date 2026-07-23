@@ -343,6 +343,18 @@ class CacheKeyGenerator
         return 'platforms:apify:'.$actor.':daily:'.$date;
     }
 
+    /**
+     * Short-lived negative marker for a menu scrape target (platform + store URL)
+     * that came back empty / bot-blocked (R4-RES-1). Keyed by the exact URL that
+     * would be POSTed — the billed unit — and NOT by user: two users pointing at
+     * the same store must not each pay for the same blocked scrape. sha1 because
+     * store URLs carry query strings (?diningMode=PICKUP) of unbounded length.
+     */
+    public static function menuScrapeBlocked(string $platform, string $storeUrl): string
+    {
+        return 'platforms:menu:blocked:'.$platform.':'.sha1($storeUrl);
+    }
+
     /** Global daily AI menu-structuring spend counter across Mistral OCR + DeepSeek (mirrors apifyGlobalDailyLimit). */
     public static function aiSpendGlobalDailyLimit(string $date): string
     {
