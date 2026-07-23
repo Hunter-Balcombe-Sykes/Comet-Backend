@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -54,6 +55,7 @@ class InstagramConnectionSeeder
         private readonly InstagramAutoSync $autoSync,
         private readonly InstagramIdentitySync $identitySync,
         private readonly CustomLinkSeeder $linkSeeder,
+        private readonly WebsiteLinkHarvester $harvester,
     ) {}
 
     /**
@@ -225,14 +227,35 @@ class InstagramConnectionSeeder
         return $selection;
     }
 
+    /**
+     * Cap on commerce probes dispatched per connect run (signup-v2 C4) —
+     * mirrors LinkInBioScanJob::MAX_COMMERCE_PROBES; keep in lockstep.
+     */
+    private const MAX_COMMERCE_PROBES = 6;
+
     /** @param  list<array<string,mixed>>  $unmatched */
     private function autoSaveUnmatchedLinks(User $user, array $unmatched): void
     {
+        $probes = 0;
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;
-            if (is_string($url)) {
-                $this->linkSeeder->seed($user, $url);
+            if (! is_string($url)) {
+                continue;
             }
+
+            // Unmatched mixes two shapes: genuinely-unclassified URLs (worth a
+            // commerce probe — could be a store/product page) and classified-
+            // but-gated links (a known platform we already decided not to
+            // sync — probing those would just burn fetches). Re-classifying
+            // here cheaply separates them.
+            if ($probes < self::MAX_COMMERCE_PROBES && $this->harvester->classify($url) === null) {
+                ProbeCommerceLinksJob::dispatch((string) $user->id, $url);
+                $probes++;
+
+                continue;
+            }
+
+            $this->linkSeeder->seed($user, $url);
         }
     }
 

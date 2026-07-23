@@ -29,7 +29,7 @@ function libIgConnection(User $user, array $payload = []): IntegrationConnection
     ]);
 }
 
-it('unrolls a link-in-bio page into a seeded integration and a custom link, without persisting the bio-link url itself', function () {
+it('unrolls a link-in-bio page into a seeded integration and a commerce probe, without persisting the bio-link url itself', function () {
     Queue::fake(); // do not let CustomLinkSeeder's EnrichLinkCardJob actually run
     $user = User::factory()->create(['account_type' => 'business']);
     Http::fake([
@@ -47,7 +47,12 @@ it('unrolls a link-in-bio page into a seeded integration and a custom link, with
     );
 
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->exists())->toBeTrue();
+    // The unclassified blog link goes to a commerce probe (signup-v2 C4) — the
+    // probe job owns the custom-link fallback on a miss.
+    Queue::assertPushed(
+        \App\Jobs\Platforms\ProbeCommerceLinksJob::class,
+        fn ($job) => $job->url === 'https://someblog.example' && $job->category === null,
+    );
     expect(IntegrationConnection::where('payload->url', 'https://linktr.ee/venue')->exists())->toBeFalse();
 });
 

@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\LinkInBioScanJob;
+use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -174,6 +175,29 @@ class InstagramAutoSync
             $canSyncBooking = $caps->can_use_booking && $canAutosync;
 
             $platform = $classified['platform'];
+
+            // Commerce categories (signup-v2 C3): stores / standalone events /
+            // organiser accounts become typed adds via ProbeCommerceLinksJob —
+            // their page fetches must never ride inside the connect job's own
+            // timeout budget. Consent-gated exactly like socials (DISC-7): a
+            // not-yet-consenting subject keeps the link as a suggestion. The
+            // job re-verifies the gate at run time and downgrades to a custom
+            // link on any miss, so nothing vanishes.
+            if (in_array($classified['category'], ['shop', 'event', 'event-organiser'], true)) {
+                if (! $canAutosync) {
+                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+
+                    return;
+                }
+                if (isset($seenPlatforms[$platform])) {
+                    return; // first commerce link per platform wins this run
+                }
+                ProbeCommerceLinksJob::dispatch($userId, $url, $classified['category'], $platform);
+                $seenPlatforms[$platform] = true;
+
+                return;
+            }
+
             if (! isset(self::ACTIONABLE[$platform])) {
                 // Recognised (e.g. YouTube, OpenTable, Instagram) but not
                 // something this service auto-syncs — see class docblock.

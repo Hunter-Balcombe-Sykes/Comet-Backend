@@ -39,6 +39,13 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 60;
 
+    /**
+     * Cap on commerce probes dispatched per unrolled page (signup-v2 C4) —
+     * mirrors InstagramConnectionSeeder::MAX_COMMERCE_PROBES; keep in lockstep.
+     * Links past the budget keep today's straight-to-custom-link behaviour.
+     */
+    private const MAX_COMMERCE_PROBES = 6;
+
     public function __construct(public readonly string $userId, public readonly string $bioPageUrl)
     {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
@@ -67,6 +74,7 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         $seenPlatforms = [];
         $findings = [];
         $unmatched = [];
+        $probes = 0;
         foreach ($harvester->allOutboundLinks($html, $baseUrl) as $url) {
             // A curated bio-link page (Linktree et al) is itself a platform with
             // its own site-wide chrome — pricing, blog, help centre — mixed into
@@ -82,6 +90,16 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
 
             $classified = $harvester->classify($url);
             if ($classified === null) {
+                // Unclassified link (signup-v2 C4): could be the business's own
+                // store or a product page — worth one bounded commerce probe
+                // before settling for a custom link. The probe job downgrades
+                // to a custom link itself on any miss, so nothing vanishes.
+                if ($probes < self::MAX_COMMERCE_PROBES) {
+                    ProbeCommerceLinksJob::dispatch($this->userId, $url);
+                    $probes++;
+
+                    continue;
+                }
                 $seeder->seed($user, $url);
 
                 continue;
