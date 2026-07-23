@@ -341,7 +341,7 @@ services-platforms|app/Services/Platforms
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
-services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
+services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
 EOF
         ;;
         api-contract) cat <<'EOF'
@@ -359,7 +359,7 @@ services-platforms|app/Services/Platforms
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit
-services-rest|app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile
+services-rest|app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding
 EOF
         ;;
         test-coverage) cat <<'EOF'
@@ -376,7 +376,7 @@ feature-notif-moderation|tests/Feature/Notifications tests/Feature/Moderation
 feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics
 feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design tests/Feature/WebsiteScan
 feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware
-feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/EarlyAccess tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
+feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/EarlyAccess tests/Feature/Onboarding tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
 unit-suite|tests/Unit
 EOF
@@ -417,7 +417,7 @@ services-platforms|app/Services/Platforms
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
-services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
+services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
@@ -433,7 +433,7 @@ services-platforms|app/Services/Platforms
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
-services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
+services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php

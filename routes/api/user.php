@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Http\Controllers\Api\User\Profile\SectorController;
+use App\Http\Controllers\Api\User\Onboarding\OnboardingController;
 use App\Http\Controllers\Api\User\Profile\SectorOptionsController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;
@@ -56,6 +57,10 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // (IdentitySync); a manual PUT stamps sector_source='manual'.
         Route::get('/profile/sector-options', [SectorOptionsController::class, 'show']);
         Route::put('/profile/sector', [SectorController::class, 'update']);
+
+        // Post-claim signup setup steps (signup-v2 E/F) — flags + ≤2 sector
+        // suggestions, server-computed for both account types.
+        Route::get('/onboarding/suggestions', [OnboardingController::class, 'suggestions']);
 
         // Account Deletion — self-service lifecycle.
         // `idempotent` middleware closes the concurrent-double-submit race that
