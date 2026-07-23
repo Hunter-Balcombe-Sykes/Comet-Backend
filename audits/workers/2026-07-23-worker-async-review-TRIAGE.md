@@ -46,7 +46,7 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 9 of 11 complete (6 pipeline + 5 review-only)
+- P1 High: 10 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
@@ -693,7 +693,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** `UniqueLock::acquire()` reads `($job->uniqueFor ?? 0)` and hands it to `RedisLock::acquire()`, which branches on `if ($this->seconds > 0)`. With `0` it falls through to a plain `SETNX` **with no expiry**. If a worker is SIGKILLed — OOM, deploy, timeout — before `UniqueLock::release()` runs, that key survives in Redis **forever**, and every subsequent dispatch for the same `uniqueId` is silently discarded: no exception, no `failed_jobs` row, no Nightwatch event. The lock lives in DB 4, deliberately excluded from `Cache::flush()`, so clearing it requires manual Redis surgery by someone who already knows to look. Note the interaction with `RV-1`/`RV-4`: OOM kill is exactly the event that both strands the lock and produces no `failed()` call.
     - **Plain English:** These two jobs use a "only one of me at a time" flag, implemented as a token taken before the work and handed back after. Because no expiry was set on the token, a worker that dies mid-job — which happens on any deploy or out-of-memory kill — takes the token to the grave. From then on every future attempt to run that job sees the token already taken and quietly does nothing. The user waits for a scan that will never run, and nothing in the logs, the error tracker or the failed-jobs table says so. There is also a test that was supposed to catch this class of mistake, but its guard clause skips exactly the case it was meant to flag.
 
-- [ ] **RV-4** · P1 — Worker memory is over-committed: 1280 MiB permitted on a 1024 MiB box
+- [x] **RV-4** · P1 — Worker memory is over-committed: 1280 MiB permitted on a 1024 MiB box
     - **Where:** `config/horizon.php` supervisor blocks; Laravel Cloud Worker cluster instance size
     - **Affects:** Every job on the Worker box. An OOM kill is a SIGKILL: no `failed()`, no retry scheduling, orphaned processing locks and orphaned temp files.
     - **Effort:** S to apply · 🔒 **blocker: cost decision — Josh's call, not the implementer's**
