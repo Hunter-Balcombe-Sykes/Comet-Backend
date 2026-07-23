@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\User\Site;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Http\Requests\Concerns\LinkBlockRequestHelpers;
 use App\Models\Core\Site\Block;
 use Illuminate\Validation\Rule;
 
@@ -24,17 +25,10 @@ use Illuminate\Validation\Rule;
  */
 class UpdateLinkBlockRequest extends BaseFormRequest
 {
+    use LinkBlockRequestHelpers;
+
     protected function prepareForValidation(): void
     {
-        // `SubstituteBindings` middleware runs before this FormRequest is
-        // resolved, so `route('linkBlock')` may already be the bound Block
-        // model — not the raw UUID string. Normalise both shapes to the
-        // underlying key so the `uuid` rule gets a plain string.
-        $param = $this->route('linkBlock') ?? $this->route('block');
-        $routeId = is_object($param) && method_exists($param, 'getKey')
-            ? (string) $param->getKey()
-            : $param;
-
         $url = $this->input('url');
         $iconKey = $this->input('icon_key');
         $platform = $this->input('platform');
@@ -44,22 +38,14 @@ class UpdateLinkBlockRequest extends BaseFormRequest
         $this->cleanText(['title']);
 
         $this->merge([
-            'id' => $routeId,
+            'id' => $this->resolveRouteBlockId(),
             'url' => is_string($url) ? trim($url) : $url,
             'icon_key' => is_string($iconKey) ? trim($iconKey) : $iconKey,
             'platform' => is_string($platform) ? trim($platform) : $platform,
             'handle' => is_string($handle) ? trim($handle) : $handle,
         ]);
 
-        if (is_array($this->settings ?? null)) {
-            $this->merge([
-                'settings' => array_merge($this->settings, [
-                    'note' => is_string($this->settings['note'] ?? null)
-                        ? trim($this->settings['note'])
-                        : ($this->settings['note'] ?? null),
-                ]),
-            ]);
-        }
+        $this->trimSettingsNote();
     }
 
     public function rules(): array
@@ -151,15 +137,5 @@ class UpdateLinkBlockRequest extends BaseFormRequest
                 }
             }
         });
-    }
-
-    /**
-     * Reject schemes other than http/https. Same rationale as StoreLinkBlockRequest.
-     */
-    private function isAllowedScheme(string $url): bool
-    {
-        $scheme = parse_url($url, PHP_URL_SCHEME);
-
-        return is_string($scheme) && in_array(strtolower($scheme), ['http', 'https'], true);
     }
 }

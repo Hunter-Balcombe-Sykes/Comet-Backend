@@ -90,7 +90,12 @@ class WebsiteAccentExtractor
         $max = max($r, $g, $b) / 255;
         $min = min($r, $g, $b) / 255;
         $luminance = (0.2126 * $r + 0.7152 * $g + 0.0722 * $b) / 255;
-        $saturation = $max === 0.0 ? 0.0 : ($max - $min) / $max;
+        // $max === 0.0 (strict) used to miss a pure-black pixel: max($r,$g,$b)/255
+        // is an INTEGER 0 (not float 0.0) when the division is exact, so the old
+        // strict-type guard fell through into a real division by zero. `> 0.0`
+        // compares by value regardless of int/float, so it can't be fooled the
+        // same way.
+        $saturation = $max > 0.0 ? ($max - $min) / $max : 0.0;
 
         return $saturation >= self::MIN_SATURATION
             && $luminance > self::MIN_LUMINANCE

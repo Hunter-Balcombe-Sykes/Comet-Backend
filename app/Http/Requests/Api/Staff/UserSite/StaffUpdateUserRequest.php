@@ -42,21 +42,6 @@ class StaffUpdateUserRequest extends BaseFormRequest
     {
         $this->normalizePhones(['phone', 'public_contact_number']);
         $this->lowercaseEmails(['primary_email', 'public_contact_email']);
-
-        $merge = [];
-
-        // Upper-case country_code if supplied so the ISO alpha-2 validator
-        // accepts lower-case input from older clients.
-        if ($this->has('country_code')) {
-            $cc = $this->input('country_code');
-            if (is_string($cc)) {
-                $cc = strtoupper(trim($cc));
-                $merge['country_code'] = $cc === '' ? null : $cc;
-            }
-        }
-
-        if ($merge) {
-            $this->merge($merge);
-        }
+        $this->normalizeCountryCode(['country_code']);
     }
 }

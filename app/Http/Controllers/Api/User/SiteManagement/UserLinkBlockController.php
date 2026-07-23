@@ -12,7 +12,6 @@ use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
 use App\Http\Resources\LinkBlockResource;
 use App\Models\Core\Site\Block;
-use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\InsertWithSortOrder;
 use App\Services\Site\LinkBlockFieldBuilder;

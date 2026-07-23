@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Cache\AiSpendBudget;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -85,6 +86,8 @@ Example — output:
 {"items":[{"name":"Negroni","description":"Gin, Campari, vermouth","price":14,"category":"COCKTAILS","dietary":null},{"name":"Old Fashioned","description":"Bourbon, bitters","price":15,"category":"COCKTAILS","dietary":null},{"name":"Chianti","description":"DOCG, Tuscany, IT. Bottle $48.","price":12,"category":"RED WINES","dietary":null}]}
 PROMPT;
 
+    public function __construct(private readonly AiSpendBudget $budget) {}
+
     public function configured(): bool
     {
         return (string) config('services.mistral.key') !== ''
@@ -113,6 +116,12 @@ PROMPT;
     /** @param  array{type:string, image_url?:string, document_url?:string}  $document */
     private function ocr(array $document, ?string $userId): ?string
     {
+        if (! $this->budget->tryClaim('mistral_ocr')) {
+            Log::info('menu_ai.ocr.budget_exhausted', ['user_id' => $userId]);
+
+            return null;
+        }
+
         try {
             $response = Http::withToken((string) config('services.mistral.key'))
                 ->timeout(60)
@@ -154,6 +163,12 @@ PROMPT;
      */
     public function structure(string $text, ?string $userId = null): ?array
     {
+        if (! $this->budget->tryClaim('deepseek_structure')) {
+            Log::info('menu_ai.structure.budget_exhausted', ['user_id' => $userId]);
+
+            return null;
+        }
+
         try {
             $response = Http::withToken((string) config('services.deepseek.key'))
                 ->timeout(90)

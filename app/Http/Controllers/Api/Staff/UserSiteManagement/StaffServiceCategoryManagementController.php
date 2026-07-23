@@ -147,7 +147,8 @@ class StaffServiceCategoryManagementController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
-        // Optional: also uncategorise services on hard delete (FK ON DELETE SET NULL handles it if in DB)
+        // Memberships auto-detach: site.service_category_assignments.service_category_id
+        // is ON DELETE CASCADE (20260721180000_service_multi_category.sql), not SET NULL.
         $serviceCategory->forceDelete();
 
         return $this->success(['deleted' => true, 'hard' => true]);

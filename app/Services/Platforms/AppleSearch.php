@@ -101,8 +101,6 @@ class AppleSearch extends PlatformScraper
         return is_string($genre) && trim($genre) !== '' ? strtolower(trim($genre)) : null;
     }
 
-    // ── internals ────────────────────────────────────────────────
-
     private function itunes(string $path): ?array
     {
         // SCALE-3: cache successful lookups (iTunes is keyless, ~20 req/min/IP). Only
@@ -130,9 +128,9 @@ class AppleSearch extends PlatformScraper
     }
 
     // Artwork comes back as "...100x100bb.jpg"; swap for HD without a 2nd call.
-    private function hdArtwork(?string $url100, int $size = 600): ?string
+    private function hdArtwork(?string $url100): ?string
     {
-        return $url100 ? str_replace('100x100bb.jpg', "{$size}x{$size}bb.jpg", $url100) : null;
+        return $url100 ? str_replace('100x100bb.jpg', '600x600bb.jpg', $url100) : null;
     }
 
     private function resolveArtistId(string $input): ?int

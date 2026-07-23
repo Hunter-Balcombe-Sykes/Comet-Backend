@@ -59,9 +59,8 @@ class UserWorkplaceController extends ApiController
         $attributes = ['name' => (string) $data['name']];
 
         foreach ([
-            // Structured address components stored alongside the formatted
-            // string so manual edits survive the save round-trip.
-            'address', 'address_line1', 'city', 'state', 'postcode', 'country',
+            // Structured address components — the only stored source of truth.
+            'address_line1', 'city', 'state', 'postcode', 'country',
             'phone', 'website',
             // Archive of the business's old website + Google-sourced category
             // and editorial description (auto-filled from Google Business).
@@ -97,13 +96,11 @@ class UserWorkplaceController extends ApiController
         );
         $workplace->save();
 
-        // Mirror the shared contact fields onto the user so the sitepage
-        // contact block and the workplace card read one value. Manual entry is
-        // authoritative here regardless of account type — the user is editing
-        // these fields by hand right now.
-        // Post-save truth: with partial saves the request may not carry these
-        // keys, so mirror whatever the workplace now actually holds.
-        $this->mirrorContactFields($professional, $workplace->phone, $workplace->contact_email);
+        // Contact-field mirroring onto User.public_contact_number/email now
+        // lives in WorkplaceObserver::saved() — fires for every writer of this
+        // model, not just this controller (see item 9, 2026-07-23 signup
+        // testing repairs: a scan/sync-written contact_email never used to
+        // reach the public page until a manual save happened to touch it).
 
         // Business accounts treat the workplace name as their public display
         // name (same rule as GoogleBusinessController::maybeAdoptGoogleName),
@@ -143,36 +140,13 @@ class UserWorkplaceController extends ApiController
 
         // Identity fields whose provenance the dashboard surfaces. `name` is
         // always present (required); the rest are stamped only when sent.
-        foreach (['name', 'address', 'phone', 'website', 'category', 'contact_email', 'opening_hours'] as $field) {
+        foreach (['name', 'address_line1', 'city', 'state', 'postcode', 'country', 'phone', 'website', 'category', 'contact_email', 'opening_hours'] as $field) {
             if ($request->has($field)) {
                 $existing[$field] = ['source' => 'manual', 'at' => $stamp];
             }
         }
 
         return $existing;
-    }
-
-    /**
-     * Mirror the workplace phone/email onto the user's public contact columns so
-     * the sitepage contact block stays coherent with the workplace card. Writes
-     * only when the value actually changes to avoid a redundant save + observer.
-     */
-    private function mirrorContactFields(User $user, ?string $phone, ?string $email): void
-    {
-        $dirty = false;
-
-        if ($user->public_contact_number !== $phone) {
-            $user->public_contact_number = $phone;
-            $dirty = true;
-        }
-        if ($user->public_contact_email !== $email) {
-            $user->public_contact_email = $email;
-            $dirty = true;
-        }
-
-        if ($dirty) {
-            $user->save();
-        }
     }
 
     public function destroy(Request $request): JsonResponse

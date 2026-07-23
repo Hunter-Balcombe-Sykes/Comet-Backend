@@ -76,13 +76,13 @@ All findings are backend-owned cleanup. Run `execute audit audits/cross-repo/CON
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** · P3 — Decorative banner comment separator in `AppleSearch.php`
+- [x] **#SLOP-1** · P3 — Decorative banner comment separator in `AppleSearch.php`
     - **Where:** app/Services/Platforms/AppleSearch.php:104
     - **Affects:** Maintainers reading the file — zero runtime impact.
     - **Effort:** S (~0.5–1h)
@@ -97,7 +97,7 @@ All findings are backend-owned cleanup. Run `execute audit audits/cross-repo/CON
             private function itunes(string $path): ?array
         ```
 
-- [ ] **#SLOP-2** · P3 — Decorative banner comment separator in `EventsCatalog.php`
+- [x] **#SLOP-2** · P3 — Decorative banner comment separator in `EventsCatalog.php`
     - **Where:** app/Services/Platforms/EventsCatalog.php:364
     - **Affects:** Maintainers reading the file — zero runtime impact.
     - **Effort:** S (~0.5–1h)
@@ -113,7 +113,7 @@ All findings are backend-owned cleanup. Run `execute audit audits/cross-repo/CON
             private function adapter(string $provider): ?array
         ```
 
-- [ ] **#SLOP-3** · P3 — Unused optional `$size` parameter on `hdArtwork()` — every caller takes the default
+- [x] **#SLOP-3** · P3 — Unused optional `$size` parameter on `hdArtwork()` — every caller takes the default
     - **Where:** app/Services/Platforms/AppleSearch.php:133
     - **Affects:** Maintainers — the parameter signals flexibility that doesn't exist.
     - **Effort:** S (~0.5–1h)
@@ -129,7 +129,7 @@ All findings are backend-owned cleanup. Run `execute audit audits/cross-repo/CON
         }
         ```
 
-- [ ] **#SLOP-4** · P3 — Duplicate `ACTOR` constant defining the same Apify actor name in two sibling scrapers
+- [x] **#SLOP-4** · P3 — Duplicate `ACTOR` constant defining the same Apify actor name in two sibling scrapers
     - **Where:** app/Services/Platforms/GoogleBusinessApifyScraper.php:28 and app/Services/Platforms/GoogleMenuImagesScraper.php:24
     - **Affects:** Future maintainers — if the actor name changes (e.g. Apify migrates the actor ID), one file may be updated and the other silently drifts, breaking the image-scan path.
     - **Effort:** S (~0.5–1h)
@@ -191,14 +191,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 2 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SLOP-1** · P2 — `mirrorOne`/`mirrorVideo` copy-paste drift: only one carries the Content-Length fast-reject
+- [x] **SLOP-1** · P2 — `mirrorOne`/`mirrorVideo` copy-paste drift: only one carries the Content-Length fast-reject
     - **Where:** app/Services/Platforms/InstagramConnectionSeeder.php:283-292 (`mirrorOne`), :323-352 (`mirrorVideo`)
     - **Affects:** Anyone connecting Instagram whose account's latest reel returns an oversized/slow response — the request pays for the full download before the on-disk `filesize()` cap catches it, where the image path bails early on the declared `Content-Length`.
     - **Effort:** M (~2–4h)
@@ -239,7 +239,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **SLOP-2** · P3 — Decorative banner comment in HumanitixScraper
+- [x] **SLOP-2** · P3 — Decorative banner comment in HumanitixScraper
     - **Where:** app/Services/Platforms/HumanitixScraper.php (between `fetchEvents` and `candidateEventUrls`)
     - **Affects:** Developers reading the file; no runtime impact.
     - **Effort:** S (~0.5–1h)
@@ -252,7 +252,7 @@ None.
         // ── internals ────────────────────────────────────────────────
         ```
 
-- [ ] **SLOP-3** · P3 — Redundant docblock restating the method name
+- [x] **SLOP-3** · P3 — Redundant docblock restating the method name
     - **Where:** app/Services/Platforms/MenuApifyScraper.php (`itemCount` method)
     - **Affects:** Developers reading the class — a docblock that carries no information the signature doesn't already give.
     - **Effort:** S (~0.5–1h)
@@ -443,14 +443,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 6 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 6 of 6 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SLOP-1** · P2 — `PlaceholderLimitExceededException` is dead code that misleads about the real limit-enforcement path
+- [x] **#SLOP-1** · P2 — `PlaceholderLimitExceededException` is dead code that misleads about the real limit-enforcement path
     - **Where:** app/Services/Media/PlaceholderLimitExceededException.php:1-7
     - **Affects:** Any developer scanning `app/Services/Media/` who assumes this class is the live pool/placeholder-limit exception — it sits alongside `PoolLimitExceededException`, which is the one actually thrown by `MediaUploadService`.
     - **Effort:** S (~0.25h)
@@ -472,7 +472,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-2** · P3 — Decorative ASCII banner comments in LogoAutoGrabber
+- [x] **#SLOP-2** · P3 — Decorative ASCII banner comments in LogoAutoGrabber
     - **Where:** app/Services/Design/LogoAutoGrabber.php (four section separators)
     - **Affects:** Developer reading the class — the banners add visual noise with no information the method names don't already carry.
     - **Effort:** S (~0.5h)
@@ -492,7 +492,7 @@ None.
         // ── fetch / decode ─────────────────────────────────────────────────────
         ```
 
-- [ ] **#SLOP-3** · P3 — Decorative ASCII banner comments inside the SLUG_REFINEMENTS data array
+- [x] **#SLOP-3** · P3 — Decorative ASCII banner comments inside the SLUG_REFINEMENTS data array
     - **Where:** app/Services/Design/SectorStylePresets.php (10 section headers inside `SLUG_REFINEMENTS`)
     - **Affects:** Developer reading or extending the refinement map — 10 decorative section headers duplicate what the surrounding slug keys and per-slug comments already say.
     - **Effort:** S (~0.5h)
@@ -510,7 +510,7 @@ None.
         ```
         (10 such headers in total)
 
-- [ ] **#SLOP-4** · P3 — Restating comment above the GD extension check in ImageVariantService
+- [x] **#SLOP-4** · P3 — Restating comment above the GD extension check in ImageVariantService
     - **Where:** app/Services/Media/ImageVariantService.php (start of `processVariants`)
     - **Affects:** Reader — the comment says exactly what the next line of code says.
     - **Effort:** S (~0.25h)
@@ -525,7 +525,7 @@ None.
         if (! extension_loaded('gd')) {
         ```
 
-- [ ] **#SLOP-5** · P3 — Restating comment for the content-hashed filename pattern
+- [x] **#SLOP-5** · P3 — Restating comment for the content-hashed filename pattern
     - **Where:** app/Services/Media/ImageVariantService.php (inside `processVariants`, variant-encode loop)
     - **Affects:** Reader — the comment adds no information beyond what the next line already shows.
     - **Effort:** S (~0.25h)
@@ -540,7 +540,7 @@ None.
         $storagePath = "{$basePath}/{$variantName}_{$hash}.webp";
         ```
 
-- [ ] **#SLOP-6** · P3 — Misleading step-number comment in VideoVariantService::processVariants
+- [x] **#SLOP-6** · P3 — Misleading step-number comment in VideoVariantService::processVariants
     - **Where:** app/Services/Media/VideoVariantService.php (near the end of `processVariants`)
     - **Affects:** Developer tracing the processing pipeline — the comment labels this step "8," but the method's own inline numbering only reaches 5 before this, so it reads as if two steps were silently dropped.
     - **Effort:** S (~0.25h)
@@ -555,7 +555,7 @@ None.
             $this->markReady($mediaId, $durationMs, $posterRemotePath);
         ```
 
-- [ ] **#SLOP-7** · P3 — Redundant FILTER_NULL_ON_FAILURE + null-coalesce dance in ImageVariantService
+- [x] **#SLOP-7** · P3 — Redundant FILTER_NULL_ON_FAILURE + null-coalesce dance in ImageVariantService
     - **Where:** app/Services/Media/ImageVariantService.php (inside `processVariants`, variant-definition loop)
     - **Affects:** Developer maintaining variant processing — the 6-line block collapses to one line with identical behavior.
     - **Effort:** S (~0.25h)
@@ -639,13 +639,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **SLOP-1** · P3 — Four methods in DataExportPayloadBuilder carry a floating, tool-invisible docblock stacked above the real one
+- [x] **SLOP-1** · P3 — Four methods in DataExportPayloadBuilder carry a floating, tool-invisible docblock stacked above the real one
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:725-733 (streamNotificationPreferences), :919-922 (streamNotifications), :938-946 (streamNotificationReceipts), :957-965 (streamConfirmationPreferences)
     - **Affects:** Maintainers and any docblock-reading tooling (IDE hover, phpDocumentor, PHPStan `@return` inference) — only the docblock immediately preceding a declaration is treated as attached; the earlier block becomes orphaned prose that renders nowhere.
     - **Effort:** S (~0.5–1h)
@@ -684,7 +684,7 @@ None.
         private function streamNotifications(string $userId): Generator
         ```
 
-- [ ] **SLOP-2** · P3 — `compose()` and `composeStaff()` in AnalyticsCacheService duplicate the same totals/CTR computation
+- [x] **SLOP-2** · P3 — `compose()` and `composeStaff()` in AnalyticsCacheService duplicate the same totals/CTR computation
     - **Where:** app/Services/Analytics/AnalyticsCacheService.php:245-253 (compose), :351-356 (composeStaff)
     - **Affects:** Maintainers adding or fixing a totals metric — the same visits/clicks/CTR computation must be updated in two places, and the two have already partially diverged (compose additionally pulls `sessionsAgg`).
     - **Effort:** S (~0.5–1h)
@@ -788,14 +788,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 4 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SLOP-1** · P2 — `getContentMedia()` is orphaned from production, and its docblock lies about who calls it
+- [x] **#SLOP-1** · P2 — `getContentMedia()` is orphaned from production, and its docblock lies about who calls it
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:524-559
     - **Affects:** Engineers debugging why a `site.site_media` `POOL_CONTENT` upload doesn't affect the public sitepage — the docblock sends them chasing a caller relationship that was removed when design media moved to Content Selection.
     - **Effort:** S (~0.5–1h) to correct the docblock now; treat method/test deletion as a separate follow-up decision.
@@ -828,7 +828,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-2** · P3 — Stacked duplicate docblock on `buildDesignMedia`
+- [x] **#SLOP-2** · P3 — Stacked duplicate docblock on `buildDesignMedia`
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:251-275
     - **Affects:** Maintainers reading this class — the first docblock is dead weight a reader must parse before finding the one that's actually correct.
     - **Effort:** S (~0.5–1h)
@@ -854,7 +854,7 @@ None.
              * (ordered by position on /account/content), NOT the raw content-media
         ```
 
-- [ ] **#SLOP-3** · P3 — Decorative banner comment separating class internals
+- [x] **#SLOP-3** · P3 — Decorative banner comment separating class internals
     - **Where:** app/Services/Site/ContentSelectionService.php:341-343
     - **Affects:** Maintainers — adds visual noise without conveying information.
     - **Effort:** S (~0.5–1h)
@@ -873,7 +873,7 @@ None.
              * Transactionally replace the site's rows: delete existing, insert the new
         ```
 
-- [ ] **#SLOP-4** · P3 — Dead exception class: `ReportDuplicateSignal` is never thrown or caught anywhere in the repo
+- [x] **#SLOP-4** · P3 — Dead exception class: `ReportDuplicateSignal` is never thrown or caught anywhere in the repo
     - **Where:** app/Services/Moderation/ReportDuplicateSignal.php:1-13
     - **Affects:** Engineers investigating duplicate-report handling in the moderation report flow — the class implies a handled duplicate-submission path that doesn't actually exist.
     - **Effort:** S (~0.5–1h)
@@ -899,7 +899,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-5** · P3 — Identical sort comparator copy-pasted twice in the same method
+- [x] **#SLOP-5** · P3 — Identical sort comparator copy-pasted twice in the same method
     - **Where:** app/Services/Cache/SiteCacheService.php:501, :531 (resolveImageVariantUrlsInSite)
     - **Affects:** Maintainers — a bug fix or tiebreak change in one copy will almost certainly miss the other, causing drift.
     - **Effort:** S (~0.5–1h)
@@ -1000,13 +1000,13 @@ None.
 
 ## Progress
 
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** · P3 — Decorative banner comments duplicate the `group` field in `SectorTaxonomy`
+- [x] **#SLOP-1** · P3 — Decorative banner comments duplicate the `group` field in `SectorTaxonomy`
     - **Where:** app/Services/Profile/SectorTaxonomy.php:45-138
     - **Affects:** Maintainers reading/editing the `SECTORS` constant; no user impact.
     - **Effort:** S (~0.5–1h)
@@ -1025,7 +1025,7 @@ None.
         ['slug' => 'hair-salon', 'label' => 'Hair salon', 'group' => 'Beauty & Personal Care', 'bucket' => SectorStylePresets::BEAUTY_PERSONAL_CARE],
         ```
 
-- [ ] **#SLOP-2** · P3 — Redundant `(string)` casts on already-string UUID plucks in `SegmentResolver`
+- [x] **#SLOP-2** · P3 — Redundant `(string)` casts on already-string UUID plucks in `SegmentResolver`
     - **Where:** app/Services/Segments/SegmentResolver.php:33, 40
     - **Affects:** None functionally; minor reading friction for maintainers of segment resolution.
     - **Effort:** S (~0.5–1h)
@@ -1106,13 +1106,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 3 of 3 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** · P3 — Unused `User` import in UserLinkBlockController
+- [x] **#SLOP-1** · P3 — Unused `User` import in UserLinkBlockController
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserLinkBlockController.php:15
     - **Affects:** Developer reading the file — a stray import implies the class is used somewhere in the file when it is not; no runtime impact.
     - **Effort:** S (~0.5–1h)
@@ -1125,7 +1125,7 @@ None.
         use App\Models\Core\User\User;
         ```
 
-- [ ] **#SLOP-2** · P3 — Redundant `method_exists($customer, 'trashed')` guards in UserCustomerController
+- [x] **#SLOP-2** · P3 — Redundant `method_exists($customer, 'trashed')` guards in UserCustomerController
     - **Where:** app/Http/Controllers/Api/User/Customers/UserCustomerController.php:122, 134, 169
     - **Affects:** Developer reading the file — the guard implies `trashed()` might not exist on `Customer`, which is never true, and the pattern is applied inconsistently within the same file.
     - **Effort:** S (~0.5–1h)
@@ -1147,7 +1147,7 @@ None.
         if (! $customer->trashed()) {
         ```
 
-- [ ] **#SLOP-3** · P3 — Decorative banner comment in ContentController
+- [x] **#SLOP-3** · P3 — Decorative banner comment in ContentController
     - **Where:** app/Http/Controllers/Api/User/Content/ContentController.php:241-243
     - **Affects:** Developer reading the file — adds visual noise with no semantic value.
     - **Effort:** S (~0.5–1h)
@@ -1216,13 +1216,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **SLOP-1** · P3 — Stale comment describes a FK behavior the schema no longer has
+- [x] **SLOP-1** · P3 — Stale comment describes a FK behavior the schema no longer has
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffServiceCategoryManagementController.php:150
     - **Affects:** Developer reading `forceDestroy()`; no runtime impact (the actual `ON DELETE CASCADE` still detaches memberships correctly).
     - **Effort:** S (~0.5h)
@@ -1236,7 +1236,7 @@ None.
         $serviceCategory->forceDelete();
         ```
 
-- [ ] **SLOP-2** · P3 — `indexGlobal`/`indexProfessional` are copy-pasted, differing only by the query filter
+- [x] **SLOP-2** · P3 — `indexGlobal`/`indexProfessional` are copy-pasted, differing only by the query filter
     - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationEmailPolicyController.php:23-39, 63-79
     - **Affects:** Developer maintaining notification email policy reads; a future change to the categories-to-policy mapping shape risks being applied to one method and missed on the other.
     - **Effort:** S (~0.5–1h)
@@ -1298,14 +1298,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 5 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 5 of 5 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SLOP-1** · P2 — `UpdateSiteRequest` and `StaffUpdateSiteRequest` duplicate the entire legacy-normalization block instead of using this codebase's own shared-trait convention
+- [x] **#SLOP-1** · P2 — `UpdateSiteRequest` and `StaffUpdateSiteRequest` duplicate the entire legacy-normalization block instead of using this codebase's own shared-trait convention
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:54-80, app/Http/Requests/Api/Staff/UserSite/StaffUpdateSiteRequest.php:21-49
     - **Affects:** Every user-driven and staff-driven site update (subdomain casing, legacy `skeleton_id`/architecture-id collapse, legacy page-id normalization in `settings.manual_page_order`).
     - **Effort:** S (~1–2h)
@@ -1338,7 +1338,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-2** · P3 — `ApiResource::stringId()` is an unused helper (dead code)
+- [x] **#SLOP-2** · P3 — `ApiResource::stringId()` is an unused helper (dead code)
     - **Where:** app/Http/Resources/ApiResource.php:27
     - **Affects:** Readers of the `ApiResource` base-class contract; no runtime impact.
     - **Effort:** S (~0.5h)
@@ -1360,7 +1360,7 @@ None.
         ```
         **Dead-code verification:** `Grep -n "stringId\("` across the whole repo (`app/`, `routes/`, `config/`, `tests/`) returns only `app/Http/Resources/ApiResource.php`'s own declaration and a reference inside `audits/archive/foundation-audit-v3/audit-2026-05-31-raw-eloquent-model-leakage-inconsistent-resource-s.md` (an archived recommendation, not live code) — no call sites anywhere.
 
-- [ ] **#SLOP-3** · P3 — `country_code` normalization duplicated verbatim, comment included
+- [x] **#SLOP-3** · P3 — `country_code` normalization duplicated verbatim, comment included
     - **Where:** app/Http/Requests/Api/Staff/UserSite/StaffUpdateUserRequest.php:41-61, app/Http/Requests/Api/User/UpdateUserRequest.php:63-83
     - **Affects:** Developers maintaining the staff-side and self-service professional-profile update endpoints.
     - **Effort:** S (~0.5–1h)
@@ -1381,7 +1381,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-4** · P3 — `settings.note` trimming block duplicated between Store and Update link block requests
+- [x] **#SLOP-4** · P3 — `settings.note` trimming block duplicated between Store and Update link block requests
     - **Where:** app/Http/Requests/Api/User/Site/StoreLinkBlockRequest.php:52-60, app/Http/Requests/Api/User/Site/UpdateLinkBlockRequest.php:54-62
     - **Affects:** Developers maintaining link-block creation and update.
     - **Effort:** S (~0.5–1h)
@@ -1403,7 +1403,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-5** · P3 — Route-binding id normalization duplicated between Destroy and Update link block requests
+- [x] **#SLOP-5** · P3 — Route-binding id normalization duplicated between Destroy and Update link block requests
     - **Where:** app/Http/Requests/Api/User/Site/DestroyLinkBlockRequest.php:16-19, app/Http/Requests/Api/User/Site/UpdateLinkBlockRequest.php:33-36
     - **Affects:** Developers maintaining link-block deletion and update.
     - **Effort:** S (~0.5–1h)
@@ -1420,7 +1420,7 @@ None.
             : $param;
         ```
 
-- [ ] **#SLOP-6** · P3 — Duplicate `isAllowedScheme` method in Store and Update link block requests
+- [x] **#SLOP-6** · P3 — Duplicate `isAllowedScheme` method in Store and Update link block requests
     - **Where:** app/Http/Requests/Api/User/Site/StoreLinkBlockRequest.php:214-219, app/Http/Requests/Api/User/Site/UpdateLinkBlockRequest.php:159-164
     - **Affects:** Developers maintaining the http/https scheme allowlist for custom link URLs (an XSS/exfiltration defense: blocking `javascript:`, `data:`, `file:`, `ftp:`).
     - **Effort:** S (~0.5–1h)
@@ -1490,13 +1490,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** · P3 — Duplicate `'whatsapp'` entry in `link_block_icon_keys`
+- [x] **#SLOP-1** · P3 — Duplicate `'whatsapp'` entry in `link_block_icon_keys`
     - **Where:** config/partna.php:164,180 (`link_block_icon_keys` array)
     - **Affects:** Nobody at runtime — `Rule::in()` membership checks are unaffected by a repeated value. Only affects future maintainers reading/editing this list.
     - **Effort:** S (~0.5h)
@@ -1534,7 +1534,7 @@ None.
             'whatsapp',
         ```
 
-- [ ] **#SLOP-2** · P3 — Misleading comment and dead commented-out code in empty `options` array
+- [x] **#SLOP-2** · P3 — Misleading comment and dead commented-out code in empty `options` array
     - **Where:** config/database.php (pgsql connection, `options` key)
     - **Affects:** Developers reading the pgsql connection config; no runtime impact.
     - **Effort:** S (~0.5h)
@@ -1590,13 +1590,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-1** · P3 — Stale, untracked `TODO(v1)` copy-pasted across four route files
+- [x] **#SLOP-1** · P3 — Stale, untracked `TODO(v1)` copy-pasted across four route files
     - **Where:** routes/api.php:28, routes/api/publicSite.php:12, routes/api/staff.php:33, routes/api/user.php:39
     - **Affects:** Developers reading route files — an untracked TODO with no ticket, owner, or date, duplicated four times, that signals nothing actionable.
     - **Effort:** S (~0.5–1h)
@@ -1613,7 +1613,7 @@ None.
         // TODO(v1): all routes in this file should be prefixed /v1/ once frontend is ready for the migration
         ```
 
-- [ ] **#SLOP-2** · P3 — Empty ceremonial `register()` override in `DatabaseServiceProvider`
+- [x] **#SLOP-2** · P3 — Empty ceremonial `register()` override in `DatabaseServiceProvider`
     - **Where:** app/Providers/DatabaseServiceProvider.php:11-17
     - **Affects:** None functionally — Laravel's `Illuminate\Support\ServiceProvider::register()` is already a no-op; this override changes nothing at runtime, only adds a stub every reader has to scan past.
     - **Effort:** S (~0.5h)

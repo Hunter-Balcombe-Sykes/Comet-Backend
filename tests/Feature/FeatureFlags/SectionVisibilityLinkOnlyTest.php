@@ -159,14 +159,14 @@ it('workplace section is visible when name is present (FOUND-4)', function () {
 });
 
 it('workplace section is visible when address is present but name is absent (FOUND-4)', function () {
-    // The visibility gate is name OR address — an address-only entry is a valid
-    // manual-location record and must go live.
+    // The visibility gate is name OR address_line1 — an address-only entry is a
+    // valid manual-location record and must go live.
     [$proId, $siteId] = seedProAndSite();
 
     DB::connection('pgsql')->table('site.workplaces')->insert([
         'site_id' => $siteId,
         'name' => null,
-        'address' => '10 Crown St, Surry Hills',
+        'address_line1' => '10 Crown St',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

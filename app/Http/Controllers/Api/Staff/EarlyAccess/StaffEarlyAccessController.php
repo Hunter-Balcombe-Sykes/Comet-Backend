@@ -78,6 +78,8 @@ class StaffEarlyAccessController extends ApiController
             'workplace_or_industry' => $data['workplace_or_industry'] ?? null,
             'platforms' => array_values($data['platforms'] ?? []),
             'source' => 'manual',
+            'source_type' => $data['source_type'] ?? null,
+            'source_ref' => $data['source_ref'] ?? null,
         ]);
         // status removed from $fillable (S4 Tier 2b) — create() would silently
         // drop it. DB DEFAULT already matches ('waitlist'), but set it directly
@@ -190,22 +192,54 @@ class StaffEarlyAccessController extends ApiController
         $this->authorizeForUser($staff, 'staffManage', EarlyAccessSignup::class);
 
         $data = $request->validated();
-        $query = EarlyAccessSignup::query()->whereNotNull('user_id');
+        $dispatched = [];
+        $skipped = [];
+
         if (! empty($data['ids'])) {
-            $query->whereIn('id', $data['ids']);
+            // Explicit selection: reconcile it honestly. A selected row with no
+            // linked build (user_id null — a manual add, or a build that
+            // collided/failed) has nothing to approve. Report it as skipped
+            // instead of silently dropping it from the count, so the dashboard
+            // can say exactly which rows were left out. Mirrors invite()'s
+            // invited_ids/skipped_ids split.
+            $rows = EarlyAccessSignup::query()
+                ->whereIn('id', $data['ids'])
+                ->get(['id', 'user_id'])
+                ->keyBy('id');
+
+            // Dedupe the selection so a double-clicked / retried request dispatches
+            // (and reports) each row once — the previous whereIn() deduped implicitly.
+            foreach (array_unique($data['ids']) as $id) {
+                $row = $rows->get($id);
+                if ($row === null || $row->user_id === null) {
+                    $skipped[] = $id; // missing (raced a delete) or no build to approve
+
+                    continue;
+                }
+                ApproveEarlyAccessBuildJob::dispatch($row->id, $this->buildSourceType($row));
+                $dispatched[] = $row->id;
+            }
         } elseif (! empty($data['all_waitlisted'])) {
-            $query->where('status', EarlyAccessSignup::STATUS_WAITLIST);
+            // No explicit selection to reconcile against — dispatch every
+            // build-linked waitlisted row; unbuilt waitlist rows are simply out
+            // of scope here, not a per-row "skip".
+            EarlyAccessSignup::query()
+                ->whereNotNull('user_id')
+                ->where('status', EarlyAccessSignup::STATUS_WAITLIST)
+                ->lazyById()
+                ->each(function (EarlyAccessSignup $s) use (&$dispatched) {
+                    ApproveEarlyAccessBuildJob::dispatch($s->id, $this->buildSourceType($s));
+                    $dispatched[] = $s->id;
+                });
         } else {
             return $this->error('Provide ids[] or all_waitlisted.', 422);
         }
 
-        $count = 0;
-        $query->lazyById()->each(function (EarlyAccessSignup $s) use (&$count) {
-            ApproveEarlyAccessBuildJob::dispatch($s->id, $this->buildSourceType($s));
-            $count++;
-        });
-
-        return $this->success(['dispatched' => $count], 202);
+        return $this->success([
+            'dispatched' => count($dispatched), // kept: existing callers read the count
+            'dispatched_ids' => $dispatched,
+            'skipped_ids' => $skipped, // no linked build to approve
+        ], 202);
     }
 
     // The build's source_type is authoritative for the scrape rate limiter (the

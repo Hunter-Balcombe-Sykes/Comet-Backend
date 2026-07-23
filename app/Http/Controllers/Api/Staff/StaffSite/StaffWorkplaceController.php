@@ -81,7 +81,6 @@ class StaffWorkplaceController extends ApiController
 
         return [
             'name' => $name,
-            'address' => $showPii ? $this->trimOrNull($workplace->address) : null,
             'address_line1' => $showPii ? $this->trimOrNull($workplace->address_line1) : null,
             'city' => $showPii ? $this->trimOrNull($workplace->city) : null,
             'state' => $showPii ? $this->trimOrNull($workplace->state) : null,

@@ -498,17 +498,7 @@ class SiteCacheService
                 $site[$key][$i]['variants'] = $urlVariants;
             }
 
-            usort($site[$key], function ($a, $b) {
-                $aSort = is_array($a) ? (int) ($a['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
-                $bSort = is_array($b) ? (int) ($b['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
-                if ($aSort !== $bSort) {
-                    return $aSort <=> $bSort;
-                }
-                $aId = is_array($a) ? (string) ($a['id'] ?? '') : '';
-                $bId = is_array($b) ? (string) ($b['id'] ?? '') : '';
-
-                return $aId <=> $bId;
-            });
+            self::sortByOrderThenId($site[$key]);
         }
 
         foreach (['gallery_videos', 'content_videos'] as $key) {
@@ -528,17 +518,7 @@ class SiteCacheService
                 $site[$key][$i]['poster'] = ($byType['poster']['poster'] ?? null);
             }
 
-            usort($site[$key], function ($a, $b) {
-                $aSort = is_array($a) ? (int) ($a['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
-                $bSort = is_array($b) ? (int) ($b['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
-                if ($aSort !== $bSort) {
-                    return $aSort <=> $bSort;
-                }
-                $aId = is_array($a) ? (string) ($a['id'] ?? '') : '';
-                $bId = is_array($b) ? (string) ($b['id'] ?? '') : '';
-
-                return $aId <=> $bId;
-            });
+            self::sortByOrderThenId($site[$key]);
         }
 
         // Ensure video keys always exist even when there are no videos (backward-compat).
@@ -551,6 +531,26 @@ class SiteCacheService
         }
 
         return $site;
+    }
+
+    /**
+     * Sort payload media items by sort_order asc, falling back to id for a
+     * stable tiebreak. Shared by both the image and video passes in
+     * resolveImageVariantUrlsInSite().
+     */
+    private static function sortByOrderThenId(array &$items): void
+    {
+        usort($items, function ($a, $b) {
+            $aSort = is_array($a) ? (int) ($a['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
+            $bSort = is_array($b) ? (int) ($b['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
+            if ($aSort !== $bSort) {
+                return $aSort <=> $bSort;
+            }
+            $aId = is_array($a) ? (string) ($a['id'] ?? '') : '';
+            $bId = is_array($b) ? (string) ($b['id'] ?? '') : '';
+
+            return $aId <=> $bId;
+        });
     }
 
     /**

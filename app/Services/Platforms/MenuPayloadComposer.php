@@ -69,13 +69,13 @@ class MenuPayloadComposer
 
         if ($menu->relationLoaded('categories')) {
             return $menu->categories->contains(function (MenuCategory $c) {
-                return in_array($c->source_platform, ['scan', 'manual'], true)
+                return in_array($c->source_platform, ['scan', 'manual', 'website-scan'], true)
                     || ($c->relationLoaded('items') && $c->items->contains(fn (MenuItem $i) => $i->is_manual));
             });
         }
 
         return MenuCategory::query()->where('menu_id', $menu->id)
-            ->whereIn('source_platform', ['scan', 'manual'])->exists()
+            ->whereIn('source_platform', ['scan', 'manual', 'website-scan'])->exists()
             || MenuItem::query()->where('menu_id', $menu->id)->where('is_manual', true)->exists();
     }
 

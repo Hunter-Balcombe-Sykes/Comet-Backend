@@ -58,10 +58,14 @@ class IdentitySync
             // Candidate identity fields Google can provide, mapped to workplace
             // columns. Absent keys (null) are skipped so we never write a null
             // over a stored value. Email is deliberately NOT here — Places never
-            // returns one, so contact_email stays manual-only.
+            // returns one, so contact_email stays manual-only. Address is
+            // written as structured columns (never a flat string — that column
+            // was dropped 2026-07-23, signup testing repairs item 1) from
+            // addressParts, which sits in this same payload alongside the
+            // formatted string GoogleBusinessService also maps.
             $candidates = [
                 'name' => $this->nameOrNull($gbPayload['name'] ?? null),
-                'address' => $this->stringOrNull($gbPayload['address'] ?? null),
+                ...$this->addressPartsCandidates($gbPayload['addressParts'] ?? null),
                 'phone' => $this->stringOrNull($gbPayload['phone'] ?? null),
                 'website' => $this->stringOrNull($gbPayload['website'] ?? null),
                 'category' => $this->stringOrNull($gbPayload['category'] ?? null),
@@ -329,6 +333,32 @@ class IdentitySync
         $day = (int) $part['day'];
 
         return self::DAY_SLUGS[$day] ?? null;
+    }
+
+    /**
+     * Split Google's `addressParts` (lines/suburb/state/postcode/country —
+     * see GoogleBusinessService::mapDetails()) into the workplace's structured
+     * columns. `lines` is a list; only the first is used for address_line1,
+     * matching the single street-address-line shape manual entry also uses.
+     *
+     * @return array{address_line1: ?string, city: ?string, state: ?string, postcode: ?string, country: ?string}
+     */
+    private function addressPartsCandidates(mixed $addressParts): array
+    {
+        if (! is_array($addressParts)) {
+            return ['address_line1' => null, 'city' => null, 'state' => null, 'postcode' => null, 'country' => null];
+        }
+
+        $lines = $addressParts['lines'] ?? null;
+        $firstLine = is_array($lines) ? ($lines[0] ?? null) : null;
+
+        return [
+            'address_line1' => $this->stringOrNull($firstLine),
+            'city' => $this->stringOrNull($addressParts['suburb'] ?? null),
+            'state' => $this->stringOrNull($addressParts['state'] ?? null),
+            'postcode' => $this->stringOrNull($addressParts['postcode'] ?? null),
+            'country' => $this->stringOrNull($addressParts['country'] ?? null),
+        ];
     }
 
     private function stringOrNull(mixed $value): ?string

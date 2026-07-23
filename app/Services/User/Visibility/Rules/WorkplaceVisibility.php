@@ -8,9 +8,11 @@ use App\Services\User\Visibility\SectionVisibilityContract;
 use Illuminate\Support\Facades\DB;
 
 // Workplace goes live once the site's workplace card has a non-empty name OR
-// address. PR3 (FOUND-4) moved the card from site.sites.settings.workplace JSONB
-// to the site.workplaces table (1:1 with sites); the name-OR-address predicate is
-// preserved (no behavior change).
+// street address. PR3 (FOUND-4) moved the card from site.sites.settings.workplace
+// JSONB to the site.workplaces table (1:1 with sites). The flat `address` display
+// column was dropped 2026-07-23 (signup testing repairs item 1) — the predicate
+// now reads the structured `address_line1` column in its place (no behavior
+// change beyond the column swap: either still counts as "has a location").
 class WorkplaceVisibility implements SectionVisibilityContract
 {
     public function blockType(): string
@@ -26,7 +28,7 @@ class WorkplaceVisibility implements SectionVisibilityContract
                 ->where('site_id', $siteId)
                 ->where(function ($q) {
                     $q->where(fn ($n) => $n->whereNotNull('name')->where('name', '<>', ''))
-                        ->orWhere(fn ($a) => $a->whereNotNull('address')->where('address', '<>', ''));
+                        ->orWhere(fn ($a) => $a->whereNotNull('address_line1')->where('address_line1', '<>', ''));
                 })
                 ->getQuery(),
         ];

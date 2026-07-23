@@ -104,8 +104,6 @@ class LogoAutoGrabber
         return array_slice($decisions, 0, 12);
     }
 
-    // ── candidate ranking ──────────────────────────────────────────────────
-
     /**
      * Normalize + trust-score candidates; expand the manifest into its icon
      * entries. Higher trust first.
@@ -177,8 +175,6 @@ class LogoAutoGrabber
 
         return $out;
     }
-
-    // ── slot filling ───────────────────────────────────────────────────────
 
     /**
      * @param  list<array<string, mixed>>  $ranked
@@ -338,8 +334,6 @@ class LogoAutoGrabber
         return null;
     }
 
-    // ── CDN size upgrading ─────────────────────────────────────────────────
-
     /**
      * Rewrite known-CDN resize parameters upward — favicons declared at 32px
      * routinely front a full-resolution original. Unknown hosts return null
@@ -379,8 +373,6 @@ class LogoAutoGrabber
 
         return null;
     }
-
-    // ── fetch / decode ─────────────────────────────────────────────────────
 
     /**
      * Same as fetchImage(), but paced: every fetch after the first in this

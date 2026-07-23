@@ -121,8 +121,18 @@ class InstagramConnectionSeeder
             "{$folder}/reel-cover.jpg",
             "{$folder}/profile.jpg",
         ], $written));
+        // Best-effort cleanup — must never abort a connection that otherwise
+        // succeeded. "Delete on an absent key is a safe no-op" holds for S3's
+        // own API in general, but isn't guaranteed for every backend/config, and
+        // a first-ever connect (nothing stale yet) is exactly the case with
+        // nothing to actually delete — matches mirrorOne()/mirrorVideo()'s own
+        // try/catch + report() convention elsewhere in this file.
         if ($stale) {
-            Storage::disk('media')->delete($stale);
+            try {
+                Storage::disk('media')->delete($stale);
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         $selection = [
@@ -357,7 +367,16 @@ class InstagramConnectionSeeder
                 return null;
             }
 
-            // Oversized reel → drop the video (the poster still renders).
+            // Fast rejection when the server declares the size upfront (mirrors
+            // mirrorOne — an oversized reel shouldn't finish streaming to disk
+            // before we notice).
+            $contentLength = $response->header('Content-Length');
+            if ((int) $contentLength > self::MAX_VIDEO_BYTES) {
+                return null;
+            }
+
+            // Oversized reel → drop the video (the poster still renders). Covers
+            // absent or inaccurate Content-Length headers.
             if ((int) filesize($tmp) > self::MAX_VIDEO_BYTES) {
                 return null;
             }

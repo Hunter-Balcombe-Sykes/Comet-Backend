@@ -121,7 +121,7 @@ class IndividualProfilePayloadBuilder
             'design_media' => $this->buildDesignMedia($site),
             'site_images' => $this->buildSiteImages($site),
             'architecture_id' => $site?->architecture_id ?? Site::DEFAULT_ARCHITECTURE_ID,
-            'public_config' => $this->buildPublicConfig(),
+            'public_config' => $this->buildPublicConfig($pro),
             // Taxonomy page order for the ONE architecture — presence + business
             // gated, popularity-ranked (or the owner's manual order when
             // smart_page_order is off), canonical fallback. Top-level key.
@@ -187,7 +187,7 @@ class IndividualProfilePayloadBuilder
      * to the wire's camelCase here.
      *
      * @param  Collection<string, Block>  $sections
-     * @return array{name: string, description: string|null, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
+     * @return array{name: string, description: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
      */
     private function buildWorkplace(?Site $site, Collection $sections): ?array
     {
@@ -200,7 +200,6 @@ class IndividualProfilePayloadBuilder
         return [
             'name' => (string) ($data['name'] ?? ''),
             'description' => $data['description'] ?? null,
-            'address' => $data['address'] ?? null,
             'addressLine1' => $data['address_line1'] ?? null,
             'city' => $data['city'] ?? null,
             'state' => $data['state'] ?? null,
@@ -247,16 +246,6 @@ class IndividualProfilePayloadBuilder
         ], $items));
     }
 
-    /**
-     * Design media engine — DesignMediaItem[] (empty array when nothing in pool).
-     *
-     * Remaps the resolver's snake_case keys (sort_order, alt_text, url_hd,
-     * duration_ms) to the camelCase wire shape per the §5 wire convention.
-     * Mirrors buildGallery's pattern — same projection style across the two
-     * polymorphic-media surfaces.
-     *
-     * @return list<array{id: string, sortOrder: int, kind: string, url: string, urlHd: string|null, alt: string|null, caption: string|null, poster: string|null, durationMs: int|null}>
-     */
     /**
      * The sitepage background media = the owner's curated content SELECTION
      * (ordered by position on /account/content), NOT the raw content-media
@@ -554,7 +543,7 @@ class IndividualProfilePayloadBuilder
         $manual = [];
         if ($row) {
             $cols = (array) $row;
-            unset($cols['site_id']);
+            unset($cols['site_id'], $cols['created_at'], $cols['updated_at']);
             $manual = array_filter($cols, fn ($v) => $v !== null);
         }
 
@@ -636,16 +625,29 @@ class IndividualProfilePayloadBuilder
 
     /**
      * Build the publicConfig object — platform-wide knobs the skeleton needs
-     * at render time. Currently only analyticsEndpoint; other fields will be
-     * added as features need them.
+     * at render time.
+     *
+     * `claim.unclaimed` (2026-07-22, signup-flows frontend handoff): the
+     * pages app has no other way to know a rendered site is a pre-account
+     * build (site-first signup / staff / early-access) — the publish flag
+     * alone already gates visibility (PublicSiteResolver), so an unclaimed
+     * site renders here exactly like a claimed one unless we say otherwise.
+     * Omitted (not sent false) when claimed, so LKG snapshots and existing
+     * consumers predating this field see no change.
      *
      * @return array<string, mixed>
      */
-    private function buildPublicConfig(): array
+    private function buildPublicConfig(User $pro): array
     {
-        return [
+        $config = [
             'analyticsEndpoint' => config('partna.public_profile.analytics_endpoint'),
         ];
+
+        if ($pro->isUnclaimed()) {
+            $config['claim'] = ['unclaimed' => true];
+        }
+
+        return $config;
     }
 
     /**

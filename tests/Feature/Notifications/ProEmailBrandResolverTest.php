@@ -2,6 +2,7 @@
 
 use App\Mail\Branding\EmailBrand;
 use App\Mail\Branding\ProEmailBrandResolver;
+use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
@@ -37,6 +38,7 @@ function makeProSite(array $userAttrs = []): Site
 }
 
 it('resolves a pro brand from display_name, handle and design kit', function () {
+    $domain = (string) (config('partna.public_domain') ?: 'partna.au');
     $site = makeProSite();
     DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $site->id)
@@ -47,19 +49,20 @@ it('resolves a pro brand from display_name, handle and design kit', function () 
     expect($brand)->toBeInstanceOf(EmailBrand::class)
         ->and($brand->isPartna)->toBeFalse()
         ->and($brand->proName)->toBe('Jane Doe')
-        ->and($brand->siteUrl)->toBe('https://jane.partna.au')
+        ->and($brand->siteUrl)->toBe("https://jane.{$domain}")
         ->and($brand->palette->accent)->toBe('#aa0000')
         ->and($brand->palette->buttonBg)->toBe('#aa0000')   // derived
         ->and($brand->logoUrl)->toBeNull();
 });
 
 it('falls back to defaults when display_name/handle are missing', function () {
+    $domain = (string) (config('partna.public_domain') ?: 'partna.au');
     $site = makeProSite(['display_name' => null, 'handle' => null, 'handle_lc' => null]);
 
     $brand = app(ProEmailBrandResolver::class)->forSite($site->id);
 
     expect($brand->proName)->toBe('the team')
-        ->and($brand->siteUrl)->toBe('https://partna.au')
+        ->and($brand->siteUrl)->toBe("https://{$domain}")
         ->and($brand->palette->accent)->toBe('#3a6efc');
 });
 
@@ -89,6 +92,28 @@ it('uses a ready design-pool logo url when present', function () {
     $brand = app(ProEmailBrandResolver::class)->forSite($site->id);
 
     expect($brand->logoUrl)->toBe('https://media.partna.au/design/logo-md.webp');
+});
+
+it('never leaks the pro\'s private account email as reply-to when no contact-block inbox is set', function () {
+    $site = makeProSite(['primary_email' => 'jane-private@example.com']);
+
+    // Active contact block with a blank notification_email — the one path
+    // that used to fall through to the pro's private Supabase login email.
+    $block = new Block([
+        'block_type' => 'contact',
+        'block_group' => Block::GROUP_SECTIONS,
+        'is_active' => true,
+        'settings' => ['notification_email' => ''],
+    ]);
+    $block->user()->associate($site->user);
+    $block->site()->associate($site);
+    $block->save();
+
+    $brand = app(ProEmailBrandResolver::class)->forSite($site->id);
+
+    expect($brand->replyToEmail)
+        ->not->toBe('jane-private@example.com')
+        ->toBeNull();
 });
 
 it('returns the partna brand for an unknown site', function () {

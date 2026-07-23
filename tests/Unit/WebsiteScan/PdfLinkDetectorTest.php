@@ -2,31 +2,39 @@
 
 use App\Services\WebsiteScan\PdfLinkDetector;
 
-it('finds absolute .pdf-suffixed anchor hrefs', function () {
+it('finds absolute .pdf-suffixed anchor hrefs with their link text', function () {
     $html = '<a href="https://venue.example/menu.pdf">Menu</a><a href="https://venue.example/about">About</a>';
-    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe(['https://venue.example/menu.pdf']);
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://venue.example/menu.pdf', 'text' => 'Menu'],
+    ]);
 });
 
 it('resolves a relative .pdf href against the base url', function () {
-    $html = '<a href="/files/menu.pdf">Menu</a>';
-    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe(['https://venue.example/files/menu.pdf']);
+    $html = '<a href="/files/menu.pdf">Our Menu</a>';
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://venue.example/files/menu.pdf', 'text' => 'Our Menu'],
+    ]);
 });
 
 it('matches .pdf case-insensitively', function () {
     $html = '<a href="/menu.PDF">Menu</a>';
-    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe(['https://venue.example/menu.PDF']);
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://venue.example/menu.PDF', 'text' => 'Menu'],
+    ]);
 });
 
 it('ignores a query string suffix that is not actually .pdf', function () {
     $html = '<a href="/menu.pdf?download=1">Menu</a><a href="/page?file=menu.pdf">Not a pdf link</a>';
-    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe(['https://venue.example/menu.pdf?download=1']);
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://venue.example/menu.pdf?download=1', 'text' => 'Menu'],
+    ]);
 });
 
-it('returns multiple pdf links in document order, deduped', function () {
+it('returns multiple pdf links in document order, deduped, keeping first-seen text', function () {
     $html = '<a href="/menu.pdf">Menu</a><a href="/wine-list.pdf">Wine</a><a href="/menu.pdf">Menu again</a>';
     expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
-        'https://venue.example/menu.pdf',
-        'https://venue.example/wine-list.pdf',
+        ['url' => 'https://venue.example/menu.pdf', 'text' => 'Menu'],
+        ['url' => 'https://venue.example/wine-list.pdf', 'text' => 'Wine'],
     ]);
 });
 
@@ -37,4 +45,11 @@ it('returns an empty array when there are no pdf links', function () {
 it('ignores a data: or mailto: href', function () {
     $html = '<a href="mailto:hi@venue.example">Email</a><a href="data:application/pdf;base64,abc">inline</a>';
     expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([]);
+});
+
+it('collapses whitespace in nested link text', function () {
+    $html = "<a href=\"/menu.pdf\"><span>Wine</span>\n  <span>List</span></a>";
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://venue.example/menu.pdf', 'text' => 'Wine List'],
+    ]);
 });

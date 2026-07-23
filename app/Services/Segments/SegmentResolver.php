@@ -30,14 +30,13 @@ class SegmentResolver
         $ids = [];
 
         if ($dynamic = $this->dynamicQuery($segment)) {
-            $ids = $dynamic->pluck('id')->map(fn ($id) => (string) $id)->all();
+            $ids = $dynamic->pluck('id')->all();
         }
 
         if ($this->includesManualMembers($segment)) {
             $manual = User::query()
                 ->whereIn('id', $segment->members()->pluck('user_id'))
                 ->pluck('id')
-                ->map(fn ($id) => (string) $id)
                 ->all();
 
             $ids = array_merge($ids, $manual);

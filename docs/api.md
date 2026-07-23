@@ -543,9 +543,10 @@ Common status codes
 - 401 Unauthorized: missing or invalid token
 - 403 Forbidden: valid token but forbidden (missing professional profile, staff required, unpublished site, inactive block)
 - 404 Not Found: resource not found, or site not found
-- 409 Conflict: cannot delete due to constraints (staff force delete professional)
+- 409 Conflict: cannot delete due to constraints, or a conflicting state transition (e.g. build already invited)
 - 422 Unprocessable Entity: validation errors or business rule (gallery limit)
-- 429 Too Many Requests: rate limited Example error responses Validation failure (422): { "message": "Validation failed", "errors": { "handle": ["The handle field is required."] } } Unauthorized (401): { "message": "Missing Bearer token" } Forbidden (403): { "message": "Professional profile missing for this user. Complete bootstrap first." } Not found (404): { "message": "Site not found." } Pagination
+- 429 Too Many Requests: rate limited
+- 502 Bad Gateway: an upstream call the request depends on failed (e.g. Supabase auth-user deletion on staff force-delete) Example error responses Validation failure (422): { "message": "Validation failed", "errors": { "handle": ["The handle field is required."] } } Unauthorized (401): { "message": "Missing Bearer token" } Forbidden (403): { "message": "Professional profile missing for this user. Complete bootstrap first." } Not found (404): { "message": "Site not found." } Pagination
 - Some list endpoints return { dataKey: [...], meta: {...} }.
 - Both professional and staff list endpoints return { customers: [...], meta: {...} }.
 - The `meta` key contains: current_page, per_page, total, last_page, next_page_url, prev_page_url.
@@ -1130,7 +1131,7 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - GET /api/staff/feedback?type=error|good|bad_ui|idea&area=<string>&from=YYYY-MM-DD&to=YYYY-MM-DD&per_page=&page= (OV-D — triage list across ALL users, not scoped to one professional; unrecognised `type` values are ignored rather than erroring; invalid `from`/`to` → 422; response envelope: `{ "feedback": [StaffFeedbackRow], "meta": {...} }`, `StaffFeedbackRow` adds `user: {id,handle,display_name,email}|null`, `reply_email`, `request_id`, `tags`, `internal_notes`, `ip_hash`, `updated_at` on top of the owner-facing shape) Staff-admin routes (requires core.sidest_staff.is_admin = true)
 - PATCH /api/staff/professionals/{professional}/status
 - PATCH /api/staff/professionals/{professional}
-- DELETE /api/staff/professionals/{professional}/force (hard delete)
+- DELETE /api/staff/professionals/{professional}/force (full immediate purge — see below)
 - PATCH /api/staff/professionals/{professional}/customers/{customer}
 - DELETE /api/staff/professionals/{professional}/customers/{customer} (soft delete)
 - DELETE /api/staff/professionals/{professional}/customers/{customer}/hard (hard delete)
@@ -1154,6 +1155,26 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - POST /api/staff/professionals/{professional}/sections/reorder
 - DELETE /api/staff/professionals/{professional}/sections/{blockType}
 - POST /api/staff/notifications
+
+#### `DELETE /api/staff/professionals/{professional}/force`
+
+Admin-only. Runs the **full immediate purge** (`AccountDeletionService::adminPurgeNow`) — pseudonymises PII,
+**permanently deletes the professional's Supabase auth user (frees the email for reuse)**, hard-deletes the
+row, and retires the KV routing entry. Skips the 30-day self-service grace period entirely; unlike
+`POST /api/me/deletion/request`, no scheduled-deletion email is ever queued. Also requires a fresh AAL2
+verification (same `partna.mfa.fresh_window_seconds` window as `updateStatus`/`bulk-status`).
+
+**Request body:** `{ "reason": "10–500 chars", "override_obligations"?: bool }`. `reason` is required — record
+the support ticket reference and justification; it lands in `audit.user_deletion_audit`. The frontend
+force-delete button must collect a reason before calling this endpoint.
+
+- `200` — body: `{ "message": "...", "permanently_deleted": true, "email_freed": true }`
+- `422` — validation (missing/short/long `reason`), or unsettled obligations (body: `reasons: [...]`,
+  retry with `override_obligations: true`)
+- `401` — `mfa_fresh_required` (stale or missing AAL2 verification)
+- `403` — non-admin staff (`staffForceDelete` policy is admin-only even within the staff-admin route group)
+- `502` — the Supabase auth-user deletion failed; the account is left in `pending_deletion` and is
+  retried automatically by the daily purge command (safe to re-run `/force` too)
 
 ### Pre-account builds (marketing pipeline)
 

@@ -177,7 +177,6 @@ return [
         'discord',
         'reddit',
         'telegram',
-        'whatsapp',
         // Booking platform icons
         'fresha',
         'booksy',
@@ -295,6 +294,20 @@ return [
                 'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
                 'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 300),
                 'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
+            ],
+        ],
+
+        // AI menu-structuring spend (Mistral OCR + DeepSeek structuring, via
+        // MenuAiExtractor) — same two-cap pattern as 'apify' above (per-vendor-call
+        // daily cap + a global daily cap), but a separate budget/namespace since
+        // these are a different vendor family entirely. Added 2026-07-23: this
+        // spend previously had NO budget ceiling at all across its three callers
+        // (WebsiteMenuPdfScanJob, GoogleMenuPhotoScanJob, WebsiteMenuHtmlScanJob).
+        'ai_spend' => [
+            'global_daily_cap' => (int) env('PARTNA_AI_SPEND_GLOBAL_DAILY_CAP', 500),
+            'actors' => [
+                'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 300),
+                'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 300),
             ],
         ],
 
@@ -946,6 +959,15 @@ return [
         'public_subscribe_per_hour_email' => (int) env('PARTNA_THROTTLE_PUBLIC_SUBSCRIBE_PER_HOUR_EMAIL', 12),
         'session_writes_per_minute' => (int) env('PARTNA_THROTTLE_SESSION_WRITES_PER_MINUTE', 10),
         'document_download_per_hour' => (int) env('PARTNA_THROTTLE_DOCUMENT_DOWNLOAD_PER_HOUR', 10),
+
+        // CFG-1 (authz-core audit follow-up): remaining hardcoded-literal limiters
+        // extended to match the config-driven pattern above. Values are today's
+        // literals unchanged — config-hygiene extraction only.
+        'health_check_per_minute' => (int) env('PARTNA_THROTTLE_HEALTH_CHECK_PER_MINUTE', 60),
+        'public_site_per_minute' => (int) env('PARTNA_THROTTLE_PUBLIC_SITE_PER_MINUTE', 60),
+        'pre_account_build_per_minute' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_MINUTE', 3),
+        'pre_account_build_per_hour' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_HOUR', 10),
+        'claim_per_minute' => (int) env('PARTNA_THROTTLE_CLAIM_PER_MINUTE', 5),
     ],
 
     /*

@@ -111,6 +111,14 @@ class AppServiceProvider extends ServiceProvider
         // job into the next.
         $this->app->scoped(FetchBudget::class);
 
+        // scoped so a single RecordCacheMetrics instance accumulates every cache
+        // hit/miss/write across one HTTP request (the listener is resolved fresh
+        // per event otherwise, and its per-request batch would never build up).
+        // scoped over singleton for the same reason as FetchBudget above:
+        // forgetScopedInstances() drops it between queue jobs, so a worker can't
+        // carry request-batch state — or an unflushed batch — from one job to the next.
+        $this->app->scoped(RecordCacheMetrics::class);
+
         // Wire up the channel adapters in priority order: in-app first (fast,
         // in-process), email second (async job dispatch). Both adapters are
         // resolved from the container so their own dependencies are injected.
@@ -352,7 +360,8 @@ class AppServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            return Limit::perMinute(60)->by($request->ip());
+            return Limit::perMinute((int) config('partna.throttle.health_check_per_minute', 60))
+                ->by($request->ip());
         });
 
         // Individual public profile endpoint (§28.8). Tunable via config — pre-clamped
@@ -383,7 +392,7 @@ class AppServiceProvider extends ServiceProvider
 
             $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
-            return Limit::perMinute(60)
+            return Limit::perMinute((int) config('partna.throttle.public_site_per_minute', 60))
                 ->by((string) $key)
                 ->response(function () {
                     return response()->json([
@@ -464,16 +473,18 @@ class AppServiceProvider extends ServiceProvider
                 ->by((string) $key);
         });
 
-        // Per-link click cap — secondary defense against sustained single-link spam
+        // Per-link click cap — secondary defense against sustained single-link spam.
+        // CF-Connecting-IP preferred (SCALE-1) — same rationale as analytics above.
         RateLimiter::for('analytics-click', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();
             }
 
             $blockId = $request->input('block_id', 'unknown');
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return Limit::perMinute((int) config('partna.throttle.analytics_click_per_minute', 5))
-                ->by($request->ip().':click:'.$blockId);
+                ->by($key.':click:'.$blockId);
         });
 
         // Customer lead submissions (form submissions). CF-Connecting-IP
@@ -521,11 +532,11 @@ class AppServiceProvider extends ServiceProvider
             $key = $request->header('CF-Connecting-IP') ?: $request->ip();
 
             return [
-                Limit::perMinute(3)
+                Limit::perMinute((int) config('partna.throttle.pre_account_build_per_minute', 3))
                     ->by('pab:m:'.$key)
                     ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
 
-                Limit::perHour(10)
+                Limit::perHour((int) config('partna.throttle.pre_account_build_per_hour', 10))
                     ->by('pab:h:'.$key)
                     ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
             ];
@@ -705,7 +716,7 @@ class AppServiceProvider extends ServiceProvider
                 throw new \RuntimeException('claim limiter requires supabase_uid — check middleware order.');
             }
 
-            return Limit::perMinute(5)->by('claim:'.$uid);
+            return Limit::perMinute((int) config('partna.throttle.claim_per_minute', 5))->by('claim:'.$uid);
         });
 
         // Session-management write endpoints (logout, logout-others, revoke session).
@@ -732,15 +743,18 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        // Public moderation report submissions. CF-Connecting-IP preferred
+        // (SCALE-3) — same rationale as the other public limiters above.
         RateLimiter::for('partna.moderation.report', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();
             }
 
             $cfg = config('partna.moderation.reporting.public_throttle', ['requests' => 5, 'minutes' => 1]);
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return Limit::perMinutes($cfg['minutes'], $cfg['requests'])
-                ->by($request->ip())
+                ->by($key)
                 ->response(function () {
                     return response()->json([
                         'error' => 'RATE_LIMITED',
@@ -752,15 +766,18 @@ class AppServiceProvider extends ServiceProvider
         // Per-document download cap — prevents a single IP from hammering one
         // document's presigned-URL generation endpoint. Keyed by IP + document UUID
         // so the bucket is per-document, not shared across all downloads.
+        // CF-Connecting-IP preferred (SCALE-2) — same rationale as the other
+        // public limiters above.
         RateLimiter::for('document-download', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return Limit::none();
             }
 
             $documentId = $request->route('document') ?? 'unknown';
+            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
 
             return Limit::perHour((int) config('partna.throttle.document_download_per_hour', 10))
-                ->by($request->ip().':doc:'.$documentId)
+                ->by($key.':doc:'.$documentId)
                 ->response(function () {
                     return response()->json([
                         'message' => 'Too many download attempts. Please try again later.',

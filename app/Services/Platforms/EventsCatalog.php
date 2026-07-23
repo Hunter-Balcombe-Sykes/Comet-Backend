@@ -361,8 +361,6 @@ class EventsCatalog
         }
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
     /** @return array{eventUrl:callable,fetchEvent:callable,accountUrl:callable,fetchAccount:callable}|null */
     private function adapter(string $provider): ?array
     {

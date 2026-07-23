@@ -58,7 +58,7 @@ beforeEach(function () {
     Config::set('partna.throttle.enabled', false);
 });
 
-function seedIndividualProfile(string $handle, ?string $architectureId = null): User
+function seedIndividualProfile(string $handle, ?string $architectureId = null, string $status = 'active'): User
 {
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -73,7 +73,7 @@ function seedIndividualProfile(string $handle, ?string $architectureId = null): 
         'location_city' => 'Sydney',
         'location_state' => 'NSW',
         'location_country' => 'AU',
-        'status' => 'active',
+        'status' => $status,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
@@ -179,6 +179,24 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
         'category' => 'custom',
         'platform' => null,
     ]);
+});
+
+it('flags publicConfig.claim.unclaimed for a published pre-account (unclaimed) profile', function () {
+    // Unclaimed pre-account sites render publicly once published (PublicSiteResolver
+    // whereIn(['active', 'unclaimed'])) — the pages app otherwise has no signal to
+    // distinguish this from a claimed profile (2026-07-22 signup-flows handoff).
+    seedIndividualProfile('unclaimed1', null, 'unclaimed');
+    $data = $this->getJson('/api/public/profiles/unclaimed1')->assertOk()->json('data');
+
+    expect($data['publicConfig'])->toHaveKey('claim');
+    expect($data['publicConfig']['claim'])->toBe(['unclaimed' => true]);
+});
+
+it('omits publicConfig.claim entirely for a claimed (active) profile', function () {
+    seedIndividualProfile('claimed1');
+    $data = $this->getJson('/api/public/profiles/claimed1')->assertOk()->json('data');
+
+    expect($data['publicConfig'])->not->toHaveKey('claim');
 });
 
 it('returns the user-selected architecture_id (with skeletonId transition alias)', function () {
@@ -690,7 +708,7 @@ it('workplace engine returns WorkplaceData when the workplace section is live', 
     DB::connection('pgsql')->table('site.workplaces')->insert([
         'site_id' => $siteId,
         'name' => 'Fade Lab Barbers',
-        'address' => '10 Crown St, Surry Hills',
+        'address_line1' => '10 Crown St',
         'city' => 'Surry Hills',
         'state' => 'NSW',
         'country' => 'AU',
@@ -718,10 +736,10 @@ it('workplace engine returns WorkplaceData when the workplace section is live', 
 
     $workplace = $this->getJson('/api/public/profiles/workplace-live')->assertOk()->json('data.profile.workplace');
 
-    // buildWorkplace() remaps snake_case → camelCase: 11 keys on the wire.
-    expect($workplace)->toHaveKeys(['name', 'address', 'addressLine1', 'city', 'state', 'postcode', 'country', 'latitude', 'longitude', 'phone', 'website']);
+    // buildWorkplace() remaps snake_case → camelCase: 10 keys on the wire.
+    expect($workplace)->toHaveKeys(['name', 'addressLine1', 'city', 'state', 'postcode', 'country', 'latitude', 'longitude', 'phone', 'website']);
     expect($workplace['name'])->toBe('Fade Lab Barbers');
-    expect($workplace['address'])->toBe('10 Crown St, Surry Hills');
+    expect($workplace['addressLine1'])->toBe('10 Crown St');
     expect($workplace['latitude'])->toBe(-33.886);
     expect($workplace['phone'])->toBe('+61 2 9000 0000');
 });

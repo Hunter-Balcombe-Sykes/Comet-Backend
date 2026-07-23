@@ -15,7 +15,7 @@ class UpsertWorkplaceRequest extends BaseFormRequest
     {
         $trimmed = [];
         foreach ([
-            'name', 'address', 'phone', 'website', 'contact_email',
+            'name', 'phone', 'website', 'contact_email',
             // Previous/old website (archive) + business category + editorial
             // description — also auto-filled from Google Business when empty.
             'previous_website', 'category', 'description',
@@ -41,10 +41,8 @@ class UpsertWorkplaceRequest extends BaseFormRequest
             // outright; auto-adopted names are silently word-trimmed instead,
             // see App\Support\BusinessName::wordTrim).
             'name' => ['required', 'string', 'max:15'],
-            'address' => ['nullable', 'string', 'max:500'],
-            // Structured fields — stored alongside the formatted `address`
-            // so manual edits to a single component don't lose the whole
-            // formatted string on round-trip.
+            // Structured fields are the only source of truth — no separate
+            // freeform "display address" string is stored.
             'address_line1' => ['nullable', 'string', 'max:255'],
             'city' => ['nullable', 'string', 'max:120'],
             'state' => ['nullable', 'string', 'max:120'],

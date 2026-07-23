@@ -21,8 +21,6 @@ use Throwable;
 // paid second dig, budget-gated like every other Apify spend.
 class GoogleMenuImagesScraper
 {
-    private const ACTOR = 'compass~crawler-google-places';
-
     private const MAX_IMAGES = 14;
 
     /**
@@ -50,7 +48,7 @@ class GoogleMenuImagesScraper
             $response = Http::withToken($token)
                 ->timeout(110)
                 ->post(
-                    'https://api.apify.com/v2/acts/'.self::ACTOR.'/run-sync-get-dataset-items',
+                    'https://api.apify.com/v2/acts/'.config('services.apify.actors.google_places').'/run-sync-get-dataset-items',
                     [
                         'placeIds' => [$placeId],
                         'language' => 'en',

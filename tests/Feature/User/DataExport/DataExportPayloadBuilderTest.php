@@ -99,7 +99,7 @@ it('excludes previous_website_analysis from the exported workplace, keeping othe
     DB::connection('pgsql')->table('site.workplaces')->insert([
         'site_id' => $siteId,
         'name' => "Jane's Salon",
-        'address' => '123 Example St',
+        'address_line1' => '123 Example St',
         'city' => 'Sydney',
         'phone' => '+61 2 5550 1234',
         'website' => 'https://janes-salon.example.com',
@@ -118,7 +118,7 @@ it('excludes previous_website_analysis from the exported workplace, keeping othe
     // ...but every other user-visible field must still round-trip correctly, so an
     // over-broad fix (stripping the whole row, or `unset`ting the wrong key) fails this.
     expect($payload['site']['workplace']['name'])->toBe("Jane's Salon")
-        ->and($payload['site']['workplace']['address'])->toBe('123 Example St')
+        ->and($payload['site']['workplace']['address_line1'])->toBe('123 Example St')
         ->and($payload['site']['workplace']['city'])->toBe('Sydney')
         ->and($payload['site']['workplace']['phone'])->toBe('+61 2 5550 1234')
         ->and($payload['site']['workplace']['website'])->toBe('https://janes-salon.example.com')

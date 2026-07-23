@@ -30,7 +30,7 @@ class WorkplaceObserver
     // ONLY other columns (previous_website + its field_sources provenance —
     // design-factor inputs, never rendered) skips the purge.
     private const CACHE_AFFECTING_COLUMNS = [
-        'name', 'address', 'address_line1', 'city', 'state', 'postcode', 'country',
+        'name', 'address_line1', 'city', 'state', 'postcode', 'country',
         'latitude', 'longitude', 'phone', 'website', 'category', 'description',
         'opening_hours', 'contact_email',
     ];
@@ -64,6 +64,45 @@ class WorkplaceObserver
                 'workplace-save',
                 ['site_id' => $workplace->site_id],
             );
+        }
+
+        // Keep User.public_contact_number/email (what the public sitepage
+        // actually renders) in step with Workplace.phone/contact_email for
+        // EVERY writer, not just the dashboard's own save path (which used
+        // to be the only caller of this mirror — UserWorkplaceController's
+        // own mirrorContactFields() was removed in favour of this, so a
+        // scan/sync-written contact_email now reaches the public page
+        // automatically too, same as a manual edit always did).
+        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(['phone', 'contact_email'])) {
+            $this->mirrorContactFields($workplace);
+        }
+    }
+
+    private function mirrorContactFields(Workplace $workplace): void
+    {
+        try {
+            $user = $workplace->site?->user;
+            if ($user === null) {
+                return;
+            }
+            $dirty = false;
+            if ($user->public_contact_number !== $workplace->phone) {
+                $user->public_contact_number = $workplace->phone;
+                $dirty = true;
+            }
+            if ($user->public_contact_email !== $workplace->contact_email) {
+                $user->public_contact_email = $workplace->contact_email;
+                $dirty = true;
+            }
+            if ($dirty) {
+                $user->save();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('WorkplaceObserver contact-mirror failed', [
+                'site_id' => $workplace->site_id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 

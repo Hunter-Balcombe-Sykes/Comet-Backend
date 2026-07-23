@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\User\Site;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Http\Requests\Concerns\LinkBlockRequestHelpers;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -33,6 +34,8 @@ use Illuminate\Validation\Rule;
  */
 class StoreLinkBlockRequest extends BaseFormRequest
 {
+    use LinkBlockRequestHelpers;
+
     protected function prepareForValidation(): void
     {
         $url = $this->input('url');
@@ -49,15 +52,7 @@ class StoreLinkBlockRequest extends BaseFormRequest
             'handle' => is_string($handle) ? trim($handle) : $handle,
         ]);
 
-        if (is_array($this->settings ?? null)) {
-            $this->merge([
-                'settings' => array_merge($this->settings, [
-                    'note' => is_string($this->settings['note'] ?? null)
-                        ? trim($this->settings['note'])
-                        : ($this->settings['note'] ?? null),
-                ]),
-            ]);
-        }
+        $this->trimSettingsNote();
     }
 
     public function rules(): array
@@ -205,16 +200,5 @@ class StoreLinkBlockRequest extends BaseFormRequest
                 }
             }
         });
-    }
-
-    /**
-     * Reject schemes other than http/https for custom links. Blocks
-     * javascript:, data:, file:, ftp:, and similar XSS / exfiltration vectors.
-     */
-    private function isAllowedScheme(string $url): bool
-    {
-        $scheme = parse_url($url, PHP_URL_SCHEME);
-
-        return is_string($scheme) && in_array(strtolower($scheme), ['http', 'https'], true);
     }
 }

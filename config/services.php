@@ -123,6 +123,11 @@ return [
     // instagram-profile-scraper actor. One token, server-side only.
     'apify' => [
         'token' => env('APIFY_TOKEN'),
+        // Shared by GoogleBusinessApifyScraper + GoogleMenuImagesScraper — one
+        // source of truth so the two callers can't drift on the actor id.
+        'actors' => [
+            'google_places' => 'compass~crawler-google-places',
+        ],
     ],
 
     // Mistral — hosted OCR (menu photo → markdown text). Same account/key as

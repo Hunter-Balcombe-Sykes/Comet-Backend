@@ -36,8 +36,6 @@ use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
 
-// TODO(v1): all routes in this file should be prefixed /v1/ once frontend is ready for the migration
-
 // Authorised user logged in
 Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'])
     ->group(function () {

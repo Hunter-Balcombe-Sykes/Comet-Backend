@@ -25,17 +25,7 @@ class StaffNotificationEmailPolicyController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffView', Notification::class);
 
-        $policies = DB::table('notifications.notification_email_policies')
-            ->whereNull('user_id')
-            ->get(['category_key', 'mode'])
-            ->keyBy('category_key');
-
-        $result = array_map(fn (string $cat): array => [
-            'category' => $cat,
-            'mode' => $policies->get($cat)?->mode ?? 'default',
-        ], NotificationPublisher::categories());
-
-        return $this->success(['policies' => array_values($result)]);
+        return $this->success(['policies' => $this->resolvePolicies(null)]);
     }
 
     public function updateGlobal(UpdateNotificationEmailPoliciesRequest $request): JsonResponse
@@ -65,17 +55,7 @@ class StaffNotificationEmailPolicyController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffView', Notification::class);
 
-        $policies = DB::table('notifications.notification_email_policies')
-            ->where('user_id', $professional->id)
-            ->get(['category_key', 'mode'])
-            ->keyBy('category_key');
-
-        $result = array_map(fn (string $cat): array => [
-            'category' => $cat,
-            'mode' => $policies->get($cat)?->mode ?? 'default',
-        ], NotificationPublisher::categories());
-
-        return $this->success(['policies' => array_values($result)]);
+        return $this->success(['policies' => $this->resolvePolicies($professional->id)]);
     }
 
     public function updateProfessional(UpdateNotificationEmailPoliciesRequest $request, User $professional): JsonResponse
@@ -104,5 +84,27 @@ class StaffNotificationEmailPolicyController extends ApiController
         NotificationPublisher::forget($professional->id);
 
         return $this->success(['ok' => true]);
+    }
+
+    /**
+     * Every category's current mode for a scope — global (null) or one professional.
+     *
+     * @return list<array{category: string, mode: string}>
+     */
+    private function resolvePolicies(?string $userId): array
+    {
+        $policies = DB::table('notifications.notification_email_policies')
+            ->when(
+                $userId,
+                fn ($q) => $q->where('user_id', $userId),
+                fn ($q) => $q->whereNull('user_id'),
+            )
+            ->get(['category_key', 'mode'])
+            ->keyBy('category_key');
+
+        return array_values(array_map(fn (string $cat): array => [
+            'category' => $cat,
+            'mode' => $policies->get($cat)?->mode ?? 'default',
+        ], NotificationPublisher::categories()));
     }
 }

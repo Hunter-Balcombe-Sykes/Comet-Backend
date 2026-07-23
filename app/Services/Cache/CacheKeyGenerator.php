@@ -343,6 +343,18 @@ class CacheKeyGenerator
         return 'platforms:apify:'.$actor.':daily:'.$date;
     }
 
+    /** Global daily AI menu-structuring spend counter across Mistral OCR + DeepSeek (mirrors apifyGlobalDailyLimit). */
+    public static function aiSpendGlobalDailyLimit(string $date): string
+    {
+        return 'platforms:ai-spend:global:daily:'.$date;
+    }
+
+    /** Per-vendor-call daily AI spend counter (actor = mistral_ocr|deepseek_structure). */
+    public static function aiSpendActorDailyLimit(string $actor, string $date): string
+    {
+        return 'platforms:ai-spend:'.$actor.':daily:'.$date;
+    }
+
     /**
      * Marker set BEFORE the paid Google Business Apify call and cleared after
      * (GoogleBusinessEnrichJob, JOB-2). Its presence WITHOUT a corresponding

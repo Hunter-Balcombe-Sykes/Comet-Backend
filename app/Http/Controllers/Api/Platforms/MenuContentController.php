@@ -45,7 +45,7 @@ class MenuContentController extends ApiController
 
     // Category sources the owner is allowed to rename/delete — everything else
     // ('uber-eats'/'doordash'/NULL) is scraper-owned and off-limits to hand edits.
-    private const EDITABLE_SOURCES = ['manual', 'scan'];
+    private const EDITABLE_SOURCES = ['manual', 'scan', 'website-scan'];
 
     public function __construct(
         private readonly MenuPayloadComposer $composer,

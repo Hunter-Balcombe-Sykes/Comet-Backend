@@ -149,7 +149,6 @@ final class SectorStylePresets
      * @var array<string, array<string, string|bool>>
      */
     private const SLUG_REFINEMENTS = [
-        // ── Food & Drink ────────────────────────────────────────────────
         // Espresso-toned neighbourhood calm in a cream room, gently rounded.
         'cafe' => ['theme_mode' => 'warm', 'color_accent' => '#92400e', 'border_radius' => '0.25rem', 'motion_pace' => 'normal'],
         // Caramel warmth on cream, soft pastry rounding.
@@ -162,7 +161,6 @@ final class SectorStylePresets
         // Plated restraint: unhurried, airy, wide-tracked, untreated photography.
         'personal-chef' => ['weight_regular' => '400', 'weight_heading' => '400', 'motion_pace' => 'slow', 'effect_image_treatment' => 'none', 'typography_tracking' => 'wide', 'space_regular' => '0.75rem', 'typography_line_height' => '1.3'],
 
-        // ── Beauty & Personal Care ──────────────────────────────────────
         // Sharp + classic: charcoal shop, pole-red, square, flat, stark,
         // mono portfolio, sturdy grotesque.
         'barber' => ['theme_mode' => 'dusk', 'typography_font_family' => 'monument-grotesk', 'color_accent' => '#b91c1c', 'border_radius' => '0', 'effect_shadow_style' => 'flat', 'weight_regular' => '500', 'effect_image_treatment' => 'mono', 'theme_contrast' => 'stark'],
@@ -174,7 +172,6 @@ final class SectorStylePresets
         // Editorial glam: Helvetica, square, flat — the look book, unfiltered.
         'makeup-artist' => ['typography_font_family' => 'helvetica-neue', 'border_radius' => '0', 'effect_shadow_style' => 'flat'],
 
-        // ── Health & Fitness ────────────────────────────────────────────
         // Poster register for the gym floor: charcoal, emerald that pops on
         // dark, CAPS, tight tracking, heavy headings.
         'gym' => ['theme_mode' => 'dusk', 'color_accent' => '#10b981', 'typography_uppercase' => true, 'typography_tracking' => 'tight', 'weight_heading' => '600'],
@@ -191,13 +188,11 @@ final class SectorStylePresets
         'chiropractor' => ['typography_font_family' => 'geist', 'color_accent' => '#0e7490', 'weight_regular' => '400', 'motion_pace' => 'normal', 'border_radius' => '0.25rem'],
         'dentist' => ['typography_font_family' => 'geist', 'color_accent' => '#0e7490', 'weight_regular' => '400', 'motion_pace' => 'normal', 'border_radius' => '0.25rem', 'effect_shadow_style' => 'soft'],
 
-        // ── Professional Services ───────────────────────────────────────
         // Creative-pro breaks the suit: expressive font, violet, quick.
         'marketing-agency' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#6d28d9', 'weight_regular' => '400', 'motion_pace' => 'fast', 'effect_link_style' => 'underline-hover'],
         // Premium property: modern-premium font, dark gold, light headings, soft depth.
         'real-estate-agent' => ['typography_font_family' => 'helvetica-now', 'color_accent' => '#a16207', 'weight_regular' => '400', 'weight_heading' => '400', 'effect_shadow_style' => 'soft', 'effect_link_style' => 'underline-hover'],
 
-        // ── Retail & Shopping ───────────────────────────────────────────
         // Velvet-case luxe: charcoal ground, gold that reads on dark, light
         // wide-tracked type, generous space, slow reveal.
         'jewellery' => ['theme_mode' => 'dusk', 'color_accent' => '#ca8a04', 'typography_font_family' => 'helvetica-now', 'weight_regular' => '300', 'weight_heading' => '400', 'motion_pace' => 'slow', 'typography_tracking' => 'wide', 'space_regular' => '0.875rem', 'theme_contrast' => 'soft'],
@@ -208,24 +203,20 @@ final class SectorStylePresets
         // Muted interior calm: greige room, stone accent, muted imagery, roomy.
         'homewares' => ['theme_mode' => 'dust', 'typography_font_family' => 'general-sans', 'color_accent' => '#57534e', 'weight_regular' => '400', 'effect_image_treatment' => 'muted', 'motion_pace' => 'normal', 'space_regular' => '0.75rem', 'theme_contrast' => 'soft'],
 
-        // ── Home & Trade Services (trade-colour identity) ───────────────
         'plumber' => ['color_accent' => '#0369a1'],
         'electrician' => ['color_accent' => '#1d4ed8'],
         'landscaper' => ['color_accent' => '#3f6212'],
         'cleaner' => ['color_accent' => '#0891b2'],
 
-        // ── Hospitality & Events ────────────────────────────────────────
         // Romantic editorial: rose-gold, light airy wide-tracked type, soft depth.
         'wedding-planner' => ['typography_font_family' => 'helvetica-now', 'color_accent' => '#b76e79', 'weight_regular' => '300', 'weight_heading' => '400', 'effect_shadow_style' => 'soft', 'typography_tracking' => 'wide', 'space_regular' => '0.75rem', 'typography_line_height' => '1.3'],
         // The bar-room read, slightly livelier than stays: charcoal over the
         // bucket's cream, dark-safe wine.
         'bartender' => ['theme_mode' => 'dusk', 'color_accent' => '#be123c', 'motion_pace' => 'normal'],
 
-        // ── Automotive ──────────────────────────────────────────────────
         // Gloss-and-water blue over the garage base.
         'car-detailer' => ['color_accent' => '#0284c7'],
 
-        // ── Creative & Entertainment ────────────────────────────────────
         // NEVER filter a photographer's work; borderless quiet gallery,
         // light editorial Helvetica, generous space, neutral slate.
         'photographer' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#475569', 'weight_regular' => '300', 'weight_heading' => '400', 'motion_pace' => 'normal', 'space_regular' => '0.875rem', 'theme_contrast' => 'soft', 'border_style' => 'none'],
@@ -239,7 +230,6 @@ final class SectorStylePresets
         // Vibrant + friendly, app-bubble round.
         'content-creator' => ['typography_font_family' => 'inter', 'color_accent' => '#db2777', 'border_radius' => '0.85rem'],
 
-        // ── Education & Coaching ────────────────────────────────────────
         // Premium-warm over the app-clean base: cream room, premium face.
         'life-coach' => ['theme_mode' => 'warm', 'typography_font_family' => 'helvetica-now'],
         // Expressive movement.
