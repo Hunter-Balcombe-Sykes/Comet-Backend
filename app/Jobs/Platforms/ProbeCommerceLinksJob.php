@@ -133,6 +133,15 @@ class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
             return $this->seedStore($detector, $brands, $user, $read['storeUrl']);
         }
 
+        // Reachable but no product markup: could still be a store LISTING page
+        // whose platform only the detector's own probe chain recognizes
+        // (live case: a Squarespace /-store collection page — no product
+        // JSON-LD, no generic storefront markers, but ?format=json answers).
+        // Unreachable pages skip this — the detector would just re-fail.
+        if ($read['outcome'] === GenericShopScraper::OUTCOME_NO_PRODUCT) {
+            return $this->seedStore($detector, $brands, $user, $this->url);
+        }
+
         return false;
     }
 

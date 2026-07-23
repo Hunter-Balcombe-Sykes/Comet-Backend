@@ -70,14 +70,28 @@ it('seeds a brand when the probe finds a storefront homepage', function () {
     runProbeJob((string) $user->id, 'https://acme.example/', $m);
 });
 
-it('falls back to a custom link when the probe finds nothing', function () {
+it('tries the provider detector on a reachable no-product page, then falls back to a custom link', function () {
     $user = User::factory()->create();
     $m = probeJobMocks();
     $m['generic']->shouldReceive('readProductPage')->once()
         ->andReturn(['outcome' => GenericShopScraper::OUTCOME_NO_PRODUCT, 'product' => null, 'storeUrl' => null]);
+    // A store LISTING page (live case: Squarespace /-store) carries no product
+    // JSON-LD — the detector's own probe chain is the second chance.
+    $m['detector']->shouldReceive('detect')->once()->with('https://someblog.example')->andReturnNull();
     $m['links']->shouldReceive('seed')->once()->withArgs(fn ($u, $url) => $url === 'https://someblog.example');
 
     runProbeJob((string) $user->id, 'https://someblog.example', $m);
+});
+
+it('skips the detector entirely for an unreachable page', function () {
+    $user = User::factory()->create();
+    $m = probeJobMocks();
+    $m['generic']->shouldReceive('readProductPage')->once()
+        ->andReturn(['outcome' => GenericShopScraper::OUTCOME_UNREACHABLE, 'product' => null, 'storeUrl' => null]);
+    $m['detector']->shouldReceive('detect')->never();
+    $m['links']->shouldReceive('seed')->once();
+
+    runProbeJob((string) $user->id, 'https://gone.example', $m);
 });
 
 it('routes classified event and organiser links to the events seeder, with custom-link fallback', function () {
