@@ -46,7 +46,7 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 8 of 11 complete (6 pipeline + 5 review-only)
+- P1 High: 9 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
@@ -740,7 +740,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** Horizon 5.47.2 fixes a metric-clearing defect that manifests specifically under **phpredis with a scan prefix configured**. This application runs phpredis 6.3.0 with the prefix `partna_database_` on Horizon **5.47.0** — the bug's trigger conditions, exactly. Related codebase gotcha worth remembering while touching this area: phpredis `SCAN` sees raw *prefixed* keys and its cursor starts at `null` rather than `0`.
     - **Plain English:** The queue dashboard is running a version of its library with a known bug in how it clears out old statistics, and the bug only shows up in the exact Redis setup this app uses. The fix is already released, and the project's version rules already allow it — so this is a one-command dependency update. It goes first and alone so the lockfile change stays easy to read in the history.
 
-- [ ] **RV-8** · P1 — `RefreshController::refresh()` runs vendor scrapes inline in a `foreach`, up to ~108 s × row count in one request
+- [x] **RV-8** · P1 — `RefreshController::refresh()` runs vendor scrapes inline in a `foreach`, up to ~108 s × row count in one request
     - **Where:** app/Http/Controllers/Api/Platforms/RefreshController.php:40, :76-82
     - **Affects:** Any user clicking refresh with more than one connected platform — the request can exceed any reasonable HTTP timeout, and holds a PHP-FPM worker for its whole duration.
     - **Effort:** S to implement · 🔒 **blocker: changes a public response contract; frontend is a separate repo**
