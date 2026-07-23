@@ -45,8 +45,12 @@ class ProcessLogoVariantsJob implements ShouldQueue
     public array $backoff = [30, 120, 300];
 
     // Generous: cold container start + model load + removal + trace. The HTTP call
-    // itself is bounded by partna.logo_removal.timeout.
-    public int $timeout = 300;
+    // itself is bounded by partna.logo_removal.timeout. R1-JOB-1: kept below
+    // supervisor-1's 300s worker timeout (config/horizon.php) — Illuminate\Queue\
+    // Worker::timeoutForJob() prefers the job's own $timeout over the supervisor's,
+    // so equalling 300 left zero margin for this job's own hard kill to land before
+    // the finally-block lock release / failed() fallback dispatch could run.
+    public int $timeout = 280;
 
     public function __construct(
         public readonly string $originalPath,

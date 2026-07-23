@@ -34,7 +34,11 @@ class ProcessVideoVariantsJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use GuardsMediaProcessing;
 
-    public int $tries = 2;
+    // 4 = 1 initial attempt + 3 retries, one per $backoff element below (R3-SCALE-3:
+    // tries=2 previously meant only backoff[0] (60s) was ever reached — the declared
+    // 300s/900s gaps were dead code. $timeout=720 and the redis_video connection's
+    // retry_after=3600 both have ample headroom for the longer gaps.
+    public int $tries = 4;
 
     // Exponential backoff (JOB-11): transient R2/transcode failures get progressively longer retry gaps.
     public array $backoff = [60, 300, 900];

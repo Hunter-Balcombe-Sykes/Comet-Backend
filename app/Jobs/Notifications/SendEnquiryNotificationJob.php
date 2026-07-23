@@ -41,7 +41,7 @@ class SendEnquiryNotificationJob implements ShouldQueue
         public readonly string $enquiryId,
         public readonly string $blockId,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
     public function handle(): void
