@@ -198,6 +198,25 @@ it('posts to the configured apify actor id', function () {
     ));
 });
 
+// Regression for the 2026-07-23 zero-media incident: the actor's posts are OFF
+// by default ("profile data only"), so the request MUST opt in — and the old
+// resultsLimit key isn't in the actor's input schema at all (was silently
+// ignored for its whole life), so it must stay gone.
+it('sends includeRecentPosts and never the schemaless resultsLimit key', function () {
+    config(['services.apify.token' => 'test-token']);
+    Http::fake(['api.apify.com/*' => Http::response([igScraperItem()], 201)]);
+
+    (new InstagramScraper)->fetchProfile('docpizza');
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+
+        return ($body['includeRecentPosts'] ?? null) === true
+            && ! array_key_exists('resultsLimit', $body)
+            && $body['profiles'] === ['docpizza'];
+    });
+});
+
 it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (older Apify actor shape)', function () {
     config(['services.apify.token' => 'test-token']);
     // Today's real actor output: no biography / externalUrl / externalUrls at all.

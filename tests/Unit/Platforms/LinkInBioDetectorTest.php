@@ -2,7 +2,7 @@
 
 use App\Services\Platforms\LinkInBioDetector;
 
-it('matches each of the 4 curated link-in-bio hosts', function (string $url) {
+it('matches each of the curated link-in-bio hosts', function (string $url) {
     expect(app(LinkInBioDetector::class)->matches($url))->toBeTrue();
 })->with([
     'https://linktr.ee/venue',
@@ -10,6 +10,22 @@ it('matches each of the 4 curated link-in-bio hosts', function (string $url) {
     'https://msha.ke/venue',
     'https://beacons.ai/venue',
     'https://stan.store/venue',
+    // 2026-07-23 expansion (signup-v2 A2) — linkin.bio first: the live retest's
+    // own bio link, missed by the old 4-host list.
+    'https://linkin.bio/supernormal_180',
+    'https://www.linkin.bio/venue',
+    'https://lnk.bio/venue',
+    'https://bio.link/venue',
+    'https://campsite.bio/venue',
+    'https://snipfeed.co/venue',
+    'https://komi.io/venue',
+    'https://hoo.be/venue',
+    'https://taplink.cc/venue',
+    'https://solo.to/venue',
+    'https://liinks.co/venue',
+    'https://heylink.me/venue',
+    'https://allmylinks.com/venue',
+    'https://direct.me/venue',
 ]);
 
 it('does not match an unrelated host', function () {
