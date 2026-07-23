@@ -833,6 +833,47 @@ return [
         ],
     ],
 
+    // Unified actions system (2026-07-23 rebuild — fixed 26-action vocabulary,
+    // demand-rate scoring). See App\Services\PublicSite\Actions\ActionVocabulary
+    // + App\Services\Analytics\RankedActionsComputer.
+    'actions' => [
+        // Bayesian smoothing constant: rate = (taps + k·prior) / (exposures + k).
+        // k=25 ≈ "the first ~25 real sessions outvote the editorial prior."
+        'prior_k' => (int) env('PARTNA_ACTIONS_PRIOR_K', 25),
+        'default_prior' => 0.05,
+        // Plausible click-through-rate per action — the "average viewer intent"
+        // seed. Product knob; tune from real data post-launch. Family entries
+        // ('ordering', 'custom') apply to every dynamic member of that family.
+        'priors' => [
+            'reservations' => 0.30,
+            'booking-services' => 0.28,
+            'menu' => 0.28,
+            'ordering' => 0.25,
+            'shop' => 0.15,
+            'events' => 0.14,
+            'contact' => 0.12,
+            'spotify' => 0.08,
+            'soundcloud' => 0.08,
+            'apple-music' => 0.08,
+            'apple-podcasts' => 0.08,
+            'twitch' => 0.08,
+            'shop-tracks' => 0.08,
+            'instagram' => 0.05,
+            'facebook' => 0.05,
+            'linkedin' => 0.05,
+            'youtube' => 0.05,
+            'tiktok' => 0.05,
+            'x' => 0.05,
+            'snapchat' => 0.05,
+            'pinterest' => 0.05,
+            'threads' => 0.05,
+            'discord' => 0.05,
+            'reddit' => 0.05,
+            'telegram' => 0.05,
+            'custom' => 0.05,
+        ],
+    ],
+
     // `contact` = visitor-submitted contact form (notification_email lives here).
     // `public_contact` = the professional's own opt-in contact details surfaced
     //                    publicly on the sitepage — distinct domain, distinct toggle.
