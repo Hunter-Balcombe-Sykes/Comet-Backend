@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
+use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
@@ -12,6 +13,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Rules\PlatformInRegistry;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Cache\PlacesClaim;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\GoogleBusinessService;
@@ -98,7 +100,23 @@ class GoogleBusinessController extends ApiController
             // picker fields and the refresh cron retries within a week.
             // mapDetails() drops absent keys, so the spread never overwrites
             // a picker value with null.
-            $details = $this->service->fetchPlaceDetails($data['placeId']);
+            //
+            // RV-6: a PlacesBudgetExhaustedException means the caller was DENIED
+            // a spend claim, not that the fetch failed. UserCapReached is this
+            // user's own doing (actionable) → 429. PlatformCapReached/Unavailable
+            // is nothing this user can do about → degrade exactly like a missing
+            // key or failed fetch (keep the picker card), but report() so the
+            // platform-wide condition still pages Nightwatch.
+            try {
+                $details = $this->service->fetchPlaceDetails($data['placeId'], (string) $user->id);
+            } catch (PlacesBudgetExhaustedException $e) {
+                if ($e->reason === PlacesClaim::UserCapReached) {
+                    return $this->error("You've looked up too many businesses today. Try again tomorrow.", 429);
+                }
+
+                report($e);
+                $details = null;
+            }
             $merged = [...$selection, ...($details ?? [])];
 
             // Apify enrichment (menu / reservation / order / booking / socials)

@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms\Strategies\Fetch;
 
+use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessService;
@@ -44,7 +45,15 @@ final readonly class GoogleBusinessFetch implements FetchStrategy
             return $payload;
         }
 
-        $details = $this->googleBusiness->fetchPlaceDetails((string) $placeId, (array) ($payload['photos'] ?? []));
+        try {
+            $details = $this->googleBusiness->fetchPlaceDetails((string) $placeId, (string) $connection->user_id, (array) ($payload['photos'] ?? []));
+        } catch (PlacesBudgetExhaustedException) {
+            // RV-6: quiet either way here — the refresh cron isn't a synchronous
+            // caller a user is waiting on, so both UserCapReached and
+            // PlatformCapReached degrade the same way: 'unavailable', prior
+            // payload preserved, retried next cycle.
+            throw new FetchUnavailableException('places_budget_exhausted');
+        }
         if ($details === null) {
             throw new FetchUnavailableException('google_details_fetch_failed');
         }

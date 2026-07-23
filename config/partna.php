@@ -311,6 +311,22 @@ return [
             ],
         ],
 
+        // Google Places (New) spend ceiling (RV-6). The ONLY paid API in the system
+        // with no ceiling until now — and Google's own budgets are alerts, not caps.
+        // Three dimensions, all enforced atomically per BILLED REQUEST (not per
+        // logical fetch — one fetchPlaceDetails() issues up to 16):
+        //   - per-SKU daily cap   (details is the Enterprise+Atmosphere tier; photos is cheaper)
+        //   - global daily cap    (binds first on a mixed storm)
+        //   - per-USER daily cap  (improves on apify/ai_spend: one account cannot drain the platform)
+        'places' => [
+            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 500),
+            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 60),
+            'skus' => [
+                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 200),
+                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 400),
+            ],
+        ],
+
         // CFG-3 (user-api audit): dashboard list endpoint pagination / query-limit
         // defaults, previously hardcoded literals scattered across four
         // controllers (UserEnquiryController, NotificationController,

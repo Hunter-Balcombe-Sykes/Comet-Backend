@@ -24,7 +24,7 @@ it('reports a PlaceDetailsUnavailableException when the billed Place-Details cal
     Exceptions::fake();
     Http::fake(['places.googleapis.com/v1/places/*' => Http::response(['error' => 'quota'], 429)]);
 
-    $result = app(GoogleBusinessService::class)->fetchPlaceDetails('ChIJfail');
+    $result = app(GoogleBusinessService::class)->fetchPlaceDetails('ChIJfail', 'obs-user-1');
 
     expect($result)->toBeNull(); // contract preserved
     Exceptions::assertReported(fn (PlaceDetailsUnavailableException $e) => $e->placeId === 'ChIJfail' && $e->status === 429);
@@ -40,7 +40,7 @@ it('does not report on a healthy Place-Details fetch', function () {
         'places.googleapis.com/v1/places/*' => Http::response(['id' => 'ChIJok'], 200),
     ]);
 
-    app(GoogleBusinessService::class)->fetchPlaceDetails('ChIJok');
+    app(GoogleBusinessService::class)->fetchPlaceDetails('ChIJok', 'obs-user-2');
 
     Exceptions::assertNothingReported();
 });

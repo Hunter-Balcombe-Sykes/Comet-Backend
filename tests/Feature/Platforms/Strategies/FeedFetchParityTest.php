@@ -430,7 +430,7 @@ it('ApplePodcastFetch throws FetchUnavailableException when no episodes (refresh
 
 it('GoogleBusinessFetch produces the same success payload as the refresher (stale detailsFetchedAt → re-fetches)', function () {
     $details = ['rating' => 4.5, 'reviewCount' => 10];
-    $this->mock(GoogleBusinessService::class, fn ($m) => $m->shouldReceive('fetchPlaceDetails')->with('p1', [])->andReturn($details));
+    $this->mock(GoogleBusinessService::class, fn ($m) => $m->shouldReceive('fetchPlaceDetails')->with('p1', Mockery::any(), [])->andReturn($details));
 
     // detailsFetchedAt is 8 days old — past the 6-day freshness window, so both paths re-fetch.
     $stored = ['placeId' => 'p1', 'name' => 'The Cafe', 'detailsFetchedAt' => now()->subDays(8)->toIso8601String()];

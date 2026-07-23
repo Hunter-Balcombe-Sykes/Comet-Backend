@@ -3,6 +3,9 @@
 namespace App\Services\Platforms;
 
 use App\Exceptions\Platforms\PlaceDetailsUnavailableException;
+use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
+use App\Services\Cache\PlacesBudget;
+use App\Services\Cache\PlacesClaim;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -22,7 +25,7 @@ use Illuminate\Support\Facades\Log;
 //    key. Best-effort: enrichment failures never block the basic card.
 class GoogleBusinessService extends PlatformScraper
 {
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    public function __construct(private readonly SafeUrlFetcher $fetcher, private readonly PlacesBudget $budget) {}
 
     /**
      * @return array{url:string, name:?string, lat:?float, lng:?float}|null
@@ -113,37 +116,64 @@ class GoogleBusinessService extends PlatformScraper
     // they should reach the sitepage.
     private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
 
+    // Preserves the previous ->retry(2, 200) semantics: at most 2 attempts, the
+    // second only after a transport-level failure on the first.
+    private const DETAILS_MAX_ATTEMPTS = 2;
+
     /**
      * Fetch Place Details (New) for a place ID and map the response onto
      * payload keys (rating, reviewCount, reviews, hours, phone, website,
      * photos, amenities, …). Null when the server key is unset or the fetch
      * fails — callers keep their existing payload untouched.
      *
+     * RV-6: every billed request (this call, and each photo media resolve
+     * inside resolvePhotoUrls) claims a PlacesBudget slot immediately before
+     * it fires — never once per call to this method, or the accounting would
+     * undercount by up to 16× (1 details + up to 15 photos). A denied claim
+     * throws PlacesBudgetExhaustedException so the caller can decide whether
+     * that's a 429 (their own doing) or a quiet degrade (platform-wide).
+     *
      * @return array<string,mixed>|null
+     *
+     * @throws PlacesBudgetExhaustedException
      */
-    public function fetchPlaceDetails(string $placeId, array $priorPhotos = []): ?array
+    public function fetchPlaceDetails(string $placeId, string $userId, array $priorPhotos = []): ?array
     {
         $key = config('services.google_maps.server_api_key');
         if (! is_string($key) || $key === '') {
             return null;
         }
 
-        try {
-            $res = Http::timeout(5)
-                ->retry(2, 200, throw: false)
-                ->withHeaders([
-                    'X-Goog-Api-Key' => $key,
-                    'X-Goog-FieldMask' => self::DETAILS_FIELD_MASK,
-                ])
-                ->get('https://places.googleapis.com/v1/places/'.rawurlencode($placeId));
-        } catch (\Throwable $e) {
-            report($e); // OBS-1: billed-call network failure must reach Nightwatch, not just the log.
-            Log::warning('google_business.details_fetch_failed', [
-                'placeId' => $placeId,
-                'message' => $e->getMessage(),
-            ]);
+        $res = null;
+        for ($attempt = 1; $attempt <= self::DETAILS_MAX_ATTEMPTS; $attempt++) {
+            $claim = $this->budget->claim('details', $userId);
+            if ($claim !== PlacesClaim::Granted) {
+                throw new PlacesBudgetExhaustedException('details', $claim, $placeId);
+            }
 
-            return null;
+            try {
+                $res = Http::timeout(5)
+                    ->withHeaders([
+                        'X-Goog-Api-Key' => $key,
+                        'X-Goog-FieldMask' => self::DETAILS_FIELD_MASK,
+                    ])
+                    ->get('https://places.googleapis.com/v1/places/'.rawurlencode($placeId));
+                break;
+            } catch (\Throwable $e) {
+                if ($attempt < self::DETAILS_MAX_ATTEMPTS) {
+                    usleep(200_000);
+
+                    continue;
+                }
+
+                report($e); // OBS-1: billed-call network failure must reach Nightwatch, not just the log.
+                Log::warning('google_business.details_fetch_failed', [
+                    'placeId' => $placeId,
+                    'message' => $e->getMessage(),
+                ]);
+
+                return null;
+            }
         }
 
         if (! $res->ok()) {
@@ -166,7 +196,7 @@ class GoogleBusinessService extends PlatformScraper
             // a rotated ref just resolves fresh below. Connect callers pass no prior
             // photos, so this is a no-op there.
             $mapped['photos'] = $this->carryForwardPhotoUrls($mapped['photos'], $priorPhotos);
-            $mapped['photos'] = $this->resolvePhotoUrls($key, $placeId, $mapped['photos']);
+            $mapped['photos'] = $this->resolvePhotoUrls($key, $placeId, $mapped['photos'], $userId);
         }
         if (isset($mapped['lat'], $mapped['lng'])
             && ($pano = $this->streetViewPano($key, (float) $mapped['lat'], (float) $mapped['lng'])) !== null) {
@@ -348,10 +378,18 @@ class GoogleBusinessService extends PlatformScraper
      * Photos that already carry a non-empty url (e.g. carried over from the
      * prior payload by Task 6) are skipped — never re-billed (SCALE-3).
      *
+     * RV-6: one PlacesBudget 'photos' claim per photo admitted into
+     * $toResolve, BEFORE the pool fires — so claims and billed requests are
+     * identical in count by construction. A denied claim stops admitting
+     * further photos (partial result, never fatal — a photo without a
+     * resolved url is already a supported state, identical in shape to a
+     * failed resolve) rather than throwing; only the details call site (§ RV-6)
+     * throws, since a caller's connect can still succeed on a degraded gallery.
+     *
      * @param  array<int, array<string,mixed>>  $photos
      * @return array<int, array<string,mixed>>
      */
-    private function resolvePhotoUrls(string $key, string $placeId, array $photos): array
+    private function resolvePhotoUrls(string $key, string $placeId, array $photos, string $userId): array
     {
         $photos = array_values($photos);
 
@@ -359,9 +397,21 @@ class GoogleBusinessService extends PlatformScraper
         // carried over from the prior payload (GoogleBusinessFetch) is not re-billed.
         $toResolve = [];
         foreach ($photos as $index => $photo) {
-            if (empty($photo['url']) && ! empty($photo['ref'])) {
-                $toResolve[$index] = $photo;
+            if (! empty($photo['url']) || empty($photo['ref'])) {
+                continue; // carry-forward (already has a url) or no ref to resolve — no request, no claim
             }
+
+            $claim = $this->budget->claim('photos', $userId);
+            if ($claim !== PlacesClaim::Granted) {
+                // Only page Nightwatch for a platform-level condition — a routine
+                // per-user cap hit is expected/self-inflicted, not an operator event.
+                if ($claim !== PlacesClaim::UserCapReached) {
+                    report(new PlacesBudgetExhaustedException('photos', $claim, $placeId));
+                }
+                break; // stop admitting — further claims would also be denied
+            }
+
+            $toResolve[$index] = $photo;
         }
         if ($toResolve === []) {
             return $photos;
@@ -411,6 +461,11 @@ class GoogleBusinessService extends PlatformScraper
      * Street View availability probe — the metadata endpoint is free (only
      * image renders are billed). Null when no outdoor pano covers the pin or
      * the Street View Static API isn't enabled on the key.
+     *
+     * RV-6: NOT gated by PlacesBudget — verified free, and must stay that way.
+     * The URL below MUST end in `/streetview/metadata`, never `/streetview` —
+     * dropping that suffix turns this into a billed image render with zero
+     * spend accounting (guarded by an architecture test, § RV-6).
      *
      * @return array{panoId: string, lat: float, lng: float}|null
      */

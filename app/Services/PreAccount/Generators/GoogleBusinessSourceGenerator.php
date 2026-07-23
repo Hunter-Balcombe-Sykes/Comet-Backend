@@ -2,6 +2,7 @@
 
 namespace App\Services\PreAccount\Generators;
 
+use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
@@ -49,7 +50,14 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
 
     public function generate(User $user, Site $site, string $sourceRef): void
     {
-        $details = $this->service->fetchPlaceDetails($sourceRef);
+        try {
+            $details = $this->service->fetchPlaceDetails($sourceRef, (string) $user->id);
+        } catch (PlacesBudgetExhaustedException) {
+            // RV-6: a budget stop is not a bad place_id — FAILURE_SCRAPE_FAILED
+            // is the resettable failure state (build re-runs), never
+            // sourceNotFound(), which would look like permanent bad data.
+            throw SourceGenerationException::scrapeFailed('places budget exhausted');
+        }
         if ($details === null) {
             // Covers both a bad/stale place_id and a missing server key — the
             // service is best-effort-null either way; the build must not hang.

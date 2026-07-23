@@ -1,11 +1,13 @@
 <?php
 
+use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use App\Services\Cache\PlacesClaim;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\IdentitySync;
 use App\Services\PreAccount\Generators\GoogleBusinessSourceGenerator;
@@ -23,7 +25,7 @@ it('fetches place details, seeds a connection, and folds identity into the workp
     // SEC-1: bind the GoogleBusinessService mock BEFORE any IntegrationConnection
     // save — the saving-guard resolves PlatformRegistry eagerly on first save.
     $svc = Mockery::mock(GoogleBusinessService::class);
-    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJtest123')
+    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJtest123', Mockery::any())
         ->andReturn(['name' => 'Jane Cafe', 'address' => '1 Main St', 'phone' => '+61 400 000 000', 'website' => 'https://janecafe.au']);
     app()->instance(GoogleBusinessService::class, $svc);
 
@@ -48,7 +50,7 @@ it('word-trims an over-cap Google name onto display_name, mirroring GoogleBusine
     $longName = 'Jane Cafe Emporium of Extremely Long Names';
 
     $svc = Mockery::mock(GoogleBusinessService::class);
-    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJlongname')
+    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJlongname', Mockery::any())
         ->andReturn(['name' => $longName]);
     app()->instance(GoogleBusinessService::class, $svc);
 
@@ -69,7 +71,7 @@ it('word-trims an over-cap Google name onto display_name, mirroring GoogleBusine
 
 it('strips reviewer PII from the persisted payload while keeping public fields (PRIV-1)', function () {
     $svc = Mockery::mock(GoogleBusinessService::class);
-    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJprivacy')
+    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJprivacy', Mockery::any())
         ->andReturn([
             'name' => 'Jane Cafe',
             'address' => '1 Main St',
@@ -100,7 +102,7 @@ it('dispatches GoogleBusinessEnrichJob even with no Apify token configured, so t
     config(['services.apify.token' => null]);
 
     $svc = Mockery::mock(GoogleBusinessService::class);
-    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJnotoken')
+    $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJnotoken', Mockery::any())
         ->andReturn(['name' => 'Jane Cafe']);
     app()->instance(GoogleBusinessService::class, $svc);
 
@@ -118,6 +120,25 @@ it('dispatches GoogleBusinessEnrichJob even with no Apify token configured, so t
     // what settles it to ok/unavailable via its own harvest-only fallback.
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'google-business')->value('apify_status'))
         ->toBe('pending');
+});
+
+it('maps a Places budget exhaustion to scrape_failed (resettable), not source_not_found (RV-6)', function () {
+    $svc = Mockery::mock(GoogleBusinessService::class);
+    $svc->shouldReceive('fetchPlaceDetails')->once()
+        ->andThrow(new PlacesBudgetExhaustedException('details', PlacesClaim::UserCapReached, 'ChIJbudgetgone'));
+    app()->instance(GoogleBusinessService::class, $svc);
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'account_type' => 'business']);
+    $site = Site::factory()->create(['user_id' => $user->id]);
+
+    try {
+        app(GoogleBusinessSourceGenerator::class)->generate($user, $site, 'ChIJbudgetgone');
+        $this->fail('expected SourceGenerationException');
+    } catch (SourceGenerationException $e) {
+        // scrape_failed is RESETTABLE (build re-runs) — a budget stop is transient,
+        // never source_not_found, which reads as permanently bad data.
+        expect($e->failureCode)->toBe(PreAccountBuild::FAILURE_SCRAPE_FAILED);
+    }
 });
 
 it('maps a null details response to source_not_found', function () {

@@ -367,6 +367,24 @@ class CacheKeyGenerator
         return 'platforms:ai-spend:'.$actor.':daily:'.$date;
     }
 
+    /** Global daily Places claim counter across ALL SKUs and users (RV-6 cost ceiling). */
+    public static function placesGlobalDailyLimit(string $date): string
+    {
+        return 'platforms:places:global:daily:'.$date;
+    }
+
+    /** Per-SKU daily Places claim counter (sku = details|photos). */
+    public static function placesSkuDailyLimit(string $sku, string $date): string
+    {
+        return 'platforms:places:sku:'.$sku.':daily:'.$date;
+    }
+
+    /** Per-user daily Places claim counter — bounds one account's spend independent of the platform totals (RV-6). */
+    public static function placesUserDailyLimit(string $userId, string $date): string
+    {
+        return 'platforms:places:user:'.$userId.':daily:'.$date;
+    }
+
     /**
      * Marker set BEFORE the paid Google Business Apify call and cleared after
      * (GoogleBusinessEnrichJob, JOB-2). Its presence WITHOUT a corresponding

@@ -1,9 +1,12 @@
 <?php
 
+use App\Exceptions\Platforms\PlacesBudgetExhaustedException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\PlacesClaim;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -174,6 +177,72 @@ it('keeps the picker selection when the details fetch fails', function () {
         ->assertOk()
         ->assertJsonPath('name', 'Still Works')
         ->assertJsonMissingPath('rating');
+});
+
+// ── RV-6: Places spend ceiling ────────────────────────────────────────────────
+
+it('returns 429 and persists no connection when the per-user Places cap is exhausted', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    config()->set('partna.limits.places.per_user_daily_cap', 0);
+    Http::fake(); // must never be reached — the claim is denied before any request
+
+    $user = gbDetailsUser('gbd8');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJusercap', 'name' => 'Over The Cap', 'lat' => -37.0, 'lng' => 144.0,
+    ])
+        ->assertStatus(429)
+        ->assertJsonPath('message', "You've looked up too many businesses today. Try again tomorrow.");
+
+    Http::assertNothingSent();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'google-business')->exists())
+        ->toBeFalse();
+});
+
+it('degrades to the picker subset (200) and reports when the platform Places cap is exhausted', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    config()->set('partna.limits.places.global_daily_cap', 0);
+    Exceptions::fake();
+    Http::fake(); // must never be reached — the claim is denied before any request
+
+    $user = gbDetailsUser('gbd9');
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJplatformcap', 'name' => 'Platform Capped', 'lat' => -37.0, 'lng' => 144.0,
+    ])
+        ->assertOk()
+        ->assertJsonPath('name', 'Platform Capped') // picker fields kept
+        ->assertJsonMissingPath('rating')
+        ->assertJsonMissingPath('detailsFetchedAt');
+
+    Http::assertNothingSent();
+    Exceptions::assertReported(fn (PlacesBudgetExhaustedException $e) => $e->sku === 'details');
+
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
+    expect($row->payload['name'])->toBe('Platform Capped')
+        ->and($row->payload)->not->toHaveKey('rating');
+});
+
+it('GoogleBusinessFetch converts a Places budget exhaustion into a quiet unavailable status, prior payload untouched (RV-6)', function () {
+    $user = gbDetailsUser('gbd10');
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => ['url' => 'https://old.example', 'placeId' => 'ChIJbudget', 'name' => 'Old Name', 'lat' => -37.0, 'lng' => 144.0],
+        'last_refreshed_at' => now()->subWeek(),
+    ]);
+
+    $service = Mockery::mock(GoogleBusinessService::class);
+    $service->shouldReceive('fetchPlaceDetails')->once()
+        ->andThrow(new PlacesBudgetExhaustedException('details', PlacesClaim::PlatformCapReached, 'ChIJbudget'));
+    app()->instance(GoogleBusinessService::class, $service);
+
+    $this->artisan('integrations:refresh')->assertSuccessful();
+
+    $conn->refresh();
+    expect($conn->last_refresh_status)->toBe('unavailable');
+    expect($conn->payload['name'])->toBe('Old Name'); // last-known-good kept, never clobbered
 });
 
 // ── Refresh cron ─────────────────────────────────────────────────────────────

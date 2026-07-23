@@ -103,7 +103,7 @@ it('skips billed re-resolution of photos that already carry a url, and pools the
         ['ref' => 'places/x/photos/c'],                                          // needs resolving
     ];
 
-    $out = $ref->invoke($svc, 'test-key', 'ChIJx', $photos);
+    $out = $ref->invoke($svc, 'test-key', 'ChIJx', $photos, 'user-rhl-1');
 
     // Already-resolved photo untouched; the other two resolved.
     expect($out[0]['url'])->toBe('https://cached.example/a.jpg')
@@ -138,7 +138,7 @@ it('reuses a prior photo url when the ref is unchanged (no re-bill), resolves ch
         ['ref' => 'places/ChIJx/photos/STABLE', 'url' => 'https://lh3.example/stable.jpg'],
     ];
 
-    $details = $svc->fetchPlaceDetails('ChIJx', $prior);
+    $details = $svc->fetchPlaceDetails('ChIJx', 'user-rhl-2', $prior);
 
     $byRef = collect($details['photos'])->keyBy('ref');
     expect($byRef['places/ChIJx/photos/STABLE']['url'])->toBe('https://lh3.example/stable.jpg') // reused, not re-billed
