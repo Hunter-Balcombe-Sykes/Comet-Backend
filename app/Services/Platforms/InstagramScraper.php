@@ -100,7 +100,14 @@ class InstagramScraper extends PlatformScraper
 
     public function profilePicUrl(array $profile): ?string
     {
-        $url = data_get($profile, 'profilePicUrlHD') ?? data_get($profile, 'profilePicUrl');
+        // Field-name drift across actor versions: the figue actor returns raw
+        // Instagram GraphQL snake_case (profile_pic_url_hd — confirmed live
+        // 2026-07-23 against the real actor), older shapes used camelCase.
+        // Read both, HD first.
+        $url = data_get($profile, 'profilePicUrlHD')
+            ?? data_get($profile, 'profile_pic_url_hd')
+            ?? data_get($profile, 'profilePicUrl')
+            ?? data_get($profile, 'profile_pic_url');
 
         return is_string($url) ? $url : null;
     }
@@ -216,12 +223,18 @@ class InstagramScraper extends PlatformScraper
         $video = null;
         foreach ($sorted as $entry) {
             $post = $entry['post'];
-            // displayUrl is the cover for every type — a video's poster frame too.
-            $cover = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
+            // The cover for every type — a video's poster frame too. Actor
+            // versions differ on naming: camelCase displayUrl (legacy) vs raw
+            // GraphQL display_url (figue actor, confirmed live 2026-07-23);
+            // images.0 is the shared fallback both emit.
+            $cover = data_get($post, 'displayUrl')
+                ?? data_get($post, 'display_url')
+                ?? data_get($post, 'images.0');
             $cover = is_string($cover) && $cover !== '' ? $cover : null;
 
             if (data_get($post, 'type') === 'Video') {
-                $vid = data_get($post, 'videoUrl');
+                // Same drift: videoUrl (legacy) vs video_url (figue actor).
+                $vid = data_get($post, 'videoUrl') ?? data_get($post, 'video_url');
                 $vid = is_string($vid) && $vid !== '' ? $vid : null;
                 if ($video === null && $vid !== null) {
                     $video = ['thumbnailUrl' => $cover, 'videoUrl' => $vid, 'shortCode' => data_get($post, 'shortCode')];

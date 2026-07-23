@@ -234,6 +234,53 @@ it('fetchProfile + bioLinks tolerate a profile with none of the bio fields (olde
     expect($scraper->bioLinks($profile))->toBe([]);
 });
 
+// ── snake_case actor shape (figue actor, raw Instagram GraphQL — live 2026-07-23) ──
+// The live actor returns profile_pic_url_hd / display_url / video_url, not the
+// legacy camelCase names. Both shapes must read.
+
+it('reads the snake_case profile pic fields the figue actor returns', function () {
+    $scraper = new InstagramScraper;
+
+    expect($scraper->profilePicUrl([
+        'profile_pic_url_hd' => 'https://scontent.cdninstagram.com/hd.jpg',
+        'profile_pic_url' => 'https://scontent.cdninstagram.com/sd.jpg',
+    ]))->toBe('https://scontent.cdninstagram.com/hd.jpg');
+
+    expect($scraper->profilePicUrl([
+        'profile_pic_url' => 'https://scontent.cdninstagram.com/sd.jpg',
+    ]))->toBe('https://scontent.cdninstagram.com/sd.jpg');
+
+    // Legacy camelCase still wins when present (older stored shapes).
+    expect($scraper->profilePicUrl([
+        'profilePicUrlHD' => 'https://scontent.cdninstagram.com/legacy-hd.jpg',
+        'profile_pic_url_hd' => 'https://scontent.cdninstagram.com/hd.jpg',
+    ]))->toBe('https://scontent.cdninstagram.com/legacy-hd.jpg');
+});
+
+it('picks photo cover and video url from the snake_case post shape', function () {
+    $media = (new InstagramScraper)->latestMedia([
+        'latestPosts' => [
+            [
+                'type' => 'Video',
+                'display_url' => 'https://scontent.cdninstagram.com/reel-cover.jpg',
+                'video_url' => 'https://scontent.cdninstagram.com/reel.mp4',
+                'timestamp' => '2026-07-20T00:00:00.000Z',
+                'shortCode' => 'reel1',
+            ],
+            [
+                'type' => 'Image',
+                'display_url' => 'https://scontent.cdninstagram.com/photo.jpg',
+                'timestamp' => '2026-07-19T00:00:00.000Z',
+                'shortCode' => 'img1',
+            ],
+        ],
+    ]);
+
+    expect($media['photo']['thumbnailUrl'])->toBe('https://scontent.cdninstagram.com/photo.jpg');
+    expect($media['video']['videoUrl'])->toBe('https://scontent.cdninstagram.com/reel.mp4');
+    expect($media['video']['thumbnailUrl'])->toBe('https://scontent.cdninstagram.com/reel-cover.jpg');
+});
+
 // ── fetchProfile() failure logging: hashed + case-normalised username, never raw ──
 // SEC-102: the log context must never carry the raw Instagram handle, and the
 // hash must be computed from the LOWERCASED username so "DocPizza" and "docpizza"
