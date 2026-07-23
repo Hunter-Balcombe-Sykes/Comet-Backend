@@ -145,11 +145,12 @@ class StaffUserController extends ApiController
                 'stored_var_count' => count($designKitVars),
                 // The high-signal identity vars for an at-a-glance summary; the
                 // full partial kit ships too for the staff design editor.
+                // Lookup keys are raw `site.design_kits` column names —
+                // designKitVars() returns the row verbatim, so a stale alias
+                // reads as null forever rather than failing loudly.
                 'theme_mode' => $designKitVars['theme_mode'] ?? null,
-                'surface_type' => $designKitVars['surface_type'] ?? null,
-                'font_heading' => $designKitVars['font_heading'] ?? null,
-                'font_body' => $designKitVars['font_body'] ?? null,
-                'accent_color' => $designKitVars['accent_color'] ?? null,
+                'accent_color' => $designKitVars['color_accent'] ?? null,
+                'font_family' => $designKitVars['typography_font_family'] ?? null,
                 'design_kit' => $designKitVars,
             ] : null,
         ]);
