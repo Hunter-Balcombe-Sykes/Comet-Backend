@@ -46,7 +46,7 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 6 of 11 complete (6 pipeline + 5 review-only)
+- P1 High: 8 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
@@ -167,7 +167,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R4-RES-1** · P1 — Menu-scrape retry fallback double-spends the shared, capped Apify daily budget
+- [x] **R4-RES-1** · P1 — Menu-scrape retry fallback double-spends the shared, capped Apify daily budget
     - **Where:** app/Services/Platforms/MenuApifyScraper.php:52-80 (`fetch()`), :100-165 (`fetchStores()`)
     - **Affects:** every user relying on automatic menu sync (Uber Eats / DoorDash), plus every OTHER feature that shares the Apify daily budget (Instagram connect, Google Business enrichment) — a single bot-blocked store can starve all of them for the rest of the day.
     - **Effort:** M (~2–4h)
@@ -716,7 +716,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** The command dispatches one `RefreshConnectionJob` per due connection inside a tight `lazyById()` loop with no cap and no stagger. It fires at 03:00 — the same minute as eleven other scheduled entries, eight of which query Postgres directly from the same 1 GiB container. Its target queue, `platform_refresh`, sits **second-to-last** in `supervisor-1`'s strict-priority list, so the single largest dispatch burst in the system is aimed at the second-lowest-priority lane, behind ten other queues drained by two processes. Refresh latency is therefore the first thing that degrades under growth (review §8: "at 10×… refresh latency degrades first and silently"), and it degrades without alerting because backlog alerting is inert until `RV-2` lands.
     - **Plain English:** Once an hour the system looks up every connected account that is due for a refresh and immediately queues a job for each one, all at once, with no ceiling on how many. It does this at 3 a.m., the same minute that eleven other scheduled tasks start, most of which are hitting the same database on the same small server. And the lane it queues into is second-from-last in priority, so the biggest pile of work in the system is aimed at nearly the slowest-moving line. Spreading the dispatches over a window and capping how many go out per run keeps the design intact while removing the spike.
 
-- [ ] **RV-6** · P1 — Google Places has no spend ceiling in code; it is the only uncapped paid API in the system
+- [x] **RV-6** · P1 — Google Places has no spend ceiling in code; it is the only uncapped paid API in the system
     - **Where:** app/Http/Controllers/Api/Platforms/GoogleBusinessController.php:101 → `fetchPlaceDetails`; app/Services/.../GoogleBusinessService
     - **Affects:** Platform spend. Places SKUs bill at **$5–$35 per 1,000 calls** and the primary dashboard path has neither a burst limiter nor a budget gate.
     - **Effort:** M · 🔒 **blocker: money**
