@@ -7,8 +7,10 @@ use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -129,7 +131,7 @@ class InstagramConnectionSeeder
         // try/catch + report() convention elsewhere in this file.
         if ($stale) {
             try {
-                Storage::disk('media')->delete($stale);
+                $this->mediaDisk()->delete($stale);
             } catch (Throwable $e) {
                 report($e);
             }
@@ -307,12 +309,12 @@ class InstagramConnectionSeeder
             if ($stream === false) {
                 return null;
             }
-            Storage::disk('media')->put($path, $stream);
+            $this->mediaDisk()->put($path, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
             }
 
-            return Storage::disk('media')->url($path);
+            return $this->mediaDisk()->url($path);
         } catch (Throwable $e) {
             // Report so a systemic mirror/R2 failure surfaces in Nightwatch (OBS-7).
             report($e);
@@ -386,12 +388,12 @@ class InstagramConnectionSeeder
             if ($stream === false) {
                 return null;
             }
-            Storage::disk('media')->put($path, $stream);
+            $this->mediaDisk()->put($path, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
             }
 
-            return Storage::disk('media')->url($path);
+            return $this->mediaDisk()->url($path);
         } catch (Throwable $e) {
             report($e);
 
@@ -401,6 +403,19 @@ class InstagramConnectionSeeder
                 @unlink($tmp);
             }
         }
+    }
+
+    // The media disk MUST resolve through MediaDiskResolver, never the literal
+    // 'media' disk name: on Laravel Cloud the 'media' disk's config-cached
+    // credentials go stale (platform R2 creds are injected at runtime, after
+    // config:cache), so every hardcoded disk('media') write/delete came back
+    // Unauthorized — the 2026-07-23 root cause of profile pics, post photos and
+    // reels silently never mirroring (and of the UnableToDeleteFile noise).
+    // Resolved per call, not memoized: the resolver's own superglobal probe is
+    // the source of truth and is cheap.
+    private function mediaDisk(): FilesystemAdapter
+    {
+        return Storage::disk(MediaDiskResolver::resolve());
     }
 
     private function isAllowedHost(string $url): bool
