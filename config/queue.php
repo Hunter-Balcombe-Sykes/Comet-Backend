@@ -75,7 +75,9 @@ return [
             // and RebuildBrandHourlyAggregatesJob have $timeout = 300; use 360 for a
             // 60-second safety margin so a slow job is never re-queued while still running.
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 360),
-            'block_for' => null,
+            // BLPOP for ~5s beats null (userland polling latency+Redis round trips) without
+            // risking 0, which per the Laravel docs stalls SIGTERM handling and breaks deploys.
+            'block_for' => max(1, (int) env('REDIS_QUEUE_BLOCK_FOR', 5)),
             'after_commit' => false,
         ],
 
@@ -87,7 +89,9 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('PARTNA_VIDEO_QUEUE_NAME', env('SIDEST_VIDEO_QUEUE_NAME', 'videos')),
             'retry_after' => (int) env('PARTNA_VIDEO_QUEUE_RETRY_AFTER', env('SIDEST_VIDEO_QUEUE_RETRY_AFTER', 3600)),
-            'block_for' => null,
+            // BLPOP for ~5s beats null (userland polling latency+Redis round trips) without
+            // risking 0, which per the Laravel docs stalls SIGTERM handling and breaks deploys.
+            'block_for' => max(1, (int) env('PARTNA_VIDEO_QUEUE_BLOCK_FOR', 5)),
             'after_commit' => false,
         ],
 
@@ -99,7 +103,9 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('PARTNA_GDPR_QUEUE', env('GDPR_QUEUE', 'gdpr')),
             'retry_after' => (int) env('PARTNA_GDPR_QUEUE_RETRY_AFTER', env('GDPR_QUEUE_RETRY_AFTER', 660)),
-            'block_for' => null,
+            // BLPOP for ~5s beats null (userland polling latency+Redis round trips) without
+            // risking 0, which per the Laravel docs stalls SIGTERM handling and breaks deploys.
+            'block_for' => max(1, (int) env('PARTNA_GDPR_QUEUE_BLOCK_FOR', 5)),
             'after_commit' => false,
         ],
 
@@ -112,7 +118,9 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
             'retry_after' => (int) env('PARTNA_SCRAPING_QUEUE_RETRY_AFTER', 660),
-            'block_for' => null,
+            // BLPOP for ~5s beats null (userland polling latency+Redis round trips) without
+            // risking 0, which per the Laravel docs stalls SIGTERM handling and breaks deploys.
+            'block_for' => max(1, (int) env('PARTNA_SCRAPING_QUEUE_BLOCK_FOR', 5)),
             'after_commit' => false,
         ],
 
