@@ -4,6 +4,8 @@ use App\Jobs\Account\SendAccountDeletionRequestMailJob;
 use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Models\Core\User\User;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -218,4 +220,111 @@ it('failed() never logs the raw token or the confirmation URL — only the hash-
         ->and($entry['context'])
         ->toHaveKey('user_id', $pro->id)
         ->toHaveKey('token_cleared');
+});
+
+// ── R3-JOB-4: stamp-after-send ─────────────────────────────────────────────
+// #SEM-10-style reversal, scoped to this job alone (security-sensitive
+// bearer-token flow reviewed as its own unit). deletion_mail_sent_at moves
+// from "stamped before Mail::send()" to "stamped only once send() returns",
+// so a failed attempt no longer wedges the user behind a false stamp.
+
+it('handle() does not stamp deletion_mail_sent_at when the mail send throws', function () {
+    $rawToken = 'token-'.Str::random(58);
+    $pro = seedUserWithToken($rawToken);
+
+    Mail::shouldReceive('to')->andThrow(new RuntimeException('SMTP down'));
+
+    $job = makeDeletionJob($pro->id, $rawToken);
+
+    expect(fn () => $job->handle())->toThrow(RuntimeException::class);
+
+    $pro->refresh();
+    expect($pro->deletion_mail_sent_at)->toBeNull()
+        ->and($pro->deletion_token_hash)->toBe(hash('sha256', $rawToken));
+});
+
+it('a retry after a failed send re-delivers the confirmation mail', function () {
+    config(['app.frontend_url' => 'https://app.example.test']);
+
+    $rawToken = 'token-'.Str::random(58);
+    $pro = seedUserWithToken($rawToken);
+
+    // Attempt 1: mailer throws. Old behaviour stamped before the send, so this
+    // attempt would already have wedged the row; the point of the fix is that
+    // it doesn't. This is the bug, stated directly.
+    Mail::shouldReceive('to')->andThrow(new RuntimeException('SMTP down'));
+
+    expect(fn () => makeDeletionJob($pro->id, $rawToken)->handle())
+        ->toThrow(RuntimeException::class);
+
+    $pro->refresh();
+    expect($pro->deletion_mail_sent_at)->toBeNull();
+
+    // A fresh job instance (models a real Horizon retry, same tokenHash) must now
+    // actually send. Mail::shouldReceive() above swapped the facade root for a
+    // single-expectation Mockery partial mock; swap in a real MailManager before
+    // Mail::fake() so the fake doesn't wrap that now-exhausted mock.
+    Mail::swap(new MailManager(app()));
+    Mail::fake();
+    makeDeletionJob($pro->id, $rawToken)->handle();
+
+    Mail::assertSentTimes(AccountDeletionRequestedMail::class, 1);
+
+    $pro->refresh();
+    expect($pro->deletion_mail_sent_at)->not->toBeNull();
+});
+
+it('declares ShouldBeUnique with a bounded uniqueFor that outlives its retry chain', function () {
+    $job = makeDeletionJob((string) Str::uuid(), 'token-'.Str::random(58));
+
+    expect($job)->toBeInstanceOf(ShouldBeUnique::class)
+        ->and($job->uniqueFor)->toBeGreaterThan($job->timeout)
+        ->and($job->uniqueFor)->toBe(900);
+});
+
+it('uniqueId() changes when the deletion token rotates, so a re-request is never coalesced', function () {
+    $userId = (string) Str::uuid();
+    $rawTokenA = 'raw-token-a-'.Str::random(50);
+    $rawTokenB = 'raw-token-b-'.Str::random(50);
+
+    $jobA = makeDeletionJob($userId, $rawTokenA);
+    $jobB = makeDeletionJob($userId, $rawTokenB);
+    $jobASameToken = makeDeletionJob($userId, $rawTokenA);
+
+    expect($jobA->uniqueId())->not->toBe($jobB->uniqueId())
+        ->and($jobA->uniqueId())->toBe($jobASameToken->uniqueId());
+});
+
+it('the unique-lock key never carries the raw token or the confirmation URL', function () {
+    // Regression pin, not a discriminator: this passes even without uniqueId()
+    // (there is nothing to fail against pre-fix). It documents the hard
+    // security constraint — the lock key is a plaintext Redis key in cache DB
+    // 4, outside ShouldBeEncrypted's reach (that only ciphers serialize($job)
+    // in createPayload()) — so uniqueId() must never embed the raw token or
+    // the confirmationUrl that carries it.
+    $userId = (string) Str::uuid();
+    $rawToken = 'token-'.Str::random(58);
+    $job = makeDeletionJob($userId, $rawToken);
+
+    $key = $job->uniqueId();
+
+    expect($key)->not->toContain($rawToken)
+        ->and($key)->not->toContain($job->confirmationUrl)
+        ->and($key)->toContain($userId);
+});
+
+it('failed() leaves the token alone once the confirmation mail has provably been sent', function () {
+    $rawToken = 'token-'.Str::random(58);
+    $pro = seedUserWithToken($rawToken);
+
+    DB::connection('pgsql')->table('core.users')
+        ->where('id', $pro->id)
+        ->update(['deletion_mail_sent_at' => now()->toIso8601String()]);
+
+    $job = makeDeletionJob($pro->id, $rawToken);
+    $job->failed(new RuntimeException('SMTP permanently down'));
+
+    $pro->refresh();
+    expect($pro->deletion_token_hash)->toBe(hash('sha256', $rawToken))
+        ->and($pro->deletion_requested_at)->not->toBeNull();
 });

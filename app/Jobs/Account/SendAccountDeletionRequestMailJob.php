@@ -6,6 +6,7 @@ use App\Mail\Notifications\AccountDeletionRequestedMail;
 use App\Models\Core\User\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -21,6 +22,10 @@ use Illuminate\Support\Facades\Mail;
 // AccountDeletionService::request() commits before this job is picked up,
 // otherwise the worker could observe a not-yet-persisted token row.
 //
+// ShouldBeUnique (R3-JOB-4): the real duplicate-dispatch guard is the lock, not
+// the lockForUpdate transaction below (see handle()'s comment). uniqueId() is
+// safe to hold in plaintext — see its own docblock for why.
+//
 // ShouldBeEncrypted: the confirmationUrl carries the raw deletion token as a
 // query param (the consume side hash-matches it against deletion_token_hash, so
 // the URL MUST contain the raw credential to work). That makes the URL a bearer
@@ -28,8 +33,10 @@ use Illuminate\Support\Facades\Mail;
 // Laravel ciphers the serialized payload before it lands in Redis, so Horizon
 // snapshots and Redis backup/monitoring tooling only ever see ciphertext. The
 // bare raw token is never carried as its own field; failed() works off the
-// non-reversible tokenHash, never the token or the URL.
-class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueue
+// non-reversible tokenHash, never the token or the URL. Note this protection is
+// scoped to the queue payload only — it does NOT extend to the ShouldBeUnique
+// lock key, which is why uniqueId() must never embed the raw token or the URL.
+class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -38,6 +45,15 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
     public array $backoff = [30, 120, 300];
 
     public int $timeout = 15;
+
+    // 15 min. Worst-case job-owned window is 3 x 15s timeout + 30s + 120s backoff = 195s
+    // ($backoff[2] is never consumed at $tries = 3); config/horizon.php budgets 60s of
+    // queue wait per attempt on `notifications`, so ~375s end to end. 900 is 2.4x that,
+    // and 60x $timeout, which satisfies HorizonQueueCoverageTest's uniqueFor > timeout rule.
+    // Bounded on purpose: an unset $uniqueFor makes UniqueLock::acquire() pass 0 to
+    // RedisLock, which falls through to SETNX with no expiry — a SIGKILLed worker would
+    // then strand this key in Redis DB 4 forever (RV-3, same run).
+    public int $uniqueFor = 900;
 
     /**
      * @param  string  $userId  core.users PK whose deletion is being confirmed.
@@ -57,11 +73,23 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
         $this->afterCommit = true;
     }
 
+    // Keyed on the token hash as well as the user id: a legitimate re-request always mints
+    // a fresh random token (AccountDeletionService::request():83-84), so it hashes to a
+    // different key and can never be coalesced away by a lock this job still holds.
+    // Uses the sha256 verifier already stored in core.users.deletion_token_hash — never the
+    // raw token and never $confirmationUrl. Unique-lock keys are plain Redis keys in cache
+    // DB 4; ShouldBeEncrypted covers the queue payload only, not the lock key.
+    public function uniqueId(): string
+    {
+        return $this->userId.':'.$this->tokenHash;
+    }
+
     public function handle(): void
     {
-        // Idempotency guard: lock the row so two concurrent workers (retry overlapping
-        // with the original, or Horizon scale-out) cannot both read deletion_mail_sent_at
-        // = null and both deliver the email. Mirrors SendEnquiryConfirmationJob.
+        // Read guard, not a duplicate-dispatch guard: ShouldBeUnique now owns that job.
+        // This transaction only decides whether THIS attempt should still send — the
+        // token may have rotated (re-request) or the mail may already have gone out on a
+        // prior attempt of this same job.
         $professional = DB::connection('pgsql')->transaction(function () {
             $user = User::query()->lockForUpdate()->find($this->userId);
             if ($user === null) {
@@ -75,14 +103,8 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
             }
 
             if ($user->deletion_mail_sent_at !== null) {
-                return false; // already sent on a previous attempt
+                return false; // already delivered on a previous attempt
             }
-
-            // Stamp atomically under the lock (at-most-once: if the mail send later
-            // throws, the retry will skip it — deliberate). Mirrors the confirmation
-            // job's choice: no double-send takes priority over guaranteed delivery;
-            // permanent failures surface via report() in failed().
-            $user->forceFill(['deletion_mail_sent_at' => now()])->saveQuietly();
 
             return $user;
         });
@@ -102,20 +124,37 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
                 confirmationUrl: $this->confirmationUrl,
             )
         );
+
+        // At-least-once: the stamp lands only once the send has returned. A crash between
+        // the two re-delivers on retry, which is strictly preferable to stranding a GDPR
+        // deletion request behind a stamp for a mail that never went out. Same trade-off
+        // SendTransactionalNotificationEmailJob already documents at :170-173.
+        //
+        // Written as a hash-guarded UPDATE rather than saveQuietly() on the model read
+        // above: if the token rotated during the send, saveQuietly() would stamp the row
+        // that now carries the NEW token and wedge that request — recreating this bug.
+        DB::connection('pgsql')
+            ->table('core.users')
+            ->where('id', $this->userId)
+            ->where('deletion_token_hash', $this->tokenHash)
+            ->update(['deletion_mail_sent_at' => now()]);
     }
 
     public function failed(\Throwable $e): void
     {
         report($e);
 
-        // Token rotation guard: only clear the deletion token if it still matches
-        // the hash this job was dispatched with. If the user already re-requested
-        // (writing a fresh token), the WHERE clause matches zero rows and the new
-        // token survives — preventing this failed job from trampling a healthy retry.
+        // Token rotation guard, now also gated on deletion_mail_sent_at being unset: once
+        // the stamp is post-send, deletion_mail_sent_at IS NOT NULL is proof of delivery —
+        // clearing the token in that state would invalidate a confirmation link the user
+        // demonstrably holds, turning a delivered mail into a dead 404. If the user already
+        // re-requested (fresh token) OR the mail already went out on a prior attempt, the
+        // WHERE clause matches zero rows and nothing is cleared.
         $rowsCleared = DB::connection('pgsql')
             ->table('core.users')
             ->where('id', $this->userId)
             ->where('deletion_token_hash', $this->tokenHash)
+            ->whereNull('deletion_mail_sent_at')
             ->update([
                 'deletion_token_hash' => null,
                 'deletion_requested_at' => null,
@@ -123,7 +162,8 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldQueu
 
         // Logs the non-reversible hash + user id only — never the raw token or the
         // confirmationUrl that embeds it, so log retention never holds the bearer
-        // credential.
+        // credential. token_cleared = false now means either "token rotated" or "mail
+        // already delivered" — both are the same "nothing to do" outcome, so no new key.
         Log::error('Account deletion request mail failed', [
             'user_id' => $this->userId,
             'token_cleared' => $rowsCleared > 0,

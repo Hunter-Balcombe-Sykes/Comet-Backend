@@ -137,7 +137,8 @@ it('rolls back token storage if mail send throws', function () {
 
     $pro->refresh();
     expect($pro->deletion_token_hash)->toBeNull()
-        ->and($pro->deletion_requested_at)->toBeNull();
+        ->and($pro->deletion_requested_at)->toBeNull()
+        ->and($pro->deletion_mail_sent_at)->toBeNull();
 });
 
 // ── WHK-102: double-submit idempotency guard ──────────────────────────────
