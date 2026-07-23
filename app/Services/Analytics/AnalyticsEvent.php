@@ -37,6 +37,15 @@ final class AnalyticsEvent
     // without its impression row drops instead of fabricating an impression.
     public const TYPE_SECTION_DWELL = 'section_dwell';
 
+    // Action exposure/tap (2026-07-23 actions rebuild, demand-rate scoring).
+    // Fired by the sitepage's action-surface IntersectionObserver (seen) and
+    // capture-phase click listener (tap); writes analytics.action_events.
+    // Mirrors TYPE_ITEM_VIEW's shape but swaps item_type/item_id for the single
+    // actionId field (App\Services\PublicSite\Actions\ActionVocabulary id).
+    public const TYPE_ACTION_SEEN = 'action_seen';
+
+    public const TYPE_ACTION_TAP = 'action_tap';
+
     public function __construct(
         public readonly string $id,
         public readonly string $type,
@@ -72,6 +81,9 @@ final class AnalyticsEvent
         public readonly ?string $itemTitle = null,
         // Per-section dwell (TYPE_SECTION_DWELL only): cumulative visible-time in ms.
         public readonly ?int $durationMs = null,
+        // Action grain (TYPE_ACTION_SEEN / TYPE_ACTION_TAP only): the
+        // ActionVocabulary id ('<static-id>' or '<family>:<key>').
+        public readonly ?string $actionId = null,
     ) {}
 
     /** @return array<string, mixed> */
@@ -109,6 +121,7 @@ final class AnalyticsEvent
             'item_id' => $this->itemId,
             'item_title' => $this->itemTitle,
             'duration_ms' => $this->durationMs,
+            'action_id' => $this->actionId,
         ];
     }
 
@@ -147,6 +160,7 @@ final class AnalyticsEvent
             itemId: $d['item_id'] ?? null,
             itemTitle: $d['item_title'] ?? null,
             durationMs: isset($d['duration_ms']) ? (int) $d['duration_ms'] : null,
+            actionId: $d['action_id'] ?? null,
         );
     }
 }

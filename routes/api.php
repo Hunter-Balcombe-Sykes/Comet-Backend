@@ -116,6 +116,13 @@ Route::post('/public/analytics/section-dwell', [AnalyticsController::class, 'sec
 // the viewport; feeds analytics.item_views + the popularity scoring job.
 Route::post('/public/analytics/item-seen', [AnalyticsController::class, 'itemSeen'])
     ->middleware('throttle:analytics');
+// Action exposure/tap ingest (2026-07-23 actions rebuild) — one beacon per
+// action doorway entering the viewport / receiving a tap; feeds
+// analytics.action_events + RankedActionsComputer's demand-rate scoring.
+Route::post('/public/analytics/action-seen', [AnalyticsController::class, 'actionSeen'])
+    ->middleware('throttle:analytics');
+Route::post('/public/analytics/action-tap', [AnalyticsController::class, 'actionTap'])
+    ->middleware(['throttle:analytics', 'throttle:analytics-click']);
 // Session heartbeat (analytics v2) — upserts analytics.site_sessions; powers
 // avg-session-duration and the dashboard's live-now counter.
 Route::post('/public/analytics/ping', [AnalyticsController::class, 'ping'])
