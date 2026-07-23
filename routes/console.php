@@ -205,6 +205,17 @@ Schedule::command('feature-flags:prune-expired')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('feature-flags:prune-expired'));
 
+// Active Sessions backstop: drop tracked session_ids Supabase no longer holds
+// (client-only logouts never call /api/sessions/logout, so dead entries pile up
+// for users who never open the sessions page). listSessionsForUser reconciles
+// on read; this sweeps everyone else. Fail-open per user.
+Schedule::command('sessions:reconcile-tracked')
+    ->dailyAt('03:10')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('sessions:reconcile-tracked'));
+
 // Pre-account sites: hard-deletes expired unclaimed builds (+ stale failed
 // builds past failed_prune_hours). Teardown-ordering mirrors
 // AccountDeletionService::purge() — see PruneExpiredPreAccountBuilds.

@@ -29,7 +29,10 @@ class SessionController extends ApiController
         $uid = (string) $request->attributes->get('supabase_uid');
         $currentSessionId = (string) ($request->attributes->get('supabase_session_id') ?? '');
 
-        $sessions = $this->revocation->listSessionsForUser($uid);
+        // Pass the current session so reconciliation never drops it — the
+        // request is authenticated, so "you're logged in but see zero sessions"
+        // must never happen.
+        $sessions = $this->revocation->listSessionsForUser($uid, $currentSessionId !== '' ? $currentSessionId : null);
 
         // Decorate with "is_current" so the UI can render the "This device"
         // badge without inferring it client-side.
@@ -92,7 +95,7 @@ class SessionController extends ApiController
 
         // Only act on sessions the user actually owns. listSessionsForUser
         // returns just their tracked set, so we use it as the authorization.
-        $owned = array_column($this->revocation->listSessionsForUser($uid), 'session_id');
+        $owned = array_column($this->revocation->listSessionsForUser($uid, $currentSessionId !== '' ? $currentSessionId : null), 'session_id');
         if (! in_array($sessionId, $owned, true)) {
             return response()->json(null, 404);
         }

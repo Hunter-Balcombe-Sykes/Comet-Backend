@@ -2,6 +2,8 @@
 
 namespace App\Services\Auth;
 
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -81,7 +83,18 @@ class TokenRevocationService
 
         $setKey = self::USER_SESSIONS_PREFIX.$userId;
         Redis::sadd($setKey, $sessionId);
-        Redis::expire($setKey, $this->maxLifetimeSeconds());
+        // Set the set's TTL only when it has none. Bumping it on every request
+        // (the old behaviour) pinned the whole set — and every dead member in
+        // it — for the full 30 days as long as ANY session stayed active, so
+        // the tracked set never expired. ttl() < 0 means -1 (key exists, no
+        // expiry) or -2 (key missing): both are "no live TTL". A live session
+        // re-adds itself on its next request, and reconciliation drops dead
+        // members, so a set that resets its TTL loses nothing that matters.
+        // (EXPIRE ... NX is the atomic equivalent but the flag isn't uniformly
+        // supported across the phpredis/predis clients this app runs on.)
+        if (Redis::ttl($setKey) < 0) {
+            Redis::expire($setKey, $this->maxLifetimeSeconds());
+        }
 
         if ($metadata !== null) {
             // Hash of session metadata (first-seen device/location, etc.) used
@@ -218,13 +231,21 @@ class TokenRevocationService
      * and legacy entries written before SEC-3 (raw ip / user_agent fields).
      * Sessions persist up to 30 days so legacy rows may exist in production.
      *
+     * Reconciles the tracked set against Supabase's live sessions before
+     * reading, so the list self-heals against client-only logouts (which never
+     * hit /api/sessions/logout, leaving dead session_ids tracked forever).
+     * $currentSessionId, when given, is never dropped by that reconciliation —
+     * the request is authenticated, so the user must never see "zero sessions".
+     *
      * @return list<array{session_id:string,created_at:int,last_seen_at:?int,ip_prefix:string,browser_family:string,platform:string}>
      */
-    public function listSessionsForUser(string $userId): array
+    public function listSessionsForUser(string $userId, ?string $currentSessionId = null): array
     {
         if ($userId === '') {
             return [];
         }
+
+        $this->reconcileTrackedForUser($userId, $currentSessionId);
 
         $sessionIds = Redis::smembers(self::USER_SESSIONS_PREFIX.$userId) ?: [];
         $sessions = [];
@@ -265,6 +286,97 @@ class TokenRevocationService
         usort($sessions, static fn ($a, $b) => $b['created_at'] <=> $a['created_at']);
 
         return $sessions;
+    }
+
+    /**
+     * Drop tracked sessions Supabase no longer considers live. Self-heals the
+     * per-user set against client-only logouts, which never call
+     * /api/sessions/logout so dead session_ids are otherwise tracked forever.
+     *
+     * FAIL-OPEN: when the live-session lookup is unavailable (returns null),
+     * nothing is pruned — a transient DB blip must never empty a security UI or
+     * make the list under-report. Reconciliation only ever REMOVES sessions
+     * that Supabase confirms are gone. $keepSessionId (the caller's current
+     * session, if any) is never dropped.
+     *
+     * Returns null (rather than 0) when the lookup was unavailable, so the
+     * scheduled sweep can tell "nothing to prune" apart from "couldn't reach
+     * Supabase" and escalate a systemic outage. Read callers ignore the return.
+     *
+     * @return int|null Dead sessions untracked, or null if the lookup failed open.
+     */
+    public function reconcileTrackedForUser(string $userId, ?string $keepSessionId = null): ?int
+    {
+        if ($userId === '') {
+            return 0;
+        }
+
+        $live = $this->liveSessionIds($userId);
+        if ($live === null) {
+            return null; // lookup unavailable — fail open, prune nothing
+        }
+
+        $dropped = 0;
+        foreach (Redis::smembers(self::USER_SESSIONS_PREFIX.$userId) ?: [] as $sessionId) {
+            $sid = (string) $sessionId;
+            if ($sid === '' || $sid === $keepSessionId) {
+                continue;
+            }
+            if (! in_array($sid, $live, true)) {
+                $this->untrack($userId, $sid);
+                $dropped++;
+            }
+        }
+
+        return $dropped;
+    }
+
+    /**
+     * Live session ids for a user from Supabase's source of truth, or null when
+     * the lookup can't be trusted (any error). Callers treat null as fail-open.
+     *
+     * @return list<string>|null
+     */
+    private function liveSessionIds(string $userId): ?array
+    {
+        try {
+            return $this->fetchLiveSessionIds($userId);
+        } catch (\Throwable $e) {
+            // Never let a reconciliation lookup failure break the caller.
+            Log::warning('sessions.reconcile.live_lookup_failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Raw lookup of Supabase's live session ids via the core.live_session_ids
+     * SECURITY DEFINER function (app_backend has no direct `auth` access). This
+     * is the single seam tests override to inject a canned live set.
+     *
+     * Returns null when unavailable so callers fail open. The function is
+     * Postgres-only; on the SQLite test connection there is no auth.sessions,
+     * so we short-circuit to null (silently — this is expected, not an error).
+     *
+     * @return list<string>|null
+     */
+    protected function fetchLiveSessionIds(string $userId): ?array
+    {
+        if (DB::connection('pgsql')->getDriverName() !== 'pgsql') {
+            return null;
+        }
+
+        // SETOF scalar function — the output column is named after the function,
+        // so alias it to `id` via the table-alias column list.
+        $rows = DB::connection('pgsql')->select(
+            'SELECT id FROM core.live_session_ids(?) AS t(id)',
+            [$userId],
+        );
+
+        return array_map(static fn ($row) => (string) $row->id, $rows);
     }
 
     // ---------------------------------------------------------------------------
