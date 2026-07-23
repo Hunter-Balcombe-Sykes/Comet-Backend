@@ -28,10 +28,13 @@ class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
 
     private const SOURCE = 'website-scan';
 
-    public int $tries = 3;
+    // AI spend: no automatic retries — a failed scan logs and waits for the
+    // next enrichment rather than re-billing OCR on a flaky afternoon.
+    // ($backoff is moot at one attempt; declared for the job-hygiene policy.)
+    public int $tries = 1;
 
     /** @var list<int> */
-    public array $backoff = [30, 120];
+    public array $backoff = [60];
 
     public int $timeout = 120;
 
