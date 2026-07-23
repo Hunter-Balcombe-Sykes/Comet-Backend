@@ -570,7 +570,11 @@ it('covers every integration GET read-route in the golden master', function () {
     // deferred-capable platform (supportsDeferredConnect()), registered
     // regardless of the rollout flag's current value (capability, not
     // activation — see routes/api/platforms.php). 58 -> 66.
-    expect($readRoutes->count())->toBe(66);
+    // RV-8: the manual dashboard refresh button now queues RefreshConnectionJob
+    // instead of blocking the request thread, so the dashboard needs a way to
+    // poll for completion — GET {platform}/refresh/status returns the queued/
+    // running/done state. 66 -> 67.
+    expect($readRoutes->count())->toBe(67);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/selection',
@@ -638,5 +642,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/youtube/connect/status',
         'api/platforms/youtube/selection',
         'api/platforms/{platform}/display-settings',
+        'api/platforms/{platform}/refresh/status',
     ]);
 })->note('Net-completeness + identity guard: update BOTH the count and the URI list when integration read routes change.');

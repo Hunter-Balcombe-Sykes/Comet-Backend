@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Cache\PlacesBudget;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\StravaClubScraper;
@@ -50,7 +51,7 @@ it('strava normalizes club URLs and splits the og title into location and name',
 // ── Google Business ──────────────────────────────────────────────────────────
 
 it('google business parses full place URLs preferring the pin coordinates', function () {
-    $service = new GoogleBusinessService(bookingFetcherWith([]));
+    $service = new GoogleBusinessService(bookingFetcherWith([]), new PlacesBudget);
 
     $place = $service->resolve('https://www.google.com/maps/place/Sydney+Opera+House/@-33.857,151.213,17z/data=!3m1!4b1!4m6!3m5!1s0x6b12ae665e892fdd!8m2!3d-33.8567844!4d151.2152967');
     expect($place['name'])->toBe('Sydney Opera House');
@@ -74,7 +75,7 @@ it('google business resolves short links through the fetcher', function () {
             'finalUrl' => 'https://www.google.com/maps/place/Fade+Lab/@-37.81,144.96,17z/data=!3d-37.8123!4d144.9601',
             'contentType' => 'text/html',
         ],
-    ]));
+    ]), new PlacesBudget);
 
     $place = $service->resolve('https://maps.app.goo.gl/abc123');
     expect($place['name'])->toBe('Fade Lab');
@@ -89,7 +90,7 @@ it('google business reads the canonical URL from an interstitial body', function
             'finalUrl' => 'https://share.google/xyz',
             'contentType' => 'text/html',
         ],
-    ]));
+    ]), new PlacesBudget);
 
     $place = $service->resolve('https://share.google/xyz');
     expect($place['name'])->toBe('Mock Cafe');
