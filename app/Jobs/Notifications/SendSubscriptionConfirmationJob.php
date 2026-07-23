@@ -7,6 +7,7 @@ use App\Mail\SubscriptionConfirmationMail;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Site\Block;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\RateLimiter;
 // Sends the visitor-facing "you're subscribed" confirmation to the person who
 // joined a newsletter list. No capability gate: public-submission origin, same
 // as SendEnquiryNotificationJob. UUID-only payload — email re-fetched at handle().
-class SendSubscriptionConfirmationJob implements ShouldQueue
+class SendSubscriptionConfirmationJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -31,13 +32,30 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
 
     public int $timeout = 30;
 
+    // Must exceed $timeout and the worst-case tries+backoff span (~210s). Unlike
+    // the enquiry job, this key is a DURABLE subscription row reused across
+    // unsubscribe/re-subscribe cycles, so a stranded lock (OOM/deploy kill)
+    // black-holes a genuine later opt-in for the whole TTL — 300s bounds that
+    // to five minutes. Matches DispatchEnquiryNotificationsJob's value. See
+    // #SEM-10 reversal note below.
+    public int $uniqueFor = 300;
+
     public function __construct(public readonly string $subscriptionId)
     {
         $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
+    public function uniqueId(): string
+    {
+        return $this->subscriptionId;
+    }
+
     public function handle(): void
     {
+        // #SEM-10 reversal: see SendEnquiryConfirmationJob::handle() for the full
+        // rationale. The stamp moves from inside this lock to after a successful
+        // send, so the transaction is now a read-only guard; duplicate-dispatch
+        // protection is ShouldBeUnique (above) plus the durable post-send stamp.
         $sub = DB::transaction(function () {
             $s = EmailSubscription::query()->lockForUpdate()->find($this->subscriptionId);
             if ($s === null) {
@@ -46,15 +64,6 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             if ($s->confirmation_sent_at !== null) {
                 return false;
             }
-
-            // Stamp the idempotency flag while the row lock is still held so the
-            // check-and-set is atomic — a concurrent worker or retry reads the
-            // committed timestamp and bails instead of double-sending. The mail
-            // send happens AFTER this commit, never inside the lock. Deliberate
-            // at-most-once: if the send later throws, the retry skips it (no
-            // double-send) rather than guaranteeing delivery — permanent failures
-            // surface via report() in failed().
-            $s->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
 
             return $s;
         });
@@ -97,7 +106,7 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             return;
         }
 
-        if (! $this->withinRateLimit($recipient)) {
+        if ($this->rateLimitExceeded($recipient)) {
             return;
         }
 
@@ -117,27 +126,43 @@ class SendSubscriptionConfirmationJob implements ShouldQueue
             $brand = $resolver->partna();
         }
 
-        // confirmation_sent_at was already stamped atomically under the lock above.
         Mail::to($recipient)->send(new SubscriptionConfirmationMail(
             brand: $brand,
             unsubscribeUrl: $unsubscribeUrl,
             visitorName: $sub->full_name ?: null,
         ));
+
+        // Stamp only after the send succeeds — see #SEM-10 reversal note in handle().
+        $sub->forceFill(['confirmation_sent_at' => now()])->saveQuietly();
+
+        // Record the rate-limit hit only now that the send actually succeeded —
+        // see SendEnquiryConfirmationJob::recordRateLimitHit() for the full
+        // rationale (shared bucket, must stay logic-identical to that job).
+        $this->recordRateLimitHit($recipient);
     }
 
-    private function withinRateLimit(string $email): bool
+    private function rateLimitKey(string $email): string
     {
-        $key = 'visitor_confirmation:'.hash('sha256', strtolower(trim($email)));
+        return 'visitor_confirmation:'.hash('sha256', strtolower(trim($email)));
+    }
+
+    private function rateLimitExceeded(string $email): bool
+    {
+        $key = $this->rateLimitKey($email);
         $limit = (int) config('partna.throttle.visitor_confirmation_per_hour', 5);
 
         if (RateLimiter::tooManyAttempts($key, $limit)) {
             Log::warning('SendSubscriptionConfirmationJob: visitor confirmation rate limit exceeded', ['key' => $key]);
 
-            return false;
+            return true;
         }
-        RateLimiter::hit($key, 3600);
 
-        return true;
+        return false;
+    }
+
+    private function recordRateLimitHit(string $email): void
+    {
+        RateLimiter::hit($this->rateLimitKey($email), 3600);
     }
 
     public function failed(\Throwable $e): void

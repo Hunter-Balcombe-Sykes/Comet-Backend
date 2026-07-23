@@ -20,8 +20,11 @@
 
 use App\Jobs\Notifications\SendEnquiryConfirmationJob;
 use App\Jobs\Notifications\SendSubscriptionConfirmationJob;
+use App\Mail\EnquiryConfirmationMail;
+use App\Mail\SubscriptionConfirmationMail;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -98,13 +101,13 @@ it('does not send mail when the enquiry visitor confirmation rate limit is excee
         )
     );
 
-    // (c) confirmation_sent_at IS stamped: the lockForUpdate transaction (TXN-1
-    //     fix) commits the check-and-set BEFORE the rate-limit guard is reached.
-    //     Stamping first is intentional — it blocks any retry from re-sending
-    //     once the rate window passes, so the rate-limited send is dropped once,
-    //     not deferred.
+    // (c) confirmation_sent_at is NOT stamped: #SEM-10 reversed — the stamp only
+    //     ever happens after a successful send, and the rate-limit guard returns
+    //     before the send is attempted. A rate-limited attempt is therefore not
+    //     lost forever: once the hourly window clears, a later retry/re-dispatch
+    //     for this enquiry can still send and stamp it.
     $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
-    expect($row->confirmation_sent_at)->not->toBeNull();
+    expect($row->confirmation_sent_at)->toBeNull();
 });
 
 it('does not send mail when enquiry rate limit is exceeded and visitor has no contact block', function () {
@@ -183,15 +186,14 @@ it('does not send mail when the subscription visitor confirmation rate limit is 
         )
     );
 
-    // (c) Like the enquiry job, confirmation_sent_at is stamped under the
-    //     lockForUpdate transaction which runs BEFORE the rate-limit guard.
-    //     The stamp is committed; the rate-limit blocks the mail. No re-send
-    //     can occur — the idempotency check bails any retry attempt.
+    // (c) Like the enquiry job, confirmation_sent_at is NOT stamped: #SEM-10
+    //     reversed — the stamp only happens after a successful send, and the
+    //     rate-limit guard returns before the send is ever attempted.
     $row = DB::connection('pgsql')
         ->table('notifications.email_subscriptions')
         ->where('id', $subId)
         ->first();
-    expect($row->confirmation_sent_at)->not->toBeNull();
+    expect($row->confirmation_sent_at)->toBeNull();
 });
 
 it('does not send mail when subscription rate limit is exceeded even with no newsletter block', function () {
@@ -231,4 +233,122 @@ it('does not send mail when subscription rate limit is exceeded even with no new
             'SendSubscriptionConfirmationJob: visitor confirmation rate limit exceeded'
         )
     );
+});
+
+// ---------------------------------------------------------------------------
+// RATE-LIMITER SPLIT REGRESSION (covers the plan's mandatory §3 deviation)
+//
+// #SEM-10 reversed the stamp-before-send order, which on its own would make
+// EVERY retried failed attempt re-reach RateLimiter::hit() — three failed
+// attempts would burn 3 of the visitor's 5 hourly tokens before the mail ever
+// sends once. The jobs split the limiter into rateLimitExceeded() (check,
+// runs before the send) and recordRateLimitHit() (hit, runs only after a
+// successful send) specifically to close that door. These tests fail against
+// a naive reorder that keeps hit() before the send.
+// ---------------------------------------------------------------------------
+
+it('enquiry job: failed send attempts do not consume rate-limit tokens, only a successful send does', function () {
+    $user = User::factory()->create(['display_name' => 'RL Burn Pro', 'handle' => 'rl-burn-pro', 'handle_lc' => 'rl-burn-pro']);
+    $site = Site::factory()->create(['user_id' => $user->id]);
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $site->id]);
+
+    $email = 'burn-test-enquiry@example.com';
+    $key = 'visitor_confirmation:'.hash('sha256', strtolower(trim($email)));
+    RateLimiter::clear($key);
+
+    Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
+
+    // Three separate enquiries from the same visitor, each failing on send —
+    // models three exhausted retry attempts (or three distinct submissions).
+    for ($i = 0; $i < 3; $i++) {
+        $enquiryId = seedInboxEnquiry($user->id, $site->id, [
+            'email' => $email,
+            'name' => 'Visitor',
+            'subject' => "Attempt {$i}",
+            'confirmation_sent_at' => null,
+        ]);
+
+        expect(fn () => (new SendEnquiryConfirmationJob($enquiryId))->handle())
+            ->toThrow(RuntimeException::class);
+    }
+
+    // None of the three failures should have hit the limiter.
+    expect(RateLimiter::attempts($key))->toBe(0);
+
+    // A fourth, cleanly-sending confirmation must still succeed — none of the
+    // visitor's 5 hourly tokens were burned by the earlier failures. Swap in a
+    // real MailManager first: the three shouldReceive() throws above left the
+    // facade root pointed at a now-exhausted single-expectation Mockery mock.
+    Mail::swap(new MailManager(app()));
+    Mail::fake();
+    $goodEnquiryId = seedInboxEnquiry($user->id, $site->id, [
+        'email' => $email,
+        'name' => 'Visitor',
+        'subject' => 'Good attempt',
+        'confirmation_sent_at' => null,
+    ]);
+
+    (new SendEnquiryConfirmationJob($goodEnquiryId))->handle();
+
+    Mail::assertSent(EnquiryConfirmationMail::class, 1);
+    expect(RateLimiter::attempts($key))->toBe(1);
+});
+
+it('subscription job: failed send attempts do not consume rate-limit tokens, only a successful send does', function () {
+    $user = User::factory()->create(['display_name' => 'RL Burn Sub Pro', 'handle' => 'rl-burn-sub-pro', 'handle_lc' => 'rl-burn-sub-pro']);
+    $site = Site::factory()->create(['user_id' => $user->id]);
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $site->id]);
+
+    $email = 'burn-test-sub@example.com';
+    $key = 'visitor_confirmation:'.hash('sha256', strtolower(trim($email)));
+    RateLimiter::clear($key);
+
+    Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
+
+    for ($i = 0; $i < 3; $i++) {
+        $subId = (string) Str::uuid();
+        DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
+            'id' => $subId,
+            'user_id' => $user->id,
+            'list_key' => 'marketing',
+            'email' => $email,
+            'email_lc' => $email,
+            'full_name' => 'Visitor',
+            'status' => 'subscribed',
+            'subscribed_at' => now()->toDateTimeString(),
+            'unsubscribe_token' => 'tok-'.Str::random(12),
+            'confirmation_sent_at' => null,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+
+        expect(fn () => (new SendSubscriptionConfirmationJob($subId))->handle())
+            ->toThrow(RuntimeException::class);
+    }
+
+    expect(RateLimiter::attempts($key))->toBe(0);
+
+    // Swap in a real MailManager first — see the enquiry-job test above for why.
+    Mail::swap(new MailManager(app()));
+    Mail::fake();
+    $goodSubId = (string) Str::uuid();
+    DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
+        'id' => $goodSubId,
+        'user_id' => $user->id,
+        'list_key' => 'marketing',
+        'email' => $email,
+        'email_lc' => $email,
+        'full_name' => 'Visitor',
+        'status' => 'subscribed',
+        'subscribed_at' => now()->toDateTimeString(),
+        'unsubscribe_token' => 'tok-'.Str::random(12),
+        'confirmation_sent_at' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    (new SendSubscriptionConfirmationJob($goodSubId))->handle();
+
+    Mail::assertSent(SubscriptionConfirmationMail::class, 1);
+    expect(RateLimiter::attempts($key))->toBe(1);
 });

@@ -3,6 +3,7 @@
 use App\Jobs\Notifications\SendEnquiryNotificationJob;
 use App\Mail\SiteEnquiryNotification;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -119,19 +120,33 @@ it('handle: no-ops with a warning when notification_email has been cleared from 
     );
 });
 
-// SEM-10: email_sent_at must be stamped INSIDE the lock transaction, before the
-// mail send. If the send throws, the stamp must already be committed so that a
-// Horizon retry bails at the idempotency guard instead of double-sending.
-it('handle: stamps email_sent_at before the send so a failed send is not retried into a double-send', function () {
+// #SEM-10 reversed: email_sent_at is now stamped AFTER a successful send, not
+// inside the lock transaction beforehand. If the send throws, the stamp must
+// stay unset so a Horizon retry actually re-sends instead of silently no-oping
+// at a stamp that was written before delivery ever succeeded.
+it('handle: leaves email_sent_at unset when the send throws, so the retry re-sends', function () {
     [$enquiryId, $blockId] = seedEnquiryAndBlock();
 
-    // Simulate a transient SMTP failure. The idempotency flag must already be
-    // committed (stamped under lockForUpdate) before Mail::to() is called — so
-    // the throw lands after the stamp and the DB row reflects the claim.
+    // Simulate a transient SMTP failure on the first attempt.
     Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
 
     expect(fn () => (new SendEnquiryNotificationJob($enquiryId, $blockId))->handle())
         ->toThrow(RuntimeException::class);
+
+    $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
+    expect($row->email_sent_at)->toBeNull();
+
+    // A fresh job instance (modelling a real Horizon retry — a new unserialized
+    // instance, not the same in-memory object) must now actually send, and the
+    // stamp must land only after that send succeeds. Mail::shouldReceive() above
+    // swapped the facade root for a single-expectation Mockery partial mock;
+    // swap in a real MailManager before Mail::fake() so the fake doesn't wrap
+    // that now-exhausted mock.
+    Mail::swap(new MailManager(app()));
+    Mail::fake();
+    (new SendEnquiryNotificationJob($enquiryId, $blockId))->handle();
+
+    Mail::assertSent(SiteEnquiryNotification::class, 1);
 
     $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
     expect($row->email_sent_at)->not->toBeNull();

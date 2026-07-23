@@ -4,6 +4,7 @@ use App\Jobs\Notifications\SendSubscriptionConfirmationJob;
 use App\Mail\SubscriptionConfirmationMail;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -89,16 +90,29 @@ it('sends a brand-resolved subscription confirmation', function () {
     expect($row->confirmation_sent_at)->not->toBeNull();
 });
 
-it('stamps confirmation_sent_at under the lock before the send, so a failed send is not retried into a double-send', function () {
+it('leaves confirmation_sent_at unset when the send throws, so the retry re-sends (TXN-2 reversed)', function () {
     $subId = makeConfirmableSubscription();
 
-    // See TXN-1 sibling test: the flag is claimed atomically under the lock, so a
-    // mail-provider failure leaves it committed and a Horizon retry bails instead
-    // of delivering a duplicate "you're subscribed" confirmation. (TXN-2)
+    // See TXN-1 sibling test: #SEM-10 reversed — the stamp is written only
+    // after a successful send, so a mail-provider failure must leave it unset
+    // and a later retry must actually deliver the "you're subscribed" confirmation.
     Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
 
     expect(fn () => (new SendSubscriptionConfirmationJob($subId))->handle())
         ->toThrow(RuntimeException::class);
+
+    $row = DB::connection('pgsql')->table('notifications.email_subscriptions')->where('id', $subId)->first();
+    expect($row->confirmation_sent_at)->toBeNull();
+
+    // A fresh job instance (models a real Horizon retry) must now actually send.
+    // Mail::shouldReceive() above swapped the facade root for a single-expectation
+    // Mockery partial mock; swap in a real MailManager before Mail::fake() so the
+    // fake doesn't wrap that now-exhausted mock.
+    Mail::swap(new MailManager(app()));
+    Mail::fake();
+    (new SendSubscriptionConfirmationJob($subId))->handle();
+
+    Mail::assertSent(SubscriptionConfirmationMail::class, 1);
 
     $row = DB::connection('pgsql')->table('notifications.email_subscriptions')->where('id', $subId)->first();
     expect($row->confirmation_sent_at)->not->toBeNull();

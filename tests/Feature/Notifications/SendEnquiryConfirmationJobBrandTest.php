@@ -6,6 +6,7 @@ use App\Mail\Branding\ProEmailBrandResolver;
 use App\Mail\EnquiryConfirmationMail;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -62,17 +63,30 @@ it('sends a brand-resolved enquiry confirmation', function () {
     expect($row->confirmation_sent_at)->not->toBeNull();
 });
 
-it('stamps confirmation_sent_at under the lock before the send, so a failed send is not retried into a double-send', function () {
+it('leaves confirmation_sent_at unset when the send throws, so the retry re-sends (TXN-1 reversed)', function () {
     [, , $enquiryId] = makeConfirmableBrandEnquiry();
 
-    // Simulate a mail-provider hiccup. The idempotency flag is claimed atomically
-    // under the lockForUpdate transaction, so it must already be committed before
-    // the send is attempted — a Horizon retry then bails at the guard instead of
-    // delivering a second confirmation. (TXN-1)
+    // Simulate a mail-provider hiccup on the first attempt. #SEM-10 reversed:
+    // the stamp is no longer claimed under the lock before the send — it is
+    // written only after Mail::send() succeeds, so a throw here must leave it
+    // unset and a later retry must actually re-send.
     Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
 
     expect(fn () => (new SendEnquiryConfirmationJob($enquiryId))->handle())
         ->toThrow(RuntimeException::class);
+
+    $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
+    expect($row->confirmation_sent_at)->toBeNull();
+
+    // A fresh job instance (models a real Horizon retry) must now actually send.
+    // Mail::shouldReceive() above swapped the facade root for a single-expectation
+    // Mockery partial mock; swap in a real MailManager before Mail::fake() so the
+    // fake doesn't wrap that now-exhausted mock.
+    Mail::swap(new MailManager(app()));
+    Mail::fake();
+    (new SendEnquiryConfirmationJob($enquiryId))->handle();
+
+    Mail::assertSent(EnquiryConfirmationMail::class, 1);
 
     $row = DB::connection('pgsql')->table('site.enquiries')->where('id', $enquiryId)->first();
     expect($row->confirmation_sent_at)->not->toBeNull();

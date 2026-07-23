@@ -6,6 +6,7 @@ use App\Mail\SiteEnquiryNotification;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -23,7 +24,7 @@ use Illuminate\Support\Facades\Mail;
 // the Redis payload carries no PII. If the block was disabled, deleted, or
 // scrubbed of its notification_email between dispatch and handle, the job
 // no-ops with a warning log keyed by enquiry_id only.
-class SendEnquiryNotificationJob implements ShouldQueue
+class SendEnquiryNotificationJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -37,6 +38,13 @@ class SendEnquiryNotificationJob implements ShouldQueue
 
     public int $timeout = 30;
 
+    // Must exceed $timeout and the worst-case tries+backoff span (~210s). The
+    // enquiry is a one-shot UUID, so a stranded lock (OOM/deploy kill) only
+    // blocks re-dispatch of an attempt already lost with the killed worker —
+    // cost is low. 300 matches DispatchEnquiryNotificationsJob (same directory,
+    // same enquiry-UUID key). See #SEM-10 reversal note below.
+    public int $uniqueFor = 300;
+
     public function __construct(
         public readonly string $enquiryId,
         public readonly string $blockId,
@@ -44,9 +52,21 @@ class SendEnquiryNotificationJob implements ShouldQueue
         $this->onQueue(config('partna.queues.notifications', 'notifications'));
     }
 
+    public function uniqueId(): string
+    {
+        return $this->enquiryId;
+    }
+
     public function handle(): void
     {
-        // Lock + idempotency check in one transaction (mirrors SendEnquiryConfirmationJob).
+        // #SEM-10 reversal: the idempotency stamp used to be written HERE, inside
+        // the lock, before the send — an at-most-once choice under which a failed
+        // send stayed "sent" forever, masking the drop from failed()/Nightwatch
+        // despite this job's own (now-corrected) claim that failures surface
+        // there. The stamp now moves to after a successful Mail::send() below,
+        // matching SendTransactionalNotificationEmailJob's at-least-once shape.
+        // The transaction is a read-only guard now; duplicate-dispatch
+        // protection is ShouldBeUnique (above) plus the durable post-send stamp.
         $enquiry = DB::transaction(function () {
             $e = Enquiry::query()->lockForUpdate()->find($this->enquiryId);
             if ($e === null) {
@@ -55,15 +75,6 @@ class SendEnquiryNotificationJob implements ShouldQueue
             if ($e->email_sent_at !== null) {
                 return false;
             }
-
-            // Stamp the idempotency flag while the row lock is still held so the
-            // check-and-set is atomic. A concurrent worker (Horizon scale-out or a
-            // retry) then reads the committed timestamp and bails instead of
-            // double-sending. The mail send happens AFTER this commit, never inside
-            // the lock. This is a deliberate at-most-once choice: if the send later
-            // throws, the retry skips it (no double-send) rather than guaranteeing
-            // delivery — permanent failures surface via report() in failed().
-            $e->forceFill(['email_sent_at' => now()])->saveQuietly();
 
             return $e;
         });
@@ -107,8 +118,10 @@ class SendEnquiryNotificationJob implements ShouldQueue
             return;
         }
 
-        // email_sent_at was already stamped atomically under the lock above.
         Mail::to(trim($notificationEmail))->send(new SiteEnquiryNotification($enquiry));
+
+        // Stamp only after the send succeeds — see #SEM-10 reversal note in handle().
+        $enquiry->forceFill(['email_sent_at' => now()])->saveQuietly();
     }
 
     public function failed(\Throwable $e): void
