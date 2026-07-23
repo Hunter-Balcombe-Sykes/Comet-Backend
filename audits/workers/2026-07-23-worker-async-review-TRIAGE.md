@@ -46,7 +46,7 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 5 of 11 complete (6 pipeline + 5 review-only)
+- P1 High: 6 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
@@ -118,7 +118,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         return $e;
         ```
 
-- [ ] **R3-JOB-4** · P1 — `SendAccountDeletionRequestMailJob` stamp-before-send pattern strands a user's GDPR deletion request with no recovery path
+- [x] **R3-JOB-4** · P1 — `SendAccountDeletionRequestMailJob` stamp-before-send pattern strands a user's GDPR deletion request with no recovery path
     - **Where:** app/Jobs/Account/SendAccountDeletionRequestMailJob.php:61-94
     - **Affects:** End users requesting account deletion under GDPR — a permanent mail failure leaves the deletion token stuck with no automatic recovery, requiring manual staff/DB intervention.
     - **Effort:** M (~2–4h)
