@@ -123,14 +123,34 @@ it('rejects an unknown page id in manual_page_order (staff parity)', function ()
 });
 
 it('rejects label/url on a non-custom action entry (staff parity)', function () {
+    // Current-shape entry ({kind: action, ...}) — a LEGACY {kind: button, ...}
+    // entry with a stray label would instead be migrated by
+    // SiteOrderingValidationRules::normalizeManualActionEntry() before this
+    // rule ever runs (button+ref -> {kind: action, ref}, dropping the
+    // unrecognised label rather than rejecting it — that's the deliberate
+    // lenient-on-legacy-shapes posture; strict validation still applies in
+    // full to anything already in the current shape, which is what this test
+    // proves).
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-strict-order');
 
     patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
-        ['kind' => 'button', 'ref' => 'instagram', 'label' => 'Relabelled'],
+        ['kind' => 'action', 'ref' => 'instagram', 'label' => 'Relabelled'],
     ]]])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['settings.manual_actions.0']);
+});
+
+it('migrates a legacy page-kind action ref on the staff endpoint (staff parity)', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-legacy-order');
+
+    patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
+        ['kind' => 'page', 'ref' => 'book'],
+    ]]])->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('settings'))
+        ->toContain('booking-services');
 });
 
 it('accepts a valid ordering payload on the staff endpoint (not over-rejecting)', function () {
@@ -140,7 +160,7 @@ it('accepts a valid ordering payload on the staff endpoint (not over-rejecting)'
     patchStaffSite($staff, $pro, ['settings' => [
         'smart_actions' => false,
         'manual_actions' => [
-            ['kind' => 'page', 'ref' => 'book'],
+            ['kind' => 'action', 'ref' => 'menu'],
             ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards'],
         ],
     ]])->assertOk();
