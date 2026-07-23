@@ -31,7 +31,7 @@ class CleanupStuckMediaProcessingCommand extends Command
     /**
      * Worst-case wall time per media type, in minutes: job $timeout + lock
      * buffer + retry/backoff headroom, rounded generously up. Images:
-     * 120s timeout, $tries=3. Videos: 720s timeout, $tries=2.
+     * 120s timeout, $tries=3. Videos: 720s timeout, $tries=4.
      */
     private const STALE_AFTER_MINUTES = [
         SiteMedia::MEDIA_TYPE_IMAGE => 30,

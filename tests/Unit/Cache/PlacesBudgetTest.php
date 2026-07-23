@@ -86,3 +86,30 @@ it('fails CLOSED (Unavailable, never Granted) when the cache layer throws', func
     expect($budget->claim('details', 'user-1'))->toBe(PlacesClaim::Unavailable);
     Exceptions::assertReported(RuntimeException::class);
 });
+
+// The rollback decrements used to sit outside claim()'s try/catch: a cache
+// Throwable there escaped uncaught instead of degrading, so a caller catching
+// only PlacesBudgetExhaustedException (GoogleBusinessController) got a 500
+// instead of the intended degrade. This proves the genuine verdict
+// (PlatformCapReached) still returns even when the rollback itself fails.
+it('degrades (does not throw) when the cache layer fails during the rollback decrement', function () {
+    Exceptions::fake();
+    config()->set('partna.limits.places.skus.details', 1);
+
+    $budget = new PlacesBudget;
+    $budget->claim('details', 'user-1'); // 1/1, granted — cap now full
+
+    // Forward add/increment to the real (already-resolved) manager — only
+    // decrement is faked — since Cache::partialMock() rebuilds a bare Mockery
+    // double with no container state, and calling through on THAT breaks the
+    // add/increment path too (masking this test behind an unrelated Unavailable).
+    $real = Cache::getFacadeRoot();
+    Cache::shouldReceive('add')->andReturnUsing(fn (...$args) => $real->add(...$args));
+    Cache::shouldReceive('increment')->andReturnUsing(fn (...$args) => $real->increment(...$args));
+    Cache::shouldReceive('decrement')->andThrow(new RuntimeException('redis down'));
+
+    // 2nd claim exceeds the SKU cap of 1 -> rollback fires -> decrement throws.
+    // Must still surface the genuine rejection reason, not an uncaught Throwable.
+    expect($budget->claim('details', 'user-1'))->toBe(PlacesClaim::PlatformCapReached);
+    Exceptions::assertReported(RuntimeException::class);
+});

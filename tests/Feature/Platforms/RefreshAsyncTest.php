@@ -179,6 +179,32 @@ it('polls failed when no row ends ok', function () {
         ->assertJsonPath('ok', 0);
 });
 
+// Documented semantic: "any fresh-pending -> pending; else any ok -> ready; else
+// failed". A mixed batch (one row ok, the rest failed) is intentionally 'ready',
+// not 'failed' — pinned here so that aggregation can't silently drift to
+// "failed if ANY row failed" (which would flip this outcome).
+it('polls ready when a mixed ok+failed batch has at least one ok row', function () {
+    $user = refreshAsyncUser('rv8mixed');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-error-1',
+        'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'error',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-error-2',
+        'payload' => ['username' => 'c'], 'is_active' => true, 'last_refresh_status' => 'error',
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+        ->assertOk()
+        ->assertJsonPath('status', 'ready')
+        ->assertJsonPath('refreshed', 3)
+        ->assertJsonPath('ok', 1);
+});
+
 it('resolves a stale pending row (6 minutes old) to failed via the escape hatch', function () {
     $user = refreshAsyncUser('rv8stale');
     IntegrationConnection::create([

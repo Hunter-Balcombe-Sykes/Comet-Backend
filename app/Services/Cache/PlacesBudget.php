@@ -26,8 +26,12 @@ class PlacesBudget
      * counter is checked first since it's the most specific and actionable
      * reason to surface to the caller.
      *
-     * Fails CLOSED: a cache-layer Throwable returns Unavailable rather than
-     * letting a spend gate silently pass during an outage.
+     * Fails CLOSED: a cache-layer Throwable during the initial add/increment
+     * returns Unavailable rather than letting a spend gate silently pass during
+     * an outage. The rollback decrements below are guarded the same way — a
+     * Throwable there is reported but never escapes claim() uncaught, so the
+     * verdict already reached (UserCapReached/PlatformCapReached) still returns
+     * instead of surfacing as an unhandled exception the caller doesn't catch.
      */
     public function claim(string $sku, string $userId): PlacesClaim
     {
@@ -57,22 +61,36 @@ class PlacesBudget
         $userCap = (int) config('partna.limits.places.per_user_daily_cap');
 
         if ($userCount > $userCap) {
-            Cache::decrement($globalKey);
-            Cache::decrement($skuKey);
-            Cache::decrement($userKey);
+            $this->rollback($globalKey, $skuKey, $userKey);
 
             return PlacesClaim::UserCapReached;
         }
 
         if ($global > $globalCap || $skuCount > $skuCap) {
-            Cache::decrement($globalKey);
-            Cache::decrement($skuKey);
-            Cache::decrement($userKey);
+            $this->rollback($globalKey, $skuKey, $userKey);
 
             return PlacesClaim::PlatformCapReached;
         }
 
         return PlacesClaim::Granted;
+    }
+
+    /**
+     * Release a denied claim's three counters. Caught and reported rather than
+     * left to propagate: a Throwable here is an infrastructure failure DURING
+     * a rollback, not a fresh budget decision — the caller must still get back
+     * the verdict claim() already reached, not an uncaught exception that turns
+     * a 429/degrade into a 500 (see class docblock).
+     */
+    private function rollback(string $globalKey, string $skuKey, string $userKey): void
+    {
+        try {
+            Cache::decrement($globalKey);
+            Cache::decrement($skuKey);
+            Cache::decrement($userKey);
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**

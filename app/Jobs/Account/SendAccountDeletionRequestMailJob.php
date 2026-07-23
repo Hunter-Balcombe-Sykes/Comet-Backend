@@ -133,6 +133,11 @@ class SendAccountDeletionRequestMailJob implements ShouldBeEncrypted, ShouldBeUn
         // Written as a hash-guarded UPDATE rather than saveQuietly() on the model read
         // above: if the token rotated during the send, saveQuietly() would stamp the row
         // that now carries the NEW token and wedge that request — recreating this bug.
+        //
+        // Residual gap, documented not fixed: if Mail::send() above succeeded but this
+        // UPDATE then throws on every attempt, deletion_mail_sent_at never lands, so
+        // failed() below clears the token for a request whose email DID go out —
+        // fail-closed and self-recoverable (the user hits a 404 and re-requests within 24h).
         DB::connection('pgsql')
             ->table('core.users')
             ->where('id', $this->userId)

@@ -118,9 +118,12 @@ it('dispatches the oldest-refreshed connections first when the due set exceeds t
 });
 
 it('sorts a never-refreshed connection ahead of a stale one (NULLS FIRST)', function () {
-    // On SQLite plain ASC already sorts NULLs first, so this assertion only bites
-    // on Postgres — it exists to guard the explicit NULLS FIRST clause, not to
-    // catch a SQLite regression.
+    // NOMINAL under SQLite: plain ASC already sorts NULLs first there, so this
+    // assertion cannot actually fail on this suite's driver — it would pass even
+    // with the NULLS FIRST clause deleted. The clause is real and necessary on
+    // Postgres (ASC sorts NULLs LAST by default there), which is what this test
+    // exists to guard. Left in place deliberately so a future "simplify away the
+    // redundant ORDER BY clause" doesn't happen believing this test covers it.
     config()->set('partna.refresh.dispatch.max_per_platform', 1);
     $user = dispatchUser();
     $never = conn($user, 'youtube', ['resource_id' => 'yt-never', 'last_refreshed_at' => null]);

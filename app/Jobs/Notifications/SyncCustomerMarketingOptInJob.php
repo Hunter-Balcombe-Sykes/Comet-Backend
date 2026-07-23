@@ -5,7 +5,7 @@ namespace App\Jobs\Notifications;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\User\Customer;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -24,7 +24,7 @@ use Throwable;
 // Redis-serialised job payload never contains PII. If the subscription row was
 // erased between dispatch and handle (GDPR pseudonymise raced ahead), the lookup
 // returns null and the job no-ops — exactly the desired post-erasure behaviour.
-class SyncCustomerMarketingOptInJob implements ShouldBeUnique, ShouldQueue
+class SyncCustomerMarketingOptInJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -38,11 +38,19 @@ class SyncCustomerMarketingOptInJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 30;
 
-    // R3-JOB-5: dedupe concurrent syncs for the same subscription so the cached
-    // column can't be overwritten by a stale race. 300s (10x $timeout), matching
-    // the sibling $timeout=30 notification jobs (e.g. DispatchEnquiryNotificationsJob)
-    // — long enough that a crashed worker's lock always outlives its own run, short
-    // enough that a genuinely stuck lock clears well before the next subscription edit.
+    // R3-JOB-5: dedupe concurrent syncs for the same subscription. Uses
+    // ShouldBeUniqueUntilProcessing — not plain ShouldBeUnique — because its lock
+    // releases the moment a worker STARTS processing, not when handle() finishes.
+    // Plain ShouldBeUnique would hold the lock for the whole run: a subscription
+    // edit that lands mid-flight would have its re-dispatch silently discarded
+    // (same uniqueId), while the in-flight job goes on to write the PRE-edit value
+    // into marketing_opt_in_cached — a stale cache that then persists until the
+    // NEXT edit. Releasing at processing-start means that re-dispatch is instead
+    // accepted and re-syncs the fresher state once it runs.
+    // 300s (10x $timeout), matching the sibling $timeout=30 notification jobs
+    // (e.g. DispatchEnquiryNotificationsJob) — long enough that a crashed
+    // worker's lock always outlives its own queue wait, short enough that a
+    // genuinely stuck lock clears well before the next subscription edit.
     public int $uniqueFor = 300;
 
     public function __construct(

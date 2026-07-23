@@ -5,6 +5,7 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\ReconcilePlatformTakedownJob;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
+use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\IdentitySync;
@@ -189,31 +190,46 @@ it('staggers dispatch delay across the run using a run-global index, capped', fu
 });
 
 // R3-CACHE-1: the enumeration guard. Pins that a takedown's bulk update reaches
-// ONLY the cache purge — not the identity fold, not the mirrored-media cleanup —
-// so this test fails the day a future IntegrationConnectionObserver arm gets
-// gated on is_active and the takedown ought to run it too. Seed rows via a raw
-// insert (not IntegrationConnection::create()) so the seed itself doesn't fire
-// the CREATE-time observer arms this test isn't about.
+// ONLY the cache purge — not the identity fold, the content-selection seed/auto-
+// enable/slot-reserve, or the mirrored-media cleanup — so this test fails the
+// day a future IntegrationConnectionObserver arm gets gated on is_active and the
+// takedown ought to run it too. Seed rows via a raw insert (not
+// IntegrationConnection::create()) so the seed itself doesn't fire the
+// CREATE-time observer arms this test isn't about. Sites + payloads are seeded
+// so each of the five arms below WOULD fire if the bulk update ever started
+// triggering Eloquent events — an absent side effect is then a real guard, not
+// a no-op by omission (e.g. a missing site would make GB seed/IG auto-enable
+// trivially pass regardless of whether the arm ran).
 it('bypasses every reachable observer side effect except the purge (enumeration guard)', function () {
     Queue::fake();
+    setupContentSelectionTable();
 
     $gbUser = takedownUser('tkgb');
+    takedownSite($gbUser, 'tkgbsite');
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $gbUser->id,
         'platform' => 'google-business',
         'resource_id' => 'gb-1',
-        'payload' => json_encode(['name' => "Jane's Salon", 'category' => 'Hair Salon']),
+        'payload' => json_encode([
+            'name' => "Jane's Salon",
+            'category' => 'Hair Salon',
+            'photos' => [['ref' => 'photo-1', 'url' => 'https://example.com/1.jpg']],
+        ]),
         'is_active' => 1,
     ]);
 
     $igUser = takedownUser('tkig');
+    takedownSite($igUser, 'tkigsite');
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $igUser->id,
         'platform' => 'instagram',
         'resource_id' => 'ig-1',
-        'payload' => json_encode(['_folder' => 'platforms/instagram/old']),
+        'payload' => json_encode([
+            '_folder' => 'platforms/instagram/old',
+            'images' => ['https://example.com/ig-1.jpg'],
+        ]),
         'is_active' => 1,
     ]);
 
@@ -225,4 +241,18 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
     (new ReconcilePlatformTakedownJob('instagram'))->handle(app(SegmentResolver::class));
 
     Queue::assertNotPushed(DeleteMirroredMediaJob::class);
+
+    $gbSiteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $gbUser->id)->value('id');
+    $igSiteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $igUser->id)->value('id');
+
+    // GB content seed never ran: no google-photo pick was created despite a
+    // seedable photo in the payload.
+    expect(ContentSelection::query()->where('site_id', $gbSiteId)->exists())->toBeFalse()
+        // IG auto-enable flag never flipped: the site's flag stays unset.
+        ->and(DB::connection('pgsql')->table('site.sites')->where('id', $igSiteId)->value('content_instagram_auto_enabled'))
+        ->toBeFalsy()
+        // IG slot reservation never ran: no ig-reel/ig-post rows despite a
+        // seedable image in the payload.
+        ->and(ContentSelection::query()->where('site_id', $igSiteId)->whereIn('entry_type', ContentSelection::IG_TYPES)->exists())
+        ->toBeFalse();
 });
