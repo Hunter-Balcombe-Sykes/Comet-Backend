@@ -48,7 +48,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 1 of 19 complete (13 pipeline + 6 review-only)
-- P3 Low: 0 of 6 complete (5 pipeline + 1 review-only)
+- P3 Low: 1 of 6 complete (5 pipeline + 1 review-only)
 
 ---
 
@@ -751,7 +751,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** `refresh()` calls `PlatformRefresher::refresh()` **inline, inside a `foreach` over every connected row**. `SafeUrlFetcher`'s timeouts are **per-hop**, not per-call: 8 s × 6 hops, doubled by the 403 alternate-user-agent retry, is ≈96 s of fetch budget per row, ~108 s worst case end to end — multiplied by row count in a single request. `FetchBudget` (20 s wall-clock) exists and would bound this, but it is opt-in and this path does not opt in. The queued alternative is not speculative: `RefreshConnectionJob` already exists, already wraps this call, and is already the path the hourly cron uses.
     - **Plain English:** When a user hits "refresh my connections," the server tries to re-scrape every connected platform one after another while the browser waits. Each scrape can follow up to six redirects at eight seconds each, and retries once more if it gets blocked — roughly a minute and a half for a single connection, in the worst case, multiplied by however many they have connected. The browser gives up long before that, and meanwhile the server has one of its request handlers tied up doing nothing but waiting. The queued version of this exact work already exists and is already used by the nightly job; this endpoint just needs to hand off to it. The catch is that the endpoint stops returning "here are your results" and starts returning "started, check back" — which the dashboard has to be updated to understand.
 
-- [ ] **RV-9** · P3 — `block_for` is `null` on all four queue connections, so workers poll in userland instead of blocking on `BLPOP`
+- [x] **RV-9** · P3 — `block_for` is `null` on all four queue connections, so workers poll in userland instead of blocking on `BLPOP`
     - **Where:** `config/queue.php` — the `redis`, `redis_scraping`, `redis_gdpr` and `redis_video` connections
     - **Affects:** Job pickup latency and Redis command volume across every queue.
     - **Effort:** S · autonomous
