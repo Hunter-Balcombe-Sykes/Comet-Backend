@@ -47,7 +47,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 0 of 19 complete (13 pipeline + 6 review-only)
+- P2 Medium: 1 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 0 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -728,7 +728,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** No spend ceiling exists in code for Places. What exists is burst limiting on one path only — the `preaccount-places` limiter at 30/min plus `pool_concurrency` 5 — and the **primary dashboard path has neither**. `ApifyBudget` guards a different vendor entirely and does nothing here. The vendor side offers no backstop either: Google's own billing documentation states that *"Setting a budget does not automatically cap Google Cloud or Google Maps Platform usage or spending"* — budgets are alerts, not limits. That combination makes this the only place in the system where a loop, a retry storm or an abusive caller converts directly into unbounded billable spend with nothing in the path to stop it.
     - **Plain English:** Every lookup of a business on Google Maps costs real money — between half a cent and three and a half cents each. Everywhere else in the system that spends money on an external service has a daily allowance that gets checked before each call. This one does not. There is a speed limiter on one secondary path, but the main path people actually use from the dashboard has nothing at all. And Google's own "budget" feature does not help: their documentation is explicit that setting a budget sends you an alert but never stops the spending. So a bug that loops, or someone hammering the endpoint, bills without limit. The fix is the allowance-check the rest of the codebase already uses — with one improvement: bound it per user as well as globally, so one account cannot drain everyone's allowance.
 
-- [ ] **RV-7** · P2 — `laravel/horizon` 5.47.0 carries a metric-clearing bug that triggers under exactly this phpredis + scan-prefix configuration
+- [x] **RV-7** · P2 — `laravel/horizon` 5.47.0 carries a metric-clearing bug that triggers under exactly this phpredis + scan-prefix configuration
     - **Where:** `composer.json` / `composer.lock` — constraint is already `^5.45`
     - **Affects:** Horizon dashboard metrics accuracy.
     - **Effort:** S · autonomous — **first unit, own commit**
