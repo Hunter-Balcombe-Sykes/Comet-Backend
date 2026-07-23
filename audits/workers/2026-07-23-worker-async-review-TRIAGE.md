@@ -47,8 +47,8 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 8 of 19 complete (13 pipeline + 6 review-only)
-- P3 Low: 2 of 6 complete (5 pipeline + 1 review-only)
+- P2 Medium: 10 of 19 complete (13 pipeline + 6 review-only)
+- P3 Low: 3 of 6 complete (5 pipeline + 1 review-only)
 
 ---
 
@@ -209,7 +209,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 ## P2 — Should fix
 
-- [ ] **R1-JOB-1** · P2 — ProcessLogoVariantsJob's own `$timeout` (300s) leaves zero grace period before Horizon's hard-kill, so its `failed()` fallback can be preempted
+- [x] **R1-JOB-1** · P2 — ProcessLogoVariantsJob's own `$timeout` (300s) leaves zero grace period before Horizon's hard-kill, so its `failed()` fallback can be preempted
     - **Where:** app/Jobs/ProcessLogoVariantsJob.php:31
     - **Affects:** Business-Partna logos processed through the background-removal pipeline — if a scrape/removal run genuinely takes the full budget, the job can be killed before its own fallback (dispatching the standard `ProcessImageVariantsJob`) ever fires, leaving the media row stuck in `processing_state = processing` until a separate reconciliation sweep notices it.
     - **Effort:** S (~0.5–1h)
@@ -483,7 +483,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         );
         ```
 
-- [ ] **R3-SCALE-3** · P2 — `ProcessVideoVariantsJob` declares three backoff gaps but `$tries = 2` only ever consumes the first
+- [x] **R3-SCALE-3** · P2 — `ProcessVideoVariantsJob` declares three backoff gaps but `$tries = 2` only ever consumes the first
     - **Where:** app/Jobs/ProcessVideoVariantsJob.php:40-42
     - **Affects:** Video uploaders — a single transient R2 or FFmpeg failure exhausts all retries after one 60s wait, permanently failing an upload that a longer retry window would likely have recovered (the job's own `failed()` handler deletes the partial R2 artifacts, so recovery requires a full re-upload).
     - **Effort:** S (~0.5–1h)
@@ -594,7 +594,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         $customer->saveQuietly();
         ```
 
-- [ ] **R3-OBS-7** · P3 — `SendEnquiryNotificationJob` hardcodes its queue name instead of reading it from config
+- [x] **R3-OBS-7** · P3 — `SendEnquiryNotificationJob` hardcodes its queue name instead of reading it from config
     - **Where:** app/Jobs/Notifications/SendEnquiryNotificationJob.php:62
     - **Affects:** Operations — if `partna.queues.notifications` is ever repointed, this one job silently stays on the old queue name.
     - **Effort:** S (~0.5h)
