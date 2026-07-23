@@ -1464,6 +1464,30 @@ return [
         // successful refresh by ScheduledRefresh::run().
         'max_consecutive_failures' => (int) env('PARTNA_REFRESH_MAX_FAILURES', 10),
 
+        // RV-5: bounds on the hourly dispatcher's fan-out. The cap is per PLATFORM per
+        // RUN, not a global or daily ceiling — the SCALE-1 "capacity scales with the
+        // fleet" design is preserved because eligibility is still pure TTL due-ness and
+        // the selection is oldest-first, so an over-cap backlog drains across
+        // subsequent runs instead of starving. Sized against what supervisor-1 can
+        // realistically drain on the second-to-last-priority platform_refresh lane
+        // within one hour, NOT against fleet size.
+        'dispatch' => [
+            // Max RefreshConnectionJobs dispatched per platform per run.
+            'max_per_platform' => (int) env('PARTNA_REFRESH_MAX_PER_PLATFORM', 250),
+
+            // Seconds across which one run's dispatches are spread via ->delay().
+            // MUST stay well below RefreshConnectionJob::$uniqueFor (7200) — a job
+            // whose unique lock expires before it runs can be duplicated by the next
+            // hourly run. 2700 = 45min, leaving 15min of settle before the next
+            // hourly tick.
+            'stagger_window_seconds' => (int) env('PARTNA_REFRESH_STAGGER_WINDOW', 2700),
+
+            // Upper bound on the gap between two consecutive dispatches, so a small
+            // run (a handful of due connections) finishes in seconds instead of being
+            // smeared over the whole window.
+            'max_stagger_seconds' => (int) env('PARTNA_REFRESH_MAX_STAGGER', 10),
+        ],
+
         // Per-provider outbound rate limit (requests/minute) for the refresh queue,
         // keyed by platform key; falls back to 'default'. Enforced by the
         // 'platform-refresh' RateLimiter (cache-backed → Redis in prod → shared

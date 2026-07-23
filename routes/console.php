@@ -110,8 +110,13 @@ Schedule::command('analytics:compute-popularity')
 // Dispatcher: fan out a queued RefreshConnectionJob per due connection. Hourly so
 // connections are picked up close to their TTL (the heavy work is on the queue, not
 // here). Lock < cadence so a slow run can't overlap the next tick.
+// RV-5: pinned off minute :00 — ->hourly() collided with 10 other scheduled entries
+// every hour (11 at :00 itself, 7 of them Postgres) on the same 1 GiB container.
+// :23 is odd, not divisible by 5 or 15, so it dodges every everyTwoMinutes /
+// everyFiveMinutes / everyFifteenMinutes / hourly entry in this file bar the
+// everyMinute keep-alive ping.
 Schedule::command('integrations:refresh')
-    ->hourly()
+    ->hourlyAt(23)
     ->runInBackground()
     ->onOneServer()
     ->withoutOverlapping(50)
