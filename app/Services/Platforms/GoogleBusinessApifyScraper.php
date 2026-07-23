@@ -24,9 +24,6 @@ use Throwable;
 // keys are logged on each run so the shape can be tuned against real data.
 class GoogleBusinessApifyScraper extends PlatformScraper
 {
-    // owner~name form for the Apify API path.
-    private const ACTOR = 'compass~crawler-google-places';
-
     /**
      * Run the actor for one place ID and map its first dataset item onto the
      * enrichment payload keys (menu, reservation, order, booking, socials).
@@ -54,7 +51,7 @@ class GoogleBusinessApifyScraper extends PlatformScraper
             $response = Http::withToken($token)
                 ->timeout(110)
                 ->post(
-                    'https://api.apify.com/v2/acts/'.self::ACTOR.'/run-sync-get-dataset-items',
+                    'https://api.apify.com/v2/acts/'.config('services.apify.actors.google_places').'/run-sync-get-dataset-items',
                     $this->input($placeId),
                 );
         } catch (Throwable $e) {

@@ -148,8 +148,6 @@ class HumanitixScraper extends PlatformScraper
         ];
     }
 
-    // ── internals ────────────────────────────────────────────────
-
     /** Candidate event-page URLs linked from the host page, deduped. */
     private function candidateEventUrls(string $html): array
     {

@@ -42,7 +42,6 @@ final class SectorTaxonomy
      * @var list<array{slug: string, label: string, group: string, bucket: string}>
      */
     private const SECTORS = [
-        // ── Food & Drink ────────────────────────────────────────────────
         ['slug' => 'restaurant', 'label' => 'Restaurant', 'group' => 'Food & Drink', 'bucket' => SectorStylePresets::FOOD_DRINK],
         ['slug' => 'cafe', 'label' => 'Café / Coffee shop', 'group' => 'Food & Drink', 'bucket' => SectorStylePresets::FOOD_DRINK],
         ['slug' => 'bakery', 'label' => 'Bakery', 'group' => 'Food & Drink', 'bucket' => SectorStylePresets::FOOD_DRINK],
@@ -51,7 +50,6 @@ final class SectorTaxonomy
         ['slug' => 'caterer', 'label' => 'Caterer', 'group' => 'Food & Drink', 'bucket' => SectorStylePresets::FOOD_DRINK],
         ['slug' => 'personal-chef', 'label' => 'Personal chef', 'group' => 'Food & Drink', 'bucket' => SectorStylePresets::FOOD_DRINK],
 
-        // ── Beauty & Personal Care ──────────────────────────────────────
         ['slug' => 'hair-salon', 'label' => 'Hair salon', 'group' => 'Beauty & Personal Care', 'bucket' => SectorStylePresets::BEAUTY_PERSONAL_CARE],
         ['slug' => 'barber', 'label' => 'Barber', 'group' => 'Beauty & Personal Care', 'bucket' => SectorStylePresets::BEAUTY_PERSONAL_CARE],
         ['slug' => 'nail-technician', 'label' => 'Nail technician', 'group' => 'Beauty & Personal Care', 'bucket' => SectorStylePresets::BEAUTY_PERSONAL_CARE],
@@ -61,7 +59,6 @@ final class SectorTaxonomy
         ['slug' => 'tattoo-artist', 'label' => 'Tattoo artist', 'group' => 'Beauty & Personal Care', 'bucket' => SectorStylePresets::BEAUTY_PERSONAL_CARE],
         ['slug' => 'brows-lashes', 'label' => 'Brows & lashes', 'group' => 'Beauty & Personal Care', 'bucket' => SectorStylePresets::BEAUTY_PERSONAL_CARE],
 
-        // ── Health & Fitness ────────────────────────────────────────────
         ['slug' => 'personal-trainer', 'label' => 'Personal trainer', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
         ['slug' => 'gym', 'label' => 'Gym / Studio', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
         ['slug' => 'yoga-instructor', 'label' => 'Yoga / Pilates instructor', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
@@ -71,7 +68,6 @@ final class SectorTaxonomy
         ['slug' => 'therapist', 'label' => 'Therapist / Counsellor', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
         ['slug' => 'dentist', 'label' => 'Dentist', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
 
-        // ── Professional Services ───────────────────────────────────────
         ['slug' => 'accountant', 'label' => 'Accountant / Bookkeeper', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
         ['slug' => 'lawyer', 'label' => 'Lawyer / Solicitor', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
         ['slug' => 'financial-advisor', 'label' => 'Financial advisor', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
@@ -83,7 +79,6 @@ final class SectorTaxonomy
         ['slug' => 'it-services', 'label' => 'IT / Tech services', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
         ['slug' => 'virtual-assistant', 'label' => 'Virtual assistant', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
 
-        // ── Retail & Shopping ───────────────────────────────────────────
         ['slug' => 'clothing-boutique', 'label' => 'Clothing / Fashion boutique', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
         ['slug' => 'jewellery', 'label' => 'Jewellery', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
         ['slug' => 'florist', 'label' => 'Florist', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
@@ -91,7 +86,6 @@ final class SectorTaxonomy
         ['slug' => 'homewares', 'label' => 'Homewares / Décor', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
         ['slug' => 'artisan-maker', 'label' => 'Artisan / Handmade goods', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
 
-        // ── Home & Trade Services ───────────────────────────────────────
         ['slug' => 'plumber', 'label' => 'Plumber', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
         ['slug' => 'electrician', 'label' => 'Electrician', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
         ['slug' => 'builder', 'label' => 'Builder / Carpenter', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
@@ -102,20 +96,17 @@ final class SectorTaxonomy
         ['slug' => 'removalist', 'label' => 'Removalist / Moving', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
         ['slug' => 'pest-control', 'label' => 'Pest control', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
 
-        // ── Hospitality & Events ────────────────────────────────────────
         ['slug' => 'accommodation', 'label' => 'Accommodation / Stays', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
         ['slug' => 'event-venue', 'label' => 'Event venue', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
         ['slug' => 'event-planner', 'label' => 'Event planner', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
         ['slug' => 'wedding-planner', 'label' => 'Wedding planner', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
         ['slug' => 'bartender', 'label' => 'Bartender / Mobile bar', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
 
-        // ── Automotive ──────────────────────────────────────────────────
         ['slug' => 'mechanic', 'label' => 'Mechanic / Auto repair', 'group' => 'Automotive', 'bucket' => SectorStylePresets::AUTOMOTIVE],
         ['slug' => 'car-detailer', 'label' => 'Car detailer / Wash', 'group' => 'Automotive', 'bucket' => SectorStylePresets::AUTOMOTIVE],
         ['slug' => 'auto-electrician', 'label' => 'Auto electrician', 'group' => 'Automotive', 'bucket' => SectorStylePresets::AUTOMOTIVE],
         ['slug' => 'tyre-service', 'label' => 'Tyre / Wheel service', 'group' => 'Automotive', 'bucket' => SectorStylePresets::AUTOMOTIVE],
 
-        // ── Creative & Entertainment ────────────────────────────────────
         ['slug' => 'photographer', 'label' => 'Photographer', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
         ['slug' => 'videographer', 'label' => 'Videographer', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
         ['slug' => 'graphic-designer', 'label' => 'Graphic designer', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
@@ -124,7 +115,6 @@ final class SectorTaxonomy
         ['slug' => 'content-creator', 'label' => 'Content creator / Influencer', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
         ['slug' => 'writer', 'label' => 'Writer / Copywriter', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
 
-        // ── Education & Coaching ────────────────────────────────────────
         ['slug' => 'tutor', 'label' => 'Tutor', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
         ['slug' => 'life-coach', 'label' => 'Life / Business coach', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
         ['slug' => 'music-teacher', 'label' => 'Music teacher', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
@@ -132,7 +122,6 @@ final class SectorTaxonomy
         ['slug' => 'dance-instructor', 'label' => 'Dance instructor', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
         ['slug' => 'course-creator', 'label' => 'Course creator / Educator', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
 
-        // ── Other ───────────────────────────────────────────────────────
         // No bucket of its own — falls in with the trustworthy/neutral
         // professional-services preset so a chosen "other" never looks broken.
         ['slug' => 'other', 'label' => 'Something else', 'group' => 'Other', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],

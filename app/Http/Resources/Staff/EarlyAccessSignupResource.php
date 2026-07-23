@@ -23,6 +23,15 @@ class EarlyAccessSignupResource extends ApiResource
             'platforms' => $this->platforms ?? [],
             'status' => $this->status,
             'source' => $this->source,
+            // Build source (what to scrape) — distinct from `source` above, which
+            // is only marketing-vs-manual origin. has_build reflects whether a dark
+            // build is actually LINKED (user_id), which is NOT implied by a set
+            // source_type: a row can carry a submitted source yet have no build
+            // (collision, malformed handle, or manual add). It's the field that
+            // governs approve-bulk eligibility, so the dashboard can gate on it.
+            'source_type' => $this->source_type,
+            'source_ref' => $this->source_ref,
+            'has_build' => $this->user_id !== null,
             'invited_at' => $this->invited_at?->toIso8601String(),
             'invite_meta' => $this->invite_meta,
             'signed_up_at' => $this->signed_up_at?->toIso8601String(),

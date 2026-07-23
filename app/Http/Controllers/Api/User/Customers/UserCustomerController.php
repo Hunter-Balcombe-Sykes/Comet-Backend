@@ -119,7 +119,7 @@ class UserCustomerController extends ApiController
         $this->authorizeForUser($pro, 'view', $customer);
 
         $includeArchived = $request->boolean('include_archived');
-        if (! $includeArchived && method_exists($customer, 'trashed') && $customer->trashed()) {
+        if (! $includeArchived && $customer->trashed()) {
             abort(404);
         }
 
@@ -131,7 +131,7 @@ class UserCustomerController extends ApiController
         $pro = $this->currentUser($request);
 
         $this->authorizeForUser($pro, 'update', $customer);
-        if (method_exists($customer, 'trashed') && $customer->trashed()) {
+        if ($customer->trashed()) {
             abort(404);
         }
 
@@ -166,7 +166,7 @@ class UserCustomerController extends ApiController
         $pro = $this->currentUser($request);
         $this->authorizeForUser($pro, 'update', $customer);
 
-        if (method_exists($customer, 'trashed') && $customer->trashed()) {
+        if ($customer->trashed()) {
             $customer->restore();
         }
 

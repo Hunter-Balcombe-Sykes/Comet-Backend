@@ -232,6 +232,21 @@ class AnalyticsCacheService
     }
 
     /**
+     * @return array{visitsAgg: \stdClass, clicksAgg: \stdClass, totalVisits: int, totalClicks: int, ctr: float}
+     */
+    private function baseTotals(string $proId, Carbon $from, Carbon $to): array
+    {
+        $visitsAgg = $this->queries->visitsAggregate($proId, $from, $to);
+        $clicksAgg = $this->queries->clicksAggregate($proId, $from, $to);
+
+        $totalVisits = (int) ($visitsAgg->total_visits ?? 0);
+        $totalClicks = (int) ($clicksAgg->total_clicks ?? 0);
+        $ctr = $totalVisits > 0 ? round(($totalClicks / $totalVisits) * 100, 2) : 0.0;
+
+        return compact('visitsAgg', 'clicksAgg', 'totalVisits', 'totalClicks', 'ctr');
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function compose(
@@ -244,13 +259,8 @@ class AnalyticsCacheService
     ): array {
         $proId = $professional->id;
 
-        $visitsAgg = $this->queries->visitsAggregate($proId, $from, $to);
-        $clicksAgg = $this->queries->clicksAggregate($proId, $from, $to);
+        ['visitsAgg' => $visitsAgg, 'clicksAgg' => $clicksAgg, 'totalVisits' => $totalVisits, 'totalClicks' => $totalClicks, 'ctr' => $ctr] = $this->baseTotals($proId, $from, $to);
         $sessionsAgg = $this->queries->sessionsAggregate($proId, $from, $to);
-
-        $totalVisits = (int) ($visitsAgg->total_visits ?? 0);
-        $totalClicks = (int) ($clicksAgg->total_clicks ?? 0);
-        $ctr = $totalVisits > 0 ? round(($totalClicks / $totalVisits) * 100, 2) : 0.0;
 
         return [
             'range' => [
@@ -349,11 +359,7 @@ class AnalyticsCacheService
     private function composeStaff(User $professional, Site $site, Carbon $from, Carbon $to): array
     {
         $proId = $professional->id;
-        $visitsAgg = $this->queries->visitsAggregate($proId, $from, $to);
-        $clicksAgg = $this->queries->clicksAggregate($proId, $from, $to);
-        $totalVisits = (int) ($visitsAgg->total_visits ?? 0);
-        $totalClicks = (int) ($clicksAgg->total_clicks ?? 0);
-        $ctr = $totalVisits > 0 ? round(($totalClicks / $totalVisits) * 100, 2) : 0.0;
+        ['visitsAgg' => $visitsAgg, 'clicksAgg' => $clicksAgg, 'totalVisits' => $totalVisits, 'totalClicks' => $totalClicks, 'ctr' => $ctr] = $this->baseTotals($proId, $from, $to);
 
         return [
             'range' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],

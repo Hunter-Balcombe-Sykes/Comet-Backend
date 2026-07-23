@@ -65,6 +65,7 @@ use App\Models\Core\User\User;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -81,6 +82,37 @@ beforeEach(function () {
     setupPartnaStaffTable();
     setupHandleAliasesTable();
     attachTestSchemas();
+
+    // Task 5: /force now runs the FULL immediate purge (AccountDeletionService::
+    // adminPurgeNow → executeConfirmation + purge()), not a bare forceDelete().
+    // executeConfirmation forceFills deletion_*/admin_notes columns that the
+    // shared setupUsersTable() stub doesn't carry (it predates the full-purge
+    // write path) — defensive ALTER, same pattern as the sector/sector_source
+    // block in setupUsersTable() itself. purgeMediaArtifacts() also queries
+    // site.site_media unconditionally once a site exists.
+    foreach ([
+        'deletion_token_hash TEXT NULL',
+        'deletion_requested_at TEXT NULL',
+        'deletion_confirmed_at TEXT NULL',
+        'deletion_previous_status TEXT NULL',
+        'deletion_mail_sent_at TEXT NULL',
+        'admin_notes TEXT NULL',
+        'stripe_manual_balance_cents INTEGER NULL DEFAULT 0',
+    ] as $col) {
+        try {
+            DB::connection('pgsql')->statement('ALTER TABLE core.users ADD COLUMN '.$col);
+        } catch (Throwable $e) {
+            // already exists — ignore
+        }
+    }
+    setupMediaTables();
+    setupUserDeletionAuditTable();
+
+    config([
+        'supabase.url' => 'https://test.supabase.co',
+        'supabase.service_role_key' => 'test-service-role-key',
+    ]);
+    Http::fake(['*/auth/v1/admin/users/*' => Http::response('', 200)]);
 
     // staff.audit middleware (RecordStaffAuditEntry) writes to
     // audit.staff_audit_log after the response — set it up so terminate()
@@ -146,7 +178,7 @@ it('staff force-delete works on an unclaimed user (the manual expiry — spec §
     [$user] = makeUnclaimedWithSite(['subdomain' => 'takedown']);
 
     actingAsStaff($staff)
-        ->deleteJson("/api/staff/professionals/{$user->id}/force")
+        ->deleteJson("/api/staff/professionals/{$user->id}/force", ['reason' => 'Manual expiry — unclaimed takedown'])
         ->assertStatus(200);
 
     // Hard delete — PERMANENT. withTrashed() confirms the row is gone

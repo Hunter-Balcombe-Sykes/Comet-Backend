@@ -338,10 +338,6 @@ class ContentSelectionService
         $this->persist($site, $rows);
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Internals */
-    /* ------------------------------------------------------------------ */
-
     /**
      * Transactionally replace the site's rows: delete existing, insert the new
      * ordered set. The delete-then-insert avoids the UNIQUE(site_id, position)

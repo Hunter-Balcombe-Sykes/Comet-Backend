@@ -238,10 +238,6 @@ class ContentController extends ApiController
         return $this->success($this->selectionPayload($pro, $site));
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Internals */
-    /* ------------------------------------------------------------------ */
-
     /**
      * A bare ContentSelection with the current site attached, for the policy.
      * Ownership resolves through the site relation (ContentSelectionPolicy).

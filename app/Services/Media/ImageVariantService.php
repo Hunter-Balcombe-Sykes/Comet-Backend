@@ -54,7 +54,6 @@ class ImageVariantService
         // rows the ImageryPaletteFactor never reads (#76 MAJOR-1).
         bool $extractPalette = true,
     ): array {
-        // Ensure GD extension is available with WebP support
         if (! extension_loaded('gd')) {
             throw new \RuntimeException('GD extension is not loaded. Cannot process image variants.');
         }
@@ -99,12 +98,7 @@ class ImageVariantService
                 $targetBytes = $targetKb > 0 ? ($targetKb * 1024) : null;
                 $fit = (string) ($def['fit'] ?? 'inside');
 
-                $preserveResolution = filter_var(
-                    $def['preserve_resolution'] ?? false,
-                    FILTER_VALIDATE_BOOLEAN,
-                    FILTER_NULL_ON_FAILURE,
-                );
-                $preserveResolution = $preserveResolution ?? false;
+                $preserveResolution = filter_var($def['preserve_resolution'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
                 if ($preserveResolution) {
                     [$cropX, $cropY, $cropW, $cropH, $dstW, $dstH] = [0, 0, $sourceWidth, $sourceHeight, $sourceWidth, $sourceHeight];
@@ -170,7 +164,6 @@ class ImageVariantService
                     }
                     $hash = substr($hash, 0, 16);
 
-                    // Content-hashed filename: optimized_abc123def456.webp
                     $storagePath = "{$basePath}/{$variantName}_{$hash}.webp";
 
                     // Capture old path before upload for orphan cleanup on re-process.

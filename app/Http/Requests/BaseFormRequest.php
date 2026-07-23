@@ -207,4 +207,30 @@ abstract class BaseFormRequest extends FormRequest
             $this->merge($data);
         }
     }
+
+    /**
+     * Upper-case ISO 3166-1 alpha-2 country_code-like inputs so the format
+     * validator accepts lower-case input from older clients. Empty strings
+     * coerce to null. Skips keys that are absent or not strings.
+     */
+    protected function normalizeCountryCode(array $keys): void
+    {
+        $data = [];
+
+        foreach ($keys as $key) {
+            if (! $this->has($key)) {
+                continue;
+            }
+            $value = $this->input($key);
+            if (! is_string($value)) {
+                continue;
+            }
+            $normalized = strtoupper(trim($value));
+            $data[$key] = $normalized === '' ? null : $normalized;
+        }
+
+        if (! empty($data)) {
+            $this->merge($data);
+        }
+    }
 }

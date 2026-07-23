@@ -367,7 +367,16 @@ class InstagramConnectionSeeder
                 return null;
             }
 
-            // Oversized reel → drop the video (the poster still renders).
+            // Fast rejection when the server declares the size upfront (mirrors
+            // mirrorOne — an oversized reel shouldn't finish streaming to disk
+            // before we notice).
+            $contentLength = $response->header('Content-Length');
+            if ((int) $contentLength > self::MAX_VIDEO_BYTES) {
+                return null;
+            }
+
+            // Oversized reel → drop the video (the poster still renders). Covers
+            // absent or inaccurate Content-Length headers.
             if ((int) filesize($tmp) > self::MAX_VIDEO_BYTES) {
                 return null;
             }

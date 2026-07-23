@@ -177,7 +177,6 @@ return [
         'discord',
         'reddit',
         'telegram',
-        'whatsapp',
         // Booking platform icons
         'fresha',
         'booksy',
@@ -960,6 +959,15 @@ return [
         'public_subscribe_per_hour_email' => (int) env('PARTNA_THROTTLE_PUBLIC_SUBSCRIBE_PER_HOUR_EMAIL', 12),
         'session_writes_per_minute' => (int) env('PARTNA_THROTTLE_SESSION_WRITES_PER_MINUTE', 10),
         'document_download_per_hour' => (int) env('PARTNA_THROTTLE_DOCUMENT_DOWNLOAD_PER_HOUR', 10),
+
+        // CFG-1 (authz-core audit follow-up): remaining hardcoded-literal limiters
+        // extended to match the config-driven pattern above. Values are today's
+        // literals unchanged — config-hygiene extraction only.
+        'health_check_per_minute' => (int) env('PARTNA_THROTTLE_HEALTH_CHECK_PER_MINUTE', 60),
+        'public_site_per_minute' => (int) env('PARTNA_THROTTLE_PUBLIC_SITE_PER_MINUTE', 60),
+        'pre_account_build_per_minute' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_MINUTE', 3),
+        'pre_account_build_per_hour' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_HOUR', 10),
+        'claim_per_minute' => (int) env('PARTNA_THROTTLE_CLAIM_PER_MINUTE', 5),
     ],
 
     /*

@@ -8,7 +8,9 @@
  */
 
 use App\Services\Design\DesignRationaleService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 
 beforeEach(function () {
     setupUsersTable();
@@ -105,4 +107,48 @@ it('never leaks a raw column name or internal key', function () {
     expect($json)->not->toContain('color_accent')
         ->and($json)->not->toContain('typography_font_family')
         ->and($json)->not->toContain('sector');
+});
+
+/** #OBS-1: manualColumns() must report() a genuine read failure, not swallow it silently. */
+it('reports a manualColumns() read failure and still fails closed', function () {
+    Exceptions::fake();
+
+    $user = rationaleTenant('read-failure');
+    // Reproduce the fail-closed path the catch block exists for (SQLite test
+    // mirror lacking site.design_kits) by dropping the table mid-test. Safe to
+    // drop — TestCase::setUp() purges 'pgsql' to a brand-new :memory: handle
+    // per test, so this never leaks into a sibling test.
+    DB::connection('pgsql')->statement('DROP TABLE site.design_kits');
+
+    $out = app(DesignRationaleService::class)
+        ->forSite((string) $user->site->id, (string) $user->id);
+
+    // Fail-closed means "no manual overrides recorded" — the sector-derived
+    // preset line still renders (it doesn't depend on the design_kits read).
+    expect($out['hasOverrides'])->toBeFalse()
+        ->and($out['items'])->toHaveCount(1)
+        ->and($out['items'][0]['sourceLabel'])->toBe('Your industry');
+    // Assert on the specific design_kits failure by message rather than an
+    // exact report count — reporting a QueryException can itself trigger
+    // secondary context-gathering reads unrelated to this fix (e.g.
+    // Nightwatch enrichment), which is out of scope here.
+    Exceptions::assertReported(
+        fn (QueryException $e) => str_contains($e->getMessage(), 'design_kits'),
+    );
+});
+
+/** #CACHE-3: a repeat forSite() call on the SAME resolved instance must not re-read the DB. */
+it('memoizes forSite() within the same resolved instance', function () {
+    $user = rationaleTenant('memo-check');
+    $service = app(DesignRationaleService::class);
+
+    DB::connection('pgsql')->enableQueryLog();
+    $first = $service->forSite((string) $user->site->id, (string) $user->id);
+    $queriesAfterFirst = count(DB::connection('pgsql')->getQueryLog());
+
+    $second = $service->forSite((string) $user->site->id, (string) $user->id);
+    $queriesAfterSecond = count(DB::connection('pgsql')->getQueryLog());
+
+    expect($second)->toBe($first)
+        ->and($queriesAfterSecond)->toBe($queriesAfterFirst);
 });
