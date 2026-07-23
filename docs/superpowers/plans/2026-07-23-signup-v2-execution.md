@@ -71,6 +71,25 @@ pass)** — invited users land on the dashboard's existing surfaces.
 
 ## Phase A — quick independent fixes (backend, ship first)
 
+> **✅ PHASE A COMPLETE + LIVE-VERIFIED (2026-07-23).** Commits `a7e00849` (A1+A2),
+> `18be63d2`, `c33a7224`. Live verification against `supernormal_180` surfaced TWO further
+> stacked root causes the code-reading passes couldn't see, both fixed:
+> 1. **Media disk Unauthorized** — `InstagramConnectionSeeder` + `DeleteMirroredMediaJob`
+>    hardcoded `Storage::disk('media')`, whose config-cached creds are stale at runtime on
+>    Laravel Cloud (platform R2 creds inject post-`config:cache`). Every mirror put/delete
+>    ever attempted returned Unauthorized — ALSO the true mechanism behind item 3's
+>    `UnableToDeleteFile` (not an absent-key quirk). Both now route through
+>    `MediaDiskResolver` like every working media path.
+> 2. **snake_case actor fields** — the figue actor returns raw Instagram GraphQL naming
+>    (`profile_pic_url_hd`, `display_url`, `video_url`); the reader only knew legacy
+>    camelCase, so profile pics never resolved and reels were counted but never picked.
+>    Both shapes now read.
+>
+> Final live state (3rd run, 09:06 UTC): `posts: 12`, payload has `images[0]` on R2,
+> `videoUrl` + `videoPoster` + `profilePicUrl` all populated, `last_refresh_status: ok`,
+> zero storage exceptions. `LinkInBioScanJob` now fires for the linkin.bio URL (802ms DONE;
+> its outbound-link typing is Phase C's job).
+
 ### Task A1 — Instagram media: send `includeRecentPosts`, delete dead `resultsLimit` (item 11)
 
 **Files:** Modify `app/Services/Platforms/InstagramScraper.php` · Test
@@ -107,6 +126,26 @@ detector tests
 
 ## Phase B — SVG logo path (item 12)
 
+> **✅ PHASE B COMPLETE + LIVE-VERIFIED (2026-07-23).** Commits `2c96b5e8` (B1 SVG branch)
+> + `6e27ecb7` (extractor fixes). B0 gate PASSED live against the deployed dev container
+> (`removed=true vectorized=yes` for SVG input) — B1 shipped as the pure storage-layer
+> branch, pinned by 3 tests (SVG+logo+flag-on stores `.svg` + dispatches logo job;
+> flag-off and non-logo SVGs keep rejecting; HTTP layer still never admits SVG).
+>
+> Live verify then exposed the REAL blocker for this site, different from item 12's
+> inference: supernormal.net.au's logo is NOT an inline SVG — it's a plain
+> `<img class="Header-branding-logo" src="//images.squarespace-cdn.com/...jpg?format=1500w">`
+> in a div OUTSIDE the semantic `<header>`, which `WebsiteLogoCandidateExtractor` (a)
+> never collected (first-`<header>`-scoped pass caught only UI icon SVGs — the source of
+> the `svg-unsafe` rejections) and (b) would have URL-mangled anyway (protocol-relative
+> `//` treated as a path). Both fixed: bounded doc-wide logo/branding-hinted rescue pass
+> (max 6, deduped) + protocol-relative resolution.
+>
+> Final live state: logo-grab decision `uploaded (875x87)` on the true wordmark; row
+> `logo_full` `ready` with variants `optimized:webp, maximized:webp, vector:svg`. The
+> SVG-input branch itself is proven by the B0 container test + suite (this site's logo
+> happened to be raster).
+
 ### Task B0 — GATE: container SVG support
 
 - [ ] B0.1 Verify the logo-processor container accepts `image/svg+xml` input: one dev call
@@ -137,6 +176,33 @@ detector tests
       `media_variants` (vector row when VTracer produced one). Record here.
 
 ## Phase C — commerce/event link intelligence (item 17)
+
+> **✅ PHASE C COMPLETE + LIVE-VERIFIED (2026-07-23).** Commits `874e5250` + `e35e4f20`.
+> Delivered: C1 classifier categories (event/event-organiser/shop, scraper-delegated
+> patterns, humanitix org-before-event + square-stays-booking pinned by tests); C2 as
+> job-context seeders (EventsSeeder / ShopBrandSeeder / ShopProductSeeder) — **deliberate
+> deviation from the plan text:** controllers were NOT refactored to delegate; the seeders
+> mirror the controller flows' write mechanics (caps/locks/dedup/tombstones, constants
+> cross-referenced "keep in lockstep") following the codebase's established
+> parallel-implementation convention for scraped seeds (GoogleBusinessAutoSync /
+> InstagramAutoSync), which keeps every frozen HTTP contract byte-untouched. Also: the
+> plan's "no organiser cap exists" note was wrong — `maxAccounts() = 5` lives in the
+> controller trait; the seeder mirrors it. C3 routing with DISC-7 fail-closed at BOTH
+> layers; C4 single-URL `ProbeCommerceLinksJob` with 6-probe budgets at both dispatch
+> sites. 15 new tests; suite 4895 green.
+>
+> **Live verification (supernormal account):**
+> - linkin.bio page: unrolls, but serves a 6.4KB client-rendered JS shell with ZERO
+>   anchors (verified by direct fetch) — the documented JS-rendering limit, exactly as
+>   accepted up front. Nothing to classify; nothing vanished.
+> - Real store probe (`supernormal.net.au/-store`): first run exposed a probe gap — a
+>   Squarespace store LISTING has no product JSON-LD, so `readProductPage` said
+>   no_product and fell to a custom link while the provider detector would have
+>   recognized it. Fixed (`e35e4f20`: detector gets a second chance on reachable
+>   no-product pages). Re-probe: `resolved: true` → real `ShopBrand` row
+>   (`supernormal-net-au`, provider squarespace, "Supernormal Restaurant | Melbourne")
+>   via marker connection, zero products (picker fills later — same contract as manual
+>   connect). Stale pre-fix custom link cleaned up.
 
 ### Task C1 — Tier-1 classifier categories
 
