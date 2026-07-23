@@ -345,6 +345,11 @@ it('exhausts the budget gracefully mid-ladder — no fallback call, no exception
     // not an exception and not a partial/malformed structure.
     expect($result)->toBe(['uber-eats' => null, 'doordash' => null]);
     Http::assertSentCount(2);
+
+    // R4-RES-1 follow-up: a shared-budget stop is a statement about our spend,
+    // not about either store — neither target may be marked blocked/hard_error.
+    expect(Cache::has(CacheKeyGenerator::menuScrapeBlocked('uber-eats', 'https://ue/s')))->toBeFalse();
+    expect(Cache::has(CacheKeyGenerator::menuScrapeBlocked('doordash', 'https://dd/s')))->toBeFalse();
 });
 
 // ── R4-RES-1: per-target negative cache ─────────────────────────────────────

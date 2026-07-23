@@ -67,8 +67,11 @@ class MenuApifyScraper
         }
 
         // R4-RES-1: the budget is claimed inside attemptScrape() now, per real
-        // actor run — this method is just the retry-loop driver.
-        return $this->scrapeLoop($actor, $token, $storeUrl, $platform, $address, $userId, 1, self::MAX_ATTEMPTS);
+        // actor run — this method is just the retry-loop driver. fetch()'s own
+        // contract stays a bare ?array (its existing public callers, incl.
+        // tests, expect that); the budget-exhausted flag is only meaningful to
+        // fetchStores()'s cache-write decision below, so it's unwrapped here.
+        return $this->scrapeLoop($actor, $token, $storeUrl, $platform, $address, $userId, 1, self::MAX_ATTEMPTS)['menu'];
     }
 
     /**
@@ -77,21 +80,29 @@ class MenuApifyScraper
      * restarting it in the logs). Each attempt claims its own budget slot inside
      * attemptScrape(). Stops on a mapped menu or a non-retryable result.
      *
-     * @return array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null
+     * `budgetExhausted` is true only when the loop's LAST attempt stopped because
+     * ApifyBudget::tryClaim() denied the claim — never because of a scrape
+     * failure — so a caller can tell "we ran out of shared spend" apart from
+     * "this store didn't scrape" and avoid treating the former as evidence
+     * about the store (R4-RES-1 follow-up).
+     *
+     * @return array{menu: array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null, budgetExhausted: bool}
      */
-    private function scrapeLoop(string $actor, string $token, string $url, string $platform, ?string $address, ?string $userId, int $firstAttempt, int $attempts): ?array
+    private function scrapeLoop(string $actor, string $token, string $url, string $platform, ?string $address, ?string $userId, int $firstAttempt, int $attempts): array
     {
+        $budgetExhausted = false;
         for ($i = 0; $i < $attempts; $i++) {
             $result = $this->attemptScrape($actor, $token, $url, $platform, $address, $userId, $firstAttempt + $i);
             if ($result['menu'] !== null) {
-                return $result['menu'];
+                return ['menu' => $result['menu'], 'budgetExhausted' => false];
             }
+            $budgetExhausted = $result['budgetExhausted'];
             if (! $result['retryable']) {
                 break;
             }
         }
 
-        return null;
+        return ['menu' => null, 'budgetExhausted' => $budgetExhausted];
     }
 
     /**
@@ -184,11 +195,12 @@ class MenuApifyScraper
         foreach ($targets as $key => $target) {
             $resp = $responses[$key] ?? null;
             $mapped = $this->mapResponse($resp, $target['platform'], $userId);
+            $budgetExhausted = false;
             if ($mapped === null && $this->responseRetryable($resp)) {
                 $actor = $this->actorFor($target['platform']);
                 // actorFor() is guaranteed non-null here — targets are only built
                 // for platforms that already passed that guard above.
-                $mapped = $actor === null ? null : $this->scrapeLoop(
+                $fallback = $actor === null ? null : $this->scrapeLoop(
                     $actor,
                     $token,
                     $target['url'],
@@ -198,12 +210,18 @@ class MenuApifyScraper
                     2,
                     self::FALLBACK_ATTEMPTS,
                 );
+                $mapped = $fallback['menu'] ?? null;
+                $budgetExhausted = $fallback['budgetExhausted'] ?? false;
             }
 
             $blockedKey = CacheKeyGenerator::menuScrapeBlocked($target['platform'], $target['url']);
             if ($mapped !== null) {
                 $menus[$key] = $mapped;
                 Cache::forget($blockedKey);     // recovered — don't hold a stale block
+            } elseif ($budgetExhausted) {
+                // A shared-budget stop is a statement about our spend, not about
+                // this store — never negative-cache it as blocked/hard_error.
+                Log::info('menu.apify.blocked_cache_skipped_budget', ['platform' => $target['platform'], 'user_id' => $userId]);
             } else {
                 // Never a bare null: a bare null is indistinguishable from a cache miss.
                 Cache::put($blockedKey, ['at' => now()->toIso8601String(), 'reason' => $this->responseRetryable($resp) ? 'blocked' : 'hard_error'], $ttl);
@@ -400,9 +418,12 @@ class MenuApifyScraper
     /**
      * One scrape attempt. Returns the mapped menu on success, else null with a
      * `retryable` flag — empty results / timeouts / 5xx are retryable; a 4xx
-     * (unknown store / unrented actor) is not.
+     * (unknown store / unrented actor) is not. `budgetExhausted` is true ONLY
+     * when the claim itself was denied — every other non-retryable/retryable
+     * outcome is a real scrape result and sets it false, so a caller can tell
+     * "we ran out of shared spend" apart from "this store didn't scrape".
      *
-     * @return array{menu: array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null, retryable: bool}
+     * @return array{menu: array{store:array<string,mixed>, categories:list<array{name:string, items:list<array<string,mixed>>}>}|null, retryable: bool, budgetExhausted: bool}
      */
     private function attemptScrape(string $actor, string $token, string $storeUrl, string $platform, ?string $address, ?string $userId, int $attempt): array
     {
@@ -412,7 +433,7 @@ class MenuApifyScraper
         if (! app(ApifyBudget::class)->tryClaim('menu')) {
             Log::info('menu.apify.budget_exhausted', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt]);
 
-            return ['menu' => null, 'retryable' => false];
+            return ['menu' => null, 'retryable' => false, 'budgetExhausted' => true];
         }
 
         try {
@@ -428,7 +449,7 @@ class MenuApifyScraper
             // surfaces info, so a failed scrape must log here to be diagnosable.
             Log::info('menu.apify.threw', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt, 'error' => $e->getMessage()]);
 
-            return ['menu' => null, 'retryable' => true];
+            return ['menu' => null, 'retryable' => true, 'budgetExhausted' => false];
         }
 
         // run-sync-get-dataset-items returns 201 on success — ->ok() only accepts 200.
@@ -445,14 +466,14 @@ class MenuApifyScraper
                 'status' => $response->status(),
             ]);
 
-            return ['menu' => null, 'retryable' => $response->status() >= 500];
+            return ['menu' => null, 'retryable' => $response->status() >= 500, 'budgetExhausted' => false];
         }
 
         $items = $response->json();
         if (! is_array($items) || $items === []) {
             Log::info('menu.apify.empty', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt]);
 
-            return ['menu' => null, 'retryable' => true];
+            return ['menu' => null, 'retryable' => true, 'budgetExhausted' => false];
         }
 
         // First-run visibility: the first row's keys, so the mapping can be tuned
@@ -470,8 +491,8 @@ class MenuApifyScraper
         // Mapped to nothing (unexpected shape / all-empty rows) — treat as a
         // retryable miss rather than a real menu.
         return $menu['categories'] === []
-            ? ['menu' => null, 'retryable' => true]
-            : ['menu' => $menu, 'retryable' => false];
+            ? ['menu' => null, 'retryable' => true, 'budgetExhausted' => false]
+            : ['menu' => $menu, 'retryable' => false, 'budgetExhausted' => false];
     }
 
     /**
