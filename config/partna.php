@@ -298,6 +298,20 @@ return [
             ],
         ],
 
+        // AI menu-structuring spend (Mistral OCR + DeepSeek structuring, via
+        // MenuAiExtractor) — same two-cap pattern as 'apify' above (per-vendor-call
+        // daily cap + a global daily cap), but a separate budget/namespace since
+        // these are a different vendor family entirely. Added 2026-07-23: this
+        // spend previously had NO budget ceiling at all across its three callers
+        // (WebsiteMenuPdfScanJob, GoogleMenuPhotoScanJob, WebsiteMenuHtmlScanJob).
+        'ai_spend' => [
+            'global_daily_cap' => (int) env('PARTNA_AI_SPEND_GLOBAL_DAILY_CAP', 500),
+            'actors' => [
+                'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 300),
+                'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 300),
+            ],
+        ],
+
         // CFG-3 (user-api audit): dashboard list endpoint pagination / query-limit
         // defaults, previously hardcoded literals scattered across four
         // controllers (UserEnquiryController, NotificationController,

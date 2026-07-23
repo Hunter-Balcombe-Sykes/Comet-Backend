@@ -7,6 +7,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Design\LogoAutoGrabber;
+use App\Services\Http\MetadataParser;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\GoogleBusinessAutoSync;
@@ -17,6 +18,8 @@ use App\Services\WebsiteScan\DesignKitAccentApplier;
 use App\Services\WebsiteScan\FaviconFetcher;
 use App\Services\WebsiteScan\MenuTextExtractor;
 use App\Services\WebsiteScan\PdfLinkDetector;
+use App\Services\WebsiteScan\SquarespaceMenuExtractor;
+use App\Services\WebsiteScan\VisibleTextExtractor;
 use App\Services\WebsiteScan\WebsiteAccentExtractor;
 use App\Services\WebsiteScan\WebsiteLogoCandidateExtractor;
 use App\Services\WebsiteScan\WorkplaceContentApplier;
@@ -58,6 +61,21 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 60;
 
+    /** Safety cap on how many PDFs get their own scan job from one page — not a "pick one" limit. */
+    private const MAX_PDF_SCANS = 5;
+
+    /** Checked against a PDF link's own text AND its URL path — either counts. */
+    private const MENU_KEYWORDS = [
+        'menu', 'wine', 'drink', 'food', 'beverage', 'dessert',
+        'breakfast', 'lunch', 'dinner', 'cocktail', 'brunch',
+    ];
+
+    /** A page must clear this length before an AI structuring call is worth spending. */
+    private const MIN_DENSE_TEXT_CHARS = 200;
+
+    /** ...and carry at least this many price-shaped lines (VisibleTextExtractor puts each block on its own line, so a real price column reliably shows up as lines that are JUST a number). */
+    private const MIN_PRICE_LINES = 3;
+
     public function __construct(
         public readonly string $userId,
         public readonly string $siteId,
@@ -85,6 +103,9 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         DesignKitAccentApplier $accentApplier,
         WebsiteLogoCandidateExtractor $logoCandidateExtractor,
         LogoAutoGrabber $logoAutoGrabber,
+        MetadataParser $metadataParser,
+        SquarespaceMenuExtractor $squarespaceExtractor,
+        VisibleTextExtractor $visibleTextExtractor,
     ): void {
         $user = User::find($this->userId);
         $site = Site::find($this->siteId);
@@ -107,15 +128,18 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         if (AccountCapabilities::for($user)->can_use_menu) {
             $items = $menuText->extract($html, $baseUrl);
             $pdfs = $pdfLinks->find($html, $baseUrl);
+            $menuPageHtml = $html;
 
             // Nothing on the homepage itself — a dedicated "/menu" page one hop
             // away is a common real-world pattern (confirmed live: a real
             // restaurant's homepage had neither a JSON-LD menu nor a PDF link,
             // while its own /menu page carried two clean PDFs). One bounded
             // extra same-site fetch, only when the homepage came up empty —
-            // not a crawl.
+            // not a crawl. The schema.org hasMenu/menu JSON-LD pointer (when
+            // present) is an authoritative signal for WHICH link is the menu
+            // page, checked ahead of the plain path-substring guess.
             if ($items === [] && $pdfs === []) {
-                $menuPageUrl = $this->findMenuPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl);
+                $menuPageUrl = $this->resolveMenuPageUrl($html, $baseUrl, $harvester, $metadataParser);
                 if ($menuPageUrl !== null) {
                     $menuResponse = $fetcher->tryFetch($menuPageUrl);
                     $menuHtml = is_array($menuResponse) && $menuResponse['status'] === 200
@@ -124,6 +148,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                         $menuBaseUrl = $menuResponse['finalUrl'] ?? $menuPageUrl;
                         $items = $menuText->extract($menuHtml, $menuBaseUrl);
                         $pdfs = $pdfLinks->find($menuHtml, $menuBaseUrl);
+                        $menuPageHtml = $menuHtml;
                     }
                 }
             }
@@ -131,9 +156,38 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             if ($items !== []) {
                 $menuApplier->apply($user, $items, enrichOnly: true, source: 'website-scan');
             }
-            // Menu (PDF) — separate job, don't OCR inline.
-            if ($pdfs !== []) {
-                WebsiteMenuPdfScanJob::dispatch($this->userId, $pdfs[0])->delay(now()->addSeconds(30));
+
+            // Menu (PDF) — one scan job per menu-relevant PDF found (owner
+            // direction 2026-07-23: a drinks/wine list counts the same as
+            // food, the old $pdfs[0] cap silently dropped every PDF but the
+            // first). Naively-found PDFs are keyword-filtered first so an
+            // unrelated document (T&Cs, a press kit) doesn't burn an OCR call.
+            $relevantPdfs = array_values(array_filter(
+                $pdfs,
+                fn (array $pdf) => $this->isMenuRelevantPdf($pdf['url'], $pdf['text']),
+            ));
+            foreach (array_slice($relevantPdfs, 0, self::MAX_PDF_SCANS) as $index => $pdf) {
+                WebsiteMenuPdfScanJob::dispatch($this->userId, $pdf['url'])
+                    ->delay(now()->addSeconds(30 + $index * 15));
+            }
+
+            // Menu (HTML fallback) — only when the narrow JSON-LD lookup above
+            // found nothing on whichever page we ended up checking. Tiered,
+            // cheapest first: (1) Squarespace's own stable menu-block markup,
+            // free and exact when it hits; (2) the general AI-structuring
+            // reuse (same call already used for PDF/Google-photo OCR text),
+            // gated behind a density pre-filter so an unrelated page never
+            // reaches a billed AI call.
+            if ($items === []) {
+                $squarespaceItems = $squarespaceExtractor->extract($menuPageHtml);
+                if ($squarespaceItems !== []) {
+                    $menuApplier->apply($user, $squarespaceItems, enrichOnly: true, source: 'website-scan');
+                } else {
+                    $visibleText = $visibleTextExtractor->extract($menuPageHtml);
+                    if ($this->looksMenuDense($visibleText)) {
+                        WebsiteMenuHtmlScanJob::dispatch($this->userId, $visibleText)->delay(now()->addSeconds(30));
+                    }
+                }
             }
         }
 
@@ -188,6 +242,45 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
+     * The menu page URL to try, preferring the authoritative schema.org
+     * hasMenu/menu JSON-LD pointer (Restaurant/FoodEstablishment/
+     * LocalBusiness) when a business's own structured data names it
+     * directly — confirmed present but previously unread on a real test
+     * site — falling back to the same-site "path contains 'menu'" guess.
+     */
+    private function resolveMenuPageUrl(string $html, string $baseUrl, WebsiteLinkHarvester $harvester, MetadataParser $metadataParser): ?string
+    {
+        return $this->menuPointerUrl($html, $baseUrl, $metadataParser)
+            ?? $this->findMenuPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl);
+    }
+
+    /**
+     * schema.org's own `hasMenu` (FoodEstablishment) or the older, still
+     * commonly-emitted `menu` (Text or URL) property — either shape is
+     * accepted defensively, matching MenuTextExtractor::asList()'s existing
+     * singular-vs-list normalization idiom elsewhere in this pipeline. Only
+     * a URL string is useful here (an inline embedded Menu object would need
+     * a second, different read path — out of scope, the path-guess fallback
+     * covers that case fine).
+     */
+    private function menuPointerUrl(string $html, string $baseUrl, MetadataParser $metadataParser): ?string
+    {
+        $parsed = $metadataParser->parse($html, $baseUrl);
+        foreach (['Restaurant', 'FoodEstablishment', 'CafeOrCoffeeShop', 'BarOrPub', 'LocalBusiness'] as $type) {
+            $node = $parsed->jsonLdOfType($type);
+            if ($node === null) {
+                continue;
+            }
+            $pointer = $node['hasMenu'] ?? $node['menu'] ?? null;
+            if (is_string($pointer) && trim($pointer) !== '') {
+                return $metadataParser->absolutize($pointer, $baseUrl);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * First same-site link whose path looks like a menu page — a bounded
      * single hop, not a crawl. Same-site only: a third-party ordering
      * platform's own "menu" page (e.g. an OrderMate/UberEats deep link) isn't
@@ -213,5 +306,43 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         }
 
         return null;
+    }
+
+    /** Menu-relevance keyword match against a PDF's own link text OR its URL path — either counts. */
+    private function isMenuRelevantPdf(string $url, string $text): bool
+    {
+        $haystack = strtolower($text.' '.(string) parse_url($url, PHP_URL_PATH));
+        foreach (self::MENU_KEYWORDS as $keyword) {
+            if (str_contains($haystack, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Cheap sanity check before spending a billed AI structuring call —
+     * mirrors GoogleMenuPhotoScanJob's own OCR-text-density filter idea, but
+     * keyed on price-shaped lines rather than raw length alone (a long "About
+     * us" page easily clears a length-only bar). VisibleTextExtractor puts
+     * each block-level element on its own line, so a real price column
+     * reliably shows up as several lines that are JUST a number — true
+     * whether the site prints "$14" or a bare "14".
+     */
+    private function looksMenuDense(string $text): bool
+    {
+        if (mb_strlen($text) < self::MIN_DENSE_TEXT_CHARS) {
+            return false;
+        }
+
+        $priceLines = 0;
+        foreach (explode("\n", $text) as $line) {
+            if (preg_match('/^\$?\d{1,4}(?:\.\d{1,2})?$/', trim($line)) === 1) {
+                $priceLines++;
+            }
+        }
+
+        return $priceLines >= self::MIN_PRICE_LINES;
     }
 }

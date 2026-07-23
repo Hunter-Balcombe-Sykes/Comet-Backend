@@ -255,9 +255,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     /**
      * The site's previously persisted category names, in position order — the
      * cross-run stability baseline MenuMerger sorts known categories against
-     * (fix-round). Scoped to the same set persist() rebuilds (excludes
-     * source_platform='scan' — those are never scraper output and were never
-     * part of a prior merge() result, so they can't meaningfully anchor one).
+     * (fix-round). Scoped to the same set persist() rebuilds (excludes owner
+     * content — scan/manual/website-scan — those are never scraper output and
+     * were never part of a prior merge() result, so they can't meaningfully
+     * anchor one).
      *
      * @return list<string>
      */
@@ -268,7 +269,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
 
         return $existing->categories
-            ->filter(fn (MenuCategory $c) => $c->source_platform !== 'scan')
+            ->filter(fn (MenuCategory $c) => ! in_array($c->source_platform, ['scan', 'manual', 'website-scan'], true))
             ->pluck('name')
             ->values()
             ->all();
@@ -783,17 +784,27 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * The content_source to stamp on a menu whose scraped content was just
      * cleared but that still has owner-authored content: 'scan' when any
      * scan-sourced category remains (preserves the prior scan-only behaviour),
-     * otherwise 'manual' (a scraped category kept alive purely by a manual dish
-     * has an inaccurate scraped source_platform, so 'manual' is the honest label).
+     * 'website-scan' when only previous-website-scanned categories remain
+     * (previously fell through to the 'manual' branch below, mislabelling a
+     * menu that was never hand-typed), otherwise 'manual' (a scraped category
+     * kept alive purely by a manual dish has an inaccurate scraped
+     * source_platform, so 'manual' is the honest label).
      */
     private function remainingContentSource(Menu $menu): string
     {
-        $hasScan = MenuCategory::query()
+        $remaining = MenuCategory::query()
             ->where('menu_id', $menu->id)
-            ->where('source_platform', 'scan')
-            ->exists();
+            ->whereIn('source_platform', ['scan', 'website-scan'])
+            ->pluck('source_platform');
 
-        return $hasScan ? 'scan' : 'manual';
+        if ($remaining->contains('scan')) {
+            return 'scan';
+        }
+        if ($remaining->contains('website-scan')) {
+            return 'website-scan';
+        }
+
+        return 'manual';
     }
 
     /**

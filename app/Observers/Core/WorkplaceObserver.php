@@ -65,6 +65,45 @@ class WorkplaceObserver
                 ['site_id' => $workplace->site_id],
             );
         }
+
+        // Keep User.public_contact_number/email (what the public sitepage
+        // actually renders) in step with Workplace.phone/contact_email for
+        // EVERY writer, not just the dashboard's own save path (which used
+        // to be the only caller of this mirror — UserWorkplaceController's
+        // own mirrorContactFields() was removed in favour of this, so a
+        // scan/sync-written contact_email now reaches the public page
+        // automatically too, same as a manual edit always did).
+        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(['phone', 'contact_email'])) {
+            $this->mirrorContactFields($workplace);
+        }
+    }
+
+    private function mirrorContactFields(Workplace $workplace): void
+    {
+        try {
+            $user = $workplace->site?->user;
+            if ($user === null) {
+                return;
+            }
+            $dirty = false;
+            if ($user->public_contact_number !== $workplace->phone) {
+                $user->public_contact_number = $workplace->phone;
+                $dirty = true;
+            }
+            if ($user->public_contact_email !== $workplace->contact_email) {
+                $user->public_contact_email = $workplace->contact_email;
+                $dirty = true;
+            }
+            if ($dirty) {
+                $user->save();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('WorkplaceObserver contact-mirror failed', [
+                'site_id' => $workplace->site_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function deleted(Workplace $workplace): void
