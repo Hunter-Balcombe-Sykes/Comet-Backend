@@ -10,6 +10,7 @@ use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 
 beforeEach(function () {
@@ -104,7 +105,8 @@ it('does not re-scrape a GBP early-access build, but still opens the window and 
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead-gbp@example.com');
 });
 
-it('flips to failed and does not notify when the re-scrape throws (never invite on a failed refresh)', function () {
+it('flips to failed, does not notify, and reports when the re-scrape throws (never invite on a failed refresh) (R3-OBS-4)', function () {
+    Exceptions::fake();
     Mail::fake();
     $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_scrapefail_jane']);
@@ -153,6 +155,7 @@ it('flips to failed and does not notify when the re-scrape throws (never invite 
         ->and($build->fresh()->expires_at)->toBeNull()
         ->and($signup->fresh()->status)->toBe('waitlist');
     Mail::assertNothingQueued();
+    Exceptions::assertReported(fn (SourceGenerationException $e) => $e->failureCode === PreAccountBuild::FAILURE_SCRAPE_FAILED);
 });
 
 it('no-ops when the signup has no linked build (user_id null)', function () {

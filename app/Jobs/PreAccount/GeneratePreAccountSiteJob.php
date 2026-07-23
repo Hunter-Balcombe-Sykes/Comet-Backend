@@ -94,7 +94,8 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so a
             // dropped write can't silently strand this build in the wrong state.
             $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => $e->failureCode])->save();
-            Log::info('pre_account.build_failed', ['build_id' => $build->id, 'failure_code' => $e->failureCode]);
+            report($e);
+            Log::warning('pre_account.build_failed', ['build_id' => $build->id, 'failure_code' => $e->failureCode]);
 
             return;
         } catch (Throwable $e) {

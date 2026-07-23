@@ -418,7 +418,8 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
 
                 return true;
             });
-        } catch (LockTimeoutException) {
+        } catch (LockTimeoutException $e) {
+            report($e);
             Log::warning('google_business.enrich_job.lock_timeout', [
                 'user_id' => $this->userId,
                 'place_id' => $this->placeId,

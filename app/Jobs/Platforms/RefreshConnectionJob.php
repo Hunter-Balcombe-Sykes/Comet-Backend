@@ -10,6 +10,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\RateLimited;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // One connection = one refresh. The dispatcher (integrations:refresh) fans these
 // out onto the platform_refresh queue; manual/webhook triggers can reuse the same
@@ -84,5 +86,15 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
         }
 
         $refresher->refresh($connection);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('integrations.refresh.job_failed', [
+            'connection_id' => $this->connectionId,
+            'platform' => $this->platform,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

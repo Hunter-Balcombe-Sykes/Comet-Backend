@@ -7,8 +7,10 @@ use App\Jobs\ProcessImageVariantsJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
@@ -88,6 +90,36 @@ it('purges the sitepage edge cache when an image becomes ready', function () {
     (new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}"))->handle($service);
 
     Queue::assertPushed(CloudflareCachePurgeJob::class);
+});
+
+it('reports (but does not fail the job on) a cache-purge dispatch failure (R3-OBS-2)', function () {
+    // Queue::fake() never throws, so the dispatch-failure catch can only be
+    // exercised by making the underlying Bus dispatcher itself throw —
+    // CloudflareCachePurgeJob::dispatch() is the ONLY dispatch this job makes.
+    Exceptions::fake();
+    $this->mock(Dispatcher::class, function ($mock) {
+        $mock->shouldReceive('dispatch')->once()->andThrow(new RuntimeException('queue unreachable'));
+    });
+
+    $pro = createTenant('purgefailhost');
+    $pro->site->forceFill(['subdomain' => 'purgefailhost'])->saveQuietly();
+    $imageId = seedJobTestMediaRow('design', (string) $pro->site->id);
+    $originalPath = "images/test/{$imageId}/original.jpg";
+    Storage::disk('local')->put($originalPath, 'image-bytes');
+
+    $service = Mockery::mock(ImageVariantService::class);
+    $service->shouldReceive('resolvedDiskName')->once()->andReturn('local');
+    $service->shouldReceive('processVariants')->once()->andReturn([
+        'optimized' => new stdClass,
+        'maximized' => new stdClass,
+    ]);
+
+    (new ProcessImageVariantsJob($originalPath, $imageId, "images/test/{$imageId}"))->handle($service);
+
+    // The purge failure must not fail the already-successful variant job.
+    $row = SiteMedia::query()->findOrFail($imageId);
+    expect($row->processing_state)->toBe(SiteMedia::PROCESSING_STATE_READY);
+    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'queue unreachable');
 });
 
 it('fails immediately without retrying when processVariants throws UnprocessableImageException', function () {

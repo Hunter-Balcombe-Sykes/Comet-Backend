@@ -26,7 +26,9 @@ use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -322,6 +324,7 @@ it('refuses to write when the connection lock is held by someone else (LIFE-10)'
     // pre-acquired lock below before throwing LockTimeoutException. This IS
     // the proof the lock does something — don't shortcut it.
     config(['services.apify.token' => null]); // fetch() short-circuits to null, no HTTP needed
+    Exceptions::fake();
     Log::spy();
     $user = gbEnrichUser('gbenrich6');
     $conn = gbEnrichConnection($user);
@@ -341,6 +344,7 @@ it('refuses to write when the connection lock is held by someone else (LIFE-10)'
     Log::shouldHaveReceived('warning')
         ->withArgs(fn (string $m, array $c) => $m === 'google_business.enrich_job.lock_timeout'
             && ($c['place_id'] ?? null) === 'ChIJtest');
+    Exceptions::assertReported(LockTimeoutException::class);
 });
 
 // ── LIFE-10: the two write paths share one key ──────────────────────────────
@@ -398,6 +402,7 @@ it('does not release the job when failed()\'s terminal mark() write times out on
     // queue driver. ~5s wall time: the same genuine Cache::lock()->block(5, ...)
     // contention as the sibling lock-timeout tests above.
     config(['services.apify.token' => null]);
+    Exceptions::fake();
     Log::spy();
     $user = gbEnrichUser('gbenrich8');
     gbEnrichConnection($user);
@@ -420,4 +425,5 @@ it('does not release the job when failed()\'s terminal mark() write times out on
         ->withArgs(fn (string $m, array $c) => $m === 'google_business.enrich_job.lock_timeout'
             && ($c['place_id'] ?? null) === 'ChIJtest'
             && ($c['stage'] ?? null) === 'mark:unavailable');
+    Exceptions::assertReported(LockTimeoutException::class);
 });

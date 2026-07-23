@@ -12,6 +12,15 @@ it('every ShouldQueue job defines $tries, backoff, and $timeout', function () {
         // (none currently — all jobs have been fixed)
     ];
 
+    // Jobs exempt from the failed() check specifically (R3-OBS-6). Same format
+    // as above — a job here must have a documented reason it can't reach
+    // Nightwatch on terminal failure.
+    $failedExemptions = [
+        // (none currently — the 7 Moderation jobs inherit failed() from
+        // HasActionLogLifecycle, which ReflectionClass::hasMethod() already
+        // sees, so they never need an entry here.)
+    ];
+
     $iterator = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($jobsPath)
     );
@@ -61,6 +70,13 @@ it('every ShouldQueue job defines $tries, backoff, and $timeout', function () {
 
         if (! property_exists($className, 'timeout')) {
             $missing[] = '$timeout';
+        }
+
+        // R3-OBS-6: every terminal job needs a failed() hook so Nightwatch sees
+        // it — hasMethod (not property_exists) so a trait-provided failed()
+        // (e.g. HasActionLogLifecycle) correctly counts.
+        if (! isset($failedExemptions[$className]) && ! $reflection->hasMethod('failed')) {
+            $missing[] = 'failed()';
         }
 
         if ($missing !== []) {

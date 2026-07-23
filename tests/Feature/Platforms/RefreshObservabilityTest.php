@@ -8,6 +8,7 @@
 use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Exceptions\Platforms\PlaceDetailsUnavailableException;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
+use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessService;
@@ -15,6 +16,7 @@ use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 it('reports a PlaceDetailsUnavailableException when the billed Place-Details call is non-OK', function () {
@@ -125,4 +127,25 @@ it('does not report for a normally-allowlisted platform', function () {
 
     expect($out['payload'])->toHaveKey('handle')->not->toHaveKey('_internal');
     Exceptions::assertNothingReported();
+});
+
+// ── Unit 2 (R3-OBS-6): representative terminal-failure() coverage ──────────
+// One behavioural test stands in for all eight R3-OBS-6 jobs (near-identical
+// report()+Log::error() shape) — RefreshConnectionJob chosen as the
+// highest-priority of the eight (fans out from the hourly integrations:refresh
+// cron; a silent permanent failure is invisible until the next sweep).
+
+it('reports and logs a terminal RefreshConnectionJob failure', function () {
+    Exceptions::fake();
+    Log::spy();
+
+    $job = new RefreshConnectionJob('conn-123', 'instagram');
+    $job->failed(new RuntimeException('boom'));
+
+    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'boom');
+    Log::shouldHaveReceived('error')
+        ->once()
+        ->withArgs(fn (string $message, array $context) => $message === 'integrations.refresh.job_failed'
+            && ($context['connection_id'] ?? null) === 'conn-123'
+            && ($context['platform'] ?? null) === 'instagram');
 });

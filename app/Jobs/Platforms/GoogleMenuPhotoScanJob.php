@@ -18,6 +18,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Automatic menu scan from a connected Google Business listing's photos —
 // dispatched after EVERY GBP enrichment (owner 2026-07-17: "always try"),
@@ -202,5 +203,15 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
         }
 
         return $urls;
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('google_menu_scan.failed', [
+            'user_id' => $this->userId,
+            'place_id' => $this->placeId,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

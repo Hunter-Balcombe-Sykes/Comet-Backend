@@ -13,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Slow-fetch enrichment for an async link-card connect (JOB-1). The connect action
 // writes a usable MINIMAL card synchronously (status 'pending') and returns 202;
@@ -102,12 +103,24 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
                         'last_refresh_status' => 'ok',
                     ]);
                 });
-        } catch (LockTimeoutException) {
+        } catch (LockTimeoutException $e) {
+            report($e);
             Log::warning('platforms.enrich_link_card.lock_timeout', [
                 'user_id' => $this->userId,
                 'platform' => $this->platform,
                 'resource_id' => $this->resourceId,
             ]);
         }
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('platforms.enrich_link_card.failed', [
+            'user_id' => $this->userId,
+            'platform' => $this->platform,
+            'resource_id' => $this->resourceId,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

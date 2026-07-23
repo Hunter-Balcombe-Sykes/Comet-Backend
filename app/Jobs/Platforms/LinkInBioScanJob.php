@@ -16,6 +16,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Unrolls a curated link-in-bio page (Linktree/Milkshake/Beacons/Stan Store)
 // found in an Instagram bio: one plain fetch, every outbound link classified
@@ -165,5 +167,15 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
                 'Your link-in-bio page mentions an integration that clashes with one you have connected — review it in Integrations.',
             );
         }
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('platforms.link_in_bio_scan.failed', [
+            'user_id' => $this->userId,
+            'bio_page_url' => $this->bioPageUrl,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

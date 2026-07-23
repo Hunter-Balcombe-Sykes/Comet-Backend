@@ -242,6 +242,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 app(MenuScanApplier::class)->apply($scanUser, $scanItems, enrichOnly: true);
             }
         } catch (Throwable $e) {
+            report($e);
             Log::warning('menu_fetch.scan_reapply_failed', ['user_id' => $this->userId, 'error' => $e->getMessage()]);
         }
 

@@ -13,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // AI-structure a previous website's own on-page HTML menu text — the
 // HTML-menu sibling of WebsiteMenuPdfScanJob's PDF OCR path. Reuses
@@ -84,6 +85,17 @@ class WebsiteMenuHtmlScanJob implements ShouldBeUnique, ShouldQueue
             'items' => count($items),
             'updated' => $result['updated'],
             'added' => $result['added'],
+        ]);
+    }
+
+    // $text (the raw scraped page body) is deliberately omitted — matches
+    // every other log site in this file.
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('website_menu_html_scan.failed', [
+            'user_id' => $this->userId,
+            'error' => $e->getMessage(),
         ]);
     }
 }

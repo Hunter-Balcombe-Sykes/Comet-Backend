@@ -33,6 +33,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Single entry point for everything that happens when a user's
 // previous_website is set/changed: about text (JSON-LD/meta + a richer
@@ -413,5 +414,16 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         }
 
         return $priceLines >= self::MIN_PRICE_LINES;
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('website_scan.content_scan_failed', [
+            'user_id' => $this->userId,
+            'site_id' => $this->siteId,
+            'url' => $this->url,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

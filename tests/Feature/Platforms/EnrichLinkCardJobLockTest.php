@@ -23,7 +23,9 @@ use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -42,6 +44,7 @@ function elcUser(string $h = 'elc'): User
 }
 
 it('skips the write and logs a lock-timeout warning when the platform-connection lock is held — log-and-skip, not terminal-write', function () {
+    Exceptions::fake();
     Log::spy();
     $user = elcUser('elclock');
     $key = "platforms:custom:lock:{$user->id}"; // hard-coded, matching BookingXorLockTest precedent
@@ -91,6 +94,7 @@ it('skips the write and logs a lock-timeout warning when the platform-connection
             && ($context['user_id'] ?? null) === (string) $user->id
             && ($context['platform'] ?? null) === 'custom'
             && ($context['resource_id'] ?? null) === 'link-abc');
+    Exceptions::assertReported(LockTimeoutException::class);
 });
 
 it('writes the upgraded card normally when the lock is free', function () {

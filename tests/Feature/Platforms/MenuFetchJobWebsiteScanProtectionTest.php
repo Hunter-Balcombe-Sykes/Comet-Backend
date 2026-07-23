@@ -10,6 +10,7 @@ use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -76,4 +77,39 @@ it('protects website-scan-sourced menu content from an ordering-platform rebuild
     expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'website-scan')->first()->name)->toBe('Mains');
     // The uber-eats rebuild still happened normally alongside it.
     expect(MenuCategory::query()->where('menu_id', $menu->id)->where('source_platform', 'uber-eats')->exists())->toBeTrue();
+});
+
+it('reports (but does not fail the scrape on) a scan-reapply failure (R3-OBS-3)', function () {
+    Exceptions::fake();
+    $user = mfjwspUser('mfjwsp2');
+    mfjwspOrdering($user);
+
+    // Pre-seed scan_items (as GoogleMenuPhotoScanJob would) so the post-rebuild
+    // reapply branch actually runs.
+    Menu::updateOrCreate(['user_id' => $user->id], [
+        'scan_items' => ['items' => [
+            ['name' => 'Cola', 'description' => 'From Google photos', 'price' => 3.0, 'category' => 'Drinks'],
+        ]],
+    ]);
+
+    $this->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Drinks', 'items' => [
+                ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
+            ]]],
+        ]]);
+    });
+
+    $this->mock(MenuScanApplier::class, function ($m) {
+        $m->shouldReceive('apply')->once()->andThrow(new RuntimeException('boom'));
+    });
+
+    (new MenuFetchJob((string) $user->id, false))->handle(
+        app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
+    );
+
+    // The core scrape must still complete despite the swallowed reapply failure.
+    expect(Menu::query()->where('user_id', $user->id)->first()->fetch_status)->toBe('ok');
+    Exceptions::assertReported(fn (RuntimeException $e) => $e->getMessage() === 'boom');
 });

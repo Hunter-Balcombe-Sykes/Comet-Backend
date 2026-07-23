@@ -189,6 +189,7 @@ class ProcessImageVariantsJob implements ShouldQueue
                     CloudflareCachePurgeJob::dispatch($subdomain);
                 }
             } catch (Throwable $e) {
+                report($e);
                 Log::warning('ProcessImageVariantsJob: cache purge dispatch failed.', [
                     'image_id' => $this->imageId,
                     'message' => $e->getMessage(),

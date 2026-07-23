@@ -176,7 +176,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
                     'refresh_last_modified' => $connection->refresh_last_modified,
                 ]);
             });
-        } catch (LockTimeoutException) {
+        } catch (LockTimeoutException $e) {
             // MUST NOT swallow like ScheduledRefresh::run() does — correct for
             // an hourly cron (the next tick retries), catastrophically wrong
             // here: a swallowed timeout leaves the row 'pending' forever and
@@ -204,6 +204,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             // The message is deliberately NOT $descriptor->connectFetchErrorMessage():
             // that wording ("couldn't find that channel") would misrepresent
             // OUR lock contention as a vendor miss.
+            report($e);
             Log::warning('platform.connect_job.lock_timeout', [
                 'connection_id' => $connection->id,
                 'platform' => $connection->platform,

@@ -94,6 +94,7 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
                 $registry->for($build->source_type)->generate($user, $site, $build->source_ref);
             } catch (SourceGenerationException $e) {
                 $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => $e->failureCode])->save();
+                report($e);
                 Log::warning('early_access.approve.scrape_failed', ['build_id' => $build->id, 'failure_code' => $e->failureCode]);
 
                 return;
@@ -114,5 +115,15 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
 
         // After the writes commit: invite the person to claim (email; DM stub).
         $notifier->notify($build->fresh());
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('early_access.approve.failed', [
+            'signup_id' => $this->signupId,
+            'source_type' => $this->sourceType,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

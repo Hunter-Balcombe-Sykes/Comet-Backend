@@ -10,6 +10,7 @@ use App\Models\Core\User\User;
 use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 
@@ -51,7 +52,8 @@ it('runs the generator and flips pending → ready', function () {
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
 });
 
-it('records failure_code and flips to failed on SourceGenerationException', function () {
+it('records failure_code, flips to failed, and reports on SourceGenerationException (R3-OBS-1)', function () {
+    Exceptions::fake();
     $build = makePendingBuild();
     bindGenerator(fn () => throw SourceGenerationException::sourceNotFound());
 
@@ -60,6 +62,7 @@ it('records failure_code and flips to failed on SourceGenerationException', func
     $fresh = $build->fresh();
     expect($fresh->build_state)->toBe(PreAccountBuild::STATE_FAILED)
         ->and($fresh->failure_code)->toBe(PreAccountBuild::FAILURE_SOURCE_NOT_FOUND);
+    Exceptions::assertReported(fn (SourceGenerationException $e) => $e->failureCode === PreAccountBuild::FAILURE_SOURCE_NOT_FOUND);
 });
 
 it('publishes the site + re-syncs KV for staff publish builds', function () {

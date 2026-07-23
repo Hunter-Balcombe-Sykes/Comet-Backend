@@ -11,6 +11,7 @@ use App\Services\Platforms\VimeoApi;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -306,6 +307,7 @@ it('a soft-deleted (disconnected-while-queued) connection is a silent no-op', fu
 });
 
 it('a lock timeout does not throw, does not silently rely on release(), and marks the row a terminal state instead of leaving it pending forever', function () {
+    Exceptions::fake();
     // Reviewer-caught defect: Illuminate\Queue\Jobs\Job::release() only flips
     // an internal flag; SyncQueue::executeJob() (the deployed dev env's
     // driver) reacts solely to a thrown Throwable and never checks
@@ -363,6 +365,7 @@ it('a lock timeout does not throw, does not silently rely on release(), and mark
     // own lock contention, not a platform miss.
     expect($fresh->last_refresh_error)->not->toContain('Bandcamp page');
     expect($fresh->consecutive_failures)->toBe(1);
+    Exceptions::assertReported(LockTimeoutException::class);
 });
 
 // Sanity check on the lock key computation the job shares with ScheduledRefresh

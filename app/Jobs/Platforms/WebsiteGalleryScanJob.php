@@ -12,6 +12,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // Separate job (not inline in ScanPreviousWebsiteContentJob) because
 // downloading + validating + uploading several candidate photos can run
@@ -58,5 +59,15 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
                 'decisions' => $decisions,
             ]);
         }
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('website_scan.gallery_scan_failed', [
+            'user_id' => $this->userId,
+            'site_id' => $this->siteId,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

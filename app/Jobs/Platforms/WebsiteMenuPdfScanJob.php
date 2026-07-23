@@ -13,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 // OCR + structure one PDF menu found on a business's previous website — the
 // PDF-document sibling of GoogleMenuPhotoScanJob's photo OCR, own job so a
@@ -91,6 +92,16 @@ class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
             'items' => count($items),
             'updated' => $result['updated'],
             'added' => $result['added'],
+        ]);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::error('website_menu_pdf_scan.failed', [
+            'user_id' => $this->userId,
+            'document_url' => $this->documentUrl,
+            'error' => $e->getMessage(),
         ]);
     }
 }
