@@ -227,14 +227,13 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // LIFE-10: write behind the per-user/platform lock, rebuilding the
         // payload from a FRESHLY re-read row (never the stale $connection above)
         // so a concurrent ScheduledRefresh write can't be clobbered by this
-        // multi-second job's last-write-wins save. NOTE: this lock does NOT
-        // cover a concurrent dashboard save — GoogleBusinessController's
-        // connect()/applySync()/forget() never call withConnectionLock, so a
-        // same-place controller write racing this job is a real, uncovered gap
-        // (follow-up, not scoped to LIFE-10 as written). persist() also
-        // re-applies the place_id predicate as an implicit CAS: if the user
-        // reconnected a DIFFERENT place mid-scrape, it abandons instead of
-        // writing stale data over the new connection.
+        // multi-second job's last-write-wins save. GoogleBusinessController's
+        // connect()/applySync()/forget() all wrap their mutations in the same
+        // withConnectionLock key (see the controller's own PWL-1 comments), so
+        // a concurrent dashboard save is covered too, not just scheduled
+        // refreshes. persist() also re-applies the place_id predicate as an
+        // implicit CAS: if the user reconnected a DIFFERENT place mid-scrape,
+        // it abandons instead of writing stale data over the new connection.
         $saved = $this->persist($connection, 'success', function (IntegrationConnection $fresh) use ($findings) {
             // Write back business-info only: strip the enrichment keys (stale ones
             // from a pre-cleanup connect included) and record apifyFetchedAt + this
