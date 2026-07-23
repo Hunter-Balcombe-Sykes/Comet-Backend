@@ -157,6 +157,14 @@ Small, isolated, single-line change; no other logic in the file is affected.
 `WebsiteAccentExtractor.php`'s saturation guard reads `$max > 0.0 ? ($max - $min) / $max :
 0.0` — no other logic touched. Backend full suite green.
 
+**Test gap closed (critic-agent pass caught this):** the shipped test suite's two "close to
+black" cases (`#0a0a0a`, `solidColorPng(0,100,200)`) both have a non-zero channel, so
+neither actually exercises the int/float guard gap this bug was — reverting the fix
+wouldn't have failed either. Added two real regression tests using genuinely pure black
+(`#000000` theme-color and a `solidColorPng(0,0,0)` favicon) on both entry paths that
+reach `qualifies()`; both pass post-fix and would have thrown `DivisionByZeroError`
+pre-fix.
+
 ---
 
 ## 3. Instagram auto-connect crashes for zero-media accounts
@@ -200,6 +208,16 @@ convention rather than introducing a new one. Small, isolated change.
 **Fix shipped (commit `afa230c2`).** The delete call in `InstagramConnectionSeeder.php`
 is now wrapped in try/catch + `report($e)`, matching the file's own established
 convention. Backend full suite green.
+
+**Known test gap (critic-agent pass caught this, not closed):** no test forces
+`Storage::disk('media')->delete()` to genuinely throw — every seeder test uses
+`Storage::fake('media')`, whose local-adapter delete on an absent key already no-ops
+cleanly (can't reproduce the original storage-backend quirk). Reliably forcing a real
+throw here needs either a fragile full-surface Storage facade mock (this file's `seed()`
+also calls `put()`/`exists()` on the same disk via `mirrorOne()`/`mirrorVideo()`, so a
+partial mock risks an unrelated "no matching handler" failure) or a real integration
+against a non-fake disk. Judged not worth the fragility for a LOW-severity, already-fixed
+gap — flagging honestly rather than skipping silently.
 
 ---
 
@@ -710,12 +728,35 @@ description above was this plan doc's own mischaracterization, not the real prio
 (`wasRecentlyCreated || wasChanged(['phone', 'contact_email'])`) — a byte-for-byte
 faithful port of the existing overwrite-on-change logic, now firing for EVERY writer
 (scan, sync, manual) instead of only the dashboard save path, which is exactly what this
-item asked for. `User.public_contact_email` genuinely is subordinate to
-`Workplace.contact_email` under this design (there IS a second, independent write path —
-`PATCH /me`'s own `public_contact_email` field — so this precedence is a real product
-choice, not an oversight; flagged for a human product-owner glance, not treated as a bug,
-since the exact same precedence has been live on the manual-save path for months without
-complaint). Backend full suite green.
+item asked for. Backend full suite green.
+
+**Genuine open product question (both critic-agent passes independently flagged this —
+not a bug I introduced, but real, and now reachable through more paths than before):**
+`User.public_contact_email`/`public_contact_number` are ALSO independently editable via
+`PATCH /me` (`UpdateUserRequest.php:37`) — a second, genuinely separate write path from
+the Workplace Contact card. The shipped mirror is unconditional overwrite-on-change, so
+the sequence "set a distinct public email via `/me` → later edit the workplace phone (not
+even the email)" silently reverts the independently-set email back to whatever
+`Workplace.contact_email` currently holds, because the mirror re-syncs BOTH fields
+whenever EITHER changes. This exact precedence has been live (manual-save-only) for
+months with no reported complaint, so it may be the intended "Workplace Contact card is
+always authoritative" design — but I deliberately did NOT unilaterally "fix" it this run,
+because the two plausible fixes have real, different trade-offs that deserve an actual
+product decision, not a guess:
+- **Strict fill-if-empty** (only mirror once, never touch an already-set User field again)
+  would ITSELF regress today's behavior for the common case — a user who edits their
+  Contact card's email expecting it to keep showing publicly (the normal mental model for
+  anyone who's never touched the separate `/me` endpoint) would stop seeing that edit
+  propagate after the first sync.
+- **Real provenance-aware precedence** (only protect a value the user set independently
+  via `/me`, keep syncing otherwise) is the more correct fix but needs a new
+  provenance/source column on `User` for `public_contact_email`/`public_contact_number` —
+  meaningfully bigger scope than this item asked for.
+
+**Owner decision needed:** which precedence is actually wanted — Workplace-always-wins
+(current, unchanged), strict fill-once, or build real provenance tracking? Until decided,
+current (pre-existing) behavior is unchanged; the missing-mirror bug this item was
+actually about is fixed either way.
 
 ---
 

@@ -74,3 +74,25 @@ it('prefers the favicon colour when it strongly disagrees with the theme-color',
     expect($result)->not->toBe('#ff5500');
     expect($result)->not->toBeNull();
 });
+
+// Regression test for the 2026-07-23 live DivisionByZeroError incident (signup
+// testing repairs item 2): a genuinely pure-black pixel — every channel
+// exactly 0, unlike #0a0a0a above — makes max($r,$g,$b)/255 evaluate to the
+// INTEGER 0 (0/255 divides evenly), which the old `$max === 0.0` strict
+// guard failed to catch (0 === 0.0 is false in PHP), falling through to a
+// division by zero. Neither existing "close to black" case above (#0a0a0a,
+// a non-zero channel) can reproduce this — only true (0,0,0) hits the
+// int/float guard gap. Both entry points that reach qualifies() are covered:
+// the theme-color meta path and the favicon dominant-colour path.
+it('does not crash on a pure-black theme-color (regression: int/float saturation guard)', function () {
+    $html = '<meta name="theme-color" content="#000000">';
+
+    expect(fn () => app(WebsiteAccentExtractor::class)->extract($html, null))->not->toThrow(\DivisionByZeroError::class);
+});
+
+it('does not crash on a pure-black favicon (regression: int/float saturation guard)', function () {
+    $blackSquare = solidColorPng(0, 0, 0);
+
+    expect(fn () => app(WebsiteAccentExtractor::class)->extract('<html></html>', $blackSquare))->not->toThrow(\DivisionByZeroError::class);
+    expect(app(WebsiteAccentExtractor::class)->extract('<html></html>', $blackSquare))->toBeNull();
+});
