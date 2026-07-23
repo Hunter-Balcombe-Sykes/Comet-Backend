@@ -291,6 +291,22 @@ sites) · Tests: new job feature tests
 
 ## Phase D — mandatory password (item 13, both auth surfaces + login)
 
+> **✅ PHASE D COMPLETE (2026-07-23).** FE commit `d5320c9a`, deployed to production
+> (Vercel READY). D0 gate passed empirically without waiting on a dashboard check: the
+> project's public GoTrue settings endpoint reports `email: true` + `disable_signup:
+> false` (fetched with the publishable key) — the Email provider carries both OTP and
+> password auth. **D3 was already done before this phase existed**: the login page has
+> had full password sign-in end to end (identifier resolution, `AuthPasswordField`,
+> forgot-password reset flow, MFA challenge) — only the SIGNUP surfaces were
+> passwordless. Shipped: shared `components/fields/auth-password-pane.tsx` (mandatory,
+> ≥8 chars client-side with the server policy as authority, no skip control) inserted
+> post-OTP/pre-claim in BOTH the wizard's auth step and `/claim/[subdomain]`; claim-side
+> generic failures now return to the password pane (retryable) instead of a dead verify
+> pane. 15 tests across the two surfaces; suite 614 green; typecheck+lint clean; both
+> flows' reachable states browser-verified with zero console errors. Final proof of the
+> full set-password→sign-back-in loop rides the owner's live signup (verification
+> matrix row D).
+
 ### Task D0 — GATE (owner): Supabase email+password enabled
 
 - [ ] D0.1 Owner confirms in Supabase dashboard (project `glncumufgaqcmqhzwrxm` → Auth →
@@ -342,6 +358,26 @@ modify its form · Tests
       signup end to end (sets password, signs out, signs back in WITH the password).
 
 ## Phase E — partna setup steps (item 14)
+
+> **✅ PHASES E + F COMPLETE (2026-07-23).** Backend `673cfe0c` (E1, deployed to dev
+> Laravel Cloud), FE `24808bd7` (E2+F, pushed to production). E1:
+> `GET /api/onboarding/suggestions` (`OnboardingSuggestions` service) — flags +
+> capability-filtered ≤2 suggestions; the `can_use_*` filter IS the type divergence
+> (food business → reservations+ordering, partna → booking) so ONE sector table serves
+> both types; `WORKPLACE_SECTORS` (26, D6) lives here as the canonical const; prefills
+> classify the Instagram scan's unmatched links; new dirs wired into the audit-sweep
+> chunks per the pipeline-integrity guard; 10 endpoint tests. E2+F: `setup-steps.tsx`
+> as wizard step 4 of 4 — partna: Sector (Combobox) → Store (connect + feature-products
+> pick) → Workplace (sector-gated) → suggestions; business: Instagram-if-missing →
+> suggestions. Suggestion cards post to the existing smart-detect facades
+> (`booking/detect`, `reservations/detect`, `events/add` — hence ONE `events` card for
+> Eventbrite+Humanitix, deviation noted in E1's docblock) or the platform's `/connect`
+> with its registry field name. Every step skippable; flags-call failure or an empty
+> step list goes straight to the dashboard (fail-open — setup is a bonus, never a
+> blocker); drafts never restore into the post-claim step. 6 component tests covering
+> both type sequences; suite 620 green; typecheck+lint clean; wizard renders
+> "Step 1 of 4" live with zero console errors. Final proof rides the owner's live
+> partna + business signups (verification matrix rows E/F).
 
 ### Task E1 — backend: `GET /api/onboarding/suggestions`
 
