@@ -20,6 +20,9 @@ class WebsiteLogoCandidateExtractor
 
     private const MAX_SVG_BYTES = 60000;
 
+    /** Cap on the doc-wide logo-hinted rescue pass (see headerElementCandidates). */
+    private const MAX_HINTED_EXTRAS = 6;
+
     public function extract(string $html, string $baseUrl): array
     {
         $doc = new \DOMDocument;
@@ -151,6 +154,47 @@ class WebsiteLogoCandidateExtractor
             ];
         }
 
+        // Doc-wide rescue pass (2026-07-23, signup-v2 Phase B live find): the
+        // real branding often lives OUTSIDE the first semantic <header> —
+        // Squarespace puts the logo <img> in a div-classed .Header-branding
+        // block, so the scoped pass above collected only that header's UI icon
+        // SVGs and the true logo never became a candidate (live supernormal
+        // case). Sweep the whole document for imgs whose class/id/alt/src
+        // explicitly hints logo/branding, deduped against the scoped pass and
+        // bounded — hint=+8 trust already outranks bare icons downstream.
+        $seen = [];
+        foreach ($out as $candidate) {
+            if (isset($candidate['url'])) {
+                $seen[$candidate['url']] = true;
+            }
+        }
+        $extras = 0;
+        foreach ($xpath->query('//img') as $img) {
+            if ($extras >= self::MAX_HINTED_EXTRAS) {
+                break;
+            }
+            if (! $img instanceof \DOMElement) {
+                continue;
+            }
+            $src = $this->absolutize(trim((string) $img->getAttribute('src')), $baseUrl);
+            if ($src === null || isset($seen[$src])) {
+                continue;
+            }
+            $haystack = strtolower(
+                (string) $img->getAttribute('class').' '.(string) $img->getAttribute('id').' '.
+                (string) $img->getAttribute('alt').' '.$src
+            );
+            if (! str_contains($haystack, 'logo') && ! str_contains($haystack, 'branding')) {
+                continue;
+            }
+            $seen[$src] = true;
+            $out[] = [
+                'kind' => 'header-img', 'url' => $src, 'natW' => null, 'natH' => null,
+                'alt' => (string) $img->getAttribute('alt'), 'hint' => true, 'inHeader' => false,
+            ];
+            $extras++;
+        }
+
         return $out;
     }
 
@@ -171,6 +215,14 @@ class WebsiteLogoCandidateExtractor
         if (! isset($base['scheme'], $base['host'])) {
             return null;
         }
+
+        // Protocol-relative ("//cdn.example.com/x") — the Squarespace CDN's
+        // standard src form. Without this branch it was treated as a path and
+        // mangled into "<origin>//cdn.example.com/x" (2026-07-23 live find).
+        if (str_starts_with($href, '//')) {
+            return $base['scheme'].':'.$href;
+        }
+
         $origin = $base['scheme'].'://'.$base['host'].(isset($base['port']) ? ':'.$base['port'] : '');
 
         return $href[0] === '/' ? $origin.$href : $origin.'/'.ltrim($href, '/');

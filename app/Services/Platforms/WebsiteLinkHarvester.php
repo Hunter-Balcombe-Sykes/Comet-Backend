@@ -65,6 +65,18 @@ class WebsiteLinkHarvester
     private const BOOKING_PLATFORM = ['Fresha' => 'fresha', 'Square' => 'square'];
 
     /**
+     * Decisive store hosts (signup-v2 C1) — a URL on these IS a storefront, no
+     * probe needed. Generic store detection (a business's own domain) is the
+     * probe job's business, never classify()'s. squareup.com/square.site stays
+     * classified 'booking' above — Square Online stores share those hosts and
+     * a host pattern can't disambiguate; flipping it would regress booking.
+     */
+    private const SHOP_HOSTS = [
+        'Shopify' => '~(^|\.)myshopify\.com$~',
+        'Big Cartel' => '~(^|\.)bigcartel\.com$~',
+    ];
+
+    /**
      * SOCIAL_HOSTS key => [platform slug, display label], used only by classify().
      *
      * @var array<string, array{0: string, 1: string}>
@@ -80,6 +92,24 @@ class WebsiteLinkHarvester
     ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+
+    // Lazily built from our own fetcher (both scrapers take exactly a
+    // SafeUrlFetcher) so classify() gains event patterns without changing this
+    // class's construction contract — the normalize methods used here are pure
+    // regex and never actually fetch.
+    private ?EventbriteScraper $eventbriteScraper = null;
+
+    private ?HumanitixScraper $humanitixScraper = null;
+
+    private function eventbrite(): EventbriteScraper
+    {
+        return $this->eventbriteScraper ??= new EventbriteScraper($this->fetcher);
+    }
+
+    private function humanitix(): HumanitixScraper
+    {
+        return $this->humanitixScraper ??= new HumanitixScraper($this->fetcher);
+    }
 
     /**
      * @return array<string, mixed> enrichment-shaped subset; [] when the site
@@ -231,6 +261,35 @@ class WebsiteLinkHarvester
         foreach (self::ORDERING_HOSTS as $label => $pattern) {
             if (preg_match($pattern, $host)) {
                 return ['platform' => 'online-ordering', 'category' => 'online-ordering', 'label' => $label];
+            }
+        }
+
+        // Events (signup-v2 C1): organiser pages vs single events. Pattern
+        // authority stays with each scraper's own pure-regex normalizers so
+        // classify() can never drift from what the connect flow accepts —
+        // HumanitixScraper::resolveHostUrl() is deliberately NOT used (its
+        // event-URL branch fetches). Humanitix org runs BEFORE event: the two
+        // shapes share a host and only '/host/' discriminates.
+        if (preg_match('~(^|\.)eventbrite\.[a-z.]+$~', $host)) {
+            if ($this->eventbrite()->normalizeOrgUrl($url) !== null) {
+                return ['platform' => 'eventbrite', 'category' => 'event-organiser', 'label' => 'Eventbrite'];
+            }
+            if ($this->eventbrite()->normalizeEventUrl($url) !== null) {
+                return ['platform' => 'eventbrite', 'category' => 'event', 'label' => 'Eventbrite'];
+            }
+        }
+        if (preg_match('~(^|\.)humanitix\.com$~', $host)) {
+            if (preg_match('~^https?://(?:events\.)?humanitix\.com/host/[a-z0-9-]+~i', $url)) {
+                return ['platform' => 'humanitix', 'category' => 'event-organiser', 'label' => 'Humanitix'];
+            }
+            if ($this->humanitix()->normalizeEventUrl($url) !== null) {
+                return ['platform' => 'humanitix', 'category' => 'event', 'label' => 'Humanitix'];
+            }
+        }
+
+        foreach (self::SHOP_HOSTS as $label => $pattern) {
+            if (preg_match($pattern, $host)) {
+                return ['platform' => 'shop', 'category' => 'shop', 'label' => $label];
             }
         }
 

@@ -88,3 +88,60 @@ it('ignores a data: uri icon href', function () {
     $html = '<link rel="icon" href="data:image/png;base64,abc123">';
     expect(app(WebsiteLogoCandidateExtractor::class)->extract($html, 'https://venue.example'))->toBe([]);
 });
+
+// ── Doc-wide logo-hinted rescue pass (2026-07-23, signup-v2 Phase B live find) ──
+// Squarespace-shaped markup: the real branding <img> lives in a div-classed
+// .Header-branding block OUTSIDE the semantic <header>, whose only graphics
+// are UI icon SVGs. The scoped pass alone missed the logo entirely.
+
+it('collects a logo-hinted img that lives outside the semantic header (squarespace shape)', function () {
+    $html = <<<'HTML'
+    <header><svg class="Icon Icon--search" viewBox="0 0 20 20"><path d="M0 0"/></svg></header>
+    <div class="Header-branding">
+        <img src="//images.squarespace-cdn.example/Supernormal_Logo.jpg?format=1500w"
+             alt="Supernormal Restaurant | Melbourne" class="Header-branding-logo">
+    </div>
+    HTML;
+
+    $candidates = app(WebsiteLogoCandidateExtractor::class)->extract($html, 'https://venue.example');
+    $img = collect($candidates)->firstWhere('kind', 'header-img');
+
+    expect($img)->not->toBeNull();
+    // Protocol-relative src resolved with the base scheme — not mangled into
+    // "https://venue.example//images...".
+    expect($img['url'])->toBe('https://images.squarespace-cdn.example/Supernormal_Logo.jpg?format=1500w');
+    expect($img['hint'])->toBeTrue();
+    expect($img['inHeader'])->toBeFalse();
+});
+
+it('does not sweep unhinted imgs into the rescue pass', function () {
+    $html = '<header><svg class="Icon" viewBox="0 0 20 20"><path d="M0 0"/></svg></header>'
+        .'<div><img src="/photos/dish.jpg" alt="A tasty dish"></div>';
+
+    $candidates = app(WebsiteLogoCandidateExtractor::class)->extract($html, 'https://venue.example');
+
+    expect(collect($candidates)->firstWhere('kind', 'header-img'))->toBeNull();
+});
+
+it('dedupes the rescue pass against imgs the scoped pass already collected', function () {
+    $html = '<header><img class="site-logo" src="/logo.png"></header>'
+        .'<footer><img class="footer-logo" src="/logo.png"></footer>';
+
+    $candidates = app(WebsiteLogoCandidateExtractor::class)->extract($html, 'https://venue.example');
+    $imgs = collect($candidates)->where('kind', 'header-img')->where('url', 'https://venue.example/logo.png');
+
+    expect($imgs)->toHaveCount(1);
+});
+
+it('bounds the rescue pass at six hinted extras', function () {
+    $body = '';
+    for ($i = 0; $i < 12; $i++) {
+        $body .= "<div><img class=\"logo\" src=\"/brand-{$i}.png\"></div>";
+    }
+    // No <header> imgs at all — every candidate comes from the rescue pass.
+    $html = '<header><span>nav only</span></header>'.$body;
+
+    $candidates = app(WebsiteLogoCandidateExtractor::class)->extract($html, 'https://venue.example');
+
+    expect(collect($candidates)->where('kind', 'header-img'))->toHaveCount(6);
+});

@@ -13,10 +13,6 @@ use Throwable;
 // run-sync-get-dataset-items returns 201 on success, so we accept any 2xx.
 class InstagramScraper extends PlatformScraper
 {
-    // Posts to ask Apify for — enough that auto reliably yields 8 covers and the
-    // manual picker has a healthy pool.
-    private const RESULTS_LIMIT = 24;
-
     // Run the profile scraper, returning the first dataset item (the profile,
     // with latestPosts) or null on any failure / missing token.
     //
@@ -31,11 +27,17 @@ class InstagramScraper extends PlatformScraper
         }
 
         try {
+            // includeRecentPosts is OFF by the actor's own default ("faster,
+            // profile data only") — without it every scrape returns an empty
+            // latestPosts and no media ever mirrors (2026-07-23 live incident).
+            // The actor's input schema defines exactly two params; the old
+            // resultsLimit key was never one of them (silently ignored). Post
+            // pool when enabled: up to 12 per profile.
             $response = Http::withToken($token)
                 ->timeout(110)
                 ->post(
                     'https://api.apify.com/v2/acts/'.config('partna.instagram.actor').'/run-sync-get-dataset-items',
-                    ['profiles' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
+                    ['profiles' => [$username], 'includeRecentPosts' => true],
                 );
         } catch (Throwable $e) {
             report($e);
@@ -98,7 +100,14 @@ class InstagramScraper extends PlatformScraper
 
     public function profilePicUrl(array $profile): ?string
     {
-        $url = data_get($profile, 'profilePicUrlHD') ?? data_get($profile, 'profilePicUrl');
+        // Field-name drift across actor versions: the figue actor returns raw
+        // Instagram GraphQL snake_case (profile_pic_url_hd — confirmed live
+        // 2026-07-23 against the real actor), older shapes used camelCase.
+        // Read both, HD first.
+        $url = data_get($profile, 'profilePicUrlHD')
+            ?? data_get($profile, 'profile_pic_url_hd')
+            ?? data_get($profile, 'profilePicUrl')
+            ?? data_get($profile, 'profile_pic_url');
 
         return is_string($url) ? $url : null;
     }
@@ -214,12 +223,18 @@ class InstagramScraper extends PlatformScraper
         $video = null;
         foreach ($sorted as $entry) {
             $post = $entry['post'];
-            // displayUrl is the cover for every type — a video's poster frame too.
-            $cover = data_get($post, 'displayUrl') ?? data_get($post, 'images.0');
+            // The cover for every type — a video's poster frame too. Actor
+            // versions differ on naming: camelCase displayUrl (legacy) vs raw
+            // GraphQL display_url (figue actor, confirmed live 2026-07-23);
+            // images.0 is the shared fallback both emit.
+            $cover = data_get($post, 'displayUrl')
+                ?? data_get($post, 'display_url')
+                ?? data_get($post, 'images.0');
             $cover = is_string($cover) && $cover !== '' ? $cover : null;
 
             if (data_get($post, 'type') === 'Video') {
-                $vid = data_get($post, 'videoUrl');
+                // Same drift: videoUrl (legacy) vs video_url (figue actor).
+                $vid = data_get($post, 'videoUrl') ?? data_get($post, 'video_url');
                 $vid = is_string($vid) && $vid !== '' ? $vid : null;
                 if ($video === null && $vid !== null) {
                     $video = ['thumbnailUrl' => $cover, 'videoUrl' => $vid, 'shortCode' => data_get($post, 'shortCode')];

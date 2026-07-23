@@ -717,9 +717,12 @@ it('does not overwrite already-set identity fields as part of the connect job', 
     expect($user->fresh()->display_name)->toBe('Igidentity2');
 });
 
-// ── A2.2: unmatched bio links auto-saved as custom links ────────────────────
+// ── A2.2 → signup-v2 C4: unmatched bio links get a commerce probe first ──────
+// An unclassified bio link used to become a custom link immediately; it now
+// dispatches ProbeCommerceLinksJob (could be the business's store or a product
+// page), and THAT job owns the custom-link fallback on a miss.
 
-it('auto-creates a custom link for each unmatched instagram bio link', function () {
+it('dispatches a commerce probe for an unmatched (unclassified) instagram bio link', function () {
     Storage::fake('media');
     Queue::fake();
     config(['services.apify.token' => 'test-token']);
@@ -742,9 +745,14 @@ it('auto-creates a custom link for each unmatched instagram bio link', function 
     expect($connection->payload['unmatched'])->toBe([
         ['url' => 'https://someblog.example/post', 'label' => 'someblog.example'],
     ]);
-    $custom = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->first();
-    expect($custom)->not->toBeNull();
-    expect($custom->payload['url'])->toBe('https://someblog.example/post');
+    Queue::assertPushed(
+        \App\Jobs\Platforms\ProbeCommerceLinksJob::class,
+        fn ($job) => $job->url === 'https://someblog.example/post'
+            && $job->userId === (string) $user->id
+            && $job->category === null,
+    );
+    // No immediate custom link — the probe job owns the fallback now.
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'custom'])->exists())->toBeFalse();
 });
 
 it('does not auto-create a custom link for a bio link that WAS auto-synced as a platform connection', function () {

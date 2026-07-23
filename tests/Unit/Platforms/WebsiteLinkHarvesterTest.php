@@ -158,3 +158,45 @@ it('returns null for a malformed or non-http url', function () {
     expect(classifierHarvester()->classify('javascript:alert(1)'))->toBeNull();
     expect(classifierHarvester()->classify(''))->toBeNull();
 });
+
+// ── classify(): event / event-organiser / shop (signup-v2 C1) ────────────────
+
+it('classifies event-organiser and event urls for both event platforms', function (string $url, string $platform, string $category) {
+    $out = classifierHarvester()->classify($url);
+
+    expect($out['platform'])->toBe($platform);
+    expect($out['category'])->toBe($category);
+})->with([
+    ['https://www.eventbrite.com.au/o/melbourne-food-collective-1234', 'eventbrite', 'event-organiser'],
+    ['https://www.eventbrite.com/e/winter-tasting-tickets-99887', 'eventbrite', 'event'],
+    ['https://events.humanitix.com/host/supper-club', 'humanitix', 'event-organiser'],
+    ['https://events.humanitix.com/winter-supper-2026', 'humanitix', 'event'],
+]);
+
+it('pins humanitix org-before-event ordering (shared host, /host/ discriminates)', function () {
+    // If the event check ran first, /host/ pages would classify as events —
+    // NON_EVENT_SLUGS guards it scraper-side, but the ordering must hold too.
+    $out = classifierHarvester()->classify('https://events.humanitix.com/host/supper-club');
+
+    expect($out['category'])->toBe('event-organiser');
+});
+
+it('classifies decisive store hosts as shop', function (string $url, string $label) {
+    $out = classifierHarvester()->classify($url);
+
+    expect($out)->toBe(['platform' => 'shop', 'category' => 'shop', 'label' => $label]);
+})->with([
+    ['https://acme-goods.myshopify.com/', 'Shopify'],
+    ['https://acmegoods.bigcartel.com/products', 'Big Cartel'],
+]);
+
+it('keeps square.site classified as booking, never shop (pinned ambiguity)', function () {
+    $out = classifierHarvester()->classify('https://acme.square.site/');
+
+    expect($out['category'])->toBe('booking');
+    expect($out['platform'])->toBe('square');
+});
+
+it('still returns null for a plain unclassifiable website', function () {
+    expect(classifierHarvester()->classify('https://acme-restaurant.example'))->toBeNull();
+});

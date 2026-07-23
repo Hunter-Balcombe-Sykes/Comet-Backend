@@ -38,9 +38,14 @@ use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+use App\Services\Platforms\Normalizers\DiscordNormalizer;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
+use App\Services\Platforms\Normalizers\KickNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
+use App\Services\Platforms\Normalizers\MediumNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
+use App\Services\Platforms\Normalizers\SnapchatNormalizer;
+use App\Services\Platforms\Normalizers\TelegramNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
@@ -119,6 +124,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             foreach ([
                 'tiktok' => 'TikTok', 'facebook' => 'Facebook', 'x' => 'X',
                 'linkedin' => 'LinkedIn', 'threads' => 'Threads', 'reddit' => 'Reddit',
+                'snapchat' => 'Snapchat', 'discord' => 'Discord', 'telegram' => 'Telegram',
+                'kick' => 'Kick', 'medium' => 'Medium',
             ] as $key => $label) {
                 $r->register(PD::linkOnly($key, $label, LinkConnectionResource::class));
             }
@@ -133,6 +140,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('reddit')->connect(new UrlConnect(new RedditNormalizer), 'Enter your Reddit username or community (u/yourname or r/yourcommunity).');
             $r->get('tiktok')->connect(new UrlConnect(new TiktokNormalizer), 'Enter your TikTok username or profile URL.');
             $r->get('facebook')->connect(new UrlConnect(new FacebookNormalizer), 'Enter your Facebook username or profile URL.');
+            $r->get('snapchat')->connect(new UrlConnect(new SnapchatNormalizer), 'Enter your Snapchat username or profile URL (snapchat.com/add/yourname).');
+            $r->get('discord')->connect(new UrlConnect(new DiscordNormalizer), 'Enter your Discord invite link or code (discord.gg/yourcode).');
+            $r->get('telegram')->connect(new UrlConnect(new TelegramNormalizer), 'Enter your Telegram username or profile URL (t.me/yourname).');
+            $r->get('kick')->connect(new UrlConnect(new KickNormalizer), 'Enter your Kick username or channel URL (kick.com/yourname).');
+            $r->get('medium')->connect(new UrlConnect(new MediumNormalizer), 'Enter your Medium username or profile URL (medium.com/@yourname).');
 
             // Skool + Strava are link/card style under their own resources.
             $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
@@ -374,11 +386,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('vimeo')->connectInput('url', ['required', 'string', 'max:300']);
             $r->get('youtube-music')->connectInput('url', ['required', 'string', 'max:300']);
 
-            // single-named-field (3 distinct + 6 socials share 'username').
+            // single-named-field (3 distinct + 11 socials share 'username').
             $r->get('apple-music')->connectInput('artist', ['required', 'string', 'max:200']);
             $r->get('apple-podcast')->connectInput('show', ['required', 'string', 'max:200']);
             $r->get('youtube')->connectInput('channel', ['required', 'string', 'max:200']);
-            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $social) {
+            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium'] as $social) {
                 $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
             }
 
@@ -452,7 +464,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // platforms (the default) keep their standalone groups and are skipped.
 
             // Link-only socials: connect/selection/forget all via GenericPlatformController.
-            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook'] as $social) {
+            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium'] as $social) {
                 $r->get($social)->routes(PlatformRouteShape::LinkOnly);
             }
 

@@ -179,7 +179,16 @@ class MediaUploadService
         $basePath = "images/{$pro->id}/{$media->id}";
 
         try {
-            $originalPath = $this->imageService->storeOriginal($file, $basePath);
+            // SVG logo originals bypass ImageVariantService (raster-only by
+            // design): the logo-processor container rasterizes + vectorizes
+            // SVG input itself (verified live 2026-07-23, signup-v2 B0 gate),
+            // so the original only needs to land on the media disk for
+            // ProcessLogoVariantsJob to stream out. Everything else — raster
+            // logos, covers, and any SVG outside the enabled logo pipeline —
+            // keeps the storeOriginal path (which rejects SVG, unchanged).
+            $originalPath = $this->isSvgLogoUpload($file, $purpose)
+                ? $this->storeSvgOriginal($file, $basePath)
+                : $this->imageService->storeOriginal($file, $basePath);
         } catch (Throwable $e) {
             Log::error('Failed to store singleton original', [
                 'media_id' => $media->id,
@@ -257,6 +266,55 @@ class MediaUploadService
      * serialise every upload for the site behind a network round-trip, a worse
      * trade than the narrow race this catch already resolves.)
      */
+    /**
+     * SVG uploads are accepted ONLY for logo singletons with the logo-removal
+     * pipeline on — the processor container handles rasterization, so a
+     * pipeline-off SVG would have no path to renderable variants and must keep
+     * rejecting exactly as before (via storeOriginal's raster-only MIME gate).
+     */
+    private function isSvgLogoUpload(UploadedFile $file, string $purpose): bool
+    {
+        return $file->getMimeType() === 'image/svg+xml'
+            && in_array($purpose, [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE], true)
+            && (bool) config('partna.logo_removal.enabled', false);
+    }
+
+    /**
+     * Store an SVG logo original to the media disk — mirrors
+     * ImageVariantService::storeOriginal()'s naming/visibility contract
+     * (hash-named original_*, 'private' — originals are a re-processing
+     * source, the public deliverables are the job's variants) without its
+     * raster-only MIME gate. The caller's LogoAutoGrabber::svgIsSafe() pass
+     * is the ingest sanitizer; downstream the SVG is only ever served via
+     * <img> (see ProcessLogoVariantsJob::storeSvgVariant), so script-in-SVG
+     * stays inert end to end.
+     */
+    private function storeSvgOriginal(UploadedFile $file, string $basePath): string
+    {
+        $realPath = $file->getRealPath();
+        if ($realPath === false) {
+            throw new \RuntimeException('Uploaded file is not resolvable to a real path.');
+        }
+
+        $hash = substr(hash_file('sha256', $realPath), 0, 16);
+        $path = "{$basePath}/original_{$hash}.svg";
+
+        $stream = fopen($realPath, 'rb');
+        if ($stream === false) {
+            throw new \RuntimeException('Failed to open uploaded file for streaming.');
+        }
+
+        try {
+            Storage::disk($this->imageService->resolvedDiskName())->put($path, $stream, 'private');
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+
+        return $path;
+    }
+
     private function createSingletonRowOrConflict(Site $site, string $purpose, UploadedFile $file): SiteMedia
     {
         try {

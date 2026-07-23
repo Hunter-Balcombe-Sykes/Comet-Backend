@@ -863,3 +863,566 @@ false `role: 'staff'`/`is_staff: true'` on a freshly-claimed, definitely-non-sta
 remains unconfirmed. If this recurs, the highest-value next step is watching the raw `/me`
 network response in the moment right after a fresh claim (not after the fact) — everything
 reachable by reading code has now been checked twice without finding the mechanism.
+
+---
+
+> **⚠ Items 11-17 below are diagnostic history.** All decisions are now resolved and the
+> canonical, owner-approved execution plan lives in
+> **`2026-07-23-signup-v2-execution.md`** (phases A-F). Execute from THAT doc; read these
+> sections only for root-cause evidence and verification detail.
+
+## 11. Instagram auto-connect returns zero media for real, content-rich accounts
+
+**Status:** root cause found, high confidence, fix not started.
+
+**Symptom:** a genuinely public, content-rich Instagram business account (this run's test:
+`@supernormal_180` — 2,314 posts, 83.4K followers, confirmed live and public) auto-connects
+successfully (`last_refresh_status: 'ok'`) but the stored connection payload has
+`images: []`, `videoUrl: null`, `videoPoster: null`, and even `profilePicUrl: null` —
+nothing at all to show. The dashboard's `PUT /api/content/instagram-auto` toggle
+(`ContentController::setInstagramAuto`) is a pure display switch over this already-scraped
+payload (`selection->setInstagramAuto($site, enabled)`) — it does not re-scrape, so toggling
+it on/off can never retroactively populate media the original scrape never fetched.
+
+**Root cause:** `InstagramScraper::fetchProfile()` (`app/Services/Platforms/InstagramScraper.php:34-39`)
+calls the Apify actor `figue~instagram-profile-scraper` (`config('partna.instagram.actor')`)
+with only `{'profiles': [...], 'resultsLimit' => 24}`. Per the actor's own published input
+schema, it accepts exactly two parameters: `profiles` and `includeRecentPosts` (boolean) —
+documented as **"off by default (faster, profile data only); enable to also return recent
+posts."** The code never sends `includeRecentPosts: true`, so the actor is being called in
+its explicit profile-only mode on every single connect, for every account — it is working
+exactly as configured, just not configured the way `InstagramConnectionSeeder`/`latestMedia()`
+assume. `resultsLimit` is not a documented input for this actor at all and is very likely
+silently ignored.
+
+Confirmed directly from the diagnostic log already built into the code for exactly this
+suspicion (`InstagramScraper::latestMedia()`'s `Log::info('instagram.latest_media', ...)`):
+for this connect, `posts: 0, videos: 0, picked_photo: false, picked_video: false` — despite
+`postsCount: 2314` in the very same profile response. Profile-level stats survive because
+they ARE part of the "profile data only" response; only the posts array itself is being
+suppressed by the actor's own default.
+
+**This is not specific to this test account.** Every Instagram auto-connect on the platform
+is structurally getting zero post media today, silently — a real account with thousands of
+posts and a genuinely empty account (item 3, above) currently produce an identical empty
+payload, because the one parameter that would ever return posts is never sent. Item 3's fix
+(the `UnableToDeleteFile` crash) only stopped this from crashing; it never touched why the
+media is empty.
+
+**Verification pass (2026-07-23, second check):** fetched the actor's actual input-schema
+page (not just its store listing). Confirmed: the schema defines EXACTLY two inputs —
+`profiles` (required) and `includeRecentPosts` (boolean, default `false`). **`resultsLimit`
+does not exist in the schema at all** — our `'resultsLimit' => 24` has been silently ignored
+on every call, upgraded from "very likely" to confirmed. Post cap when enabled: 12 per
+profile. Also verified `ContentController::setInstagramAuto` → `ContentSelectionService::
+setInstagramAuto()` (`app/Services/Site/ContentSelectionService.php:222`) really is
+display-only: it flips `content_instagram_auto_enabled` + reconciles content-selection
+slots inside a transaction — no scrape anywhere in the path. Both original conclusions hold.
+
+**Fix (verified, not applied yet):**
+1. Add `'includeRecentPosts' => true` to the Apify request body in
+   `InstagramScraper::fetchProfile()` (~line 38).
+2. DELETE the `'resultsLimit' => self::RESULTS_LIMIT` request key and the `RESULTS_LIMIT`
+   constant (`InstagramScraper.php:18`) — confirmed nonexistent in the actor's schema, so it
+   is dead weight that misleads readers. Rewrite the constant's comment trail: the real pool
+   is ≤12 posts, so "8 covers + healthy manual-picker pool" expectations downstream should be
+   re-read against a 12-post ceiling (check `latestMedia()` consumers for any assumption of
+   more).
+3. Re-test against a live reconnect (this same `supernormal_180` connection is a ready-made
+   regression case) and confirm `latestMedia()`'s diagnostic log shows `posts > 0` and
+   `picked_photo`/`picked_video` flip true.
+4. Nice-to-have, not blocking: add the same style of diagnostic logging `latestMedia()` has
+   to the `profilePicUrl()` path — right now a null profile pic is silently indistinguishable
+   between "Apify didn't return one" and "the mirror fetch failed for another reason," which
+   will start to matter once posts are actually flowing.
+
+---
+
+## 12. Website-scanned wide/full logo never captured — SVG rejected before it reaches the logo pipeline
+
+**Status:** root cause found, high confidence, fix not started. Not a crash — the square
+logo slot still gets filled from a fallback candidate, so the account isn't visibly broken,
+just missing the wide logo.
+
+**Symptom:** `LogoAutoGrabber` (triggered from `ScanPreviousWebsiteContentJob`) found the
+business's homepage header logo — supernormal.net.au renders its logo as an inline `<svg>`
+in the page header, exactly the "premier source" `LogoAutoGrabber`'s own docblock describes
+(`app/Services/Design/LogoAutoGrabber.php:20-29`, "the RENDERED header logo (img currentSrc
+/ inline `<svg>`) is the premier source"). The grab attempt logged `Failed to store
+singleton original... Rejected: MIME type 'image/svg+xml' is not an accepted image format.`
+A PNG candidate (from the fallback ranks — favicon/apple-touch/manifest family; the log line
+doesn't record which kind) succeeded a second later and filled the SQUARE slot, but the
+FULL (wide) slot — for which the inline SVG was very likely the only sufficiently wide
+candidate available on this site — was never filled.
+
+**Root cause, traced through the full call chain:**
+`LogoAutoGrabber::tryInlineSvg()` (line 300) → `upload()` (line 507) →
+`MediaUploadService::uploadSingleton()` (line 182) → `ImageVariantService::storeOriginal()`
+(line 299) → `assertImageMime()` (lines 507-515), whose allowlist is
+`ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp']` (`ImageVariantService.php:26`)
+— no `image/svg+xml`, unconditionally, for every caller.
+
+The intended SVG pathway does exist downstream: `MediaUploadService::dispatchSingletonProcessing()`
+(lines 506-522) explicitly routes design-pool logos through a background-removal +
+vectorization job (`ProcessLogoVariantsJob` via `dispatchLogoJob()`) whenever
+`partna.logo_removal.enabled` is true — exactly the "processor rasterizes it and stores the
+sanitized source as the vector" behavior `LogoAutoGrabber`'s own docblock promises. But
+`dispatchSingletonProcessing()` only runs AFTER `storeOriginal()` has already succeeded
+(`uploadSingleton()` line 194, gated behind the try/catch at lines 181-191) —
+`assertImageMime()`'s blanket rejection fires first and unconditionally, so **no SVG can
+ever reach the logo-aware branch that's supposed to handle it.** The two halves of this
+feature — the grabber that fetches/ranks inline-SVG logos, and the storage layer meant to
+accept and rasterize them — are out of sync. This isn't a deliberate tradeoff; it's a real
+gap between documented intent and actual behavior. Confirmed `partna.logo_removal.enabled`
+is a real, currently-checked flag (`config/partna.php:1184`) and that it must be on for this
+account (otherwise `tryInlineSvg()` would have short-circuited with
+`rejected:svg-pipeline-disabled` before ever calling `upload()` at all) — so this is blocked
+at the storage layer specifically, not by the feature flag.
+
+**Verification pass (2026-07-23, second check) — `ProcessLogoVariantsJob` now read end to
+end.** The job is INPUT-AGNOSTIC about format: it reads the stored original's raw bytes and
+ships them to the self-hosted logo-processor container via `LogoProcessorClient::process(
+imageBytes, filename, mime: original_mime ?? 'image/png')` — no server-side decode of the
+original before shipping. The container returns a background-removed transparent PNG (WebP
+variants are generated from THAT, never from the original) plus an optional VTracer SVG,
+which is stored as a `MediaVariant(variant_key='vector', artifact_type='svg')`. So the
+job/pipeline side needs NO structural change for SVG input — the storage layer ahead of it
+is the only blocker, with one remaining unknown pushed one level down:
+
+- **Remaining unknown (container-side):** whether the logo-processor container itself
+  accepts `image/svg+xml` input bytes (i.e. rasterizes the SVG before rembg). The client
+  just forwards bytes + MIME. Verify with one dev-environment call sending a small SVG to
+  the processor (or by reading the logo-processor service's accepted-format handling)
+  BEFORE building the storage-layer change — if the container rejects SVG, the fix must
+  also add a server-side rasterization step, which is a materially bigger job.
+
+**Fix (refined, not applied yet):**
+1. `MediaUploadService::uploadSingleton()` gets an SVG-aware branch for logo purposes when
+   `partna.logo_removal.enabled` is true. Note BOTH gates in the current storage path block
+   SVG, not just one: `assertImageMime()`'s allowlist (`ALLOWED_IMAGE_MIMES`, line 26) AND
+   `safeExtension()`'s `ALLOWED_EXTENSIONS` (line 29, no 'svg' — an SVG original would be
+   stored misnamed as `.jpg` even if the MIME gate passed). Either a purpose-aware bypass
+   that stores the SVG original directly (correct `.svg` key + `original_mime`) and hands
+   off to `dispatchLogoJob()`, or purpose-parameterized allowlists — bypass preferred:
+   `ImageVariantService` stays raster-only, matching its name and every other caller.
+2. Keep `LogoAutoGrabber::svgIsSafe()`'s sanitization as the ingest gate (already runs
+   before upload — scripts/foreignObject/external refs rejected). The stored SVG is served
+   only via `<img>` per the job's own docblock, so script-in-SVG is inert downstream too.
+3. Add a regression test in the same spirit as the `WebsiteAccentExtractor`/
+   `InstagramConnectionSeeder` fixes elsewhere in this doc: a wide inline-SVG candidate should
+   end up stored (as SVG or its rasterized form, whichever the real fix produces), not
+   silently dropped.
+4. This specific `supernormal` test account would need a fresh logo re-scan to actually pick
+   up the full logo once fixed — `grabIfEmpty()`'s own occupancy check currently skips a slot
+   that's already filled (the square one is), so this won't self-heal retroactively without
+   either a manual re-grab path or a brand-new signup.
+
+**If not pursued purely as a bug fix, this is a real system improvement regardless:** any
+business whose logo happens to be an inline SVG — a common, modern pattern — can never get
+an auto-populated wide/full logo today, only businesses with raster (PNG/JPG) header logos
+benefit from that slot. Worth prioritizing independent of how often SVG headers turn out to
+show up across future signups.
+
+---
+
+## 13. New: signup should collect a password so the user can log in with one
+
+**Status:** captured per owner request; not yet researched or scoped. Do not implement
+without doing the auth-model check below first.
+
+**Ask:** the signup flow currently never asks the user to set a password. Add a step that
+collects one, placed immediately after the existing email OTP verification step.
+
+**Open questions to resolve before writing an implementation plan (not yet checked this
+pass):**
+- What is the actual current auth model? **Partially resolved (2026-07-23 verification
+  pass):** the signup flow's own auth component states it in its header comment —
+  `Partna-Frontend/app/(app)/account/(auth)/sign-up/pre-account/auth-and-processing-step.tsx`
+  line 1: "AuthAndProcessingStep — passwordless email-OTP auth". So the app side is
+  confirmed OTP-only today; this IS an auth-model addition. Still to confirm against the
+  Supabase project dashboard: that the Email provider allows password sign-in (OTP and
+  password both live under the same Email provider in Supabase, so
+  `supabase.auth.updateUser({password})` on the post-OTP session is the expected mechanism
+  — high confidence, but verify in the dashboard before building).
+- **Where it lands (scoped from the real step machine):** the signup flow is a 3-step
+  union — `type Step = "options" | "identity" | "auth"` in
+  `pre-account-signup-form.tsx:25` — with OTP inside `AuthAndProcessingStep`. The password
+  step slots in as a new step after OTP verification succeeds, INSIDE the auth step's
+  post-verify sequence (the session exists at that point, which `updateUser` needs). The
+  claim flow (`app/(app)/claim/[subdomain]/page.tsx`) reuses the same auth-step pattern for
+  approved/staff-built accounts — the password step must land in BOTH paths or invited
+  users never get one.
+- If passwords are to be introduced: which exact step of the `Partna-Frontend` signup flow the
+  new field slots into, validation rules, and how it's actually set — Supabase (not our own
+  `core.users`) owns credentials, so this is very likely a
+  `supabase.auth.updateUser({password})`-style call made right after OTP verify, while the
+  user still holds the valid session the OTP step produced.
+- Whether already-claimed accounts (including every test account from this run) need a
+  retrofit "set a password" path too, or only new signups going forward.
+
+---
+
+## 14. New: post-password skippable onboarding steps for `partna` accounts
+
+**Status:** planned, not yet built. Scope: **`partna` account type only, for now** (item 15
+covers the `business` equivalent).
+
+**Order:** Instagram (existing) → Email OTP (existing) → Password (item 13) → the following,
+each individually skippable.
+
+**Confirmed first — is there a separate sector/industry list?** No. Exactly one canonical
+list exists: `SectorTaxonomy::SECTORS` (`app/Services/Profile/SectorTaxonomy.php`), ~70 slugs
+across 10 groups (Food & Drink, Beauty & Personal Care, Health & Fitness, Professional
+Services, Retail & Shopping, Home & Trade Services, Hospitality & Events, Automotive,
+Creative & Entertainment, Education & Coaching, + "Other"). It's already the shared target
+for manual picking AND auto-classification — `fromGoogleCategory()` / `fromInstagramCategory()`
+both map raw category text onto this same slug space. The only other "industry" field in the
+codebase is `EarlyAccessSignup.workplace_or_industry`, a free-text string on the unrelated
+early-access waitlist form — not a taxonomy.
+
+**Step A — Sector.** Only asked if `core.users.sector` is still null at this point (i.e.
+neither Instagram's `businessCategoryName` nor anything else has classified one yet via
+`SectorTaxonomy::fromInstagramCategory()`). Reuses the existing `SectorTaxonomy::all()`
+picker payload — no new taxonomy work needed.
+
+**Step B — Connect a store (Shop).** One URL input, with an optional discount code in the
+SAME step — both are already part of the existing `POST /api/platforms/shop/brands` call
+(`AddShopBrandRequest`: `url`, `discountCode`). That call already auto-detects the provider
+(Shopify/WooCommerce/Squarespace/Big Cartel/generic), auto-fetches name/logo/products, and
+warms a product-picker cache in the same request — so "select any [products] to feature"
+slots in immediately after, against real fetched data, not a placeholder. Confirmed the
+Shop feature carries no account-type gate anywhere in `AccountCapabilities`. **Referral is deliberately NOT part of this step** — it isn't part of the existing connect
+call either. Verified exact shape (2026-07-23 second check): the input field is
+`referralUrl` on `UpdateShopBrandRequest` only (user pastes a referral LINK; its query
+suffix is what gets stored, as the `referral_query` column; empty/null clears it). It stays
+a dashboard follow-up rather than an onboarding field. Store cap: `MAX_BRANDS = 5`
+(`ShopController.php:65`) — the onboarding step only ever adds the first, so the cap can't
+bite here.
+
+**Step C — Workplace (Google Business / name),** for sector types that would have one.
+**Backend already exists (2026-07-23 second check):** `GET/PUT/DELETE /api/site/workplace`
+(`UserWorkplaceController` in `app/Http/Controllers/Api/User/SiteManagement/`) — so this
+step is frontend-only plumbing onto a live endpoint, plus whatever the Google-Business-
+lookup half needs (the pre-account identity step already has a Places search UI for the
+business flow that can be reused for the lookup UX). **Open question, still not resolved:**
+which sectors count as "would have a workplace" vs. mobile/individual/home-based ones
+(musician, content-creator, writer, personal-trainer, mobile hairdresser, etc.) has no
+existing flag to key off — `SectorTaxonomy` doesn't mark this distinction today. Needs an
+explicit per-sector (or per-group) yes/no before this step can be built; flagging rather
+than guessing a list.
+
+**Step D — up to 2 sector-based integration suggestions**, pre-filled from Instagram's
+`unmatched` list where a matching link is already sitting there (see item 16 below for what
+`unmatched` actually contains for a partna account), otherwise a normal connect prompt.
+
+**Correction applied: "Booking" is ONE unified input, not Fresha vs. Square as separate
+picks.** The registry already smart-detects a pasted booking URL's real provider
+(`PlatformRegistryServiceProvider`: `$r->get('fresha')->detect(new HostMatch('~(^|\.)fresha\.com$~'))`,
+same for Square) — so this step just asks for "your booking link," and if it resolves to
+Fresha specifically, the existing Fresha connect flow's own staff-selection step ("select
+which user you are" — confirmed via `FreshaController`'s staff list +
+`FreshaSelectionResource`) runs exactly as it does today. Nothing new needed there, just
+route into it.
+
+Full mapping, corrected per feedback (Education & Coaching → Booking + YouTube; no sector
+gets Fresha/Square as two separate suggestions):
+
+| Group | Sectors | #1 | #2 |
+|---|---|---|---|
+| Food & Drink | restaurant, cafe, bakery, bar, food-truck, caterer, personal-chef | Booking | Online Ordering |
+| Beauty & Personal Care | hair-salon, barber, nail-technician, esthetician, spa, brows-lashes | Booking | — |
+| Beauty & Personal Care | makeup-artist, tattoo-artist | Booking | Pinterest |
+| Health & Fitness | personal-trainer, yoga-instructor, gym | Booking | Strava |
+| Health & Fitness | nutritionist, physiotherapist, chiropractor, therapist, dentist | Booking | — |
+| Professional Services | accountant, lawyer, financial-advisor, consultant, real-estate-agent, insurance-broker, mortgage-broker, marketing-agency, it-services, virtual-assistant | LinkedIn | Booking |
+| Retail & Shopping | clothing-boutique, jewellery, florist, gift-shop, homewares, artisan-maker | *(covered by Step B)* | Pinterest |
+| Home & Trade Services | plumber, electrician, builder, painter, cleaner, landscaper, handyman, removalist, pest-control | Booking | — |
+| Hospitality & Events | event-venue, event-planner, wedding-planner | Eventbrite | Humanitix |
+| Hospitality & Events | accommodation, bartender | Booking | Custom Link |
+| Automotive | mechanic, car-detailer, auto-electrician, tyre-service | Booking | — |
+| Creative & Entertainment | musician, DJ | Spotify | SoundCloud |
+| Creative & Entertainment | photographer, videographer | Vimeo | Pinterest |
+| Creative & Entertainment | graphic-designer, artist | Pinterest | Custom Link |
+| Creative & Entertainment | content-creator | YouTube | TikTok |
+| Creative & Entertainment | writer | X | Custom Link |
+| Education & Coaching | tutor, music-teacher, driving-instructor, dance-instructor, life-coach, course-creator | Booking | YouTube |
+| Other | "Something else" | *(skip Step D entirely — no sensible default)* | |
+
+Several groups (Beauty's clinical sectors, Health's clinical sectors, Home & Trade,
+Automotive) carry only one real suggestion — no forced second pick where the platform
+registry has nothing that genuinely fits.
+
+---
+
+## 15. New: analogous post-password onboarding for `business` accounts
+
+**Status:** planned, not yet built.
+
+**Order:** Google Business (existing, already mandatory earlier in a business signup) →
+Email OTP → Password → the following, each skippable:
+
+**Step A — Instagram**, only if not already connected by this point.
+
+**Step B — up to N sector-based skippable connects, sourced from Google Business auto-sync,
+not Instagram's `unmatched`.**
+
+**CORRECTED (2026-07-23 second check — the first version of this section misread the
+gating).** `GoogleBusinessAutoSync::seed()` read line by line; the real structure is:
+
+- `seedBooking()` is NOT unconditional — it's gated on `can_use_booking`, which is
+  `$isBusiness ? !$isFood : true` (`AccountCapabilities.php:68`). So: a NON-food business
+  gets booking seeded; a FOOD business gets no booking at all (books via reservations
+  instead — the 2026-07-15 sector-gating contract); partna always books.
+- Everything else sits behind an early return on `google_business_full_sync`
+  (= `$isBusiness`, `AccountCapabilities.php:60`) — partna accounts stop after booking.
+  Within the business-only block: `seedReservation()` (gated `can_use_reservations`, food),
+  `seedOrdering()` (gated `can_use_online_ordering` = business AND food),
+  **`seedWorkplace()` (unconditional within the block — missed entirely in the first
+  version of this item)**, and `seedSocials()` (unconditional within the block).
+
+Net per business sub-type: **food business** → reservations + online-ordering + workplace +
+socials auto-seeded (no booking); **non-food business** → booking + workplace + socials
+(no reservations/ordering). This matches the requested examples exactly (hairdresser →
+booking; restaurant → reservations + online-ordering) — meaning for business accounts the
+onboarding step is purely a GAP-FILLER for what the Google listing/website didn't carry,
+never a first ask. The step should read current `platform_connections` per suggested
+platform and skip anything already live.
+
+**Workplace redundancy for business — now CONFIRMED, not "likely":** `seedWorkplace()` runs
+on every full-sync (business) Google Business connect, fed from the GB payload. This
+session's own supernormal timeline shows the resulting `site.workplaces` row created at
+signup. Item 14's Step C (workplace ask) is therefore partna-only; business accounts must
+NOT get a workplace step.
+
+**Still open:** whether item 14's Steps B (Store/Shop) and A (sector-if-missing) also apply
+to business accounts — sector is near-guaranteed present for business (Google category →
+`IdentitySync` fold at connect time), so Step A would almost never fire, but Step B (store)
+is a genuine open product question for this account type.
+
+---
+
+## 16. Bio-link-in-bio unrolling: real, confirmed gap — `linkin.bio` not recognized
+
+**Status:** root cause found, directly evidenced by this session's own test account. Small,
+isolated fix.
+
+**Verified the general mechanism works as designed:** `LinkInBioScanJob` correctly fetches a
+detected link-in-bio page, filters out the page's own site-chrome links (same-host filter,
+so a Linktree's own pricing/blog/help-centre links don't get seeded as the user's custom
+links), classifies every remaining outbound link through the EXACT SAME
+`InstagramAutoSync::handleClassifiedLink()` gating a direct bio link gets (so a bio-page-hop
+link is never treated more permissively than a direct one), and falls anything unclassified
+through to `CustomLinkSeeder` so nothing vanishes. This part is sound — confirmed by reading
+it end to end, not assumed.
+
+**The actual gap:** `LinkInBioDetector::HOSTS` (`app/Services/Platforms/LinkInBioDetector.php:13`)
+recognizes exactly 4 aggregators — `linktr.ee`, `msha.ke` (Milkshake), `beacons.ai`,
+`stan.store`. **`linkin.bio` (Later's link-in-bio product) is not on this list.** This
+session's own test account's Instagram bio link IS a linkin.bio page
+(`https://linkin.bio/supernormal_180`) — because it's unrecognized, `LinkInBioScanJob` never
+fired for it. The link was instead added as a single inert custom link ("My Link in Bio
+Page"), exactly as observed in this session's retest (`site.platform_connections`, platform
+`custom`, `resource_id: link-946b70dbf882493b`). Whatever real links actually live on that
+page (the restaurant's own website, reservations, etc.) were never surfaced or auto-synced.
+
+**Fix (not applied yet):** add `linkin.bio` to `LinkInBioDetector::HOSTS`. Also worth a quick
+pass for other common aggregators not currently covered — `lnk.bio`, `bio.link`,
+`campsite.bio` — before assuming the list is complete; how common each actually is among
+Partna's real signups hasn't been independently checked.
+
+**Separate, related gap — a store can never unroll from a bio link at all, today:**
+`WebsiteLinkHarvester::classify()` recognizes exactly 4 categories — `social`, `booking`,
+`reservations`, `online-ordering`. **There is no `shop` category.** So even once a
+link-in-bio page IS correctly unrolled, a link to the business's own Shopify/WooCommerce/etc.
+store on it can never auto-populate a `ShopBrand` + its products the way item 14's Step B does
+when the user pastes the identical URL directly into the Shop connect flow — today it falls
+through to, at best, a plain inert custom link. If "otherwise connects integration or adds
+custom links or products" is meant to cover stores found via bio-scanning too, that's new
+work (classify → route into the Shop connect pipeline), not a fix to something already
+broken — flagging as a distinct decision from the `linkin.bio` host-list fix, not bundled
+into it.
+
+**→ That expansion is now requested and fully scoped as item 17 below.** This item's own
+remaining scope is just the host-list fix (17 depends on it only in the sense that a page
+that never gets unrolled has no links to classify).
+
+---
+
+## 17. New: store / product / event / event-organiser detection for bio links + link-in-bio unrolling
+
+**Status:** scoped for execution; not started. Owner request: when the bio scanner (direct
+Instagram bio links) or the link-in-bio unroller (Linktree-class pages) finds a store, a
+product page, an event, an event organiser, or a booking link, it should ADD the right thing
+(brand / individual product / standalone event / organiser account / booking connection)
+instead of a plain custom link — best-effort, "we won't catch them all but as many as we can."
+
+**Where it plugs in (verified, no new pipeline needed):** all three scan paths already
+funnel through the same two chokepoints —
+`InstagramAutoSync::handleClassifiedLink()` (classified links) and the
+`CustomLinkSeeder` fallback (unclassified links) — from: (a) direct bio links
+(`InstagramAutoSync::seed()`), (b) link-in-bio unrolls (`LinkInBioScanJob`), and (c) the
+previous-website link harvest (`CustomLinkSeeder`'s own docblock names all three callers).
+Extending the classifier + the fallback therefore upgrades ALL THREE sources at once —
+including the website scan, for free.
+
+**Booking already works** (`WebsiteLinkHarvester::classify()` → category `booking`,
+fresha/square hosts → auto-connect via `handleClassifiedLink`, XOR-locked). Nothing to add
+for booking beyond what exists; the request's booking half is already live.
+
+### Tier 1 — cheap, URL-pattern-only new categories (no fetch)
+
+Extend `WebsiteLinkHarvester::classify()` with three new categories, reusing the platform
+scrapers' OWN normalize methods for validation so patterns can never drift from what the
+connect flow accepts (same discipline as the existing reservation-provider delegation):
+
+- `event-organiser` — `EventbriteScraper::normalizeOrgUrl()` (matches
+  `eventbrite.<tld>/o/<slug>`) and `HumanitixScraper::normalizeOrgUrl()`
+  (`events.humanitix.com/host/<handle>` + handle forms). Platform = `eventbrite`/`humanitix`.
+- `event` — `EventbriteScraper::normalizeEventUrl()` (`/e/<slug>`) and
+  `HumanitixScraper::normalizeEventUrl()` (`events.humanitix.com/<slug>`). Note Humanitix
+  org-vs-event share a host — org check must run FIRST (`/host/` is the discriminator).
+- `shop` (host-decisive stores only) — `*.myshopify.com`, `*.bigcartel.com`. NOT generic
+  hosts (that's Tier 2's probe). **Known ambiguity, decided:** `square.site`/`squareup.com`
+  stays classified `booking` (current behaviour) even though Square Online stores share the
+  host — a host pattern can't disambiguate, and silently flipping existing booking behaviour
+  would be a regression.
+
+### Tier 2 — probe-based store/product detection for UNCLASSIFIED links
+
+A bare URL (the business's own storefront, a product page) can't be classified by host — it
+needs fetching. The existing machinery already discriminates perfectly:
+`GenericShopScraper::readProductPage()` returns product data, OR
+`OUTCOME_STORE_PAGE` + `storeUrl` when the URL is a storefront homepage, OR nothing;
+`ShopProviderDetector::detectDetailed()` then resolves a storefront's provider (its probe
+chain is up to ~5 HTTP round-trips per URL — the reason this tier CANNOT run inline in
+`InstagramConnectJob`, whose 150s timeout is mostly consumed by Apify's 110s scrape).
+
+New bounded async job **`ProbeCommerceLinksJob`** (scraping queue, timeout ~90s, ≤6 URLs
+per dispatch, `ShouldBeUnique` on user+URL-set hash):
+1. Per URL: `readProductPage()` first (one fetch, three-way discriminator).
+2. Product found → seed as individual product (existing `individual` bucket semantics,
+   `MAX_INDIVIDUAL_PRODUCTS = 20`, dedup by productId — all already enforced by the flow
+   being extracted in the seeder work below).
+3. `OUTCOME_STORE_PAGE` (or Tier-1 `shop` classification) → `ShopProviderDetector` →
+   seed as `ShopBrand` (`MAX_BRANDS = 5`, updateOrCreate by brand_id — idempotent).
+4. Nothing → `CustomLinkSeeder` fallback, exactly today's behaviour. The job OWNS the
+   fallback: callers stop calling `CustomLinkSeeder` directly and dispatch this job with
+   their unclassified/unmatched URLs instead — "nothing vanishes" is preserved, upgraded.
+
+Callers rewired: `InstagramConnectionSeeder::autoSaveUnmatchedLinks()` and
+`LinkInBioScanJob`'s two fallback sites.
+
+### The real work — service-level seeders extracted from controller flows
+
+The four "add" flows live inside HTTP controllers today (lock-guarded, capped,
+contract-frozen). Job-context seeding needs service extractions the controllers then call —
+same pattern as `CustomLinkSeeder` / `InstagramConnectionSeeder`:
+
+- `ShopBrandSeeder` ← `ShopController::addBrand()` (detection is passed in pre-resolved;
+  brand profile fetch; connection lock; cap; catalog-cache warm).
+- `ShopProductSeeder` ← `ShopController::addProduct()` (individual bucket, transactional
+  product-set rebuild).
+- `EventsAccountSeeder` + `StandaloneEventSeeder` ← `EventsPlatformController::addAccount()`
+  / `addStandaloneEvent()` (per-platform normalize + fetch via the right scraper;
+  `MAX_STANDALONE_EVENTS = 10`; **organiser-account cap: none found in the controller —
+  verify at implementation and add one if genuinely absent**, an unbounded auto-add from a
+  scanned page would be new exposure the manual flow never had).
+- Controllers refactored to delegate; every existing 422 code/message stays byte-identical
+  (frozen API contract).
+
+### Gating (all verified against the existing capability model)
+
+- `can_autosync_scraped_connections` (DISC-7, = claimed accounts only) must gate every new
+  auto-add path — same fail-closed consent rule the social/booking seeds follow.
+- Shop + events carry NO account-type capability gate today (verified) — both types seed.
+- Tombstone semantics: a soft-deleted `shop`/`eventbrite`/`humanitix` connection means the
+  user disconnected it — route to custom-link fallback instead of resurrecting (same rule
+  `handleClassifiedLink` applies to socials/booking).
+- `user->isPendingDeletion()` short-circuit (CustomLinkSeeder already models this).
+
+### Honest limits (stated up front, not discovered later)
+
+- **JS-rendered link-in-bio pages yield nothing** — `SafeUrlFetcher` is a plain HTTP fetch;
+  aggregators that render links client-side (some Beacons/Stan themes) produce an empty
+  anchor list. Accepted as-is for this pass.
+- **Affiliate/promo links in creator bios will connect OTHER brands' stores** as the user's
+  own ShopBrand if auto-add is chosen (see question Q4) — caps + easy removal bound the
+  damage, but the failure mode is real and common for content creators.
+- Probe budget means a page with >6 unclassified links only probes the first 6 (order =
+  page order); the rest go straight to custom-link fallback. Logged, not silent.
+
+---
+
+## Execution plan (items 11-17) — phases, dependencies, gates
+
+Standing gates for every phase: backend `composer test` full suite before push; FE
+`npm run typecheck && npm run lint`; deploy = push `development` (backend) / `main`
+(frontend); post-deploy live smoke against the dev environment for anything that writes
+(per the SQLite-vs-Postgres drift rule); plan-doc checkbox + task-list update per phase.
+
+**Phase A — small, independent, ship first (backend only):**
+- [ ] A1 (item 11): `InstagramScraper::fetchProfile()` — add `includeRecentPosts: true`,
+      delete `resultsLimit`/`RESULTS_LIMIT`, adjust comments. Targeted pest over the
+      scraper's fixture path. Deploy → live verify: reconnect `supernormal_180` (dashboard
+      reconnect or staff re-run) → `instagram.latest_media` log shows `posts > 0`,
+      `picked_photo`/`picked_video` true, payload media populated.
+- [ ] A2 (item 16): `LinkInBioDetector::HOSTS` += `linkin.bio` (+ any further hosts per Q6).
+      Unit test. Deploys with A1. Live verify: same reconnect also fires `LinkInBioScanJob`
+      for the linkin.bio URL (log line + resulting connections/custom links).
+
+**Phase B — SVG logo path (item 12, backend + one infra verify):**
+- [ ] B0 GATE: verify the logo-processor container accepts `image/svg+xml` input (one dev
+      call or read its source). If NO → STOP, re-plan (server-side rasterization needed).
+- [ ] B1: SVG-aware singleton branch in `MediaUploadService::uploadSingleton()` (store
+      original as `.svg` + correct `original_mime`, dispatch `dispatchLogoJob()` directly).
+- [ ] B2: regression tests (SVG logo purpose stores + dispatches; non-logo SVG still
+      rejected; raster path untouched). Full suite. Deploy.
+- [ ] B3: live verify — re-run the supernormal website scan (or fresh test signup by owner)
+      → `logo_full` slot fills from the inline SVG; check `site_media` + variants.
+
+**Phase C — commerce/event link intelligence (item 17, backend, largest chunk):**
+- [ ] C1: Tier-1 classifier categories + unit tests (org-before-event ordering pinned).
+- [ ] C2: seeder extractions (`ShopBrandSeeder`, `ShopProductSeeder`, `EventsAccountSeeder`,
+      `StandaloneEventSeeder`) + controller delegation, feature tests proving frozen
+      contracts (existing controller tests must pass unchanged).
+- [ ] C3: `handleClassifiedLink()` routing for `shop`/`event`/`event-organiser` (+ DISC-7,
+      tombstones, caps) + tests.
+- [ ] C4: `ProbeCommerceLinksJob` + caller rewiring (seeder/LinkInBioScanJob fallbacks) +
+      tests (probe-hit product, probe-hit store, miss→custom-link, budget cap, uniqueness).
+- [ ] C5: full suite, deploy, live verify against `supernormal_180`'s linkin.bio page
+      (depends on A2 having landed) — expect its real outbound links to classify/probe into
+      typed adds; record exactly what it produced in this doc.
+
+**Phase D — password at signup (item 13, FE + one dashboard check):**
+- [ ] D0 GATE (owner): confirm Supabase Email provider allows password sign-in.
+- [ ] D1: password step component (new post-OTP-verify state inside the auth step) in
+      `pre-account-signup-form.tsx` flow; same component wired into
+      `claim/[subdomain]/page.tsx`'s auth sequence. `supabase.auth.updateUser({password})`.
+      Validation per Supabase project password policy (read it in D0, mirror client-side).
+- [ ] D2: skip/retrofit semantics per Q2/Q3 answers. Tests (step renders post-OTP, updates,
+      error paths, skip if allowed). typecheck+lint, deploy, live verify on a fresh test
+      signup (owner does the signup; verification via logs + sign-in-with-password check).
+
+**Phase E — partna onboarding steps (item 14, FE + one small backend endpoint):**
+- [ ] E1 (backend): `GET /api/onboarding/suggestions` — server-computed: reads sector,
+      live `platform_connections`, Instagram `unmatched`; returns ordered, deduped,
+      not-yet-connected suggestions per the item 14 table (table lives server-side as the
+      single source of truth) + prefill URLs where `unmatched` carries one. Feature tests.
+- [ ] E2 (FE): step-machine extension after claim, before dashboard redirect: Sector
+      (only when null; `GET /profile/sector-options` + `PUT /profile/sector`) → Store
+      (`POST /platforms/shop/brands` + product select `PUT .../selection`) → Workplace
+      (partna-only, sectors per Q1; `PUT /site/workplace`) → Suggestions (E1-driven, ≤2,
+      each connect via its existing endpoint; booking = one URL input, provider
+      smart-detected). Every step skippable; skip-state persisted so a refresh doesn't re-ask.
+- [ ] E3: gates + deploy + owner live retest of a partna signup end to end.
+
+**Phase F — business onboarding (item 15, FE, depends on E1):**
+- [ ] F1: Instagram-if-missing step post-password; then suggestions step reusing E1
+      (server already knows account type + what GB auto-sync seeded — no business-specific
+      endpoint work beyond the mapping covering business sub-cases: food → reservations/
+      ordering gaps, non-food → booking gap).
+- [ ] F2: gates + deploy + owner live retest of a business signup.
+
+Dependency graph: A → C5's verify (A2) and D-F are independent of each other except
+E1 ← F1. B independent. Recommended order: A, B0-B3, C, D, E, F — backend risk earliest,
+frontend flows once their backend surfaces exist.

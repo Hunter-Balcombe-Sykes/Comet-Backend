@@ -570,11 +570,14 @@ it('covers every integration GET read-route in the golden master', function () {
     // deferred-capable platform (supportsDeferredConnect()), registered
     // regardless of the rollout flag's current value (capability, not
     // activation — see routes/api/platforms.php). 58 -> 66.
+    // 5 new link-only socials (snapchat, discord, telegram, kick, medium) — each
+    // contributes one .../selection GET route, same LinkOnly shape as the
+    // original 6. 66 -> 71.
     // RV-8: the manual dashboard refresh button now queues RefreshConnectionJob
     // instead of blocking the request thread, so the dashboard needs a way to
     // poll for completion — GET {platform}/refresh/status returns the queued/
-    // running/done state. 66 -> 67.
-    expect($readRoutes->count())->toBe(67);
+    // running/done state. 71 -> 72.
+    expect($readRoutes->count())->toBe(72);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/selection',
@@ -587,6 +590,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/booking/status',
         'api/platforms/custom/links',
         'api/platforms/custom/links/{id}/status',
+        'api/platforms/discord/selection',
         'api/platforms/eventbrite/accounts',
         'api/platforms/eventbrite/selection',
         'api/platforms/events/selection',
@@ -597,7 +601,9 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/humanitix/selection',
         'api/platforms/instagram/connect/status',
         'api/platforms/instagram/selection',
+        'api/platforms/kick/selection',
         'api/platforms/linkedin/selection',
+        'api/platforms/medium/selection',
         'api/platforms/menu',
         'api/platforms/menu/status',
         'api/platforms/meta',
@@ -618,6 +624,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/shopify/selection',
         'api/platforms/shopify/settings',
         'api/platforms/skool/selection',
+        'api/platforms/snapchat/selection',
         'api/platforms/soundcloud/accounts',
         'api/platforms/soundcloud/selection',
         'api/platforms/spotify/accounts',
@@ -626,6 +633,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/square/selection',
         'api/platforms/strava/connect/status',
         'api/platforms/strava/selection',
+        'api/platforms/telegram/selection',
         'api/platforms/threads/selection',
         'api/platforms/tiktok/selection',
         'api/platforms/twitch/accounts',
