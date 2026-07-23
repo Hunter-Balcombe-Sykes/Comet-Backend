@@ -47,7 +47,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 11 of 19 complete (13 pipeline + 6 review-only)
+- P2 Medium: 12 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 3 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -773,7 +773,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** All three write `markDispatched` (committed) → send → `markCompleted` (committed) with no transaction spanning the sequence, guarded only by `if ($entry->status === 'completed') return;`. A crash anywhere between the send and the completion mark leaves the row at `dispatched`, which that guard does not catch, so the retry re-sends. `NotifyReporterJob` compounds it: it loops over reporters with **no per-recipient key**, so a crash midway through re-emails everyone already contacted on the next attempt. The safe siblings in the same directory demonstrate the fix shape, so this is applying an established local pattern rather than inventing one.
     - **Plain English:** These jobs mark "started," send the message, then mark "finished" — with each mark saved separately. The guard against sending twice only checks for "finished," so a crash between sending and marking finished leaves the job looking like it never sent, and the retry sends again. The reporter-notification job is worse still: it emails a whole list of people in a loop with no record of which ones it already reached, so a crash halfway through means everyone in the first half gets a second copy. Three of their neighbours in the same folder already do this correctly by saving all the marks together in one atomic step.
 
-- [ ] **RV-11** · P2 — No sweeper exists for orphaned `platforms/` media in R2 — the only uncovered failure class in the review
+- [x] **RV-11** · P2 — No sweeper exists for orphaned `platforms/` media in R2 — the only uncovered failure class in the review
     - **Where:** New console command + scheduled entry. Existing precedents: `gdpr:sweep-purged-video-artifacts`, `media:gc-orphaned-video-artifacts`
     - **Affects:** R2 storage cost. Scraped Instagram media orphaned by a failed mirror-delete leaks indefinitely with nothing to reclaim it.
     - **Effort:** M · autonomous
