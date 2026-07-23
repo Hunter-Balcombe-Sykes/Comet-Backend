@@ -866,6 +866,11 @@ reachable by reading code has now been checked twice without finding the mechani
 
 ---
 
+> **⚠ Items 11-17 below are diagnostic history.** All decisions are now resolved and the
+> canonical, owner-approved execution plan lives in
+> **`2026-07-23-signup-v2-execution.md`** (phases A-F). Execute from THAT doc; read these
+> sections only for root-cause evidence and verification detail.
+
 ## 11. Instagram auto-connect returns zero media for real, content-rich accounts
 
 **Status:** root cause found, high confidence, fix not started.
