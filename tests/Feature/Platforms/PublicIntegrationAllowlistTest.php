@@ -381,28 +381,9 @@ it('returns an empty payload array (fail-closed) for a platform with no allowlis
     expect($result['payload'])->not->toHaveKey('sourceUrl');
 });
 
-it('never exposes the dashboard-only category platforms on the public endpoint', function () {
+it('never exposes booking/reservations on the public endpoint', function () {
     $user = allowlistUser('allow10');
 
-    // online-ordering carries sensitive internal data (fees, source tags) and is
-    // dashboard-only — it must never reach the public, CDN-cached wire.
-    IntegrationConnection::create([
-        'user_id' => $user->id,
-        'platform' => 'online-ordering',
-        'resource_id' => 'online-ordering',
-        'payload' => [
-            'ubereats-abc' => [
-                'id' => 'ubereats-abc',
-                'provider' => 'custom',
-                'url' => 'https://www.ubereats.com/store/x',
-                'name' => 'Uber Eats',
-                'source' => 'google-business',
-                'data' => ['type' => 'delivery', 'fees' => '$4.99', 'time' => '30 min', 'sourcePlatform' => 'Uber Eats'],
-            ],
-        ],
-        'is_active' => true,
-        'last_refresh_status' => 'ok',
-    ]);
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'reservations',
@@ -433,12 +414,46 @@ it('never exposes the dashboard-only category platforms on the public endpoint',
         ->assertOk()
         ->json('data.platforms');
 
-    // Dashboard-only categories must not appear at all (whereNotIn guard).
-    expect($platforms)->not->toHaveKey('online-ordering');
+    // Still dashboard-only categories — never reach the wire (whereNotIn guard).
     expect($platforms)->not->toHaveKey('reservations');
     expect($platforms)->not->toHaveKey('booking');
     // The public platform still ships untouched.
     expect($platforms['facebook'][0]['payload']['url'])->toBe('https://facebook.com/me');
+});
+
+it('exposes online-ordering entries publicly (2026-07-23 actions rebuild) with only url/name/favicon/logo — id/provider/source/data stay private', function () {
+    $user = allowlistUser('allow-ordering');
+
+    // One row per store link (OnlineOrderingController::addEntry's real
+    // storage shape — resource_id 'order-<hash>', flat CardPayload).
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'online-ordering',
+        'resource_id' => 'order-abc123',
+        'payload' => [
+            'id' => 'order-abc123',
+            'provider' => 'custom',
+            'url' => 'https://www.ubereats.com/store/maha-restaurant',
+            'name' => 'Uber Eats',
+            'favicon' => 'https://www.google.com/s2/favicons?domain=ubereats.com&sz=64',
+            'logo' => null,
+            'source' => 'manual',
+            'data' => ['type' => 'delivery', 'fees' => '$4.99', 'time' => '30 min'],
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $payload = $this->getJson('/api/public/profiles/allow-ordering/integrations')
+        ->assertOk()
+        ->json('data.platforms.online-ordering.0.payload');
+
+    expect($payload)->toBe([
+        'url' => 'https://www.ubereats.com/store/maha-restaurant',
+        'name' => 'Uber Eats',
+        'favicon' => 'https://www.google.com/s2/favicons?domain=ubereats.com&sz=64',
+        'logo' => null,
+    ]);
 });
 
 it('allowlists mixcloud using the MusicEmbed five-key contract and strips internal keys', function () {

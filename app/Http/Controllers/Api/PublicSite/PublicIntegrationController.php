@@ -66,10 +66,14 @@ class PublicIntegrationController extends ApiController
         $connections = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
-            // Dashboard-only categories never reach the public sitepage. The
-            // Resource also strips their payload to {} (empty allowlist), but
-            // excluding them here keeps the rows off the wire entirely.
-            ->whereNotIn('platform', [Platform::Booking->value, Platform::Reservations->value, Platform::OnlineOrdering->value])
+            // Booking/reservations are still dashboard-only categories (the
+            // Resource also strips their payload to {} — empty allowlist —
+            // but excluding them here keeps the rows off the wire entirely).
+            // online-ordering was in this list too until the 2026-07-23 actions
+            // rebuild — its entries now feed the public ordering:<id> actions
+            // (SiteActionsService::pool()), so they must reach the wire; the
+            // Resource's allowlist for it is the actual exposure gate now.
+            ->whereNotIn('platform', [Platform::Booking->value, Platform::Reservations->value])
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')
