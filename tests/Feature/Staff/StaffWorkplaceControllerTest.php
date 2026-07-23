@@ -77,7 +77,7 @@ it('returns null profile when the site has no workplace key', function () {
 it('returns the normalised profile with PII for admin-tier staff', function () {
     $pro = makeStaffWorkplaceUser([
         'name' => 'My Shop',
-        'address' => '1 Smith St',
+        'address_line1' => '1 Smith St',
         'latitude' => -33.86,
         'longitude' => 151.21,
         'phone' => '+61 2 0000',
@@ -90,7 +90,7 @@ it('returns the normalised profile with PII for admin-tier staff', function () {
 
     $profile = $body['workplace'];
     expect($profile['name'])->toBe('My Shop')
-        ->and($profile['address'])->toBe('1 Smith St')
+        ->and($profile['address_line1'])->toBe('1 Smith St')
         ->and($profile['phone'])->toBe('+61 2 0000')
         ->and($profile['latitude'])->toBe(-33.86)
         ->and($profile['longitude'])->toBe(151.21)
@@ -104,7 +104,6 @@ it('returns the normalised profile with PII for admin-tier staff', function () {
 it('redacts address/phone/geo for support-tier staff, leaving name and website visible', function () {
     $pro = makeStaffWorkplaceUser([
         'name' => 'My Shop',
-        'address' => '1 Smith St',
         'address_line1' => 'Suite 2',
         'city' => 'Sydney',
         'state' => 'NSW',
@@ -124,7 +123,6 @@ it('redacts address/phone/geo for support-tier staff, leaving name and website v
     expect($response->getStatusCode())->toBe(200)
         ->and($profile['name'])->toBe('My Shop')
         ->and($profile['website'])->toBe('https://myshop.example')
-        ->and($profile['address'])->toBeNull()
         ->and($profile['address_line1'])->toBeNull()
         ->and($profile['city'])->toBeNull()
         ->and($profile['state'])->toBeNull()

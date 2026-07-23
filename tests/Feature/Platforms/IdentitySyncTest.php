@@ -61,6 +61,13 @@ function idsyncPlaceDetailsResponse(): array
         'id' => 'ChIJidsync',
         'displayName' => ['text' => 'Fade Lab Barbers'],
         'formattedAddress' => '12 Example St, Melbourne VIC 3000',
+        'postalAddress' => [
+            'addressLines' => ['12 Example St'],
+            'locality' => 'Melbourne',
+            'administrativeArea' => 'VIC',
+            'postalCode' => '3000',
+            'regionCode' => 'AU',
+        ],
         'location' => ['latitude' => -37.8123, 'longitude' => 144.9601],
         'googleMapsUri' => 'https://maps.google.com/?cid=999',
         'businessStatus' => 'OPERATIONAL',
@@ -127,7 +134,11 @@ it('business google connect overwrites manual name/phone, sets hours + sector, s
     expect($workplace->name)->toBe('Fade Lab');
     expect($workplace->phone)->toBe('(03) 9123 4567');
     expect($workplace->website)->toBe('https://fadelab.example');
-    expect($workplace->address)->toBe('12 Example St, Melbourne VIC 3000');
+    expect($workplace->address_line1)->toBe('12 Example St');
+    expect($workplace->city)->toBe('Melbourne');
+    expect($workplace->state)->toBe('VIC');
+    expect($workplace->postcode)->toBe('3000');
+    expect($workplace->country)->toBe('AU');
     expect((float) $workplace->latitude)->toBe(-37.8123);
 
     // Structured hours derived from periods (day 1 = mon, day 2 = tue).
@@ -191,7 +202,8 @@ it('partna google connect only fills blank fields and never clobbers manual valu
 
     // Blank fields FILLED from Google, stamped google-business.
     expect($workplace->website)->toBe('https://fadelab.example');
-    expect($workplace->address)->toBe('12 Example St, Melbourne VIC 3000');
+    expect($workplace->address_line1)->toBe('12 Example St');
+    expect($workplace->city)->toBe('Melbourne');
     expect($workplace->field_sources['website']['source'])->toBe('google-business');
     expect($workplace->opening_hours['mon'])->toBe([['open' => '0900', 'close' => '1730']]);
 

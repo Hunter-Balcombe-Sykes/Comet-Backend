@@ -708,7 +708,7 @@ it('workplace engine returns WorkplaceData when the workplace section is live', 
     DB::connection('pgsql')->table('site.workplaces')->insert([
         'site_id' => $siteId,
         'name' => 'Fade Lab Barbers',
-        'address' => '10 Crown St, Surry Hills',
+        'address_line1' => '10 Crown St',
         'city' => 'Surry Hills',
         'state' => 'NSW',
         'country' => 'AU',
@@ -736,10 +736,10 @@ it('workplace engine returns WorkplaceData when the workplace section is live', 
 
     $workplace = $this->getJson('/api/public/profiles/workplace-live')->assertOk()->json('data.profile.workplace');
 
-    // buildWorkplace() remaps snake_case → camelCase: 11 keys on the wire.
-    expect($workplace)->toHaveKeys(['name', 'address', 'addressLine1', 'city', 'state', 'postcode', 'country', 'latitude', 'longitude', 'phone', 'website']);
+    // buildWorkplace() remaps snake_case → camelCase: 10 keys on the wire.
+    expect($workplace)->toHaveKeys(['name', 'addressLine1', 'city', 'state', 'postcode', 'country', 'latitude', 'longitude', 'phone', 'website']);
     expect($workplace['name'])->toBe('Fade Lab Barbers');
-    expect($workplace['address'])->toBe('10 Crown St, Surry Hills');
+    expect($workplace['addressLine1'])->toBe('10 Crown St');
     expect($workplace['latitude'])->toBe(-33.886);
     expect($workplace['phone'])->toBe('+61 2 9000 0000');
 });

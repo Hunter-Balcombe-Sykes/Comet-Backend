@@ -187,7 +187,7 @@ class IndividualProfilePayloadBuilder
      * to the wire's camelCase here.
      *
      * @param  Collection<string, Block>  $sections
-     * @return array{name: string, description: string|null, address: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
+     * @return array{name: string, description: string|null, addressLine1: string|null, city: string|null, state: string|null, postcode: string|null, country: string|null, latitude: float|null, longitude: float|null, phone: string|null, website: string|null}|null
      */
     private function buildWorkplace(?Site $site, Collection $sections): ?array
     {
@@ -200,7 +200,6 @@ class IndividualProfilePayloadBuilder
         return [
             'name' => (string) ($data['name'] ?? ''),
             'description' => $data['description'] ?? null,
-            'address' => $data['address'] ?? null,
             'addressLine1' => $data['address_line1'] ?? null,
             'city' => $data['city'] ?? null,
             'state' => $data['state'] ?? null,

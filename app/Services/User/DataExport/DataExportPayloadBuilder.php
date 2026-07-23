@@ -280,7 +280,7 @@ class DataExportPayloadBuilder
         $workplaceRow = DB::connection('pgsql')
             ->table('site.workplaces')
             ->select([
-                'site_id', 'name', 'address', 'address_line1', 'city', 'state', 'postcode',
+                'site_id', 'name', 'address_line1', 'city', 'state', 'postcode',
                 'country', 'latitude', 'longitude', 'phone', 'website', 'previous_website',
                 'category', 'description', 'opening_hours', 'contact_email', 'field_sources',
                 'created_at', 'updated_at',

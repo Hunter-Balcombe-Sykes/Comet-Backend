@@ -30,7 +30,7 @@ class WorkplaceObserver
     // ONLY other columns (previous_website + its field_sources provenance —
     // design-factor inputs, never rendered) skips the purge.
     private const CACHE_AFFECTING_COLUMNS = [
-        'name', 'address', 'address_line1', 'city', 'state', 'postcode', 'country',
+        'name', 'address_line1', 'city', 'state', 'postcode', 'country',
         'latitude', 'longitude', 'phone', 'website', 'category', 'description',
         'opening_hours', 'contact_email',
     ];

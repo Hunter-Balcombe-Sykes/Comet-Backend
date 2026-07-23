@@ -59,9 +59,8 @@ class UserWorkplaceController extends ApiController
         $attributes = ['name' => (string) $data['name']];
 
         foreach ([
-            // Structured address components stored alongside the formatted
-            // string so manual edits survive the save round-trip.
-            'address', 'address_line1', 'city', 'state', 'postcode', 'country',
+            // Structured address components — the only stored source of truth.
+            'address_line1', 'city', 'state', 'postcode', 'country',
             'phone', 'website',
             // Archive of the business's old website + Google-sourced category
             // and editorial description (auto-filled from Google Business).
@@ -141,7 +140,7 @@ class UserWorkplaceController extends ApiController
 
         // Identity fields whose provenance the dashboard surfaces. `name` is
         // always present (required); the rest are stamped only when sent.
-        foreach (['name', 'address', 'phone', 'website', 'category', 'contact_email', 'opening_hours'] as $field) {
+        foreach (['name', 'address_line1', 'city', 'state', 'postcode', 'country', 'phone', 'website', 'category', 'contact_email', 'opening_hours'] as $field) {
             if ($request->has($field)) {
                 $existing[$field] = ['source' => 'manual', 'at' => $stamp];
             }

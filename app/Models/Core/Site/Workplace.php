@@ -9,7 +9,6 @@ use Illuminate\Support\Carbon;
 /**
  * @property string $site_id PK + FK → site.sites.id (ON DELETE CASCADE); not UUID-generated.
  * @property string|null $name NULL is a valid state — see class comment.
- * @property string|null $address
  * @property string|null $address_line1
  * @property string|null $city
  * @property string|null $state
@@ -61,7 +60,6 @@ class Workplace extends BaseModel
         // current site, so mass-assignment of this column is safe.
         'site_id',
         'name',
-        'address',
         'address_line1',
         'city',
         'state',

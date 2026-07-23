@@ -77,25 +77,39 @@ elsewhere from those, never storing/editing it independently).
 validation, model, resource, public sitepage payload builders, and the pages repo's
 `resolve-site-content.ts:670-671`) — no computed-mirror column kept around.
 
-**Still open:**
-1. Existing accounts that already drifted (address populated, structured fields blank) —
-   leave as-is going forward, or run a one-off backfill attempting to parse the existing
-   `address` string back into parts? (Lossy/unreliable in general — a freeform address
-   string doesn't always split cleanly.)
-2. ~~Want me to check `partna-monorepo`...~~ Checked: yes, it does. The public sitepage
-   DOES read `workplace.address` directly and separately from the structured fields
-   (`apps/pages/src/content/resolve-site-content.ts:670-671`, reads both `address` and
-   `addressLine1` independently). So Option A (full removal) would need this file updated
-   too (compute the display string here instead); Option B (computed mirror) would need
-   nothing changed here at all, since it'd keep receiving a valid `address` value
-   automatically. This makes Option B meaningfully lower-effort/lower-risk to ship, at the
-   cost of keeping a column around. (Tangential, not chased further: the same pages repo
-   ALSO separately reads an `address` off the raw Google Business *connection* surface
-   for JSON-LD/locale text — `lib/head-builder.ts:166-167`, `lib/locale-line.ts:18` — a
-   different address source entirely from `site.workplaces`. Whether those two ever need
-   reconciling is outside this item's scope; flagging only so it doesn't get missed later.)
+**Resolved (2026-07-23): existing drifted data** — owner direction: existing accounts are
+all test data, don't bother backfilling. No migration attempted to parse `address` back
+into parts before dropping the column.
 
-Do not start until we get to this item.
+**Fix shipped (2026-07-23).** Full removal across all three repos:
+- **Comet-Backend:** migration `20260723120000_drop_workplaces_address.sql` (`DROP COLUMN
+  address` on `site.workplaces`, applied to dev Supabase); `Workplace` model, request
+  validation, `UserWorkplaceController` (upsert field loop + manual-provenance stamps, now
+  covering all 5 structured fields instead of just the flat one), `WorkplaceResource`,
+  `StaffWorkplaceController`, `SitepageDataResolverService`, `IndividualProfilePayloadBuilder`,
+  `DataExportPayloadBuilder` (GDPR export column list) all stop reading/writing `address`.
+  `WorkplaceVisibility`'s name-OR-address live-gate predicate now checks `address_line1`
+  instead (same semantics, structured column). `WorkplaceObserver`'s cache-affecting-column
+  list updated. `IdentitySync::applyFromGooglePayload()` rewritten to read Google's
+  `addressParts` (lines/suburb/state/postcode/country — already present in the same sync
+  payload, previously unused) and write the 5 structured columns directly, never a flat
+  string — this also fixes the root drift trigger this item started from. All touched tests
+  updated to the structured shape; full suite green (4776 passed).
+- **Partna-Frontend:** `AddressCard`'s "Display address" input removed entirely (form type,
+  register calls, submit payload, `isGoogleSynced` check all updated); `Workplace`/
+  `WorkplaceUpsertInput` types in `lib/site-workplace.ts` drop `address`. Both AI chat tools
+  that could set a workplace location (`business_update_info`, `settings_set_workplace`)
+  updated to the structured-field shape instead of the flat string, in both the handler body
+  and the registry's tool schema. Live-verified: reloaded `/account/workplace` on the ollies
+  test account, confirmed only the structured fields render (no Display address field), typed
+  into Street address, saved, hard-reloaded from the server, confirmed the value round-tripped
+  correctly through the new `address_line1` column with zero console errors.
+- **partna-monorepo:** `resolve-site-content.ts:670` (the `address` key read) and
+  `WorkplaceSurface.address` in `types.ts` removed — confirmed dead-on-arrival downstream
+  (only `addressLine1`/`city`/etc. are actually consumed, by `composeLocaleLine()`). The
+  separate Google-Business-connection-surface `address` (`head-builder.ts`, `locale-line.ts`'s
+  fallback branch, `resolve-site-content.ts`'s `googlePlace` block) is a genuinely different
+  data source and was deliberately left untouched. Typecheck + full test suite green (65/65).
 
 ---
 
@@ -505,10 +519,25 @@ cited in full below:**
 **Decision (2026-07-23): test SerpApi.** Spend one Knowledge Graph API credit (free trial
 available) against the known test business's exact name/place ID and read the raw
 response — settles whether it actually returns social links for a small local business
-before deciding anything further. Do this live check when we get to this item; if it
-comes back empty/unreliable, fall back to (a) accepting the website-crawl-only limitation,
-or (b) the separate later "connect your Google Business listing" feature using the
-Business Profile API.
+before deciding anything further.
+
+**BLOCKED (2026-07-23) — cannot execute during this run.** Confirmed no `SERPAPI_KEY` (or
+any SerpApi reference at all) exists anywhere in this codebase (`config/`, `.env`,
+`.env.example`) — there is no existing SerpApi account to spend a credit against. Getting
+one requires signing up for SerpApi's free trial, which is creating a new third-party
+account — a hard-prohibited action for me regardless of standing run authorization (the
+account-creation prohibition explicitly does not lift under blanket user authorization).
+This is the one item in the whole run I cannot execute myself.
+
+**To unblock:** sign up at serpapi.com (free trial, no card required for the free tier
+last checked), grab the API key, and either (a) hand me the key so I can run the one test
+call and report back what it returns, or (b) run it yourself — one `GET` to
+`https://serpapi.com/search.json?engine=google_maps&type=place&place_id=<supernormal's
+place_id>&api_key=<key>` (or the equivalent Knowledge Graph engine call — check SerpApi's
+docs for the exact param shape for a Maps/Business entity), then check the response for a
+`social_profiles`/`links`-shaped field. Until then this item stays exactly where the
+2026-07-23 research left it: mapping/seeding code is already correct and complete, the gap
+is purely upstream data availability from the Apify actor in use.
 
 Full source list (Google's own docs + Apify/SerpApi/Outscraper primary pages) available on
 request — omitted here to keep the plan doc readable; ask if you want them re-surfaced.

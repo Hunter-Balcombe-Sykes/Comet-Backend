@@ -17,13 +17,12 @@ use Illuminate\Http\Request;
 class WorkplaceResource extends ApiResource
 {
     /**
-     * @return array{name: string, address: ?string, address_line1: ?string, city: ?string, state: ?string, postcode: ?string, country: ?string, latitude: ?float, longitude: ?float, phone: ?string, website: ?string, previous_website: ?string, category: ?string, description: ?string, contact_email: ?string, opening_hours: ?array<string,mixed>, field_sources: array<string,mixed>}
+     * @return array{name: string, address_line1: ?string, city: ?string, state: ?string, postcode: ?string, country: ?string, latitude: ?float, longitude: ?float, phone: ?string, website: ?string, previous_website: ?string, category: ?string, description: ?string, contact_email: ?string, opening_hours: ?array<string,mixed>, field_sources: array<string,mixed>}
      */
     public function toArray(Request $request): array
     {
         return [
             'name' => self::trimOrNull($this->name),
-            'address' => self::trimOrNull($this->address),
             'address_line1' => self::trimOrNull($this->address_line1),
             'city' => self::trimOrNull($this->city),
             'state' => self::trimOrNull($this->state),

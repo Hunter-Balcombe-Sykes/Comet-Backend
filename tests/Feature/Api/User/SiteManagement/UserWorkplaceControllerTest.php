@@ -48,7 +48,7 @@ function uwcSite(User $user): string
 function uwcWorkplaceKeys(): array
 {
     return [
-        'name', 'address', 'address_line1', 'city', 'state', 'postcode', 'country',
+        'name', 'address_line1', 'city', 'state', 'postcode', 'country',
         'latitude', 'longitude', 'phone', 'website', 'previous_website', 'category', 'description',
         // Central-identity additions (API-1 follow-up): the workplace card now
         // also carries the contact email, structured hours, and per-field
@@ -64,7 +64,7 @@ it('show returns the exact workplace-card shape and never leaks previous_website
     DB::connection('pgsql')->table('site.workplaces')->insert([
         'site_id' => $siteId,
         'name' => "Ollie's Diner",
-        'address' => '1 Main St',
+        'address_line1' => '1 Main St',
         'previous_website' => 'https://old.example.com',
         // System-written analysis blob — must never reach the API response.
         'previous_website_analysis' => json_encode(['v' => 1, 'accent' => '#fff']),
@@ -88,13 +88,13 @@ it('upsert returns the exact workplace-card shape and never leaks previous_websi
 
     $response = actingAsUser($user)->putJson('/api/site/workplace', [
         'name' => 'New Name',
-        'address' => '2 Other St',
+        'address_line1' => '2 Other St',
     ])->assertOk();
 
     expect(array_keys($response->json('workplace')))->toEqualCanonicalizing(uwcWorkplaceKeys());
     expect($response->json('workplace'))->not->toHaveKey('previous_website_analysis');
     expect($response->json('workplace.name'))->toBe('New Name');
-    expect($response->json('workplace.address'))->toBe('2 Other St');
+    expect($response->json('workplace.address_line1'))->toBe('2 Other St');
 });
 
 it('rejects a workplace upsert whose name is over 15 characters', function () {
@@ -126,7 +126,7 @@ it('returns a null workplace when the stored name is blank after trimming', func
     DB::connection('pgsql')->table('site.workplaces')->insert([
         'site_id' => $siteId,
         'name' => '   ',
-        'address' => 'some address',
+        'address_line1' => 'some address',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
@@ -153,7 +153,7 @@ it('partial upsert leaves fields absent from the request untouched', function ()
 
     actingAsUser($user)->putJson('/api/site/workplace', [
         'name' => 'Partial Cafe',
-        'address' => '9 Slice St',
+        'address_line1' => '9 Slice St',
         'description' => 'Original description.',
         'phone' => '+61 400 111 222',
     ])->assertOk();
@@ -161,12 +161,12 @@ it('partial upsert leaves fields absent from the request untouched', function ()
     // Address-only save: description + phone survive.
     actingAsUser($user)->putJson('/api/site/workplace', [
         'name' => 'Partial Cafe',
-        'address' => '10 Slice St',
+        'address_line1' => '10 Slice St',
         'city' => 'Carlton',
     ])->assertOk();
 
     $workplace = actingAsUser($user)->getJson('/api/site/workplace')->json('workplace');
-    expect($workplace['address'])->toBe('10 Slice St')
+    expect($workplace['address_line1'])->toBe('10 Slice St')
         ->and($workplace['city'])->toBe('Carlton')
         ->and($workplace['description'])->toBe('Original description.')
         ->and($workplace['phone'])->toBe('+61 400 111 222');
@@ -179,5 +179,5 @@ it('partial upsert leaves fields absent from the request untouched', function ()
 
     $workplace = actingAsUser($user)->getJson('/api/site/workplace')->json('workplace');
     expect($workplace['description'])->toBeNull()
-        ->and($workplace['address'])->toBe('10 Slice St');
+        ->and($workplace['address_line1'])->toBe('10 Slice St');
 });

@@ -28,7 +28,10 @@ function validateWorkplacePayload(array $payload): array
 it('accepts a Google-autofill-shaped payload', function () {
     $errors = validateWorkplacePayload([
         'name' => 'Test Salon',
-        'address' => '123 Main St, Sydney NSW 2000',
+        'address_line1' => '123 Main St',
+        'city' => 'Sydney',
+        'state' => 'NSW',
+        'postcode' => '2000',
         'latitude' => -33.8688,
         'longitude' => 151.2093,
     ]);
@@ -47,7 +50,7 @@ it('accepts a manual entry with just a name', function () {
 it('accepts a manual entry with name + address', function () {
     $errors = validateWorkplacePayload([
         'name' => 'My Home Studio',
-        'address' => '42 Some St',
+        'address_line1' => '42 Some St',
     ]);
 
     expect($errors)->toBe([]);
@@ -55,7 +58,7 @@ it('accepts a manual entry with name + address', function () {
 
 it('rejects a payload with no name', function () {
     $errors = validateWorkplacePayload([
-        'address' => '42 Some St',
+        'address_line1' => '42 Some St',
     ]);
 
     expect($errors)->toHaveKey('name');
@@ -119,12 +122,12 @@ it('trims whitespace and treats blank strings as null', function () {
     $request = new UpsertWorkplaceRequest;
     $request->merge([
         'name' => '  Studio  ',
-        'address' => '   ',
+        'address_line1' => '   ',
     ]);
 
     $reflection = new ReflectionMethod($request, 'prepareForValidation');
     $reflection->invoke($request);
 
     expect($request->input('name'))->toBe('Studio');
-    expect($request->input('address'))->toBeNull();
+    expect($request->input('address_line1'))->toBeNull();
 });

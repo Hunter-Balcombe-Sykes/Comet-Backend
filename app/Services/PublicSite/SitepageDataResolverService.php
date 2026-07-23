@@ -746,7 +746,6 @@ class SitepageDataResolverService
             return [
                 'name' => $name,
                 'description' => trim_or_null($workplace->description),
-                'address' => trim_or_null($workplace->address),
                 'address_line1' => trim_or_null($workplace->address_line1),
                 'city' => trim_or_null($workplace->city),
                 'state' => trim_or_null($workplace->state),
