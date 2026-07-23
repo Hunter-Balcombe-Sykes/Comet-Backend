@@ -3,14 +3,23 @@
 namespace App\Services\Platforms;
 
 /**
- * Matches a URL against the curated 4-platform link-in-bio host list — the
- * ONLY signal LinkInBioScanJob uses to decide whether a bio link is a page
- * worth unrolling (Linktree/Milkshake/Beacons/Stan Store), not a general
- * "is this a link-in-bio-looking site" heuristic.
+ * Matches a URL against the curated link-in-bio host list — the ONLY signal
+ * LinkInBioScanJob uses to decide whether a bio link is an aggregator page
+ * worth unrolling, not a general "is this a link-in-bio-looking site"
+ * heuristic. Dedicated aggregator hosts only — never website builders
+ * (carrd.co etc.), whose pages are real sites, not link lists.
  */
 class LinkInBioDetector
 {
-    private const HOSTS = ['linktr.ee', 'msha.ke', 'beacons.ai', 'stan.store'];
+    private const HOSTS = [
+        'linktr.ee', 'msha.ke', 'beacons.ai', 'stan.store',
+        // 2026-07-23 expansion (signup-v2 A2): the live supernormal retest's
+        // bio link was a linkin.bio page — unrecognized, so it landed as one
+        // inert custom link instead of unrolling.
+        'linkin.bio', 'lnk.bio', 'bio.link', 'campsite.bio', 'snipfeed.co',
+        'komi.io', 'hoo.be', 'taplink.cc', 'solo.to', 'liinks.co',
+        'heylink.me', 'allmylinks.com', 'direct.me',
+    ];
 
     public function matches(string $url): bool
     {

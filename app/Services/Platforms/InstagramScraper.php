@@ -13,10 +13,6 @@ use Throwable;
 // run-sync-get-dataset-items returns 201 on success, so we accept any 2xx.
 class InstagramScraper extends PlatformScraper
 {
-    // Posts to ask Apify for — enough that auto reliably yields 8 covers and the
-    // manual picker has a healthy pool.
-    private const RESULTS_LIMIT = 24;
-
     // Run the profile scraper, returning the first dataset item (the profile,
     // with latestPosts) or null on any failure / missing token.
     //
@@ -31,11 +27,17 @@ class InstagramScraper extends PlatformScraper
         }
 
         try {
+            // includeRecentPosts is OFF by the actor's own default ("faster,
+            // profile data only") — without it every scrape returns an empty
+            // latestPosts and no media ever mirrors (2026-07-23 live incident).
+            // The actor's input schema defines exactly two params; the old
+            // resultsLimit key was never one of them (silently ignored). Post
+            // pool when enabled: up to 12 per profile.
             $response = Http::withToken($token)
                 ->timeout(110)
                 ->post(
                     'https://api.apify.com/v2/acts/'.config('partna.instagram.actor').'/run-sync-get-dataset-items',
-                    ['profiles' => [$username], 'resultsLimit' => self::RESULTS_LIMIT],
+                    ['profiles' => [$username], 'includeRecentPosts' => true],
                 );
         } catch (Throwable $e) {
             report($e);
