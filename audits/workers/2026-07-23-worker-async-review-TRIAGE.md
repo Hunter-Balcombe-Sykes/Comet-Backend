@@ -47,8 +47,8 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 1 of 19 complete (13 pipeline + 6 review-only)
-- P3 Low: 1 of 6 complete (5 pipeline + 1 review-only)
+- P2 Medium: 3 of 19 complete (13 pipeline + 6 review-only)
+- P3 Low: 2 of 6 complete (5 pipeline + 1 review-only)
 
 ---
 
@@ -232,7 +232,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         ],
         ```
 
-- [ ] **R2-SCHED-1** · P2 — `analytics:compute-popularity`'s 14-minute lock TTL is shorter than its 15-minute cadence, contradicting the file's own scheduler convention
+- [x] **R2-SCHED-1** · P2 — `analytics:compute-popularity`'s 14-minute lock TTL is shorter than its 15-minute cadence, contradicting the file's own scheduler convention
     - **Where:** routes/console.php:104-107
     - **Affects:** Content popularity scoring pipeline — if a single run's real runtime lands between 14 and 15 minutes, the lock clears while the run is still active and the next tick starts a second, overlapping instance.
     - **Effort:** S (~0.5h)
@@ -251,7 +251,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
             ->onFailure($reportScheduledFailure('compute-popularity'));
         ```
 
-- [ ] **R2-SCHED-2** · P2 — Two weekly PII-retention prune commands use a single unbounded `DELETE` instead of the codebase's established batched-delete pattern
+- [x] **R2-SCHED-2** · P2 — Two weekly PII-retention prune commands use a single unbounded `DELETE` instead of the codebase's established batched-delete pattern
     - **Where:** app/Console/Commands/PruneUnsubscribedSubscriptionsCommand.php:63; app/Console/Commands/PruneEarlyAccessSignupsCommand.php:52
     - **Affects:** `notifications:prune-unsubscribed-subscriptions` (weekly, `notifications.email_subscriptions`) and `early-access:prune-old-signups` (weekly, `core.early_access_signups`) — both tables accumulate rows for the lifetime of the platform (every historical unsubscribe / every historical non-converting applicant), unlike operationally-bounded tables.
     - **Effort:** S (~1h)
@@ -528,7 +528,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 ## P3 — Nice to have
 
-- [ ] **R2-SCHED-3** · P3 — `PruneExpiredPreAccountBuilds` plucks all candidate IDs into memory before its per-candidate loop
+- [x] **R2-SCHED-3** · P3 — `PruneExpiredPreAccountBuilds` plucks all candidate IDs into memory before its per-candidate loop
     - **Where:** app/Console/Commands/PruneExpiredPreAccountBuilds.php:67-70
     - **Affects:** Daily `builds:prune-expired` sweep — a large accumulation of expired pre-account builds (e.g. after a growth campaign) materializes as one in-memory array of UUIDs before the loop starts.
     - **Effort:** S (~0.5–1h)
