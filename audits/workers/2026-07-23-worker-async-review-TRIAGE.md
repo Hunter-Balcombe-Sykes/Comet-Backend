@@ -47,7 +47,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 10 of 19 complete (13 pipeline + 6 review-only)
+- P2 Medium: 11 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 3 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -762,7 +762,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** `null` means the worker never issues a blocking `BLPOP`; it polls in PHP userland with `--sleep` gaps between attempts, paying both in pickup latency (a job can sit for up to the sleep interval after arriving) and in Redis command volume (every poll is a round trip, whether or not work exists). A positive `block_for` gives near-instant pickup while still returning control periodically so signals can be handled. **`0` is the trap:** it blocks indefinitely and, per the Laravel documentation, *"will also prevent signals such as `SIGTERM` from being handled until the next job has been processed"* — which breaks zero-downtime deploys, since the worker will not acknowledge the shutdown signal until a job happens to arrive.
     - **Plain English:** Right now each worker checks the job list, finds nothing, sleeps a moment, and checks again — over and over. Redis supports a much better arrangement: "wake me the instant something arrives, but give up after five seconds." That gets jobs started faster and cuts a lot of pointless chatter. There is one setting to avoid: "wait forever." That version means the worker stops listening for the shutdown signal during a deploy and hangs until a job happens to show up.
 
-- [ ] **RV-10** · P2 — Moderation `Notify*` jobs write their idempotency marks non-transactionally and re-send on retry
+- [x] **RV-10** · P2 — Moderation `Notify*` jobs write their idempotency marks non-transactionally and re-send on retry
     - **Where:** app/Jobs/Moderation/NotifyOnCallStaffJob.php, NotifyReportedUserJob.php, NotifyReporterJob.php
     - **Affects:** On-call staff receiving duplicate pages, and reporters receiving duplicate emails about the same report. `NotifyReporterJob` is the worst of the three.
     - **Effort:** M · autonomous
