@@ -48,7 +48,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
-- P3 Low: 3 of 6 complete (5 pipeline + 1 review-only)
+- P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
 ---
 
@@ -545,7 +545,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
             ->pluck('id');
         ```
 
-- [ ] **R3-CCH-1** · P3 — `GuardsMediaProcessing` uses raw `Redis::set`/`Redis::del` instead of the dedicated `cache_locks` connection
+- [x] **R3-CCH-1** · P3 — `GuardsMediaProcessing` uses raw `Redis::set`/`Redis::del` instead of the dedicated `cache_locks` connection
     - **Where:** app/Jobs/Concerns/GuardsMediaProcessing.php:28-39
     - **Affects:** Media processing jobs (`ProcessImageVariantsJob`, `ProcessVideoVariantsJob`, `ProcessLogoVariantsJob`) — architectural consistency of lock placement, not an active production risk.
     - **Effort:** S (~0.5–1h)
@@ -573,7 +573,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         ],
         ```
 
-- [ ] **R3-JOB-5** · P3 — `SyncCustomerMarketingOptInJob` missing `ShouldBeUnique` on a concurrency-sensitive cache-column write
+- [x] **R3-JOB-5** · P3 — `SyncCustomerMarketingOptInJob` missing `ShouldBeUnique` on a concurrency-sensitive cache-column write
     - **Where:** app/Jobs/Notifications/SyncCustomerMarketingOptInJob.php:29
     - **Affects:** `Customer.marketing_opt_in_cached` — a UX/perf shortcut column, not a source of truth.
     - **Effort:** S (~0.5h)
@@ -612,7 +612,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R4-RES-3** · P3 — Orphaned temp file if `rename()` fails in `VideoVariantService::makeTmpFile`
+- [x] **R4-RES-3** · P3 — Orphaned temp file if `rename()` fails in `VideoVariantService::makeTmpFile`
     - **Where:** app/Services/Media/VideoVariantService.php:535-547
     - **Affects:** worker local disk over long uptimes, in the unlikely event of a rename failure.
     - **Effort:** S (~0.5h)
