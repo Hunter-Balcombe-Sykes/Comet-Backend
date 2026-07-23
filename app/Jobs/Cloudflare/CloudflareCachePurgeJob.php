@@ -80,6 +80,21 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      */
     public int $uniqueFor = 240;
 
+    /**
+     * R3-CACHE-1: set when this purge was dispatched from a bulk fan-out
+     * (ReconcilePlatformTakedownJob), not a real-time site mutation. Routes to
+     * the lowest-priority cloudflare_bulk lane and adds a '|b' uniqueId
+     * discriminator — WITHOUT the discriminator, a delayed bulk purge would
+     * hold the SAME dispatch-time ShouldBeUnique lock as a real-time purge for
+     * the same handle and silently suppress it, making the user under takedown
+     * see their OWN unrelated edits fail to purge. Declared as a plain property
+     * with a class-level default (NOT a promoted readonly constructor param):
+     * a promoted property has no class default, so an in-flight 'cloudflare'
+     * payload serialized before this change and unserialized after it would
+     * leave the property uninitialized and fatal in uniqueId() on retry.
+     */
+    public bool $bulk = false;
+
     public function uniqueId(): string
     {
         // Include the custom domain so a purge that must also bust the custom
@@ -89,11 +104,13 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // discriminator too — it must never be coalesced away by a routine
         // purge for the same handle in flight (e.g. a concurrent unrelated
         // profile edit), since it's the ONLY backstop that evicts hidden
-        // content from the edge (see failed()).
+        // content from the edge (see failed()). A bulk (takedown fan-out)
+        // purge gets its own discriminator for the same reason — see $bulk.
         return strtolower(trim($this->handle))
             .'|'.strtolower(trim((string) $this->customDomain))
             .($this->followUp ? '|fu' : '')
-            .($this->moderationCaseId !== null ? '|m'.$this->moderationCaseId : '');
+            .($this->moderationCaseId !== null ? '|m'.$this->moderationCaseId : '')
+            .($this->bulk ? '|b' : '');
     }
 
     public function __construct(
@@ -105,10 +122,20 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // below — routine purges (SiteObserver, gallery, account edits) must
         // NOT page on-call, so this stays null for every other dispatch site.
         public readonly ?string $moderationCaseId = null,
+        bool $bulk = false,
     ) {
+        $this->bulk = $bulk;
+
         // Isolated from user-facing work so a burst of site mutations can't
-        // delay notifications or mail delivery.
-        $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
+        // delay notifications or mail delivery. Bulk (takedown fan-out) purges
+        // route to the lowest-priority cloudflare_bulk lane instead — see
+        // config/horizon.php supervisor-1 and $bulk's docblock — so a large
+        // takedown structurally never competes with real-time purges.
+        if ($this->bulk) {
+            $this->onQueue(config('partna.queues.cloudflare_bulk', 'cloudflare_bulk'));
+        } else {
+            $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
+        }
         $this->uniqueFor = $followUp ? 30 : 240;
     }
 
@@ -148,7 +175,11 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // delayed follow-up purge lands after every payload layer has turned
         // over, evicting any stale re-pin. Follow-ups never chain.
         if (! $this->followUp) {
-            self::dispatch($this->handle, $this->customDomain, followUp: true, moderationCaseId: $this->moderationCaseId)
+            // Forward $bulk so a takedown's follow-up purge also stays on the
+            // cloudflare_bulk lane — dropping that would let the follow-up
+            // compete with real-time purges, defeating the lane isolation for
+            // half of a bulk purge's fan-out.
+            self::dispatch($this->handle, $this->customDomain, followUp: true, moderationCaseId: $this->moderationCaseId, bulk: $this->bulk)
                 ->delay(now()->addSeconds(
                     (int) config('partna.cache.purge_followup_seconds', 120),
                 ));

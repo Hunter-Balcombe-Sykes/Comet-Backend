@@ -122,7 +122,12 @@ return [
         // ProcessImageVariantsJob heap spikes without restart churn.
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect'],
+            // R3-CACHE-1: 'cloudflare_bulk' appended LAST — balance=>false means this
+            // supervisor drains the list in strict priority order, so a takedown's
+            // bulk-fanout purges are only ever served once every lane above them
+            // (including real-time 'cloudflare') is empty. Adds a queue NAME only,
+            // no new supervisor/process/memory.
+            'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,

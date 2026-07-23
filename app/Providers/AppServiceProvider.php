@@ -279,6 +279,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         $this->configureRateLimiting();
+        $this->configureQueueRateLimiting();
 
         // Scheduler heartbeat — feeds GET /api/health/scheduler so a stopped cron
         // runner becomes visible. See RecordScheduledTaskHeartbeat for rationale.
@@ -785,5 +786,27 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+    }
+
+    /**
+     * Queue (not HTTP) rate limiters. Kept separate from configureRateLimiting()
+     * above (HTTP-request limiters keyed by IP/route) and from
+     * PlatformRegistryServiceProvider::boot() (platform-scoped connect/refresh
+     * limiters) — a mail-provider throughput cap belongs in neither.
+     */
+    protected function configureQueueRateLimiting(): void
+    {
+        // R3-SCALE-2: shared per-team Resend budget for SendStaffBroadcastEmailToSubscriberJob
+        // (RateLimited('mail-broadcast') middleware). 5/s — HALF of Resend's documented
+        // 10 req/s per-team cap, deliberately: that budget is shared with every
+        // transactional send in the app, which must never be starved by a broadcast.
+        // Cache-backed → Redis in prod → global across ALL workers, unlike a per-job
+        // stagger delay (which can't see concurrent transactional traffic spending the
+        // same budget). See config/partna.php 'throttle.mail_broadcast_per_second'.
+        RateLimiter::for('mail-broadcast', function () {
+            return Limit::perSecond(
+                (int) config('partna.throttle.mail_broadcast_per_second', 5)
+            )->by('mail-broadcast');
+        });
     }
 }

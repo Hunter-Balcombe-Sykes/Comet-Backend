@@ -214,6 +214,39 @@ it('uniqueId is plain (no discriminator) when moderationCaseId is not set', func
     expect($job->uniqueId())->toBe('jane|tuesdae.co');
 });
 
+// R3-CACHE-1: a delayed bulk (takedown fan-out) purge must NOT hold the same
+// dispatch-time ShouldBeUnique lock as a real-time purge for the same handle —
+// that would silently suppress the affected user's own real-time purge.
+it('carries the bulk discriminator in uniqueId when bulk:true, and is unchanged otherwise', function () {
+    $bulk = new CloudflareCachePurgeJob('jane', 'tuesdae.co', bulk: true);
+    $routine = new CloudflareCachePurgeJob('jane', 'tuesdae.co');
+
+    expect($bulk->uniqueId())->toBe('jane|tuesdae.co|b')
+        ->and($routine->uniqueId())->toBe('jane|tuesdae.co');
+});
+
+it('routes to the cloudflare_bulk queue when bulk:true, and cloudflare otherwise', function () {
+    $bulk = new CloudflareCachePurgeJob('jane', bulk: true);
+    $routine = new CloudflareCachePurgeJob('jane');
+
+    expect($bulk->queue)->toBe(config('partna.queues.cloudflare_bulk'))
+        ->and($routine->queue)->toBe('cloudflare');
+});
+
+it('forwards bulk:true to the delayed follow-up purge, so it also stays on the cloudflare_bulk lane', function () {
+    $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co', bulk: true);
+
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once();
+    $job->handle($purge);
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $followUp) {
+        return $followUp->followUp === true
+            && $followUp->bulk === true
+            && $followUp->queue === config('partna.queues.cloudflare_bulk');
+    });
+});
+
 it('forwards moderationCaseId to the delayed follow-up purge', function () {
     $job = new CloudflareCachePurgeJob('Jane', 'Tuesdae.co', moderationCaseId: 'case-123');
 

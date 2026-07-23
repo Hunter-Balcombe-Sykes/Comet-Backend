@@ -2,8 +2,10 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -16,8 +18,21 @@ use Illuminate\Support\Facades\Log;
  * OV-A staff kill-switch takedown. Flips is_active=false on connections of a
  * disabled platform — globally (segmentId null) or for one segment's members —
  * so existing content stops rendering (public payload filters is_active=true).
- * Per-model save fires IntegrationConnectionObserver, busting each site's cache.
  * No data deleted: only the flag changes. Re-enable does NOT reactivate.
+ *
+ * R3-CACHE-1: uses a chunked query-builder update (not a per-model save), so
+ * IntegrationConnectionObserver::saved() never fires. Of its 12 reachable
+ * behaviours only two apply to a bulk is_active flip — the cache purge and the
+ * updated_at bump — both reproduced explicitly below (subdomain lookup as one
+ * join per chunk, replacing the per-row N+1). The other ten (identity fold,
+ * content-selection seeding, Instagram slot reconcile, mirrored-media cleanup,
+ * tenant/platform dirty guards) all gate on wasRecentlyCreated or a payload/
+ * platform/user_id write, none of which this operation performs — pinned by
+ * ReconcilePlatformTakedownJobTest's enumeration-guard test, which fails the
+ * day a future observer arm gets gated on is_active and this takedown ought to
+ * run it too. Purges dispatch bulk:true onto the lowest-priority cloudflare_bulk
+ * lane (never competing with real-time purges) with an optional run-global
+ * stagger; see config/partna.php 'cache.bulk_purge_*'.
  */
 class ReconcilePlatformTakedownJob implements ShouldQueue
 {
@@ -57,14 +72,66 @@ class ReconcilePlatformTakedownJob implements ShouldQueue
             $query->whereIn('user_id', $userIds);
         }
 
+        $stagger = (int) config('partna.cache.bulk_purge_stagger_seconds', 0);
+        $cap = (int) config('partna.cache.bulk_purge_max_delay_seconds', 3600);
+        $warnThreshold = (int) config('partna.cache.bulk_purge_volume_warning_threshold', 1000);
+
+        // Run-GLOBAL, not per-chunk: resetting this inside chunkById's callback
+        // would collapse the stagger to 200-row buckets. $seen dedupes a user
+        // holding several rows on one platform (which can straddle a chunk
+        // boundary) to a single purge, since ShouldBeUnique's dedupe lock can't
+        // be relied on once dispatch delays exceed CloudflareCachePurgeJob's
+        // uniqueFor.
+        $index = 0;
+        $seen = [];
+
         // chunkById is safe while mutating is_active: pages by ascending id, and
         // flipped rows drop out of the active() filter without being revisited.
-        $query->chunkById(200, function ($connections): void {
-            foreach ($connections as $connection) {
-                $connection->is_active = false;
-                $connection->save(); // per-model save so the observer busts each site's cache
+        $query->chunkById(200, function ($connections) use (&$index, &$seen, $stagger, $cap): void {
+            $ids = $connections->pluck('id');
+
+            // Bulk flip, one statement per page, no model events (see class
+            // docblock) — updated_at set explicitly since a query-builder update
+            // skips Eloquent's auto-bump.
+            IntegrationConnection::query()->whereIn('id', $ids)->update([
+                'is_active' => false,
+                'updated_at' => now(),
+            ]);
+
+            // One join per page replaces the refresher's per-row
+            // User::with('site')->find() N+1.
+            $subdomainsByUser = Site::query()
+                ->whereIn('user_id', $connections->pluck('user_id')->unique())
+                ->pluck('subdomain', 'user_id');
+
+            foreach ($subdomainsByUser as $subdomain) {
+                if ($subdomain === null || isset($seen[$subdomain])) {
+                    continue;
+                }
+                $seen[$subdomain] = true;
+
+                $pending = CloudflareCachePurgeJob::dispatch($subdomain, bulk: true);
+
+                $delaySeconds = $stagger > 0 ? min($index * $stagger, $cap) : 0;
+                if ($delaySeconds > 0) {
+                    $pending->delay(now()->addSeconds($delaySeconds));
+                }
+                $index++;
             }
         });
+
+        if (count($seen) > $warnThreshold) {
+            // Volume signal only — no continuation/self-redispatch loop here on
+            // purpose (see plan §A4E). A very large takedown is already cheaper
+            // than the old per-model-save path; this just makes an oversized
+            // fan-out visible before it becomes a problem.
+            Log::warning('Platform takedown purge fan-out exceeded volume threshold', [
+                'platform' => $this->platform,
+                'segment_id' => $this->segmentId,
+                'distinct_subdomains' => count($seen),
+                'threshold' => $warnThreshold,
+            ]);
+        }
     }
 
     public function failed(\Throwable $e): void

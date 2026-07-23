@@ -25,6 +25,29 @@ it('cloudflare queue is covered in the production environment', function () {
     );
 });
 
+// R3-CACHE-1: priority order IS the fix — a takedown's bulk fan-out only
+// competes with real-time purges if this ever regresses. Test the invariant
+// explicitly so a future "tidy up the queue list" can't silently undo it.
+it('cloudflare_bulk is listed AFTER cloudflare on supervisor-1, so bulk purges never compete with real-time ones', function () {
+    $horizon = require base_path('config/horizon.php');
+    $queue = $horizon['defaults']['supervisor-1']['queue'];
+
+    $cloudflareIndex = array_search('cloudflare', $queue, true);
+    $bulkIndex = array_search('cloudflare_bulk', $queue, true);
+
+    expect($cloudflareIndex)->not->toBeFalse()
+        ->and($bulkIndex)->not->toBeFalse()
+        ->and($bulkIndex)->toBeGreaterThan($cloudflareIndex);
+});
+
+it('cloudflare_bulk queue is covered in every Horizon environment', function () {
+    foreach (['production', 'development', 'local'] as $env) {
+        expect(envCoversQueue($env, 'cloudflare_bulk'))->toBeTrue(
+            "cloudflare_bulk queue must appear in at least one {$env} supervisor queue list"
+        );
+    }
+});
+
 it('cache-warm queue is covered in the production environment', function () {
     expect(envCoversQueue('production', 'cache-warm'))->toBeTrue(
         'supervisor-cache-warm must be registered in production — jobs will strand otherwise'

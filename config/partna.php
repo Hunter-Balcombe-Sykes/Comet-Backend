@@ -972,6 +972,17 @@ return [
         'pre_account_build_per_minute' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_MINUTE', 3),
         'pre_account_build_per_hour' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_HOUR', 10),
         'claim_per_minute' => (int) env('PARTNA_THROTTLE_CLAIM_PER_MINUTE', 5),
+
+        // R3-SCALE-2: provider-throughput cap for SendStaffBroadcastEmailToSubscriberJob,
+        // registered as the 'mail-broadcast' queue RateLimiter (AppServiceProvider::
+        // configureQueueRateLimiting()). Deliberately HALF of Resend's documented 10
+        // requests/second PER-TEAM cap (shared across every API key and endpoint,
+        // not a free-tier ceiling) — that budget is also spent by every transactional
+        // send (enquiry/subscription confirmations, claim invites, moderation notices),
+        // which must never be starved by a broadcast. A fixed-window limiter can also
+        // burst up to 2x at a window boundary, so sizing at half the cap keeps the
+        // worst case at the cap itself.
+        'mail_broadcast_per_second' => (int) env('PARTNA_MAIL_BROADCAST_PER_SECOND', 5),
     ],
 
     /*
@@ -1387,6 +1398,13 @@ return [
         'mail' => env('PARTNA_QUEUE_MAIL', 'mail'),
         // Cloudflare KV sync and cache-purge jobs.
         'cloudflare' => env('PARTNA_QUEUE_CLOUDFLARE', 'cloudflare'),
+        // R3-CACHE-1: lowest-priority lane for takedown-fan-out purges
+        // (CloudflareCachePurgeJob bulk:true). Appended LAST in supervisor-1's
+        // queue list (config/horizon.php) — balance=>false + strict priority
+        // means a bulk purge is only ever served once 'cloudflare' (and every
+        // lane above it) is empty, so a large takedown structurally can't
+        // delay unrelated users' real-time purges.
+        'cloudflare_bulk' => env('PARTNA_QUEUE_CLOUDFLARE_BULK', 'cloudflare_bulk'),
         // Public site cache pre-warm (WarmPublicSiteCacheJob).
         // NOTE: value keeps the hyphen to match the Horizon supervisor-cache-warm lane.
         'cache_warm' => env('PARTNA_QUEUE_CACHE_WARM', 'cache-warm'),
@@ -1875,6 +1893,27 @@ return [
         // (shop/menu/events) approaching the practical purge ceiling (chunking +
         // job timeout budget) visible before it starts failing outright.
         'purge_url_volume_warning_threshold' => (int) env('PARTNA_CACHE_PURGE_URL_VOLUME_WARNING_THRESHOLD', 900),
+
+        // R3-CACHE-1: ops lever for ReconcilePlatformTakedownJob's purge fan-out.
+        // 0 (default) = off — the cloudflare_bulk lane's strict-priority
+        // isolation already delivers the "never competes with real-time
+        // purges" guarantee on its own; this only matters if the bulk lane
+        // itself needs slowing down further. Derivation for a non-zero value
+        // (~15s): the bulk lane runs at ~1 effective concurrency (last of 12
+        // under balance=>false), each primary purge + its follow-up costs
+        // ~6-10s, so a ~15s spacing keeps the lane's ready list near-empty.
+        'bulk_purge_stagger_seconds' => (int) env('PARTNA_CACHE_BULK_PURGE_STAGGER_SECONDS', 0),
+
+        // min($index * stagger, $cap): everything past cap/stagger dispatches
+        // at the same instant (a deliberate tail-flood — harmless on the
+        // lowest-priority lane). Cap only bounds how late a compliance purge
+        // can land.
+        'bulk_purge_max_delay_seconds' => (int) env('PARTNA_CACHE_BULK_PURGE_MAX_DELAY_SECONDS', 3600),
+
+        // Distinct-subdomain count in one takedown run above which
+        // ReconcilePlatformTakedownJob logs a warning — visibility only, no
+        // continuation/self-redispatch loop (see the job's docblock).
+        'bulk_purge_volume_warning_threshold' => (int) env('PARTNA_CACHE_BULK_PURGE_VOLUME_WARNING_THRESHOLD', 1000),
 
         'ttls' => [
             'public_payload' => (int) env('PARTNA_CACHE_TTL_PUBLIC_PAYLOAD', env('CACHE_TTL_PUBLIC_PAYLOAD', 900)),                                 // 15m

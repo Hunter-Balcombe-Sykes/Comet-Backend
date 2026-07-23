@@ -1,12 +1,16 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\ReconcilePlatformTakedownJob;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\IdentitySync;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -32,6 +36,19 @@ function skoolConn(User $u): IntegrationConnection
         'user_id' => $u->id, 'platform' => 'skool', 'resource_id' => 'c-'.Str::random(5),
         'payload' => ['url' => 'https://www.skool.com/demo', 'name' => 'Demo'], 'is_active' => true,
         'last_refresh_status' => 'ok',
+    ]);
+}
+
+/**
+ * Insert a site.sites row directly (bypasses Eloquent) so the takedown job's
+ * subdomain join has a row to find.
+ */
+function takedownSite(User $u, string $subdomain): void
+{
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $u->id,
+        'subdomain' => $subdomain,
     ]);
 }
 
@@ -74,4 +91,138 @@ it('scopes a segment takedown to that segment members only', function () {
 
     expect($mConn->refresh()->is_active)->toBeFalse()
         ->and($oConn->refresh()->is_active)->toBeTrue();
+});
+
+// R3-CACHE-1: the query-builder bulk update skips Eloquent's auto-bump — SQLite
+// has no equivalent of Postgres' DINT-10 updated_at trigger, so this test is the
+// STRICTER environment for this assertion (an inversion of the usual seam).
+it('bumps updated_at explicitly on the bulk flip', function () {
+    Queue::fake();
+    $conn = skoolConn(takedownUser('tkupdated'));
+    $before = $conn->updated_at;
+
+    $this->travel(1)->minutes();
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+    $this->travelBack();
+
+    expect($conn->refresh()->updated_at->gt($before))->toBeTrue();
+});
+
+it('dispatches exactly one bulk purge per distinct subdomain, on the cloudflare_bulk lane', function () {
+    Queue::fake();
+
+    // Site row inserted AFTER the connection: IntegrationConnectionObserver's
+    // saved() fires synchronously on create() (wasRecentlyCreated), and would
+    // dispatch its own real-time (non-bulk) purge if a site already existed —
+    // a confound unrelated to what this test is proving.
+    $userA = takedownUser('tkpa');
+    skoolConn($userA);
+    takedownSite($userA, 'subda');
+
+    $userB = takedownUser('tkpb');
+    skoolConn($userB);
+    takedownSite($userB, 'subdb');
+
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, 2);
+    foreach (['subda', 'subdb'] as $subdomain) {
+        Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) use ($subdomain) {
+            return $job->handle === $subdomain
+                && $job->bulk === true
+                && $job->queue === config('partna.queues.cloudflare_bulk');
+        });
+    }
+});
+
+it('dedupes several connections held by the same user to a single purge', function () {
+    Queue::fake();
+
+    // Site inserted after both connections — see the comment on the previous
+    // test for why order matters here.
+    $user = takedownUser('tkdup');
+    skoolConn($user);
+    skoolConn($user); // a second row, same user, same platform
+    takedownSite($user, 'subdup');
+
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, 1);
+});
+
+it('dispatches no purge and does not throw when the owner has no site row', function () {
+    Queue::fake();
+
+    skoolConn(takedownUser('tknosite'));
+
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    Queue::assertNotPushed(CloudflareCachePurgeJob::class);
+});
+
+it('staggers dispatch delay across the run using a run-global index, capped', function () {
+    Queue::fake();
+    config([
+        'partna.cache.bulk_purge_stagger_seconds' => 10,
+        'partna.cache.bulk_purge_max_delay_seconds' => 15,
+    ]);
+
+    foreach (['s0', 's1', 's2', 's3'] as $h) {
+        $user = takedownUser('tkstag'.$h);
+        skoolConn($user);
+        takedownSite($user, $h);
+    }
+
+    $start = now();
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    $delays = Queue::pushed(CloudflareCachePurgeJob::class)
+        ->map(fn (CloudflareCachePurgeJob $job) => $job->delay === null ? 0 : (int) round($start->diffInSeconds($job->delay)))
+        ->sort()
+        ->values()
+        ->all();
+
+    // min(index * 10, 15) across 4 distinct-subdomain dispatches: 0, 10, then
+    // both the 3rd (20) and 4th (30) requested delays land on the 15s cap —
+    // the deliberate tail-flood (harmless: cloudflare_bulk is lowest priority).
+    expect($delays)->toBe([0, 10, 15, 15]);
+});
+
+// R3-CACHE-1: the enumeration guard. Pins that a takedown's bulk update reaches
+// ONLY the cache purge — not the identity fold, not the mirrored-media cleanup —
+// so this test fails the day a future IntegrationConnectionObserver arm gets
+// gated on is_active and the takedown ought to run it too. Seed rows via a raw
+// insert (not IntegrationConnection::create()) so the seed itself doesn't fire
+// the CREATE-time observer arms this test isn't about.
+it('bypasses every reachable observer side effect except the purge (enumeration guard)', function () {
+    Queue::fake();
+
+    $gbUser = takedownUser('tkgb');
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $gbUser->id,
+        'platform' => 'google-business',
+        'resource_id' => 'gb-1',
+        'payload' => json_encode(['name' => "Jane's Salon", 'category' => 'Hair Salon']),
+        'is_active' => 1,
+    ]);
+
+    $igUser = takedownUser('tkig');
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $igUser->id,
+        'platform' => 'instagram',
+        'resource_id' => 'ig-1',
+        'payload' => json_encode(['_folder' => 'platforms/instagram/old']),
+        'is_active' => 1,
+    ]);
+
+    $this->mock(IdentitySync::class, function ($mock) {
+        $mock->shouldNotReceive('applyFromGooglePayload');
+    });
+
+    (new ReconcilePlatformTakedownJob('google-business'))->handle(app(SegmentResolver::class));
+    (new ReconcilePlatformTakedownJob('instagram'))->handle(app(SegmentResolver::class));
+
+    Queue::assertNotPushed(DeleteMirroredMediaJob::class);
 });
