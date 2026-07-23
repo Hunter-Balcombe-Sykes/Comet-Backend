@@ -46,7 +46,7 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 11 complete (6 pipeline + 5 review-only)
+- P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 8 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 2 of 6 complete (5 pipeline + 1 review-only)
 
@@ -681,7 +681,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** Horizon's long-wait notifier is inert unless a notification channel is configured — the twelve per-queue `waits` thresholds already in `config/horizon.php` are evaluated and then dispatched to no channel. **Nightwatch cannot close this gap structurally, not merely by configuration:** it instruments job *execution* — exceptions thrown, jobs running slow — and a job that no worker has consumed never executes, so it never emits a Nightwatch event. A queue growing without bound is therefore the one class of queue failure that neither existing monitor can see. The review's §8 backpressure note calls this "the minimum viable answer"; a depth threshold on the existing `/api/health/*` surface would be the fuller one.
     - **Plain English:** The system already knows how long each kind of background job is allowed to sit waiting before something is wrong — someone tuned twelve of those limits. But there's no address on file to send the warning to, so every one of those alarms rings in an empty room. The other monitoring tool can't cover for it either: that one watches jobs while they run, and the whole problem here is jobs that never get picked up to run at all. Adding an email address is the entire fix.
 
-- [ ] **RV-3** · P1 — `ShouldBeUnique` with no `$uniqueFor` takes a permanent lock that silently black-holes every future dispatch
+- [x] **RV-3** · P1 — `ShouldBeUnique` with no `$uniqueFor` takes a permanent lock that silently black-holes every future dispatch
     - **Where:** app/Jobs/Platforms/LinkInBioScanJob.php:32, app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:53, tests/Feature/.../HorizonQueueCoverageTest.php:394-400
     - **Affects:** Users whose bio-link scan or previous-website scan is dispatched after a worker was killed mid-job — the scan never runs again for that key, permanently, with no error surfaced anywhere.
     - **Effort:** S · autonomous
