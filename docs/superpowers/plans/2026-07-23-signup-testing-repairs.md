@@ -153,7 +153,17 @@ doesn't care about int vs. float — e.g. `$saturation = $max > 0.0 ? ($max - $m
 : 0.0;` (also reads more honestly as "if there's any lightness, compute saturation").
 Small, isolated, single-line change; no other logic in the file is affected.
 
-**Fix:** not started — do not investigate further until we get to this item.
+**Fix shipped (commit `afa230c2`).** Exactly the one-line change above —
+`WebsiteAccentExtractor.php`'s saturation guard reads `$max > 0.0 ? ($max - $min) / $max :
+0.0` — no other logic touched. Backend full suite green.
+
+**Test gap closed (critic-agent pass caught this):** the shipped test suite's two "close to
+black" cases (`#0a0a0a`, `solidColorPng(0,100,200)`) both have a non-zero channel, so
+neither actually exercises the int/float guard gap this bug was — reverting the fix
+wouldn't have failed either. Added two real regression tests using genuinely pure black
+(`#000000` theme-color and a `solidColorPng(0,0,0)` favicon) on both entry paths that
+reach `qualifies()`; both pass post-fix and would have thrown `DivisionByZeroError`
+pre-fix.
 
 ---
 
@@ -195,7 +205,19 @@ try/catch, `report()` the exception for observability (so a real underlying stor
 problem still surfaces in Nightwatch), and continue — matching the file's own established
 convention rather than introducing a new one. Small, isolated change.
 
-**Fix:** not started — do not investigate further until we get to this item.
+**Fix shipped (commit `afa230c2`).** The delete call in `InstagramConnectionSeeder.php`
+is now wrapped in try/catch + `report($e)`, matching the file's own established
+convention. Backend full suite green.
+
+**Known test gap (critic-agent pass caught this, not closed):** no test forces
+`Storage::disk('media')->delete()` to genuinely throw — every seeder test uses
+`Storage::fake('media')`, whose local-adapter delete on an absent key already no-ops
+cleanly (can't reproduce the original storage-backend quirk). Reliably forcing a real
+throw here needs either a fragile full-surface Storage facade mock (this file's `seed()`
+also calls `put()`/`exists()` on the same disk via `mirrorOne()`/`mirrorVideo()`, so a
+partial mock risks an unrelated "no matching handler" failure) or a real integration
+against a non-fake disk. Judged not worth the fragility for a LOW-severity, already-fixed
+gap — flagging honestly rather than skipping silently.
 
 ---
 
@@ -235,8 +257,11 @@ sourced from a PDF wine list found on the old website
 items have no pictures (`image_url`/`images` both null on all 15 rows) — a wine list PDF
 has no photos to extract.
 
-**Fix:** not started — likely a 2-line allowlist fix (add `'website-scan'` in both
-places) but do not start until we get to this item.
+**Fix shipped (commit `afa230c2`).** `'website-scan'` added to both allowlists
+(`MenuPayloadComposer::hasOwnerContent()`, `MenuContentController::EDITABLE_SOURCES`), plus
+the two cosmetic same-family fixes flagged in the consolidation sweep below
+(`MenuFetchJob::previousCategoryOrder()` and `::remainingContentSource()` now also exclude/
+recognise `website-scan`). Backend full suite green.
 
 **Owner note (2026-07-23):** before doing the allowlist fix above, confirm there is
 genuinely only ONE storage mechanism for menu items — website-scanned items must land as
@@ -307,10 +332,10 @@ OCR call"). **Decision (2026-07-23): keyword prefilter.** Only dispatch a scan f
 whose link text/href matches a menu-relevant keyword (menu/wine/drink/food/beverage/
 dessert etc.) — still "every real menu doc," just not literally every PDF on the domain.
 
-**Fix:** not started — remove the `$pdfs[0]` cap; dispatch one `WebsiteMenuPdfScanJob` per
-PDF found (bounded to some sane max as a safety limit, not a "pick one" limit; the job's
-`uniqueId()` is already keyed per-document-URL, so multiple concurrent dispatches for the
-same user don't collide). Do not start until we get to this item.
+**Fix shipped (commit `afa230c2`).** `$pdfs[0]` cap removed — `ScanPreviousWebsiteContentJob`
+now keyword-prefilters every PDF found (`MENU_KEYWORDS`), then dispatches one
+`WebsiteMenuPdfScanJob` per relevant PDF, staggered and bounded by `MAX_PDF_SCANS = 5` as a
+safety cap, not a "pick one" limit. Backend full suite green.
 
 ---
 
@@ -421,9 +446,20 @@ that pre-existing gap more worth closing at the same time, not just for this fea
 
 Separately (lower priority, not this incident's cause): reconsider whether skipping the
 `/menu` hop just because the homepage yielded ANY PDF is too aggressive — maybe only skip
-once HTML items were actually found, not merely because a PDF was found somewhere.
+once HTML items were actually found, not merely because a PDF was found somewhere. (Not
+addressed this run — flagged for later, low priority, not this incident's cause.)
 
-Do not start until we get to this item.
+**Fix shipped (commit `afa230c2`), full recommended build order.** The schema.org
+`hasMenu`/`menu` JSON-LD pointer is now read and ranked ahead of the path-substring guess
+in `findPageLink()` (generalized from `findMenuPageLink()` — see item 8, same helper now
+serves menu/about/contact one-hops). New `VisibleTextExtractor` (block-level DOM walk,
+60000-char cap) + a price-line density pre-filter (`MIN_DENSE_TEXT_CHARS`/`MIN_PRICE_LINES`)
+gate a new `WebsiteMenuHtmlScanJob` (its own dispatched job, same rationale as the PDF
+job) that reuses `MenuAiExtractor::structure()` unchanged. A zero-cost Squarespace-specific
+fast-path (`SquarespaceMenuExtractor`) runs first and skips the AI call entirely when it
+hits. The AI-spend gap flagged alongside this item is also closed: new `AiSpendBudget`
+class (mirrors `ApifyBudget`'s atomic per-actor + global cap pattern) gates both
+`MenuAiExtractor::ocr()` and `::structure()`. Backend full suite green.
 
 ---
 
@@ -521,23 +557,31 @@ available) against the known test business's exact name/place ID and read the ra
 response — settles whether it actually returns social links for a small local business
 before deciding anything further.
 
-**BLOCKED (2026-07-23) — cannot execute during this run.** Confirmed no `SERPAPI_KEY` (or
-any SerpApi reference at all) exists anywhere in this codebase (`config/`, `.env`,
-`.env.example`) — there is no existing SerpApi account to spend a credit against. Getting
-one requires signing up for SerpApi's free trial, which is creating a new third-party
-account — a hard-prohibited action for me regardless of standing run authorization (the
-account-creation prohibition explicitly does not lift under blanket user authorization).
-This is the one item in the whole run I cannot execute myself.
+**Unblocked (2026-07-23) — owner signed up and provided a key.** Ran the real test call:
+`GET https://serpapi.com/search.json?engine=google_maps&q=Supernormal+Melbourne+restaurant&type=search`
+against the real Supernormal business (5282 reviews — not an obscure entity).
 
-**To unblock:** sign up at serpapi.com (free trial, no card required for the free tier
-last checked), grab the API key, and either (a) hand me the key so I can run the one test
-call and report back what it returns, or (b) run it yourself — one `GET` to
-`https://serpapi.com/search.json?engine=google_maps&type=place&place_id=<supernormal's
-place_id>&api_key=<key>` (or the equivalent Knowledge Graph engine call — check SerpApi's
-docs for the exact param shape for a Maps/Business entity), then check the response for a
-`social_profiles`/`links`-shaped field. Until then this item stays exactly where the
-2026-07-23 research left it: mapping/seeding code is already correct and complete, the gap
-is purely upstream data availability from the Apify actor in use.
+**Result: confirmed empty, as suspected — SerpApi does NOT solve this.** Grepped the
+entire raw response (not just expected fields) for `instagram`/`linkedin`/`twitter`/
+`x.com`/`facebook`/`social`/`tiktok` — zero occurrences anywhere. Google's own Knowledge
+Panel simply doesn't carry social links for this business via this endpoint, matching
+the working theory (the LinkedIn/X links the owner sees are entered directly in the
+Business Profile *owner* dashboard, not surfaced on the public-facing panel this scrapes).
+**Item 7 verdict unchanged and now empirically confirmed, not just theorized:** genuine
+data-source limitation; mapping/seeding code was already correct and complete; the only
+path that could actually deliver this data is the Business Profile API + owner OAuth
+consent option already researched (a future post-claim "Connect your Google Business"
+feature, not a signup-time fix).
+
+**Bonus finding from the same test call, unprompted but worth recording:** the same
+response carries a genuine `menu` field — a direct link (`supernormal.net.au/menus`) PLUS
+**20 real Google-sourced menu photos** — plus a rich `extensions` block (12 categories:
+highlights, offerings, dining_options, accessibility, atmosphere, crowd, planning,
+payments, parking, etc.), popular-times graph data, full star-rating distribution, and
+price-range data. None of this is currently captured by anything in this pipeline. Full
+evaluation (replace-Apify feasibility + complete extras inventory) requested separately by
+the owner — tracked outside this plan doc since it's a new capability question, not a
+repair to something broken.
 
 Full source list (Google's own docs + Apify/SerpApi/Outscraper primary pages) available on
 request — omitted here to keep the plan doc readable; ask if you want them re-surfaced.
@@ -546,8 +590,8 @@ request — omitted here to keep the plan doc readable; ask if you want them re-
 
 ## 8. New capability: previous-website scraper is leaving real, extractable data on the table
 
-**Status:** researched (read-only), concrete designs proposed, no decisions made — for
-the morning.
+**Status:** fix shipped (commit `196dfd28`) — all 3 candidates built, decisions below all
+executed. See the "Fix shipped" section at the end of this item for what actually landed.
 
 Full audit of `ScanPreviousWebsiteContentJob` and everything it wires in, done
 specifically to find what MORE it could reasonably capture. Precise mechanism now
@@ -623,6 +667,40 @@ mailto:+JSON-LD → `/about` one-hop reusing the existing extractor → `/contac
 (paired with the about fetch via `fetchMany()`) → gallery photos (medium effort, new
 plumbing) → prose heuristic (only once the precedence question above is settled).
 
+**Fix shipped (commit `196dfd28`).** All 3 candidates built, decisions above executed as
+written:
+- **Contact email:** new `ContactEmailExtractor` — mailto: links (filtered against
+  noreply@/no-reply@/donotreply@/etc.) first, then JSON-LD `email`/`contactPoint.email`.
+  Fills `Workplace.contact_email` fill-if-empty via a new `WorkplaceContentApplier::
+  applyContactEmail()`.
+- **About/description:** the plain existing `AboutTextExtractor` (JSON-LD/meta,
+  fill-if-empty) is unchanged and still runs first. New `AboutProseExtractor` (heading
+  "About"/"Our Story" → following-paragraph heuristic, 3-paragraph/1000-char cap) runs
+  alongside it. Precedence decision executed exactly as specified: new
+  `WorkplaceContentApplier::applyProseDescription()` overwrites the current description
+  whenever prose is found, UNLESS the current value's `field_sources` says `'manual'` —
+  the business's own words now win over Google's editorial summary and over this
+  extractor's own plain fill, matching the decided default.
+- **One-hop /about + /contact:** `findMenuPageLink()` generalized to `findPageLink(...,
+  $keyword)` or, shared by menu/about/contact. Both hops fetched CONCURRENTLY via
+  `SafeUrlFetcher::fetchMany()` exactly per the architecture note above, only for whichever
+  of prose/email came up empty on the homepage.
+- **Gallery photos:** new `WebsiteGalleryCandidateExtractor` (harvests `<img>` candidates
+  outside header/nav/footer, filtered by noise-pattern + declared-size heuristics) + new
+  `GalleryAutoGrabber` (download/validate/upload plumbing — the "nothing in this pipeline
+  does that today" gap this item flagged; mirrors `LogoAutoGrabber`'s fetch/validate
+  pattern) + a new dispatched `WebsiteGalleryScanJob` (own job, same 60s-timeout rationale
+  as the PDF/HTML menu jobs). Fills an EMPTY gallery pool only — never tops up one with
+  existing photos, same "fills empty slots, never touches populated ones" contract as the
+  logo grabber.
+
+Live-verified against the real Supernormal site researched earlier: homepage alone has
+neither an email nor about-prose (both correctly return null — nothing fabricated); the
+one-hop `/contact` fallback correctly found `info@supernormal.net.au`; no `/about` page
+exists on the real site (confirmed via the link harvester, so prose correctly stayed
+null rather than guessing). Full test coverage added (extractors, applier, both jobs);
+backend full suite green (4838 passed).
+
 ---
 
 ## 9. Existing, currently-live gap: a scraped contact email never reaches the public site
@@ -645,6 +723,48 @@ reaches the live public page on its own.
 pattern (`mirrorContactFields()`'s own `isBlank()` check) so any automatic writer of
 `Workplace.contact_email` also fills `User.public_contact_email` when the latter is empty,
 not just the manual-save path. Small, isolated, same shape as the item 4 allowlist fix.
+
+**Correction (2026-07-23), before shipping:** re-checked the ORIGINAL `mirrorContactFields()`
+(via git archaeology back to the commit that first added it, `adb938bf`) — it was NEVER
+fill-if-empty / never had an `isBlank()` guard. It has always been unconditional
+overwrite-on-change (`if ($user->public_contact_number !== $phone) { ...set... }`), on the
+manual-dashboard-save path only, since the method's creation. The "isBlank() fill-if-empty"
+description above was this plan doc's own mischaracterization, not the real prior behavior.
+
+**Fix shipped (commit `afa230c2`).** Moved `mirrorContactFields()` from
+`UserWorkplaceController` (manual-save-only) into `WorkplaceObserver::saved()`
+(`wasRecentlyCreated || wasChanged(['phone', 'contact_email'])`) — a byte-for-byte
+faithful port of the existing overwrite-on-change logic, now firing for EVERY writer
+(scan, sync, manual) instead of only the dashboard save path, which is exactly what this
+item asked for. Backend full suite green.
+
+**Genuine open product question (both critic-agent passes independently flagged this —
+not a bug I introduced, but real, and now reachable through more paths than before):**
+`User.public_contact_email`/`public_contact_number` are ALSO independently editable via
+`PATCH /me` (`UpdateUserRequest.php:37`) — a second, genuinely separate write path from
+the Workplace Contact card. The shipped mirror is unconditional overwrite-on-change, so
+the sequence "set a distinct public email via `/me` → later edit the workplace phone (not
+even the email)" silently reverts the independently-set email back to whatever
+`Workplace.contact_email` currently holds, because the mirror re-syncs BOTH fields
+whenever EITHER changes. This exact precedence has been live (manual-save-only) for
+months with no reported complaint, so it may be the intended "Workplace Contact card is
+always authoritative" design — but I deliberately did NOT unilaterally "fix" it this run,
+because the two plausible fixes have real, different trade-offs that deserve an actual
+product decision, not a guess:
+- **Strict fill-if-empty** (only mirror once, never touch an already-set User field again)
+  would ITSELF regress today's behavior for the common case — a user who edits their
+  Contact card's email expecting it to keep showing publicly (the normal mental model for
+  anyone who's never touched the separate `/me` endpoint) would stop seeing that edit
+  propagate after the first sync.
+- **Real provenance-aware precedence** (only protect a value the user set independently
+  via `/me`, keep syncing otherwise) is the more correct fix but needs a new
+  provenance/source column on `User` for `public_contact_email`/`public_contact_number` —
+  meaningfully bigger scope than this item asked for.
+
+**Owner decision needed:** which precedence is actually wanted — Workplace-always-wins
+(current, unchanged), strict fill-once, or build real provenance tracking? Until decided,
+current (pre-existing) behavior is unchanged; the missing-mirror bug this item was
+actually about is fixed either way.
 
 ---
 
@@ -695,6 +815,51 @@ the network response for the snapshot/`role` field in the moment right after red
 tracing the backend endpoint that serves this snapshot field for the claim/redirect
 moment specifically — not yet done.
 
-**Fix:** not started — once the exact backend cause is confirmed, likely either a backend
-fix (correct the role computation for a freshly-claimed account) or, if it's a genuine
-transient race, a frontend fix (don't act on a not-yet-settled role value before redirecting).
+**Further investigation (2026-07-23), root cause still not fully pinned down:** re-traced
+both sides end to end looking specifically for a staleness/caching bug, since that's the
+most plausible "worked on reload" shape a transient race would take:
+- Frontend: `/me` and `/staff/me` both fetch with `cache: 'no-store'` plus a `_ts`
+  cache-busting query param (`lib/account/me-request.ts`, `lib/account/snapshot-fetcher.ts`)
+  — no HTTP/browser caching layer in play. The `/staff/me` fallback path (triggered on a
+  403 from `/me`) is a dead end for this bug specifically: that route's own middleware
+  chain includes `require.aal2`, so it would 401/403 on the SAME aal2 gate regardless of
+  real staff status for a fresh, MFA-less claim — it can't be the mechanism that produces
+  a false `role: 'staff'`.
+- Backend: `UserSelfController::show()` deliberately does NOT trust a cached `is_staff`
+  value — it re-queries `PartnaStaff::where('auth_user_id', ...)` FRESH on every request
+  and attaches it via `setRelation()` right before building the resource, specifically so
+  staff promotion/demotion (and, by the same logic, correct non-staff classification)
+  reflects immediately rather than riding a stale cache window. `UserCacheService`'s
+  hydrated-model cache (60s) is separately guarded against auth_user_id drift (explicit
+  mismatch check + self-healing cache-bust). No caching bug found on either side.
+- New finding: the dashboard layout (`app/(app)/account/(dashboard)/layout.tsx`) has its
+  OWN independent-looking path-allowlist redirect ("Path not allowed → redirect to
+  capabilities.defaultRoute") that runs on every protected-route render, not just once at
+  Overview. Live-confirmed it correctly bounces a genuine non-staff account (ollies test
+  account) straight back to the real dashboard on a direct navigation attempt to
+  `/account/staff/overview`. But it is NOT actually independent verification: it's driven
+  by the exact same `role` field from the exact same single `/me` snapshot as the Overview
+  page's own redirect, so a wrongly-classified account would sail through both checks
+  identically — there is no genuinely separate signal anywhere in the stack that could
+  catch a bad `role` value before it does damage.
+
+**Fix shipped (2026-07-23) — defense-in-depth, not a root-cause fix:** since every guard
+in the stack traces back to one unverified upstream read, and the exact backend trigger
+couldn't be confirmed without live-reproducing a fresh claim (blocked — requires creating
+a new account, prohibited even under this run's blanket autonomy), shipped the safe half
+of the two options the earlier pass proposed: a frontend escape hatch. `StaffMfaGate`
+(`app/(app)/account/(dashboard)/staff/_staff-mfa-gate.tsx`) now renders a "Not staff?
+Return to your dashboard" link in its shared `GateShell` wrapper — covers the loading
+state, EnrollFlow, and ChallengeFlow alike, since it's rendered once in the wrapper all
+three share. Clicking it calls `router.replace('/account/overview')`. This doesn't fix
+the (still-unconfirmed) cause of a wrong `role` value, but it does directly fix the
+reported user harm: nobody wrongly routed here is ever stuck behind a blocking 2FA wall
+again, regardless of what causes the misroute. Tested (4 new tests: aal2 bypass unaffected,
+escape hatch present + navigates correctly from all three gate states) and typecheck/lint/
+full suite green.
+
+**Still open — needs live reproduction to fully close:** the exact backend trigger for a
+false `role: 'staff'`/`is_staff: true'` on a freshly-claimed, definitely-non-staff account
+remains unconfirmed. If this recurs, the highest-value next step is watching the raw `/me`
+network response in the moment right after a fresh claim (not after the fact) — everything
+reachable by reading code has now been checked twice without finding the mechanism.
