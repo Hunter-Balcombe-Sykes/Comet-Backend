@@ -395,8 +395,23 @@ it('every ShouldBeUnique job with property-default knobs holds its lock longer t
         $uniqueFor = $defaults['uniqueFor'] ?? null;
         $timeout = $defaults['timeout'] ?? null;
 
-        if (! is_int($uniqueFor) || ! is_int($timeout)) {
-            continue; // constructor-driven knobs — covered by the explicit list above
+        // A missing uniqueFor is the dangerous case, not a tolerated one: with no
+        // uniqueFor, UniqueLock::acquire() falls back to `?? 0`, and RedisLock::acquire()
+        // treats 0 as "no expiry" — a plain SETNX. A worker killed mid-job (OOM, deploy,
+        // timeout) strands that lock in Redis forever; every later dispatch for the same
+        // uniqueId is silently discarded (no exception, no failed_jobs row). This must
+        // fail the test, not skip it.
+        if (! is_int($uniqueFor)) {
+            $violations[] = sprintf(
+                '%s: ShouldBeUnique with no $uniqueFor default takes a PERMANENT lock (SETNX, no expiry) — a killed worker strands it forever and every later dispatch is silently discarded',
+                class_basename($class)
+            );
+
+            continue;
+        }
+
+        if (! is_int($timeout)) {
+            continue; // timeout constructor-driven — nothing to compare uniqueFor against yet
         }
 
         $checked++;

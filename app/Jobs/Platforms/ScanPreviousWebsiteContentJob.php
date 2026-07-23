@@ -66,6 +66,12 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 60;
 
+    // Matches EnrichLinkCardJob (same directory, same 60s timeout): 300s comfortably
+    // exceeds the run itself, leaving queue-wait budget. No default means UniqueLock
+    // falls back to `?? 0` and RedisLock treats 0 as "no expiry" (plain SETNX) — a
+    // worker killed mid-job (OOM, deploy, timeout) would strand that lock forever.
+    public int $uniqueFor = 300;
+
     /** Safety cap on how many PDFs get their own scan job from one page — not a "pick one" limit. */
     private const MAX_PDF_SCANS = 5;
 

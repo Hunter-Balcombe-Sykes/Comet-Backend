@@ -29,6 +29,13 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 90;
 
+    // Matches this job's own named sibling family, WebsiteMenuHtmlScanJob/
+    // WebsiteMenuPdfScanJob (both split out of ScanPreviousWebsiteContentJob for the
+    // same reason — see class docblock above). No default means UniqueLock falls
+    // back to `?? 0` and RedisLock treats 0 as "no expiry" (plain SETNX) — a worker
+    // killed mid-job (OOM, deploy, timeout) would strand that lock forever.
+    public int $uniqueFor = 3600;
+
     public function __construct(
         public readonly string $userId,
         public readonly string $siteId,

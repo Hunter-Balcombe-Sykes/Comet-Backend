@@ -41,6 +41,12 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 60;
 
+    // Matches EnrichLinkCardJob (same directory, same 60s timeout): 300s comfortably
+    // exceeds the run itself, leaving queue-wait budget. No default means UniqueLock
+    // falls back to `?? 0` and RedisLock treats 0 as "no expiry" (plain SETNX) — a
+    // worker killed mid-job (OOM, deploy, timeout) would strand that lock forever.
+    public int $uniqueFor = 300;
+
     public function __construct(public readonly string $userId, public readonly string $bioPageUrl)
     {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
