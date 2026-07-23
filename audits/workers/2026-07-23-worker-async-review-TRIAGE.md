@@ -46,8 +46,8 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 3 of 19 complete (13 pipeline + 6 review-only)
+- P1 High: 1 of 11 complete (6 pipeline + 5 review-only)
+- P2 Medium: 8 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 2 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -143,7 +143,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R3-OBS-1** · P1 — `SourceGenerationException` swallowed in `GeneratePreAccountSiteJob.handle()` — build failure invisible to Nightwatch
+- [x] **R3-OBS-1** · P1 — `SourceGenerationException` swallowed in `GeneratePreAccountSiteJob.handle()` — build failure invisible to Nightwatch
     - **Where:** app/Jobs/PreAccount/GeneratePreAccountSiteJob.php:128-133
     - **Affects:** Operators monitoring pre-account build health; users whose signup scrape (Instagram/Google Business) fails silently.
     - **Effort:** S (~0.5–1h)
@@ -300,7 +300,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R3-OBS-2** · P2 — `ProcessImageVariantsJob` swallows cache-purge dispatch failures with no `report()`
+- [x] **R3-OBS-2** · P2 — `ProcessImageVariantsJob` swallows cache-purge dispatch failures with no `report()`
     - **Where:** app/Jobs/ProcessImageVariantsJob.php:191-196
     - **Affects:** Visitors seeing stale images after a new upload finishes processing.
     - **Effort:** S (~0.5h)
@@ -323,7 +323,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R3-OBS-3** · P2 — `MenuFetchJob` swallows scan-reapply failures with no `report()` — enrichment loss invisible
+- [x] **R3-OBS-3** · P2 — `MenuFetchJob` swallows scan-reapply failures with no `report()` — enrichment loss invisible
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:181-187
     - **Affects:** Food-business users whose Google-photo/website-scan menu enrichments (longer descriptions, dietary badges) silently fail to reapply after a menu scrape rebuild.
     - **Effort:** S (~0.5h)
@@ -364,7 +364,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         $this->onQueue((string) config('partna.analytics_queue.name', 'analytics'));
         ```
 
-- [ ] **R3-OBS-4** · P2 — `SourceGenerationException` swallowed in `ApproveEarlyAccessBuildJob.handle()` — approval scrape failure invisible to Nightwatch
+- [x] **R3-OBS-4** · P2 — `SourceGenerationException` swallowed in `ApproveEarlyAccessBuildJob.handle()` — approval scrape failure invisible to Nightwatch
     - **Where:** app/Jobs/PreAccount/ApproveEarlyAccessBuildJob.php:100-105
     - **Affects:** Staff approving early-access signups; operators monitoring the approval pipeline.
     - **Effort:** S (~0.5h)
@@ -406,7 +406,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         });
         ```
 
-- [ ] **R3-OBS-5** · P2 — Lock-contention timeouts in `GoogleBusinessEnrichJob` and `EnrichLinkCardJob` log warnings but never call `report()` — sustained contention invisible
+- [x] **R3-OBS-5** · P2 — Lock-contention timeouts in `GoogleBusinessEnrichJob` and `EnrichLinkCardJob` log warnings but never call `report()` — sustained contention invisible
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:348-354, app/Jobs/Platforms/EnrichLinkCardJob.php:97-103 (also present, uncaptured, in app/Jobs/Platforms/ConnectFetchJob.php's `LockTimeoutException` catch)
     - **Affects:** Operators debugging persistent lock contention on shared platform-connection rows; users with stuck enrichments/connects.
     - **Effort:** S (~0.5h)
@@ -433,7 +433,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
             ]);
         ```
 
-- [ ] **R3-OBS-6** · P2 — Eight platform/pre-account jobs have no `failed()` callback — terminal failures land silently in `failed_jobs` with no Nightwatch signal
+- [x] **R3-OBS-6** · P2 — Eight platform/pre-account jobs have no `failed()` callback — terminal failures land silently in `failed_jobs` with no Nightwatch signal
     - **Where:** app/Jobs/Platforms/LinkInBioScanJob.php, WebsiteMenuHtmlScanJob.php, WebsiteMenuPdfScanJob.php, GoogleMenuPhotoScanJob.php, ScanPreviousWebsiteContentJob.php, RefreshConnectionJob.php, EnrichLinkCardJob.php, app/Jobs/PreAccount/ApproveEarlyAccessBuildJob.php
     - **Affects:** Operators relying on Nightwatch for queue-health visibility; users whose content enrichment (menu scans, bio-link sync, platform refresh) silently fails with no trace beyond a generic `failed_jobs` row.
     - **Effort:** M (~2–4h) — mechanical but repetitive across 8 files
