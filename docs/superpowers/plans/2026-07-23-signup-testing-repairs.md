@@ -557,23 +557,31 @@ available) against the known test business's exact name/place ID and read the ra
 response — settles whether it actually returns social links for a small local business
 before deciding anything further.
 
-**BLOCKED (2026-07-23) — cannot execute during this run.** Confirmed no `SERPAPI_KEY` (or
-any SerpApi reference at all) exists anywhere in this codebase (`config/`, `.env`,
-`.env.example`) — there is no existing SerpApi account to spend a credit against. Getting
-one requires signing up for SerpApi's free trial, which is creating a new third-party
-account — a hard-prohibited action for me regardless of standing run authorization (the
-account-creation prohibition explicitly does not lift under blanket user authorization).
-This is the one item in the whole run I cannot execute myself.
+**Unblocked (2026-07-23) — owner signed up and provided a key.** Ran the real test call:
+`GET https://serpapi.com/search.json?engine=google_maps&q=Supernormal+Melbourne+restaurant&type=search`
+against the real Supernormal business (5282 reviews — not an obscure entity).
 
-**To unblock:** sign up at serpapi.com (free trial, no card required for the free tier
-last checked), grab the API key, and either (a) hand me the key so I can run the one test
-call and report back what it returns, or (b) run it yourself — one `GET` to
-`https://serpapi.com/search.json?engine=google_maps&type=place&place_id=<supernormal's
-place_id>&api_key=<key>` (or the equivalent Knowledge Graph engine call — check SerpApi's
-docs for the exact param shape for a Maps/Business entity), then check the response for a
-`social_profiles`/`links`-shaped field. Until then this item stays exactly where the
-2026-07-23 research left it: mapping/seeding code is already correct and complete, the gap
-is purely upstream data availability from the Apify actor in use.
+**Result: confirmed empty, as suspected — SerpApi does NOT solve this.** Grepped the
+entire raw response (not just expected fields) for `instagram`/`linkedin`/`twitter`/
+`x.com`/`facebook`/`social`/`tiktok` — zero occurrences anywhere. Google's own Knowledge
+Panel simply doesn't carry social links for this business via this endpoint, matching
+the working theory (the LinkedIn/X links the owner sees are entered directly in the
+Business Profile *owner* dashboard, not surfaced on the public-facing panel this scrapes).
+**Item 7 verdict unchanged and now empirically confirmed, not just theorized:** genuine
+data-source limitation; mapping/seeding code was already correct and complete; the only
+path that could actually deliver this data is the Business Profile API + owner OAuth
+consent option already researched (a future post-claim "Connect your Google Business"
+feature, not a signup-time fix).
+
+**Bonus finding from the same test call, unprompted but worth recording:** the same
+response carries a genuine `menu` field — a direct link (`supernormal.net.au/menus`) PLUS
+**20 real Google-sourced menu photos** — plus a rich `extensions` block (12 categories:
+highlights, offerings, dining_options, accessibility, atmosphere, crowd, planning,
+payments, parking, etc.), popular-times graph data, full star-rating distribution, and
+price-range data. None of this is currently captured by anything in this pipeline. Full
+evaluation (replace-Apify feasibility + complete extras inventory) requested separately by
+the owner — tracked outside this plan doc since it's a new capability question, not a
+repair to something broken.
 
 Full source list (Google's own docs + Apify/SerpApi/Outscraper primary pages) available on
 request — omitted here to keep the plan doc readable; ask if you want them re-surfaced.
