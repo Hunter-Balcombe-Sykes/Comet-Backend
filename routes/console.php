@@ -364,6 +364,23 @@ Schedule::command('feedback:prune-old-submissions')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('feedback:prune-old-submissions'));
 
+// RV-11: weekly garbage collection of orphaned Instagram mirror folders under the
+// platforms/ R2 prefix. DeleteMirroredMediaJob::failed() only reports and logs, and
+// AccountDeletionService::purge() cascades platform_connections away without ever
+// firing the observer — so nothing else in the system reclaims these. Detector only:
+// it dispatches the existing DeleteMirroredMediaJob rather than deleting inline.
+// Sunday 05:10 UTC — 20 min clear of the last weekly sweep (04:50) and off the
+// crowded 03:xx daily block; a second full R2 prefix LIST never overlaps the 04:20
+// videos/ GC. withoutOverlapping(180) — ~6x the pathological run time (a full
+// platforms/ LIST plus <=200 dispatches), well under the weekly cadence so an
+// abandoned lock still clears days before the next tick (cf. R2-SCHED-1).
+Schedule::command('media:gc-orphaned-platform-media')
+    ->weeklyOn(0, '05:10')
+    ->onOneServer()
+    ->withoutOverlapping(180)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('media:gc-orphaned-platform-media'));
+
 // Scan open/triaged/under_review moderation cases and log warnings for any approaching
 // their SLA deadline. Threshold defaults to 120 min; configurable via
 // partna.moderation.sla.breach_warning_min. withoutOverlapping(30) gives a 2x ceiling

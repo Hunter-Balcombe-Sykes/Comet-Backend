@@ -1336,6 +1336,30 @@ return [
         // once it is older than this — a safety margin against deleting files for a
         // just-created site_media row not yet visible to the sweep.
         'gc_min_age_hours' => (int) env('PARTNA_MEDIA_GC_MIN_AGE_HOURS', 24),
+
+        // RV-11: media:gc-orphaned-platform-media only reclaims an unowned
+        // platforms/instagram/{token} folder once it is older than this — the
+        // safety margin against racing an in-flight mirror write (InstagramConnectJob
+        // + GeneratePreAccountSiteJob's combined worst-case ceiling is ~18min).
+        // Own key, not shared with gc_min_age_hours, so the two sweepers stay
+        // independently tunable.
+        'platform_gc_min_age_hours' => (int) env('PARTNA_PLATFORM_GC_MIN_AGE_HOURS', 24),
+        // A platform_connections row soft-deleted longer ago than this is treated
+        // as gone (its folder is no longer "live"), so a FAILED disconnect-delete
+        // stays reclaimable without waiting out the full 30-day
+        // partna:purge-soft-deletes retention. Short enough not to race a restore.
+        'platform_gc_deleted_grace_days' => (int) env('PARTNA_PLATFORM_GC_DELETED_GRACE_DAYS', 7),
+        // Hard ceiling on reclaim dispatches per run. A cap that is HIT is itself
+        // the alarm — the remainder waits for next week's run.
+        'platform_gc_max_per_run' => (int) env('PARTNA_PLATFORM_GC_MAX_PER_RUN', 200),
+        // Anomaly abort: if more than this fraction of listed instagram folders
+        // classify as orphan (and the anomaly floor below is also met), the run
+        // aborts and dispatches nothing rather than trust what looks like a
+        // broken live-set build.
+        'platform_gc_max_orphan_ratio' => (float) env('PARTNA_PLATFORM_GC_MAX_ORPHAN_RATIO', 0.25),
+        // Minimum candidate count before the ratio guard above can fire — keeps a
+        // tiny dev bucket (e.g. 1-of-2 folders) from always tripping the ratio.
+        'platform_gc_anomaly_floor' => (int) env('PARTNA_PLATFORM_GC_ANOMALY_FLOOR', 20),
     ],
 
     // P2-56: hard ceiling on streamed CSV exports (subscriber lists). Bounds the
