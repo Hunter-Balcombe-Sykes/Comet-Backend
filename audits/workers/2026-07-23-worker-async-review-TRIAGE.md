@@ -47,7 +47,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 14 of 19 complete (13 pipeline + 6 review-only)
+- P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 3 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -387,7 +387,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R3-CACHE-1** · P2 — `ReconcilePlatformTakedownJob`'s per-model save loop can flood the `cloudflare` queue and delay unrelated users' cache purges
+- [x] **R3-CACHE-1** · P2 — `ReconcilePlatformTakedownJob`'s per-model save loop can flood the `cloudflare` queue and delay unrelated users' cache purges
     - **Where:** app/Jobs/Platforms/ReconcilePlatformTakedownJob.php:53-56
     - **Affects:** Every user whose site gets edited while a platform-wide staff takedown is draining — their legitimate, unrelated cache purges queue up behind the takedown's fan-out.
     - **Effort:** M (~2–4h)
@@ -460,7 +460,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
             public int $timeout = 120;
         ```
 
-- [ ] **R3-SCALE-2** · P2 — `SendStaffBroadcastEmailToSubscriberJob` has no email-provider rate limiting — a large broadcast can exceed Resend/Postmark per-second caps
+- [x] **R3-SCALE-2** · P2 — `SendStaffBroadcastEmailToSubscriberJob` has no email-provider rate limiting — a large broadcast can exceed Resend/Postmark per-second caps
     - **Where:** app/Jobs/Notifications/SendStaffBroadcastEmailsJob.php:87-103 + app/Jobs/Notifications/SendStaffBroadcastEmailToSubscriberJob.php:101-106
     - **Affects:** Staff sending broadcast emails to the marketing list at meaningful scale — subscribers can silently fail to receive the broadcast if the provider rejects overflow sends.
     - **Effort:** M (~2–4h)
