@@ -79,6 +79,86 @@ function seedReadyLogo(string $siteId, string $purpose, string $webpPath, ?strin
     return $id;
 }
 
+// ── SVG logo originals (signup-v2 B1: auto-grabbed inline-SVG header logos) ──
+// The HTTP request layer (UploadDesignMediaRequest, mimes:jpeg,png,webp) never
+// admits SVG — LogoAutoGrabber's direct uploadSingleton() call is the only SVG
+// entry point, and it pre-sanitizes via svgIsSafe(). These tests exercise the
+// service directly for exactly that reason.
+
+function svgLogoUploadedFile(): UploadedFile
+{
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80"><rect width="240" height="80" fill="#f50"/></svg>';
+
+    return UploadedFile::fake()->createWithContent('logo.svg', $svg);
+}
+
+it('stores an svg logo original directly and routes it to the logo pipeline', function () {
+    Bus::fake([ProcessLogoVariantsJob::class, ProcessImageVariantsJob::class]);
+    \Illuminate\Support\Facades\Storage::fake('test_disk');
+    config(['partna.logo_removal.enabled' => true]);
+
+    // storeOriginal must NEVER run for the SVG branch — it's the raster-only
+    // gate this branch exists to bypass.
+    $svc = Mockery::mock(ImageVariantService::class);
+    $svc->shouldReceive('storeOriginal')->never();
+    $svc->shouldReceive('deleteVariants')->andReturnNull();
+    $svc->shouldReceive('resolvedDiskName')->andReturn('test_disk');
+    app()->instance(ImageVariantService::class, $svc);
+
+    $pro = createTenant('svglogo');
+    $pro->loadMissing('site');
+
+    $media = app(\App\Services\Media\MediaUploadService::class)->uploadSingleton(
+        pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'logo_full',
+    );
+
+    expect($media->path)->toEndWith('.svg');
+    expect($media->original_mime)->toBe('image/svg+xml');
+    \Illuminate\Support\Facades\Storage::disk('test_disk')->assertExists($media->path);
+    Bus::assertDispatchedSync(ProcessLogoVariantsJob::class);
+    Bus::assertNotDispatchedSync(ProcessImageVariantsJob::class);
+});
+
+it('sends an svg logo to the raster gate (which rejects) when the removal pipeline is off', function () {
+    config(['partna.logo_removal.enabled' => false]);
+
+    // Pipeline off → no rasterization path → the SVG must hit storeOriginal's
+    // raster-only MIME gate exactly as before this feature existed.
+    $svc = Mockery::mock(ImageVariantService::class);
+    $svc->shouldReceive('storeOriginal')->once()->andThrow(
+        new \App\Services\Media\UnprocessableImageException("Rejected: MIME type 'image/svg+xml' is not an accepted image format.")
+    );
+    $svc->shouldReceive('deleteVariants')->andReturnNull();
+    $svc->shouldReceive('resolvedDiskName')->andReturn('test_disk');
+    app()->instance(ImageVariantService::class, $svc);
+
+    $pro = createTenant('svgoff');
+    $pro->loadMissing('site');
+
+    expect(fn () => app(\App\Services\Media\MediaUploadService::class)->uploadSingleton(
+        pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'logo_full',
+    ))->toThrow(\App\Services\Media\Exceptions\OriginalStoreFailedException::class);
+});
+
+it('sends an svg to the raster gate for non-logo singletons even with the pipeline on', function () {
+    config(['partna.logo_removal.enabled' => true]);
+
+    $svc = Mockery::mock(ImageVariantService::class);
+    $svc->shouldReceive('storeOriginal')->once()->andThrow(
+        new \App\Services\Media\UnprocessableImageException("Rejected: MIME type 'image/svg+xml' is not an accepted image format.")
+    );
+    $svc->shouldReceive('deleteVariants')->andReturnNull();
+    $svc->shouldReceive('resolvedDiskName')->andReturn('test_disk');
+    app()->instance(ImageVariantService::class, $svc);
+
+    $pro = createTenant('svgcover');
+    $pro->loadMissing('site');
+
+    expect(fn () => app(\App\Services\Media\MediaUploadService::class)->uploadSingleton(
+        pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'cover_youtube',
+    ))->toThrow(\App\Services\Media\Exceptions\OriginalStoreFailedException::class);
+});
+
 // ── Dispatch routing (the feature flag + purpose decide the pipeline) ─────────
 
 it('routes a logo through the removal pipeline when the flag is on', function () {
