@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Moderation\Concerns\DedupesRecipientSends;
 use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
@@ -16,9 +17,11 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Throwable;
 
 class NotifyReportedUserJob implements ShouldBeUnique, ShouldQueue
 {
+    use DedupesRecipientSends;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
@@ -82,7 +85,15 @@ class NotifyReportedUserJob implements ShouldBeUnique, ShouldQueue
         };
 
         if ($notification !== null) {
-            $user->notify($notification);
+            $recipient = 'user:'.$user->id;
+            if ($this->claimRecipient($entry->id, $recipient)) {
+                try {
+                    $user->notify($notification);
+                } catch (Throwable $e) {
+                    $this->releaseRecipient($entry->id, $recipient);
+                    throw $e;
+                }
+            }
         }
 
         $this->markCompleted($entry);

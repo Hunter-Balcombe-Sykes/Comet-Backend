@@ -51,3 +51,23 @@ it('completes gracefully when no admin staff exist', function () {
     Notification::assertNothingSent();
     expect($entry->fresh()->status)->toBe('completed');
 });
+
+it('does not re-page on-call staff when a retry follows a crash after the send', function () {
+    Notification::fake();
+    $staffA = PartnaStaff::factory()->create(['role' => 'admin']);
+    $staffB = PartnaStaff::factory()->create(['role' => 'admin']);
+    $case = ModerationCase::factory()->csamMatch()->create();
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_oncall_staff']);
+
+    (new NotifyOnCallStaffJob($entry->id, $case->id))->handle();
+
+    // Simulate a crash after the sends completed but before the completion mark committed.
+    ActionLogEntry::query()->where('id', $entry->id)->update(['status' => 'dispatched', 'completed_at' => null]);
+
+    (new NotifyOnCallStaffJob($entry->id, $case->id))->handle();
+
+    Notification::assertSentToTimes($staffA, CsamAutoActionStaffNotification::class, 1);
+    Notification::assertSentToTimes($staffB, CsamAutoActionStaffNotification::class, 1);
+    expect($entry->fresh()->status)->toBe('completed');
+});

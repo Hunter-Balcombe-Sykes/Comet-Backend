@@ -1928,6 +1928,13 @@ return [
         // for manual staff handling and a critical breadcrumb is logged.
         // Default true; flip to false only during an incident.
         'auto_actions_enabled' => (bool) env('PARTNA_MODERATION_AUTO_ACTIONS_ENABLED', true),
+        // RV-10: per-recipient send-dedup marker TTL for the Notify* jobs
+        // (DedupesRecipientSends). Must outlive every automatic retry of the
+        // same job — tries=3, backoff=[10,30,60], timeout up to 60s, plus the
+        // queue's stalled-reservation requeue window — worst case ~19 minutes.
+        // 7 days sits an order of magnitude above that with room for a human
+        // to re-run a stranded entry.
+        'notify_send_marker_ttl_seconds' => (int) env('PARTNA_MODERATION_NOTIFY_MARKER_TTL', 604_800), // 7d
         'reporting' => [
             'public_throttle' => [
                 'requests' => (int) env('PARTNA_REPORT_PUBLIC_THROTTLE_REQUESTS', 5),

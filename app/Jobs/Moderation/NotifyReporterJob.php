@@ -2,9 +2,11 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Moderation\Concerns\DedupesRecipientSends;
 use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\CaseSignal;
+use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
 use App\Notifications\Moderation\ReportOutcomeNotification;
 use Illuminate\Bus\Queueable;
@@ -14,9 +16,11 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Notification;
+use Throwable;
 
 class NotifyReporterJob implements ShouldBeUnique, ShouldQueue
 {
+    use DedupesRecipientSends;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
@@ -58,9 +62,27 @@ class NotifyReporterJob implements ShouldBeUnique, ShouldQueue
             ->unique();
 
         foreach ($reporters as $email) {
-            Notification::route('mail', $email)->notify(new ReportOutcomeNotification($decision));
+            $recipient = mb_strtolower(trim($email));
+            if (! $this->claimRecipient($entry->id, $recipient)) {
+                continue;
+            }
+            try {
+                $this->sendTo($email, $decision);
+            } catch (Throwable $e) {
+                $this->releaseRecipient($entry->id, $recipient);
+                throw $e;
+            }
         }
 
         $this->markCompleted($entry);
+    }
+
+    /**
+     * Extracted send seam so tests can force a mid-loop throw for exactly one
+     * recipient without affecting the others.
+     */
+    protected function sendTo(string $email, Decision $decision): void
+    {
+        Notification::route('mail', $email)->notify(new ReportOutcomeNotification($decision));
     }
 }

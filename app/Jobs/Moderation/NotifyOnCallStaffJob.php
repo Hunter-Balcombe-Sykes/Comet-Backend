@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Moderation;
 
+use App\Jobs\Moderation\Concerns\DedupesRecipientSends;
 use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Moderation\ActionLogEntry;
@@ -12,12 +13,15 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Notifications\Notification as NotificationMessage;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Notification;
+use Throwable;
 
 class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
 {
+    use DedupesRecipientSends;
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
@@ -64,8 +68,28 @@ class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
             default => new CsamAutoActionStaffNotification($case),
         };
 
-        Notification::send($oncall, $notification);
+        foreach ($oncall as $staff) {
+            $recipient = 'staff:'.$staff->id;
+            if (! $this->claimRecipient($entry->id, $recipient)) {
+                continue;
+            }
+            try {
+                $this->sendTo($staff, $notification);
+            } catch (Throwable $e) {
+                $this->releaseRecipient($entry->id, $recipient);
+                throw $e;
+            }
+        }
 
         $this->markCompleted($entry);
+    }
+
+    /**
+     * Extracted send seam, mirroring NotifyReporterJob::sendTo — per-staff so
+     * a crash mid-loop only re-claims/re-pages the staff not yet reached.
+     */
+    protected function sendTo(PartnaStaff $staff, NotificationMessage $notification): void
+    {
+        Notification::send($staff, $notification);
     }
 }

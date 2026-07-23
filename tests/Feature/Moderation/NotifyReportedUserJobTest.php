@@ -70,3 +70,23 @@ it('marks entry completed when no owner user exists', function () {
     Notification::assertNothingSent();
     expect($entry->fresh()->status)->toBe('completed');
 });
+
+it('does not re-notify the reported user when a retry follows a crash after the send', function () {
+    Notification::fake();
+    $user = User::factory()->create(['status' => 'active']);
+    $case = ModerationCase::factory()->create([
+        'reportable_owner_user_id' => $user->id,
+    ]);
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create(['decision_type' => 'hide_site']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'notify_reported_user']);
+
+    (new NotifyReportedUserJob($entry->id, $case->id))->handle();
+
+    // Simulate a crash after the send completed but before the completion mark committed.
+    ActionLogEntry::query()->where('id', $entry->id)->update(['status' => 'dispatched', 'completed_at' => null]);
+
+    (new NotifyReportedUserJob($entry->id, $case->id))->handle();
+
+    Notification::assertSentToTimes($user, ContentHiddenNotification::class, 1);
+    expect($entry->fresh()->status)->toBe('completed');
+});
