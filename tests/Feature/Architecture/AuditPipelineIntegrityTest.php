@@ -405,7 +405,14 @@ it('every lens is fed the scope its own doc asks for', function () {
     // Lenses intentionally allowed to be fed less than they declare.
     // Key = lens name, value = written justification.
     $declarationExempt = [
-        // 'some-lens' => 'why its arm is deliberately narrower than its doc',
+        // Cross-repo lenses run ONLY in targeted `--bundle cross-repo --scope …` mode,
+        // never `--codebase`. Their declared scope groups point at the frontend repo
+        // ($PARTNA_FRONTEND_PATH/…), which structurally cannot live in codebase_chunks()
+        // (that maps THIS repo). The bundle-reachability guard (cross-repo bundle in
+        // audit.sh) and the stale-path guard still cover them; only this declared-vs-fed
+        // guard is inapplicable, because there is no in-repo scope map to feed them.
+        'frontend-backend-contract' => 'cross-repo lens: scope is the frontend repo; no codebase_chunks() arm by design (targeted --bundle cross-repo only)',
+        'cross-repo-dead-code' => 'cross-repo lens: scope is the frontend repo; no codebase_chunks() arm by design (targeted --bundle cross-repo only)',
     ];
 
     $gaps = [];

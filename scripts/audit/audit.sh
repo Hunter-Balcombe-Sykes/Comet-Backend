@@ -43,6 +43,11 @@
 #     full-sweep       — ALL 21 lenses (the stage bundles plus test-coverage,
 #                        test-prod-parity, code-quality-slop, semantic-correctness).
 #                        Nothing left unturned; use with --codebase for a whole-repo audit.
+#     cross-repo       — frontend-backend-contract (XREPO) + cross-repo-dead-code (XDEAD):
+#                        backend↔frontend contract drift & frontend/cross-repo dead code.
+#                        Targeted mode ONLY — --scope the relevant backend paths + the
+#                        $PARTNA_FRONTEND_PATH frontend paths + audits/cross-repo/CONTRACT-INVENTORY.md
+#                        (run scripts/audit/contract-inventory.sh first). NOT for --codebase.
 #
 # Codebase mode (whole-repo audit, per-lens scopes — usually with pre-pilot /
 # launch-readiness / scale-health / full-sweep):
@@ -569,7 +574,7 @@ if [[ -n "$CHANGED_SINCE" ]]; then
     CHANGED_LIST="$(mktemp)"
     git diff --name-only --diff-filter=AM "${CHANGED_SINCE}..HEAD" \
         | grep -Ev '^(audits|docs)/' \
-        | grep -E '\.(php|blade\.php|sql|js|ts|yml|yaml|sh)$' \
+        | grep -E '\.(php|blade\.php|sql|js|mjs|ts|tsx|jsx|yml|yaml|sh)$' \
         | sort \
         | while IFS= read -r f; do
               [[ -f "$f" ]] && printf '%s\t%s\n' "$f" "$(wc -c < "$f" | tr -d ' ')"
@@ -755,8 +760,20 @@ if $FULL; then
             )
             META_PREFIXES="foundational durability & extensibility — shotgun surgery, denormalization debt (JSON that should be columns/tables), leaky abstraction boundaries, and breaking-migration risk (FOUND-*), biased toward the new platform-integration / menu-scraping subsystem"
             ;;
+        cross-repo)
+            # Cross-repo campaign: backend↔frontend contract drift + frontend/cross-repo
+            # dead code. Targeted mode ONLY (--scope the relevant backend paths + the
+            # $PARTNA_FRONTEND_PATH frontend paths + the CONTRACT-INVENTORY.md pre-pass);
+            # NOT --codebase (these lenses have no codebase_chunks() arm by design — their
+            # scope is another repo). Pre-pass: scripts/audit/contract-inventory.sh.
+            LENS_FILES=(
+                "$SCRIPT_DIR/lenses/frontend-backend-contract.md"
+                "$SCRIPT_DIR/lenses/cross-repo-dead-code.md"
+            )
+            META_PREFIXES="frontend↔backend contract drift (XREPO-*) and cross-repo/frontend dead code (XDEAD-*). XREPO hunts routes/capabilities/flags wired on only one side of the boundary — most critically a frontend call to a backend route that no longer exists (a live 404, P1). XDEAD hunts frontend-side and cross-repo-provable dead code (backend intra-repo dead code stays with code-quality-slop). BOTH lenses require the adjudicator to grep BOTH repos before confirming ANY absence claim, and an UNRESOLVED entry from CONTRACT-INVENTORY.md may never become a finding without a source read in both repos — that asymmetry is the campaign's false-positive defense"
+            ;;
         *)
-            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality, pre-pilot, security, launch-readiness, scale-health, full-sweep, foundational)" >&2
+            echo "Unknown bundle: $BUNDLE (expected: core, concurrency, pre-merge, code-quality, pre-pilot, security, launch-readiness, scale-health, full-sweep, foundational, cross-repo)" >&2
             exit 2
             ;;
     esac
@@ -1101,8 +1118,10 @@ for _p in "${SCOPE_ARGS[@]}"; do
     [[ "$_p" == "--scope" ]] && continue
     [[ -e "$_p" ]] || continue
     _b=$(find "$_p" -type f \( -name '*.php' -o -name '*.blade.php' -o -name '*.sql' \
-        -o -name '*.js' -o -name '*.ts' -o -name '*.yml' -o -name '*.yaml' -o -name '*.sh' \) \
-        ! -path "*/node_modules/*" -exec cat {} + 2>/dev/null | wc -c)
+        -o -name '*.js' -o -name '*.mjs' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' \
+        -o -name '*.yml' -o -name '*.yaml' -o -name '*.sh' \) \
+        ! -path "*/node_modules/*" ! -path "*/.next/*" ! -path "*/build/*" ! -path "*/out/*" ! -path "*/.turbo/*" \
+        -exec cat {} + 2>/dev/null | wc -c)
     SCOPE_BYTES=$((SCOPE_BYTES + _b))
 done
 ADJ_BUDGET=$(awk -v cur="$ADJ_BUDGET" -v kb="$((SCOPE_BYTES / 1024))" \

@@ -90,11 +90,15 @@ SYS_MSG="$TMP/system.md"
 
     for path in "${SCOPE_PATHS[@]}"; do
         if [[ -d "$path" ]]; then
-            # .js/.ts cover the Cloudflare Worker; .yml/.yaml cover CI workflows
-            # (.github/workflows); .sh covers deploy scripts (deploy/); everything
-            # else is PHP/SQL. .venv excluded so a scoped tools/ dir doesn't drag
-            # in a Python virtualenv's bundled YAML.
-            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" -o -name "*.js" -o -name "*.ts" -o -name "*.yml" -o -name "*.yaml" -o -name "*.sh" \) ! -path "*/node_modules/*" ! -path "*/.venv/*" | sort)
+            # .js/.ts/.mjs cover the Cloudflare Worker AND the Next.js frontend;
+            # .tsx/.jsx cover React components (the bulk of the frontend surface —
+            # a glob without them reads a frontend app/ dir as ~half its files and
+            # reports the rest clean, indistinguishable from no findings); .yml/.yaml
+            # cover CI workflows (.github/workflows); .sh covers deploy scripts.
+            # everything else is PHP/SQL. Excludes: node_modules + .venv (bundled
+            # deps), and .next/build/out/.turbo (frontend build output — generated,
+            # not source).
+            files=$(find "$path" -type f \( -name "*.php" -o -name "*.blade.php" -o -name "*.sql" -o -name "*.js" -o -name "*.mjs" -o -name "*.ts" -o -name "*.tsx" -o -name "*.jsx" -o -name "*.yml" -o -name "*.yaml" -o -name "*.sh" \) ! -path "*/node_modules/*" ! -path "*/.venv/*" ! -path "*/.next/*" ! -path "*/build/*" ! -path "*/out/*" ! -path "*/.turbo/*" | sort)
         elif [[ -f "$path" ]]; then
             files="$path"
         else
@@ -104,9 +108,23 @@ SYS_MSG="$TMP/system.md"
 
         while IFS= read -r f; do
             [[ -f "$f" ]] || continue
+            # Fence each file by its REAL language. The old hardcoded ```php told
+            # the scanner every .tsx/.ts/.sql file was PHP, degrading how it reads
+            # non-PHP source. Extension → fence tag; unknown types fence bare.
+            case "$f" in
+                *.blade.php|*.php) lang=php ;;
+                *.tsx)             lang=tsx ;;
+                *.jsx)             lang=jsx ;;
+                *.ts)              lang=ts ;;
+                *.mjs|*.js)        lang=js ;;
+                *.sql)             lang=sql ;;
+                *.yml|*.yaml)      lang=yaml ;;
+                *.sh)              lang=bash ;;
+                *)                 lang= ;;
+            esac
             echo "### $f"
             echo ""
-            echo '```php'
+            echo "\`\`\`${lang}"
             cat "$f"
             echo '```'
             echo ""
