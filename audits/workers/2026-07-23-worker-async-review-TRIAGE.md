@@ -47,7 +47,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 12 of 19 complete (13 pipeline + 6 review-only)
+- P2 Medium: 14 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 3 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -499,7 +499,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         public array $backoff = [60, 300, 900];
         ```
 
-- [ ] **R4-RES-2** · P2 — Website-menu AI scan jobs retry from scratch, re-billing Mistral/DeepSeek on any transient failure
+- [x] **R4-RES-2** · P2 — Website-menu AI scan jobs retry from scratch, re-billing Mistral/DeepSeek on any transient failure
     - **Where:** app/Jobs/Platforms/WebsiteMenuPdfScanJob.php:30-33, :68-75; app/Jobs/Platforms/WebsiteMenuHtmlScanJob.php:32-35, :70-70
     - **Affects:** the shared AI-spend budget (Mistral OCR + DeepSeek structuring) for the automatic previous-website menu scan.
     - **Effort:** S (~0.5–1h)
@@ -704,7 +704,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** Permitted worker heap sums to `2 × 256 (supervisor-1) + 256 (supervisor-long) + 512 (supervisor-videos) = 1280 MiB` on a **1024 MiB** `flex-1gb` instance — a 25% over-commit *before* counting the Horizon master process, the three middleman processes, or the scheduler sharing the same instance. Horizon's `memory` key is a **restart-after-exceeded threshold checked between jobs**, not a cap: nothing prevents the sum being reached mid-job, and by the time Horizon would notice, the kernel has already acted. Two compounding factors: an OOM kill is SIGKILL, so `failed()` never runs and the job leaves behind whatever locks and temp files it held; and ffmpeg's resident memory lives outside PHP's allocator entirely, so `memory_get_usage()` — the number Horizon actually checks — cannot see the largest consumer on the box. The 2026-07-22 OOM incident is the precedent.
     - **Plain English:** The worker machine has one gigabyte of memory, and the configuration gives permission to use one and a quarter gigabytes — before counting several supporting processes that also live there. The safety valve that is supposed to prevent this only checks between jobs, so it cannot stop a job that grows past the limit while running. And the video encoder, which is the hungriest thing on the box, allocates memory in a way the safety valve is structurally unable to measure. When the operating system runs out and kills a worker, that worker gets no chance to clean up: no "this failed" record, no retry, and any locks or temporary files it was holding are simply abandoned. The fix is either a bigger machine or a smaller video allowance — a cost trade-off, not an engineering one.
 
-- [ ] **RV-5** · P2 — `integrations:refresh` fans out uncapped and unstaggered onto a near-lowest-priority queue
+- [x] **RV-5** · P2 — `integrations:refresh` fans out uncapped and unstaggered onto a near-lowest-priority queue
     - **Where:** app/Console/Commands/RefreshIntegrationConnectionsCommand.php:32-39
     - **Affects:** Platform-connection freshness, plus every other job sharing `supervisor-1` during the burst window.
     - **Effort:** S/M · autonomous
