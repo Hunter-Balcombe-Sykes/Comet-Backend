@@ -43,7 +43,7 @@ class UserSiteActionsController extends ApiController
 
         return $this->success([
             'pool' => array_map(
-                fn (array $entry): array => $actions->toWire($entry, $scores[$entry['kind'].':'.$entry['ref']] ?? null),
+                fn (array $entry): array => $actions->toWire($entry, $scores[$entry['id']] ?? null),
                 $pool,
             ),
             'rankedActions' => $actions->resolveRankedActions(

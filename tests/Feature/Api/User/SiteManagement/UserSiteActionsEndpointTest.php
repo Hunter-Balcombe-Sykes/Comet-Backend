@@ -4,8 +4,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 // GET /api/site/actions — the dashboard picker data source for the design
-// page's "Pages" / "Action buttons" controls: live pool + currently-served
-// rankedActions + ordering settings.
+// page's "Smart actionable lander" toggle + manual reorder dialog: live pool
+// + currently-served rankedActions + ordering settings (2026-07-23 rebuild:
+// fixed-vocabulary pool, entries keyed by ActionVocabulary id).
 
 beforeEach(function () {
     config(['partna.throttle.enabled' => false]);
@@ -14,6 +15,7 @@ beforeEach(function () {
     setupSectionViewsTable();
     setupLinkClicksTable();
     setupItemViewsTable();
+    setupActionEventsTable();
     setupContentPopularityScoresTable();
 });
 
@@ -40,7 +42,7 @@ it('returns pool, rankedActions and ordering for the authed professional', funct
         'id' => (string) Str::uuid(),
         'site_id' => $pro->site->id,
         'content_type' => 'action',
-        'content_key' => 'button:instagram',
+        'content_key' => 'instagram',
         'score' => 0.77,
         'rank' => 1,
         'computed_at' => now()->toISOString(),
@@ -50,13 +52,12 @@ it('returns pool, rankedActions and ordering for the authed professional', funct
 
     // success() responds with the body directly — no data envelope.
     $data = $response->json();
-    $poolRefs = collect($data['pool'])->pluck('ref');
+    $poolIds = collect($data['pool'])->pluck('id')->all();
 
-    expect($poolRefs)->toContain('instagram')
-        ->and($poolRefs)->toContain('links')
+    expect($poolIds)->toBe(['instagram'])
         // Pool entries carry their stored score when ranked.
-        ->and(collect($data['pool'])->firstWhere('ref', 'instagram')['score'])->toBe(0.77)
-        ->and($data['rankedActions'][0]['ref'])->toBe('instagram')
+        ->and(collect($data['pool'])->firstWhere('id', 'instagram')['score'])->toBe(0.77)
+        ->and($data['rankedActions'][0]['id'])->toBe('instagram')
         ->and($data['ordering'])->toMatchArray(['smartPageOrder' => true, 'smartActions' => true]);
 });
 

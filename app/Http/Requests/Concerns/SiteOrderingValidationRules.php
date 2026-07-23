@@ -3,21 +3,44 @@
 namespace App\Http\Requests\Concerns;
 
 use App\Enums\SitepageId;
+use App\Services\PublicSite\Actions\ActionVocabulary;
 use Illuminate\Validation\Rule;
 
-// Shared ordering-preferences validation (OV-I actions system) used by both
+// Shared ordering-preferences validation (unified actions system) used by both
 // UpdateSiteRequest (user endpoint) and StaffUpdateSiteRequest (staff endpoint).
 // Extraction prevents the two classes from drifting — a staff edit must not be
 // able to write an ordering payload the user endpoint would reject, in particular
-// a custom action whose {label,url} URL isn't http(s) (OV-I). To change an
-// ordering rule: update this trait only — both request classes pick it up.
+// a custom action whose {label,url} URL isn't http(s). To change an ordering
+// rule: update this trait only — both request classes pick it up.
 trait SiteOrderingValidationRules
 {
+    /**
+     * Action ref -> ActionVocabulary id, for the legacy '<kind>:<ref>' shapes
+     * the pre-2026-07-23 dashboard could have persisted. Only entries that
+     * genuinely renamed (not just moved kind) need a table entry — everything
+     * else is handled structurally in normalizeOrderingPageIds() below.
+     *
+     * @var array<string, string>
+     */
+    private const LEGACY_BUTTON_REF_TO_ACTION_ID = [
+        'booking' => 'booking-services',
+        // getLinks() historically emitted the singular platform slug (matches
+        // config/partna.php's social_platforms key); the new vocabulary id is
+        // plural ("Apple Podcasts").
+        'apple-podcast' => 'apple-podcasts',
+    ];
+
     /**
      * The settings.smart_page_order / manual_page_order / smart_actions /
      * manual_actions rule map. Absent = smart (the read side defaults both
      * toggles to true). The two manual lists REPLACE atomically on write — see
      * UpdateSiteAction::LIST_SETTINGS_KEYS.
+     *
+     * manual_actions entries are exactly one of:
+     *   {kind: action, ref: <ActionVocabulary id>}
+     *   {kind: custom, label: 1..80, url: http(s)}
+     * (pre-2026-07-23 page/item/button shapes are migrated or dropped by
+     * normalizeOrderingPageIds() in prepareForValidation, before these rules run).
      *
      * @return array<string, mixed>
      */
@@ -28,21 +51,29 @@ trait SiteOrderingValidationRules
             'settings.manual_page_order' => ['sometimes', 'array', 'max:16'],
             'settings.manual_page_order.*' => ['string', 'distinct', Rule::in(SitepageId::canonicalOrder())],
             'settings.smart_actions' => ['sometimes', 'boolean'],
-            'settings.manual_actions' => ['sometimes', 'array', 'max:12', $this->distinctActionRefsRule()],
+            'settings.manual_actions' => ['sometimes', 'array', 'max:26', $this->distinctActionRefsRule()],
             'settings.manual_actions.*' => ['array', $this->manualActionEntryRule()],
-            'settings.manual_actions.*.kind' => ['required', 'string', Rule::in(['page', 'item', 'button', 'custom'])],
-            'settings.manual_actions.*.ref' => ['sometimes', 'string', 'max:160'],
+            'settings.manual_actions.*.kind' => ['required', 'string', Rule::in(['action', 'custom'])],
+            'settings.manual_actions.*.ref' => ['sometimes', 'string', 'max:180'],
             'settings.manual_actions.*.label' => ['sometimes', 'string', 'min:1', 'max:80'],
             'settings.manual_actions.*.url' => ['sometimes', 'string', 'url:http,https', 'max:2048'],
         ];
     }
 
     /**
-     * Normalize legacy page-ids in an incoming ordering settings block ('book' →
-     * 'services' after the 2026-07-13 rename) so an older client's
-     * manual_page_order / page-kind action refs validate + persist under the
-     * current taxonomy. Call from prepareForValidation. Returns the settings
-     * unchanged when it carries no ordering keys.
+     * Normalize legacy shapes in an incoming ordering settings block so an
+     * older client's payload (or a stale round-tripped read) still validates
+     * + persists under the current taxonomy/vocabulary. Call from
+     * prepareForValidation. Returns the settings unchanged when it carries no
+     * ordering keys.
+     *
+     * manual_page_order: legacy page-ids normalized in place ('book' -> 'services').
+     * manual_actions: pre-2026-07-23 {kind: page|item|button, ref} entries are
+     * migrated to {kind: action, ref: <ActionVocabulary id>} where a mapping
+     * exists, else DROPPED (same "unknown ref, drop it" posture the resolve
+     * step already applies to anything not in the live pool) — item-kind
+     * entries always drop, there is no per-item action concept anymore.
+     * {kind: action, ...} and {kind: custom, ...} entries pass through as-is.
      *
      * @param  array<string, mixed>  $settings
      * @return array<string, mixed>
@@ -57,27 +88,59 @@ trait SiteOrderingValidationRules
         }
 
         if (is_array($settings['manual_actions'] ?? null)) {
-            $settings['manual_actions'] = array_map(
-                static function ($action) {
-                    if (is_array($action) && ($action['kind'] ?? null) === 'page' && is_string($action['ref'] ?? null)) {
-                        $action['ref'] = SitepageId::normalizePageId($action['ref']);
-                    }
-
-                    return $action;
-                },
+            $settings['manual_actions'] = array_values(array_filter(array_map(
+                fn ($action) => $this->normalizeManualActionEntry($action),
                 $settings['manual_actions'],
-            );
+            ), static fn ($action) => $action !== null));
         }
 
         return $settings;
     }
 
     /**
+     * @return array<string, mixed>|null null = drop (no mapping to the current vocabulary)
+     */
+    private function normalizeManualActionEntry(mixed $action): ?array
+    {
+        if (! is_array($action)) {
+            return $action; // not our shape to fix — let the .kind rule report it
+        }
+
+        $kind = $action['kind'] ?? null;
+
+        // Already current-shape (or malformed in a way the field rules will
+        // report) — pass through untouched.
+        if ($kind !== 'page' && $kind !== 'button' && $kind !== 'item') {
+            return $action;
+        }
+
+        if ($kind === 'item') {
+            return null; // no per-item action concept in the current vocabulary
+        }
+
+        $ref = $action['ref'] ?? null;
+        if (! is_string($ref) || $ref === '') {
+            return $action; // malformed — let the .ref rule report it
+        }
+
+        if ($kind === 'page') {
+            $ref = SitepageId::normalizePageId($ref);
+            // The old 'services' PAGE folds into the new booking-services
+            // action; every other legacy page-id that also names a current
+            // static action id (shop, events, menu, contact, reservations)
+            // carries over unchanged.
+            $ref = $ref === 'services' ? 'booking-services' : $ref;
+        } else { // button
+            $ref = self::LEGACY_BUTTON_REF_TO_ACTION_ID[$ref] ?? $ref;
+        }
+
+        return ActionVocabulary::isValidId($ref) ? ['kind' => 'action', 'ref' => $ref] : null;
+    }
+
+    /**
      * Per-entry strictness for settings.manual_actions.* — each entry is
      * EXACTLY one of:
-     *   {kind: page,   ref: <taxonomy page-id>}
-     *   {kind: item,   ref: "<itemType>:<itemKey>"}
-     *   {kind: button, ref: <platform slug>}   ('booking' = general booking link)
+     *   {kind: action, ref: <ActionVocabulary id>}
      *   {kind: custom, label: 1..80, url: http(s)}
      * Non-custom entries must not carry label/url; custom must not carry ref;
      * no unknown keys. (Type/length/url formats are covered by the sibling
@@ -111,18 +174,8 @@ trait SiteOrderingValidationRules
                     $fail('Only custom actions may carry label/url.');
                 }
                 $ref = $value['ref'] ?? null;
-                if (! is_string($ref) || $ref === '') {
-                    $fail('The action ref is required.');
-                } else {
-                    $refValid = match ($kind) {
-                        'page' => in_array($ref, SitepageId::canonicalOrder(), true),
-                        'button' => (bool) preg_match('/^[a-z0-9][a-z0-9-]{0,39}$/', $ref),
-                        'item' => (bool) preg_match('/^[a-z][a-z0-9_]*:\S{1,120}$/', $ref),
-                        default => true, // unknown kind — .kind Rule::in reports it
-                    };
-                    if (! $refValid) {
-                        $fail('The action ref is not valid for its kind.');
-                    }
+                if (! is_string($ref) || $ref === '' || ! ActionVocabulary::isValidId($ref)) {
+                    $fail('The action ref is not a recognised action.');
                 }
                 $allowed = ['kind', 'ref'];
             }
@@ -134,8 +187,8 @@ trait SiteOrderingValidationRules
     }
 
     /**
-     * Reject duplicate kind:ref pairs in settings.manual_actions (customs are
-     * exempt — several custom buttons are legitimate).
+     * Reject duplicate refs in settings.manual_actions (customs are exempt —
+     * several custom buttons are legitimate).
      */
     private function distinctActionRefsRule(): \Closure
     {
@@ -148,13 +201,13 @@ trait SiteOrderingValidationRules
                 if (! is_array($entry) || ($entry['kind'] ?? null) === 'custom') {
                     continue;
                 }
-                $key = ($entry['kind'] ?? '').':'.($entry['ref'] ?? '');
-                if (isset($seen[$key])) {
+                $ref = (string) ($entry['ref'] ?? '');
+                if (isset($seen[$ref])) {
                     $fail('Duplicate action refs are not allowed.');
 
                     return;
                 }
-                $seen[$key] = true;
+                $seen[$ref] = true;
             }
         };
     }
