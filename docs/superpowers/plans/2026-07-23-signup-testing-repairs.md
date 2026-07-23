@@ -863,3 +863,152 @@ false `role: 'staff'`/`is_staff: true'` on a freshly-claimed, definitely-non-sta
 remains unconfirmed. If this recurs, the highest-value next step is watching the raw `/me`
 network response in the moment right after a fresh claim (not after the fact) — everything
 reachable by reading code has now been checked twice without finding the mechanism.
+
+---
+
+## 11. Instagram auto-connect returns zero media for real, content-rich accounts
+
+**Status:** root cause found, high confidence, fix not started.
+
+**Symptom:** a genuinely public, content-rich Instagram business account (this run's test:
+`@supernormal_180` — 2,314 posts, 83.4K followers, confirmed live and public) auto-connects
+successfully (`last_refresh_status: 'ok'`) but the stored connection payload has
+`images: []`, `videoUrl: null`, `videoPoster: null`, and even `profilePicUrl: null` —
+nothing at all to show. The dashboard's `PUT /api/content/instagram-auto` toggle
+(`ContentController::setInstagramAuto`) is a pure display switch over this already-scraped
+payload (`selection->setInstagramAuto($site, enabled)`) — it does not re-scrape, so toggling
+it on/off can never retroactively populate media the original scrape never fetched.
+
+**Root cause:** `InstagramScraper::fetchProfile()` (`app/Services/Platforms/InstagramScraper.php:34-39`)
+calls the Apify actor `figue~instagram-profile-scraper` (`config('partna.instagram.actor')`)
+with only `{'profiles': [...], 'resultsLimit' => 24}`. Per the actor's own published input
+schema, it accepts exactly two parameters: `profiles` and `includeRecentPosts` (boolean) —
+documented as **"off by default (faster, profile data only); enable to also return recent
+posts."** The code never sends `includeRecentPosts: true`, so the actor is being called in
+its explicit profile-only mode on every single connect, for every account — it is working
+exactly as configured, just not configured the way `InstagramConnectionSeeder`/`latestMedia()`
+assume. `resultsLimit` is not a documented input for this actor at all and is very likely
+silently ignored.
+
+Confirmed directly from the diagnostic log already built into the code for exactly this
+suspicion (`InstagramScraper::latestMedia()`'s `Log::info('instagram.latest_media', ...)`):
+for this connect, `posts: 0, videos: 0, picked_photo: false, picked_video: false` — despite
+`postsCount: 2314` in the very same profile response. Profile-level stats survive because
+they ARE part of the "profile data only" response; only the posts array itself is being
+suppressed by the actor's own default.
+
+**This is not specific to this test account.** Every Instagram auto-connect on the platform
+is structurally getting zero post media today, silently — a real account with thousands of
+posts and a genuinely empty account (item 3, above) currently produce an identical empty
+payload, because the one parameter that would ever return posts is never sent. Item 3's fix
+(the `UnableToDeleteFile` crash) only stopped this from crashing; it never touched why the
+media is empty.
+
+**Fix (not applied yet):**
+1. Add `'includeRecentPosts' => true` to the Apify request body in
+   `InstagramScraper::fetchProfile()` (~line 38).
+2. Reconcile `RESULTS_LIMIT = 24` (`InstagramScraper.php:18`) against the actor's actual hard
+   cap of 12 posts per profile once `includeRecentPosts` is on — the existing comment ("enough
+   that auto reliably yields 8 covers and the manual picker has a healthy pool") assumes a
+   pool this actor cannot supply. Confirm via the actor's real input schema (not just its
+   store page) whether `resultsLimit` does anything at all before relying on it further.
+3. Re-test against a live reconnect (this same `supernormal_180` connection is a ready-made
+   regression case) and confirm `latestMedia()`'s diagnostic log shows `posts > 0` and
+   `picked_photo`/`picked_video` flip true.
+4. Nice-to-have, not blocking: add the same style of diagnostic logging `latestMedia()` has
+   to the `profilePicUrl()` path — right now a null profile pic is silently indistinguishable
+   between "Apify didn't return one" and "the mirror fetch failed for another reason," which
+   will start to matter once posts are actually flowing.
+
+---
+
+## 12. Website-scanned wide/full logo never captured — SVG rejected before it reaches the logo pipeline
+
+**Status:** root cause found, high confidence, fix not started. Not a crash — the square
+logo slot still gets filled from a fallback candidate, so the account isn't visibly broken,
+just missing the wide logo.
+
+**Symptom:** `LogoAutoGrabber` (triggered from `ScanPreviousWebsiteContentJob`) found the
+business's homepage header logo — supernormal.net.au renders its logo as an inline `<svg>`
+in the page header, exactly the "premier source" `LogoAutoGrabber`'s own docblock describes
+(`app/Services/Design/LogoAutoGrabber.php:20-29`, "the RENDERED header logo (img currentSrc
+/ inline `<svg>`) is the premier source"). The grab attempt logged `Failed to store
+singleton original... Rejected: MIME type 'image/svg+xml' is not an accepted image format.`
+A PNG favicon-derived candidate succeeded a second later and filled the SQUARE slot, but the
+FULL (wide) slot — for which the inline SVG was very likely the only sufficiently wide
+candidate available on this site — was never filled.
+
+**Root cause, traced through the full call chain:**
+`LogoAutoGrabber::tryInlineSvg()` (line 300) → `upload()` (line 507) →
+`MediaUploadService::uploadSingleton()` (line 182) → `ImageVariantService::storeOriginal()`
+(line 299) → `assertImageMime()` (lines 507-515), whose allowlist is
+`ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp']` (`ImageVariantService.php:26`)
+— no `image/svg+xml`, unconditionally, for every caller.
+
+The intended SVG pathway does exist downstream: `MediaUploadService::dispatchSingletonProcessing()`
+(lines 506-522) explicitly routes design-pool logos through a background-removal +
+vectorization job (`ProcessLogoVariantsJob` via `dispatchLogoJob()`) whenever
+`partna.logo_removal.enabled` is true — exactly the "processor rasterizes it and stores the
+sanitized source as the vector" behavior `LogoAutoGrabber`'s own docblock promises. But
+`dispatchSingletonProcessing()` only runs AFTER `storeOriginal()` has already succeeded
+(`uploadSingleton()` line 194, gated behind the try/catch at lines 181-191) —
+`assertImageMime()`'s blanket rejection fires first and unconditionally, so **no SVG can
+ever reach the logo-aware branch that's supposed to handle it.** The two halves of this
+feature — the grabber that fetches/ranks inline-SVG logos, and the storage layer meant to
+accept and rasterize them — are out of sync. This isn't a deliberate tradeoff; it's a real
+gap between documented intent and actual behavior. Confirmed `partna.logo_removal.enabled`
+is a real, currently-checked flag (`config/partna.php:1184`) and that it must be on for this
+account (otherwise `tryInlineSvg()` would have short-circuited with
+`rejected:svg-pipeline-disabled` before ever calling `upload()` at all) — so this is blocked
+at the storage layer specifically, not by the feature flag.
+
+**Fix (not applied yet):**
+1. `ImageVariantService::storeOriginal()` (or a dedicated variant used only by the design-logo
+   singleton path) needs to accept `image/svg+xml` when the caller is a logo purpose and
+   `partna.logo_removal.enabled` is true — either a purpose-aware allowlist in
+   `assertImageMime()`, or giving `MediaUploadService::uploadSingleton()` an SVG-specific
+   branch that skips `ImageVariantService::storeOriginal()` entirely for that case and hands
+   the raw SVG straight to `dispatchLogoJob()`, since actual rasterization is
+   `ProcessLogoVariantsJob`'s job, not `ImageVariantService`'s.
+2. Read `ProcessLogoVariantsJob` (not yet read) to confirm it can accept raw SVG bytes as
+   input today, or whether it currently expects an already-raster original — decides whether
+   fix #1 is a small storage-layer change or also needs a job-side adjustment.
+3. Add a regression test in the same spirit as the `WebsiteAccentExtractor`/
+   `InstagramConnectionSeeder` fixes elsewhere in this doc: a wide inline-SVG candidate should
+   end up stored (as SVG or its rasterized form, whichever the real fix produces), not
+   silently dropped.
+4. This specific `supernormal` test account would need a fresh logo re-scan to actually pick
+   up the full logo once fixed — `grabIfEmpty()`'s own occupancy check currently skips a slot
+   that's already filled (the square one is), so this won't self-heal retroactively without
+   either a manual re-grab path or a brand-new signup.
+
+**If not pursued purely as a bug fix, this is a real system improvement regardless:** any
+business whose logo happens to be an inline SVG — a common, modern pattern — can never get
+an auto-populated wide/full logo today, only businesses with raster (PNG/JPG) header logos
+benefit from that slot. Worth prioritizing independent of how often SVG headers turn out to
+show up across future signups.
+
+---
+
+## 13. New: signup should collect a password so the user can log in with one
+
+**Status:** captured per owner request; not yet researched or scoped. Do not implement
+without doing the auth-model check below first.
+
+**Ask:** the signup flow currently never asks the user to set a password. Add a step that
+collects one, placed immediately after the existing email OTP verification step.
+
+**Open questions to resolve before writing an implementation plan (not yet checked this
+pass):**
+- What is the actual current auth model? Per `Comet-Backend/CLAUDE.md`: "Auth: Supabase Auth
+  (JWT) — no backend login; frontend forwards token." Confirm directly against the Supabase
+  Auth project config (not just app code) whether password-based sign-in is enabled/supported
+  at all today, or whether every account is presently OTP/magic-link only end to end — if the
+  latter, this is an auth-model change, not a one-field addition to a form.
+- If passwords are to be introduced: which exact step of the `Partna-Frontend` signup flow the
+  new field slots into, validation rules, and how it's actually set — Supabase (not our own
+  `core.users`) owns credentials, so this is very likely a
+  `supabase.auth.updateUser({password})`-style call made right after OTP verify, while the
+  user still holds the valid session the OTP step produced.
+- Whether already-claimed accounts (including every test account from this run) need a
+  retrofit "set a password" path too, or only new signups going forward.
