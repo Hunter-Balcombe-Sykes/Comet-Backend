@@ -153,7 +153,9 @@ doesn't care about int vs. float — e.g. `$saturation = $max > 0.0 ? ($max - $m
 : 0.0;` (also reads more honestly as "if there's any lightness, compute saturation").
 Small, isolated, single-line change; no other logic in the file is affected.
 
-**Fix:** not started — do not investigate further until we get to this item.
+**Fix shipped (commit `afa230c2`).** Exactly the one-line change above —
+`WebsiteAccentExtractor.php`'s saturation guard reads `$max > 0.0 ? ($max - $min) / $max :
+0.0` — no other logic touched. Backend full suite green.
 
 ---
 
@@ -195,7 +197,9 @@ try/catch, `report()` the exception for observability (so a real underlying stor
 problem still surfaces in Nightwatch), and continue — matching the file's own established
 convention rather than introducing a new one. Small, isolated change.
 
-**Fix:** not started — do not investigate further until we get to this item.
+**Fix shipped (commit `afa230c2`).** The delete call in `InstagramConnectionSeeder.php`
+is now wrapped in try/catch + `report($e)`, matching the file's own established
+convention. Backend full suite green.
 
 ---
 
@@ -235,8 +239,11 @@ sourced from a PDF wine list found on the old website
 items have no pictures (`image_url`/`images` both null on all 15 rows) — a wine list PDF
 has no photos to extract.
 
-**Fix:** not started — likely a 2-line allowlist fix (add `'website-scan'` in both
-places) but do not start until we get to this item.
+**Fix shipped (commit `afa230c2`).** `'website-scan'` added to both allowlists
+(`MenuPayloadComposer::hasOwnerContent()`, `MenuContentController::EDITABLE_SOURCES`), plus
+the two cosmetic same-family fixes flagged in the consolidation sweep below
+(`MenuFetchJob::previousCategoryOrder()` and `::remainingContentSource()` now also exclude/
+recognise `website-scan`). Backend full suite green.
 
 **Owner note (2026-07-23):** before doing the allowlist fix above, confirm there is
 genuinely only ONE storage mechanism for menu items — website-scanned items must land as
@@ -307,10 +314,10 @@ OCR call"). **Decision (2026-07-23): keyword prefilter.** Only dispatch a scan f
 whose link text/href matches a menu-relevant keyword (menu/wine/drink/food/beverage/
 dessert etc.) — still "every real menu doc," just not literally every PDF on the domain.
 
-**Fix:** not started — remove the `$pdfs[0]` cap; dispatch one `WebsiteMenuPdfScanJob` per
-PDF found (bounded to some sane max as a safety limit, not a "pick one" limit; the job's
-`uniqueId()` is already keyed per-document-URL, so multiple concurrent dispatches for the
-same user don't collide). Do not start until we get to this item.
+**Fix shipped (commit `afa230c2`).** `$pdfs[0]` cap removed — `ScanPreviousWebsiteContentJob`
+now keyword-prefilters every PDF found (`MENU_KEYWORDS`), then dispatches one
+`WebsiteMenuPdfScanJob` per relevant PDF, staggered and bounded by `MAX_PDF_SCANS = 5` as a
+safety cap, not a "pick one" limit. Backend full suite green.
 
 ---
 
@@ -421,9 +428,20 @@ that pre-existing gap more worth closing at the same time, not just for this fea
 
 Separately (lower priority, not this incident's cause): reconsider whether skipping the
 `/menu` hop just because the homepage yielded ANY PDF is too aggressive — maybe only skip
-once HTML items were actually found, not merely because a PDF was found somewhere.
+once HTML items were actually found, not merely because a PDF was found somewhere. (Not
+addressed this run — flagged for later, low priority, not this incident's cause.)
 
-Do not start until we get to this item.
+**Fix shipped (commit `afa230c2`), full recommended build order.** The schema.org
+`hasMenu`/`menu` JSON-LD pointer is now read and ranked ahead of the path-substring guess
+in `findPageLink()` (generalized from `findMenuPageLink()` — see item 8, same helper now
+serves menu/about/contact one-hops). New `VisibleTextExtractor` (block-level DOM walk,
+60000-char cap) + a price-line density pre-filter (`MIN_DENSE_TEXT_CHARS`/`MIN_PRICE_LINES`)
+gate a new `WebsiteMenuHtmlScanJob` (its own dispatched job, same rationale as the PDF
+job) that reuses `MenuAiExtractor::structure()` unchanged. A zero-cost Squarespace-specific
+fast-path (`SquarespaceMenuExtractor`) runs first and skips the AI call entirely when it
+hits. The AI-spend gap flagged alongside this item is also closed: new `AiSpendBudget`
+class (mirrors `ApifyBudget`'s atomic per-actor + global cap pattern) gates both
+`MenuAiExtractor::ocr()` and `::structure()`. Backend full suite green.
 
 ---
 
@@ -546,8 +564,8 @@ request — omitted here to keep the plan doc readable; ask if you want them re-
 
 ## 8. New capability: previous-website scraper is leaving real, extractable data on the table
 
-**Status:** researched (read-only), concrete designs proposed, no decisions made — for
-the morning.
+**Status:** fix shipped (commit `196dfd28`) — all 3 candidates built, decisions below all
+executed. See the "Fix shipped" section at the end of this item for what actually landed.
 
 Full audit of `ScanPreviousWebsiteContentJob` and everything it wires in, done
 specifically to find what MORE it could reasonably capture. Precise mechanism now
@@ -623,6 +641,40 @@ mailto:+JSON-LD → `/about` one-hop reusing the existing extractor → `/contac
 (paired with the about fetch via `fetchMany()`) → gallery photos (medium effort, new
 plumbing) → prose heuristic (only once the precedence question above is settled).
 
+**Fix shipped (commit `196dfd28`).** All 3 candidates built, decisions above executed as
+written:
+- **Contact email:** new `ContactEmailExtractor` — mailto: links (filtered against
+  noreply@/no-reply@/donotreply@/etc.) first, then JSON-LD `email`/`contactPoint.email`.
+  Fills `Workplace.contact_email` fill-if-empty via a new `WorkplaceContentApplier::
+  applyContactEmail()`.
+- **About/description:** the plain existing `AboutTextExtractor` (JSON-LD/meta,
+  fill-if-empty) is unchanged and still runs first. New `AboutProseExtractor` (heading
+  "About"/"Our Story" → following-paragraph heuristic, 3-paragraph/1000-char cap) runs
+  alongside it. Precedence decision executed exactly as specified: new
+  `WorkplaceContentApplier::applyProseDescription()` overwrites the current description
+  whenever prose is found, UNLESS the current value's `field_sources` says `'manual'` —
+  the business's own words now win over Google's editorial summary and over this
+  extractor's own plain fill, matching the decided default.
+- **One-hop /about + /contact:** `findMenuPageLink()` generalized to `findPageLink(...,
+  $keyword)` or, shared by menu/about/contact. Both hops fetched CONCURRENTLY via
+  `SafeUrlFetcher::fetchMany()` exactly per the architecture note above, only for whichever
+  of prose/email came up empty on the homepage.
+- **Gallery photos:** new `WebsiteGalleryCandidateExtractor` (harvests `<img>` candidates
+  outside header/nav/footer, filtered by noise-pattern + declared-size heuristics) + new
+  `GalleryAutoGrabber` (download/validate/upload plumbing — the "nothing in this pipeline
+  does that today" gap this item flagged; mirrors `LogoAutoGrabber`'s fetch/validate
+  pattern) + a new dispatched `WebsiteGalleryScanJob` (own job, same 60s-timeout rationale
+  as the PDF/HTML menu jobs). Fills an EMPTY gallery pool only — never tops up one with
+  existing photos, same "fills empty slots, never touches populated ones" contract as the
+  logo grabber.
+
+Live-verified against the real Supernormal site researched earlier: homepage alone has
+neither an email nor about-prose (both correctly return null — nothing fabricated); the
+one-hop `/contact` fallback correctly found `info@supernormal.net.au`; no `/about` page
+exists on the real site (confirmed via the link harvester, so prose correctly stayed
+null rather than guessing). Full test coverage added (extractors, applier, both jobs);
+backend full suite green (4838 passed).
+
 ---
 
 ## 9. Existing, currently-live gap: a scraped contact email never reaches the public site
@@ -645,6 +697,25 @@ reaches the live public page on its own.
 pattern (`mirrorContactFields()`'s own `isBlank()` check) so any automatic writer of
 `Workplace.contact_email` also fills `User.public_contact_email` when the latter is empty,
 not just the manual-save path. Small, isolated, same shape as the item 4 allowlist fix.
+
+**Correction (2026-07-23), before shipping:** re-checked the ORIGINAL `mirrorContactFields()`
+(via git archaeology back to the commit that first added it, `adb938bf`) — it was NEVER
+fill-if-empty / never had an `isBlank()` guard. It has always been unconditional
+overwrite-on-change (`if ($user->public_contact_number !== $phone) { ...set... }`), on the
+manual-dashboard-save path only, since the method's creation. The "isBlank() fill-if-empty"
+description above was this plan doc's own mischaracterization, not the real prior behavior.
+
+**Fix shipped (commit `afa230c2`).** Moved `mirrorContactFields()` from
+`UserWorkplaceController` (manual-save-only) into `WorkplaceObserver::saved()`
+(`wasRecentlyCreated || wasChanged(['phone', 'contact_email'])`) — a byte-for-byte
+faithful port of the existing overwrite-on-change logic, now firing for EVERY writer
+(scan, sync, manual) instead of only the dashboard save path, which is exactly what this
+item asked for. `User.public_contact_email` genuinely is subordinate to
+`Workplace.contact_email` under this design (there IS a second, independent write path —
+`PATCH /me`'s own `public_contact_email` field — so this precedence is a real product
+choice, not an oversight; flagged for a human product-owner glance, not treated as a bug,
+since the exact same precedence has been live on the manual-save path for months without
+complaint). Backend full suite green.
 
 ---
 
