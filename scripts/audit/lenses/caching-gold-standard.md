@@ -150,6 +150,8 @@ For every finding:
 --scope app/Jobs/Analytics
 --scope app/Jobs/Cache
 --scope app/Jobs/Cloudflare
+--scope app/Jobs/Concerns
+--scope app/Jobs/Moderation/Concerns
 ```
 
 ## Exhaustiveness directive
