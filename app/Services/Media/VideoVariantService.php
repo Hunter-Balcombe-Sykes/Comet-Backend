@@ -541,7 +541,13 @@ class VideoVariantService
 
         // Rename to add the desired extension so FFmpeg knows the container.
         $withExt = $path.$suffix;
-        rename($path, $withExt);
+        if (! rename($path, $withExt)) {
+            // processVariants()'s finally block only unlinks $withExt paths — without
+            // this, a failed rename orphans the tempnam() file at $path forever.
+            @unlink($path);
+
+            throw new \RuntimeException("Failed to rename temp file ({$prefix}).");
+        }
 
         return $withExt;
     }

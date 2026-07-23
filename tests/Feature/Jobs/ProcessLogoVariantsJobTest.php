@@ -10,9 +10,9 @@ use App\Services\Media\Exceptions\LogoProcessorException;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\LogoProcessorClient;
 use App\Services\Media\LogoProcessorResult;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -158,7 +158,9 @@ it('marks failed without a fallback when the original is missing', function () {
 
 it('returns early when another worker holds the processing lock', function () {
     $imageId = seedLogoRow();
-    Redis::shouldReceive('set')->once()->andReturn(null);
+    // Simulate another worker holding the lock: acquire it here first (own
+    // owner token) so the job's own Cache::lock()->get() fails to acquire.
+    Cache::lock("logo:processing-lock:{$imageId}", 340)->get();
 
     $service = Mockery::mock(ImageVariantService::class);
     $service->shouldNotReceive('processVariants');

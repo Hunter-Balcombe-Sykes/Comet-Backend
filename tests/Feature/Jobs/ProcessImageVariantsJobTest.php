@@ -9,10 +9,10 @@ use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -230,15 +230,15 @@ it('streams the original to a temp file (readStream) rather than loading it all 
     $diskSpy->shouldNotHaveReceived('get');
 });
 
-it('returns early without processing when the Redis processing lock is already held by another worker', function () {
+it('returns early without processing when the processing lock is already held by another worker', function () {
     // TEST-4: GuardsMediaProcessing::acquireProcessingLock calls
-    //   Redis::set($key, '1', 'EX', $timeout + 60, 'NX')
-    // Redis returns null when SETNX fails (lock held). Cast to bool → false → early return.
+    //   Cache::lock($key, $timeout + 60)->get()
+    // Simulate another worker holding it by acquiring the same key here first
+    // (own owner token) so the job's own get() fails to acquire.
     $imageId = seedJobTestMediaRow();
     $originalPath = "images/test/{$imageId}/original.jpg";
 
-    // Simulate the lock being held: SET NX returns null (another worker holds it).
-    Redis::shouldReceive('set')->once()->andReturn(null);
+    Cache::lock("image:processing-lock:{$imageId}", 180)->get();
 
     // The processing service must NOT be invoked when the lock cannot be acquired.
     $service = Mockery::mock(ImageVariantService::class);

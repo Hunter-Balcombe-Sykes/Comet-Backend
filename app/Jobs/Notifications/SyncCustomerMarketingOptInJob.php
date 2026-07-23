@@ -5,6 +5,7 @@ namespace App\Jobs\Notifications;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\User\Customer;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -23,7 +24,7 @@ use Throwable;
 // Redis-serialised job payload never contains PII. If the subscription row was
 // erased between dispatch and handle (GDPR pseudonymise raced ahead), the lookup
 // returns null and the job no-ops — exactly the desired post-erasure behaviour.
-class SyncCustomerMarketingOptInJob implements ShouldQueue
+class SyncCustomerMarketingOptInJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -37,11 +38,25 @@ class SyncCustomerMarketingOptInJob implements ShouldQueue
 
     public int $timeout = 30;
 
+    // R3-JOB-5: dedupe concurrent syncs for the same subscription so the cached
+    // column can't be overwritten by a stale race. 300s (10x $timeout), matching
+    // the sibling $timeout=30 notification jobs (e.g. DispatchEnquiryNotificationsJob)
+    // — long enough that a crashed worker's lock always outlives its own run, short
+    // enough that a genuinely stuck lock clears well before the next subscription edit.
+    public int $uniqueFor = 300;
+
     public function __construct(
         public readonly string $userId,
         public readonly string $subscriptionId,
     ) {
         $this->onQueue(config('partna.queues.notifications', 'notifications'));
+    }
+
+    // Keyed on the EmailSubscription row, not the user — two subscriptions for the
+    // same user (rare, but possible mid-migration) must not dedupe against each other.
+    public function uniqueId(): string
+    {
+        return $this->subscriptionId;
     }
 
     public function handle(): void
