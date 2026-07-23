@@ -48,10 +48,29 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
      */
     public int $uniqueFor = 7200;
 
+    /**
+     * RV-8: set when this dispatch came from RefreshController (a user clicking
+     * "refresh"), not RefreshIntegrationConnectionsCommand's hourly cron. Folded
+     * into uniqueId() below so a manual click gets its own dedup lane — without
+     * it, a cron-dispatched job already holding this connection's 2h
+     * ShouldBeUnique lock (including sitting in rate-limit purgatory, where a
+     * release does not free the lock) would silently swallow the manual
+     * dispatch for up to 2 hours, with no signal back to the user. Declared as
+     * a plain property with a class-level default (NOT a promoted constructor
+     * param) — same reasoning as CloudflareCachePurgeJob's $bulk: a promoted
+     * property's default is applied by the CONSTRUCTOR, not the declaration, so
+     * a job already serialized (queued) before this change and unserialized
+     * after it would leave the property truly uninitialized and fatal in
+     * uniqueId() on its next retry.
+     */
+    public bool $manual = false;
+
     public function __construct(
         public string $connectionId,
         public string $platform,
+        bool $manual = false,
     ) {
+        $this->manual = $manual;
         $this->onQueue(config('partna.queues.platform_refresh'));
     }
 
@@ -67,7 +86,7 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
 
     public function uniqueId(): string
     {
-        return $this->connectionId;
+        return $this->connectionId.($this->manual ? ':manual' : '');
     }
 
     /** @return array<int, object> */

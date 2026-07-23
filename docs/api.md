@@ -31,6 +31,10 @@ This document is the single source of truth for backend so the frontend can buil
 ## Companion Docs
 
 - **[docs/social-links.md](./social-links.md)** — full conceptual guide to the social link platform registry (8 platforms, handle/URL normalization, security model, frontend integration). Read this before working on link blocks, the social picker, or adding a new social platform.
+- **[docs/frontend-contracts/](./frontend-contracts/)** — endpoint-level 202+poll async migrations, aimed at the (separate-repo) frontend. Read the relevant one before integrating against an endpoint that changed shape:
+  - **[instagram-connect-async.md](./frontend-contracts/instagram-connect-async.md)** — Instagram connect.
+  - **[2026-07-02-async-link-connect.md](./frontend-contracts/2026-07-02-async-link-connect.md)** — custom links / online ordering / booking / reservations "custom" branches.
+  - **[2026-07-23-refresh-async.md](./frontend-contracts/2026-07-23-refresh-async.md)** — manual per-platform refresh (`POST .../refresh`).
 
 ## 0) Recent Backend Changes (Commit Log Snapshot)
 

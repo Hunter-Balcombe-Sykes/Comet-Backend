@@ -337,6 +337,13 @@ $registerIntegrationRoutes = function (string $base): void {
         ->where('platform', '[a-z-]+')
         ->middleware($middleware);
 
+    // Poll target for the 202 above (RV-8). Same middleware/ownership scoping
+    // as the POST — a foreign row is never visible to look up, so an empty
+    // result 404s rather than 403ing.
+    Route::get("{$base}/{platform}/refresh/status", [RefreshController::class, 'refreshStatus'])
+        ->where('platform', '[a-z-]+')
+        ->middleware($middleware);
+
     // Per-integration public display toggles (e.g. Google Business "show
     // reviews"). Registry-driven: platforms without declared toggles 404.
     Route::get("{$base}/{platform}/display-settings", [DisplaySettingsController::class, 'show'])

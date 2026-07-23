@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -92,16 +93,25 @@ it('404s when nothing is connected to refresh', function () {
 });
 
 it('refreshes a connected platform then cools down', function () {
+    Queue::fake();
+
     $user = dv2User('refp');
-    IntegrationConnection::create([
+    $connection = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest',
         'payload' => ['username' => 'someone'], 'is_active' => true,
     ]);
-    Http::fake(['*' => Http::response('', 200)]);
 
     actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
-        ->assertOk()
-        ->assertJsonPath('refreshed', 1);
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'pending')
+        ->assertJsonPath('refreshed', 1)
+        ->assertJsonStructure(['statusUrl']);
+
+    Queue::assertPushed(RefreshConnectionJob::class, function (RefreshConnectionJob $job) use ($connection) {
+        return $job->connectionId === $connection->id
+            && $job->platform === 'pinterest'
+            && $job->manual === true;
+    });
 
     // Immediate second hit is rate-limited by the per-user+platform cooldown.
     actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')

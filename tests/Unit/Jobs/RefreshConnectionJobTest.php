@@ -43,6 +43,17 @@ it('uses the connection id as its uniqueId', function () {
     expect((new RefreshConnectionJob('abc', 'youtube'))->uniqueId())->toBe('abc');
 });
 
+// RV-8: a manual (dashboard button) dispatch must not share a ShouldBeUnique
+// lock lane with a cron dispatch for the same connection — without a separate
+// lane, a manual click arriving while a cron job holds the 2h lock (including
+// sitting in rate-limit purgatory) would be silently swallowed.
+it('gives a manual dispatch its own uniqueId lane; the cron call site stays byte-identical', function () {
+    expect((new RefreshConnectionJob('abc', 'youtube'))->manual)->toBeFalse()
+        ->and((new RefreshConnectionJob('abc', 'youtube'))->uniqueId())->toBe('abc')
+        ->and((new RefreshConnectionJob('abc', 'youtube', manual: true))->manual)->toBeTrue()
+        ->and((new RefreshConnectionJob('abc', 'youtube', manual: true))->uniqueId())->toBe('abc:manual');
+});
+
 it('refreshes a stale YouTube connection through PlatformRefresher', function () {
     $user = jobUser();
 
