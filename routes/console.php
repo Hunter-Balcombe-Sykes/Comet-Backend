@@ -103,7 +103,7 @@ Schedule::command('partna:analytics:purge-raw-events')
 Schedule::command('analytics:compute-popularity')
     ->everyFifteenMinutes()
     ->onOneServer()
-    ->withoutOverlapping(14) // 14min lock (< 15min cadence): releases immediately on a normal run; a stuck run's lock clears before the next tick.
+    ->withoutOverlapping(16) // 16min lock (cadence + 1) — a run whose actual runtime exceeds 15min doesn't have its lock expire mid-flight and race the next tick.
     ->runInBackground()
     ->onFailure($reportScheduledFailure('compute-popularity'));
 

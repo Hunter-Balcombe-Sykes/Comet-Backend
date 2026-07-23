@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -57,10 +58,12 @@ class PruneEarlyAccessSignupsCommand extends Command
             return self::SUCCESS;
         }
 
-        // Bulk delete — no per-row side-effects; the converting-applicant path
+        // No per-row side-effects; the converting-applicant path
         // (AccountDeletionService::purgeEarlyAccessSignup) uses email_lc lookup and
-        // is independent. No model observer on this table, so no events fire.
-        $deleted = $query->delete();
+        // is independent. No model observer on this table, so no events fire. Batched
+        // (R2-SCHED-2) so a large cohort (e.g. a growth-campaign applicant wave) never
+        // holds one long-running transaction.
+        $deleted = $this->purgeBatched($cutoff);
 
         $this->info("Deleted {$deleted} early access signup(s).");
 
@@ -70,5 +73,29 @@ class PruneEarlyAccessSignupsCommand extends Command
         ]);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * CFG-1-style batched delete (mirrors PruneOldFeedbackSubmissionsCommand::purgeBatched):
+     * bounds each DELETE's row count so the purge never holds one long-running transaction
+     * as core.early_access_signups grows.
+     */
+    private function purgeBatched(Carbon $cutoff): int
+    {
+        $batchSize = (int) config('partna.early_access.prune_batch_size', 1000);
+        $deleted = 0;
+
+        do {
+            $count = DB::connection('pgsql')
+                ->table('core.early_access_signups')
+                ->where('status', '!=', 'signed_up')
+                ->where('created_at', '<', $cutoff->toDateTimeString())
+                ->limit($batchSize)
+                ->delete();
+
+            $deleted += $count;
+        } while ($count === $batchSize);
+
+        return $deleted;
     }
 }

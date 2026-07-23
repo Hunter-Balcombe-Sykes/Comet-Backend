@@ -41,21 +41,28 @@ class PruneExpiredPreAccountBuilds extends Command
         // the claim flow relies on) — a claimed build is never a candidate,
         // independent of the SKIP LOCKED race guard below.
         // NULL expires_at = unapproved early-access build → never-expire (spec §3.5).
-        $candidates = PreAccountBuild::live()
+        $query = PreAccountBuild::live()
             ->where(fn ($q) => $q
                 ->where(fn ($qq) => $qq->whereNotNull('expires_at')->where('expires_at', '<', $cutoff))
-                ->orWhere(fn ($qq) => $qq->where('build_state', PreAccountBuild::STATE_FAILED)->where('updated_at', '<', $failedCutoff)))
-            ->pluck('id');
+                ->orWhere(fn ($qq) => $qq->where('build_state', PreAccountBuild::STATE_FAILED)->where('updated_at', '<', $failedCutoff)));
 
         if ($this->option('dry-run')) {
-            $this->info("Would prune {$candidates->count()} build(s).");
+            $this->info("Would prune {$query->count()} build(s).");
 
             return self::SUCCESS;
         }
 
+        // R2-SCHED-3: stream candidate ids via cursor() instead of pluck()'s materialized
+        // Collection — the loop body already re-queries each build fresh inside its own
+        // transaction, so nothing depends on the full id list being in memory at once. A
+        // separate count() (below/at completion) covers the logging that used to read
+        // $candidates->count(). Mirrors PruneCompletedExportsCommand / SweepStaleExportsCommand.
+        $totalCandidates = $query->count();
+
         $pruned = 0;
         $failed = 0;
-        foreach ($candidates as $buildId) {
+        foreach ($query->select('id')->cursor() as $build) {
+            $buildId = $build->id;
             // Fault isolation per candidate — mirrors PurgeSoftDeleted's per-item
             // catch-report-continue pattern. A transient cache/Redis fault (e.g.
             // invalidateSite() below) must not abort the whole nightly sweep; the
@@ -157,11 +164,11 @@ class PruneExpiredPreAccountBuilds extends Command
         }
 
         Log::info('pre_account.prune.completed', [
-            'candidates' => $candidates->count(),
+            'candidates' => $totalCandidates,
             'pruned' => $pruned,
             'failed' => $failed,
         ]);
-        $this->info("Pruned {$pruned} of {$candidates->count()} candidate build(s)".($failed > 0 ? " ({$failed} failed, will retry next run)." : '.'));
+        $this->info("Pruned {$pruned} of {$totalCandidates} candidate build(s)".($failed > 0 ? " ({$failed} failed, will retry next run)." : '.'));
 
         return self::SUCCESS;
     }

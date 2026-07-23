@@ -868,6 +868,10 @@ return [
         // PRIV-8: hard-delete non-converting applicant rows older than this window.
         // signed_up rows are excluded — those are governed by account deletion.
         'retention_days' => (int) env('PARTNA_EARLY_ACCESS_RETENTION_DAYS', 730),
+
+        // CFG-1-style batch size for early-access:prune-old-signups — bounds each
+        // DELETE's row count so the purge never holds one long-running transaction.
+        'prune_batch_size' => (int) env('PARTNA_EARLY_ACCESS_PRUNE_BATCH_SIZE', 1000),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
@@ -1562,6 +1566,11 @@ return [
         // been withdrawn for this window. Child broadcast_email_receipts cascade via the DINT-2
         // FK; a later re-subscribe is a fresh double-opt-in, not a reactivation of this row.
         'unsubscribed_retention_days' => (int) env('PARTNA_UNSUBSCRIBED_RETENTION_DAYS', 365),
+
+        // CFG-1-style batch size for notifications:prune-unsubscribed-subscriptions —
+        // bounds each DELETE's row count so the purge never holds one long-running
+        // transaction as email_subscriptions grows.
+        'prune_batch_size' => (int) env('PARTNA_NOTIFICATIONS_PRUNE_BATCH_SIZE', 1000),
 
         // Max jobs per Bus::batch() sub-chunk for fan-out paths. Bounds the
         // size of a single Redis pipeline write so a large affiliate / staff

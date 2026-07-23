@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -50,11 +51,12 @@ class PruneUnsubscribedSubscriptionsCommand extends Command
             return self::SUCCESS;
         }
 
-        // Bulk delete — no per-row external side-effect (unlike PruneCompletedExports' R2 file),
-        // and the DINT-2 FK (ON DELETE CASCADE, migration 20260624010000) auto-cleans child
-        // broadcast_email_receipts rows. The model has no deleting/deleted observer (only saved),
-        // so a bulk delete fires no events.
-        $deleted = $query->delete();
+        // No per-row external side-effect (unlike PruneCompletedExports' R2 file), and the
+        // DINT-2 FK (ON DELETE CASCADE, migration 20260624010000) auto-cleans child
+        // broadcast_email_receipts rows. The model has no deleting/deleted observer (only
+        // saved), so a bulk delete fires no events. Batched (R2-SCHED-2) so a large cohort
+        // (e.g. a growth-campaign unsubscribe wave) never holds one long-running transaction.
+        $deleted = $this->purgeBatched($cutoff);
 
         $this->info("Deleted {$deleted} unsubscribed subscription(s).");
 
@@ -64,5 +66,29 @@ class PruneUnsubscribedSubscriptionsCommand extends Command
         ]);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * CFG-1-style batched delete (mirrors PruneOldFeedbackSubmissionsCommand::purgeBatched):
+     * bounds each DELETE's row count so the purge never holds one long-running transaction
+     * as notifications.email_subscriptions grows.
+     */
+    private function purgeBatched(Carbon $cutoff): int
+    {
+        $batchSize = (int) config('partna.notifications.prune_batch_size', 1000);
+        $deleted = 0;
+
+        do {
+            $count = DB::connection('pgsql')
+                ->table('notifications.email_subscriptions')
+                ->where('status', 'unsubscribed')
+                ->where('unsubscribed_at', '<', $cutoff->toDateTimeString())
+                ->limit($batchSize)
+                ->delete();
+
+            $deleted += $count;
+        } while ($count === $batchSize);
+
+        return $deleted;
     }
 }
