@@ -1012,3 +1012,160 @@ pass):**
   user still holds the valid session the OTP step produced.
 - Whether already-claimed accounts (including every test account from this run) need a
   retrofit "set a password" path too, or only new signups going forward.
+
+---
+
+## 14. New: post-password skippable onboarding steps for `partna` accounts
+
+**Status:** planned, not yet built. Scope: **`partna` account type only, for now** (item 15
+covers the `business` equivalent).
+
+**Order:** Instagram (existing) → Email OTP (existing) → Password (item 13) → the following,
+each individually skippable.
+
+**Confirmed first — is there a separate sector/industry list?** No. Exactly one canonical
+list exists: `SectorTaxonomy::SECTORS` (`app/Services/Profile/SectorTaxonomy.php`), ~70 slugs
+across 10 groups (Food & Drink, Beauty & Personal Care, Health & Fitness, Professional
+Services, Retail & Shopping, Home & Trade Services, Hospitality & Events, Automotive,
+Creative & Entertainment, Education & Coaching, + "Other"). It's already the shared target
+for manual picking AND auto-classification — `fromGoogleCategory()` / `fromInstagramCategory()`
+both map raw category text onto this same slug space. The only other "industry" field in the
+codebase is `EarlyAccessSignup.workplace_or_industry`, a free-text string on the unrelated
+early-access waitlist form — not a taxonomy.
+
+**Step A — Sector.** Only asked if `core.users.sector` is still null at this point (i.e.
+neither Instagram's `businessCategoryName` nor anything else has classified one yet via
+`SectorTaxonomy::fromInstagramCategory()`). Reuses the existing `SectorTaxonomy::all()`
+picker payload — no new taxonomy work needed.
+
+**Step B — Connect a store (Shop).** One URL input, with an optional discount code in the
+SAME step — both are already part of the existing `POST /api/platforms/shop/brands` call
+(`AddShopBrandRequest`: `url`, `discountCode`). That call already auto-detects the provider
+(Shopify/WooCommerce/Squarespace/Big Cartel/generic), auto-fetches name/logo/products, and
+warms a product-picker cache in the same request — so "select any [products] to feature"
+slots in immediately after, against real fetched data, not a placeholder. Confirmed the
+Shop feature carries no account-type gate anywhere in `AccountCapabilities`. **Referral code
+(`referral_query`) is deliberately NOT part of this step** — it isn't part of the existing
+connect call either (only the separate `UpdateShopBrandRequest` carries it), so it stays a
+dashboard follow-up rather than an onboarding field.
+
+**Step C — Workplace (Google Business / name),** for sector types that would have one.
+**Open question, not resolved:** which sectors count as "would have a workplace" vs.
+mobile/individual/home-based ones (musician, content-creator, writer, personal-trainer,
+mobile hairdresser, etc.) has no existing flag to key off — `SectorTaxonomy` doesn't mark
+this distinction today. Needs an explicit per-sector (or per-group) yes/no before this step
+can be built; flagging rather than guessing a list.
+
+**Step D — up to 2 sector-based integration suggestions**, pre-filled from Instagram's
+`unmatched` list where a matching link is already sitting there (see item 16 below for what
+`unmatched` actually contains for a partna account), otherwise a normal connect prompt.
+
+**Correction applied: "Booking" is ONE unified input, not Fresha vs. Square as separate
+picks.** The registry already smart-detects a pasted booking URL's real provider
+(`PlatformRegistryServiceProvider`: `$r->get('fresha')->detect(new HostMatch('~(^|\.)fresha\.com$~'))`,
+same for Square) — so this step just asks for "your booking link," and if it resolves to
+Fresha specifically, the existing Fresha connect flow's own staff-selection step ("select
+which user you are" — confirmed via `FreshaController`'s staff list +
+`FreshaSelectionResource`) runs exactly as it does today. Nothing new needed there, just
+route into it.
+
+Full mapping, corrected per feedback (Education & Coaching → Booking + YouTube; no sector
+gets Fresha/Square as two separate suggestions):
+
+| Group | Sectors | #1 | #2 |
+|---|---|---|---|
+| Food & Drink | restaurant, cafe, bakery, bar, food-truck, caterer, personal-chef | Booking | Online Ordering |
+| Beauty & Personal Care | hair-salon, barber, nail-technician, esthetician, spa, brows-lashes | Booking | — |
+| Beauty & Personal Care | makeup-artist, tattoo-artist | Booking | Pinterest |
+| Health & Fitness | personal-trainer, yoga-instructor, gym | Booking | Strava |
+| Health & Fitness | nutritionist, physiotherapist, chiropractor, therapist, dentist | Booking | — |
+| Professional Services | accountant, lawyer, financial-advisor, consultant, real-estate-agent, insurance-broker, mortgage-broker, marketing-agency, it-services, virtual-assistant | LinkedIn | Booking |
+| Retail & Shopping | clothing-boutique, jewellery, florist, gift-shop, homewares, artisan-maker | *(covered by Step B)* | Pinterest |
+| Home & Trade Services | plumber, electrician, builder, painter, cleaner, landscaper, handyman, removalist, pest-control | Booking | — |
+| Hospitality & Events | event-venue, event-planner, wedding-planner | Eventbrite | Humanitix |
+| Hospitality & Events | accommodation, bartender | Booking | Custom Link |
+| Automotive | mechanic, car-detailer, auto-electrician, tyre-service | Booking | — |
+| Creative & Entertainment | musician, DJ | Spotify | SoundCloud |
+| Creative & Entertainment | photographer, videographer | Vimeo | Pinterest |
+| Creative & Entertainment | graphic-designer, artist | Pinterest | Custom Link |
+| Creative & Entertainment | content-creator | YouTube | TikTok |
+| Creative & Entertainment | writer | X | Custom Link |
+| Education & Coaching | tutor, music-teacher, driving-instructor, dance-instructor, life-coach, course-creator | Booking | YouTube |
+| Other | "Something else" | *(skip Step D entirely — no sensible default)* | |
+
+Several groups (Beauty's clinical sectors, Health's clinical sectors, Home & Trade,
+Automotive) carry only one real suggestion — no forced second pick where the platform
+registry has nothing that genuinely fits.
+
+---
+
+## 15. New: analogous post-password onboarding for `business` accounts
+
+**Status:** planned, not yet built.
+
+**Order:** Google Business (existing, already mandatory earlier in a business signup) →
+Email OTP → Password → the following, each skippable:
+
+**Step A — Instagram**, only if not already connected by this point.
+
+**Step B — up to N sector-based skippable connects, sourced from Google Business auto-sync,
+not Instagram's `unmatched`.** Confirmed directly from `GoogleBusinessAutoSync::seed()`:
+`seedBooking()` runs unconditionally; `seedReservation()`, `seedOnlineOrdering()` (via
+`can_use_reservations`/`can_use_online_ordering`), and `seedSocials()` all additionally run
+whenever the account carries the `google_business_full_sync` capability — the business-tier
+privilege. So business accounts already arrive with a materially richer auto-sync than
+partna accounts get from Instagram (whose social bucket is specifically gated OFF for
+partna — see item 16). This step's job is to catch the sector-relevant gaps that auto-sync
+didn't already fill — e.g. hairdresser → booking link if not already synced; restaurant →
+reservation AND online-ordering if not already synced — reusing the same sector mapping from
+item 14's table, checked against what `GoogleBusinessAutoSync` already wrote rather than
+against Instagram's `unmatched`.
+
+**Not yet confirmed:** whether item 14's Steps B/C/D (Sector-if-missing, Store/Shop,
+Workplace) also apply to business accounts — not explicitly requested for this account type.
+Workplace in particular is likely redundant here, since connecting Google Business already
+effectively IS the workplace declaration for a business account. Flagging as open rather
+than assuming either way.
+
+---
+
+## 16. Bio-link-in-bio unrolling: real, confirmed gap — `linkin.bio` not recognized
+
+**Status:** root cause found, directly evidenced by this session's own test account. Small,
+isolated fix.
+
+**Verified the general mechanism works as designed:** `LinkInBioScanJob` correctly fetches a
+detected link-in-bio page, filters out the page's own site-chrome links (same-host filter,
+so a Linktree's own pricing/blog/help-centre links don't get seeded as the user's custom
+links), classifies every remaining outbound link through the EXACT SAME
+`InstagramAutoSync::handleClassifiedLink()` gating a direct bio link gets (so a bio-page-hop
+link is never treated more permissively than a direct one), and falls anything unclassified
+through to `CustomLinkSeeder` so nothing vanishes. This part is sound — confirmed by reading
+it end to end, not assumed.
+
+**The actual gap:** `LinkInBioDetector::HOSTS` (`app/Services/Platforms/LinkInBioDetector.php:13`)
+recognizes exactly 4 aggregators — `linktr.ee`, `msha.ke` (Milkshake), `beacons.ai`,
+`stan.store`. **`linkin.bio` (Later's link-in-bio product) is not on this list.** This
+session's own test account's Instagram bio link IS a linkin.bio page
+(`https://linkin.bio/supernormal_180`) — because it's unrecognized, `LinkInBioScanJob` never
+fired for it. The link was instead added as a single inert custom link ("My Link in Bio
+Page"), exactly as observed in this session's retest (`site.platform_connections`, platform
+`custom`, `resource_id: link-946b70dbf882493b`). Whatever real links actually live on that
+page (the restaurant's own website, reservations, etc.) were never surfaced or auto-synced.
+
+**Fix (not applied yet):** add `linkin.bio` to `LinkInBioDetector::HOSTS`. Also worth a quick
+pass for other common aggregators not currently covered — `lnk.bio`, `bio.link`,
+`campsite.bio` — before assuming the list is complete; how common each actually is among
+Partna's real signups hasn't been independently checked.
+
+**Separate, related gap — a store can never unroll from a bio link at all, today:**
+`WebsiteLinkHarvester::classify()` recognizes exactly 4 categories — `social`, `booking`,
+`reservations`, `online-ordering`. **There is no `shop` category.** So even once a
+link-in-bio page IS correctly unrolled, a link to the business's own Shopify/WooCommerce/etc.
+store on it can never auto-populate a `ShopBrand` + its products the way item 14's Step B does
+when the user pastes the identical URL directly into the Shop connect flow — today it falls
+through to, at best, a plain inert custom link. If "otherwise connects integration or adds
+custom links or products" is meant to cover stores found via bio-scanning too, that's new
+work (classify → route into the Shop connect pipeline), not a fix to something already
+broken — flagging as a distinct decision from the `linkin.bio` host-list fix, not bundled
+into it.
