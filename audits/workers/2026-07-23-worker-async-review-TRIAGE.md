@@ -46,7 +46,7 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 11 complete (6 pipeline + 5 review-only)
+- P1 High: 5 of 11 complete (6 pipeline + 5 review-only)
 - P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
@@ -54,7 +54,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 
 ## P1 — Fix before pilot launch
 
-- [ ] **R3-JOB-1** · P1 — `SendEnquiryConfirmationJob` stamps the idempotency flag before the mail send, masking permanent failures
+- [x] **R3-JOB-1** · P1 — `SendEnquiryConfirmationJob` stamps the idempotency flag before the mail send, masking permanent failures
     - **Where:** app/Jobs/Notifications/SendEnquiryConfirmationJob.php:65-90
     - **Affects:** Visitors who submit a public contact form — a transient mail-provider failure permanently drops their "we got your message" confirmation with no retry and no alert.
     - **Effort:** M (~2–4h)
@@ -80,7 +80,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R3-JOB-2** · P1 — `SendSubscriptionConfirmationJob` same stamp-before-send masking pattern
+- [x] **R3-JOB-2** · P1 — `SendSubscriptionConfirmationJob` same stamp-before-send masking pattern
     - **Where:** app/Jobs/Notifications/SendSubscriptionConfirmationJob.php:59-80
     - **Affects:** Visitors who subscribe to a newsletter list — the double opt-in confirmation email can be silently dropped, with no automatic recovery.
     - **Effort:** M (~2–4h)
@@ -99,7 +99,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         return $s;
         ```
 
-- [ ] **R3-JOB-3** · P1 — `SendEnquiryNotificationJob` same stamp-before-send masking pattern
+- [x] **R3-JOB-3** · P1 — `SendEnquiryNotificationJob` same stamp-before-send masking pattern
     - **Where:** app/Jobs/Notifications/SendEnquiryNotificationJob.php:65-99
     - **Affects:** Business owners who rely on enquiry notifications to see new leads — a transient mail failure silently drops the lead email, with the enquiry still sitting unread in the database and no alert raised.
     - **Effort:** M (~2–4h)
