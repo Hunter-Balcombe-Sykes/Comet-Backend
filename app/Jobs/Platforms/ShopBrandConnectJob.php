@@ -8,6 +8,7 @@ use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandProfiler;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -50,21 +51,6 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 120;
 
     public int $maxExceptions = 2;
-
-    /**
-     * Mirrors DefersBespokeConnect::STALE_CONNECT_ERROR verbatim — that trait
-     * const is `private`, so it is only reachable from a class that `use`s the
-     * trait, and this job deliberately does not: pulling the trait in would
-     * also drag in deferredConnectResponse()/bespokeConnectStatus(), both
-     * shaped for ApiController + ManagesIntegrationConnection, and would touch
-     * a file that is currently byte-identical with the sibling Phase-3 branch
-     * for a purely cosmetic win (plan §7 R3 makes the same trade). Both
-     * strings are published frontend-contract text — see
-     * docs/frontend-contracts/2026-07-23-platform-connect-async.md.
-     */
-    private const STALE_CONNECT_ERROR = "We couldn't save your connection just then — please try again.";
-
-    private const UNKNOWN_CONNECT_ERROR = 'We could not load that account. Please try again.';
 
     // Mirrors ManagesIntegrationConnection::assertPlatformAvailable()'s
     // abort(503) message verbatim — that method is private and abort()-shaped,
@@ -193,7 +179,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
                 'connection_id' => $connection->id,
                 'user_id' => $connection->user_id,
             ]);
-            $this->markTerminal($brand, self::STALE_CONNECT_ERROR);
+            $this->markTerminal($brand, FetchUnavailableException::STALE_CONNECT_ERROR);
 
             return;
         }
@@ -221,7 +207,7 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
 
         $brand = ShopBrand::find($this->brandRowId);
         if ($brand) {
-            $this->markTerminal($brand, self::UNKNOWN_CONNECT_ERROR);
+            $this->markTerminal($brand, FetchUnavailableException::GENERIC_USER_MESSAGE);
         }
 
         // Deliberately does NOT release the ShouldBeUnique dedupe lock here.

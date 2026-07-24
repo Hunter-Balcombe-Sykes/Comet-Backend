@@ -30,6 +30,7 @@ use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -394,7 +395,7 @@ class ShopController extends ApiController
             // worker can still land its real settle afterwards and the next
             // poll reports 'ready'.
             if ($brand->updated_at !== null && $brand->updated_at->lt(now()->subMinutes(5))) {
-                return $this->success(['status' => 'failed', 'error' => self::STALE_CONNECT_ERROR]);
+                return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
             }
 
             return $this->success(['status' => 'pending']);

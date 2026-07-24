@@ -1,58 +1,42 @@
 <?php
 
 use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
-use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
 
 // Companion to tests/Feature/Database/ConstraintVocabularyLockstepTest.php's
 // idiom, applied to a different kind of drift: two PUBLISHED FRONTEND-CONTRACT
-// sentences (docs/frontend-contracts/2026-07-23-platform-connect-async.md)
-// that tell the frontend "our infrastructure failed, offer retry" as distinct
-// from a vendor miss. Each sentence exists in THREE places today:
+// sentences (docs/frontend-contracts/2026-07-23-platform-connect-async.md) that
+// tell the dashboard "our infrastructure failed, offer retry" as distinct from
+// a vendor miss. Reword one copy and the contract silently drifts for some
+// platforms and not others — the frontend sees no error, just a wrong message.
 //
-//   STALE_CONNECT_ERROR   "We couldn't save your connection just then — please try again."
-//     - DefersBespokeConnect::STALE_CONNECT_ERROR (private const)
-//     - GenericPlatformController::connectStatus()'s inline literal (stale-pending branch)
-//     - ShopBrandConnectJob::STALE_CONNECT_ERROR (private const — this job's own fork)
+// FetchUnavailableException is the canonical home for both (Phase 3 moved
+// STALE_CONNECT_ERROR there precisely because PHP cannot reference a trait
+// constant externally and a Job depending on a Controller trait for a string is
+// a layering inversion). W9's ShopController and ShopBrandConnectJob both read
+// the canonical constants directly, so they are NOT separate copies and are not
+// asserted here.
 //
-//   UNKNOWN_CONNECT_ERROR "We could not load that account. Please try again."
-//     - DefersBespokeConnect::UNKNOWN_CONNECT_ERROR (private const)
-//     - ConnectFetchJob::failed()'s inline literal fallback
-//     - ShopBrandConnectJob::UNKNOWN_CONNECT_ERROR (private const — this job's own fork)
+// Two hand-typed copies still remain, both in files W9 must not edit (a sibling
+// branch owns them). They are what this test exists to pin:
 //
-// WHY THE DUPLICATION EXISTS — do not "helpfully" dedupe it, it will conflict:
-//   - DefersBespokeConnect's two consts are `private`, so they are reachable
-//     ONLY from a class that `use`s the trait. ShopBrandConnectJob (a Job, not
-//     a bespoke-connect Controller) deliberately does NOT `use` the trait:
-//     doing so would drag deferredConnectResponse()/bespokeConnectStatus() —
-//     both shaped for ApiController + ManagesIntegrationConnection — onto a
-//     class that needs neither, plus risk PHPStan noise on the pulled-in,
-//     never-called methods.
-//   - DefersBespokeConnect.php is BYTE-IDENTICAL with the sibling Phase-3
-//     branch (audit-fix/connect-async-impl-2026-07-24 — W9 plan §2) and must
-//     not be edited to widen visibility: that would turn a guaranteed no-op
-//     merge into a real conflict for a cosmetic win.
-//   - GenericPlatformController and ConnectFetchJob predate DefersBespokeConnect
-//     and were deliberately left alone — the design doc's own §7 Risk R3
-//     already accepted a second copy of this exact staleness logic as the
-//     cheaper trade over generalising the trait mid-flight.
+//   STALE_CONNECT_ERROR  → GenericPlatformController::connectStatus()'s inline
+//                          literal in the stale-pending branch. Predates the
+//                          canonical home; left alone deliberately (design §7
+//                          R3 accepted the duplication over editing the eight
+//                          already-armed registry platforms for a cosmetic win).
+//   GENERIC_USER_MESSAGE → DefersBespokeConnect::UNKNOWN_CONNECT_ERROR, still a
+//                          `private const` on the trait.
 //
-// None of the four sites can be collapsed into one without editing a file
-// this branch (or a sibling) must not touch, so the only guard against silent
-// wording drift — e.g. someone rewording ShopBrandConnectJob's fork without
-// touching the other three, which the frontend would never notice as an error,
-// only as a wrong message shown to a user — is a test that reads every live
-// copy and diffs them against each other.
-//
-// HOW IT WORKS — mirrors ConstraintVocabularyLockstepTest exactly: constants
-// are read via Reflection (works on `private const`, and directly on a trait —
-// no using-class shim needed), the two inline literals are read out of their
-// source files as text via regex, the same way lockstepMigrationSql() reads a
-// migration file. No copy is hardcoded into this test.
+// If a future change collapses either remaining copy into the canonical
+// constant, delete the corresponding case here rather than weakening it — the
+// extractor below throws loudly if the source shape moves, so this test can
+// never degrade into a vacuous pass.
 
-/** Read an app/ source file's contents by path relative to app_path(). */
+/** Read an app/ source file by path relative to app_path(). */
 function connectErrorSentenceSource(string $relativeAppPath): string
 {
     $path = app_path($relativeAppPath);
@@ -61,46 +45,55 @@ function connectErrorSentenceSource(string $relativeAppPath): string
     return (string) file_get_contents($path);
 }
 
-/** Extract the first capture group of $pattern from $source, or fail loudly. */
+/** Extract $pattern's first capture group from $source, or fail loudly. */
 function connectErrorSentenceExtract(string $source, string $pattern, string $label): string
 {
     if (! preg_match($pattern, $source, $m)) {
-        throw new RuntimeException("Could not find the expected literal for [$label] — the source shape has changed; update this test's pattern.");
+        throw new RuntimeException("Could not find the expected literal for [$label] — the source shape has changed; update this test's pattern, do not delete the assertion.");
     }
 
     return $m[1];
 }
 
-it('STALE_CONNECT_ERROR reads identically from DefersBespokeConnect, GenericPlatformController and ShopBrandConnectJob', function () {
-    $trait = (new ReflectionClass(DefersBespokeConnect::class))->getConstant('STALE_CONNECT_ERROR');
-    $job = (new ReflectionClass(ShopBrandConnectJob::class))->getConstant('STALE_CONNECT_ERROR');
+it('STALE_CONNECT_ERROR reads identically from its canonical home and GenericPlatformController', function () {
+    $canonical = FetchUnavailableException::STALE_CONNECT_ERROR;
 
-    // GenericPlatformController::connectStatus() — double-quoted (the sentence
-    // contains an apostrophe), inline in the stale-pending branch's response array.
+    // Double-quoted at the call site — the sentence contains an apostrophe.
     $generic = connectErrorSentenceExtract(
         connectErrorSentenceSource('Http/Controllers/Api/Platforms/GenericPlatformController.php'),
         '/\'error\'\s*=>\s*"([^"]*)"\]\)/',
         'GenericPlatformController::connectStatus() stale-pending literal',
     );
 
-    expect($trait)->not->toBeFalse()->not->toBe('');
-    expect($job)->toBe($trait);
-    expect($generic)->toBe($trait);
+    expect($canonical)->not->toBe('');
+    expect($generic)->toBe($canonical);
 });
 
-it('UNKNOWN_CONNECT_ERROR reads identically from DefersBespokeConnect, ConnectFetchJob and ShopBrandConnectJob', function () {
+it('GENERIC_USER_MESSAGE reads identically from its canonical home and the DefersBespokeConnect trait', function () {
+    $canonical = FetchUnavailableException::GENERIC_USER_MESSAGE;
+
+    // Reflection reads a `private const`, and works directly on a trait — no
+    // using-class shim needed.
     $trait = (new ReflectionClass(DefersBespokeConnect::class))->getConstant('UNKNOWN_CONNECT_ERROR');
-    $job = (new ReflectionClass(ShopBrandConnectJob::class))->getConstant('UNKNOWN_CONNECT_ERROR');
 
-    // ConnectFetchJob::failed() — single-quoted (no apostrophe in this
-    // sentence), the ?? fallback when the registry has no descriptor message.
-    $connectFetch = connectErrorSentenceExtract(
-        connectErrorSentenceSource('Jobs/Platforms/ConnectFetchJob.php'),
-        '/\?\?\s*\'([^\']*)\'/',
-        'ConnectFetchJob::failed() fallback literal',
-    );
+    expect($trait)->not->toBeFalse('DefersBespokeConnect::UNKNOWN_CONNECT_ERROR has moved or been removed — if it was collapsed into FetchUnavailableException::GENERIC_USER_MESSAGE, delete this case rather than weakening it.');
+    expect($canonical)->not->toBe('');
+    expect($trait)->toBe($canonical);
+});
 
-    expect($trait)->not->toBeFalse()->not->toBe('');
-    expect($job)->toBe($trait);
-    expect($connectFetch)->toBe($trait);
+it('W9 reads the canonical constants rather than keeping its own copies', function () {
+    // Regression guard on the W9 → Phase 3 reconciliation: ShopController and
+    // ShopBrandConnectJob previously forked both sentences as private consts,
+    // because STALE_CONNECT_ERROR lived on the trait and a Job could not reach
+    // it. Phase 3's neutral home removed that reason, so a reintroduced fork
+    // would be pure drift risk.
+    foreach ([
+        'Http/Controllers/Api/Platforms/ShopController.php',
+        'Jobs/Platforms/ShopBrandConnectJob.php',
+    ] as $relative) {
+        $source = connectErrorSentenceSource($relative);
+
+        expect($source)->not->toContain(FetchUnavailableException::STALE_CONNECT_ERROR, "[$relative] hand-types the stale-connect sentence; read FetchUnavailableException::STALE_CONNECT_ERROR instead.");
+        expect($source)->not->toContain(FetchUnavailableException::GENERIC_USER_MESSAGE, "[$relative] hand-types the generic-failure sentence; read FetchUnavailableException::GENERIC_USER_MESSAGE instead.");
+    }
 });
