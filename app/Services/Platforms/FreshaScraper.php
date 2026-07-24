@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Exceptions\Platforms\FreshaEmployeeMenuUnavailableException;
+use App\Services\Http\FetchBudget;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +22,26 @@ class FreshaScraper
     // load a single employee's filtered service menu.
     private const GRAPHQL_URL = 'https://www.fresha.com/graphql';
 
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    // Ceiling for the raw booking-GraphQL POST, clamped down by any open
+    // FetchBudget (see fetchEmployeeServices()). Deliberately NOT
+    // config('partna.http_fetch.timeout_seconds') (8): that key is
+    // SafeUrlFetcher's per-HOP ceiling, and adopting it would turn a
+    // slow-but-successful employee-menu fetch into a silent fallback to the
+    // storewide menu. Named so the no-budget default and the clamp below
+    // cannot drift — and because Laravel's own default is 30 s
+    // (PendingRequest::$options), so the explicit value is load-bearing.
+    private const GRAPHQL_TIMEOUT_SECONDS = 12;
+
+    /**
+     * FetchBudget is the SCOPED container binding (AppServiceProvider::register())
+     * — resolved, never hand-constructed, so this scraper observes the SAME
+     * deadline FreshaController opened. A fresh instance would report null
+     * (no budget) and silently defeat the clamp below.
+     */
+    public function __construct(
+        private readonly SafeUrlFetcher $fetcher,
+        private readonly FetchBudget $budget,
+    ) {}
 
     /** Drop the locale segment so we always cache the canonical /a/<slug> form. */
     public function stripLocale(string $url): string
@@ -169,6 +189,41 @@ class FreshaScraper
      */
     public function fetchEmployeeServices(string $slug, string $employeeId): ?array
     {
+        // R8: this POST deliberately bypasses SafeUrlFetcher — GRAPHQL_URL is a
+        // hardcoded constant, never user input, so there is no SSRF surface to
+        // guard (same reasoning as YoutubeThumbnailResolver's raw pool; see
+        // FetchBudget's docblock). The cost was invisibility: saveSelection()'s
+        // worst case was the 20 s budget PLUS this leg's flat 12 s. Consult the
+        // shared budget directly instead of wrapping this in a second open() —
+        // nesting fails OPEN, clearing the OUTER deadline in its finally.
+        //
+        // remaining() === null means NO budget is open — the scheduled/on-demand
+        // refresh path (RefreshConnectionJob -> PlatformRefresher ->
+        // ScheduledRefresh -> FreshaFetch) never opens one. That is "unbounded",
+        // NOT "out of time": it must keep the flat ceiling, or every BY-EMPLOYEE
+        // salon degrades to the storewide menu on every refresh, forever, and
+        // silently — the fallback is by design invisible.
+        $remaining = $this->budget->remaining();
+        if ($remaining !== null && $remaining <= 0) {
+            // Our own deadline, not a vendor miss: logged like
+            // SafeUrlFetcher::pooledGet()'s budget_exhausted line, deliberately
+            // NOT report()ed, so an over-budget connect cannot page Nightwatch
+            // as a rotated BOOKING_INIT_HASH. Callers already read null as
+            // "fall back to the whole-location menu".
+            Log::warning('fresha.employee_services.failed', [
+                'reason' => 'budget_exhausted',
+                'slug' => $slug,
+                'employee_id' => $employeeId,
+                'remaining_seconds' => $remaining,
+            ]);
+
+            return null;
+        }
+
+        $timeout = $remaining === null
+            ? self::GRAPHQL_TIMEOUT_SECONDS
+            : (int) max(1, ceil(min(self::GRAPHQL_TIMEOUT_SECONDS, $remaining)));
+
         $clientVersion = config('services.fresha.client_version');
 
         $payload = [
@@ -209,7 +264,7 @@ class FreshaScraper
                 'x-graphql-operation-name' => 'mutation BookingFlow_Initialize_Mutation',
                 'origin' => 'https://www.fresha.com',
                 'User-Agent' => self::SCRAPE_USER_AGENT,
-            ])->timeout(12)->post(self::GRAPHQL_URL, $payload);
+            ])->timeout($timeout)->post(self::GRAPHQL_URL, $payload);
         } catch (Throwable $e) {
             // Surface silent failures so a rotated BOOKING_INIT_HASH/client version
             // is visible in Nightwatch instead of silently degrading to the
@@ -219,6 +274,7 @@ class FreshaScraper
                 'slug' => $slug,
                 'employee_id' => $employeeId,
                 'error' => $e->getMessage(),
+                'timeout_seconds' => $timeout,
             ]);
             report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'exception', previous: $e));
 

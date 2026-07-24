@@ -8,6 +8,7 @@
 // contract stays byte-identical (purely additive).
 
 use App\Exceptions\Platforms\FreshaEmployeeMenuUnavailableException;
+use App\Services\Http\FetchBudget;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\FreshaScraper;
 use Illuminate\Support\Facades\Exceptions;
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Http;
 
 function freshaEmployeeScraper(): FreshaScraper
 {
-    return new FreshaScraper(Mockery::mock(SafeUrlFetcher::class));
+    return new FreshaScraper(Mockery::mock(SafeUrlFetcher::class), app(FetchBudget::class));
 }
 
 it('reports a FreshaEmployeeMenuUnavailableException when the GraphQL call throws', function () {
@@ -83,4 +84,49 @@ it('does not report anything on a healthy employee-menu fetch', function () {
     expect($result)->toHaveCount(1)
         ->and($result[0]['serviceId'])->toBe('s:1');
     Exceptions::assertNothingReported();
+});
+
+// R8: the booking-GraphQL leg used to be a flat, budget-blind timeout(12),
+// making saveSelection()'s worst case the 20 s connect budget PLUS a blind
+// 12 s on top. These three pin the clamp against FetchBudget::remaining().
+
+it('clamps the booking-GraphQL timeout to what is left of an open fetch budget', function () {
+    $seen = null;
+    Http::fake(function ($request, array $options) use (&$seen) {
+        $seen = $options['timeout'] ?? null;
+
+        return Http::response(['data' => ['bookingFlowInitialize' => ['screenServices' => ['categories' => []]]]], 200);
+    });
+
+    app(FetchBudget::class)->open(3.0, fn () => freshaEmployeeScraper()->fetchEmployeeServices('acme', 'e1'));
+
+    // Would be 12 against unfixed code — the whole point of the unit.
+    expect($seen)->toBe(3);
+});
+
+it('leaves the timeout at the flat ceiling when no budget is open', function () {
+    $seen = null;
+    Http::fake(function ($request, array $options) use (&$seen) {
+        $seen = $options['timeout'] ?? null;
+
+        return Http::response(['data' => ['bookingFlowInitialize' => ['screenServices' => ['categories' => []]]]], 200);
+    });
+
+    // No open() around this call — remaining() must read null ("unbounded"),
+    // not 0. This is the concrete no-budget path: RefreshConnectionJob ->
+    // PlatformRefresher -> ScheduledRefresh -> FreshaFetch opens no budget.
+    freshaEmployeeScraper()->fetchEmployeeServices('acme', 'e1');
+
+    expect($seen)->toBe(12);
+});
+
+it('skips the booking-GraphQL call entirely once the fetch budget is exhausted', function () {
+    Exceptions::fake();
+    Http::fake();
+
+    $result = app(FetchBudget::class)->open(0.0, fn () => freshaEmployeeScraper()->fetchEmployeeServices('acme', 'e1'));
+
+    expect($result)->toBeNull(); // documented fallback contract preserved
+    Http::assertNothingSent(); // zero overshoot, not a 1 s doomed request
+    Exceptions::assertNothingReported(); // our deadline is not a vendor miss
 });
