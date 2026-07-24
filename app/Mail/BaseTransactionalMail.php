@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\Factory as Queue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Headers;
 use Illuminate\Queue\SerializesModels;
@@ -100,5 +101,23 @@ abstract class BaseTransactionalMail extends Mailable
     public function subject($subject): self
     {
         return parent::subject((string) preg_replace('/[\r\n]+/', ' ', (string) $subject));
+    }
+
+    /**
+     * RV-12: Mail::queue() otherwise inherits the redis connection's default
+     * queue ('default'), which stayed on the shared supervisor-1 pool — so auth
+     * magic links and GDPR deletion mails would still queue behind a 180s
+     * Cloudflare purge. Route every transactional mailable onto the dedicated
+     * lane instead. An explicit ->onQueue() by a caller still wins: $this->queue
+     * (declared by the Queueable trait, default null) is only unset from
+     * isset()'s point of view before a caller sets it.
+     */
+    public function queue(Queue $queue)
+    {
+        if (! isset($this->queue)) {
+            $this->onQueue(config('partna.queues.notifications', 'notifications'));
+        }
+
+        return parent::queue($queue);
     }
 }
