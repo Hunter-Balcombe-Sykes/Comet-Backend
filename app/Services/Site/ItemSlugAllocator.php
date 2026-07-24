@@ -2,7 +2,6 @@
 
 namespace App\Services\Site;
 
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -13,8 +12,9 @@ use Throwable;
 // public sitepage detail items (events + menu items). is_current=false rows are
 // retired slugs kept alive as 301 redirect targets.
 //
-// Collision handling mirrors SiteProvisioningService: insert, catch the unique
-// violation, retry with a -N suffix. Uses -2-first (fish-tacos, fish-tacos-2),
+// Collision handling: insert-or-ignore, retry the next -N suffix when the slug
+// was already taken (see insertUnique() for why NOT catch-and-retry, which is
+// what SiteProvisioningService does). Uses -2-first (fish-tacos, fish-tacos-2),
 // matching the pages-app fallback loop and the user-approved scheme — distinct
 // from the subdomain allocator's -1-first convention (left unchanged).
 class ItemSlugAllocator
@@ -82,8 +82,8 @@ class ItemSlugAllocator
      * scalar binds (user_id, item_type, and — in ensureCurrentMany()'s
      * prefilter — is_current) each call adds on top of the chunk.
      *
-     * ⚠ MUST NOT be called inside an open transaction alongside
-     * ensureCurrentMany() — see that method's note.
+     * Best paired with ensureCurrentMany() OUTSIDE an open transaction — see
+     * that method's note.
      *
      * @param  list<string>  $itemKeys
      */
@@ -109,13 +109,12 @@ class ItemSlugAllocator
      * ensureCurrent() write path. An unchanged 300-dish menu therefore costs
      * ONE query instead of ~600.
      *
-     * ⚠ CALL OUTSIDE ANY OPEN TRANSACTION. ensureCurrent() allocates through
-     * insertUnique(), which INSERTs and catches the unique violation with NO
-     * savepoint. On Postgres a failed statement inside a transaction aborts the
-     * WHOLE transaction (SQLSTATE 25P02) and every later statement fails, so a
-     * collision here would take the caller's transaction down with it. SQLite
-     * does not behave that way, so the test suite cannot catch a misplacement —
-     * placement is the only defence.
+     * PREFER CALLING OUTSIDE AN OPEN TRANSACTION. It is no longer unsafe inside
+     * one — insertUnique() allocates with insertOrIgnore behind a savepoint, so
+     * a collision can neither raise nor abort a caller's Postgres transaction
+     * (SQLSTATE 25P02) — but this walks a whole rebuilt collection, and holding
+     * someone else's write transaction open across that many round trips is its
+     * own hazard.
      *
      * `is_current` is compared ONLY inside the SQL WHERE, never read back into
      * PHP — Postgres' PDO driver can hand a boolean column back as the strings
@@ -246,25 +245,59 @@ class ItemSlugAllocator
             ->where('item_key', $itemKey)->where('is_current', true)->first();
     }
 
+    /**
+     * Allocate the first free slug for this item and return it.
+     *
+     * Runs inside a NESTED transaction whenever the caller already holds one.
+     * MenuItemObserver swallows allocator failures by design ("slug bookkeeping
+     * must never break a dish write"), but on Postgres a failed statement puts
+     * the whole enclosing transaction into an aborted state (SQLSTATE 25P02)
+     * where every later statement errors — so a swallow with nothing to roll
+     * back to takes the caller's work down with it. A nested transaction
+     * compiles to SAVEPOINT / ROLLBACK TO SAVEPOINT on pgsql AND sqlite
+     * (Grammar::supportsSavepoints() is true and neither driver grammar
+     * overrides it), containing any failure to this insert. At level 0 the
+     * insert runs bare — no extra BEGIN/COMMIT round trip for the ordinary
+     * caller. SQLite aborts only the statement, so the suite cannot reproduce
+     * the production failure; see allocateSlug() for what it can.
+     */
     private function insertUnique(string $userId, string $itemType, string $itemKey, string $base, bool $isCurrent): string
+    {
+        $connection = DB::connection('pgsql');
+        $allocate = fn (): string => $this->allocateSlug($userId, $itemType, $itemKey, $base, $isCurrent);
+
+        return $connection->transactionLevel() > 0
+            ? $connection->transaction($allocate)
+            : $allocate();
+    }
+
+    /**
+     * Walk `$base`, `$base-2`, `$base-3`… until one lands.
+     *
+     * insertOrIgnore, NOT insert-and-catch: it compiles to `ON CONFLICT DO
+     * NOTHING` on Postgres and `INSERT OR IGNORE` on SQLite, so a slug already
+     * taken in this profile comes back as 0 rows affected rather than raising.
+     * The expected collision therefore never produces a failed statement at
+     * all — which is what the old catch-and-retry got wrong: it worked on
+     * SQLite and aborted the caller's transaction on Postgres (see
+     * insertUnique()'s note), and MenuScanApplier::apply() wraps the
+     * MenuItem::create() that lands here.
+     */
+    private function allocateSlug(string $userId, string $itemType, string $itemKey, string $base, bool $isCurrent): string
     {
         for ($n = 1; $n <= 200; $n++) {
             $slug = $n === 1 ? $base : $base.'-'.$n;
-            try {
-                DB::connection('pgsql')->table(self::TABLE)->insert([
-                    'id' => (string) Str::uuid(),
-                    'user_id' => $userId,
-                    'item_type' => $itemType,
-                    'item_key' => $itemKey,
-                    'slug' => $slug,
-                    'is_current' => $isCurrent,
-                    'created_at' => now()->toDateTimeString(),
-                ]);
-
+            $inserted = DB::connection('pgsql')->table(self::TABLE)->insertOrIgnore([
+                'id' => (string) Str::uuid(),
+                'user_id' => $userId,
+                'item_type' => $itemType,
+                'item_key' => $itemKey,
+                'slug' => $slug,
+                'is_current' => $isCurrent,
+                'created_at' => now()->toDateTimeString(),
+            ]);
+            if ($inserted > 0) {
                 return $slug;
-            } catch (UniqueConstraintViolationException $e) {
-                // Slug taken in this profile (unique_slug) — try the next suffix.
-                continue;
             }
         }
 

@@ -633,12 +633,13 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * (user_id, slug) unique index is NOT partial, so a retired row still
      * blocks reuse).
      *
-     * ⚠ MUST run AFTER the rebuild transaction has committed. ItemSlugAllocator
-     * ::insertUnique() allocates by INSERT-and-catch-unique-violation with no
-     * savepoint; on Postgres a failed statement inside an open transaction
-     * aborts the WHOLE transaction (SQLSTATE 25P02) and every later statement
-     * fails, so a single slug collision would take the entire menu rebuild down.
-     * SQLite does not do this, so a green suite proves nothing here.
+     * Deliberately runs AFTER the rebuild transaction has committed. The
+     * allocator is now safe inside a transaction (insertUnique() allocates with
+     * insertOrIgnore behind a savepoint, so a collision can't abort the caller
+     * with SQLSTATE 25P02), but this walks every dish on the menu one at a
+     * time — keeping those round trips out of the rebuild transaction is the
+     * point, and this is best-effort work that must not be able to roll the
+     * rebuild back.
      *
      * FORGET BEFORE ENSURE — the order is load-bearing. A dropped "Café Latte"
      * and a newly added "Cafe Latte" are distinct dishes to normalizeName() but

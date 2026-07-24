@@ -14,8 +14,10 @@ use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -1434,9 +1436,10 @@ it('serves an explicit platforms:[] (not an omitted key) for a scanned item on a
 // delete), which bypasses MenuItemObserver entirely — so pre-fix a scraped
 // dish never got a pretty URL at all, and a dropped dish squatted its slug
 // forever (item_slugs_unique_slug is NOT partial, so even a retired row
-// blocks reuse). The reconcile runs AFTER the rebuild transaction commits:
-// ItemSlugAllocator::insertUnique() INSERTs-and-catches with no savepoint,
-// and on Postgres that aborts an enclosing transaction outright (25P02).
+// blocks reuse). The reconcile still runs AFTER the rebuild transaction
+// commits — best-effort per-dish work that must not be able to roll the
+// rebuild back — though the allocator is now safe inside a transaction too
+// (insertOrIgnore behind a savepoint; see ItemSlugAllocator::insertUnique).
 
 /** The live item_slugs row (id + slug) for a menu item, or null. */
 function menuSlugRow(User $user, string $itemId): ?object
@@ -1605,4 +1608,70 @@ it('leaves a manual dish item_slugs row untouched across a scraper rebuild', fun
     // ...and the new scraped dish got its own.
     $fresh = MenuItem::query()->where('name', 'New Scraped Dish')->firstOrFail();
     expect(menuSlugRow($user, $fresh->id)?->slug)->toBe('new-scraped-dish');
+});
+
+// ── the collision surface Unit 5 opened: MenuScanApplier runs INSIDE a
+// transaction. Every scraped dish now owns an item_slugs row, so a scan item
+// whose name misses MenuScanApplier::normalize() (lowercase + trim only) but
+// whose Str::slug() collides with an existing row hits the allocator's retry
+// path with the scan's transaction open. Pre-fix that INSERT raised, which on
+// Postgres aborts the whole transaction (25P02) — every later statement in the
+// apply fails and the enrichment rolls back (a 500 on this endpoint, a
+// swallowed-and-logged no-op inside MenuFetchJob). SQLite aborts only the
+// statement, so this test can only prove the enrichment lands and the slug
+// resolves; it cannot reproduce the Postgres abort.
+
+it('commits a scan apply whose new dish collides with an existing slug base', function () {
+    $user = menuUser('scanslugclash');
+
+    // "Café Latte" holds the `cafe-latte` slug (Str::slug transliterates the
+    // accent away), but MenuScanApplier's matcher compares raw lowercased
+    // names — "café latte" ≠ "cafe latte" — so the scan item below is a NEW
+    // dish that wants an already-taken base.
+    seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Drinks', 'items' => [['name' => 'Café Latte', 'base_price' => 5.0]]],
+    ]);
+    $existing = MenuItem::query()->where('name', 'Café Latte')->firstOrFail();
+    $existingRow = menuSlugRow($user, $existing->id);
+    expect($existingRow?->slug)->toBe('cafe-latte');
+
+    $levels = [];
+    Event::listen(TransactionBeginning::class, function (TransactionBeginning $e) use (&$levels) {
+        $levels[] = $e->connection->transactionLevel();
+    });
+
+    $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [
+            ['name' => 'Cafe Latte', 'description' => 'House blend.', 'price' => 5.5, 'category' => 'Specials'],
+            // A SECOND item processed after the colliding one — on Postgres an
+            // aborted transaction fails every later statement, so this landing
+            // is the part that proves the transaction survived the collision.
+            ['name' => 'Blueberry Muffin', 'description' => null, 'price' => 4.0, 'category' => 'Specials'],
+        ],
+    ])->assertOk();
+
+    expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
+
+    $minted = MenuItem::query()->where('name', 'Cafe Latte')->firstOrFail();
+    expect($minted->description)->toBe('House blend.');
+    expect(menuSlugRow($user, $minted->id)?->slug)->toBe('cafe-latte-2');
+
+    // The pivot attach runs AFTER the colliding MenuItem::create in the same
+    // transaction — its category membership landing is the second proof.
+    $scanCategory = MenuCategory::query()->where('name', 'Specials')->where('source_platform', 'scan')->firstOrFail();
+    expect($minted->categories()->pluck('site.menu_categories.id')->all())->toBe([(string) $scanCategory->id]);
+
+    $muffin = MenuItem::query()->where('name', 'Blueberry Muffin')->firstOrFail();
+    expect(menuSlugRow($user, $muffin->id)?->slug)->toBe('blueberry-muffin');
+
+    // The incumbent keeps its row and its bare base — the newcomer took -2.
+    $existingAfter = menuSlugRow($user, $existing->id);
+    expect($existingAfter->id)->toBe($existingRow->id);
+    expect($existingAfter->slug)->toBe('cafe-latte');
+
+    // The one assertion here that DOES fail pre-fix on SQLite: each mint ran at
+    // transaction level 2 — nested inside MenuScanApplier's own level-1
+    // transaction, i.e. behind a SAVEPOINT. Everything above passes either way,
+    // because SQLite aborts only the failed statement.
+    expect(array_count_values($levels)[2] ?? 0)->toBe(2);
 });

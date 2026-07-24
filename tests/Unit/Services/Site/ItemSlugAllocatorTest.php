@@ -1,7 +1,9 @@
 <?php
 
 use App\Services\Site\ItemSlugAllocator;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -79,6 +81,104 @@ it('forget() removes rows and frees the slug for reuse', function () {
     $this->alloc->forget($this->u, 'menu_item', 'k1');
     expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'k1')->count())->toBe(0);
     expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos');
+});
+
+// ── allocating inside a caller's open transaction ──
+// insertUnique() used to INSERT-and-catch the unique violation with no
+// savepoint. On Postgres a failed statement aborts the WHOLE enclosing
+// transaction (SQLSTATE 25P02) and every later statement errors, so a
+// collision under MenuScanApplier::apply()'s transaction rolled the entire
+// scan enrichment back. SQLite aborts only the statement, so NONE of the
+// tests below can reproduce that failure — what they pin is that the two
+// defences are actually engaged and that the allocation semantics survive
+// them.
+
+it('allocates with the ignore-on-conflict insert, so a taken slug never raises', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
+
+    DB::enableQueryLog();
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos-2');
+    $queries = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    // Two attempts — `fish-tacos` (rejected) then `fish-tacos-2` — and BOTH are
+    // the ignore-on-conflict form: `insert or ignore` under SQLiteGrammar,
+    // `insert ... on conflict do nothing` under PostgresGrammar. A taken slug
+    // comes back as 0 rows affected instead of a failed statement, which is the
+    // only reason the retry loop is safe inside someone else's transaction.
+    $inserts = array_values(array_filter($queries, fn ($q) => stripos($q['query'], 'insert') === 0));
+    expect($inserts)->toHaveCount(2);
+    foreach ($inserts as $q) {
+        expect(strtolower($q['query']))->toContain('or ignore');
+    }
+});
+
+it('opens a savepoint around the allocation when the caller already holds a transaction', function () {
+    $levels = [];
+    Event::listen(TransactionBeginning::class, function (TransactionBeginning $e) use (&$levels) {
+        $levels[] = $e->connection->transactionLevel();
+    });
+
+    DB::connection('pgsql')->transaction(function () {
+        expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos'))->toBe('fish-tacos');
+    });
+
+    // 1 = the caller's own BEGIN; 2 = the allocator's nested transaction, which
+    // Laravel compiles to `SAVEPOINT trans2` (Grammar::supportsSavepoints() is
+    // true and neither the SQLite nor the Postgres grammar overrides it), so an
+    // unexpected failure — an FK or the item_type CHECK — unwinds to there
+    // instead of poisoning the caller.
+    expect($levels)->toBe([1, 2]);
+    expect(DB::connection('pgsql')->transactionLevel())->toBe(0);
+});
+
+it('opens no transaction of its own when the caller has none', function () {
+    $began = 0;
+    Event::listen(TransactionBeginning::class, function () use (&$began) {
+        $began++;
+    });
+
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos'))->toBe('fish-tacos');
+
+    // The savepoint is conditional: a first mint outside a transaction still
+    // costs exactly one INSERT, no BEGIN/COMMIT round trip.
+    expect($began)->toBe(0);
+});
+
+it('resolves a collision inside the caller transaction and lets it commit', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
+
+    $slug = DB::connection('pgsql')->transaction(function () {
+        $slug = $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos');
+        // A write AFTER the colliding allocation — the shape the production
+        // bug took (25P02 fails every later statement in the transaction).
+        DB::connection('pgsql')->table('site.item_slugs')
+            ->where('item_key', 'k2')->update(['created_at' => '2026-07-24 00:00:00']);
+
+        return $slug;
+    });
+
+    expect($slug)->toBe('fish-tacos-2');
+    expect(currentSlug($this->u, 'menu_item', 'k2'))->toBe('fish-tacos-2');
+    // The post-collision write committed with the rest of the transaction.
+    expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'k2')->value('created_at'))
+        ->toBe('2026-07-24 00:00:00');
+    expect(DB::connection('pgsql')->transactionLevel())->toBe(0);
+});
+
+it('keeps the rename path (insert-then-promote) correct inside a caller transaction', function () {
+    // The rename branch inserts NON-current then promotes, and promote() opens
+    // its own nested transaction — three levels deep under a caller's. Pins
+    // that nesting the allocation didn't disturb the redirect bookkeeping.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Old Name');
+
+    DB::connection('pgsql')->transaction(function () {
+        expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'New Name'))->toBe('new-name');
+    });
+
+    expect(currentSlug($this->u, 'menu_item', 'k1'))->toBe('new-name');
+    $rows = DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'k1')->pluck('is_current', 'slug');
+    expect((int) $rows['old-name'])->toBe(0)->and((int) $rows['new-name'])->toBe(1);
 });
 
 // ── lookupCurrent(): shared batch read for public API controllers ──
