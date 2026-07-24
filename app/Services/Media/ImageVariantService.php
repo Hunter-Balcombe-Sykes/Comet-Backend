@@ -48,10 +48,11 @@ class ImageVariantService
         string $imageId,
         string $basePath,
         string $siteId = '',
-        // Palette metadata is only READ for GALLERY_POOLS media (see
-        // IdentityEvidence::mediaPalette). Logo / design-pool uploads pass false
-        // so they don't pay the extraction cost or write dead palette data to
-        // rows the ImageryPaletteFactor never reads (#76 MAJOR-1).
+        // Palette metadata (dominant colour + swatches) is read by
+        // SiteAccentResolver as an accent-colour candidate for both gallery
+        // AND design-pool (logo) media — the former ImageryPaletteFactor
+        // consumer this comment used to describe was retired with the whole
+        // contribution-ledger machine; ProcessLogoVariantsJob passes true.
         bool $extractPalette = true,
     ): array {
         if (! extension_loaded('gd')) {
