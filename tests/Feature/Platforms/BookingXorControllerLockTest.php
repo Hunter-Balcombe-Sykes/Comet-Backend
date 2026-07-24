@@ -69,8 +69,8 @@ function seedFreshaConnection(User $user): IntegrationConnection
 }
 
 it('detect (custom fallback) is blocked by a held booking-XOR lock and leaves the existing fresha row untouched', function () {
-    // QUEUE_CONNECTION=sync in the deployed env (and unfaked here would run
-    // inline in tests too) — fake it so EnrichLinkCardJob's real scraper
+    // phpunit.xml pins QUEUE_CONNECTION=sync (unfaked here would run
+    // inline) — fake it so EnrichLinkCardJob's real scraper
     // methods (snapshot/snapshotOrMinimal, unmocked below) never execute.
     Queue::fake();
 
