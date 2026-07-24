@@ -179,7 +179,13 @@ yours to propose and his to approve. **Author the plan, present it, and wait.**
 **Current behaviour**, verified on `development`:
 - `team()` declares at `FreshaController.php:269`. It reads the stored URL cheaply, 404s
   with `'No Fresha URL connected yet. POST one to /connect first.'` when absent, then
-  performs the **same live scrape** `connect()` does, with no cache.
+  performs the **same live scrape** `connect()` does, with no cache, and returns
+  `['url' => $url, ...$menu]`.
+- **The contract's "~96 s" figure is stale — it is now ~20 s.** W1 wrapped this call in a
+  `FetchBudget`: `$this->budget->open((float) config('partna.http_fetch.connect_budget_seconds', 20), fn () => $this->scraper->fetchMenu($url))`.
+  96 s was the pre-W1 worst case. It is still a third-party round-trip on every `GET`, but
+  the ceiling is five times lower than the contract implies — **weigh U3's priority against
+  U1 and U2 accordingly**, and do not sell this as a 96-second fix.
 
 **The groundwork already exists — and so does its catch.** CA-W6 added a private
 `payload.teamMenu` snapshot precisely so a poll could return the full body, and noted it is
