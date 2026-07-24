@@ -109,10 +109,14 @@ return [
     | re-hands a still-running job to a second worker. balance MUST stay
     | false: one queue:work drains the comma-joined list in listed (priority)
     | order, and it is the only strategy that respects maxProcesses —
-    | 'simple'/'auto' floor at one worker PER QUEUE (Supervisor::scale raises
-    | maxProcesses to the pool count). The pre-2026-07-22 one-supervisor-per-
-    | queue layout (~4 GiB box) is in git history at 9f45c291 if real load
-    | ever justifies resurrecting it.
+    | 'simple'/'auto' floor at one worker PER QUEUE — Supervisor::createProcessPools()
+    | builds one pool per comma-separated queue under a balancing strategy, and
+    | Supervisor::scale() raises maxProcesses to max(maxProcesses, $processes,
+    | count($processPools)). Verified against laravel/horizon v5.48.1:
+    | src/Supervisor.php:88-93 and :135-139; reached on ordinary startup via
+    | Console/SupervisorCommand::start():100, not only via horizon:scale.
+    | The pre-2026-07-22 one-supervisor-per-queue layout (~4 GiB box) is in
+    | git history at 9f45c291 if real load ever justifies resurrecting it.
     |
     */
 
@@ -206,11 +210,12 @@ return [
     |
     | Process-count overrides per environment. Footprint = 1 master + one
     | middleman process per lane + workers, ~90 MiB each: idle deployed
-    | footprint is 7 procs (~630 MiB); a busy main lane autoscales 1→2
-    | (AutoScaler splits comma-joined pools correctly under balance=false).
-    | Every environment must name all three lanes explicitly — that is what
-    | HorizonQueueCoverageTest walks to prove every dispatchable queue has a
-    | consumer in every env.
+    | footprint is 11 procs (~990 MiB) against the 2048 MiB flex-2gb Worker
+    | box (RV-4 resize, 2026-07-24). Permitted worker heap sums to
+    | 2×256 (supervisor-1) + 2×192 (supervisor-mail) + 256 (supervisor-long)
+    | + 512 (supervisor-videos) = 1664 MiB. Every environment must name all
+    | four lanes explicitly — that is what HorizonQueueCoverageTest walks to
+    | prove every dispatchable queue has a consumer in every env.
     |
     */
 

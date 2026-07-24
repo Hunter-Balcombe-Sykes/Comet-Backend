@@ -294,7 +294,7 @@ git commit -m "fix(horizon): RV-12 — dedicated supervisor-mail lane for transa
 
 So the conclusion *and* the justification stand. Do **not** rewrite them to say "starvation, not a floor of one" — that would replace a correct comment with an incorrect one. What this task changes is the stale arithmetic only, plus source citations so the next reader can check the claim instead of trusting it.
 
-- [ ] **Step 1: Update the queue-count and OOM-history references**
+- [x] **Step 1: Update the queue-count and OOM-history references**
 
 In the "Worker Lanes" docblock, make these substitutions and no others:
 
@@ -309,7 +309,7 @@ In the "Worker Lanes" docblock, make these substitutions and no others:
   `src/Supervisor.php:88-93 and :135-139; reached on ordinary startup via`
   `Console/SupervisorCommand::start():100, not only via horizon:scale.`
 
-- [ ] **Step 2: Update the "Environments" docblock footprint arithmetic**
+- [x] **Step 2: Update the "Environments" docblock footprint arithmetic**
 
 Replace the footprint sentence with:
 
@@ -324,7 +324,7 @@ Replace the footprint sentence with:
     | prove every dispatchable queue has a consumer in every env.
 ```
 
-- [ ] **Step 3: Run pint and the full file's tests**
+- [x] **Step 3: Run pint and the full file's tests**
 
 ```bash
 php artisan pint --dirty
@@ -333,7 +333,7 @@ COMPOSER_PROCESS_TIMEOUT=0 ./vendor/bin/pest tests/Unit/Jobs/HorizonQueueCoverag
 
 Expected: pint reports only `config/horizon.php`; tests PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add config/horizon.php
