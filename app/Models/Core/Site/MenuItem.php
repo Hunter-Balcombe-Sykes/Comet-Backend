@@ -3,6 +3,8 @@
 namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
+use App\Observers\MenuItemObserver;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -57,6 +59,7 @@ use Illuminate\Support\Carbon;
 // `badges` stays JSONB by design (reviewed 2026-07-04, audit #FOUND-13) — DoorDash
 // display copy with no query/filter usage anywhere in the codebase; revisit only
 // if a real filtering need emerges.
+#[ObservedBy(MenuItemObserver::class)]
 class MenuItem extends BaseModel
 {
     use HasUuids;
