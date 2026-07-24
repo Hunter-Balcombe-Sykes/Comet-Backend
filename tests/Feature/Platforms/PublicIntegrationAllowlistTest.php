@@ -620,3 +620,48 @@ it('allowlists the five 2026-07-23 link-only platforms (TEST-3) and strips inter
     expect($p['kick'][0]['payload'])->toBe(['username' => 'kicker', 'url' => 'https://kick.com/kicker']);
     expect($p['medium'][0]['payload'])->toBe(['username' => 'writer', 'url' => 'https://medium.com/@writer']);
 });
+
+it('keeps a completed team-mode fresha connection\'s scraped teamMenu (staff data) off the public wire', function () {
+    // R3 (2026-07-25): connectMode was stripped from a completed row, but
+    // teamMenu deliberately stays — it's the row's only stored copy of the
+    // scraped menu, rebuilt into the `ready` poll response on every re-poll,
+    // with no schema change available to relocate it. That leaves the
+    // ALLOWLIST below as the ONLY thing keeping scraped staff-member data off
+    // this CDN-cached public wire ("one filter away from a leak" per the R3
+    // brief). Prove today's ['url', 'selection'] entry actually holds the line.
+    $user = allowlistUser('allowfreshateam');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'fresha',
+        'resource_id' => 'fresha',
+        'payload' => [
+            'url' => 'https://www.fresha.com/a/ollies-salon',
+            'selection' => null,
+            'teamMenu' => [
+                'storeName' => 'Ollies',
+                'team' => [
+                    ['employeeId' => 'e1', 'displayName' => 'Jo Smith', 'jobTitle' => 'Senior Stylist', 'avatarUrl' => 'https://images.fresha.com/e1.jpg', 'rating' => 4.9],
+                ],
+                'services' => [
+                    ['serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null, 'price' => '$50', 'priceValue' => null, 'currency' => null, 'category' => 'Cuts', 'hasVariants' => false],
+                ],
+            ],
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $response = $this->getJson('/api/public/profiles/allowfreshateam/integrations')->assertOk();
+
+    expect($response->json('data.platforms.fresha.0.payload'))->toBe([
+        'url' => 'https://www.fresha.com/a/ollies-salon',
+        'selection' => null,
+    ]);
+
+    // Belt-and-suspenders: assert the scraped staff data doesn't ride anywhere
+    // else in the response body either, not merely inside the extracted key.
+    expect($response->getContent())->not->toContain('teamMenu');
+    expect($response->getContent())->not->toContain('Jo Smith');
+    expect($response->getContent())->not->toContain('Senior Stylist');
+});
