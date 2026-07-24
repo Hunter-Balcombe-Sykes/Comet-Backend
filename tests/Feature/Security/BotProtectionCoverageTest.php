@@ -22,6 +22,8 @@ const BOT_PROTECTION_EXEMPT = [
     'api/public/analytics/section-seen',
     'api/public/analytics/section-dwell',
     'api/public/analytics/item-seen',
+    'api/public/analytics/action-seen',
+    'api/public/analytics/action-tap',
     'api/public/analytics/ping',
     'api/public/analytics/rum',
     // Resolve-identifier — enumeration defence via constant-time jitter, not interactive CAPTCHA.

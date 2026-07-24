@@ -2,10 +2,12 @@
 
 use Illuminate\Support\Facades\DB;
 
-// PATCH /api/site validation + persistence for the actions-system settings:
-// smart_page_order / manual_page_order / smart_actions / manual_actions
-// (strict per-kind entry shapes incl. custom {label,url}), plus the atomic
-// list-replace semantics in UpdateSiteAction.
+// PATCH /api/site validation + persistence for the actions-system settings
+// (2026-07-23 rebuild): smart_page_order / manual_page_order / smart_actions
+// / manual_actions (strict per-kind entry shapes: {kind: action, ref:
+// <ActionVocabulary id>} | {kind: custom, label, url}), plus the legacy
+// page/button/item shape migration in SiteOrderingValidationRules and the
+// atomic list-replace semantics in UpdateSiteAction.
 
 beforeEach(function () {
     config(['partna.throttle.enabled' => false]);
@@ -29,21 +31,21 @@ it('accepts and persists the four ordering settings', function () {
             'manual_page_order' => ['book', 'shop', 'links'],
             'smart_actions' => false,
             'manual_actions' => [
-                ['kind' => 'page', 'ref' => 'book'],
-                ['kind' => 'item', 'ref' => 'service:9b2f1c34-aaaa-bbbb-cccc-121212121212'],
-                ['kind' => 'button', 'ref' => 'instagram'],
+                ['kind' => 'action', 'ref' => 'menu'],
+                ['kind' => 'action', 'ref' => 'instagram'],
                 ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards'],
             ],
         ]])
         ->assertOk();
 
     // 'book' is the legacy page-id for the Services page (2026-07-13 rename) —
-    // it is accepted and persisted normalized to 'services'.
+    // it is accepted and persisted normalized to 'services'. (manual_page_order
+    // uses the SitepageId taxonomy, untouched by the actions rebuild.)
     $settings = siteSettings($pro);
     expect($settings['smart_page_order'])->toBeFalse()
         ->and($settings['manual_page_order'])->toBe(['services', 'shop', 'links'])
         ->and($settings['smart_actions'])->toBeFalse()
-        ->and($settings['manual_actions'][3])->toBe(['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards']);
+        ->and($settings['manual_actions'][2])->toBe(['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards']);
 });
 
 it('rejects unknown page ids in manual_page_order', function () {
@@ -93,7 +95,7 @@ it('rejects label/url on non-custom entries and ref on custom entries', function
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['settings' => ['manual_actions' => [
-            ['kind' => 'button', 'ref' => 'instagram', 'label' => 'Relabelled'],
+            ['kind' => 'action', 'ref' => 'instagram', 'label' => 'Relabelled'],
         ]]])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['settings.manual_actions.0']);
@@ -106,20 +108,36 @@ it('rejects label/url on non-custom entries and ref on custom entries', function
         ->assertJsonValidationErrors(['settings.manual_actions.0']);
 });
 
-it('rejects malformed refs per kind (unknown page, bad button slug, bad item shape)', function () {
+it('rejects a ref that is not a recognised action id', function () {
     $pro = createTenant('as-badref');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['settings' => ['manual_actions' => [['kind' => 'page', 'ref' => 'checkout']]]])
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [['kind' => 'action', 'ref' => 'checkout']]]])
         ->assertStatus(422);
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['settings' => ['manual_actions' => [['kind' => 'button', 'ref' => 'Insta Gram!']]]])
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [['kind' => 'action', 'ref' => 'Insta Gram!']]]])
         ->assertStatus(422);
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['settings' => ['manual_actions' => [['kind' => 'item', 'ref' => 'no-colon-here']]]])
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [['kind' => 'action', 'ref' => 'custom:']]]])
         ->assertStatus(422);
+});
+
+it('accepts a dynamic-family ref (ordering:<id> / custom:<key>)', function () {
+    $pro = createTenant('as-familyref');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [
+            ['kind' => 'action', 'ref' => 'ordering:order-abc123'],
+            ['kind' => 'action', 'ref' => 'custom:9b2f1c34-aaaa-bbbb-cccc-121212121212'],
+        ]]])
+        ->assertOk();
+
+    expect(siteSettings($pro)['manual_actions'])->toBe([
+        ['kind' => 'action', 'ref' => 'ordering:order-abc123'],
+        ['kind' => 'action', 'ref' => 'custom:9b2f1c34-aaaa-bbbb-cccc-121212121212'],
+    ]);
 });
 
 it('rejects duplicate action refs (customs exempt)', function () {
@@ -127,8 +145,8 @@ it('rejects duplicate action refs (customs exempt)', function () {
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['settings' => ['manual_actions' => [
-            ['kind' => 'button', 'ref' => 'instagram'],
-            ['kind' => 'button', 'ref' => 'instagram'],
+            ['kind' => 'action', 'ref' => 'instagram'],
+            ['kind' => 'action', 'ref' => 'instagram'],
         ]]])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['settings.manual_actions']);
@@ -141,11 +159,11 @@ it('rejects duplicate action refs (customs exempt)', function () {
         ->assertOk();
 });
 
-it('caps list sizes (manual_page_order ≤ 16, manual_actions ≤ 12)', function () {
+it('caps list sizes (manual_page_order ≤ 16, manual_actions ≤ 26)', function () {
     $pro = createTenant('as-caps');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['settings' => ['manual_actions' => array_fill(0, 13, ['kind' => 'page', 'ref' => 'book'])]])
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => array_fill(0, 27, ['kind' => 'custom', 'label' => 'X', 'url' => 'https://x.example'])]])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['settings.manual_actions']);
 });
@@ -170,15 +188,64 @@ it('leaves ordering settings untouched by unrelated settings PATCHes', function 
     $pro = createTenant('as-patch');
 
     actingAsUser($pro)
-        ->patchJson('/api/site', ['settings' => ['smart_actions' => false, 'manual_actions' => [['kind' => 'page', 'ref' => 'book']]]])
+        ->patchJson('/api/site', ['settings' => ['smart_actions' => false, 'manual_actions' => [['kind' => 'action', 'ref' => 'menu']]]])
         ->assertOk();
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['settings' => ['show_branding' => true]])
         ->assertOk();
 
-    // 'book' (legacy) persists normalized to the 'services' page-id.
     $settings = siteSettings($pro);
     expect($settings['smart_actions'])->toBeFalse()
-        ->and($settings['manual_actions'])->toBe([['kind' => 'page', 'ref' => 'services']]);
+        ->and($settings['manual_actions'])->toBe([['kind' => 'action', 'ref' => 'menu']]);
+});
+
+// ── Legacy shape migration (pre-2026-07-23 dashboard / stale client) ────────
+
+it('migrates a legacy page-kind action ref to the new booking-services id', function () {
+    $pro = createTenant('as-legacy-page');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [
+            ['kind' => 'page', 'ref' => 'book'],     // legacy page-id, folds to 'services' first
+            ['kind' => 'page', 'ref' => 'shop'],     // 1:1 with the current static id
+        ]]])
+        ->assertOk();
+
+    expect(siteSettings($pro)['manual_actions'])->toBe([
+        ['kind' => 'action', 'ref' => 'booking-services'],
+        ['kind' => 'action', 'ref' => 'shop'],
+    ]);
+});
+
+it('migrates a legacy button-kind booking ref to booking-services, and a social ref 1:1', function () {
+    $pro = createTenant('as-legacy-button');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [
+            ['kind' => 'button', 'ref' => 'booking'],
+            ['kind' => 'button', 'ref' => 'instagram'],
+        ]]])
+        ->assertOk();
+
+    expect(siteSettings($pro)['manual_actions'])->toBe([
+        ['kind' => 'action', 'ref' => 'booking-services'],
+        ['kind' => 'action', 'ref' => 'instagram'],
+    ]);
+});
+
+it('drops a legacy item-kind entry and a legacy button ref with no current mapping', function () {
+    $pro = createTenant('as-legacy-drop');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_actions' => [
+            ['kind' => 'item', 'ref' => 'service:9b2f1c34-aaaa-bbbb-cccc-121212121212'],
+            ['kind' => 'button', 'ref' => 'fresha'],  // no current action for this platform
+            ['kind' => 'action', 'ref' => 'menu'],    // survives untouched
+        ]]])
+        ->assertOk();
+
+    expect(siteSettings($pro)['manual_actions'])->toBe([
+        ['kind' => 'action', 'ref' => 'menu'],
+    ]);
 });

@@ -1528,7 +1528,7 @@ parameters:
 			path: app/Jobs/Moderation/NotifyReporterJob.php
 
 		-
-			message: '#^Parameter \#1 \$decision of class App\\Notifications\\Moderation\\ReportOutcomeNotification constructor expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			message: '#^Parameter \#2 \$decision of method App\\Jobs\\Moderation\\NotifyReporterJob\:\:sendTo\(\) expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
 			identifier: argument.type
 			count: 1
 			path: app/Jobs/Moderation/NotifyReporterJob.php
@@ -2447,88 +2447,10 @@ parameters:
 			path: app/Services/Platforms/WooCommerceScraper.php
 
 		-
-			message: '#^Offset ''category'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Offset ''id'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Offset ''title'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Offset ''url'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Offset ''url'' on array\{url\: string, url_hd\: string\|null, url_svg\: string\|null, url_icon\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Parameter \#1 \$array \(list\<array\{id\: non\-empty\-string\|null, title\: string, url\: string, category\: string, platform\: string\|null, popularityRank\: int\|null\}\>\) of array_values is already a list, call has no effect\.$#'
-			identifier: arrayValues.list
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>architecture_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>timestamp" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Services/PublicSite/PublicSiteResolver.php
-
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Offset ''category'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Offset ''id'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Offset ''title'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
-
-		-
-			message: '#^Offset ''url'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/PublicSite/SiteActionsService.php
 
 		-
 			message: '#^Method App\\Services\\PublicSite\\SitepageDataResolverService\:\:buildMediaItem\(\) never returns null so it can be removed from the return type\.$#'
@@ -2939,13 +2861,6 @@ parameters:
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
 			count: 3
 			path: app/Services/PublicSite/SitepageDataResolverService.php
 
@@ -3125,13 +3040,6 @@ parameters:
 		# — a jsonb column that could diverge at runtime — same pattern as
 		# IdentitySync.php / InstagramIdentitySync.php above.
 		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/WebsiteScan/WorkplaceContentApplier.php
-
-
-		-
 			message: '#^Offset ''code'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -3154,3 +3062,153 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Offset ''category'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Offset ''id'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Offset ''title'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Offset ''url'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Offset ''url'' on array\{url\: string, url_hd\: string\|null, url_svg\: string\|null, url_icon\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<array\{id\: non\-empty\-string\|null, title\: string, url\: string, category\: string, platform\: string\|null, popularityRank\: int\|null\}\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>architecture_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>timestamp" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Services/PublicSite/SiteActionsService.php
+
+		-
+			message: '#^Offset ''category'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/SiteActionsService.php
+
+		-
+			message: '#^Offset ''state'' on array\{state\: string, data\: array\|null, block_id\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/SiteActionsService.php
+
+		-
+			message: '#^Offset ''title'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/PublicSite/SiteActionsService.php
+
+		-
+			message: '#^Offset ''url'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: app/Services/PublicSite/SiteActionsService.php
+
+		-
+			message: '#^Offset ''booking''\|''custom''\|''events''\|''linkedin''\|''online\-ordering''\|''pinterest''\|''reservations''\|''soundcloud''\|''spotify''\|''strava''\|''tiktok''\|''vimeo''\|''x''\|''youtube'' on array\{booking\: ''Booking'', reservations\: ''Reservations'', online\-ordering\: ''Online ordering'', events\: ''Event tickets'', linkedin\: ''LinkedIn'', pinterest\: ''Pinterest'', strava\: ''Strava'', spotify\: ''Spotify'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/Onboarding/OnboardingSuggestions.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/EventsSeeder.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$discount_code\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$position\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>discount_code" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>position" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopProductSeeder.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$product_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopProductSeeder.php
+
+		-
+			message: '#^Offset ''mime'' on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/WebsiteScan/GalleryAutoGrabber.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Services/WebsiteScan/PdfLinkDetector.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 3
+			path: app/Services/WebsiteScan/WorkplaceContentApplier.php

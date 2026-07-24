@@ -1768,6 +1768,33 @@ function setupItemViewsTable(): void
 }
 
 /**
+ * analytics.action_events — raw exposure/tap events for the unified actions
+ * system. Mirrors the applied Postgres DDL (20260723090000_create_action_events.sql),
+ * same posture as setupItemViewsTable() above (site_id/event CHECK+FK are
+ * app-validated in tests via plain inserts, not enforced by SQLite here).
+ */
+function setupActionEventsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.action_events (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NULL,
+        site_id TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        event TEXT NOT NULL,
+        occurred_at TEXT NULL,
+        session_id TEXT NULL,
+        visitor_id TEXT NULL,
+        ip_hash TEXT NULL,
+        user_agent TEXT NULL,
+        referrer TEXT NULL,
+        country_code TEXT NULL,
+        device_type TEXT NULL,
+        created_at TEXT NULL
+    )');
+}
+
+/**
  * analytics.content_popularity_scores — polymorphic popularity ranks per
  * (site, content_type, content_key). Mirrors the applied Postgres DDL
  * (20260709042716_create_content_popularity_scores.sql). SQLite doesn't enforce

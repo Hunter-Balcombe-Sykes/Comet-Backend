@@ -353,6 +353,24 @@ class AccountDeletionTestCase
             created_at TEXT NULL
         )');
 
+        // analytics.action_events — PRIV-3: purge() deletes rows by user_id (denormalised, no FK). Mirrors item_views above.
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.action_events (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
+            site_id TEXT NOT NULL,
+            action_id TEXT NOT NULL,
+            event TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            session_id TEXT NULL,
+            visitor_id TEXT NULL,
+            ip_hash TEXT NULL,
+            user_agent TEXT NULL,
+            referrer TEXT NULL,
+            country_code TEXT NULL,
+            device_type TEXT NULL,
+            created_at TEXT NULL
+        )');
+
         // notifications.email_subscriptions — purge() deletes global (user_id IS NULL) rows by email_lc.
         $conn->statement("CREATE TABLE IF NOT EXISTS notifications.email_subscriptions (
             id TEXT PRIMARY KEY,

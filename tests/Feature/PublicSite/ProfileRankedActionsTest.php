@@ -4,10 +4,10 @@ use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-// Public payload emission for the unified actions system: rankedActions
-// (smart, cold-fallback, manual incl. customs), the ordering object, and the
-// manual pageOrder path (drop unknown, append missing) — end-to-end through
-// IndividualProfilePayloadBuilder::build().
+// Public payload emission for the unified actions system (2026-07-23 rebuild):
+// rankedActions (smart, cold-fallback, manual incl. customs), the ordering
+// object, and the manual pageOrder path (drop unknown, append missing) —
+// end-to-end through IndividualProfilePayloadBuilder::build().
 
 beforeEach(function () {
     tenantHelpersEnsureTables();
@@ -20,6 +20,7 @@ beforeEach(function () {
     setupSectionViewsTable();
     setupLinkClicksTable();
     setupItemViewsTable();
+    setupActionEventsTable();
     setupContentPopularityScoresTable();
 });
 
@@ -47,13 +48,13 @@ function payloadLinkBlock(object $tenant, array $attrs = []): string
     return $id;
 }
 
-function insertActionScore(string $siteId, string $key, float $score, int $rank): void
+function insertActionScore(string $siteId, string $actionId, float $score, int $rank): void
 {
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
         'content_type' => 'action',
-        'content_key' => $key,
+        'content_key' => $actionId,
         'score' => $score,
         'rank' => $rank,
         'computed_at' => now()->toISOString(),
@@ -77,29 +78,24 @@ function buildProfilePayload(object $tenant): array
 it('emits rankedActions from stored action ranks, appending unscored pool entries by prior', function () {
     $tenant = createTenant('pay-smart');
     payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']);
-    payloadLinkBlock($tenant, ['platform' => 'youtube', 'title' => 'YouTube', 'url' => 'https://youtube.com/@x', 'sort_order' => 1]);
+    payloadLinkBlock($tenant, ['platform' => 'twitch', 'title' => 'Twitch', 'url' => 'https://twitch.tv/x', 'sort_order' => 1]);
 
-    // Job has scored instagram + the links page; youtube connected "since".
-    insertActionScore($tenant->site->id, 'button:instagram', 0.81, 1);
-    insertActionScore($tenant->site->id, 'page:links', 0.42, 2);
-    insertActionScore($tenant->site->id, 'button:ghost', 0.99, 3); // left the pool → dropped
+    // Job has scored instagram; twitch connected "since" (unscored).
+    insertActionScore($tenant->site->id, 'instagram', 0.81, 1);
+    insertActionScore($tenant->site->id, 'discord', 0.99, 2); // left the pool → dropped
 
     $payload = buildProfilePayload($tenant);
     $actions = $payload['rankedActions'];
 
     expect($actions[0])->toMatchArray([
-        'kind' => 'button', 'ref' => 'instagram', 'label' => 'Instagram',
-        'url' => 'https://instagram.com/x', 'score' => 0.81,
+        'id' => 'instagram', 'kind' => 'external', 'label' => 'Instagram',
+        'url' => 'https://instagram.com/x', 'platform' => 'instagram', 'score' => 0.81,
     ])
-        ->and($actions[1]['kind'])->toBe('page')
-        ->and($actions[1]['ref'])->toBe('links')
-        ->and($actions[1]['pageId'])->toBe('links')
-        ->and($actions[1]['url'])->toBeNull()
-        // Unscored pool entry appended after the stored block, score null.
-        ->and($actions[2]['ref'])->toBe('youtube')
-        ->and($actions[2]['score'])->toBeNull()
+        // Unscored pool entry appended after the stored one, score null.
+        ->and($actions[1]['id'])->toBe('twitch')
+        ->and($actions[1]['score'])->toBeNull()
         // Stale stored key resolves to nothing — dropped entirely.
-        ->and(collect($actions)->pluck('ref'))->not->toContain('ghost');
+        ->and(collect($actions)->pluck('id'))->not->toContain('discord');
 });
 
 it('falls back to a prior-ordered pool when the job has not run yet', function () {
@@ -107,11 +103,9 @@ it('falls back to a prior-ordered pool when the job has not run yet', function (
     payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']);
 
     $payload = buildProfilePayload($tenant);
-    $refs = collect($payload['rankedActions'])->pluck('ref');
+    $ids = collect($payload['rankedActions'])->pluck('id');
 
-    // Pool exists (button + links page) even with zero stored rows.
-    expect($refs)->toContain('instagram')
-        ->and($refs)->toContain('links')
+    expect($ids)->toContain('instagram')
         ->and(collect($payload['rankedActions'])->pluck('score')->unique()->all())->toBe([null]);
 });
 
@@ -122,9 +116,9 @@ it('serves the manual action list verbatim when smart_actions is off — customs
         'smart_actions' => false,
         'manual_actions' => [
             ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example'],
-            ['kind' => 'button', 'ref' => 'instagram'],
-            ['kind' => 'button', 'ref' => 'tiktok'],      // not in pool → dropped
-            ['kind' => 'page', 'ref' => 'watch'],          // page not present → dropped
+            ['kind' => 'action', 'ref' => 'instagram'],
+            ['kind' => 'action', 'ref' => 'tiktok'],   // not in pool → dropped
+            ['kind' => 'action', 'ref' => 'menu'],     // menu page not present → dropped
         ],
     ]);
 
@@ -133,10 +127,10 @@ it('serves the manual action list verbatim when smart_actions is off — customs
 
     expect(count($actions))->toBe(2)
         ->and($actions[0])->toMatchArray([
-            'kind' => 'custom', 'ref' => null, 'label' => 'Gift cards',
+            'id' => null, 'kind' => 'custom', 'label' => 'Gift cards',
             'url' => 'https://gifts.example', 'pageId' => null, 'score' => null,
         ])
-        ->and($actions[1])->toMatchArray(['kind' => 'button', 'ref' => 'instagram', 'label' => 'Instagram']);
+        ->and($actions[1])->toMatchArray(['id' => 'instagram', 'kind' => 'external', 'label' => 'Instagram']);
 
     // Ordering object carries the raw preferences for dashboard/preview surfaces.
     $ordering = (array) $payload['ordering'];
@@ -208,110 +202,10 @@ it('applies manual page order when smart_page_order is off — unknown dropped, 
     expect($payload['pageOrder'])->toBe(['links', 'home', 'listen']);
 });
 
-it('skips a non-uuid service content_key (Fresha-embedded booking service) without letting it hijack a whereIn lookup', function () {
-    $tenant = createTenant('pay-fresha-svc');
-
-    $realServiceId = (string) Str::uuid();
-    DB::connection('pgsql')->table('site.services')->insert([
-        'id' => $realServiceId,
-        'user_id' => $tenant->id,
-        'title' => 'Haircut',
-        'is_active' => 1,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
-
-    // SQLite's site.services.id is untyped TEXT (tests/Pest.php's
-    // setupServicesTable()), so a row can be planted at a non-uuid key too —
-    // something the real Postgres uuid column could never hold. If
-    // itemLabels() ever sent this key into the whereIn() unfiltered, it would
-    // "accidentally" resolve a label here under SQLite (masking the bug)
-    // instead of throwing SQLSTATE[22P02] like it does against the real uuid
-    // column. The fix — filtering to uuid-shaped keys before the query — must
-    // skip it regardless of whether a row happens to match.
-    DB::connection('pgsql')->table('site.services')->insert([
-        'id' => 's:19380420',
-        'user_id' => $tenant->id,
-        'title' => 'Ghost service (should never resolve)',
-        'is_active' => 1,
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
-
-    // Both ranked in the top ITEMS_PER_TYPE=2 for content_type='service'. The
-    // second key mirrors Fresha's own scraped service id format verbatim
-    // (FreshaScraper::extractServices(): "Only real services (id prefixed
-    // s:) are kept") — how a Fresha-embedded booking service actually reaches
-    // item-seen/click tracking on the Services/booking section, since
-    // ItemSeenRequest only requires item_id be a string, not a uuid.
-    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
-        ['id' => (string) Str::uuid(), 'site_id' => $tenant->site->id, 'content_type' => 'service', 'content_key' => $realServiceId, 'score' => 5.0, 'rank' => 1, 'computed_at' => now()->toISOString()],
-        ['id' => (string) Str::uuid(), 'site_id' => $tenant->site->id, 'content_type' => 'service', 'content_key' => 's:19380420', 'score' => 4.0, 'rank' => 2, 'computed_at' => now()->toISOString()],
-    ]);
-
-    $payload = buildProfilePayload($tenant);
-    $serviceActions = collect($payload['rankedActions'])->where('itemType', 'service')->keyBy('itemKey');
-
-    expect($serviceActions)->toHaveCount(2)
-        ->and($serviceActions[$realServiceId]['label'])->toBe('Haircut')
-        ->and($serviceActions['s:19380420']['label'])->toBeNull();
-});
-
-it('skips a non-uuid gallery_item content_key without letting it hijack a whereIn lookup', function () {
-    $tenant = createTenant('pay-gallery-guard');
-
-    $realMediaId = (string) Str::uuid();
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $realMediaId,
-        'site_id' => $tenant->site->id,
-        'pool' => 'gallery',
-        'is_active' => 1,
-        'processing_state' => 'ready',
-        'caption' => 'Sunset patio',
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
-
-    // SQLite's site.site_media.id is untyped TEXT (tests/Pest.php's
-    // setupSiteMediaTable()), so a row can be planted at a non-uuid key too —
-    // something the real Postgres uuid column could never hold. If
-    // itemLabels() ever sent this key into the whereIn() unfiltered, it would
-    // "accidentally" resolve a label here under SQLite (masking the bug)
-    // instead of throwing SQLSTATE[22P02] like it does against the real uuid
-    // column. The fix — filtering to uuid-shaped keys before the query — must
-    // skip it regardless of whether a row happens to match.
-    DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => 'm:19380420',
-        'site_id' => $tenant->site->id,
-        'pool' => 'gallery',
-        'is_active' => 1,
-        'processing_state' => 'ready',
-        'caption' => 'Ghost media (should never resolve)',
-        'created_at' => now()->toISOString(),
-        'updated_at' => now()->toISOString(),
-    ]);
-
-    // Both ranked in the top ITEMS_PER_TYPE=2 for content_type='gallery_item'.
-    // The second key mirrors how a non-uuid item_id reaches item-seen/click
-    // tracking on the Gallery section — ItemSeenRequest only requires item_id
-    // be a string, not a uuid, so any client-supplied identifier can land here.
-    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
-        ['id' => (string) Str::uuid(), 'site_id' => $tenant->site->id, 'content_type' => 'gallery_item', 'content_key' => $realMediaId, 'score' => 5.0, 'rank' => 1, 'computed_at' => now()->toISOString()],
-        ['id' => (string) Str::uuid(), 'site_id' => $tenant->site->id, 'content_type' => 'gallery_item', 'content_key' => 'm:19380420', 'score' => 4.0, 'rank' => 2, 'computed_at' => now()->toISOString()],
-    ]);
-
-    $payload = buildProfilePayload($tenant);
-    $galleryActions = collect($payload['rankedActions'])->where('itemType', 'gallery_item')->keyBy('itemKey');
-
-    expect($galleryActions)->toHaveCount(2)
-        ->and($galleryActions[$realMediaId]['label'])->toBe('Sunset patio')
-        ->and($galleryActions['m:19380420']['label'])->toBeNull();
-});
-
 it('emits ordering defaults (smart everywhere) and keeps the popularity map action-free', function () {
     $tenant = createTenant('pay-defaults');
     payloadLinkBlock($tenant, ['platform' => 'instagram', 'title' => 'Instagram', 'url' => 'https://instagram.com/x']);
-    insertActionScore($tenant->site->id, 'button:instagram', 0.7, 1);
+    insertActionScore($tenant->site->id, 'instagram', 0.7, 1);
 
     $payload = buildProfilePayload($tenant);
 

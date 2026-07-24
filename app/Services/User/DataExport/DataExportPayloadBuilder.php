@@ -169,6 +169,7 @@ class DataExportPayloadBuilder
             ['name' => 'analytics.link_clicks', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsLinkClicks($userId)],
             ['name' => 'analytics.section_views', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSectionViews($userId)],
             ['name' => 'analytics.item_views', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsItemViews($userId)],
+            ['name' => 'analytics.action_events', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsActionEvents($userId)],
             [
                 'name' => 'customers',
                 'kind' => 'rows',
@@ -433,6 +434,24 @@ class DataExportPayloadBuilder
                 ->table('analytics.item_views')
                 ->select([
                     'id', 'item_type', 'item_id', 'item_title', 'section_key', 'occurred_at',
+                    'referrer', 'country_code', 'device_type', 'created_at',
+                ])
+                ->where('user_id', $userId)
+                ->orderBy('occurred_at')
+        );
+    }
+
+    /**
+     * Action exposure/tap events (the unified actions system). Same
+     * denormalised-user_id posture as streamAnalyticsItemViews() above.
+     */
+    private function streamAnalyticsActionEvents(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('analytics.action_events')
+                ->select([
+                    'id', 'action_id', 'event', 'occurred_at',
                     'referrer', 'country_code', 'device_type', 'created_at',
                 ])
                 ->where('user_id', $userId)

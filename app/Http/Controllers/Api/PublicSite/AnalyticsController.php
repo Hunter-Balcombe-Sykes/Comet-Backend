@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\DetectsClientInfo;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Controllers\Concerns\ResolvesSiteFromRequest;
+use App\Http\Requests\Api\PublicSite\Analytics\ActionSeenRequest;
+use App\Http\Requests\Api\PublicSite\Analytics\ActionTapRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ClickRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\PageviewRequest;
@@ -261,6 +263,102 @@ class AnalyticsController extends ApiController
     }
 
     /**
+     * Action-exposure ingest (unified actions system, demand-rate scoring).
+     * Mirrors itemSeen() exactly — resolve + publication-gate + origin-bind +
+     * bot-drop + 5min Redis dedup — but keyed by (event='seen', action_id)
+     * instead of (item_type, item_id). Writes analytics.action_events.
+     */
+    public function actionSeen(ActionSeenRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        $site = $this->resolvePublishedSite($data, $error);
+        if (! $site) {
+            return $error;
+        }
+
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
+        if ($this->isBotUserAgent($request->userAgent())) {
+            return $this->success(['message' => 'Action seen recorded'], 200);
+        }
+
+        $id = (string) Str::orderedUuid();
+
+        $identifier = $this->dedupIdentifier($data, $request);
+        $key = CacheKeyGenerator::analyticsActionDedup($site->id, 'seen', $data['action_id'], $identifier);
+        $claim = $this->dedup->claim($key, $id, (int) config('partna.analytics.action_dedup_ttl_seconds', 300));
+        if (! $claim['novel']) {
+            return $this->success(['message' => 'Action seen recorded', 'view_id' => $claim['id']], 201);
+        }
+
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_ACTION_SEEN,
+            request: $request,
+            site: $site,
+            data: $data,
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            id: $id,
+            actionId: $data['action_id'],
+        );
+
+        $this->ingestor->ingest($event);
+
+        return $this->success(['message' => 'Action seen recorded', 'view_id' => $event->id], 201);
+    }
+
+    /**
+     * Action-tap ingest (unified actions system, demand-rate scoring). Same
+     * shape as actionSeen() but a shorter dedup window — repeated taps on the
+     * SAME action within a session are a real, distinct signal each time
+     * (matching how RankedActionsComputer counts DISTINCT sessions, not raw
+     * events — a short window only collapses accidental double-fires, e.g. a
+     * fast double-tap or a duplicate sendBeacon retry).
+     */
+    public function actionTap(ActionTapRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+
+        $site = $this->resolvePublishedSite($data, $error);
+        if (! $site) {
+            return $error;
+        }
+
+        if (! $this->originAllowed($request, $site, $data)) {
+            return $this->error('Site not found', 404);
+        }
+
+        if ($this->isBotUserAgent($request->userAgent())) {
+            return $this->success(['message' => 'Action tap recorded'], 200);
+        }
+
+        $id = (string) Str::orderedUuid();
+
+        $identifier = $this->dedupIdentifier($data, $request);
+        $key = CacheKeyGenerator::analyticsActionDedup($site->id, 'tap', $data['action_id'], $identifier);
+        $claim = $this->dedup->claim($key, $id, (int) config('partna.analytics.action_tap_dedup_ttl_seconds', 3));
+        if (! $claim['novel']) {
+            return $this->success(['message' => 'Action tap recorded', 'click_id' => $claim['id']], 201);
+        }
+
+        $event = $this->buildEvent(
+            type: AnalyticsEvent::TYPE_ACTION_TAP,
+            request: $request,
+            site: $site,
+            data: $data,
+            referrer: $this->sanitizeReferrer($data['referrer'] ?? $request->headers->get('referer')),
+            id: $id,
+            actionId: $data['action_id'],
+        );
+
+        $this->ingestor->ingest($event);
+
+        return $this->success(['message' => 'Action tap recorded', 'click_id' => $event->id], 201);
+    }
+
+    /**
      * Session heartbeat (analytics v2). The tracker reports cumulative visible-time
      * every ~25s; the writer upserts analytics.site_sessions with GREATEST() so
      * there is no dedup here — retries and out-of-order delivery are harmless.
@@ -442,6 +540,7 @@ class AnalyticsController extends ApiController
         ?string $itemId = null,
         ?string $itemTitle = null,
         ?int $durationMs = null,
+        ?string $actionId = null,
     ): AnalyticsEvent {
         return new AnalyticsEvent(
             id: $id ?? (string) Str::orderedUuid(),
@@ -484,6 +583,7 @@ class AnalyticsController extends ApiController
             itemId: $itemId,
             itemTitle: $itemTitle,
             durationMs: $durationMs,
+            actionId: $actionId,
         );
     }
 

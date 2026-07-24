@@ -4,57 +4,61 @@ namespace App\Services\PublicSite;
 
 use App\Enums\SitepageId;
 use App\Models\Core\Site\Block;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
-use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Analytics\ContentPopularityReader;
-use App\Services\Analytics\RankedActionsComputer;
+use App\Services\PublicSite\Actions\ActionVocabulary;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 /**
- * Unified site ACTIONS — the one ranked list the ONE lander renders its CTA
- * buttons from. An action is {kind: page|item|button} + a kind-local ref:
- *   - page   : ref = taxonomy page-id (home excluded — the lander IS home)
- *   - item   : ref = "<itemType>:<itemKey>" (keys match content_popularity_scores)
- *   - button : ref = platform slug ('booking' = the general booking link)
+ * Unified site ACTIONS — the one ranked list the lander renders its CTA
+ * buttons from. Fixed vocabulary (App\Services\PublicSite\Actions\
+ * ActionVocabulary): 24 static ids + 2 dynamic families (ordering:<id>,
+ * custom:<key>). Every action is {id, kind: page|external, label, pageId,
+ * url, platform, sourceCreatedAt} — `id` is both the catalog identity and the
+ * storage key (content_key in analytics.content_popularity_scores).
  *
- * This service owns the POOL (what actions exist right now) and the wire
- * resolution (ordering the pool by stored action ranks, or by the owner's
- * manual list when smart_actions is off). The SCORING lives in
- * RankedActionsComputer and runs inside analytics:compute-popularity —
- * existing page/item scores are consumed, never recomputed here.
+ * This service owns the POOL (what actions exist right now, presence-gated
+ * per site) and the wire resolution (ordering the pool by stored action
+ * ranks, or by the owner's manual list when smart_actions is off). The
+ * SCORING lives in RankedActionsComputer and runs inside
+ * analytics:compute-popularity — this class never scores anything.
  *
  * Consumed by IndividualProfilePayloadBuilder (public payload `rankedActions`
  * + `ordering`), UserSiteActionsController (dashboard picker data) and
  * ComputeContentPopularityScores (pool for the scoring run).
+ *
+ * Design spec: docs/superpowers/plans/2026-07-23-actions-rebuild-demand-rate.md
  */
 class SiteActionsService
 {
     /**
-     * Scored item_type → the sitepage hosting it. Item actions deep-link to
-     * this page; types absent here (e.g. legacy 'block') are not actionable.
-     * Inverse-consistent with ComputeContentPopularityScores' click taxonomy.
+     * The 17 media + social action ids resolved identically: prefer an
+     * active IntegrationConnection for the platform; else fall back to a
+     * live platform-tagged link block (D4). Order = ActionVocabulary
+     * canonical order, kept explicit here (not sliced) so a future
+     * vocabulary reorder can't silently reshuffle this list's meaning.
+     *
+     * @var list<string>
+     */
+    private const PLATFORM_ACTION_IDS = [
+        'spotify', 'soundcloud', 'apple-music', 'apple-podcasts', 'twitch',
+        'instagram', 'facebook', 'linkedin', 'youtube', 'tiktok', 'x',
+        'snapchat', 'pinterest', 'threads', 'discord', 'reddit', 'telegram',
+    ];
+
+    /**
+     * Action id → underlying platform slug, for the one id that diverges
+     * from its slug (config/partna.php's social_platforms + the refresh-
+     * interval registry both key Apple Podcasts singular: 'apple-podcast').
+     * Every other id in PLATFORM_ACTION_IDS equals its own platform slug.
      *
      * @var array<string, string>
      */
-    public const ITEM_TYPE_TO_PAGE = [
-        'shop_product' => 'shop',
-        'service' => 'services',
-        'engine_item' => 'events',
-        'listen_item' => 'listen',
-        'watch_item' => 'watch',
-        'link_item' => 'links',
-        'gallery_item' => 'gallery',
-        'menu_item' => 'menu',
-        'menu_category' => 'menu',
+    private const ACTION_ID_TO_PLATFORM_SLUG = [
+        'apple-podcasts' => 'apple-podcast',
     ];
-
-    // Top N items per item_type enter the pool (by stored popularity rank) —
-    // keeps the ranked list CTA-sized instead of drowning it in catalog rows.
-    private const ITEMS_PER_TYPE = 2;
 
     // Defensive cap on a CUSTOM action label at emit time (mirrors the request
     // validator's max:80). Bounds a stray/unvalidated write, not a normal one.
@@ -62,26 +66,26 @@ class SiteActionsService
 
     public function __construct(
         private readonly SitepageDataResolverService $resolver,
-        private readonly ContentPopularityReader $popularity,
     ) {}
 
     /**
-     * Enumerate the site's live action pool. Sections/booking/ranks are
+     * Enumerate the site's live action pool — every id from the fixed
+     * vocabulary the site currently has content for. Sections/booking are
      * injectable so callers that already loaded them (payload builder, the
      * scoring command) don't re-query; when omitted they're loaded here.
      *
-     * Pool entry shape (internal — toWire() projects the public subset):
-     *   {kind, ref, label: ?string, url: ?string, pageId: ?string,
-     *    itemType: ?string, itemKey: ?string,
-     *    clickPlatforms: list<string>,  // button-only: link_clicks.platform values that count as this button's clicks
-     *    createdAt: ?string}            // button-only: recency anchor
+     * Pool entry shape:
+     *   {id: string, kind: 'page'|'external', label: string,
+     *    pageId: ?string,      // page kind only — the taxonomy page-id
+     *    url: ?string,         // external kind only — already safeHref-gated
+     *    platform: ?string,    // media/social ids only — the icon slug
+     *    sourceCreatedAt: ?string}  // ISO timestamp of the owning connection/block, when known
      *
      * @param  Collection<string, Block>|null  $sections
      * @param  array{state: string, data: array|null}|null  $booking
-     * @param  array<string, array<string, int>>|null  $ranks  content_type => content_key => rank
      * @return list<array<string, mixed>>
      */
-    public function pool(User $pro, ?Site $site, ?Collection $sections = null, ?array $booking = null, ?array $ranks = null): array
+    public function pool(User $pro, ?Site $site, ?Collection $sections = null, ?array $booking = null): array
     {
         if ($site === null) {
             return [];
@@ -89,257 +93,236 @@ class SiteActionsService
 
         $sections ??= $this->resolver->loadSections($site);
         $booking ??= $this->resolver->getBooking($site, $sections);
-        $ranks ??= $this->popularity->forSite($site->id);
 
         $caps = AccountCapabilities::for($pro);
-        $present = $this->resolver->presentPageIds($site, $caps, $sections);
+        $present = array_flip($this->resolver->presentPageIds($site, $caps, $sections));
+        $links = $this->resolver->getLinks($site, $booking);
+        $linkCreatedAt = $this->linkBlockCreatedAt($site);
 
-        return array_merge(
-            $this->pageActions($present),
-            $this->buttonActions($site, $sections, $booking),
-            $this->itemActions($site, $present, $ranks),
-        );
-    }
+        $connectionsByPlatform = [];
+        foreach (
+            IntegrationConnection::query()
+                ->where('user_id', $pro->id)
+                ->where('is_active', true)
+                ->get(['id', 'platform', 'resource_id', 'payload', 'created_at']) as $conn
+        ) {
+            $connectionsByPlatform[strtolower((string) $conn->platform)][] = $conn;
+        }
 
-    /**
-     * Every present page except home becomes a page action (the lander IS the
-     * home page — a "go home" CTA is noise).
-     *
-     * @param  list<string>  $present
-     * @return list<array<string, mixed>>
-     */
-    private function pageActions(array $present): array
-    {
         $out = [];
-        foreach ($present as $page) {
-            if ($page === 'home') {
+
+        $reservation = $this->earliestConnection($connectionsByPlatform, ['opentable', 'resdiary', 'nowbookit']);
+        if ($reservation !== null) {
+            $url = $this->safeHref($this->connectionPayload($reservation)['url'] ?? null);
+            if ($url !== null) {
+                $out[] = $this->entry('reservations', 'external', 'Reservations', url: $url, createdAt: $reservation->created_at);
+            }
+        }
+
+        if (isset($present['shop'])) {
+            $out[] = $this->entry('shop', 'page', ActionVocabulary::labelFor('shop'), pageId: 'shop');
+        }
+
+        $bandcamp = $this->earliestConnection($connectionsByPlatform, ['bandcamp']);
+        if ($bandcamp !== null) {
+            $out[] = $this->entry('shop-tracks', 'page', ActionVocabulary::labelFor('shop-tracks'), pageId: 'shop-tracks', createdAt: $bandcamp->created_at);
+        }
+
+        if (isset($present['events'])) {
+            $out[] = $this->entry('events', 'page', ActionVocabulary::labelFor('events'), pageId: 'events');
+        }
+
+        // D1: services page present → page action to /services. Else, when a
+        // booking link/provider is live, external action straight to that URL.
+        // Never both — an owner with both sees the richer /services page.
+        if (isset($present['services'])) {
+            $out[] = $this->entry('booking-services', 'page', ActionVocabulary::labelFor('booking-services'), pageId: 'services');
+        } elseif (($booking['state'] ?? null) === 'live') {
+            $url = $this->safeHref($booking['data']['resolved_url'] ?? null);
+            if ($url !== null) {
+                $out[] = $this->entry('booking-services', 'external', ActionVocabulary::labelFor('booking-services'), url: $url);
+            }
+        }
+
+        if (isset($present['menu'])) {
+            $out[] = $this->entry('menu', 'page', ActionVocabulary::labelFor('menu'), pageId: 'menu');
+        }
+
+        if (isset($present['contact'])) {
+            $out[] = $this->entry('contact', 'page', ActionVocabulary::labelFor('contact'), pageId: 'contact');
+        }
+
+        foreach (self::PLATFORM_ACTION_IDS as $actionId) {
+            $slug = self::ACTION_ID_TO_PLATFORM_SLUG[$actionId] ?? $actionId;
+            $conn = $this->earliestConnection($connectionsByPlatform, [$slug]);
+            $url = $this->platformConnectionUrl($conn, $slug);
+            $createdAt = $conn?->created_at;
+
+            if ($url === null) {
+                // D4 fallback: a live link block tagged with this platform.
+                $block = collect($links)->first(fn (array $l): bool => ($l['platform'] ?? null) === $slug);
+                if ($block !== null) {
+                    $url = $this->safeHref($block['url'] ?? null);
+                    $createdAt = $linkCreatedAt[$block['id']] ?? null;
+                }
+            }
+
+            if ($url !== null) {
+                $out[] = $this->entry($actionId, 'external', ActionVocabulary::labelFor($actionId), url: $url, platform: $actionId, createdAt: $createdAt);
+            }
+        }
+
+        if ($caps->can_use_online_ordering) {
+            foreach ($connectionsByPlatform['online-ordering'] ?? [] as $conn) {
+                $payload = $this->connectionPayload($conn);
+                $url = $this->safeHref($payload['url'] ?? null);
+                if ($url === null) {
+                    continue;
+                }
+                $label = trim((string) ($payload['name'] ?? ''));
+                $out[] = $this->entry(
+                    'ordering:'.$conn->resource_id,
+                    'external',
+                    $label !== '' ? $label : 'Order online',
+                    url: $url,
+                    createdAt: $conn->created_at,
+                );
+            }
+        }
+
+        // D2: custom links — every live link block that ISN'T the synthesized
+        // booking row and isn't one of the 17 platform ids above, PLUS every
+        // active 'custom' platform connection. Deduped by URL; a block wins
+        // over a connection at the same URL (first-write-wins via `??=`).
+        $platformSlugsInVocab = array_map(
+            static fn (string $id): string => self::ACTION_ID_TO_PLATFORM_SLUG[$id] ?? $id,
+            self::PLATFORM_ACTION_IDS,
+        );
+        $byUrl = [];
+        foreach ($links as $link) {
+            if ((string) $link['id'] === '' || ($link['category'] ?? null) === 'booking') {
+                continue; // synthesized booking row — handled by booking-services
+            }
+            $platform = $link['platform'] ?? null;
+            if ($platform !== null && in_array($platform, $platformSlugsInVocab, true)) {
+                continue; // already emitted above as a platform action
+            }
+            $url = $this->safeHref($link['url'] ?? null);
+            if ($url === null) {
                 continue;
             }
-            $out[] = $this->entry('page', $page, label: ucfirst($page), pageId: $page);
+            $title = trim((string) ($link['title'] ?? ''));
+            $byUrl[$url] ??= [
+                'key' => (string) $link['id'],
+                'label' => $title !== '' ? $title : $url,
+                'createdAt' => $linkCreatedAt[(string) $link['id']] ?? null,
+            ];
+        }
+        foreach ($connectionsByPlatform['custom'] ?? [] as $conn) {
+            $payload = $this->connectionPayload($conn);
+            $url = $this->safeHref($payload['url'] ?? null);
+            if ($url === null) {
+                continue;
+            }
+            $name = trim((string) ($payload['name'] ?? ''));
+            $byUrl[$url] ??= [
+                'key' => (string) $conn->resource_id,
+                'label' => $name !== '' ? $name : $url,
+                'createdAt' => $conn->created_at,
+            ];
+        }
+        foreach ($byUrl as $url => $c) {
+            $out[] = $this->entry('custom:'.$c['key'], 'external', (string) $c['label'], url: $url, createdAt: $c['createdAt']);
         }
 
         return $out;
     }
 
     /**
-     * Platform-level CTAs derived from the payload's existing links source
-     * (link blocks + the synthesised booking row). Rules:
-     *   - category 'booking' → ref 'booking' (the general booking link).
-     *   - platform-tagged rows → ref = platform slug (instagram, youtube, ...).
-     *   - category 'custom' rows are EXCLUDED — they're scored as link_item items.
-     *   - dedupe by ref, first row (sort_order) wins.
-     *
-     * clickPlatforms lists the link_clicks.platform values whose clicks count
-     * as this button's native signal (booking also matches its underlying
-     * platform, e.g. fresha). createdAt anchors the recency term.
-     *
-     * @param  Collection<string, Block>  $sections
-     * @param  array{state: string, data: array|null}  $booking
-     * @return list<array<string, mixed>>
+     * The connection's own profile/channel URL for a media/social platform.
+     * Instagram + YouTube store only a handle (no direct url/link field in
+     * the public allowlist) — rebuild their canonical URL the same way
+     * apps/pages/src/content/platforms/social-links.ts does, so the action's
+     * href always matches what the sitepage itself would show. Every other
+     * platform exposes `url` or `link` directly.
      */
-    private function buttonActions(Site $site, Collection $sections, array $booking): array
+    private function platformConnectionUrl(?IntegrationConnection $conn, string $slug): ?string
     {
-        $links = $this->resolver->getLinks($site, $booking);
-        if ($links === []) {
-            return [];
+        if ($conn === null) {
+            return null;
         }
+        $payload = $this->connectionPayload($conn);
 
-        // created_at per link block (getLinks projects it away) — one pluck.
-        $createdAt = Block::query()
+        return match ($slug) {
+            'instagram' => isset($payload['username']) && trim((string) $payload['username']) !== ''
+                ? $this->safeHref('https://www.instagram.com/'.trim((string) $payload['username']))
+                : null,
+            'youtube' => isset($payload['handle']) && trim((string) $payload['handle']) !== ''
+                ? $this->safeHref('https://www.youtube.com/@'.trim((string) $payload['handle']))
+                : null,
+            default => $this->safeHref($payload['url'] ?? $payload['link'] ?? null),
+        };
+    }
+
+    /** @return array<string, mixed> */
+    private function connectionPayload(IntegrationConnection $conn): array
+    {
+        return is_array($conn->payload) ? $conn->payload : [];
+    }
+
+    /**
+     * The earliest active connection across one or more platform slugs (a
+     * single slug for the common case; multiple for reservations' three
+     * interchangeable providers). Plain-array grouping — deliberately not an
+     * Eloquent Collection groupBy/flatten chain, whose nested-collection
+     * type juggling misbehaves here.
+     *
+     * @param  array<string, list<IntegrationConnection>>  $byPlatform
+     * @param  list<string>  $slugs
+     */
+    private function earliestConnection(array $byPlatform, array $slugs): ?IntegrationConnection
+    {
+        $candidates = [];
+        foreach ($slugs as $slug) {
+            foreach ($byPlatform[$slug] ?? [] as $conn) {
+                $candidates[] = $conn;
+            }
+        }
+        if ($candidates === []) {
+            return null;
+        }
+        usort($candidates, static fn (IntegrationConnection $a, IntegrationConnection $b): int => ($a->created_at ?? '') <=> ($b->created_at ?? ''));
+
+        return $candidates[0];
+    }
+
+    /**
+     * created_at per live links-group block, keyed by block id — one pluck,
+     * reused for both the platform-fallback and custom-link paths above.
+     * getLinks() projects created_at away, so this is the cheapest way back to it.
+     *
+     * @return array<string, string>
+     */
+    private function linkBlockCreatedAt(Site $site): array
+    {
+        return Block::query()
             ->where('site_id', $site->id)
             ->where('block_group', 'links')
             ->whereNull('deleted_at')
-            ->pluck('created_at', 'id');
-
-        $out = [];
-        $seen = [];
-        foreach ($links as $link) {
-            $category = (string) ($link['category'] ?? 'custom');
-            $platform = is_string($link['platform'] ?? null) ? $link['platform'] : null;
-            $isBooking = $category === 'booking';
-
-            if (! $isBooking && ($platform === null || $category === 'custom')) {
-                continue;
-            }
-
-            $ref = $isBooking ? 'booking' : $platform;
-            if (isset($seen[$ref])) {
-                continue;
-            }
-            $seen[$ref] = true;
-
-            // Booking is synthesised (no block row) — its recency anchor is the
-            // booking section block's created_at.
-            $anchor = $isBooking
-                ? $sections->get('booking')?->created_at?->toISOString()
-                : (($id = (string) ($link['id'] ?? '')) !== '' ? ($createdAt[$id] ?? null) : null);
-
-            $out[] = $this->entry(
-                'button',
-                (string) $ref,
-                label: (string) ($link['title'] ?? ''),
-                url: (string) ($link['url'] ?? ''),
-                clickPlatforms: array_values(array_unique(array_filter([
-                    $isBooking ? 'booking' : null,
-                    $platform,
-                ]))),
-                createdAt: is_string($anchor) || $anchor === null ? $anchor : (string) $anchor,
-            );
-        }
-
-        return $out;
-    }
-
-    /**
-     * Top-ranked scored items (per type) whose hosting page is present. Labels
-     * are best-effort: services + link/gallery items resolve here; platform-
-     * sourced items (shop/listen/watch/events) emit label null — the sitepage
-     * app resolves those from its own resolved content by (itemType, itemKey)
-     * and MUST skip entries it cannot resolve.
-     *
-     * @param  list<string>  $present
-     * @param  array<string, array<string, int>>  $ranks
-     * @return list<array<string, mixed>>
-     */
-    private function itemActions(Site $site, array $present, array $ranks): array
-    {
-        $presentSet = array_flip($present);
-
-        $picked = [];
-        foreach (self::ITEM_TYPE_TO_PAGE as $type => $page) {
-            if (! isset($presentSet[$page]) || ! isset($ranks[$type]) || $ranks[$type] === []) {
-                continue;
-            }
-            $typeRanks = $ranks[$type];
-            asort($typeRanks);
-            foreach (array_slice(array_keys($typeRanks), 0, self::ITEMS_PER_TYPE) as $key) {
-                $picked[] = ['type' => $type, 'key' => (string) $key, 'page' => $page];
-            }
-        }
-
-        if ($picked === []) {
-            return [];
-        }
-
-        $labels = $this->itemLabels($site, $picked);
-
-        $out = [];
-        foreach ($picked as $item) {
-            $out[] = $this->entry(
-                'item',
-                $item['type'].':'.$item['key'],
-                label: $labels[$item['type']][$item['key']] ?? null,
-                pageId: $item['page'],
-                itemType: $item['type'],
-                itemKey: $item['key'],
-            );
-        }
-
-        return $out;
-    }
-
-    /**
-     * Backend-resolvable item labels, keyed [itemType][itemKey]. Services by
-     * id; gallery items by media caption/alt; link items by matching the live
-     * links list on block id or destination url.
-     *
-     * @param  list<array{type: string, key: string, page: string}>  $picked
-     * @return array<string, array<string, string>>
-     */
-    private function itemLabels(Site $site, array $picked): array
-    {
-        $byType = [];
-        foreach ($picked as $item) {
-            $byType[$item['type']][] = $item['key'];
-        }
-
-        $labels = [];
-
-        if (! empty($byType['service'])) {
-            // Item keys of type 'service' are normally site.services uuids, but a
-            // Fresha-embedded booking service can also score here: its click/
-            // impression events carry Fresha's own catalog id verbatim as item_id
-            // (format "s:<numericId>" — see FreshaScraper::extractServices()), and
-            // ItemSeenRequest only requires item_id be a string, not a uuid.
-            // Postgres rejects a non-uuid literal in a uuid whereIn() outright
-            // (SQLSTATE 22P02), so filter to uuid-shaped keys first — a Fresha id
-            // then falls through to label:null, the same "can't backend-resolve,
-            // skip it" contract already used below for shop/listen/watch/events.
-            $serviceIds = array_values(array_filter(
-                $byType['service'],
-                static fn (string $id): bool => Str::isUuid($id),
-            ));
-            if ($serviceIds !== []) {
-                $titles = Service::query()
-                    ->whereIn('id', $serviceIds)
-                    ->pluck('title', 'id');
-                foreach ($titles as $id => $title) {
-                    if (is_string($title) && trim($title) !== '') {
-                        $labels['service'][(string) $id] = trim($title);
-                    }
-                }
-            }
-        }
-
-        if (! empty($byType['gallery_item'])) {
-            // Same class of bug as the 'service' branch above: a gallery_item
-            // content_key can be any string (ItemSeenRequest only requires
-            // item_id be a string), but site.site_media.id is a genuine
-            // Postgres uuid NOT NULL column — a non-uuid literal in
-            // whereIn('id', ...) throws SQLSTATE[22P02] there. Filter to
-            // uuid-shaped keys first; a non-uuid key falls through to
-            // label:null, same "can't backend-resolve, skip it" contract.
-            $mediaIds = array_values(array_filter(
-                $byType['gallery_item'],
-                static fn (string $id): bool => Str::isUuid($id),
-            ));
-            if ($mediaIds !== []) {
-                $media = SiteMedia::query()
-                    ->where('site_id', $site->id)
-                    ->whereIn('id', $mediaIds)
-                    ->get(['id', 'caption', 'alt_text']);
-                foreach ($media as $row) {
-                    $label = trim((string) ($row->caption ?? '')) !== ''
-                        ? trim((string) $row->caption)
-                        : trim((string) ($row->alt_text ?? ''));
-                    if ($label !== '') {
-                        $labels['gallery_item'][(string) $row->id] = $label;
-                    }
-                }
-            }
-        }
-
-        if (! empty($byType['link_item'])) {
-            // Theme beacons key link items by block id or destination url —
-            // match either against the live link blocks.
-            $rows = Block::query()
-                ->where('site_id', $site->id)
-                ->where('block_group', 'links')
-                ->whereNull('deleted_at')
-                ->get(['id', 'title', 'url']);
-            foreach ($byType['link_item'] as $key) {
-                foreach ($rows as $row) {
-                    $title = trim((string) ($row->title ?? ''));
-                    if ($title !== '' && ((string) $row->id === $key || (string) $row->url === $key)) {
-                        $labels['link_item'][$key] = $title;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return $labels;
+            ->get(['id', 'created_at'])
+            ->mapWithKeys(fn (Block $b): array => [(string) $b->id => (string) $b->created_at])
+            ->all();
     }
 
     // ── Wire resolution ─────────────────────────────────────────────────
 
     /**
      * The final ordered action list the lander renders (top 6 of). Smart mode:
-     * stored action ranks resolved against the live pool (stale keys dropped),
+     * stored action ranks resolved against the live pool (stale ids dropped),
      * then not-yet-scored pool entries appended by prior (a just-connected
      * platform shows up before the next 15-min compute tick, score null).
-     * Manual mode: the owner's list resolved in order — unknown refs dropped
-     * (curation semantics, nothing appended), customs passed through.
+     * Manual mode (D6): strict curation — the owner's list resolved in order,
+     * unknown ids dropped, nothing auto-appended.
      *
      * @param  list<array<string, mixed>>  $pool
      * @param  list<array{key: string, score: float, rank: int}>  $stored
@@ -348,9 +331,9 @@ class SiteActionsService
      */
     public function resolveRankedActions(array $pool, array $stored, bool $smartActions, array $manualActions): array
     {
-        $byKey = [];
+        $byId = [];
         foreach ($pool as $entry) {
-            $byKey[$entry['kind'].':'.$entry['ref']] = $entry;
+            $byId[$entry['id']] = $entry;
         }
 
         if (! $smartActions) {
@@ -361,12 +344,7 @@ class SiteActionsService
                 }
                 if (($manual['kind'] ?? null) === 'custom') {
                     $label = is_string($manual['label'] ?? null) ? trim($manual['label']) : '';
-                    // Defense-in-depth on the EMIT path: only http(s) hrefs reach
-                    // the payload. UpdateSiteRequest validates url:http,https, but
-                    // StaffUpdateSiteRequest writes settings via a generic array
-                    // passthrough with NO per-kind validation — so an unvalidated
-                    // javascript:/data:/relative url could otherwise become a
-                    // button href. Re-check the scheme here regardless of writer.
+                    // Defense-in-depth on the EMIT path — see toWire()'s same gate.
                     $url = $this->safeHref($manual['url'] ?? null);
                     if ($label === '' || $url === null) {
                         continue;
@@ -375,13 +353,13 @@ class SiteActionsService
                         $label = mb_substr($label, 0, self::CUSTOM_LABEL_MAX);
                     }
                     $out[] = [
-                        'kind' => 'custom', 'ref' => null, 'label' => $label, 'url' => $url,
-                        'pageId' => null, 'itemType' => null, 'itemKey' => null, 'score' => null,
+                        'id' => null, 'kind' => 'custom', 'label' => $label, 'url' => $url,
+                        'pageId' => null, 'platform' => null, 'score' => null,
                     ];
 
                     continue;
                 }
-                $entry = $byKey[($manual['kind'] ?? '').':'.($manual['ref'] ?? '')] ?? null;
+                $entry = $byId[(string) ($manual['ref'] ?? '')] ?? null;
                 if ($entry !== null) {
                     $out[] = $this->toWire($entry);
                 }
@@ -393,24 +371,24 @@ class SiteActionsService
         $out = [];
         $used = [];
         foreach ($stored as $row) {
-            $entry = $byKey[$row['key']] ?? null;
+            $entry = $byId[$row['key']] ?? null;
             if ($entry === null) {
-                continue; // stale stored key — no longer in the pool
+                continue; // stale stored id — no longer in the pool
             }
             $used[$row['key']] = true;
             $out[] = $this->toWire($entry, $row['score']);
         }
 
         // Cold-path append: pool entries the scoring job hasn't stored yet,
-        // prior-ordered (deterministic ref tiebreak).
+        // prior-ordered (deterministic id tiebreak).
         $rest = array_values(array_filter(
             $pool,
-            static fn (array $entry): bool => ! isset($used[$entry['kind'].':'.$entry['ref']]),
+            static fn (array $entry): bool => ! isset($used[$entry['id']]),
         ));
         usort($rest, static function (array $a, array $b): int {
-            $cmp = RankedActionsComputer::priorFor($b) <=> RankedActionsComputer::priorFor($a);
+            $cmp = ActionVocabulary::priorFor($b['id']) <=> ActionVocabulary::priorFor($a['id']);
 
-            return $cmp !== 0 ? $cmp : strcmp((string) $a['ref'], (string) $b['ref']);
+            return $cmp !== 0 ? $cmp : strcmp((string) $a['id'], (string) $b['id']);
         });
         foreach ($rest as $entry) {
             $out[] = $this->toWire($entry);
@@ -420,27 +398,26 @@ class SiteActionsService
     }
 
     /**
-     * Public wire projection of a pool entry (drops internal clickPlatforms /
-     * createdAt). score: blended comparable score, null = not yet scored.
+     * Public wire projection of a pool entry. score: blended comparable
+     * score, null = not yet scored.
      *
      * @param  array<string, mixed>  $entry
-     * @return array{kind: string, ref: string, label: string|null, url: string|null, pageId: string|null, itemType: string|null, itemKey: string|null, score: float|null}
+     * @return array{id: string, kind: string, label: string, pageId: string|null, url: string|null, platform: string|null, score: float|null}
      */
     public function toWire(array $entry, ?float $score = null): array
     {
-        $label = is_string($entry['label'] ?? null) ? trim((string) $entry['label']) : '';
-        // Same emit-path scheme gate as the custom branch — a button href
-        // ultimately traces to a user-set link block, so keep the wire http(s)-only.
+        // Same emit-path scheme gate as the manual-custom branch — an
+        // external href ultimately traces to a user-set connection/link, so
+        // keep the wire http(s)-only regardless of which writer populated it.
         $url = $this->safeHref($entry['url'] ?? null);
 
         return [
+            'id' => (string) $entry['id'],
             'kind' => (string) $entry['kind'],
-            'ref' => (string) $entry['ref'],
-            'label' => $label !== '' ? $label : null,
-            'url' => $url,
+            'label' => (string) $entry['label'],
             'pageId' => $entry['pageId'] ?? null,
-            'itemType' => $entry['itemType'] ?? null,
-            'itemKey' => $entry['itemKey'] ?? null,
+            'url' => $url,
+            'platform' => $entry['platform'] ?? null,
             'score' => $score !== null ? round($score, 4) : null,
         ];
     }
@@ -490,19 +467,9 @@ class SiteActionsService
                 ),
             )),
             'smart_actions' => filter_var($settings['smart_actions'] ?? true, FILTER_VALIDATE_BOOL),
-            'manual_actions' => array_values(array_map(
-                static function (array $action): array {
-                    // A page-kind action ref is a page-id — normalize a legacy one.
-                    if (($action['kind'] ?? null) === 'page' && is_string($action['ref'] ?? null)) {
-                        $action['ref'] = SitepageId::normalizePageId($action['ref']);
-                    }
-
-                    return $action;
-                },
-                array_filter(
-                    is_array($settings['manual_actions'] ?? null) ? $settings['manual_actions'] : [],
-                    'is_array',
-                ),
+            'manual_actions' => array_values(array_filter(
+                is_array($settings['manual_actions'] ?? null) ? $settings['manual_actions'] : [],
+                'is_array',
             )),
         ];
     }
@@ -553,31 +520,23 @@ class SiteActionsService
         return $ordered;
     }
 
-    /**
-     * @param  list<string>  $clickPlatforms
-     * @return array<string, mixed>
-     */
     private function entry(
+        string $id,
         string $kind,
-        string $ref,
-        ?string $label = null,
-        ?string $url = null,
+        string $label,
         ?string $pageId = null,
-        ?string $itemType = null,
-        ?string $itemKey = null,
-        array $clickPlatforms = [],
-        ?string $createdAt = null,
+        ?string $url = null,
+        ?string $platform = null,
+        mixed $createdAt = null,
     ): array {
         return [
+            'id' => $id,
             'kind' => $kind,
-            'ref' => $ref,
             'label' => $label,
-            'url' => $url,
             'pageId' => $pageId,
-            'itemType' => $itemType,
-            'itemKey' => $itemKey,
-            'clickPlatforms' => $clickPlatforms,
-            'createdAt' => $createdAt,
+            'url' => $url,
+            'platform' => $platform,
+            'sourceCreatedAt' => $createdAt !== null ? (string) $createdAt : null,
         ];
     }
 }

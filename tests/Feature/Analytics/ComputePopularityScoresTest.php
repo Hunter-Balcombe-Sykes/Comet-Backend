@@ -19,6 +19,7 @@ beforeEach(function () {
     setupSectionViewsTable();
     setupLinkClicksTable();
     setupItemViewsTable();
+    setupActionEventsTable();
     setupContentPopularityScoresTable();
 });
 
@@ -63,15 +64,16 @@ it('seeds brand-new content with a freshness-only score (page + link item, zero 
         ->and((int) $item->rank)->toBe(1);
 });
 
-it('seeds nothing for ancient connections (boost below the floor)', function () {
+it('seeds nothing for ancient connections (boost below the floor) — the action layer still cold-starts, no freshness gate', function () {
     $tenant = createTenant('cmd-ancient');
+    $resourceId = 'link-'.Str::random(8);
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
         'platform' => 'custom',
-        'resource_id' => 'link-'.Str::random(8),
+        'resource_id' => $resourceId,
         'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/old']),
+        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/old', 'name' => 'Old link']),
         'is_active' => 1,
         'created_at' => now()->subDays(200)->toISOString(),
         'updated_at' => now()->subDays(200)->toISOString(),
@@ -86,9 +88,14 @@ it('seeds nothing for ancient connections (boost below the floor)', function () 
         ->where('content_type', '!=', 'action')
         ->count())->toBe(0);
 
-    // ...but the ranked-action layer still writes its cold-start row for the
-    // present Links page (priors + recency carry zero-signal sites by design).
-    expect(popularityScoreRow($tenant->site->id, 'action', 'page:links'))->not->toBeNull();
+    // ...but the action layer (2026-07-23 rebuild) has no freshness/floor gate
+    // at all — it cold-starts every pool entry at its prior CTR regardless of
+    // the underlying connection's age. The 200-day-old custom connection
+    // still yields its custom:<resource_id> action, scored at the 'custom'
+    // family's prior (0.05).
+    $row = popularityScoreRow($tenant->site->id, 'action', 'custom:'.$resourceId);
+    expect($row)->not->toBeNull()
+        ->and((float) $row->score)->toEqualWithDelta(0.05, 0.0001);
 });
 
 it('decays each day\'s events with a 90-day true half-life', function () {
@@ -212,13 +219,14 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     Exceptions::fake();
 
     $tenant = createTenant('cmd-obs3');
+    $resourceId = 'link-'.Str::random(8);
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
         'platform' => 'custom',
-        'resource_id' => 'link-'.Str::random(8),
+        'resource_id' => $resourceId,
         'resource_kind' => 'link',
-        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/obs3']),
+        'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/obs3', 'name' => 'Obs3 link']),
         'is_active' => 1,
         'created_at' => now()->toISOString(),
         'updated_at' => now()->toISOString(),
@@ -242,7 +250,7 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     expect(popularityScoreRow($tenant->site->id, 'link_item', 'https://example.com/obs3'))->not->toBeNull();
 
     // The action layer itself produced nothing — it exploded before writing.
-    expect(popularityScoreRow($tenant->site->id, 'action', 'page:links'))->toBeNull();
+    expect(popularityScoreRow($tenant->site->id, 'action', 'custom:'.$resourceId))->toBeNull();
 });
 
 // ── SCALE-3: the full sweep (no --site) scopes to sites with recent events ──

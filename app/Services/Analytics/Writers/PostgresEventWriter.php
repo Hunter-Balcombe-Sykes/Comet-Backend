@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics\Writers;
 
+use App\Models\Analytics\ActionEvent;
 use App\Models\Analytics\ItemView;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
@@ -45,6 +46,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
         $clickRows = [];
         $sectionRows = [];
         $itemRows = [];
+        $actionRows = [];
         $sessionEvents = [];
         $dwellEvents = [];
 
@@ -54,6 +56,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
                 AnalyticsEvent::TYPE_CLICK => $this->appendClickRow($event, $blocks, $clickRows),
                 AnalyticsEvent::TYPE_SECTION_VIEW => $this->appendSectionRow($event, $blocks, $sectionRows),
                 AnalyticsEvent::TYPE_ITEM_VIEW => $this->appendItemRow($event, $itemRows),
+                AnalyticsEvent::TYPE_ACTION_SEEN, AnalyticsEvent::TYPE_ACTION_TAP => $this->appendActionRow($event, $actionRows),
                 AnalyticsEvent::TYPE_SESSION_PING => $sessionEvents[] = $event,
                 AnalyticsEvent::TYPE_SECTION_DWELL => $dwellEvents[] = $event,
                 default => $this->drop($event, 'unknown_type'),
@@ -71,6 +74,9 @@ class PostgresEventWriter implements AnalyticsEventWriter
         }
         if ($itemRows !== []) {
             ItemView::query()->insertOrIgnore($itemRows);
+        }
+        if ($actionRows !== []) {
+            ActionEvent::query()->insertOrIgnore($actionRows);
         }
         if ($sessionEvents !== []) {
             $this->upsertSessions($sessionEvents);
@@ -270,6 +276,41 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'item_id' => $e->itemId,
             'item_title' => $e->itemTitle,
             'section_key' => $e->sectionKey,
+            'occurred_at' => $e->occurredAt,
+            'created_at' => now()->toISOString(),
+            'session_id' => $e->sessionId,
+            'visitor_id' => $e->visitorId,
+            'ip_hash' => $e->ipHash,
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
+            'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
+            'country_code' => $e->countryCode,
+            'device_type' => $e->deviceType,
+        ];
+    }
+
+    /**
+     * Append an action exposure/tap row (analytics.action_events). No block
+     * FK — self-describes via action_id, mirrors appendItemRow() exactly.
+     * event kind ('seen'/'tap') is the AnalyticsEvent type itself, not a
+     * separate field, so it's derived here rather than carried on the DTO.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function appendActionRow(AnalyticsEvent $e, array &$rows): void
+    {
+        if ($e->actionId === null) {
+            $this->drop($e, 'action_identity_missing');
+
+            return;
+        }
+
+        $rows[] = [
+            'id' => $e->id,
+            'user_id' => $e->userId,
+            'site_id' => $e->siteId,
+            'action_id' => $e->actionId,
+            'event' => $e->type === AnalyticsEvent::TYPE_ACTION_TAP ? 'tap' : 'seen',
             'occurred_at' => $e->occurredAt,
             'created_at' => now()->toISOString(),
             'session_id' => $e->sessionId,

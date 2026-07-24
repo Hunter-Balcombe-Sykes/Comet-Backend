@@ -103,7 +103,7 @@ class IndividualProfilePayloadBuilder
             );
 
         $rankedActions = $this->actions->resolveRankedActions(
-            $this->actions->pool($pro, $site, $sections, $booking, $ranks),
+            $this->actions->pool($pro, $site, $sections, $booking),
             $this->popularity->rankedActionsForSite($site?->id),
             $ordering['smart_actions'],
             $ordering['manual_actions'],

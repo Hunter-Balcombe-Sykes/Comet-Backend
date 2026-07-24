@@ -53,6 +53,7 @@ class AccountDeletionService
         'core.feedback',                       // purgeFeedbackRows() — FK is SET NULL, not CASCADE
         'notifications.email_subscriptions',   // purgeGlobalEmailSubscriptions() + purgeCrossTenantSubscriptions()
         'analytics.item_views',                // purgeItemViewsPii() — user_id is a denormalised column, no FK
+        'analytics.action_events',             // purgeActionEventsPii() — same denormalised-column shape as item_views
     ];
 
     /**
@@ -747,6 +748,7 @@ class AccountDeletionService
         $this->purgeGlobalEmailSubscriptions($professional, $lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
         $this->purgeItemViewsPii($professional);          // PRIV-3: analytics.item_views has no FK to core.users
+        $this->purgeActionEventsPii($professional);       // same PRIV-3 shape: analytics.action_events has no FK to core.users
 
         // Pre-null the two append-only audit links (staff_audit_log, handle_change_log) so
         // forceDelete's ON DELETE SET NULL cascade matches 0 rows there and never trips
@@ -1123,6 +1125,30 @@ class AccountDeletionService
             ]);
 
             // LIFE-5: surface to Nightwatch — matches purge()'s top-level pattern.
+            report($e);
+        }
+    }
+
+    /**
+     * Delete analytics.action_events rows for this professional — same
+     * PRIV-3 shape as purgeItemViewsPii() above (user_id is a denormalised
+     * nullable column, no FK to core.users), same reasoning: without an
+     * explicit purge, a deleted user's visitor ip_hash/user_agent/session_id
+     * would otherwise survive until the next PurgeRawAnalyticsEvents sweep.
+     */
+    private function purgeActionEventsPii(User $professional): void
+    {
+        try {
+            DB::connection('pgsql')
+                ->table('analytics.action_events')
+                ->where('user_id', $professional->id)
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Action event analytics erasure failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+
             report($e);
         }
     }

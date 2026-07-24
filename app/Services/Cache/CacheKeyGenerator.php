@@ -235,6 +235,16 @@ class CacheKeyGenerator
     }
 
     /**
+     * Action-seen/action-tap dedup claim key (AnalyticsController::actionSeen()/
+     * actionTap()). $event is 'seen'|'tap' — the two beacons dedup independently
+     * (a tap must never be swallowed by an earlier seen's claim on the same action).
+     */
+    public static function analyticsActionDedup(string $siteId, string $event, string $actionId, string $identifier): string
+    {
+        return "analytics:dedup:action:{$event}:{$siteId}:{$actionId}:{$identifier}";
+    }
+
+    /**
      * Derived insights for a professional. Computed over a fixed rolling window
      * (not the dashboard's selected range), so it's keyed by user only and shares
      * the summary version token — a new ingest busts both at once.

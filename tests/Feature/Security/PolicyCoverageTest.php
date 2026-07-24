@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Analytics\ActionEvent;
 use App\Models\Analytics\ItemView;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
@@ -43,6 +44,7 @@ const POLICY_EXEMPT = [
     // ResolvesSiteFromRequest at write time. Reads happen via the analytics
     // API, gated by the parent Site policy.
     ItemView::class,
+    ActionEvent::class,
     LinkClick::class,
     SectionView::class,
     SiteVisit::class,

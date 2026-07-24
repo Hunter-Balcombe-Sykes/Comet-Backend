@@ -26,11 +26,13 @@ use Illuminate\Support\Str;
  *                        presence + Business gated (shared resolver gate).
  *   - item scores      : link_clicks.product_id + item_views, keyed
  *                        (item_type, item_id).
- * plus a third, DERIVED family layered on top (content_type='action', keyed
- * '<kind>:<ref>'): the unified page|item|button ranked-action list computed by
- * RankedActionsComputer from this run's blended scores + button click signals.
- * The action layer owns its own lifecycle (stale keys deleted per run) and is
- * excluded from the generic fade-out union below.
+ * plus a third, INDEPENDENT family (content_type='action', keyed by
+ * App\Services\PublicSite\Actions\ActionVocabulary id): the unified,
+ * fixed-vocabulary ranked-action list computed by RankedActionsComputer from
+ * analytics.action_events' own exposure/tap counts (a Bayesian-smoothed
+ * demand rate, NOT derived from the page/item scores above — see that
+ * class's docblock). The action layer owns its own lifecycle (stale keys
+ * deleted per run) and is excluded from the generic fade-out union below.
  *
  * Formula: score = Σ_days (W_CLICK·clicks_d + W_VIEW·impressions_d +
  * W_DWELL_PER_SECOND·dwell_s_d) · 2^(-age_d / HALF_LIFE_DAYS) + freshness.
@@ -321,11 +323,12 @@ class ComputeContentPopularityScores extends Command
             }
         }
 
-        // Ranked actions (unified page|item|button list) — layered ON TOP of
-        // the rows above; fail-open so an action-layer fault degrades to "no
-        // rankedActions refresh", never to broken page/item scores.
+        // Ranked actions — an INDEPENDENT scoring layer (own event table, own
+        // demand-rate formula, see RankedActionsComputer); fail-open so an
+        // action-layer fault degrades to "no rankedActions refresh", never to
+        // broken page/item scores.
         try {
-            $actionResult = $this->computeActions($site, $rows);
+            $actionResult = $this->computeActions($site);
             $rows = array_merge($rows, $actionResult['rows']);
             if ($actionResult['deletes'] !== []) {
                 $deletes[RankedActionsComputer::CONTENT_TYPE] = $actionResult['deletes'];
@@ -345,34 +348,22 @@ class ComputeContentPopularityScores extends Command
     }
 
     /**
-     * Ranked-action rows for one site from THIS RUN's blended page/item scores
-     * (fresher than the stored rows mid-run) + the live action pool.
+     * Ranked-action rows for one site: the live action pool, scored purely
+     * from analytics.action_events (independent of the page/item rows
+     * computed above — see RankedActionsComputer's docblock).
      *
-     * @param  list<array<string, mixed>>  $rows  this run's upsert rows (page + item types)
      * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
-    private function computeActions(Site $site, array $rows): array
+    private function computeActions(Site $site): array
     {
         $pro = $site->user;
         if ($pro === null) {
             return ['rows' => [], 'deletes' => []];
         }
 
-        $pageScores = [];
-        $itemScores = [];
-        $itemRanks = [];
-        foreach ($rows as $row) {
-            if ($row['content_type'] === 'page') {
-                $pageScores[$row['content_key']] = (float) $row['score'];
-            } else {
-                $itemScores[$row['content_type']][$row['content_key']] = (float) $row['score'];
-                $itemRanks[$row['content_type']][$row['content_key']] = (int) $row['rank'];
-            }
-        }
+        $pool = $this->actions->pool($pro, $site);
 
-        $pool = $this->actions->pool($pro, $site, ranks: $itemRanks);
-
-        return $this->rankedActions->computeForSite($site, $pool, $pageScores, $itemScores);
+        return $this->rankedActions->computeForSite($site, $pool);
     }
 
     /**

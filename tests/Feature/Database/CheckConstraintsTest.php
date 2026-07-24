@@ -293,3 +293,22 @@ it('content_popularity_scores_site_fk exists, is validated, and cascades on dele
     }
     assertCascadeFkConstraintExists('analytics', 'content_popularity_scores', 'content_popularity_scores_site_fk');
 });
+
+// ─── analytics.action_events (2026-07-23 actions rebuild) ───────────────────
+// Both constraints were added INLINE at table creation (not the NOT VALID ->
+// VALIDATE split above) — the table was empty in that same migration, see
+// 20260723090000_create_action_events.sql's header comment.
+
+it('action_events_event_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('analytics', 'action_events', 'action_events_event_check');
+});
+
+it('action_events_site_fk exists, is validated, and cascades on delete', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCascadeFkConstraintExists('analytics', 'action_events', 'action_events_site_fk');
+});

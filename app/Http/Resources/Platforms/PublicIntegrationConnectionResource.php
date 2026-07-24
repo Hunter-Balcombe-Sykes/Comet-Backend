@@ -132,12 +132,16 @@ class PublicIntegrationConnectionResource extends ApiResource
         'resdiary' => ['url', 'microsite', 'name', 'embedUrl'],
         'nowbookit' => ['url', 'accountId', 'venueId', 'name', 'embedUrl'],
         // Dashboard-only category platforms — booking/reservations hold a custom
-        // fallback entry; online-ordering holds the ordering links. None render on
-        // the public sitepage yet, so they expose NOTHING (empty list → {}). The
-        // public controller also excludes them from the query (belt-and-suspenders).
+        // fallback entry. Neither renders on the public sitepage, so they expose
+        // NOTHING (empty list → {}); the public controller also excludes them
+        // from the query (belt-and-suspenders).
         'booking' => [],
         'reservations' => [],
-        'online-ordering' => [],
+        // online-ordering (2026-07-23 actions rebuild): entries now feed the
+        // public ordering:<resource_id> actions (SiteActionsService::pool()
+        // reads url + name from this exact payload). id/provider/source/data
+        // stay private — internal bookkeeping the sitepage doesn't need.
+        'online-ordering' => ['url', 'name', 'favicon', 'logo'],
         // shop: brands live in the site.shop_brands child table now (FOUND-25) —
         // built from $this->shopBrands below, not from this allowlist map.
     ];

@@ -732,6 +732,24 @@ class DataExportTestCase
             created_at TEXT
         )');
 
+        // user_id nullable (fail-open write path — mirrors item_views above).
+        $conn->statement('CREATE TABLE IF NOT EXISTS analytics.action_events (
+            id TEXT PRIMARY KEY,
+            user_id TEXT,
+            site_id TEXT,
+            action_id TEXT,
+            event TEXT,
+            occurred_at TEXT,
+            session_id TEXT,
+            visitor_id TEXT,
+            ip_hash TEXT,
+            user_agent TEXT,
+            referrer TEXT,
+            country_code TEXT,
+            device_type TEXT,
+            created_at TEXT
+        )');
+
         // FOUND-4: workplace card promoted from settings JSONB to child table.
         // previous_website_analysis (20260701220001) is included so PRIV-5 tests can
         // prove it's excluded from the export's explicit allow-list, not just absent
