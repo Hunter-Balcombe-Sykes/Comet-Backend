@@ -11,6 +11,7 @@ use App\Http\Requests\Platforms\SaveApplePodcastHighlightsRequest;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Models\Core\User\User;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\Concerns\RefreshesLatestTile;
 use App\Services\Platforms\Payloads\FeedPayload;
@@ -47,7 +48,7 @@ class AppleController extends ApiController
     // fresh controller instance per request — no cross-request state bleed.
     private string $activePlatform = self::MUSIC;
 
-    public function __construct(private readonly AppleSearch $apple) {}
+    public function __construct(private readonly AppleSearch $apple, private readonly FetchBudget $budget) {}
 
     // The trait's abstract platform() contract, satisfied dynamically.
     // Apple uses one controller for two platforms, so $activePlatform is set
@@ -228,25 +229,37 @@ class AppleController extends ApiController
         $user = $this->currentUser($request);
         $input = trim($validated[$cfg['inputField']]);
 
-        $items = ($cfg['fetch'])($input);
-        if (empty($items)) {
+        // Budget bounds the whole fetch region — the primary lookup AND the
+        // best-effort genre resolver (#76, two sequential iTunes calls) — so a
+        // slow/unresponsive vendor can't hold the request thread past
+        // connect_budget_seconds. The empty-result branch is signalled out of
+        // the closure (null) rather than returned directly, so the 404 stays
+        // identical whether it came from an empty fetch or a budget exhaustion.
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $selection = $this->budget->open($seconds, function () use ($user, $cfg, $input) {
+            $items = ($cfg['fetch'])($input);
+            if (empty($items)) {
+                return null;
+            }
+            $latest = $items[0];
+            $selection = [
+                'input' => $input,
+                // Flat fields for partna-pages + back-compat; nested `latest` is the
+                // canonical shape the dashboard reads for the "Most recent" tile.
+                ...$this->flatTileFields($latest, $cfg['flatFields']),
+                'latest' => $latest,
+                'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
+            ];
+
+            // #76: enrich music selections with the artist's genre (best-effort — a
+            // resolver miss or throw leaves the selection untouched; the resource
+            // whitelists its keys so `genre` never leaks to the wire).
+            return $this->withGenre($selection, $cfg, $input);
+        });
+
+        if ($selection === null) {
             return $this->error($cfg['notFound'], 404);
         }
-        $latest = $items[0];
-
-        $selection = [
-            'input' => $input,
-            // Flat fields for partna-pages + back-compat; nested `latest` is the
-            // canonical shape the dashboard reads for the "Most recent" tile.
-            ...$this->flatTileFields($latest, $cfg['flatFields']),
-            'latest' => $latest,
-            'highlights' => $this->keptHighlights($user, $cfg['platform'], $input),
-        ];
-
-        // #76: enrich music selections with the artist's genre (best-effort — a
-        // resolver miss or throw leaves the selection untouched; the resource
-        // whitelists its keys so `genre` never leaks to the wire).
-        $selection = $this->withGenre($selection, $cfg, $input);
 
         // PWL-3: this write races highlightsFor() (already locked) and
         // ScheduledRefresh (locks on the same platform+user key). The fetch +

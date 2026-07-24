@@ -14,10 +14,13 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Http\FetchBudget;
+use App\Services\Http\SafeUrlException;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -39,6 +42,7 @@ class FreshaController extends ApiController
     public function __construct(
         private readonly FreshaScraper $scraper,
         private readonly FreshaServiceProjector $projector,
+        private readonly FetchBudget $budget,
     ) {}
 
     protected function platform(): string
@@ -73,7 +77,12 @@ class FreshaController extends ApiController
         $validated = $request->validated();
 
         $url = $this->scraper->stripLocale($validated['url']);
-        $menu = $this->scraper->fetchMenu($url);
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        try {
+            $menu = $this->budget->open($seconds, fn () => $this->scraper->fetchMenu($url));
+        } catch (SafeUrlException|ConnectionException) {
+            abort(502, 'Could not reach Fresha — please try again.');
+        }
 
         return $this->withConnectionLock($user, function () use ($user, $url, $menu): JsonResponse {
             // Business Partna accounts book storewide — no team-member picker. Finalise
@@ -134,7 +143,14 @@ class FreshaController extends ApiController
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
         }
 
-        return $this->success(['url' => $url, ...$this->scraper->fetchMenu($url)]);
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        try {
+            $menu = $this->budget->open($seconds, fn () => $this->scraper->fetchMenu($url));
+        } catch (SafeUrlException|ConnectionException) {
+            abort(502, 'Could not reach Fresha — please try again.');
+        }
+
+        return $this->success(['url' => $url, ...$menu]);
     }
 
     // GET /api/platforms/fresha/url — peek at what's saved without re-scraping.
@@ -157,17 +173,34 @@ class FreshaController extends ApiController
             return $this->error('No Fresha URL saved yet. Save one first.', 404);
         }
 
-        $location = $this->scraper->fetchLocation($url);
-        $employee = collect($this->scraper->extractTeam($location))->firstWhere('employeeId', $validated['employeeId']);
-        if (! $employee) {
-            return $this->error('That team member was not found on the saved Fresha page.', 404);
+        // Per-employee services via the booking GraphQL; fall back to the whole
+        // location menu if that call fails (hash/version rotated). One budget
+        // spans both fetches; the "team member not found" 404 is preserved by
+        // signalling it out of the closure rather than returning directly.
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        try {
+            $resolved = $this->budget->open($seconds, function () use ($url, $validated) {
+                $location = $this->scraper->fetchLocation($url);
+                $employee = collect($this->scraper->extractTeam($location))->firstWhere('employeeId', $validated['employeeId']);
+                if (! $employee) {
+                    return ['employee' => null];
+                }
+                $slug = $this->scraper->slugFromUrl($url);
+                $services = ($slug ? $this->scraper->fetchEmployeeServices($slug, $validated['employeeId']) : null)
+                    ?? $this->scraper->extractServices($location);
+
+                return ['location' => $location, 'employee' => $employee, 'services' => $services];
+            });
+        } catch (SafeUrlException|ConnectionException) {
+            abort(502, 'Could not reach Fresha — please try again.');
         }
 
-        // Per-employee services via the booking GraphQL; fall back to the whole
-        // location menu if that call fails (hash/version rotated).
-        $slug = $this->scraper->slugFromUrl($url);
-        $services = ($slug ? $this->scraper->fetchEmployeeServices($slug, $validated['employeeId']) : null)
-            ?? $this->scraper->extractServices($location);
+        if ($resolved['employee'] === null) {
+            return $this->error('That team member was not found on the saved Fresha page.', 404);
+        }
+        $location = $resolved['location'];
+        $employee = $resolved['employee'];
+        $services = $resolved['services'];
 
         return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {
             // Preserve previously hidden services, dropping ids that no longer exist
@@ -212,8 +245,13 @@ class FreshaController extends ApiController
         }
 
         $slug = $this->scraper->slugFromUrl($url);
-        $services = ($slug ? $this->scraper->fetchEmployeeServices($slug, $validated['employeeId']) : null)
-            ?? $this->scraper->extractServices($this->scraper->fetchLocation($url));
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        try {
+            $services = $this->budget->open($seconds, fn () => ($slug ? $this->scraper->fetchEmployeeServices($slug, $validated['employeeId']) : null)
+                ?? $this->scraper->extractServices($this->scraper->fetchLocation($url)));
+        } catch (SafeUrlException|ConnectionException) {
+            abort(502, 'Could not reach Fresha — please try again.');
+        }
 
         return $this->success(['services' => $services]);
     }

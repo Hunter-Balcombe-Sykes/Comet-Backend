@@ -54,6 +54,17 @@ class FetchBudget
      * overshoot this deadline by however long the system resolver takes to
      * give up. Bounding that needs a resolver with its own timeout — out of
      * scope here.
+     *
+     * Generic over the wrapped callable's return so opening a budget is
+     * type-transparent: a bare `mixed` return would erase the array shapes
+     * callers rely on (e.g. EventsCatalog::addByUrl()'s
+     * array{ok: bool, error?: string, ...}), silently downgrading static
+     * analysis at every wrapped call site.
+     *
+     * @template TReturn
+     *
+     * @param  callable(): TReturn  $work
+     * @return TReturn
      */
     public function open(float $seconds, callable $work): mixed
     {

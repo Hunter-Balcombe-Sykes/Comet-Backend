@@ -360,7 +360,7 @@ touches auth/money/DB-schema, or is L/XL effort.
 
 | # | Unit | Scope | Effort | Gate | Depends on | Contract change? |
 |---|---|---|---|---|---|---|
-| **W1** | **`FetchBudget` for the six** | Open a budget in `ShopController`, `AppleController`, `FreshaController`, `EventsPlatformController`, `SkoolController`. Pure Phase-1 parity. | **M** | no | — | **none** |
+| **W1** ✅ | **`FetchBudget` for the six** | Open a budget in `ShopController`, `AppleController`, `FreshaController`, `EventsPlatformController`, `SkoolController`. Pure Phase-1 parity. | **M** | no | — | **none** |
 | **W2** | `DefersBespokeConnect` concern | The shared trait: flag check, 202 builder, poll action with the staleness check ported from `GenericPlatformController.php:236-253`. No platform wired yet. | **M** | no | — | none (inert) |
 | **W3** | Apple (both slugs) | `connectFetchError()` on `apple-music`/`apple-podcast`; pending write `{input}`; dispatch `ConnectFetchJob`; two status routes. `FetchStrategy` already exists. | **S/M** | no — **discharged by decision 1** | W2 | 202 + poll |
 | **W4** | Skool | Pending write `{url}`; **take the lock in the job**; status route. Reconcile `selection()`'s pending-vs-absent ambiguity. | **S** | no | W2 | 202 + poll |
@@ -369,6 +369,21 @@ touches auth/money/DB-schema, or is L/XL effort.
 | **W7** | Fresha storewide | Real pending row + job; **re-assert the XOR in the job's locked write**; handle the advisory-lock overlap. | **L** | **yes** — capability, money-adjacent (booking), L | W6 | 202 + poll |
 | **W8** | Fresha `team()` | Independent conversion — it is its own ~96 s synchronous GET. | **M** | no | W6 | new |
 | **W9** | Shop | Migration for a per-brand status column (or provisional-key reconciliation); pending `ShopBrand` row; explicit cache refresh in the job. | **XL** | **yes** — DB migration + XL | W1, W2 | 202 + poll |
+
+**W1 shipped 2026-07-24** — branch `audit-fix/connect-fetchbudget-2026-07-24`, awaiting review/merge.
+**Seven** call-site groups, not six: `EventsController::add()` (the smart-detect facade over the same
+scrapers) was unbudgeted too and is included. Two adjacent null-deref defects surfaced and were fixed
+with it — `ShopifyScraper::fetchProducts()` and `HumanitixScraper::resolveHostUrl()` each read
+`$res['status']` on a `tryFetch()` that returns **null** on transport failure, so the intended 502/422
+became a 500 via `ErrorException`; both are pre-existing, and an exhausted budget makes that path
+routine. `FreshaController` additionally translates `SafeUrlException|ConnectionException` → 502,
+because `FreshaScraper` is the only scraper using the throwing `fetch()`.
+
+Known residual (not addressed by W1): `FreshaScraper::fetchEmployeeServices()` calls the booking
+GraphQL through a raw `Http::…->timeout(12)->post()` rather than `SafeUrlFetcher`, so it is
+budget-blind — `saveSelection()`'s worst case is the 20 s budget **plus** that 12 s timeout, ≈32 s.
+Bounding it needs the GraphQL leg routed through `SafeUrlFetcher` (or given its own deadline check),
+which is a scraper change outside W1's remit.
 
 ### Backend-only, shippable before the frontend
 

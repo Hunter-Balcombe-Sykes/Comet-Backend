@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddEventRequest;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\EventsCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,12 +19,13 @@ class EventsController extends ApiController
 {
     use ResolveCurrentUser;
 
-    public function __construct(private readonly EventsCatalog $catalog) {}
+    public function __construct(private readonly EventsCatalog $catalog, private readonly FetchBudget $budget) {}
 
     // POST /api/platforms/events/add — paste any event / organiser / link URL.
     public function add(AddEventRequest $request): JsonResponse
     {
-        $result = $this->catalog->addByUrl($this->currentUser($request), $request->validated()['url']);
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $result = $this->budget->open($seconds, fn () => $this->catalog->addByUrl($this->currentUser($request), $request->validated()['url']));
 
         if (! ($result['ok'] ?? false)) {
             return $this->error($result['error'] ?? 'Could not add that link.', $result['status'] ?? 422);

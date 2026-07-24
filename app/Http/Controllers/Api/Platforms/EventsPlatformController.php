@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\EventsPayload;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
@@ -34,6 +35,8 @@ abstract class EventsPlatformController extends ApiController
 
     private const MAX_STANDALONE_EVENTS = 10;
 
+    public function __construct(protected readonly FetchBudget $budget) {}
+
     /** Canonicalise an organiser/host URL, else null. */
     abstract protected function normalizeAccountUrl(string $input): ?string;
 
@@ -60,12 +63,25 @@ abstract class EventsPlatformController extends ApiController
     /** Shared connect flow — subclasses expose it under their typed FormRequest. */
     protected function addAccount(User $user, string $rawUrl): JsonResponse
     {
-        $url = $this->normalizeAccountUrl($rawUrl);
-        if (! $url) {
+        // Budget spans BOTH the URL normalisation (Humanitix's resolveHostUrl
+        // is itself a fetch) and the account-events scrape. Both early-return
+        // branches (bad URL / unreachable page) are preserved by signalling
+        // out of the closure rather than returning directly.
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $resolved = $this->budget->open($seconds, function () use ($rawUrl) {
+            $url = $this->normalizeAccountUrl($rawUrl);
+            if (! $url) {
+                return ['url' => null];
+            }
+
+            return ['url' => $url, 'result' => $this->fetchAccountEvents($url)];
+        });
+
+        if ($resolved['url'] === null) {
             return $this->error($this->accountUrlError(), 422);
         }
-
-        $result = $this->fetchAccountEvents($url);
+        $url = $resolved['url'];
+        $result = $resolved['result'];
         if ($result === null) {
             return $this->error('Could not load that '.$this->platformLabel().' page.', 422);
         }
@@ -116,12 +132,22 @@ abstract class EventsPlatformController extends ApiController
     /** Shared add-event flow — subclasses expose it under their typed FormRequest. */
     protected function addStandaloneEvent(User $user, string $rawUrl): JsonResponse
     {
-        $url = $this->normalizeEventUrl($rawUrl);
-        if (! $url) {
+        // Budget spans the URL normalisation + the single-event scrape. The
+        // bad-URL 422 is preserved by signalling out of the closure.
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $resolved = $this->budget->open($seconds, function () use ($rawUrl) {
+            $url = $this->normalizeEventUrl($rawUrl);
+            if (! $url) {
+                return ['url' => null];
+            }
+
+            return ['url' => $url, 'event' => $this->fetchSingleEvent($url)];
+        });
+
+        if ($resolved['url'] === null) {
             return $this->error($this->eventUrlError(), 422);
         }
-
-        $event = $this->fetchSingleEvent($url);
+        $event = $resolved['event'];
         if ($event === null) {
             return $this->error('Could not load that '.$this->platformLabel().' event.', 422);
         }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Requests\Platforms\AddPlatformEventRequest;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\HumanitixScraper;
 use Illuminate\Http\JsonResponse;
 
@@ -12,7 +13,10 @@ use Illuminate\Http\JsonResponse;
 // EventsPlatformController; this subclass binds the Humanitix scraper.
 class HumanitixController extends EventsPlatformController
 {
-    public function __construct(private readonly HumanitixScraper $scraper) {}
+    public function __construct(private readonly HumanitixScraper $scraper, FetchBudget $budget)
+    {
+        parent::__construct($budget);
+    }
 
     protected function platform(): string
     {

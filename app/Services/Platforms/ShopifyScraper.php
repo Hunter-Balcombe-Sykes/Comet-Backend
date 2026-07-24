@@ -90,7 +90,12 @@ class ShopifyScraper extends PlatformScraper
         $response = $this->fetcher->tryFetch($origin.'/products.json?limit=250', ['User-Agent' => self::USER_AGENT]);
 
         if ($response === null || $response['status'] !== 200) {
-            abort(502, "Shopify returned HTTP {$response['status']} for /products.json — the store may have it disabled.");
+            // $response is null on transport failure (tryFetch swallows it), so
+            // interpolating $response['status'] directly turns this 502 into a
+            // 500 under Laravel's error handler. Same WS-B1 lesson as fetchBrand(),
+            // and the same '?? no response' idiom WooCommerceScraper already uses.
+            $status = $response['status'] ?? 'no response';
+            abort(502, "Shopify returned HTTP {$status} for /products.json — the store may have it disabled.");
         }
 
         $data = json_decode($response['body'], true);
