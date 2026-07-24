@@ -229,10 +229,20 @@ class IntegrationConnection extends BaseModel
      * A row deactivated while still 'pending' (e.g. ReconcilePlatformTakedownJob)
      * is never touched again by anything, so without this filter it would trip
      * this alarm forever — a permanent false positive, not a transient one.
+     *
+     * Whole-branch review, finding 2: 'custom' (link-card) rows are excluded —
+     * for that platform 'pending' is an intended RESTING state, not a fault.
+     * CustomLinkSeeder resets an existing row to 'pending' without dispatching
+     * EnrichLinkCardJob at all on a re-seed (only $isNew does), and
+     * EnrichLinkCardJob itself deliberately leaves a row 'pending' on lock
+     * contention rather than force a terminal write. Without this exclusion
+     * those legitimate rows accumulate into $overdue permanently and erode the
+     * one alarm that now also has to catch finding 1's stranded refresh rows.
      */
     public function scopeStrandedPending($query, \DateTimeInterface $cutoff)
     {
         return $query->active()
+            ->where('platform', '!=', 'custom')
             ->where('last_refresh_status', 'pending')
             ->whereNotNull('updated_at')
             ->where('updated_at', '<', $cutoff);

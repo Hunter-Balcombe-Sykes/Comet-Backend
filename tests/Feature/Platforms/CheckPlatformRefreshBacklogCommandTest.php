@@ -125,3 +125,45 @@ it('does not count a fresh in-flight pending row toward the backlog', function (
 
     Exceptions::assertNothingReported();
 });
+
+// Whole-branch review, finding 2: 'custom' (link-card) rows can rest at
+// 'pending' indefinitely as a LEGITIMATE final state — CustomLinkSeeder resets
+// an existing row to 'pending' without dispatching EnrichLinkCardJob unless
+// the row is new, and EnrichLinkCardJob itself deliberately leaves 'pending'
+// alone on lock contention rather than force a terminal write. Counting those
+// into $overdue would erode the very alarm that now also has to catch a
+// stranded refresh row (finding 1).
+it('does not count a legitimately-pending custom link-card row toward the backlog', function () {
+    Exceptions::fake();
+    config()->set('partna.refresh.backlog.alert_threshold', 0);
+    $user = backlogUser();
+
+    $customPending = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'custom', 'resource_id' => 'link-abc',
+        'payload' => ['kind' => 'link', 'url' => 'https://x.com'], 'last_refresh_status' => 'pending',
+    ]);
+    IntegrationConnection::query()->where('id', $customPending->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    $this->artisan('integrations:refresh-backlog')->assertSuccessful();
+
+    Exceptions::assertNothingReported();
+});
+
+// Sanity companion to the above: the exclusion is targeted at 'custom', not an
+// accidental blanket exemption — a genuinely stranded row of a normal platform
+// still trips the same alarm.
+it('still counts a genuinely stranded row of a normal (non-custom) platform toward the backlog', function () {
+    Exceptions::fake();
+    config()->set('partna.refresh.backlog.alert_threshold', 0);
+    $user = backlogUser();
+
+    $stranded = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'youtube-stranded',
+        'payload' => ['handle' => 'c'], 'last_refresh_status' => 'pending',
+    ]);
+    IntegrationConnection::query()->where('id', $stranded->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    $this->artisan('integrations:refresh-backlog')->assertSuccessful();
+
+    Exceptions::assertReported(PlatformRefreshBacklogException::class);
+});

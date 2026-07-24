@@ -9,12 +9,14 @@ use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Shared seam for the six bespoke platform-connect controllers (Apple, Skool,
- * Eventbrite, Humanitix, Fresha, and the events/add organiser branch) adopting
- * the SAME deferred-connect mechanism the eight registry platforms already
- * use — the flag, the pending write, ConnectFetchJob, and its failure-message
- * convention — without moving any of the six onto GenericPlatformController's
- * registry router (design doc §2, route (c)).
+ * Shared seam for the bespoke platform-connect controllers adopting the SAME
+ * deferred-connect mechanism the eight registry platforms already use — the
+ * flag, the pending write, ConnectFetchJob, and its failure-message
+ * convention — without moving them onto GenericPlatformController's registry
+ * router (design doc §2, route (c)). Currently used by Apple, Skool, Fresha,
+ * and the Eventbrite/Humanitix pair (via EventsPlatformController).
+ * EventsController's own events/add facade deliberately does NOT use this
+ * trait — see its own docblock for why.
  *
  * The using class MUST also `use ManagesIntegrationConnection` and extend
  * ApiController: every method below calls platform(), connectionFor(),
@@ -22,20 +24,24 @@ use Illuminate\Http\JsonResponse;
  * declares. Mirrors ThrottlesPreAccountScraping's own using-class contract
  * (app/Jobs/Concerns/ThrottlesPreAccountScraping.php).
  *
- * Wires no platform by itself (CA-W2) — lands completely inert until a later
- * unit wires a real bespoke controller behind config('partna.connect.deferred').
+ * Wires no platform by itself — each using controller gates it behind its
+ * own shouldDeferConnect() check against config('partna.connect.deferred').
+ * Landed inert at CA-W2; Apple, Skool, Fresha, Eventbrite and Humanitix have
+ * since wired into it.
  *
  * @mixin ApiController
  * @mixin ManagesIntegrationConnection
  */
 trait DefersBespokeConnect
 {
-    // Also present in GenericPlatformController::connectStatus() and
-    // ConnectFetchJob's own lock-timeout catch. Kept duplicated rather than
-    // hoisted out of the generic controller's file — deduplicating would mean
-    // editing the eight already-armed registry platforms' code path for a
-    // cosmetic win (design doc §7 Risk R3).
-    private const STALE_CONNECT_ERROR = "We couldn't save your connection just then — please try again.";
+    // Also present as its own separate copy in GenericPlatformController::
+    // connectStatus() — kept duplicated there rather than hoisted out of the
+    // generic controller's file, since deduplicating would mean editing the
+    // eight already-armed registry platforms' code path for a cosmetic win
+    // (design doc §7 Risk R3). Public so ConnectFetchJob's own lock-timeout
+    // catch can point at this constant directly instead of carrying its own
+    // duplicate of the string.
+    public const STALE_CONNECT_ERROR = "We couldn't save your connection just then — please try again.";
 
     private const UNKNOWN_CONNECT_ERROR = 'We could not load that account. Please try again.';
 

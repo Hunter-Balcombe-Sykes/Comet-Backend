@@ -308,3 +308,45 @@ it('never resolves another user\'s row when polling status', function () {
     actingAsUser($caller)->getJson('/api/platforms/pinterest/refresh/status')
         ->assertStatus(404);
 });
+
+// Whole-branch review, finding 1: PlatformRefresher only catches the three
+// Fetch*Exception subclasses (see its own docblock) — anything else propagates
+// uncaught. Before this fix, RefreshConnectionJob::failed() wrote no terminal
+// status, so the row RefreshController stamped 'pending' just before dispatch
+// stayed 'pending' forever: scopeDueForRefresh() and this same controller's own
+// selection both deliberately exclude 'pending' rows now, so nothing would ever
+// pick it back up, and the refresh button would 404 ("Nothing connected to
+// refresh.") on a platform the user can plainly see is connected.
+it('resolves a stranded pending row to a terminal status when the refresher throws an exception type it never catches, so a later manual refresh can select it again', function () {
+    [$user, $connection] = refreshAsyncConnectedUser('rv8uncaught');
+    // Mirrors RefreshController::refresh()'s own stamp, immediately before dispatch.
+    $connection->updateQuietly(['last_refresh_status' => 'pending']);
+
+    $refresher = Mockery::mock(PlatformRefresher::class);
+    $refresher->shouldReceive('refresh')->once()
+        ->andThrow(new RuntimeException('unexpected fetch failure — not a Fetch*Exception'));
+    app()->instance(PlatformRefresher::class, $refresher);
+
+    // QUEUE_CONNECTION=sync (phpunit.xml): dispatch() runs handle() inline, and
+    // SyncQueue::handleException() calls the job's failed() BEFORE rethrowing —
+    // this exercises the exact seam production hits, not a simulated call to
+    // failed().
+    try {
+        RefreshConnectionJob::dispatch($connection->id, 'pinterest', manual: true);
+        $this->fail('Expected the uncaught exception to propagate.');
+    } catch (RuntimeException $e) {
+        expect($e->getMessage())->toBe('unexpected fetch failure — not a Fetch*Exception');
+    }
+
+    expect($connection->refresh()->last_refresh_status)->toBe('error');
+    expect($connection->last_refresh_error)->toBe('unexpected fetch failure — not a Fetch*Exception');
+
+    // No longer stranded: RefreshController's manual-refresh selection excludes
+    // ONLY 'pending' rows, so this now-'error' row is selectable again.
+    app()->forgetInstance(PlatformRefresher::class);
+    Queue::fake();
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('refreshed', 1);
+    Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $connection->id);
+});

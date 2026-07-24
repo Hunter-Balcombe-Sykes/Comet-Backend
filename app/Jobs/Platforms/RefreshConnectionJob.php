@@ -124,5 +124,26 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
             'platform' => $this->platform,
             'error' => $e->getMessage(),
         ]);
+
+        // Whole-branch review, finding 1: PlatformRefresher only catches the three
+        // Fetch*Exception subclasses (see its docblock) — anything else (e.g.
+        // FreshaFetch's uncaught SafeUrlException/HttpException) propagates here
+        // uncaught, and this job's own handle() has no pending-guard to fall back
+        // on (see the comment above it for why). Whoever dispatched this job —
+        // the cron, or RefreshController::refresh(), which stamps 'pending' on the
+        // row immediately before dispatch — handed off a row it now owns
+        // resolving. scopeDueForRefresh() and RefreshController's own selection
+        // both deliberately exclude 'pending' rows now, so without a terminal
+        // write here nothing else will ever re-select a row this job doesn't
+        // resolve, and it stays 'pending' forever. Mirrors the status+error
+        // bookkeeping PlatformRefresher::recordFailure() does for its own three
+        // known exception types.
+        $connection = IntegrationConnection::query()->find($this->connectionId);
+        if ($connection !== null) {
+            $connection->increment('consecutive_failures', 1, [
+                'last_refresh_status' => 'error',
+                'last_refresh_error' => $e->getMessage(),
+            ]);
+        }
     }
 }
