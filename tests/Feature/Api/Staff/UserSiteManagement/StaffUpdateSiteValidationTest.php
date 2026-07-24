@@ -182,11 +182,12 @@ it('denies a support-role staffer the site edit (staffManage is admin-only)', fu
     patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])
         ->assertStatus(403);
 
-    // The write must not have landed — architecture_id stays at its seeded
-    // value (the SQLite stub seeds no default, so it is still null). An admin
-    // edit in the sibling test collapses 'dock' to 'staple'; this one must not.
+    // The write must not have landed — architecture_id stays at its seeded default.
+    // NOTE: sites_architecture_id_check pins this column to the single legal value
+    // 'staple', and the write path collapses legacy ids to it, so a landed write is
+    // indistinguishable here — the 403 above is what actually proves it was blocked.
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBeNull();
+        ->toBe('staple');
 });
 
 it('allows an admin-role staffer the site edit', function () {

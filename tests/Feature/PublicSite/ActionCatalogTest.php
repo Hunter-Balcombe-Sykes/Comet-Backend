@@ -37,7 +37,9 @@ function insertConnection(object $tenant, string $platform, array $payload = [],
         'user_id' => $tenant->id,
         'platform' => $platform,
         'resource_id' => 'r-'.Str::random(8),
-        'resource_kind' => 'profile',
+        // Account rows carry a NULL resource_kind in prod — the discriminator is
+        // only stamped for 'event' / 'link' rows (platform_connections_resource_kind_check).
+        'resource_kind' => null,
         'payload' => json_encode($payload),
         'is_active' => 1,
         'created_at' => now()->toISOString(),
