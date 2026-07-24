@@ -810,12 +810,23 @@ function setupItemSlugsTable(): void
         is_current INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NULL
     )');
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS item_slugs_unique_slug ON site.item_slugs (user_id, slug)'
-    );
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS item_slugs_one_current ON site.item_slugs (user_id, item_type, item_key) WHERE is_current = 1'
-    );
+    // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
+    // name (not the table name) — an index must live in the same attached
+    // database as its table.
+    try {
+        DB::connection('pgsql')->statement(
+            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_unique_slug ON item_slugs (user_id, slug)'
+        );
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+    try {
+        DB::connection('pgsql')->statement(
+            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_one_current ON item_slugs (user_id, item_type, item_key) WHERE is_current = 1'
+        );
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
 }
 
 /**
