@@ -6,6 +6,7 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -29,6 +30,10 @@ use Illuminate\Support\Facades\Log;
 class IntegrationConnectionObserver
 {
     public bool $afterCommit = true;
+
+    // Mirrors CloudflarePurgeService's events-platform set — Platform enum has
+    // no cases for these (by design, see Platform.php), so gate on the string.
+    private const EVENTS_PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
 
     // Defaulted (not just container-resolved) because a couple of tests
     // instantiate this observer directly with `new` to exercise updated()'s
@@ -61,6 +66,15 @@ class IntegrationConnectionObserver
         if ($connection->platform === Platform::GoogleBusiness->value
             && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
             $this->syncIdentityFromGoogle($connection);
+        }
+
+        // Pretty-URL slugs for the events sitepage section (connect + every
+        // daily refresh land here). Best-effort — a failure here must never
+        // break the connection save; the pages app's raw-hex-id fallback still
+        // resolves the item until the next successful sync mints the slug.
+        if (in_array($connection->platform, self::EVENTS_PLATFORMS, true)
+            && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
+            $this->syncEventSlugs($connection);
         }
 
         // Content-selection connect hooks (best-effort, never break the save):
@@ -103,6 +117,25 @@ class IntegrationConnectionObserver
         }
 
         app(IdentitySync::class)->applyFromGooglePayload($user, $payload->toArray());
+    }
+
+    /**
+     * Mint/reuse item_slugs for every event carried in this connection's
+     * payload (account row's `upcoming` list, or a standalone/custom row).
+     * Best-effort — a failure here must never break the connection save.
+     */
+    private function syncEventSlugs(IntegrationConnection $connection): void
+    {
+        try {
+            app(EventSlugSync::class)->sync($connection->user_id, $connection->payload ?? []);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver event-slug sync failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
