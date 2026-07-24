@@ -113,19 +113,21 @@ class SkoolController extends ApiController
     {
         $row = $this->connectionFor($this->currentUser($request));
 
-        // CA-W4 reconciliation: a pending (or otherwise non-'ok') row's payload
-        // is {url} only — no name/image/description — which SkoolConnectionResource
-        // would render as {url, name: null, image: null, description: null}.
-        // That shape was IMPOSSIBLE before this unit: SkoolScraper::fetchCommunity()
-        // never returns without a real og:title, so a stored row's `name` was
-        // always non-null. Treating anything short of 'ok' as "nothing to show
-        // yet" preserves that invariant and avoids rendering a half-formed card
-        // indistinguishable from "a community with no metadata" — the dashboard
-        // already has /connect/status for the in-flight state. Byte-identical
-        // with the flag off: writeConnection() only ever writes 'pending' when
-        // the (unreachable) deferred branch runs, so every row this can see
-        // today is already 'ok'.
-        if ($row === null || $row->last_refresh_status !== 'ok') {
+        // CA-W4/SM review fix: only 'pending' (and the terminal-failure states)
+        // withhold the row — NULL is a legal, unset status (no NOT NULL/DEFAULT
+        // on last_refresh_status; see the migration) carried by legacy rows, and
+        // treating it like 'pending' would render an already-connected, fully-
+        // populated community as if it had never been connected at all. A
+        // pending row's payload is {url} only — no name/image/description —
+        // which SkoolConnectionResource would render as {url, name: null,
+        // image: null, description: null}. That shape was IMPOSSIBLE before this
+        // unit: SkoolScraper::fetchCommunity() never returns without a real
+        // og:title, so a stored row's `name` was always non-null. Withholding
+        // pending/unavailable/error preserves that invariant and avoids
+        // rendering a half-formed card indistinguishable from "a community with
+        // no metadata" — the dashboard already has /connect/status for the
+        // in-flight state.
+        if ($row === null || in_array($row->last_refresh_status, ['pending', 'unavailable', 'error'], true)) {
             return $this->success(['selection' => null]);
         }
 

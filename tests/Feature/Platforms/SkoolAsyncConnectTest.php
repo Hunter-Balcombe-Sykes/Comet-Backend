@@ -286,6 +286,37 @@ it("selection: an 'ok' row still renders through SkoolConnectionResource unchang
         ]]);
 });
 
+it('selection: a NULL last_refresh_status (legacy/out-of-band row) still renders the full selection body', function () {
+    // last_refresh_status has no NOT NULL/DEFAULT (see the migration) — a
+    // restore, manual SQL fix, or future backfill can leave a fully-populated
+    // row with a NULL status. Confirmed live: a real opentable row on dev
+    // currently has NULL here. Treating NULL like 'pending' would render an
+    // already-connected community as if it had never been connected at all.
+    $user = skoolAsyncUser('selnull1');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'skool',
+        'resource_id' => 'skool',
+        'payload' => [
+            'url' => 'https://www.skool.com/some-community',
+            'name' => 'Some Community',
+            'image' => 'https://img.example/avatar.jpg',
+            'description' => 'A great community',
+        ],
+        'is_active' => true,
+        'last_refresh_status' => null,
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/skool/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => [
+            'url' => 'https://www.skool.com/some-community',
+            'name' => 'Some Community',
+            'image' => 'https://img.example/avatar.jpg',
+            'description' => 'A great community',
+        ]]);
+});
+
 it('selection: no connection at all still reports null (unaffected by the reconciliation)', function () {
     $user = skoolAsyncUser('selnone1');
 

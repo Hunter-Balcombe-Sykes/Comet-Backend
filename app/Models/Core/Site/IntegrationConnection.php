@@ -224,10 +224,16 @@ class IntegrationConnection extends BaseModel
      * "abandoned" — a NULL updated_at can't be proven stale, so (matching
      * RefreshController::refreshStatus()'s identical stale-pending reasoning)
      * it is treated as still in flight, not stranded.
+     *
+     * CA-SM review fix: filtered to ->active(), matching scopeDueForRefresh().
+     * A row deactivated while still 'pending' (e.g. ReconcilePlatformTakedownJob)
+     * is never touched again by anything, so without this filter it would trip
+     * this alarm forever — a permanent false positive, not a transient one.
      */
     public function scopeStrandedPending($query, \DateTimeInterface $cutoff)
     {
-        return $query->where('last_refresh_status', 'pending')
+        return $query->active()
+            ->where('last_refresh_status', 'pending')
             ->whereNotNull('updated_at')
             ->where('updated_at', '<', $cutoff);
     }

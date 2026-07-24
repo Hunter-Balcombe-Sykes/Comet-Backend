@@ -71,6 +71,47 @@ it('reports a backlog exception when stranded pending rows alone exceed the thre
     Exceptions::assertReported(PlatformRefreshBacklogException::class);
 });
 
+// CA-SM review fix: scopeStrandedPending now filters to ->active(), matching
+// scopeDueForRefresh. A row deactivated while still 'pending' (e.g. by
+// ReconcilePlatformTakedownJob) is never touched again by anything, so
+// without this filter it would trip the alarm forever — a permanent false
+// positive. Threshold overridden to 0 so a single deactivated row is enough
+// to discriminate: without the ->active() filter it would still be counted
+// (0 > 0 is false, but 1 > 0 is true), so this fails red on the old scope.
+it('does not count a deactivated stranded-pending row toward the backlog', function () {
+    Exceptions::fake();
+    config()->set('partna.refresh.backlog.alert_threshold', 0);
+    $user = backlogUser();
+
+    $deactivated = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'youtube-inactive',
+        'payload' => ['handle' => 'c'], 'last_refresh_status' => 'pending', 'is_active' => false,
+    ]);
+    IntegrationConnection::query()->where('id', $deactivated->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    $this->artisan('integrations:refresh-backlog')->assertSuccessful();
+
+    Exceptions::assertNothingReported();
+});
+
+// Sanity companion to the above: an ACTIVE stranded-pending row is still
+// counted — the fix is a filter, not an accidental exclusion of everything.
+it('still counts an active stranded-pending row toward the backlog', function () {
+    Exceptions::fake();
+    config()->set('partna.refresh.backlog.alert_threshold', 0);
+    $user = backlogUser();
+
+    $active = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'youtube-active',
+        'payload' => ['handle' => 'c'], 'last_refresh_status' => 'pending', 'is_active' => true,
+    ]);
+    IntegrationConnection::query()->where('id', $active->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    $this->artisan('integrations:refresh-backlog')->assertSuccessful();
+
+    Exceptions::assertReported(PlatformRefreshBacklogException::class);
+});
+
 it('does not count a fresh in-flight pending row toward the backlog', function () {
     Exceptions::fake();
     $user = backlogUser();
