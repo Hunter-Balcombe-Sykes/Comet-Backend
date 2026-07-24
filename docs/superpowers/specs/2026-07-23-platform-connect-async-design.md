@@ -416,10 +416,10 @@ input on scope.
   decision 5 holds activation until the frontend is ready, W1–W8 can land on `development` without
   any user-visible change.
 
-> **One reading to confirm cheaply.** Question 3 was phrased "Is Fresha in the first slice?", and
-> "yes" is taken here as *Fresha is included*. If the intent was the opposite — defer W6/W7 — the
-> only edits needed are moving W6/W7 out of the sequence below; nothing else in this document
-> depends on it.
+> **One reading — CONFIRMED 2026-07-24.** Question 3 ("Is Fresha in the first slice?") is confirmed
+> **yes**: W6 and W7 stay in the first slice. The opposite reading (defer W6/W7) would have been a
+> two-row edit to the §7 sequence — that path is now closed. Phase 3 treats Fresha's inclusion as
+> settled; W7 still carries its own procedural blocker-gate per §5, which is unaffected.
 
 ### 6.1 `POST /api/platforms/events/add` — scope of the conversion
 
