@@ -396,6 +396,20 @@ class FreshaController extends ApiController
         // services advisory lock + projection) INSIDE the lock, so the 10s
         // default carries the identical mid-write-expiry risk here.
         return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {
+            // Fix A (whole-branch review pt.2): the scrape above runs UNLOCKED
+            // for up to 20s; a forget() landing in that window soft-deletes
+            // this connection (and its synced services) under bookingXorLock —
+            // a key this method never takes. writeConnection() below is an
+            // updateOrCreate, so without this re-check it would resurrect the
+            // row (and projector->sync() would resurrect the tombstoned
+            // deleted_origin='sync' service rows) even if a Square connect had
+            // landed in between, breaching the at-most-one-booking-provider
+            // invariant U1 exists to enforce. Mirrored from
+            // FreshaConnectFetch.php's identical re-check.
+            if ($this->connectionFor($user) === null) {
+                return $this->error('No Fresha URL saved yet. Save one first.', 404);
+            }
+
             // Preserve previously hidden services, dropping ids that no longer exist
             // in the refreshed menu so the hidden list never drifts stale. The kept
             // list seeds is_active on first-time projections; projected rows then
@@ -557,6 +571,14 @@ class FreshaController extends ApiController
         // booking-family clear, under this same cross-platform key. Serializing
         // both on the per-platform 'fresha' key would leave clearBooking()
         // free to race this delete.
+        //
+        // Fix B (whole-branch review pt.2): TTL 30s (not the 10s default) —
+        // Service::delete() below fires ServiceObserver per row (user+site
+        // lookup, ~29-key Redis bust, two visibility re-evaluations, a Site
+        // touch cascading into its own observer/purge) — the same per-row
+        // cost class as sync()'s upsert loop, which is why sync()'s lock was
+        // already raised to 30s. services_max=500 caps listing only, not
+        // count, so a large synced menu can plausibly exceed 10s here too.
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user) {
             $this->forgetConnection($user);
 
@@ -572,6 +594,6 @@ class FreshaController extends ApiController
             }
 
             return $this->success(['url' => null, 'selection' => null]);
-        });
+        }, 30);
     }
 }

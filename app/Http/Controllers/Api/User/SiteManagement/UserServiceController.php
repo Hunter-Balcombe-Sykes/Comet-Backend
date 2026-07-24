@@ -314,28 +314,42 @@ class UserServiceController extends ApiController
             $this->assertCategoryBelongsToProfessional($pro->id, $categoryId);
         }
 
-        DB::transaction(function () use ($pro, $service, $categoryIds) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$pro->id}"]);
+        // Fix C (whole-branch review pt.2): unified onto the services:{user}
+        // advisory key (was service-layout:{user}) — this max(sort_order)+1
+        // append renumbers the SAME globally-unique (user_id, sort_order)
+        // constraint that FreshaServiceProjector::sync(), InsertWithSortOrder,
+        // and ReorderService's flat reorder already serialise on via that key;
+        // a different key on this side let a reorderLayout()/sync() race slip
+        // past both and hit the constraint. Routed through AdvisoryLock so it
+        // also inherits the 5s bound + typed AdvisoryLockTimeoutException
+        // (→ 423) the services key already has, instead of staying unbounded.
+        try {
+            DB::connection('pgsql')->transaction(function () use ($pro, $service, $categoryIds) {
+                AdvisoryLock::acquire("services:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-            $current = $service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
-            $target = collect($categoryIds)->sort()->values()->all();
+                $current = $service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
+                $target = collect($categoryIds)->sort()->values()->all();
 
-            // No-op: nothing to reindex, keep the current sort_order.
-            if ($current === $target) {
-                return;
-            }
+                // No-op: nothing to reindex, keep the current sort_order.
+                if ($current === $target) {
+                    return;
+                }
 
-            $service->categories()->sync($categoryIds);
+                $service->categories()->sync($categoryIds);
 
-            $max = Service::query()
-                ->where('user_id', $pro->id)
-                ->whereNull('deleted_at')
-                ->max('sort_order');
+                $max = Service::query()
+                    ->where('user_id', $pro->id)
+                    ->whereNull('deleted_at')
+                    ->max('sort_order');
 
-            $service->update([
-                'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
-            ]);
-        });
+                $service->update([
+                    'sort_order' => is_null($max) ? 0 : ((int) $max + 1),
+                ]);
+            });
+        } catch (AdvisoryLockTimeoutException) {
+            // Same contention/423 as store()/reorder() above.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->success(['service' => new ServiceResource($service->fresh())]);
     }
@@ -411,150 +425,158 @@ class UserServiceController extends ApiController
 
         $payload = $request->validated();
 
-        DB::transaction(function () use ($pro, $payload) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$pro->id}"]);
+        // Fix C (whole-branch review pt.2): unified onto the services:{user}
+        // advisory key (was service-layout:{user}) — same rationale as
+        // updateCategory() above; see that method's comment.
+        try {
+            DB::connection('pgsql')->transaction(function () use ($pro, $payload) {
+                AdvisoryLock::acquire("services:{$pro->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-            $activeCategoryIds = ServiceCategory::query()
-                ->where('user_id', $pro->id)
-                ->pluck('id')
-                ->all();
-            $activeCategorySet = array_flip($activeCategoryIds);
+                $activeCategoryIds = ServiceCategory::query()
+                    ->where('user_id', $pro->id)
+                    ->pluck('id')
+                    ->all();
+                $activeCategorySet = array_flip($activeCategoryIds);
 
-            $activeServiceIds = Service::query()
-                ->where('user_id', $pro->id)
-                ->pluck('id')
-                ->all();
-            $activeServiceSet = array_flip($activeServiceIds);
+                $activeServiceIds = Service::query()
+                    ->where('user_id', $pro->id)
+                    ->pluck('id')
+                    ->all();
+                $activeServiceSet = array_flip($activeServiceIds);
 
-            $providedCategoryIds = [];
-            $seenPerBlock = [];
-            $membershipsByService = [];
-            $uncategorisedIds = [];
+                $providedCategoryIds = [];
+                $seenPerBlock = [];
+                $membershipsByService = [];
+                $uncategorisedIds = [];
 
-            foreach ($payload['categories'] as $bi => $catBlock) {
-                $catId = $catBlock['id'] ?? null;
+                foreach ($payload['categories'] as $bi => $catBlock) {
+                    $catId = $catBlock['id'] ?? null;
 
-                if ($catId !== null) {
-                    if (! isset($activeCategorySet[$catId])) {
-                        abort(422, 'One or more category IDs are invalid.');
+                    if ($catId !== null) {
+                        if (! isset($activeCategorySet[$catId])) {
+                            abort(422, 'One or more category IDs are invalid.');
+                        }
+                        $providedCategoryIds[] = $catId;
                     }
-                    $providedCategoryIds[] = $catId;
+
+                    foreach ($catBlock['service_ids'] as $sid) {
+                        if (! isset($activeServiceSet[$sid])) {
+                            abort(422, 'One or more service IDs are invalid.');
+                        }
+                        // Multi-category: a service MAY appear in several category
+                        // blocks (one membership per block) — but never twice in the
+                        // same block, and never both categorised AND uncategorised.
+                        if (isset($seenPerBlock[$bi][$sid])) {
+                            abort(422, 'Duplicate service IDs detected within a category block.');
+                        }
+                        $seenPerBlock[$bi][$sid] = true;
+
+                        if ($catId === null) {
+                            $uncategorisedIds[$sid] = true;
+                        } else {
+                            $membershipsByService[$sid][] = $catId;
+                        }
+                    }
                 }
 
-                foreach ($catBlock['service_ids'] as $sid) {
-                    if (! isset($activeServiceSet[$sid])) {
-                        abort(422, 'One or more service IDs are invalid.');
-                    }
-                    // Multi-category: a service MAY appear in several category
-                    // blocks (one membership per block) — but never twice in the
-                    // same block, and never both categorised AND uncategorised.
-                    if (isset($seenPerBlock[$bi][$sid])) {
-                        abort(422, 'Duplicate service IDs detected within a category block.');
-                    }
-                    $seenPerBlock[$bi][$sid] = true;
-
-                    if ($catId === null) {
-                        $uncategorisedIds[$sid] = true;
-                    } else {
-                        $membershipsByService[$sid][] = $catId;
+                foreach ($uncategorisedIds as $sid => $_) {
+                    if (isset($membershipsByService[$sid])) {
+                        abort(422, 'A service cannot be both categorised and uncategorised.');
                     }
                 }
-            }
 
-            foreach ($uncategorisedIds as $sid => $_) {
-                if (isset($membershipsByService[$sid])) {
-                    abort(422, 'A service cannot be both categorised and uncategorised.');
+                // Every active service must appear somewhere (its memberships, or
+                // the uncategorised block for zero memberships).
+                $coveredIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
+                if (count($coveredIds) !== count($activeServiceIds)) {
+                    abort(422, 'Layout payload must include all service IDs for this professional.');
                 }
-            }
 
-            // Every active service must appear somewhere (its memberships, or
-            // the uncategorised block for zero memberships).
-            $coveredIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
-            if (count($coveredIds) !== count($activeServiceIds)) {
-                abort(422, 'Layout payload must include all service IDs for this professional.');
-            }
+                // Ensure all categories are included (excluding uncategorised null bucket)
+                $providedCategoryIds = array_values(array_unique($providedCategoryIds));
+                sort($providedCategoryIds);
+                $sortedActive = $activeCategoryIds;
+                sort($sortedActive);
 
-            // Ensure all categories are included (excluding uncategorised null bucket)
-            $providedCategoryIds = array_values(array_unique($providedCategoryIds));
-            sort($providedCategoryIds);
-            $sortedActive = $activeCategoryIds;
-            sort($sortedActive);
+                if ($providedCategoryIds !== $sortedActive) {
+                    abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
+                }
 
-            if ($providedCategoryIds !== $sortedActive) {
-                abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
-            }
+                // Apply category order + service order + MEMBERSHIPS. The layout
+                // payload is the full membership map now: a service's memberships
+                // become exactly the category blocks it appears in (zero for the
+                // uncategorised block). Services get a GLOBAL running sort_order
+                // from their FIRST occurrence across every bucket — the partial
+                // UNIQUE index (user_id, sort_order) is professional-scoped, and
+                // the display orders by category sort_order then service
+                // sort_order, so first-occurrence order preserves each category's
+                // internal order while satisfying the index.
+                //
+                // sort_order applies in two passes: the unique index is checked on
+                // every individual UPDATE (not deferred), so a single pass can
+                // transiently collide with a row that hasn't been updated yet but
+                // still occupies the target value (e.g. a straight swap). Pass 1
+                // parks every service at a temporary value far above any real
+                // sort_order; pass 2 writes the real 0..N-1 values.
+                $categorySort = 0;
+                $orderedServiceIds = [];
 
-            // Apply category order + service order + MEMBERSHIPS. The layout
-            // payload is the full membership map now: a service's memberships
-            // become exactly the category blocks it appears in (zero for the
-            // uncategorised block). Services get a GLOBAL running sort_order
-            // from their FIRST occurrence across every bucket — the partial
-            // UNIQUE index (user_id, sort_order) is professional-scoped, and
-            // the display orders by category sort_order then service
-            // sort_order, so first-occurrence order preserves each category's
-            // internal order while satisfying the index.
-            //
-            // sort_order applies in two passes: the unique index is checked on
-            // every individual UPDATE (not deferred), so a single pass can
-            // transiently collide with a row that hasn't been updated yet but
-            // still occupies the target value (e.g. a straight swap). Pass 1
-            // parks every service at a temporary value far above any real
-            // sort_order; pass 2 writes the real 0..N-1 values.
-            $categorySort = 0;
-            $orderedServiceIds = [];
+                foreach ($payload['categories'] as $catBlock) {
+                    $catId = $catBlock['id'] ?? null;
 
-            foreach ($payload['categories'] as $catBlock) {
-                $catId = $catBlock['id'] ?? null;
+                    if ($catId !== null) {
+                        ServiceCategory::query()
+                            ->where('user_id', $pro->id)
+                            ->where('id', $catId)
+                            ->update(['sort_order' => $categorySort++]);
+                    }
 
-                if ($catId !== null) {
-                    ServiceCategory::query()
+                    foreach ($catBlock['service_ids'] as $serviceId) {
+                        if (! in_array($serviceId, $orderedServiceIds, true)) {
+                            $orderedServiceIds[] = $serviceId;
+                        }
+                    }
+                }
+
+                foreach ($orderedServiceIds as $i => $serviceId) {
+                    Service::query()
                         ->where('user_id', $pro->id)
-                        ->where('id', $catId)
-                        ->update(['sort_order' => $categorySort++]);
+                        ->where('id', $serviceId)
+                        ->update(['sort_order' => 1_000_000 + $i]);
                 }
 
-                foreach ($catBlock['service_ids'] as $serviceId) {
-                    if (! in_array($serviceId, $orderedServiceIds, true)) {
-                        $orderedServiceIds[] = $serviceId;
+                foreach ($orderedServiceIds as $i => $serviceId) {
+                    Service::query()
+                        ->where('user_id', $pro->id)
+                        ->where('id', $serviceId)
+                        ->update(['sort_order' => $i]);
+                }
+
+                // Membership sync per service (replace-set semantics).
+                foreach ($orderedServiceIds as $serviceId) {
+                    $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
+                    $current = DB::table('site.service_category_assignments')
+                        ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
+                    $toDetach = array_diff($current, $target);
+                    $toAttach = array_diff($target, $current);
+                    if ($toDetach !== []) {
+                        DB::table('site.service_category_assignments')
+                            ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
+                    }
+                    foreach ($toAttach as $categoryId) {
+                        DB::table('site.service_category_assignments')->insert([
+                            'service_id' => $serviceId,
+                            'service_category_id' => $categoryId,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
                     }
                 }
-            }
-
-            foreach ($orderedServiceIds as $i => $serviceId) {
-                Service::query()
-                    ->where('user_id', $pro->id)
-                    ->where('id', $serviceId)
-                    ->update(['sort_order' => 1_000_000 + $i]);
-            }
-
-            foreach ($orderedServiceIds as $i => $serviceId) {
-                Service::query()
-                    ->where('user_id', $pro->id)
-                    ->where('id', $serviceId)
-                    ->update(['sort_order' => $i]);
-            }
-
-            // Membership sync per service (replace-set semantics).
-            foreach ($orderedServiceIds as $serviceId) {
-                $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
-                $current = DB::table('site.service_category_assignments')
-                    ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
-                $toDetach = array_diff($current, $target);
-                $toAttach = array_diff($target, $current);
-                if ($toDetach !== []) {
-                    DB::table('site.service_category_assignments')
-                        ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
-                }
-                foreach ($toAttach as $categoryId) {
-                    DB::table('site.service_category_assignments')->insert([
-                        'service_id' => $serviceId,
-                        'service_category_id' => $categoryId,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-            }
-        });
+            });
+        } catch (AdvisoryLockTimeoutException) {
+            // Same contention/423 as store()/reorder() above.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         // EDGE-1 (audit): reorderLayout bypasses ReorderService entirely (raw
         // DB::transaction + per-row query-builder update()), so no observer ever

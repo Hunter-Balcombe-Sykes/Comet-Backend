@@ -241,133 +241,146 @@ class StaffServiceManagementController extends ApiController
 
         $payload = $request->validated();
 
-        DB::transaction(function () use ($professional, $payload) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["service-layout:{$professional->id}"]);
+        // Fix C (whole-branch review pt.2): unified onto the services:{user}
+        // advisory key (was service-layout:{user}) — this max(sort_order)+1
+        // renumbering hits the SAME globally-unique (user_id, sort_order)
+        // constraint that FreshaServiceProjector::sync(), InsertWithSortOrder,
+        // and ReorderService's flat reorder already serialise on via that key
+        // (see UserServiceController::updateCategory()'s comment). Routed
+        // through AdvisoryLock so it also inherits the 5s bound + typed
+        // AdvisoryLockTimeoutException (→ 423) instead of staying unbounded.
+        try {
+            DB::connection('pgsql')->transaction(function () use ($professional, $payload) {
+                AdvisoryLock::acquire("services:{$professional->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
-            $activeCategoryIds = ServiceCategory::query()
-                ->where('user_id', $professional->id)
-                ->pluck('id')
-                ->all();
-            $activeCategorySet = array_flip($activeCategoryIds);
+                $activeCategoryIds = ServiceCategory::query()
+                    ->where('user_id', $professional->id)
+                    ->pluck('id')
+                    ->all();
+                $activeCategorySet = array_flip($activeCategoryIds);
 
-            $activeServiceIds = Service::query()
-                ->where('user_id', $professional->id)
-                ->pluck('id')
-                ->all();
-            $activeServiceSet = array_flip($activeServiceIds);
+                $activeServiceIds = Service::query()
+                    ->where('user_id', $professional->id)
+                    ->pluck('id')
+                    ->all();
+                $activeServiceSet = array_flip($activeServiceIds);
 
-            $providedCategoryIds = [];
-            $seenPerBlock = [];
-            $membershipsByService = [];
-            $uncategorisedIds = [];
+                $providedCategoryIds = [];
+                $seenPerBlock = [];
+                $membershipsByService = [];
+                $uncategorisedIds = [];
 
-            foreach ($payload['categories'] as $bi => $catBlock) {
-                $catId = $catBlock['id'] ?? null;
+                foreach ($payload['categories'] as $bi => $catBlock) {
+                    $catId = $catBlock['id'] ?? null;
 
-                if ($catId !== null) {
-                    if (! isset($activeCategorySet[$catId])) {
-                        abort(422, 'One or more category IDs are invalid.');
+                    if ($catId !== null) {
+                        if (! isset($activeCategorySet[$catId])) {
+                            abort(422, 'One or more category IDs are invalid.');
+                        }
+                        $providedCategoryIds[] = $catId;
                     }
-                    $providedCategoryIds[] = $catId;
+
+                    foreach ($catBlock['service_ids'] as $sid) {
+                        if (! isset($activeServiceSet[$sid])) {
+                            abort(422, 'One or more service IDs are invalid.');
+                        }
+                        // Multi-category: one membership per category block; never
+                        // twice in one block, never categorised AND uncategorised.
+                        if (isset($seenPerBlock[$bi][$sid])) {
+                            abort(422, 'Duplicate service IDs detected within a category block.');
+                        }
+                        $seenPerBlock[$bi][$sid] = true;
+
+                        if ($catId === null) {
+                            $uncategorisedIds[$sid] = true;
+                        } else {
+                            $membershipsByService[$sid][] = $catId;
+                        }
+                    }
                 }
 
-                foreach ($catBlock['service_ids'] as $sid) {
-                    if (! isset($activeServiceSet[$sid])) {
-                        abort(422, 'One or more service IDs are invalid.');
-                    }
-                    // Multi-category: one membership per category block; never
-                    // twice in one block, never categorised AND uncategorised.
-                    if (isset($seenPerBlock[$bi][$sid])) {
-                        abort(422, 'Duplicate service IDs detected within a category block.');
-                    }
-                    $seenPerBlock[$bi][$sid] = true;
-
-                    if ($catId === null) {
-                        $uncategorisedIds[$sid] = true;
-                    } else {
-                        $membershipsByService[$sid][] = $catId;
+                foreach ($uncategorisedIds as $sid => $_) {
+                    if (isset($membershipsByService[$sid])) {
+                        abort(422, 'A service cannot be both categorised and uncategorised.');
                     }
                 }
-            }
 
-            foreach ($uncategorisedIds as $sid => $_) {
-                if (isset($membershipsByService[$sid])) {
-                    abort(422, 'A service cannot be both categorised and uncategorised.');
+                $coveredIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
+                if (count($coveredIds) !== count($activeServiceIds)) {
+                    abort(422, 'Layout payload must include all service IDs for this professional.');
                 }
-            }
 
-            $coveredIds = array_unique([...array_keys($membershipsByService), ...array_keys($uncategorisedIds)]);
-            if (count($coveredIds) !== count($activeServiceIds)) {
-                abort(422, 'Layout payload must include all service IDs for this professional.');
-            }
+                // Ensure all categories included (excluding null bucket)
+                $providedCategoryIds = array_values(array_unique($providedCategoryIds));
+                sort($providedCategoryIds);
+                $sortedActive = $activeCategoryIds;
+                sort($sortedActive);
 
-            // Ensure all categories included (excluding null bucket)
-            $providedCategoryIds = array_values(array_unique($providedCategoryIds));
-            sort($providedCategoryIds);
-            $sortedActive = $activeCategoryIds;
-            sort($sortedActive);
+                if ($providedCategoryIds !== $sortedActive) {
+                    abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
+                }
 
-            if ($providedCategoryIds !== $sortedActive) {
-                abort(422, 'Layout payload must include all category IDs (use one block with id=null for uncategorised).');
-            }
+                // Apply category order + service order + memberships (mirrors
+                // UserServiceController::reorderLayout — global first-occurrence
+                // sort_order, two-pass park for the partial unique index, and the
+                // payload defining the full membership map).
+                $categorySort = 0;
+                $orderedServiceIds = [];
 
-            // Apply category order + service order + memberships (mirrors
-            // UserServiceController::reorderLayout — global first-occurrence
-            // sort_order, two-pass park for the partial unique index, and the
-            // payload defining the full membership map).
-            $categorySort = 0;
-            $orderedServiceIds = [];
+                foreach ($payload['categories'] as $catBlock) {
+                    $catId = $catBlock['id'] ?? null;
 
-            foreach ($payload['categories'] as $catBlock) {
-                $catId = $catBlock['id'] ?? null;
+                    if ($catId !== null) {
+                        ServiceCategory::query()
+                            ->where('user_id', $professional->id)
+                            ->where('id', $catId)
+                            ->update(['sort_order' => $categorySort++]);
+                    }
 
-                if ($catId !== null) {
-                    ServiceCategory::query()
+                    foreach ($catBlock['service_ids'] as $serviceId) {
+                        if (! in_array($serviceId, $orderedServiceIds, true)) {
+                            $orderedServiceIds[] = $serviceId;
+                        }
+                    }
+                }
+
+                foreach ($orderedServiceIds as $i => $serviceId) {
+                    Service::query()
                         ->where('user_id', $professional->id)
-                        ->where('id', $catId)
-                        ->update(['sort_order' => $categorySort++]);
+                        ->where('id', $serviceId)
+                        ->update(['sort_order' => 1_000_000 + $i]);
+                }
+                foreach ($orderedServiceIds as $i => $serviceId) {
+                    Service::query()
+                        ->where('user_id', $professional->id)
+                        ->where('id', $serviceId)
+                        ->update(['sort_order' => $i]);
                 }
 
-                foreach ($catBlock['service_ids'] as $serviceId) {
-                    if (! in_array($serviceId, $orderedServiceIds, true)) {
-                        $orderedServiceIds[] = $serviceId;
+                foreach ($orderedServiceIds as $serviceId) {
+                    $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
+                    $current = DB::table('site.service_category_assignments')
+                        ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
+                    $toDetach = array_diff($current, $target);
+                    $toAttach = array_diff($target, $current);
+                    if ($toDetach !== []) {
+                        DB::table('site.service_category_assignments')
+                            ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
+                    }
+                    foreach ($toAttach as $categoryId) {
+                        DB::table('site.service_category_assignments')->insert([
+                            'service_id' => $serviceId,
+                            'service_category_id' => $categoryId,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
                     }
                 }
-            }
-
-            foreach ($orderedServiceIds as $i => $serviceId) {
-                Service::query()
-                    ->where('user_id', $professional->id)
-                    ->where('id', $serviceId)
-                    ->update(['sort_order' => 1_000_000 + $i]);
-            }
-            foreach ($orderedServiceIds as $i => $serviceId) {
-                Service::query()
-                    ->where('user_id', $professional->id)
-                    ->where('id', $serviceId)
-                    ->update(['sort_order' => $i]);
-            }
-
-            foreach ($orderedServiceIds as $serviceId) {
-                $target = array_values(array_unique($membershipsByService[$serviceId] ?? []));
-                $current = DB::table('site.service_category_assignments')
-                    ->where('service_id', $serviceId)->pluck('service_category_id')->map(fn ($id) => (string) $id)->all();
-                $toDetach = array_diff($current, $target);
-                $toAttach = array_diff($target, $current);
-                if ($toDetach !== []) {
-                    DB::table('site.service_category_assignments')
-                        ->where('service_id', $serviceId)->whereIn('service_category_id', $toDetach)->delete();
-                }
-                foreach ($toAttach as $categoryId) {
-                    DB::table('site.service_category_assignments')->insert([
-                        'service_id' => $serviceId,
-                        'service_category_id' => $categoryId,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-            }
-        });
+            });
+        } catch (AdvisoryLockTimeoutException) {
+            // Same contention/423 as store()/reorder() above.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->success(['ok' => true]);
     }

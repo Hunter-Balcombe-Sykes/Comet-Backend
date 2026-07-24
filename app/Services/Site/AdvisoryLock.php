@@ -21,8 +21,14 @@ use Illuminate\Support\Facades\DB;
  * Omit $timeoutMs (null) to fall back to that pre-existing session-level
  * ceiling for keys this unit doesn't touch — every OTHER pg_advisory_xact_lock
  * call site in the app (site-images, site-documents, blocks-sections,
- * service-layout, feedback, claim-invite, pre_account_build_ip) still calls
- * DB::select(...) directly and is deliberately untouched here.
+ * feedback, claim-invite, pre_account_build_ip) still calls DB::select(...)
+ * directly and is deliberately untouched here. service-layout:{user_id} was
+ * one such site until Fix C (whole-branch review pt.2, 2026-07-25) moved its
+ * three sort_order-renumbering writers onto the services:{user_id} key below
+ * — the two remaining service-layout:{user_id} sites (UserServiceCategoryController::
+ * destroy, StaffServiceCategoryManagementController::destroy) only delete
+ * category-assignment rows, never site.services.sort_order, so they stay on
+ * the untouched, unbounded raw DB::select(...) path.
  *
  * SQLite (the test driver — see tests/TestCase.php's connection swap) has
  * neither SET LOCAL nor pg_advisory_xact_lock/hashtext; Pest registers those
@@ -42,6 +48,13 @@ final class AdvisoryLock
     // block(5)) so the app's two locking mechanisms feel consistent to a
     // user, while staying comfortably under statement_timeout (30s,
     // DB_STATEMENT_TIMEOUT) and ConnectFetchJob's 45s hard timeout.
+    //
+    // Fix C (whole-branch review pt.2) added three more writers of the same
+    // (user_id, sort_order) constraint onto this key: UserServiceController::
+    // updateCategory()/reorderLayout() and StaffServiceManagementController::
+    // reorderLayout() — previously keyed on the DIFFERENT service-layout:
+    // {user_id} lock, which let a reorderLayout() race any of the original
+    // three past each other into the same unique-constraint violation.
     public const SERVICES_LOCK_TIMEOUT_MS = 5000;
 
     private const LOCK_NOT_AVAILABLE_SQLSTATE = '55P03';
