@@ -433,9 +433,11 @@ it('R7: connectStatus still reports pending exactly at the stale-pending boundar
 
     // Freeze time at whole-second precision so updated_at and the
     // controller's now() land at the SAME instant — a microsecond-precision
-    // freeze would still drift, because SQLite truncates the stored
-    // updated_at to the second, silently pushing the read-back value just
-    // past the window and flipping the verdict.
+    // freeze would still drift, because Eloquent serializes datetimes as
+    // 'Y-m-d H:i:s' (driver-agnostic, not SQLite-specific), so the stored
+    // updated_at reads back truncated to the second and can land just past
+    // the window, flipping the verdict. Prod's set_updated_at() trigger
+    // stamps full precision, so the exclusive-lt boundary holds there too.
     Carbon::setTestNow(Carbon::parse(now()->format('Y-m-d H:i:s')));
     IntegrationConnection::where('id', $connection->id)->update(['updated_at' => now()->subMinutes(StrandedPendingWindow::MINUTES)]);
 
