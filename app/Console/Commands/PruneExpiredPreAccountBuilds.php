@@ -139,6 +139,18 @@ class PruneExpiredPreAccountBuilds extends Command
                     //    fire observers/storage cleanup before rows disappear, not to
                     //    do the deleting themselves; see PruneExpiredBuildsTest for
                     //    the SQLite-safe assertions (no FK enforcement there).
+                    //
+                    // Pre-null the two append-only audit links first (mirrors
+                    // AccountDeletionService::purge()) — forceDelete's ON DELETE SET
+                    // NULL cascade into audit.staff_audit_log / handle_change_log
+                    // would otherwise trip their reject-mutation triggers (#308).
+                    // Deliberately unwrapped: the per-candidate try/catch around this
+                    // whole transaction already reports and continues on any failure,
+                    // and the transaction has already rolled back by the time it's
+                    // caught — an inner catch here would only duplicate that.
+                    if (DB::connection('pgsql')->getDriverName() === 'pgsql') {
+                        DB::connection('pgsql')->select('SELECT audit.null_user_audit_links(?)', [$user->id]);
+                    }
                     $user->forceDelete();
 
                     // EDGE-1: retire the now-orphaned custom-domain KV pointer.
