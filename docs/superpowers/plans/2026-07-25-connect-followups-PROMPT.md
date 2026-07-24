@@ -1,4 +1,4 @@
-# PROMPT — Connect follow-ups: booking XOR · advisory-lock bound · Fresha `team()`
+# PROMPT — Connect follow-ups: booking XOR · advisory-lock bound
 
 > Paste this whole file as the opening message of a fresh session in the
 > Comet-Backend repo (`/Users/joshuahunter/Herd/Side Street/backend`).
@@ -8,18 +8,25 @@
 ## Where this sits
 
 Phase 3 (`2026-07-24-connect-phase3-implementation-PROMPT.md`) shipped W2–W7 and merged
-as `2c88919c`; W9 Shop merged after it. Three items were **deliberately deferred out of
-that run**, each for a different reason, and none has an owner:
+as `2c88919c`; W9 Shop merged after it. Two items were **deliberately deferred out of
+that run**, and neither has an owner:
 
 | Unit | Why it was deferred | Effort | Gate |
 |---|---|---|---|
 | **U1** — Square side of the booking XOR | Josh's call: "separate unit after this run" | **S/M** | 🔒 **yes** |
 | **U2** — bound the services advisory lock | explicitly escalated out of CA-W7, never picked up | **S/M** | no |
-| **U3** — Fresha `team()` | Josh dropped W8; the frontend contract is **not final** | **M** | 🔒 **yes — contract** |
 
-They are grouped here because all three touch Fresha/booking and share the same test
-surface. **They are independent** — U2 needs no sign-off and can ship alone if the two
-gated units stall.
+They are grouped here because both touch Fresha/booking and share the same test surface.
+**They are independent** — U2 needs no sign-off and can ship alone if U1 stalls.
+
+**A third item, `GET /api/platforms/fresha/team`, was considered and deliberately left out.**
+It re-scrapes the salon page on every call, which is real but is already bounded to ~20 s by
+W1's `FetchBudget` (the design doc's "~96 s" predates that). The intended fix — serve
+`payload.teamMenu` and refresh in the background — **cannot work yet**: that snapshot is
+written only by the deferred connect path (`FreshaConnectFetch.php:95`), and `fresha` is not
+in `PARTNA_CONNECT_DEFERRED`, so no row has one. **Revisit it after Phase 4 activates
+`fresha`**, not before. It remains open and unowned; do not treat this omission as a decision
+that it is fine.
 
 ## Non-negotiables
 
@@ -63,10 +70,10 @@ makes the PHPStan count *worse*, that part is yours.
 ## Execution policy
 
 Plan **Opus 4.8** · Implement **Sonnet 4.6** · Review a **separate** Sonnet 4.6 · final
-whole-branch review **Opus 4.8**. Keep plan and implement separate for U1 and U3 (both
-gated); U2 may combine. **Front-load the gated plans** — author U1's and U3's plans and
-present them to Josh as **one batched sign-off** before dispatching any implementer. Hand
-artifacts over as files, never pasted diffs.
+whole-branch review **Opus 4.8**. Keep plan and implement separate for U1 (gated); U2 may
+combine. **Front-load U1's plan** — author it and present it to Josh for sign-off before
+dispatching its implementer; U2 can proceed meanwhile. Hand artifacts over as files, never
+pasted diffs.
 
 ---
 
@@ -158,69 +165,6 @@ service-management suites stay green.
 
 ---
 
-# U3 — Fresha `team()`: stop re-scraping on every call
-
-**Read the contract decision first — it is not settled, and this is the gate.**
-
-`docs/frontend-contracts/2026-07-23-platform-connect-async.md`, final section
-("Not yet specified"), states:
-
-> **`GET /api/platforms/fresha/team`** is network-bound (~96 s) and re-scrapes on every
-> call. Making `connect()` async does **not** fix it. The intended fix serves the stored
-> snapshot immediately at `200` with the current body shape and refreshes in the
-> background — **no `202`, no new keys**, just faster and eventually consistent. That work
-> is scheduled separately and **its contract is not final**.
-
-The design doc's §5 table said the opposite (a new 202 + poll contract). **Josh ruled the
-contract governs** and dropped W8 from Phase 3 on that basis. So the shape is
-stale-while-revalidate, **not** 202 + poll — but "contract not final" means the details are
-yours to propose and his to approve. **Author the plan, present it, and wait.**
-
-**Current behaviour**, verified on `development`:
-- `team()` declares at `FreshaController.php:269`. It reads the stored URL cheaply, 404s
-  with `'No Fresha URL connected yet. POST one to /connect first.'` when absent, then
-  performs the **same live scrape** `connect()` does, with no cache, and returns
-  `['url' => $url, ...$menu]`.
-- **The contract's "~96 s" figure is stale — it is now ~20 s.** W1 wrapped this call in a
-  `FetchBudget`: `$this->budget->open((float) config('partna.http_fetch.connect_budget_seconds', 20), fn () => $this->scraper->fetchMenu($url))`.
-  96 s was the pre-W1 worst case. It is still a third-party round-trip on every `GET`, but
-  the ceiling is five times lower than the contract implies — **weigh U3's priority against
-  U1 and U2 accordingly**, and do not sell this as a 96-second fix.
-
-**The groundwork already exists — and so does its catch.** CA-W6 added a private
-`payload.teamMenu` snapshot precisely so a poll could return the full body, and noted it is
-what a `team()` fix would need. **But it is written only on the deferred path** —
-`FreshaConnectFetch.php:95` returns `[...$payload, 'teamMenu' => $menu, 'connectPendingAt' => null]`,
-and the pending write at `FreshaController.php:192` seeds `'teamMenu' => null`.
-
-**So today no row has a populated snapshot**, because `fresha` is not in
-`PARTNA_CONNECT_DEFERRED` — the synchronous connect path never writes one. Your plan must
-say what `team()` does when the snapshot is absent (a live scrape, presumably) and must not
-assume activation has happened. **State this explicitly; it is the single most likely thing
-to be got wrong.**
-
-**Also address:**
-- **Freshness.** Serving a snapshot means serving stale data. How stale is acceptable, what
-  triggers the background refresh, and does the response advertise its age?
-- **Who fills the snapshot for synchronous connects?** If `team()` is to be fast for
-  everyone, something must populate `teamMenu` outside the deferred path. Say what, or say
-  plainly that `team()` is only fast post-activation.
-- **The private-key question.** R3 of the residual-cleanup prompt
-  (`2026-07-25-connect-residual-cleanup-PROMPT.md`) proposes stripping `connectMode` /
-  `teamMenu` from completed rows. **That directly conflicts with U3 wanting to keep the
-  snapshot.** Whichever of the two runs second must not undo the first — flag the conflict
-  in your plan and get the ordering decided, do not resolve it unilaterally.
-- **Byte-identity.** The contract says "current body shape, no new keys". Pin the existing
-  `team()` response exactly before changing anything, and prove the shape is unchanged
-  after — `assertExactJson`, not `assertJsonPath` on a field or two. Three Phase 3 units
-  were pulled up for exactly that weakness.
-
-**Acceptance:** `team()` no longer scrapes on the common path; the response shape is
-byte-identical to today's; the snapshot-absent path still works; and no new endpoint, key
-or status code is introduced without Josh's explicit approval.
-
----
-
 ## Completion
 
 1. `COMPOSER_PROCESS_TIMEOUT=0 composer test` — green, and **compared against the baseline
@@ -237,7 +181,10 @@ or status code is introduced without Josh's explicit approval.
 ## Reference
 
 - U1 spec: `docs/superpowers/plans/2026-07-24-square-fresha-xor-symmetric-race-UNIT.md`
-- Residual list (R3 conflicts with U3): `docs/superpowers/plans/2026-07-25-connect-residual-cleanup-PROMPT.md`
+- Residual list: `docs/superpowers/plans/2026-07-25-connect-residual-cleanup-PROMPT.md`
+  **Note for whoever runs its R3** (strip `connectMode`/`teamMenu` from completed rows): those
+  keys are the groundwork a future `team()` fix needs. Stripping them is defensible, but do it
+  knowingly and say so — do not delete them as dead weight.
 - Design + its seven implementation-proved corrections: `docs/superpowers/specs/2026-07-23-platform-connect-async-design.md`
 - Contract: `docs/frontend-contracts/2026-07-23-platform-connect-async.md`
 - Runbook: `scripts/audit/fix-flow.md`
