@@ -73,7 +73,7 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/EventsController.php
 
 		-
-			message: '#^Offset ''ok'' on array\{ok\: bool, error\?\: string, status\?\: int, selection\?\: array\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			message: '#^Offset ''ok'' on array\{ok\: bool, error\?\: string, status\?\: int, selection\?\: array\|null, pending\?\: array\{platform\: string, connectionId\: string, resourceId\: string\}\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/EventsController.php

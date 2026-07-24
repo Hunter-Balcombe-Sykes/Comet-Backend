@@ -335,6 +335,15 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
             $r->get('eventbrite')->fetch(fn () => new EventbriteFetch(app(EventbriteScraper::class)));
             $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
+            // CA-W5 — see apple-music's identical note above: the message
+            // ConnectFetchJob stores when the deferred scrape fails, verbatim
+            // from addAccount()'s own synchronous 422. Deliberately NOT
+            // ->deferredConnect() — neither descriptor has a ConnectStrategy
+            // (their connect is bespoke, via DefersBespokeConnect), so that flag
+            // would falsely claim one exists (RegistryConnectCoverageTest pins
+            // flag<=>instanceof for every descriptor).
+            $r->get('eventbrite')->connectFetchError('Could not load that Eventbrite page.');
+            $r->get('humanitix')->connectFetchError('Could not load that Humanitix page.');
             $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──

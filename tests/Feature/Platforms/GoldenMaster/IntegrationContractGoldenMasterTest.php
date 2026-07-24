@@ -585,7 +585,12 @@ it('covers every integration GET read-route in the golden master', function () {
     // inside the loop's SingleSelection branch (that branch returns before the
     // loop's own supportsDeferredConnect() gate too, and Skool has no
     // ConnectStrategy to satisfy that flag's pinned invariant anyway). 74 -> 75.
-    expect($readRoutes->count())->toBe(75);
+    // CA-W5: 2 new .../connect/status poll routes for Eventbrite + Humanitix —
+    // added manually inside the events foreach group (bespoke, multi-account,
+    // same reasoning as Apple/Skool above — neither descriptor gets
+    // ->deferredConnect(), so the registry loop's own gate never reaches
+    // them either). 75 -> 77.
+    expect($readRoutes->count())->toBe(77);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -602,12 +607,14 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/custom/links/{id}/status',
         'api/platforms/discord/selection',
         'api/platforms/eventbrite/accounts',
+        'api/platforms/eventbrite/connect/status',
         'api/platforms/eventbrite/selection',
         'api/platforms/events/selection',
         'api/platforms/facebook/selection',
         'api/platforms/fresha/selection',
         'api/platforms/google-business/selection',
         'api/platforms/humanitix/accounts',
+        'api/platforms/humanitix/connect/status',
         'api/platforms/humanitix/selection',
         'api/platforms/instagram/connect/status',
         'api/platforms/instagram/selection',

@@ -66,7 +66,7 @@ class EventsCatalog
     /**
      * Detect + store a pasted URL.
      *
-     * @return array{ok:bool, error?:string, status?:int, selection?:?array}
+     * @return array{ok:bool, error?:string, status?:int, selection?:?array, pending?:array{platform:string,connectionId:string,resourceId:string}}
      */
     public function addByUrl(User $user, string $rawUrl): array
     {
@@ -93,6 +93,14 @@ class EventsCatalog
 
                 // Else an organiser/host account → connect it (events auto-refresh).
                 if (($accountUrl = ($a['accountUrl'])($raw)) !== null) {
+                    // CA-W5: config('partna.connect.deferred') names this provider —
+                    // skip the scrape entirely and let ConnectFetchJob fill the row.
+                    // accountUrl resolution above always stays inline: for Humanitix
+                    // it's a live fetch that IS the row's identity (§2 of the plan).
+                    if ($this->shouldDefer($provider)) {
+                        return $this->storeAccountDeferred($user, $provider, $accountUrl);
+                    }
+
                     $result = ($a['fetchAccount'])($accountUrl);
                     if (! is_array($result)) {
                         return $this->fail("Couldn't load that {$label} page.", 422);
@@ -220,11 +228,20 @@ class EventsCatalog
     // ── Storage ───────────────────────────────────────────────────────────
 
     // PWL-13: this catalogue is a second writer of the SAME eventbrite/humanitix
-    // platform_connections rows EventsPlatformController::addAccount() (locked)
-    // and ScheduledRefresh (locked) write — races them without withPlatformLock.
-    // The vendor fetch (fetchAccount) already ran upstream in addByUrl() before
-    // this is called, so the whole read→mutate→write cycle here is DB-only and
-    // safe to hold the lock across.
+    // platform_connections rows that EventsPlatformController::addAccount() and
+    // ScheduledRefresh write — hence withPlatformLock, on the identical
+    // CacheKeyGenerator::platformConnectionLock key.
+    //
+    // CA-W5: the closure below is DB-only on BOTH paths, but no longer for the
+    // reason this comment used to give. Synchronously, fetchAccount() still runs
+    // upstream in addByUrl() before we get here. On the deferred path it does
+    // not run at all — it moves into ConnectFetchJob, dispatched by
+    // EventsController::add() only AFTER this lock has released AND after the
+    // ambient FetchBudget that wraps addByUrl() has closed. Never dispatch from
+    // inside here: on QUEUE_CONNECTION=sync dispatch() runs handle() inline,
+    // which would (a) block on this very lock key and (b) nest its own
+    // FetchBudget::open() inside the caller's, whose inner finally clears the
+    // outer deadline.
     private function storeAccount(User $user, string $platform, string $url, array $result): array
     {
         return $this->withPlatformLock($user, $platform, function () use ($user, $platform, $url, $result): array {
@@ -248,6 +265,38 @@ class EventsCatalog
             $this->writeRow($user, $platform, $rid, $payload);
 
             return ['ok' => true, 'selection' => $this->selection($user)];
+        });
+    }
+
+    /**
+     * CA-W5 deferred sibling of storeAccount(): the scrape was skipped by the
+     * caller, so this writes a PENDING row via writePendingAccountRow() and
+     * returns a descriptor for EventsController::add() to dispatch from —
+     * never from in here (see the rewritten lock comment on storeAccount()
+     * above: dispatching inside this lock/closure would self-deadlock
+     * ConnectFetchJob on the same key it takes to complete the write).
+     *
+     * @return array{ok:bool, error?:string, status?:int, selection?:?array, pending?:array{platform:string,connectionId:string,resourceId:string}}
+     */
+    private function storeAccountDeferred(User $user, string $platform, string $url): array
+    {
+        return $this->withPlatformLock($user, $platform, function () use ($user, $platform, $url): array {
+            $rid = 'acct-'.substr(sha1(strtolower(trim($url))), 0, 16);
+            $existing = IntegrationConnection::query()
+                ->where('user_id', $user->id)->where('platform', $platform)->where('resource_id', $rid)
+                ->first();
+
+            if ($existing === null && $this->accountRows($user, $platform)->count() >= self::MAX_ACCOUNTS) {
+                return $this->fail('You can connect up to '.self::MAX_ACCOUNTS.' organisers per platform.', 422);
+            }
+
+            $row = $this->writePendingAccountRow($user, $platform, $rid, $url, $existing);
+
+            return [
+                'ok' => true,
+                'selection' => $this->selection($user),
+                'pending' => ['platform' => $platform, 'connectionId' => (string) $row->id, 'resourceId' => $rid],
+            ];
         });
     }
 
@@ -337,6 +386,29 @@ class EventsCatalog
     }
 
     /**
+     * CA-W5 pending twin of writeRow(): same updateOrCreate, but 'pending' status
+     * and a payload MERGED over whatever is stored rather than replacing it — that
+     * merge is what carries hiddenEventIds (and the previously scraped
+     * organiser/upcoming, so the card never blanks) across a reconnect while
+     * ConnectFetchJob's fetch is still queued. Account rows only, so no
+     * resource_kind stamp — same contract as writeRow()'s null default.
+     */
+    private function writePendingAccountRow(User $user, string $platform, string $resourceId, string $url, ?IntegrationConnection $existing): IntegrationConnection
+    {
+        return IntegrationConnection::updateOrCreate(
+            ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $resourceId],
+            [
+                'payload' => [...EventsAccountPayload::fromArray($existing?->payload)->toArray(), 'url' => $url],
+                'is_active' => true,
+                'last_refreshed_at' => null,
+                'last_refresh_status' => 'pending',
+                'last_refresh_error' => null,
+                'consecutive_failures' => 0,
+            ],
+        );
+    }
+
+    /**
      * Serialise a read→mutate→write cycle behind the SAME per-(user, platform)
      * lock ManagesIntegrationConnection::withConnectionLock (controllers) and
      * ScheduledRefresh already use — CacheKeyGenerator::platformConnectionLock()
@@ -365,6 +437,14 @@ class EventsCatalog
     private function adapter(string $provider): ?array
     {
         return $this->adapters[$provider] ?? null;
+    }
+
+    // Same lever, same strict in_array as DefersBespokeConnect::shouldDeferConnect()
+    // — duplicated (not shared) because that trait is a controller concern requiring
+    // ApiController + ManagesIntegrationConnection, neither of which a service has.
+    private function shouldDefer(string $platform): bool
+    {
+        return in_array($platform, (array) config('partna.connect.deferred', []), true);
     }
 
     private function rowsFor(User $user, string $platform)

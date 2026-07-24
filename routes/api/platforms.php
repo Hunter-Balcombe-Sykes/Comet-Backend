@@ -149,6 +149,9 @@ $registerIntegrationRoutes = function (string $base): void {
             ->middleware($middleware)
             ->group(function () use ($controller, $slug) {
                 Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug)->middleware('platform.available');
+                // Deferred-connect poll endpoint (CA-W5) — mirrors Apple's/Skool's
+                // own status route, always registered regardless of the flag.
+                Route::get('/connect/status', [$controller, 'connectStatus']);
                 Route::get('/accounts', [$controller, 'accounts']);
                 Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
                 Route::post('/events', [$controller, 'addEvent']);
