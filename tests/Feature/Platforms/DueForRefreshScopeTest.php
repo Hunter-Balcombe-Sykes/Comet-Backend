@@ -64,21 +64,56 @@ it('excludes a pending row from the refresh selection while a normal due row is 
         ->toContain($due->id);
 });
 
-// E-5, "any other path" — RefreshController::refresh() (the manual refresh
-// button) dispatches RefreshConnectionJob over every active() row for the
-// platform WITHOUT filtering by last_refresh_status (unlike the cron's
-// dueForRefresh() scope), so the job itself must refuse to act on a pending
-// row regardless of who dispatched it.
-it('RefreshConnectionJob skips a pending connection outright, regardless of who dispatched it', function () {
+// CA-SM review fix (E-5 follow-up): scopeDueForRefresh()'s pending exclusion
+// above correctly hides pending rows from the CRON, but that means a row
+// stranded 'pending' by a dead worker would vanish from monitoring too unless
+// something else can still see it. scopeStrandedPending() is that something
+// else — a separate, visibility-only scope (see CheckPlatformRefreshBacklogCommand).
+it('scopeStrandedPending finds an old pending row but not a fresh one, an ok one, or a null-updated_at one', function () {
+    $user = scopeUser();
+    $cutoff = now()->subMinutes(5);
+
+    // Direct query builder update, NOT a model save(): 'updated_at' isn't
+    // fillable on this model, and a save() would re-stamp it to "now" anyway.
+    $stranded = ytConn($user, ['last_refresh_status' => 'pending', 'resource_id' => 'youtube-stranded']);
+    IntegrationConnection::query()->where('id', $stranded->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    $freshPending = ytConn($user, ['last_refresh_status' => 'pending', 'resource_id' => 'youtube-fresh-pending']);
+    $ok = ytConn($user, ['last_refresh_status' => 'ok', 'resource_id' => 'youtube-ok']);
+
+    // Can't be proven stale (same reasoning as RefreshController::refreshStatus()'s
+    // own stale-pending check), so a NULL updated_at must never count as stranded.
+    $nullUpdatedAt = ytConn($user, ['last_refresh_status' => 'pending', 'resource_id' => 'youtube-null-updated']);
+    IntegrationConnection::query()->where('id', $nullUpdatedAt->id)->update(['updated_at' => null]);
+
+    $found = IntegrationConnection::query()->strandedPending($cutoff)->pluck('id');
+
+    expect($found)->toContain($stranded->id)
+        ->not->toContain($freshPending->id)
+        ->not->toContain($ok->id)
+        ->not->toContain($nullUpdatedAt->id);
+});
+
+// CA-SM review fix: a prior revision had this job ALSO bail out on
+// last_refresh_status === 'pending', reasoning that a pending row always
+// belongs to an in-flight/stranded ConnectFetchJob. That's wrong — the manual
+// refresh button (RefreshController::refresh()) writes 'pending' itself
+// BEFORE dispatching this exact job, so that guard made the button's own
+// happy path unreachable 100% of the time (see RefreshAsyncTest's
+// controller→job seam regression). scopeDueForRefresh() above is what keeps
+// the hourly CRON from selecting a pending row; the job itself must still act
+// on one, because being pending is exactly the state a manual refresh puts a
+// row in on the way to running this job.
+it('RefreshConnectionJob still refreshes an active connection even when its own status is pending', function () {
     $user = scopeUser();
     $pending = ytConn($user, ['last_refreshed_at' => null, 'last_refresh_status' => 'pending']);
 
     $refresher = Mockery::mock(PlatformRefresher::class);
-    $refresher->shouldNotReceive('refresh');
+    $refresher->shouldReceive('refresh')->once()
+        ->with(Mockery::on(fn (IntegrationConnection $c) => $c->id === $pending->id))
+        ->andReturn($pending);
 
     (new RefreshConnectionJob($pending->id, 'youtube'))->handle($refresher);
-
-    expect($pending->fresh()->last_refresh_status)->toBe('pending');
 });
 
 it('RefreshConnectionJob still refreshes an ordinary active, non-pending connection', function () {

@@ -16,6 +16,15 @@ class CheckPlatformRefreshBacklogCommand extends Command
 
     protected $description = 'Alert when too many platform connections are overdue for refresh.';
 
+    /**
+     * CA-SM review fix: matches the "worker likely died" threshold RefreshController,
+     * GenericPlatformController and DefersBespokeConnect already use for the SAME
+     * judgement call on the poll side (deliberately duplicated there rather than
+     * shared — see DefersBespokeConnect's docblock); reused here rather than a fresh
+     * config knob so "stranded" means the same thing everywhere it's decided.
+     */
+    private const STRANDED_PENDING_MINUTES = 5;
+
     public function handle(PlatformRegistry $registry): int
     {
         $defaultTtl = (int) config('partna.refresh.default_ttl_seconds');
@@ -34,6 +43,21 @@ class CheckPlatformRefreshBacklogCommand extends Command
                 ->dueForRefresh($cutoff, $maxFailures)
                 ->count();
         }
+
+        // CA-SM review fix (E-5 follow-up): scopeDueForRefresh() above correctly
+        // excludes EVERY 'pending' row from the cron's own selection now — a fresh
+        // pending row is a healthy in-flight refresh/connect, not a fault — but
+        // that exclusion also made a row stranded 'pending' by a dead worker
+        // invisible to THIS alarm, where before it would have fallen into the
+        // "never refreshed" bucket and been counted. Folded back into the SAME
+        // $overdue total via the SAME threshold/exception this command already
+        // has, rather than a second alarm: visibility restored, nothing new
+        // invented. Counted across every platform, not just the registry's
+        // refreshable set — connect writes 'pending' on non-refreshable
+        // platforms too, and a dead worker there is just as real a fault. Never
+        // fed back into dueForRefresh()/the cron itself (see scopeStrandedPending).
+        $strandedCutoff = now()->subMinutes(self::STRANDED_PENDING_MINUTES);
+        $overdue += IntegrationConnection::query()->strandedPending($strandedCutoff)->count();
 
         if ($overdue > $threshold) {
             report(new PlatformRefreshBacklogException($overdue, $threshold));

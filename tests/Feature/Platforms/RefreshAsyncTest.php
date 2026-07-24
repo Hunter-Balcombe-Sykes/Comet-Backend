@@ -10,6 +10,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\PlatformRefresher;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -105,6 +106,26 @@ it('excludes inactive rows from both the count and the dispatch', function () {
     Queue::assertPushed(RefreshConnectionJob::class, 1);
     Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $active->id);
     Queue::assertNotPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $inactive->id);
+});
+
+// CA-SM review fix: every other test in this file (deliberately) uses
+// Queue::fake(), which never runs RefreshConnectionJob::handle() and so never
+// exercised the controller→job seam — precisely why the reviewer caught that
+// the controller writes 'pending' at line 92 above and the job used to bail
+// out on exactly that status, making the manual refresh button's happy path
+// unreachable 100% of the time. QUEUE_CONNECTION=sync in tests (phpunit.xml),
+// so with NO Queue::fake() the POST's dispatch() runs the real job inline,
+// in-process, right here — end to end through the same seam production hits.
+it('actually runs the refresh after the controller marks the row pending — the seam Queue::fake() never exercises', function () {
+    [$user, $connection] = refreshAsyncConnectedUser('rv8seam');
+
+    $refresher = Mockery::mock(PlatformRefresher::class);
+    $refresher->shouldReceive('refresh')->once()
+        ->with(Mockery::on(fn (IntegrationConnection $c) => $c->id === $connection->id))
+        ->andReturn($connection);
+    app()->instance(PlatformRefresher::class, $refresher);
+
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(202);
 });
 
 it('stamps the row pending quietly — no model observer event, no cache purge', function () {

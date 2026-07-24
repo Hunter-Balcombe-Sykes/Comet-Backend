@@ -535,7 +535,10 @@ it('a platform disabled between the 202 and this job running resolves to a termi
     // Terminal, never left pending — a poller must not spin forever.
     expect($fresh->last_refresh_status)->not->toBe('pending');
     expect($fresh->last_refresh_status)->toBe('unavailable');
-    expect($fresh->last_refresh_error)->toBe('Could not find releases on that Bandcamp page.');
+    // CA-SM review fix: a staff disable is not a vendor miss, so this must NOT
+    // read the descriptor's Bandcamp-specific wording — the same generic,
+    // already-established infra string ConnectFetchJob::failed() falls back to.
+    expect($fresh->last_refresh_error)->toBe('We could not load that account. Please try again.');
     // The fetched content never landed — only the pre-existing identity stub survives.
     expect($fresh->payload)->not->toHaveKey('artist');
     expect($fresh->payload['url'])->toBe('https://someartist.bandcamp.com');

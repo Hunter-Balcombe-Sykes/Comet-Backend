@@ -209,4 +209,26 @@ class IntegrationConnection extends BaseModel
                     ->orWhere('last_refreshed_at', '<', $cutoff);
             });
     }
+
+    /**
+     * CA-SM review fix (E-5 follow-up): scopeDueForRefresh() above now excludes
+     * EVERY 'pending' row from the cron's own selection — correct, a fresh
+     * pending row is a healthy in-flight refresh/connect, not a fault. But that
+     * exclusion also means a row stranded 'pending' by a dead worker (one that
+     * never wrote a terminal status) silently disappears from every query built
+     * on that scope, including the backlog alarm — with nothing left to notice
+     * it. This is a SEPARATE, visibility-only query: it does not feed back into
+     * dueForRefresh() or make the cron touch these rows (see
+     * CheckPlatformRefreshBacklogCommand for why remediation is deliberately
+     * out of scope here). $cutoff distinguishes "still in flight" from
+     * "abandoned" — a NULL updated_at can't be proven stale, so (matching
+     * RefreshController::refreshStatus()'s identical stale-pending reasoning)
+     * it is treated as still in flight, not stranded.
+     */
+    public function scopeStrandedPending($query, \DateTimeInterface $cutoff)
+    {
+        return $query->where('last_refresh_status', 'pending')
+            ->whereNotNull('updated_at')
+            ->where('updated_at', '<', $cutoff);
+    }
 }

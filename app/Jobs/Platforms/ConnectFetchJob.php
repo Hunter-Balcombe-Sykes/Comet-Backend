@@ -171,9 +171,15 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         // meaning in a queue worker. A user that vanished (soft-deleted) between
         // dispatch and now can't be checked either way, so it fails the same as a
         // disabled platform — a terminal row, never a content write.
+        //
+        // The message is deliberately NOT $descriptor->connectFetchErrorMessage():
+        // a staff disable (or the user vanishing) is not a vendor miss, and that
+        // wording ("Could not find releases on that Bandcamp page.") would tell the
+        // user we couldn't find their account when we never even asked the vendor —
+        // same reasoning as the LockTimeoutException catch below.
         $user = $connection->user;
         if ($user === null || ! FeatureAvailability::for($user)->allows("integration.{$this->platform}")) {
-            $this->markTerminal($connection, 'unavailable', $descriptor->connectFetchErrorMessage());
+            $this->markTerminal($connection, 'unavailable', 'We could not load that account. Please try again.');
 
             return;
         }
