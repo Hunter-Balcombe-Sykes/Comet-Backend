@@ -31,8 +31,11 @@ class UserSiteController extends ApiController
         $professional = $this->currentUser($request);
         $site = $this->currentSite($professional);
 
-        // The site GET powers /account/design — include the transparency line.
+        // The site GET powers /account/design — include the transparency line
+        // and the preset-merged effective kit (I1) so the editor shows the same
+        // auto-determined design the public sitepage already renders.
         return $this->success(['site' => (new SiteResource($site))
+            ->withResolvedDesignKit($professional)
             ->withRationale()
             ->withFeatureAvailability($professional)]);
     }
@@ -87,8 +90,10 @@ class UserSiteController extends ApiController
         }
 
         // A design-editor save round-trips the fresh site — include the updated
-        // transparency line so the frontend re-renders it without a second fetch.
+        // transparency line and resolved kit (I1) so the frontend re-renders
+        // both without a second fetch.
         return $this->success(['site' => (new SiteResource($site))
+            ->withResolvedDesignKit($professional)
             ->withRationale()
             ->withFeatureAvailability($professional)]);
     }
