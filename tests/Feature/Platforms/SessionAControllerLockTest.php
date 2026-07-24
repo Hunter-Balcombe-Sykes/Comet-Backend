@@ -155,12 +155,29 @@ it('POST /platforms/google-business/synced/apply runs applyFinding OUTSIDE the l
     // the lock is even taken — without touching the real Instagram/Apify
     // path. Bound into the container so the controller's method-injected
     // instance IS this mock.
+    //
+    // U1: applyFinding() is now void -> bool (true = applied). Mockery
+    // returns null by default for an unset return type, and the controller
+    // treats a falsy return as "lock contended" — returning 423 from THAT
+    // new branch before ever reaching withConnectionLock below. Without
+    // andReturnTrue() this test would still pass, but for the wrong reason,
+    // silently gutting the PWL-1 regression guard it exists to be.
     $this->mock(GoogleBusinessAutoSync::class, function ($m) {
-        $m->shouldReceive('applyFinding')->once();
+        $m->shouldReceive('applyFinding')->once()->andReturnTrue();
     });
 
     $lock = Cache::lock(CacheKeyGenerator::platformConnectionLock('google-business', (string) $user->id), 10);
     expect($lock->get())->toBeTrue();
+
+    // U1 provenance guard: applyFinding()'s own false-return branch and
+    // withConnectionLock's block(5) timeout produce an IDENTICAL 423 status,
+    // body, and unflipped-finding outcome — verified empirically by
+    // temporarily forcing the mock above to ->andReturnFalse(), which made
+    // every assertion below still pass, in ~0.15s instead of ~5s. Elapsed
+    // time is therefore the only thing that actually distinguishes "returned
+    // 423 from the new branch without ever reaching the lock" from "genuinely
+    // blocked on the held platform lock" — assert it so this guard can fail.
+    $start = microtime(true);
 
     try {
         actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'instagram'])
@@ -169,6 +186,8 @@ it('POST /platforms/google-business/synced/apply runs applyFinding OUTSIDE the l
     } finally {
         $lock->release();
     }
+
+    expect(microtime(true) - $start)->toBeGreaterThan(4.0);
 
     // The mock's ->once() expectation (verified at test teardown) proves
     // applyFinding ran despite the lock being held throughout the request —

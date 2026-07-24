@@ -303,6 +303,19 @@ trait ManagesIntegrationConnection
      * by the single-slot booking/reservations families whose clear+write spans
      * multiple platform rows and so cannot use the per-platform key. Same 10s
      * TTL / block(5) / 423-on-timeout contract.
+     *
+     * Lock-ordering rule (U1): a cross-platform lock from this method is
+     * always acquired OUTER to platformConnectionLock, never the reverse.
+     * FreshaController::connect()/connectDeferred() are the only call sites
+     * that hold both at once (bookingXorLock outer, then withConnectionLock
+     * inner) — every other bookingXorLock/reservationsXorLock holder
+     * (SquareController::connect, FreshaController::forget,
+     * BookingController, the auto-sync seeders, and
+     * BuildsAutoSyncFindings::applyFinding) holds it ALONE. That keeps the
+     * wait-for graph acyclic: nothing anywhere holds a platform lock and then
+     * requests a cross-platform one. Reversing the order at the one nesting
+     * site would create exactly that cycle against a concurrent
+     * SquareController::connect — do not add one.
      */
     protected function withCrossPlatformLock(string $lockKey, callable $callback): JsonResponse
     {
@@ -320,8 +333,8 @@ trait ManagesIntegrationConnection
     // not re-flag them as missing-lock bugs. Each has no plausible concurrent
     // writer racing the SAME row, so a lock would add contention for no safety.
     //   • Link-only socials (facebook / tiktok / x / linkedin / threads /
-    //     reddit / square): a single stored URL, never refreshed by a job and
-    //     with no sibling writer — nothing to race.
+    //     reddit): a single stored URL, never refreshed by a job and with no
+    //     sibling writer — nothing to race.
     //   • skool REMOVED from the list above by CA-W4: config('partna.connect.
     //     deferred') naming it gives it a real sibling writer (ConnectFetchJob),
     //     so the "nothing to race" premise no longer holds for that path. Both
@@ -330,6 +343,24 @@ trait ManagesIntegrationConnection
     //     same per-user platform lock as every other deferred platform. The
     //     synchronous (flag-off) write stays exactly as unlocked/safe as before
     //     — still no sibling writer on that path.
+    //   • square REMOVED from the list above by U1 (2026-07-25):
+    //     SquareController::connect() had no lock at all, and Fresha's took
+    //     only the 'fresha' platform key, so "at most one booking provider"
+    //     rested on two unsynchronised check-then-write sequences — a real
+    //     sibling writer (a concurrent Fresha connect), just not one a
+    //     per-platform lock can see. Both connects now take the shared
+    //     bookingXorLock before touching a square row; so does
+    //     BuildsAutoSyncFindings::applyFinding's booking-slot branch. No
+    //     per-platform 'square' lock was added — bookingXorLock alone already
+    //     serialises every writer of that row. SquareController::forget()
+    //     itself STAYS unlocked (U1 Q-A): a delete can never create a second
+    //     booking provider, so it cannot violate the XOR invariant — the
+    //     worst case is an idempotent double soft-delete racing
+    //     BookingController::clearBooking(), or a concurrent Fresha connect
+    //     seeing a stale 409. FreshaController::forget() IS locked, but for
+    //     an unrelated reason (FreshaServiceProjector::sync()'s resurrection
+    //     of deleted_origin='sync' rows), which Square's forget has no
+    //     analogue of.
     //   • DisplaySettingsController::update(): writes only the display_settings
     //     column via Eloquent dirty-tracking; the only race is two concurrent
     //     display-settings PATCHes (not a connection-payload clobber) — low.
@@ -342,9 +373,6 @@ trait ManagesIntegrationConnection
     //     GoogleBusinessAutoSync::seedWorkplace, the website-scan appliers):
     //     write NON-connection tables — out of scope for platform_connections
     //     locking; they warrant their own row-locking audit if ever contended.
-    // NOTE: 'square' is link-only for its OWN connect, but its ROW is deleted by
-    // the booking single-slot clear (BookingController::clearBooking), which IS
-    // guarded by the booking-XOR lock (PWL-14) — the delete side is covered.
 
     // ── Multi-account support ────────────────────────────────────────────
     // A platform can hold several connected accounts as SEPARATE rows: the

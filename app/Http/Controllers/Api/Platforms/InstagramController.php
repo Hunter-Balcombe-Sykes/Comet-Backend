@@ -233,7 +233,19 @@ class InstagramController extends ApiController
         // own read-modify-write (marking the finding 'seeded' below) is the
         // authoritative, contended span, so that alone is locked — re-reading
         // $ig inside the closure for the authoritative state.
-        $autoSync->applyFinding((string) $user->id, $findings[$idx]);
+        //
+        // U1: applyFinding() now takes its own lock internally (bookingXorLock
+        // / reservationsXorLock) for a booking/reservations-slot finding,
+        // returning false on contention. Staying outside the platform lock
+        // here is ALSO what keeps that lock-ordering acyclic (mirrors
+        // GoogleBusinessController::applySync — see its comment) — this call
+        // fully releases before the platform lock below is even requested.
+        if (! $autoSync->applyFinding((string) $user->id, $findings[$idx])) {
+            // Contended booking/reservations-slot lock — nothing was removed
+            // or written. Must NOT fall through to the flip below: that would
+            // mark the finding 'seeded' for a change that never happened.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         try {
             Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id), 10)->block(5, function () use ($user, $platform) {

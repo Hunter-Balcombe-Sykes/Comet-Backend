@@ -270,6 +270,16 @@ class GoogleBusinessController extends ApiController
     // to close. Only the final authoritative re-read → flip → write sits inside
     // withConnectionLock, guarded against GoogleBusinessEnrichJob::persist()
     // (same platform+user lock key) racing the mutation.
+    //
+    // U1: applyFinding() now takes its OWN lock internally (bookingXorLock /
+    // reservationsXorLock) for a booking/reservations-slot finding, returning
+    // false on contention. Staying outside withConnectionLock here is what
+    // ALSO keeps that lock-ordering acyclic (§9.4 of the U1 plan): this call
+    // fully releases before withConnectionLock is even requested below —
+    // sequential, never nested — so a future "tidy-up" that moved it inside
+    // withConnectionLock would create a genuine ABBA cycle against
+    // FreshaController::connect() (which nests bookingXorLock outer,
+    // platform lock inner). Do not move it.
     public function applySync(Request $request, GoogleBusinessAutoSync $autoSync): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -282,7 +292,12 @@ class GoogleBusinessController extends ApiController
             return $this->error('Nothing to change for that platform.', 404);
         }
 
-        $autoSync->applyFinding((string) $user->id, $findings[$idx]);
+        if (! $autoSync->applyFinding((string) $user->id, $findings[$idx])) {
+            // Contended booking/reservations-slot lock — nothing was removed
+            // or written. Must NOT fall through to the flip below: that would
+            // mark the finding 'seeded' for a change that never happened.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->withConnectionLock($user, function () use ($user, $platform, $request): JsonResponse {
             // Authoritative re-read UNDER the lock — a concurrent enrich run (or

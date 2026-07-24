@@ -104,54 +104,69 @@ class FreshaController extends ApiController
             abort(502, 'Could not reach Fresha — please try again.');
         }
 
-        return $this->withConnectionLock($user, function () use ($user, $url, $menu): JsonResponse {
-            // Business Partna accounts book storewide — no team-member picker. Finalise
-            // the selection here so connect() completes setup in one step; the dashboard
-            // sees mode='storewide' and skips the picker. Capability-gated so the
-            // account_type read stays inside AccountCapabilities.
-            if (AccountCapabilities::for($user)->can_book_storewide) {
-                // Project the scrape into site.services rows (deduped by serviceId;
-                // owner edits + suppressions honoured) and store the EFFECTIVE list
-                // in the public selection; the raw scrape lands at payload.raw
-                // (private — the public allowlist ships only url+selection).
-                $projected = $this->projector->sync($user, $menu['services']);
-                $selection = [
-                    'url' => $url,
-                    'storeName' => $menu['storeName'],
-                    'mode' => 'storewide',
-                    'employee' => null,
-                    'services' => $projected['services'],
-                    'hiddenServiceIds' => $projected['hiddenServiceIds'],
-                ];
-                $this->writeConnection($user, [
-                    'url' => $url,
-                    'selection' => $selection,
-                    'raw' => ['services' => $projected['raw']],
-                ]);
-
-                return $this->success([
-                    'url' => $url,
-                    'mode' => 'storewide',
-                    'selection' => (new FreshaSelectionResource($selection))->resolve(),
-                ]);
+        // U1: outer bookingXorLock, re-asserting the Square conflict check —
+        // a lock on Fresha's per-platform key alone cannot exclude a
+        // concurrent Square connect (different key, different row). The
+        // inner withConnectionLock is kept IN ADDITION (never replaced) —
+        // dropping it would reopen PWL-5 for saveSelection /
+        // setServiceVisibility / ConnectFetchJob / ScheduledRefresh, which
+        // all still take only the 'fresha' platform key. Order is fixed:
+        // bookingXor outer, platform inner — never the reverse (see
+        // ManagesIntegrationConnection::withCrossPlatformLock's docblock).
+        return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $menu): JsonResponse {
+            if ($this->hasConflictingConnection($user, Platform::Square->value)) {
+                return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
             }
 
-            // Individual: preserve any existing selection (re-connecting the same store
-            // keeps the saved team member); the dashboard re-picks via saveSelection.
-            // FreshaSelection::toArray() returns the stored inner blob verbatim, so a
-            // canonical stored selection round-trips byte-identically; a pending row
-            // (selection null) carries forward as null, exactly as before. The stored
-            // raw scrape (revert source for detached projections) rides along too.
-            $existingPayload = $this->readConnection($user) ?? [];
-            $existing = SelectionPayload::fromArray($existingPayload);
-            $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
-            $this->writeConnection($user, [
-                'url' => $url,
-                'selection' => $existing->selection?->toArray(),
-                ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
-            ]);
+            return $this->withConnectionLock($user, function () use ($user, $url, $menu): JsonResponse {
+                // Business Partna accounts book storewide — no team-member picker. Finalise
+                // the selection here so connect() completes setup in one step; the dashboard
+                // sees mode='storewide' and skips the picker. Capability-gated so the
+                // account_type read stays inside AccountCapabilities.
+                if (AccountCapabilities::for($user)->can_book_storewide) {
+                    // Project the scrape into site.services rows (deduped by serviceId;
+                    // owner edits + suppressions honoured) and store the EFFECTIVE list
+                    // in the public selection; the raw scrape lands at payload.raw
+                    // (private — the public allowlist ships only url+selection).
+                    $projected = $this->projector->sync($user, $menu['services']);
+                    $selection = [
+                        'url' => $url,
+                        'storeName' => $menu['storeName'],
+                        'mode' => 'storewide',
+                        'employee' => null,
+                        'services' => $projected['services'],
+                        'hiddenServiceIds' => $projected['hiddenServiceIds'],
+                    ];
+                    $this->writeConnection($user, [
+                        'url' => $url,
+                        'selection' => $selection,
+                        'raw' => ['services' => $projected['raw']],
+                    ]);
 
-            return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
+                    return $this->success([
+                        'url' => $url,
+                        'mode' => 'storewide',
+                        'selection' => (new FreshaSelectionResource($selection))->resolve(),
+                    ]);
+                }
+
+                // Individual: preserve any existing selection (re-connecting the same store
+                // keeps the saved team member); the dashboard re-picks via saveSelection.
+                // FreshaSelection::toArray() returns the stored inner blob verbatim, so a
+                // canonical stored selection round-trips byte-identically; a pending row
+                // (selection null) carries forward as null, exactly as before. The stored
+                // raw scrape (revert source for detached projections) rides along too.
+                $existingPayload = $this->readConnection($user) ?? [];
+                $existing = SelectionPayload::fromArray($existingPayload);
+                $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
+                $this->writeConnection($user, [
+                    'url' => $url,
+                    'selection' => $existing->selection?->toArray(),
+                    ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
+                ]);
+
+                return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
+            });
         });
     }
 
@@ -162,11 +177,23 @@ class FreshaController extends ApiController
      * storewide reconnect must NOT blank it), connectMode:$mode,
      * teamMenu:null, connectPendingAt}, then dispatches ConnectFetchJob.
      * Mirrors SkoolController::connectDeferred()'s lock discipline: $row is
-     * captured by reference because withConnectionLock()'s return type is
-     * JsonResponse only; deferredConnectResponse() (DefersBespokeConnect)
-     * dispatches ConnectFetchJob AFTER this lock has released — the job
-     * blocks on the SAME per-user platform lock, so dispatching from inside
-     * would self-deadlock under a sync queue connection.
+     * captured by reference because withConnectionLock()'s (and, since U1,
+     * withCrossPlatformLock()'s) return type is JsonResponse only;
+     * deferredConnectResponse() (DefersBespokeConnect) dispatches
+     * ConnectFetchJob AFTER both locks have released. This is now a
+     * self-deadlock hazard from TWO directions, not one: the job blocks on
+     * the same per-user platform lock this method takes, AND — the more
+     * dangerous one — FreshaConnectFetch.php:152 itself acquires
+     * bookingXorLock to run its storewide projection, so a dispatch from
+     * inside the outer lock below would have that job block on a lock this
+     * same PHP process already holds. Either way, under a sync queue
+     * connection dispatch() runs handle() inline, so either self-deadlock is
+     * real, not theoretical. NEVER move this dispatch inside either lock.
+     *
+     * U1: wrapped in an outer bookingXorLock (added below) that re-asserts
+     * the Square conflict check — a per-platform lock alone cannot exclude a
+     * concurrent Square connect. Order: bookingXor outer, platform inner,
+     * same as the synchronous connect() path above.
      *
      * `teamMenu => null` is written EXPLICITLY on BOTH modes so a mode flip
      * (or a reconnect to a different salon) can't leave a stale team snapshot
@@ -180,25 +207,33 @@ class FreshaController extends ApiController
     {
         $row = null;
 
-        $lockResponse = $this->withConnectionLock($user, function () use ($user, $url, $mode, &$row): JsonResponse {
-            $existingPayload = $this->readConnection($user) ?? [];
-            $existing = SelectionPayload::fromArray($existingPayload);
-            $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
+        $lockResponse = $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $mode, &$row): JsonResponse {
+            if ($this->hasConflictingConnection($user, Platform::Square->value)) {
+                return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
+            }
 
-            $row = $this->writeConnection($user, [
-                'url' => $url,
-                'selection' => $existing->selection?->toArray(),
-                'connectMode' => $mode,
-                'teamMenu' => null,
-                'connectPendingAt' => now()->toIso8601String(),
-                ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
-            ], pending: true);
+            return $this->withConnectionLock($user, function () use ($user, $url, $mode, &$row): JsonResponse {
+                $existingPayload = $this->readConnection($user) ?? [];
+                $existing = SelectionPayload::fromArray($existingPayload);
+                $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
 
-            return $this->success([]);
+                $row = $this->writeConnection($user, [
+                    'url' => $url,
+                    'selection' => $existing->selection?->toArray(),
+                    'connectMode' => $mode,
+                    'teamMenu' => null,
+                    'connectPendingAt' => now()->toIso8601String(),
+                    ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
+                ], pending: true);
+
+                return $this->success([]);
+            });
         });
 
         if ($row === null) {
-            // withConnectionLock's own 423 lock-timeout response.
+            // $row stays null on every non-dispatch outcome: a 423 from
+            // either lock (bookingXor or platform), or the re-asserted 409 —
+            // all three must skip the dispatch below.
             return $lockResponse;
         }
 

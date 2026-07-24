@@ -898,6 +898,12 @@ HTTP 423 Locked
 - `pool` = every action currently available (score = stored blended score or null); `rankedActions` = what the sitepage lander currently serves (override-applied). Writes go through `PATCH /api/site` settings.
 - The public profile payload (`GET /api/public/profiles/{handle}`) carries the same data as top-level `rankedActions` (ordered, lander renders top 6) + `ordering`; its `pageOrder` reflects `manual_page_order` when `smart_page_order` is false.
 
+### Platform connect — booking XOR (Fresha / Square)
+
+Fresha and Square are mutually exclusive booking providers — only one may be connected at a time, enforced by a shared per-user lock (U1, 2026-07-25) covering both connect endpoints plus `BookingController`, `DELETE /api/platforms/fresha`, and the Google/Instagram "Change to" auto-sync actions.
+
+- `POST /api/platforms/square/connect` — `403` (booking unavailable), `409` (Fresha already connected), `422` (invalid URL), and now `423` — `{"message":"Another change is still saving — please retry in a moment."}` — when a concurrent booking-family write (a Fresha connect/disconnect, `POST`/`DELETE /api/platforms/booking`, or an auto-sync "Change to") holds the lock. Retry, same as the existing `423` on `POST /api/platforms/fresha/connect`.
+
 ### Feedback (OV-D)
 
 - `POST /api/me/feedback` — submit feedback. Request: `{ "type": "error|good|bad_ui|idea" (required), "area": "<free-form feature/page/tool string, ≤120 chars>" (required), "target": {...} (optional, ≤4KB encoded JSON, e.g. `{"area":"analytics","elementId":"x"}`), "message": "<1-5000 chars>" (required), "kind": null (optional legacy taxonomy — derived from `type` when omitted: error/bad_ui→bug, good→praise, idea→idea), "severity": null (only meaningful with kind=bug), "page_url", "user_agent", "viewport", "app_version", "request_id", "reply_email" (all optional, unchanged) }`. Response (201): `{ "feedback": { "id", "kind", "severity", "type", "area", "target", "message", "status", "page_url", "app_version", "created_at" } }`. Rate-limited (`throttle:feedback-submit`); `429` on an identical message resubmitted within the duplicate window; `422` on validation failure; exempt from the pending-deletion read-only lock.
