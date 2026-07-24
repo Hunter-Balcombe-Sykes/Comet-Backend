@@ -1,7 +1,6 @@
 <?php
 
 use App\Jobs\Cache\AggregateCacheMetricsJob;
-use App\Listeners\RecordCacheMetrics;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -128,9 +127,90 @@ it('runs on the default queue', function () {
     expect($job->queue)->toBe('default');
 });
 
-it('confirms slo_prefixes and threshold constants are as documented', function () {
-    expect(RecordCacheMetrics::SLO_PREFIXES)->toContain('site', 'pro');
-    expect(RecordCacheMetrics::SLO_MIN_HIT_RATE)->toBe(0.9);
+it('confirms slo prefixes and threshold defaults are as documented', function () {
+    expect(config('partna.cache.slo.prefixes'))->toContain('site', 'pro');
+    expect(config('partna.cache.slo.min_hit_rate'))->toBe(0.9);
+    expect(config('partna.cache.slo.min_sample'))->toBe(10);
+});
+
+// CACHE-3: the >=90% target and the 10-read noise floor are production numbers.
+// A hit rate is capped at 1 - 1/(lambda*TTL), so an environment with near-zero
+// traffic cannot reach 90% on a 60s-TTL key no matter how healthy the cache is
+// (dev observed ~5.7 hits per recompute => an ~87% ceiling). Both knobs are now
+// env-tunable so a low-traffic environment can raise the floor instead of
+// alerting hourly on statistically meaningless buckets.
+describe('SLO calibration is configurable (CACHE-3)', function () {
+    it('honours a configured minimum hit rate', function () {
+        config()->set('partna.cache.slo.min_hit_rate', 0.5);
+
+        Redis::shouldReceive('hGetAll')->andReturn([
+            'site:hits' => '60',
+            'site:misses' => '40', // 60% — under the 0.9 default, over the configured 0.5
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldNotHaveReceived('report');
+    });
+
+    it('honours a configured sample floor', function () {
+        config()->set('partna.cache.slo.min_sample', 500);
+
+        Redis::shouldReceive('hGetAll')->andReturn([
+            'site:hits' => '10',
+            'site:misses' => '90', // 10% hit rate, but only 100 reads — below the configured floor
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldNotHaveReceived('report');
+    });
+
+    it('honours a configured prefix list', function () {
+        config()->set('partna.cache.slo.prefixes', ['analytics']);
+
+        Redis::shouldReceive('hGetAll')->andReturn([
+            'site:hits' => '1',
+            'site:misses' => '20', // no longer a tracked prefix
+            'analytics:hits' => '1',
+            'analytics:misses' => '20', // now tracked
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldHaveReceived('report')
+            ->once()
+            ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'analytics'));
+    });
+
+    it('still reports when a configured threshold is genuinely breached', function () {
+        config()->set('partna.cache.slo.min_hit_rate', 0.5);
+        config()->set('partna.cache.slo.min_sample', 20);
+
+        Redis::shouldReceive('hGetAll')->andReturn([
+            'pro:hits' => '10',
+            'pro:misses' => '40', // 20% over 50 reads — breaches both configured knobs
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldHaveReceived('report')
+            ->once()
+            ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'pro')
+                && str_contains($e->getMessage(), 'SLO: ≥50%'));
+    });
 });
 
 it('failed() calls report() so terminal failures alert Nightwatch', function () {
