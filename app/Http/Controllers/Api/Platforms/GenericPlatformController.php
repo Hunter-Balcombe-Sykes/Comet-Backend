@@ -150,8 +150,8 @@ class GenericPlatformController extends ApiController
     // the lock closure returns (lock released): the job blocks on the
     // identical platform+user lock key, so dispatching it from inside would
     // self-deadlock under a sync queue connection (phpunit.xml's test
-    // default, and the current deployed dev env — see ConnectFetchJob's own
-    // lock-timeout handling). $row is captured by reference since
+    // default — see ConnectFetchJob's own lock-timeout handling). $row is
+    // captured by reference since
     // withConnectionLock's return type is JsonResponse only; the closure's
     // own return value is a throwaway success once $row is set, or the real
     // error response (422 / lock-timeout 423) when it isn't.

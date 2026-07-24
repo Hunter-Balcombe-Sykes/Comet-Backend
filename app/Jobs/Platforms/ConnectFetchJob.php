@@ -35,14 +35,14 @@ use Throwable;
 // windows are seconds not hours (a human is watching the modal, not a cron),
 // and this job must not gate on is_active — that flag isn't its concern.
 //
-// SYNC-DRIVER CORRECTNESS (highest-value constraint in the unit): the deployed
-// dev env runs queue.default=sync, so dispatch()->afterCommit() executes
+// SYNC-DRIVER CORRECTNESS (highest-value constraint in the unit): tests pin
+// queue.default=sync (phpunit.xml), so dispatch()->afterCommit() executes
 // handle() INLINE in the request, after commit. There is no queue to catch a
 // throw and no failed() callback in that mode — an uncaught exception here
-// becomes a 500 in dev where Horizon would show a clean 'failed' row in prod.
-// Every EXPECTED upstream failure (the three Fetch*Exception subclasses) is
-// therefore caught inside handle() and converted to a terminal row state; only
-// a genuinely unexpected throwable propagates.
+// becomes a 500 under sync where Horizon would show a clean 'failed' row under
+// a real queue. Every EXPECTED upstream failure (the three Fetch*Exception
+// subclasses) is therefore caught inside handle() and converted to a terminal
+// row state; only a genuinely unexpected throwable propagates.
 class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;
@@ -229,11 +229,12 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             // the client polls forever.
             //
             // Does NOT call $this->release(): Illuminate\Queue\Jobs\Job::release()
-            // only flips an internal flag, and SyncQueue::executeJob() (the
-            // deployed dev env's driver) reacts solely to a thrown Throwable —
-            // it never checks isReleased(). So on sync, release() is a silent
-            // no-op: handle() returns normally, failed() never fires, and the
-            // row is stuck 'pending' forever — precisely the outcome this catch
+            // only flips an internal flag, and SyncQueue::executeJob() (tests'
+            // driver — phpunit.xml pins QUEUE_CONNECTION=sync) reacts solely to
+            // a thrown Throwable — it never checks isReleased(). So on sync,
+            // release() is a silent no-op: handle() returns normally, failed()
+            // never fires, and the row is stuck 'pending' forever — precisely
+            // the outcome this catch
             // exists to prevent, and worse than ScheduledRefresh's swallow
             // (that at least logs). A retry that only works with a real queue
             // worker behind it reads as handled but isn't, which breaks the

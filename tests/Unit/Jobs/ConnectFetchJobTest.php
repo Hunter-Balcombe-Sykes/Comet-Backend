@@ -209,7 +209,7 @@ it('never notifies PlatformHealthNotifier on a failed connect — a failed conne
 });
 
 it('handle() does not throw when it meets an expected upstream failure (sync-driver correctness)', function () {
-    // The deployed dev env runs queue.default=sync, so dispatch()->afterCommit()
+    // phpunit.xml pins queue.default=sync, so dispatch()->afterCommit()
     // executes handle() INLINE in the request — a throw here becomes a 500
     // with no failed() callback. Every Fetch*Exception must be swallowed.
     $user = cfjUser('cfj5');
@@ -316,9 +316,9 @@ it('a soft-deleted (disconnected-while-queued) connection is a silent no-op', fu
 it('a lock timeout does not throw, does not silently rely on release(), and marks the row a terminal state instead of leaving it pending forever', function () {
     Exceptions::fake();
     // Reviewer-caught defect: Illuminate\Queue\Jobs\Job::release() only flips
-    // an internal flag; SyncQueue::executeJob() (the deployed dev env's
-    // driver) reacts solely to a thrown Throwable and never checks
-    // isReleased(). Fails unfixed: pre-fix code called $this->release(3) here
+    // an internal flag; SyncQueue::executeJob() (tests' driver — phpunit.xml
+    // pins QUEUE_CONNECTION=sync) reacts solely to a thrown Throwable and
+    // never checks isReleased(). Fails unfixed: pre-fix code called $this->release(3) here
     // and returned — under a direct handle() call (no real queue Job context)
     // that release() is a no-op, so the row would still read 'pending' below
     // (this test's key assertion) even though handle() also didn't throw.
