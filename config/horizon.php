@@ -144,13 +144,22 @@ return [
         // RV-12: transactional mail lane. Split out of supervisor-1 because that
         // pool drains ten queues with two processes under strict priority — two
         // concurrent long jobs (a ~180s Cloudflare purge, a ~300s logo job) stalled
-        // every outbound email until one finished. Priority order within the lane
-        // matters: 'notifications' carries the single user-facing confirmations,
-        // 'mail' carries the bulk fan-out (publishMany batches, broadcast leaf
-        // batches of 200), so notifications is drained first.
-        // Longest job on this lane is SendStaffBroadcastEmailsJob at $timeout=120,
-        // so the redis connection's retry_after=360 clears it comfortably. nice=0:
-        // this lane is latency-sensitive and must not be deprioritised.
+        // every outbound email until one finished. Queue order ['notifications',
+        // 'mail'] is NOT "confirmations vs bulk" — both queues carry a mix.
+        // SendStaffBroadcastEmailsJob, the 120s broadcast coordinator
+        // (chunkById(500) walk) and the LONGEST job on this lane, is itself
+        // dispatched to 'notifications' (see its constructor); the 200-job BULK
+        // batches — NotificationPublisher::publishMany()'s Bus::batch() at :297
+        // and the broadcast leaf batches SendStaffBroadcastEmailsJob dispatches
+        // at :94 — land on 'mail'. So the ordering keeps bulk fan-out behind
+        // transactional traffic; it is maxProcesses => 2, not the ordering, that
+        // keeps the coordinator from blocking confirmations — a second worker
+        // can still drain the front of the priority list while one worker is
+        // tied up running it. redis retry_after=360 clears the 120s coordinator
+        // comfortably. memory=128: these jobs render one Blade view and make one
+        // mail-API call each, so 128 is ample — memory is a restart-after-
+        // exceeded threshold, not a reservation. nice=0: this lane is
+        // latency-sensitive and must not be deprioritised.
         'supervisor-mail' => [
             'connection' => 'redis',
             'queue' => ['notifications', 'mail'],
@@ -158,7 +167,7 @@ return [
             'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 192,
+            'memory' => 128,
             'tries' => 1,
             'timeout' => 180,
             'nice' => 0,
@@ -209,13 +218,21 @@ return [
     |--------------------------------------------------------------------------
     |
     | Process-count overrides per environment. Footprint = 1 master + one
-    | middleman process per lane + workers, ~90 MiB each: idle deployed
-    | footprint is 11 procs (~990 MiB) against the 2048 MiB flex-2gb Worker
-    | box (RV-4 resize, 2026-07-24). Permitted worker heap sums to
-    | 2×256 (supervisor-1) + 2×192 (supervisor-mail) + 256 (supervisor-long)
-    | + 512 (supervisor-videos) = 1664 MiB. Every environment must name all
-    | four lanes explicitly — that is what HorizonQueueCoverageTest walks to
-    | prove every dispatchable queue has a consumer in every env.
+    | middleman process per lane + workers, ~90 MiB each (an estimate, not a
+    | measurement): idle deployed footprint is 9 procs (~810 MiB) — under
+    | balance=>false, AutoScaler::numberOfWorkersPerQueue() floors every lane
+    | at minProcesses=1 when idle (see the Worker Lanes docblock above), so
+    | that is 1 master + 4 middlemen + 4 workers (one per lane). A busy lane
+    | autoscales 1→maxProcesses; when supervisor-1 AND supervisor-mail both
+    | scale to 2 (production/development), the busy ceiling is 11 procs.
+    | Permitted worker heap sums to 2×256 (supervisor-1) + 2×128
+    | (supervisor-mail) + 256 (supervisor-long) + 512 (supervisor-videos) =
+    | 1536 MiB; plus non-worker processes (master at horizon.memory_limit=64,
+    | 4 middlemen at ~90 MiB each) ≈ 424 MiB, for a permitted ceiling of
+    | ~1960 MiB against the 2048 MiB flex-2gb Worker box (RV-4 resize,
+    | 2026-07-24). Every environment must name all four lanes explicitly —
+    | that is what HorizonQueueCoverageTest walks to prove every dispatchable
+    | queue has a consumer in every env.
     |
     */
 

@@ -148,11 +148,14 @@ it('mail and notifications are NOT drained by supervisor-1 (RV-12)', function ()
         ->and($shared)->not->toContain('notifications');
 });
 
-// Bulk fan-out (publishMany batches, broadcast leaf batches) lands on 'mail';
-// 'notifications' carries the single user-facing confirmations. Under
-// balance=>false the supervisor drains in strict listed order, so listing
-// notifications first keeps a 200-job broadcast batch from delaying an enquiry
-// confirmation.
+// Not "confirmations vs bulk" — both queues carry a mix. SendStaffBroadcastEmailsJob,
+// the 120s broadcast coordinator, is itself dispatched to 'notifications' (see its
+// constructor); the 200-job BULK batches (NotificationPublisher::publishMany()'s
+// Bus::batch() at :297, and the broadcast leaf batches SendStaffBroadcastEmailsJob
+// dispatches at :94) land on 'mail'. Under balance=>false the supervisor drains in
+// strict listed order, so listing notifications first keeps those bulk batches from
+// delaying transactional traffic on 'notifications' — it is maxProcesses => 2, not
+// this ordering, that keeps the coordinator itself from blocking confirmations.
 it('notifications is listed BEFORE mail on the dedicated lane (RV-12)', function () {
     $horizon = require base_path('config/horizon.php');
     $queue = (array) $horizon['defaults']['supervisor-mail']['queue'];
