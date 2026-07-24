@@ -70,7 +70,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 1 of 2 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 1 complete
 
@@ -78,7 +78,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Origin-absent analytics fallback trusts publicly-known `site_id` + `subdomain`, letting a scripted caller forge another site's action/analytics events
+- [x] **#SEC-1** · P1 — Origin-absent analytics fallback trusts publicly-known `site_id` + `subdomain`, letting a scripted caller forge another site's action/analytics events
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:465-478
     - **Affects:** Every published sitepage's `pageview`/`click`/`sectionSeen`/`itemSeen`/`actionSeen`/`actionTap`/`ping`/`sectionDwell` ingest endpoints. Fabricated `actionSeen`/`actionTap` events feed directly into `RankedActionsComputer`'s demand-rate scoring, so a scripted attacker can inflate or suppress another user's action ordering shown to real visitors.
     - **Effort:** S (~0.5–1h)

@@ -51,7 +51,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -82,7 +82,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -137,7 +137,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -187,7 +187,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -225,7 +225,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -277,7 +277,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -326,7 +326,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -372,7 +372,7 @@ class AnalyticsController extends ApiController
             return $error;
         }
 
-        if (! $this->originAllowed($request, $site, $data)) {
+        if (! $this->originAllowed($request, $site)) {
             return $this->error('Site not found', 404);
         }
 
@@ -437,15 +437,15 @@ class AnalyticsController extends ApiController
      * Origin-header precedence:
      *   Origin header → Referer header host → absent
      *
-     * When Origin AND Referer are both absent: allowed only if the request supplied
-     * BOTH site_id AND subdomain and they passed the cross-check (i.e. subdomain is
-     * already in $data, meaning resolveSiteFromData() validated the pair). This covers
-     * server-side / synthetic callers that never emit an Origin while still closing the
-     * site_id-only hole.
-     *
-     * @param  array<string, mixed>  $data  validated request data (post-prepareForValidation)
+     * When Origin AND Referer are both absent: rejected. Every legitimate caller is
+     * the sitepage's own client-side beacon, and a browser always emits one of the two
+     * on a POST. The former fallback authenticated a header-less caller on site_id +
+     * subdomain — both public values published in the page payload — so any scripted
+     * client could forge another site's events (2026-07-24 sweep, SEC-1). A genuine
+     * server-to-server caller must be gated by a shared secret or signed request, never
+     * by public identifiers.
      */
-    private function originAllowed(Request $request, Site $site, array $data): bool
+    private function originAllowed(Request $request, Site $site): bool
     {
         // Build the allowed-host set for this site.
         $publicDomain = config('partna.public_domain');
@@ -462,19 +462,10 @@ class AnalyticsController extends ApiController
         // Extract the request's origin host from Origin header, then Referer.
         $originHost = $this->parseOriginHost($request);
 
+        // No origin signal at all — fail closed (SEC-1). site_id and subdomain are
+        // both public, so they can never stand in for a browser-issued Origin.
         if ($originHost === null) {
-            // No origin signal — a synthetic/server-side caller must prove
-            // ownership by supplying BOTH site_id and subdomain, and those two
-            // must resolve to this exact $site (SEC-2). Checked explicitly against
-            // the already-resolved model here rather than trusting
-            // resolveSiteFromData()'s own cross-check implicitly, so this stays
-            // fail-closed even if that resolver's matching logic changes later.
-            if (empty($data['site_id']) || empty($data['subdomain'])) {
-                return false;
-            }
-
-            return (string) $data['site_id'] === $site->id
-                && strtolower((string) $data['subdomain']) === strtolower($site->subdomain);
+            return false;
         }
 
         return in_array($originHost, $allowed, true);
