@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Platforms\Payloads\EventsAccountPayload;
+use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Site\ItemSlugAllocator;
 
 /**
@@ -29,6 +31,26 @@ class EventSlugSync
     public const PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
 
     public function __construct(private ItemSlugAllocator $slugs) {}
+
+    /**
+     * Extract the list of event arrays ({id, name, ...}) from a stored
+     * connection payload, given its resource_kind — 'event' for a
+     * standalone/custom row (the payload itself, minus `kind`), anything
+     * else for an account row (its `upcoming` list). The one place this
+     * branch is decided; mirrors EventsPlatformController's own
+     * resource_kind check (EventsPlatformController.php:318). DTO-mediated
+     * (never raw ->payload access) so every caller — the sync hook, the
+     * backfill command, the public API controller — stays off
+     * NoUntypedPayloadAccessTest's radar automatically.
+     *
+     * @return list<mixed>
+     */
+    public static function extractEvents(?string $resourceKind, mixed $payload): array
+    {
+        return $resourceKind === 'event'
+            ? [StandaloneEventPayload::fromArray($payload)->event()]
+            : EventsAccountPayload::fromArray($payload)->upcoming();
+    }
 
     /** @param list<mixed> $events */
     public function syncEvents(string $userId, array $events): void

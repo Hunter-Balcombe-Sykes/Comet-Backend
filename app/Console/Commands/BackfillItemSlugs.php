@@ -6,8 +6,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuItem;
 use App\Services\Platforms\EventSlugSync;
-use App\Services\Platforms\Payloads\EventsAccountPayload;
-use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Console\Command;
 
@@ -57,9 +55,7 @@ class BackfillItemSlugs extends Command
             ->cursor()
             ->each(function (IntegrationConnection $connection) use ($eventSync, &$eventConnections, &$eventFailed) {
                 try {
-                    $events = $connection->resource_kind === 'event'
-                        ? [StandaloneEventPayload::fromArray($connection->payload)->event()]
-                        : EventsAccountPayload::fromArray($connection->payload)->upcoming();
+                    $events = EventSlugSync::extractEvents($connection->resource_kind, $connection->payload);
                     $eventSync->syncEvents($connection->user_id, $events);
                     $eventConnections++;
                 } catch (\Throwable $e) {

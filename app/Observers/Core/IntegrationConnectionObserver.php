@@ -9,10 +9,8 @@ use App\Models\Core\Site\Site;
 use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
-use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
-use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Support\Facades\Log;
@@ -127,9 +125,7 @@ class IntegrationConnectionObserver
     private function syncEventSlugs(IntegrationConnection $connection): void
     {
         try {
-            $events = $connection->resource_kind === 'event'
-                ? [StandaloneEventPayload::fromArray($connection->payload)->event()]
-                : EventsAccountPayload::fromArray($connection->payload)->upcoming();
+            $events = EventSlugSync::extractEvents($connection->resource_kind, $connection->payload);
             app(EventSlugSync::class)->syncEvents($connection->user_id, $events);
         } catch (\Throwable $e) {
             report($e);
