@@ -590,7 +590,11 @@ it('covers every integration GET read-route in the golden master', function () {
     // same reasoning as Apple/Skool above — neither descriptor gets
     // ->deferredConnect(), so the registry loop's own gate never reaches
     // them either). 75 -> 77.
-    expect($readRoutes->count())->toBe(77);
+    // CA-W6: 1 new .../connect/status poll route for Fresha (team mode only —
+    // added manually inside its own bespoke route group, same reasoning as
+    // Apple/Skool/Eventbrite/Humanitix above; fresha has no ConnectStrategy to
+    // satisfy ->deferredConnect()'s pinned invariant). 77 -> 78.
+    expect($readRoutes->count())->toBe(78);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -611,6 +615,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/eventbrite/selection',
         'api/platforms/events/selection',
         'api/platforms/facebook/selection',
+        'api/platforms/fresha/connect/status',
         'api/platforms/fresha/selection',
         'api/platforms/google-business/selection',
         'api/platforms/humanitix/accounts',

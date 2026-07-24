@@ -52,6 +52,11 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [FreshaController::class, 'connect'])->defaults('platform', 'fresha')->middleware('platform.available');
+            // CA-W6: poll target for the 202 above. Deliberately WITHOUT
+            // platform.available — a staff kill switch landing mid-poll must
+            // not 503 an in-flight connect with no terminal state (mirrors
+            // Skool/Apple/Eventbrite/Humanitix's identical connect/status routes).
+            Route::get('/connect/status', [FreshaController::class, 'connectStatus']);
             Route::get('/team', [FreshaController::class, 'team']);
             Route::get('/url', [FreshaController::class, 'show']);
             Route::get('/employee-services', [FreshaController::class, 'employeeServices']);

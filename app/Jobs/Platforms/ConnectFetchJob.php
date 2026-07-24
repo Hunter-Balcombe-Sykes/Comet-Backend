@@ -103,7 +103,12 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         }
 
         $descriptor = $registry->get($this->platform);
-        $fetch = $descriptor?->fetchStrategy();
+        // CA-W6: connectFetchStrategy() defaults to fetchStrategy() for every
+        // descriptor that hasn't called connectFetch() — byte-identical lookup
+        // for the eight already-armed platforms. Fresha is the one override
+        // (FreshaFetch, its refreshStrategy()'s fetch, is refresh-only and
+        // would 304 a fresh pending row — see FreshaConnectFetch's docblock).
+        $fetch = $descriptor?->connectFetchStrategy();
         if ($descriptor === null || $fetch === null) {
             $this->markTerminal($connection, 'error', 'unsupported_platform');
 

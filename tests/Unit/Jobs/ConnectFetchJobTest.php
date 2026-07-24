@@ -10,6 +10,9 @@ use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\FetchBudget;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\BandcampScraper;
+use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
+use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\TwitchScraper;
 use App\Services\Platforms\VimeoApi;
 use Illuminate\Contracts\Cache\Lock;
@@ -577,4 +580,37 @@ it('an available platform (no rule, or an explicit allow) is unaffected by the w
     $fresh = $connection->fresh();
     expect($fresh->last_refresh_status)->toBe('ok');
     expect($fresh->payload['artist'])->toBe('Real Artist');
+});
+
+// ── CA-W6: connectFetchStrategy() seam ──────────────────────────────────────
+// This job resolves its work via connectFetchStrategy(), not fetchStrategy()
+// directly — the one line this unit changed. connectFetchStrategy() defaults
+// to fetchStrategy() for every descriptor that hasn't called connectFetch(),
+// so this is the single assertion protecting the eight already-armed deferred
+// platforms (spotify, bandcamp, twitch, pinterest, strava, vimeo,
+// youtube-music, youtube) from that shared-infra change.
+
+it('connectFetchStrategy() falls back to fetchStrategy() for every descriptor except fresha, which overrides it', function () {
+    $registry = app(PlatformRegistry::class);
+
+    foreach ($registry->all() as $key => $descriptor) {
+        if ($key === 'fresha') {
+            continue;
+        }
+
+        $fetch = $descriptor->fetchStrategy();
+        $connectFetch = $descriptor->connectFetchStrategy();
+
+        if ($fetch === null) {
+            expect($connectFetch)->toBeNull("expected null connectFetchStrategy() for {$key}");
+
+            continue;
+        }
+
+        expect($connectFetch)->toBeInstanceOf($fetch::class, "connectFetchStrategy()/fetchStrategy() class drift: {$key}");
+    }
+
+    $fresha = $registry->get('fresha');
+    expect($fresha->connectFetchStrategy())->toBeInstanceOf(FreshaConnectFetch::class);
+    expect($fresha->fetchStrategy())->toBeInstanceOf(FreshaFetch::class);
 });

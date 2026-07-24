@@ -87,6 +87,7 @@ use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
+use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
@@ -355,6 +356,25 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 app(FreshaServiceProjector::class),
             ));
             $r->get('fresha')->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400));
+            // CA-W6: the CONNECT path needs a different fetch — FreshaFetch
+            // (above) is refresh-only (throws on a pending row with no
+            // selection, and calls the service projector, which individual-
+            // mode connect must never do at connect time — see
+            // FreshaConnectFetch's own docblock). connectFetchStrategy()
+            // defaults to fetchStrategy() for every other platform; fresha is
+            // the one override.
+            $r->get('fresha')->connectFetch(fn () => new FreshaConnectFetch(app(FreshaScraper::class)));
+            // The message ConnectFetchJob stores when the deferred team-mode
+            // menu fetch fails — verbatim from connect()'s own synchronous 502
+            // ('Could not reach Fresha — please try again.' was the old abort()
+            // message; this is the poll-shaped equivalent). Deliberately NOT
+            // ->deferredConnect(): fresha's connect is bespoke
+            // (FreshaController::connect(), via DefersBespokeConnect), never
+            // routed through ConnectResolver/GenericPlatformController, so that
+            // flag would falsely claim a ConnectStrategy exists
+            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
+            // descriptor). Mirrors skool/apple-music/eventbrite's identical notes.
+            $r->get('fresha')->connectFetchError("We couldn't read that Fresha page just then — please try again.");
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
