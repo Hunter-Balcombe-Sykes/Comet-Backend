@@ -6,19 +6,11 @@ namespace App\Services\WebsiteScan;
  * Extracts a single accent hex colour from an already-fetched homepage +
  * (optional) favicon bytes — theme-color meta tag first, favicon dominant-
  * colour second, agreeing/disagreeing sources reconciled by RGB distance.
- * Mirrors the deleted EvidenceConclusions::qualifiesAsAccent()'s exact
- * quality gate (saturation >= 0.3, luminance strictly between 0.08 and 0.92)
- * so the "reject near-white/near-black/monochrome" behaviour already tuned
- * for this codebase isn't lost.
+ * Quality gate (reject near-white/near-black/monochrome) is the shared
+ * AccentQuality — see that class for the tuning rationale.
  */
 class WebsiteAccentExtractor
 {
-    private const MIN_SATURATION = 0.3;
-
-    private const MIN_LUMINANCE = 0.08;
-
-    private const MAX_LUMINANCE = 0.92;
-
     private const AGREE_DIST = 60.0;
 
     public function extract(string $html, ?string $faviconBytes): ?string
@@ -38,9 +30,9 @@ class WebsiteAccentExtractor
         if (! preg_match('/<meta[^>]+name=["\']theme-color["\'][^>]+content=["\']([^"\']+)["\']/i', $html, $m)) {
             return null;
         }
-        $hex = $this->normalizeHex($m[1]);
+        $hex = AccentQuality::normalizeHex($m[1]);
 
-        return $hex !== null && $this->qualifies($hex) ? $hex : null;
+        return $hex !== null && AccentQuality::qualifies($hex) ? $hex : null;
     }
 
     private function dominantColorFromImage(string $bytes): ?string
@@ -67,7 +59,7 @@ class WebsiteAccentExtractor
                 $g = ($rgb >> 8) & 0xFF;
                 $b = $rgb & 0xFF;
                 $hex = sprintf('#%02x%02x%02x', $r, $g, $b);
-                if (! $this->qualifies($hex)) {
+                if (! AccentQuality::qualifies($hex)) {
                     continue;
                 }
                 $bucketKey = sprintf('%02x%02x%02x', $r & 0xF0, $g & 0xF0, $b & 0xF0);
@@ -82,37 +74,6 @@ class WebsiteAccentExtractor
         arsort($buckets);
 
         return '#'.array_key_first($buckets);
-    }
-
-    private function qualifies(string $hex): bool
-    {
-        sscanf($hex, '#%02x%02x%02x', $r, $g, $b);
-        $max = max($r, $g, $b) / 255;
-        $min = min($r, $g, $b) / 255;
-        $luminance = (0.2126 * $r + 0.7152 * $g + 0.0722 * $b) / 255;
-        // $max === 0.0 (strict) used to miss a pure-black pixel: max($r,$g,$b)/255
-        // is an INTEGER 0 (not float 0.0) when the division is exact, so the old
-        // strict-type guard fell through into a real division by zero. `> 0.0`
-        // compares by value regardless of int/float, so it can't be fooled the
-        // same way.
-        $saturation = $max > 0.0 ? ($max - $min) / $max : 0.0;
-
-        return $saturation >= self::MIN_SATURATION
-            && $luminance > self::MIN_LUMINANCE
-            && $luminance < self::MAX_LUMINANCE;
-    }
-
-    private function normalizeHex(string $value): ?string
-    {
-        $value = trim($value);
-        if (preg_match('/^#?([0-9a-f]{6})$/i', $value, $m)) {
-            return '#'.strtolower($m[1]);
-        }
-        if (preg_match('/^#?([0-9a-f]{3})$/i', $value, $m)) {
-            return '#'.strtolower($m[1][0].$m[1][0].$m[1][1].$m[1][1].$m[1][2].$m[1][2]);
-        }
-
-        return null;
     }
 
     private function colorDistance(string $hexA, string $hexB): float
