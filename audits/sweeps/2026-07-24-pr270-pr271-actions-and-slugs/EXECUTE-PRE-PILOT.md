@@ -63,10 +63,11 @@ else in that file is deliberately deferred until after pilot.
 > | `backend-wt/connect-shop-async-2026-07-24` | `Concerns/DefersBespokeConnect.php` |
 >
 > 🔴 **Never edit `tests/Feature/Platforms/GoldenMaster/IntegrationContractGoldenMasterTest.php`.**
-> It has uncommitted edits in the impl worktree *right now* and carries a hardcoded route-count
-> assertion (`expect($readRoutes->count())->toBe(75)`) plus a full sorted route-list array — the
-> single worst merge-conflict surface in the repo. Nothing in this slice changes routes, so you
-> have no legitimate reason to open it. `TEST-3`'s guard test goes in a **new** file.
+> The impl branch edits it on every phase (`17e06369` bumped it to 75 most recently, and more
+> connect phases are queued). It carries a hardcoded route-count assertion
+> (`expect($readRoutes->count())->toBe(75)`) plus a full sorted route-list array — the single
+> worst merge-conflict surface in the repo. Nothing in this slice changes routes, so you have no
+> legitimate reason to open it. `TEST-3`'s guard test goes in a **new** file.
 >
 > If a fix seems to require one of the files above, **stop and ask** rather than editing it.
 >
