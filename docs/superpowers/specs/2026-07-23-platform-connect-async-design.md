@@ -361,14 +361,55 @@ touches auth/money/DB-schema, or is L/XL effort.
 | # | Unit | Scope | Effort | Gate | Depends on | Contract change? |
 |---|---|---|---|---|---|---|
 | **W1** ✅ | **`FetchBudget` for the six** | Open a budget in `ShopController`, `AppleController`, `FreshaController`, `EventsPlatformController`, `SkoolController`. Pure Phase-1 parity. | **M** | no | — | **none** |
-| **W2** | `DefersBespokeConnect` concern | The shared trait: flag check, 202 builder, poll action with the staleness check ported from `GenericPlatformController.php:236-253`. No platform wired yet. | **M** | no | — | none (inert) |
-| **W3** | Apple (both slugs) | `connectFetchError()` on `apple-music`/`apple-podcast`; pending write `{input}`; dispatch `ConnectFetchJob`; two status routes. `FetchStrategy` already exists. | **S/M** | no — **discharged by decision 1** | W2 | 202 + poll |
-| **W4** | Skool | Pending write `{url}`; **take the lock in the job**; status route. Reconcile `selection()`'s pending-vs-absent ambiguity. | **S** | no | W2 | 202 + poll |
-| **W5** | Eventbrite + Humanitix accounts **+ `EventsCatalog`** | Hoist the cap ahead of the 202; pending write; status route ×2. Convert `EventsCatalog::addByUrl`'s **organiser branch** (§6.1) to share those same two poll endpoints. `addEvent()` and the event/custom branches stay synchronous. | **M/L** | no | W2 | 202 + poll |
-| **W6** | Fresha individual mode | Write the URL-only row synchronously, 202, defer the menu fetch. | **M** | **yes** — capability + XOR | W2 | 202 + poll |
-| **W7** | Fresha storewide | Real pending row + job; **re-assert the XOR in the job's locked write**; handle the advisory-lock overlap. | **L** | **yes** — capability, money-adjacent (booking), L | W6 | 202 + poll |
-| **W8** | Fresha `team()` | Independent conversion — it is its own ~96 s synchronous GET. | **M** | no | W6 | new |
+| **W2** ✅ | `DefersBespokeConnect` concern | The shared trait: flag check, 202 builder, poll action with the staleness check ported from `GenericPlatformController.php:236-253`. No platform wired yet. | **M** | no | — | none (inert) |
+| **W3** ✅ | Apple (both slugs) | `connectFetchError()` on `apple-music`/`apple-podcast`; pending write `{input}`; dispatch `ConnectFetchJob`; two status routes. `FetchStrategy` already exists. | **S/M** | no — **discharged by decision 1** | W2 | 202 + poll |
+| **W4** ✅ | Skool | Pending write `{url}`; **take the lock in the job**; status route. Reconcile `selection()`'s pending-vs-absent ambiguity. | **S** | no | W2 | 202 + poll |
+| **W5** ✅ | Eventbrite + Humanitix accounts **+ `EventsCatalog`** | Hoist the cap ahead of the 202; pending write; status route ×2. Convert `EventsCatalog::addByUrl`'s **organiser branch** (§6.1) to share those same two poll endpoints. `addEvent()` and the event/custom branches stay synchronous. | **M/L** | no | W2 | 202 + poll |
+| **W6** ✅ | Fresha individual mode | Write the URL-only row synchronously, 202, defer the menu fetch. | **M** | **yes** — capability + XOR | W2 | 202 + poll |
+| **W7** ✅ | Fresha storewide | Real pending row + job; **re-assert the XOR in the job's locked write**; handle the advisory-lock overlap. | **L** | **yes** — capability, money-adjacent (booking), L | W6 | 202 + poll |
+| **W8** ⏸ | Fresha `team()` | Independent conversion — it is its own ~96 s synchronous GET. | **M** | no | W6 | new |
 | **W9** | Shop | Migration for a per-brand status column (or provisional-key reconciliation); pending `ShopBrand` row; explicit cache refresh in the job. | **XL** | **yes** — DB migration + XL | W1, W2 | 202 + poll |
+
+**Phase 3 shipped 2026-07-24** — branch `audit-fix/connect-async-impl-2026-07-24`, 15 commits,
+awaiting review/merge. **W2–W7 complete; W8 deliberately dropped** (⏸) — the frontend contract's
+"Not yet specified" section states `GET /fresha/team` is *"scheduled separately"* with its contract
+*not final*, and that governs over this table's "new" entry. W6's `payload.teamMenu` snapshot lays
+its groundwork. An extra unit, **`CA-SM`**, was added mid-run at Josh's direction to fix three live
+defects in the shared machinery, and **`CA-DM`** adds a consolidated dark-merge proof.
+
+**Seven corrections to this design were established during implementation** — read these before
+trusting the sections above:
+
+1. **§3.1's headline XOR risk is backwards.** "Moving the write into a job stretches that gap to
+   queue latency" is false for the shape implemented: the row-creating write never moves into the
+   job, only the content fill does. Deferral **narrows** the window, because the pending row — what
+   makes `hasConflictingConnection('fresha')` true — is written *before* the 202.
+2. **§3.1 misses the hazard that actually matters.** The reason W7 needs `bookingXorLock` is that
+   `FreshaServiceProjector::sync()` **resurrects rows tombstoned as `deleted_origin='sync'`**, so a
+   `forget()` landing mid-flight has its service teardown silently undone — not the TOCTOU.
+3. **§3.1's "nothing is persisted" stops one step short.** If nothing is persisted, the poll's
+   `ready` body has nothing to return, while the contract demands the full old-200 shape. W6 must
+   add a private `payload.teamMenu` snapshot — new persistence this design never mentions.
+4. **§3.3/§6.1's "unlocked-write race … remains a separate defect" is STALE.** PWL-13 (commit
+   `2b0307d5`, 2026-07-22 — the day *before* this design) already closed it: both
+   `EventsCatalog::storeAccount()` and `storeStandalone()` call `withPlatformLock()`. That fix's
+   own justification comment, however, *is* invalidated by W5 and was rewritten.
+5. **§3.3's "the cap … can be hoisted ahead of the 202" describes work that is not needed** — and
+   cannot be done as described. The cap lives in `ManagesIntegrationConnection::writeAccountConnection()`
+   and needs the canonical key to tell a new account from a reconnect; a bare `count() >= 5` would
+   422 a legitimate reconnect. Writing the pending row before the 202 satisfies it by ordering alone.
+6. **§3.3 treats Eventbrite and Humanitix as splitting identically; §3.6's own table contradicts it.**
+   `HumanitixScraper::resolveHostUrl()` is a **live network fetch** and it *is* the row's identity,
+   so Humanitix keeps one synchronous hop; only the account scrape defers.
+7. **§3.2 miscounts Apple's failure messages** — there are **two**, not three; the third citation
+   lands in unrelated closure code.
+
+**Three live defects in the shared mechanism were found and fixed** (unit `CA-SM`), all of which
+predated this design and affect the eight already-armed registry platforms:
+`ConnectFetchJob` never opened a `FetchBudget` despite its own comment claiming one bounded the
+fetch (so the vendor call ran unbounded against a 45 s timeout); the hourly refresh cron selected
+`pending` rows and could flip a stranded one to a bogus `ok`, defeating the 5-minute staleness
+backstop; and the job's locked write bypassed `assertPlatformAvailable()`.
 
 **W1 shipped 2026-07-24** — branch `audit-fix/connect-fetchbudget-2026-07-24`, awaiting review/merge.
 **Seven** call-site groups, not six: `EventsController::add()` (the smart-detect facade over the same
