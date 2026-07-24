@@ -71,7 +71,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -127,7 +127,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Non-array `payload` values bypass the public per-platform allowlist and would reach the CDN-cached public wire verbatim
+- [x] **#SEC-3** · P2 — Non-array `payload` values bypass the public per-platform allowlist and would reach the CDN-cached public wire verbatim
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:220-223
     - **Affects:** Unauthenticated sitepage visitors hitting `GET /api/public/profiles/{handle}/platforms` — only in the hypothetical case a `site.platform_connections.payload` row is ever written as a scalar (an error string, a stray token) instead of an array.
     - **Effort:** S (~0.5–1h)

@@ -381,6 +381,36 @@ it('returns an empty payload array (fail-closed) for a platform with no allowlis
     expect($result['payload'])->not->toHaveKey('sourceUrl');
 });
 
+it('fails closed to an empty payload when a stored payload is a scalar, not an array (SEC-3)', function () {
+    // Real code paths only ever write an array/JSONB object into `payload` —
+    // this simulates a corrupt row (e.g. a bug once wrote a raw error string)
+    // by inserting a JSON-encoded SCALAR directly via the query builder,
+    // bypassing IntegrationConnection's array cast on write. On read, the
+    // model's `payload` => 'array' cast json_decodes it back into a plain
+    // PHP string (not an array) — exactly the shape filterPayload() must
+    // reject before it ever reaches the per-platform allowlist.
+    $user = allowlistUser('allowscalar');
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'platform' => 'facebook',
+        'resource_id' => 'facebook',
+        'payload' => json_encode('leaked-scalar-value'),
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $payload = $this->getJson('/api/public/profiles/allowscalar/integrations')
+        ->assertOk()
+        ->json('data.platforms.facebook.0.payload');
+
+    // Fail-closed: never the raw scalar, regardless of platform allowlist.
+    expect($payload)->toBe([]);
+});
+
 it('never exposes booking/reservations on the public endpoint', function () {
     $user = allowlistUser('allow10');
 

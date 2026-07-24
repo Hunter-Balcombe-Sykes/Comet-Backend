@@ -221,9 +221,11 @@ class PublicIntegrationConnectionResource extends ApiResource
                 ->all();
         }
 
-        // Null / non-array payloads (e.g. a pending connection) pass through.
+        // Fail CLOSED (SEC-3): a non-array payload must never reach this public,
+        // CDN-cached wire unfiltered. `payload` is NOT NULL in prod Postgres
+        // (jsonb, default '{}') — null here is only the nullable SQLite test mirror.
         if (! is_array($payload)) {
-            return $payload;
+            return [];
         }
 
         $allowed = self::ALLOWLIST[$platform] ?? null;
