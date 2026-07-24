@@ -3,6 +3,7 @@
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
@@ -112,6 +113,89 @@ it('platform_connect queue is covered in the local environment', function () {
     expect(envCoversQueue('local', 'platform_connect'))->toBeTrue(
         'platform_connect queue must appear in at least one local supervisor queue list'
     );
+});
+
+// RV-12: transactional mail moved off the shared supervisor-1 pool onto its own
+// lane so a long job elsewhere (a ~180s Cloudflare purge, a ~300s logo job) can
+// never park a confirmation or a moderation notice. Pinned per-env because
+// horizon.defaults unions into every environment — a future env-block edit that
+// drops the lane would strand every outbound email silently.
+it('mail queue is covered in every Horizon environment (RV-12)', function () {
+    foreach (['production', 'development', 'local'] as $env) {
+        expect(envCoversQueue($env, 'mail'))->toBeTrue(
+            "mail queue must appear in at least one {$env} supervisor queue list"
+        );
+    }
+});
+
+it('notifications queue is covered in every Horizon environment (RV-12)', function () {
+    foreach (['production', 'development', 'local'] as $env) {
+        expect(envCoversQueue($env, 'notifications'))->toBeTrue(
+            "notifications queue must appear in at least one {$env} supervisor queue list"
+        );
+    }
+});
+
+// The split is only worth anything if the two queues leave supervisor-1 entirely.
+// A "tidy up the queue list" that re-adds either name would silently restore the
+// head-of-line blocking this unit removed, and every coverage test above would
+// still pass.
+it('mail and notifications are NOT drained by supervisor-1 (RV-12)', function () {
+    $horizon = require base_path('config/horizon.php');
+    $shared = (array) $horizon['defaults']['supervisor-1']['queue'];
+
+    expect($shared)->not->toContain('mail')
+        ->and($shared)->not->toContain('notifications');
+});
+
+// Bulk fan-out (publishMany batches, broadcast leaf batches) lands on 'mail';
+// 'notifications' carries the single user-facing confirmations. Under
+// balance=>false the supervisor drains in strict listed order, so listing
+// notifications first keeps a 200-job broadcast batch from delaying an enquiry
+// confirmation.
+it('notifications is listed BEFORE mail on the dedicated lane (RV-12)', function () {
+    $horizon = require base_path('config/horizon.php');
+    $queue = (array) $horizon['defaults']['supervisor-mail']['queue'];
+
+    $notificationsIndex = array_search('notifications', $queue, true);
+    $mailIndex = array_search('mail', $queue, true);
+
+    expect($notificationsIndex)->not->toBeFalse()
+        ->and($mailIndex)->not->toBeFalse()
+        ->and($mailIndex)->toBeGreaterThan($notificationsIndex);
+});
+
+// JOB-103, per-job. The generic supervisor-level guard below only compares each
+// supervisor's own timeout against its connection retry_after; its docblock
+// admits it cannot instantiate every job to read $timeout. SendStaffBroadcastEmailsJob
+// is the longest job on the new lane at 120s (a chunkById(500) walk over
+// EmailSubscription), so it gets the same explicit treatment MenuFetchJob has on
+// the scraping lane.
+it('the longest mail-lane job stays under its connection retry_after and supervisor timeout (JOB-103)', function () {
+    $horizon = require base_path('config/horizon.php');
+    $defaults = $horizon['defaults'];
+
+    $supervisorName = null;
+    foreach ($defaults as $name => $supervisorConfig) {
+        if (in_array('mail', (array) ($supervisorConfig['queue'] ?? []), true)) {
+            $supervisorName = $name;
+            break;
+        }
+    }
+
+    expect($supervisorName)->not->toBeNull('no Horizon default supervisor consumes the mail queue');
+
+    $connection = $defaults[$supervisorName]['connection'];
+    $retryAfter = config("queue.connections.{$connection}.retry_after");
+    $supervisorTimeout = $defaults[$supervisorName]['timeout'];
+
+    $job = new SendStaffBroadcastEmailsJob('00000000-0000-0000-0000-000000000001');
+
+    // Strictly LESS THAN retry_after: an equal value races Horizon's SIGKILL
+    // against Redis's re-queue at the same instant, which would double-send a
+    // broadcast to every subscriber.
+    expect($job->timeout)->toBeLessThan($retryAfter)
+        ->and($job->timeout)->toBeLessThanOrEqual($supervisorTimeout);
 });
 
 // Generic sweep: the per-queue tests above pin four historically-bitten lanes,
