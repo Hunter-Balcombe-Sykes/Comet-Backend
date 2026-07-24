@@ -42,7 +42,13 @@ class HumanitixScraper extends PlatformScraper
         if (preg_match('~^https?://events\.humanitix\.com/([a-z0-9-]+)~i', $input, $m)
             && ! in_array(strtolower($m[1]), self::NON_EVENT_SLUGS, true)) {
             $res = $this->fetcher->tryFetch('https://events.humanitix.com/'.strtolower($m[1]), ['User-Agent' => self::USER_AGENT]);
-            if ($res['status'] === 200
+            // $res is null on transport failure (tryFetch swallows it) — reading
+            // $res['status'] unguarded turns that into an ErrorException, i.e. a
+            // 500 instead of the caller's intended 422. Same WS-B1 lesson as
+            // ShopifyScraper::fetchProducts(); newly routine now that this
+            // resolver runs inside a FetchBudget, whose exhaustion yields null.
+            if ($res !== null
+                && $res['status'] === 200
                 && preg_match('~href="(?:https://events\.humanitix\.com)?/host/([a-z0-9-]+)~i', $res['body'], $h)) {
                 return 'https://events.humanitix.com/host/'.strtolower($h[1]);
             }

@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\SkoolConnectionResource;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\SkoolScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class SkoolController extends ApiController
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
-    public function __construct(private readonly SkoolScraper $scraper) {}
+    public function __construct(private readonly SkoolScraper $scraper, private readonly FetchBudget $budget) {}
 
     protected function platform(): string
     {
@@ -38,7 +39,8 @@ class SkoolController extends ApiController
             return $this->error('Enter your Skool community URL (skool.com/your-community).', 422);
         }
 
-        $community = $this->scraper->fetchCommunity($canonical);
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $community = $this->budget->open($seconds, fn () => $this->scraper->fetchCommunity($canonical));
         if ($community === null) {
             return $this->error('Could not read that Skool community — check the URL.', 404);
         }

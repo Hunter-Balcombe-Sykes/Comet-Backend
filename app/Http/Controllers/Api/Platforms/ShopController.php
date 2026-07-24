@@ -19,6 +19,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
@@ -87,6 +88,7 @@ class ShopController extends ApiController
         private readonly GenericShopScraper $generic,
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopCatalog $catalog,
+        private readonly FetchBudget $budget,
     ) {}
 
     protected function platform(): string
@@ -110,23 +112,37 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
         $validated = $request->validated();
 
-        // Detection + scrape run outside the lock (slow external HTTP).
-        // Only the read→mutate→write cycle is serialised.
-        $detection = $this->detector->detectDetailed($validated['url']);
-        $detected = $detection['detected'];
+        // Detection + scrape run outside the lock (slow external HTTP), bounded
+        // by one budget spanning the whole cascade (detect → client-payload
+        // fallback → brand profile fetch). Only the read→mutate→write cycle is
+        // serialised. Both early-return branches (unsupported/unreachable) are
+        // preserved byte-for-byte by signalling out of the closure via a struct.
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $outcome = $this->budget->open($seconds, function () use ($validated) {
+            $detection = $this->detector->detectDetailed($validated['url']);
+            $detected = $detection['detected'];
 
-        // Server-side probe failed AND the dashboard supplied a browser-fetched
-        // Store API payload — stores whose WAF blocks datacenter IPs (403s every
-        // server request) still connect via the user's own browser.
-        if ($detected === null && is_array($validated['storeApi'] ?? null)) {
-            $detected = $this->detectFromClientPayload($validated['url'], $validated['storeApi']);
-        }
+            // Server-side probe failed AND the dashboard supplied a browser-fetched
+            // Store API payload — stores whose WAF blocks datacenter IPs (403s every
+            // server request) still connect via the user's own browser.
+            if ($detected === null && is_array($validated['storeApi'] ?? null)) {
+                $detected = $this->detectFromClientPayload($validated['url'], $validated['storeApi']);
+            }
 
-        if ($detected === null) {
+            if ($detected === null) {
+                return ['detected' => null, 'failure' => $detection['failure']];
+            }
+
+            [$brand, $detectedProducts] = $this->brandProfileFor($detected);
+
+            return ['detected' => $detected, 'brand' => $brand, 'detectedProducts' => $detectedProducts];
+        });
+
+        if ($outcome['detected'] === null) {
             // Distinct code per failure kind (WS-B1.2) — the dashboard offers
             // an add-as-custom-link fallback on `unsupported_store`, and its
             // client-assisted Store API retry on `store_unreachable`.
-            if ($detection['failure'] === ShopProviderDetector::FAILURE_UNSUPPORTED) {
+            if ($outcome['failure'] === ShopProviderDetector::FAILURE_UNSUPPORTED) {
                 return $this->error(
                     "This site isn't on a store platform we can connect — we support Shopify, WooCommerce, Squarespace, Big Cartel, and pages with standard product markup. You can add it as a custom link instead, or add individual products by their product page URLs.",
                     422,
@@ -141,7 +157,9 @@ class ShopController extends ApiController
             );
         }
 
-        [$brand, $detectedProducts] = $this->brandProfileFor($detected);
+        $detected = $outcome['detected'];
+        $brand = $outcome['brand'];
+        $detectedProducts = $outcome['detectedProducts'];
         $id = $brand['id'];
 
         return $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $validated) {
@@ -244,7 +262,8 @@ class ShopController extends ApiController
                 // mode (the scheduled refresh retries) but tell the dashboard
                 // so it can message the delay instead of 500ing.
                 try {
-                    $syncFailed = $this->catalog->syncLatest($brand->fresh('products')) === null;
+                    $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+                    $syncFailed = $this->budget->open($seconds, fn () => $this->catalog->syncLatest($brand->fresh('products'))) === null;
                 } catch (HttpException) {
                     $syncFailed = true;
                 }
@@ -346,10 +365,11 @@ class ShopController extends ApiController
             return $this->error('Brand not found.', 404);
         }
 
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
         $products = Cache::remember(
             $this->catalogKey($id),
             self::applyJitter(self::CATALOG_TTL_MINUTES * 60),
-            fn () => $this->providerProducts($map[$id]),
+            fn () => $this->budget->open($seconds, fn () => $this->providerProducts($map[$id])),
         );
 
         return $this->success(['products' => $products]);
@@ -373,8 +393,9 @@ class ShopController extends ApiController
 
             // Prefer the catalog the picker just warmed; only re-scrape if it
             // has gone cold (a save long after the picker was opened).
+            $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
             $catalog = Cache::get($this->catalogKey($id))
-                ?? $this->providerProducts($brand->toBrandArray());
+                ?? $this->budget->open($seconds, fn () => $this->providerProducts($brand->toBrandArray()));
             $all = collect($catalog)->keyBy('productId');
             $selected = collect($validated['productIds'])
                 ->map(fn (string $pid) => $all->get($pid))
@@ -464,7 +485,8 @@ class ShopController extends ApiController
     {
         $user = $this->currentUser($request);
 
-        $read = $this->generic->readProductPage($request->validated()['url']);
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $read = $this->budget->open($seconds, fn () => $this->generic->readProductPage($request->validated()['url']));
 
         // Distinct code when the "product" URL is really a storefront homepage
         // (WS-B1.1) — the dashboard suggests connecting it as a brand instead,
