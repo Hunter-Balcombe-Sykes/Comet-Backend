@@ -47,22 +47,35 @@
 
 **Longest `$timeout` on the combined lane: 120s** (`SendStaffBroadcastEmailsJob`).
 
+### Gap found in review: `Mail::queue()` defaulted onto `default`, not `notifications`
+
+The traffic map above only covers jobs that reach a mail-sending step through an explicit `->onQueue()`. It missed an entire other path: `config/queue.php`'s `redis` connection sets its default queue to `'default'` (`'queue' => env('REDIS_QUEUE', 'default')`), and no `Mailable` in the codebase declared a queue — so every bare `Mail::queue($mailable)` / `Mail::to(...)->queue($mailable)` call landed on `'default'`, which stayed on `supervisor-1`, the exact shared pool RV-12 exists to get transactional mail off of. This is not a narrow case: it covers Supabase auth email (magic link, OTP, password reset, email confirm, via `SupabaseEmailHookController`), both GDPR account-deletion mails (`AccountDeletionService`), early-access mail, and claim-invite mail.
+
+Fixed by overriding `queue()` (the method `Illuminate\Mail\Mailer::queue()` actually calls) on `App\Mail\BaseTransactionalMail` — the sole class every concrete `Mailable` in the app extends — so it defaults onto `config('partna.queues.notifications', 'notifications')` unless a caller already set an explicit queue. `notifications`, not `mail`: it's first in the lane's priority order and carries transactional traffic, while `mail` carries the 200-job bulk batches (see below). Pinned by two new tests in `HorizonQueueCoverageTest.php` that exercise the real `Mail::queue()` → `Mailer::queue()` → `Mailable::queue()` pipeline under `Queue::fake()` (not `Mail::fake()`, which would bypass the override entirely).
+
 ### Why both queues move, not just `mail`
 
 Moving `mail` alone does **not** solve the stated problem. Every user-facing confirmation email — enquiry, subscription, feedback — is routed to `notifications`, not `mail`. Leaving `notifications` on `supervisor-1` would leave exactly the traffic RV-12 exists to protect still sharing two processes with ten other queues. Both move.
 
 The `notifications` lane also carries the three moderation notify jobs. They share the latency-sensitivity (a reporter waiting on a case update) and are small, so they travel with the lane rather than being split out.
 
+### Priority order within the lane — corrected
+
+An earlier version of this document (and of the shipped `config/horizon.php` comment) claimed `'notifications' carries the single user-facing confirmations, 'mail' carries the bulk fan-out`. That's backwards. `SendStaffBroadcastEmailsJob` — the 120s broadcast coordinator, the **longest** job on the whole lane — is dispatched to `notifications` by its own constructor. The 200-job **bulk** batches are what actually land on `mail`: `NotificationPublisher::publishMany()`'s `Bus::batch()->onQueue('mail')` (`:297`) and the broadcast leaf batches `SendStaffBroadcastEmailsJob` dispatches at `:94`. So the ordering (`notifications` before `mail`) keeps those bulk batches behind transactional traffic — it is **not** what keeps the coordinator from blocking confirmations. That's `maxProcesses => 2`: a second worker can still drain the front of the priority list while one worker is tied up running the 120s coordinator.
+
 ### Residual risk, stated not hidden
 
-The `mail` queue mixes a **single critical** transactional email with **bulk** fan-out (200-job batches from `publishMany()` and from broadcast). Inside the new lane, a large broadcast can still head-of-line-block a single critical email. Two processes bound that, but do not eliminate it. The clean fix is a `mail_bulk` lane ordered last, mirroring the existing `cloudflare` / `cloudflare_bulk` split (R3-CACHE-1) — that requires a new config key plus dispatcher changes in `NotificationPublisher::publishMany()` and `SendStaffBroadcastEmailsJob`, which is **out of scope for this unit**. Recorded here as the follow-up.
+The `mail` queue mixes bulk fan-out from two sources (200-job batches from `publishMany()` and from broadcast leaf dispatch) with occasional single critical escalations (`NotificationPublisher::publish()`, `:144`). Inside the new lane, a large broadcast can still head-of-line-block a single critical email. Two processes bound that, but do not eliminate it. The clean fix is a `mail_bulk` lane ordered last, mirroring the existing `cloudflare` / `cloudflare_bulk` split (R3-CACHE-1) — that requires a new config key plus dispatcher changes in `NotificationPublisher::publishMany()` and `SendStaffBroadcastEmailsJob`, which is **out of scope for this unit**. Recorded here as the follow-up.
+
+The `Mail::queue()` → `default` gap above was the other open risk from the original ship of this unit; it is now fixed (see above), not residual.
 
 ---
 
 ## File Structure
 
 - **Modify:** `config/horizon.php` — add `supervisor-mail` to `defaults`, remove two queue names from `supervisor-1`, add the lane to all three environment blocks, update the "Worker Lanes" docblock arithmetic.
-- **Modify:** `tests/Unit/Jobs/HorizonQueueCoverageTest.php` — per-env coverage for `mail` + `notifications`, lane-ordering invariant, explicit JOB-103 per-job assertion for the 120s coordinator.
+- **Modify:** `tests/Unit/Jobs/HorizonQueueCoverageTest.php` — per-env coverage for `mail` + `notifications`, lane-ordering invariant, explicit JOB-103 per-job assertion for the 120s coordinator; review round adds coverage for the `Mail::queue()` default-routing fix below.
+- **Modify (review round):** `app/Mail/BaseTransactionalMail.php` — override `queue()` so every queued transactional `Mailable` defaults onto the dedicated lane instead of `default`.
 
 ---
 
@@ -358,12 +371,24 @@ Check out the merge-base and re-run the same failing test there before claiming 
 
 ---
 
+### Task 5 (review round, 2026-07-24): Four corrections from two independent reviews
+
+Both reviews landed on the same four issues in Tasks 1-4's shipped state. Fixed on the same branch, in separate commits, without rewriting the Task 1-4 history above (that history documents what those commits actually contained at the time — see them for the original numbers):
+
+1. **`supervisor-mail`'s `memory` was 192, over the box's headroom.** Lowered to 128 — each job on this lane renders one Blade view and makes one mail-API call, so 128 is ample; `memory` is a restart-after-exceeded threshold, not a reservation. `maxProcesses` (2 prod/dev, 1 local) unchanged.
+2. **The Environments docblock's footprint arithmetic was wrong**, not just stale: it labelled 11 procs (~990 MiB) as the *idle* footprint, but 11 is the *busy* ceiling (both `supervisor-1` and `supervisor-mail` scaled to 2). Verified against `AutoScaler::numberOfWorkersPerQueue()` (`vendor/laravel/horizon/src/AutoScaler.php`) and `SupervisorOptions::$minProcesses` (default `1`): under `balance => false` every lane idles at exactly one worker. Corrected figures: idle = 9 procs (~810 MiB, an estimate); busy ceiling = 11 procs; permitted worker heap = 2×256 + 2×128 + 256 + 512 = 1536 MiB; plus ~424 MiB of non-worker processes (master + 4 middlemen) = **~1960 MiB permitted against the 2048 MiB box**. The "a busy lane autoscales 1→2" sentence that a prior arithmetic-only edit had dropped is restored.
+3. **The lane's priority-order comment had `notifications` and `mail`'s traffic backwards** — see "Priority order within the lane — corrected" above. Also fixed the mirrored wrong comment in `HorizonQueueCoverageTest.php`'s ordering-invariant test.
+4. **`Mail::queue()` had no queue routing at all** — see "Gap found in review" above. This one isn't a correction to something Tasks 1-4 got wrong; it's a gap Tasks 1-4 never covered, because the original traffic map only looked at jobs with an explicit `->onQueue()`, not at `Mailable`s queued directly via `Mail::queue()`.
+
+---
+
 ## What cannot be proved here, and must be checked at deploy time
 
-The suite runs SQLite with no Horizon and no Redis. This plan **cannot** demonstrate clean supervisor startup, real process counts, or actual RSS. What it does prove: every queue still has a consuming supervisor in every env, the two queues left `supervisor-1`, lane priority order is right, and `retry_after > timeout` holds for the longest job on the new lane.
+The suite runs SQLite with no Horizon and no Redis. This plan **cannot** demonstrate clean supervisor startup, real process counts, or actual RSS. What it does prove: every queue still has a consuming supervisor in every env, the two queues left `supervisor-1`, lane priority order is right, `retry_after > timeout` holds for the longest job on the new lane, and a queued `Mailable` defaults onto `notifications` unless a caller overrides it.
 
 **Josh must verify after deploy:**
 1. Horizon dashboard shows **four** supervisors, not three.
-2. Worker instance memory graph: idle floor ~990 MiB against 2048, not climbing toward the ceiling.
+2. Worker instance memory graph: idle floor ~810 MiB against 2048 (busy ceiling ~1960 MiB permitted), not climbing toward the ceiling.
 3. `cloud env:logs partna development --minutes 15` shows no supervisor restart loop.
 4. Trigger a staff broadcast and confirm an enquiry confirmation still lands promptly while it drains.
+5. Trigger a magic-link sign-in and confirm it still arrives promptly (now routed through `notifications` instead of `default`).
