@@ -59,6 +59,13 @@ it('addBrand + setProducts persist the relational marker and child rows, not a J
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: ShopProviderDetector now carries probeMeta()'s result forward
+        // instead of calling probe() a second time — id must match fetchBrand()'s
+        // id below so ShopBrandIdentity (Unit 4) never derives a different one.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'rel-brand', 'name' => 'Rel Store']);
+        // W9 Unit 4: ShopBrandIdentity::for() now calls brandIdFrom($meta, $origin)
+        // — must agree with fetchBrand()'s id below (both read the same 'id').
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'rel-brand', 'name' => 'Rel Store', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
         ]);
@@ -126,6 +133,9 @@ it('re-adding a brand after forget creates a fresh row with no orphaned products
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: see the 'rel-brand' block above — id mirrors fetchBrand()'s.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'again-brand', 'name' => 'Again Store']);
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'again-brand', 'name' => 'Again Store', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
         ]);
@@ -211,6 +221,9 @@ it('public platforms endpoint shop payload is value-identical to the pre-relatio
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: see the 'rel-brand' block above — id mirrors fetchBrand()'s.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'pub-brand', 'name' => 'Pub Store']);
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'pub-brand', 'name' => 'Pub Store', 'currency' => 'AUD',
             'favicon' => 'https://pub.example.com/favicon.ico', 'logo' => 'https://pub.example.com/logo.png',
@@ -329,6 +342,9 @@ it('purges the edge cache on a SECOND shop mutation, not just the first connect'
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: see the 'rel-brand' block above — id mirrors fetchBrand()'s.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'purge-brand', 'name' => 'Purge Store']);
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'purge-brand', 'name' => 'Purge Store', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
         ]);
@@ -370,6 +386,9 @@ function modesBrandFor(User $user): void
     test()->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: see the 'rel-brand' block above — id mirrors fetchBrand()'s.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'modes-brand', 'name' => 'Modes Store']);
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'modes-brand', 'name' => 'Modes Store', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null,
@@ -448,4 +467,28 @@ it('rejects invalid mode values', function () {
         ->assertStatus(422);
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['linkMode' => 'cart'])
         ->assertStatus(422);
+});
+
+// W9 unit 1: content-proxy for the connect_status column — nothing reads/writes
+// it yet, but the column must be nullable with no DB default under both
+// SQLite (tests) and Postgres (prod), since a green SQLite suite proves nothing
+// about the CHECK/nullability itself (see CheckConstraintsTest for the real thing).
+it('connect_status column is nullable with no default and round-trips a written value', function () {
+    $user = shopStorageUser('connstatus1');
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $pending = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'pending-brand', 'provider' => 'shopify',
+        'url' => 'https://pending.example.com', 'position' => 0, 'connect_status' => 'pending',
+    ]);
+    $settled = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'settled-brand', 'provider' => 'shopify',
+        'url' => 'https://settled.example.com', 'position' => 1,
+    ]);
+
+    expect($pending->fresh()->connect_status)->toBe('pending');
+    expect($settled->fresh()->connect_status)->toBeNull();
 });

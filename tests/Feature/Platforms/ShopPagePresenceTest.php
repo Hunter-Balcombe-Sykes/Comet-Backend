@@ -39,7 +39,7 @@ function spConnection(User $user, string $platform, array $payload = []): string
     return $id;
 }
 
-function spBrand(string $connectionId): string
+function spBrand(string $connectionId, ?string $connectStatus = null): string
 {
     $brandId = (string) Str::uuid();
     $now = now()->toDateTimeString();
@@ -48,6 +48,7 @@ function spBrand(string $connectionId): string
         'connection_id' => $connectionId,
         'brand_id' => 'b1',
         'provider' => 'shopify',
+        'connect_status' => $connectStatus,
         'created_at' => $now,
         'updated_at' => $now,
     ]);
@@ -84,6 +85,42 @@ it('keeps the shop page present once the connected brand has a chosen product', 
     $pro = createTenant('shop-with-product');
     $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
     $brandId = spBrand($connId);
+    spProduct($brandId);
+
+    $pages = app(SitepageDataResolverService::class)
+        ->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($pages)->toContain('shop');
+});
+
+// ── W9 P2 review fix — pending/failed brands must agree with
+// PublicIntegrationConnectionResource::filterPayload()'s own reject/keep ──
+//
+// GET /brands/{id}/products and PUT …/selection both work during the pending
+// window BY DESIGN (plan §3e), so a brand can already have a saved product
+// selection while still connect_status='pending'. Before this fix,
+// shop_active_product_exists had no connect_status filter at all, so
+// page-presence said "shop" was present while the public payload
+// (filterPayload()) rejected the very same pending brand — an empty Shop
+// page, CDN-cached, indefinitely (the stale-pending backstop never WRITES the
+// row, so a stranded pending brand never un-pends on its own).
+
+it('drops the shop page from presence when the only brand is pending, even though it already has a saved product', function () {
+    $pro = createTenant('shop-pending-with-product');
+    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
+    $brandId = spBrand($connId, 'pending');
+    spProduct($brandId);
+
+    $pages = app(SitepageDataResolverService::class)
+        ->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($pages)->not->toContain('shop');
+});
+
+it('keeps the shop page present for a failed brand with a chosen product — failed is deliberately public (plan §3g)', function () {
+    $pro = createTenant('shop-failed-with-product');
+    $connId = spConnection($pro, 'shop', ['storage' => 'relational']);
+    $brandId = spBrand($connId, 'failed');
     spProduct($brandId);
 
     $pages = app(SitepageDataResolverService::class)

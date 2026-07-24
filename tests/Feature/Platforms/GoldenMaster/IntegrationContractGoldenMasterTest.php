@@ -594,7 +594,14 @@ it('covers every integration GET read-route in the golden master', function () {
     // added manually inside its own bespoke route group, same reasoning as
     // Apple/Skool/Eventbrite/Humanitix above; fresha has no ConnectStrategy to
     // satisfy ->deferredConnect()'s pinned invariant). 77 -> 78.
-    expect($readRoutes->count())->toBe(78);
+    // W9 (Shop): 2 new BRAND-scoped .../brands/{id}/connect/status poll routes —
+    // one per alias (shop + its legacy shopify alias). Brand-scoped, not
+    // connection-scoped, because Shop is the only platform where one connection
+    // fans out to many content rows. Registered regardless of the rollout flag
+    // (capability, not activation). Does NOT touch the settled-brand shape test
+    // above ("freezes the shop brands list contract"), which stays unmodified —
+    // this is purely a new route appearing in the enumeration. 78 -> 80.
+    expect($readRoutes->count())->toBe(80);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -640,9 +647,11 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/reservations/detect/status',
         'api/platforms/reservations/status',
         'api/platforms/shop/brands',
+        'api/platforms/shop/brands/{id}/connect/status',
         'api/platforms/shop/selection',
         'api/platforms/shop/settings',
         'api/platforms/shopify/brands',
+        'api/platforms/shopify/brands/{id}/connect/status',
         'api/platforms/shopify/selection',
         'api/platforms/shopify/settings',
         'api/platforms/skool/connect/status',

@@ -223,6 +223,15 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: ShopProviderDetector now carries probeMeta()'s result forward
+        // instead of calling probe() a second time — id must match fetchBrand()'s
+        // id below (same $origin argument) so ShopBrandIdentity (Unit 4) never
+        // derives a different one.
+        $m->shouldReceive('probeMeta')->andReturnUsing(fn ($origin) => [
+            'id' => md5($origin), 'name' => 'Brand',
+        ]);
+        // W9 Unit 4: ShopBrandIdentity::for() now calls brandIdFrom($meta, $origin).
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturnUsing(fn ($origin) => [
             'id' => md5($origin), 'name' => 'Brand', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
         ]);

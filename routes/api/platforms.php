@@ -86,6 +86,7 @@ $registerIntegrationRoutes = function (string $base): void {
             ->group(function () {
                 Route::get('/brands', [ShopController::class, 'brands']);
                 Route::post('/brands', [ShopController::class, 'addBrand']);
+                Route::get('/brands/{id}/connect/status', [ShopController::class, 'connectStatus'])->where('id', '[A-Za-z0-9._-]+');
                 Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
                 Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
                 Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');

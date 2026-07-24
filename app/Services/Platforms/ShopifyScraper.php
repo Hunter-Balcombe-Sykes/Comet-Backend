@@ -16,12 +16,57 @@ class ShopifyScraper extends PlatformScraper
     /**
      * Cheap "is this a Shopify store?" probe — /meta.json is Shopify-only and
      * returns a JSON object with the shop id/name. Used by ShopProviderDetector.
+     * Delegates to probeMeta() so the two never drift: this is provably
+     * `probeMeta($origin) !== null`.
      */
     public function probe(string $origin): bool
     {
+        return $this->probeMeta($origin) !== null;
+    }
+
+    /**
+     * The decoded /meta.json body when it looks like a live Shopify shop (has
+     * an id, name, or myshopify_domain — the same condition probe() checks),
+     * else null. W9: carried forward on ShopProviderDetector's detected array
+     * so brandIdFrom() and the shop currency can be read at 202 time without
+     * a second /meta.json fetch.
+     */
+    public function probeMeta(string $origin): ?array
+    {
         $meta = $this->json($origin.'/meta.json');
 
-        return is_array($meta) && (isset($meta['id']) || isset($meta['name']) || isset($meta['myshopify_domain']));
+        return is_array($meta) && (isset($meta['id']) || isset($meta['name']) || isset($meta['myshopify_domain']))
+            ? $meta
+            : null;
+    }
+
+    /**
+     * The canonical dedup key for a Shopify store: the /meta.json shop id
+     * when available, else a slug of the host. Extracted out of fetchBrand()
+     * (W9) so ShopBrandIdentity's synchronous derivation and fetchBrand()'s
+     * fresh fetch always agree — never reimplement this expression elsewhere.
+     */
+    public function brandIdFrom(?array $meta, string $origin): string
+    {
+        $rawId = data_get($meta, 'id');
+
+        return $rawId !== null
+            ? (string) $rawId
+            : preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST)));
+    }
+
+    /**
+     * The shop's default currency (ISO 4217 code) straight off the carried
+     * /meta.json — same expression fetchBrand() uses below, extracted (W9,
+     * mirrors brandIdFrom()'s own precedent) so ShopBrandProfiler's deferred-
+     * branch derivation and fetchBrand()'s fresh fetch always agree — never
+     * reimplement this expression elsewhere.
+     */
+    public function currencyFrom(?array $meta): ?string
+    {
+        $currency = data_get($meta, 'currency');
+
+        return is_string($currency) && trim($currency) !== '' ? strtoupper(trim($currency)) : null;
     }
 
     /**
@@ -35,10 +80,7 @@ class ShopifyScraper extends PlatformScraper
     public function fetchBrand(string $origin): array
     {
         $meta = $this->json($origin.'/meta.json');
-        $rawId = data_get($meta, 'id');
-        $id = $rawId !== null
-            ? (string) $rawId
-            : preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST)));
+        $id = $this->brandIdFrom($meta, $origin);
 
         // tryFetch() returns null on a transport-level failure (unresolvable host,
         // SSRF rejection, timeout) — guard it, else `$home['status']` warns on null
@@ -49,8 +91,7 @@ class ShopifyScraper extends PlatformScraper
         $name = data_get($meta, 'name');
         $name = is_string($name) && trim($name) !== '' ? trim($name) : $this->metaContent($html, 'og:site_name');
 
-        $currency = data_get($meta, 'currency');
-        $currency = is_string($currency) && trim($currency) !== '' ? strtoupper(trim($currency)) : null;
+        $currency = $this->currencyFrom($meta);
 
         return [
             'id' => $id,

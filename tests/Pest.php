@@ -645,6 +645,8 @@ function setupSitesTable(): void
         logo TEXT NULL,
         discount_code TEXT NULL,
         fetch_mode TEXT NULL,
+        connect_status TEXT NULL,
+        connect_error TEXT NULL,
         is_individual INTEGER NULL DEFAULT 0,
         position INTEGER NULL DEFAULT 0,
         style_analysis TEXT NULL,

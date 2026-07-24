@@ -127,8 +127,12 @@ class SquarespaceScraper extends PlatformScraper
         return is_array($data) ? $data : null;
     }
 
-    /** Stable brand id from the host: shop.example.com → shop-example-com. */
-    private function idFromOrigin(string $origin): string
+    /**
+     * Stable brand id from the host: shop.example.com → shop-example-com.
+     * W9: public so ShopBrandIdentity's synchronous derivation can call the
+     * same expression fetchBrand() uses — never reimplement this elsewhere.
+     */
+    public function idFromOrigin(string $origin): string
     {
         $host = parse_url($origin, PHP_URL_HOST) ?? $origin;
 

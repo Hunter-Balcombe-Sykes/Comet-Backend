@@ -349,6 +349,10 @@ it('shopify addBrand returns the canonical brand object shape', function () {
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: see ShopRelationalStorageTest's 'rel-brand' block — id mirrors fetchBrand()'s.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'brand-1', 'name' => 'Brand']);
+        // W9 Unit 4: ShopBrandIdentity::for() now calls brandIdFrom($meta, $origin).
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'brand-1', 'name' => 'Brand', 'currency' => 'AUD',
             'favicon' => 'https://b/favicon.ico', 'logo' => 'https://b/logo.png',

@@ -218,12 +218,27 @@ class SitepageDataResolverService
                     // also maps to the Shop page but isn't FOUND-25 —its
                     // connection payload carries real scraped content
                     // directly — so it keeps the blanket is_active signal.
+                    // W9 P1 review fix: a brand mid deferred-connect (connect_
+                    // status='pending') can already have a saved product
+                    // selection (GET /brands/{id}/products + PUT …/selection
+                    // both work during the pending window BY DESIGN, plan
+                    // §3e) — without this exclusion, page-presence says "shop"
+                    // is present while PublicIntegrationConnectionResource::
+                    // filterPayload() rejects the same pending brand from the
+                    // payload, shipping an empty Shop page to the CDN. The two
+                    // predicates MUST stay in lockstep — do not change one
+                    // without the other. `!= 'pending'` alone is wrong here:
+                    // NULL != 'pending' is NULL (falsy) in SQL, which would
+                    // exclude every settled (NULL) brand too — the explicit
+                    // whereNull()->orWhere() below is required.
                     if ($platform === 'shop' && ! $this->safeQuery(
                         fn () => ShopProduct::query()
-                            ->whereHas('brand', fn ($q) => $q->whereHas(
-                                'connection',
-                                fn ($q2) => $q2->where('user_id', $userId),
-                            ))
+                            ->whereHas('brand', fn ($q) => $q
+                                ->where(fn ($q3) => $q3->whereNull('connect_status')->orWhere('connect_status', '<>', 'pending'))
+                                ->whereHas(
+                                    'connection',
+                                    fn ($q2) => $q2->where('user_id', $userId),
+                                ))
                             ->exists(),
                         false,
                         'shop_active_product_exists',

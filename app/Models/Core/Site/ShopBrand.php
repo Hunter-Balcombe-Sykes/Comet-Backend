@@ -35,6 +35,8 @@ class ShopBrand extends BaseModel
         'logo',
         'discount_code',
         'fetch_mode',
+        'connect_status',
+        'connect_error',
         'is_individual',
         'position',
         'style_analysis',
@@ -42,6 +44,12 @@ class ShopBrand extends BaseModel
         'link_mode',
         'referral_query',
     ];
+
+    // App-side vocabulary source of truth for connect_status. NULL = settled;
+    // this constant is the pending/failed subset a row can transition through
+    // while ShopBrandConnectJob is in flight. Kept in lockstep with the
+    // migration's CHECK by ConstraintVocabularyLockstepTest.
+    public const CONNECT_STATUSES = ['pending', 'failed'];
 
     protected $casts = [
         'is_individual' => 'boolean',
@@ -119,6 +127,16 @@ class ShopBrand extends BaseModel
         }
         if ($this->is_individual) {
             $brand['individual'] = true;
+        }
+        // W9: only present during/after a deferred connect (ShopBrandConnectJob
+        // clears both back to null on settle) — omitted for the overwhelming
+        // majority of (already-settled) rows so this dark-merges byte-identical
+        // with the pre-W9 shape (IntegrationContractGoldenMasterTest).
+        if ($this->connect_status !== null) {
+            $brand['connectStatus'] = $this->connect_status;
+        }
+        if ($this->connect_error !== null) {
+            $brand['connectError'] = $this->connect_error;
         }
 
         return $brand;

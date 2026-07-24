@@ -24,7 +24,7 @@ class ShopBrandResource extends ApiResource
      */
     public function toArray(Request $request): array
     {
-        return [
+        $data = [
             'id' => (string) ($this->resource['id'] ?? ''),
             'provider' => $this->resource['provider'] ?? 'shopify',
             'url' => $this->resource['url'] ?? null,
@@ -41,5 +41,18 @@ class ShopBrandResource extends ApiResource
             'individual' => (bool) ($this->resource['individual'] ?? false),
             'products' => $this->resource['products'] ?? [],
         ];
+
+        // W9: conditional pass-through, mirroring ShopBrand::toBrandArray()'s
+        // own optional-key emission — present only while a deferred connect is
+        // pending/failed, so a settled brand's body stays byte-identical
+        // (dark-merge / IntegrationContractGoldenMasterTest).
+        if (array_key_exists('connectStatus', $this->resource)) {
+            $data['connectStatus'] = $this->resource['connectStatus'];
+        }
+        if (array_key_exists('connectError', $this->resource)) {
+            $data['connectError'] = $this->resource['connectError'];
+        }
+
+        return $data;
     }
 }

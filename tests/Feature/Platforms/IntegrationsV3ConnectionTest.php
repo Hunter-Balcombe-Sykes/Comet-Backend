@@ -40,10 +40,18 @@ it('detects a Squarespace store and stores its provider + products source', func
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturn('https://hester.example');
         $m->shouldReceive('probe')->andReturn(false);
+        // W9: ShopProviderDetector now calls probeMeta() instead of probe() —
+        // false above means "not shopify", so this must be null too.
+        $m->shouldReceive('probeMeta')->andReturn(null);
     });
     $this->mock(WooCommerceScraper::class, fn ($m) => $m->shouldReceive('probe')->andReturn(false));
     $this->mock(SquarespaceScraper::class, function ($m) {
         $m->shouldReceive('discoverProductsUrl')->andReturn('https://hester.example/shop');
+        // W9 Unit 4: ShopBrandIdentity::for() now calls originOf()+idFromOrigin()
+        // — must agree with fetchBrand()'s id below (SquarespaceScraper::fetchBrand()
+        // resolves its own id from the SAME origin).
+        $m->shouldReceive('originOf')->andReturn('https://hester.example');
+        $m->shouldReceive('idFromOrigin')->andReturn('hester-example');
         $m->shouldReceive('fetchBrand')->with('https://hester.example/shop')->andReturn([
             'id' => 'hester-example', 'name' => 'Hester Store', 'currency' => 'USD', 'favicon' => null, 'logo' => null,
         ]);
