@@ -172,7 +172,10 @@ class InstagramConnectionSeeder
             // "reel didn't mirror" report is diagnosable from stored data. Never
             // added to InstagramPayload/InstagramConnectionResource, so it can't
             // leak to any wire response (same leading-underscore convention as _folder).
-            '_mediaDiagnostics' => $media['diagnostics'] ?? null,
+            // data_get, not ?? — the concrete scraper always returns this key (so
+            // PHPStan reads `['diagnostics'] ?? null` as dead code), but test
+            // doubles of latestMedia() legitimately omit it.
+            '_mediaDiagnostics' => data_get($media, 'diagnostics'),
             // BE2: the profile's own "website" field + every bio link found (both
             // internal — never emitted by InstagramConnectionResource).
             'website' => $website,
