@@ -22,20 +22,26 @@ a matter of size.
 verified against current code on 2026-07-23:
 
 1. **The heavy endpoints are not on the registry path.** Roadmap #12 targets
-   Fresha, Shop, Apple, Eventbrite and Skool. Each has a **bespoke controller**
-   (`app/Http/Controllers/Api/Platforms/{Fresha,Shop,Apple,Eventbrite,Skool}Controller.php`)
+   Fresha, Shop, Apple, Eventbrite and Skool — **plus Humanitix**, which the review
+   omits but has the identical shape. Each has a **bespoke controller**
+   (`app/Http/Controllers/Api/Platforms/{Fresha,Shop,Apple,Eventbrite,Humanitix,Skool}Controller.php`)
    sitting alongside `GenericPlatformController`. The generic
    `connectDeferred()` machinery does not reach them.
-2. **No descriptor opts in.** `PlatformDescriptor.php:54` has
-   `private bool $deferredConnect = false;` and **zero** call sites invoke
-   `->deferredConnect()`. Flipping `PARTNA_CONNECT_DEFERRED` therefore changes
-   nothing today — the review's "built and switched off" is accurate about the
-   machinery but understates the remaining wiring.
+2. **The bespoke controllers have no descriptor opt-in — the registry machinery is
+   otherwise armed.** `->deferredConnect()` has **eight** call sites
+   (`PlatformRegistryServiceProvider.php:150,177,196,211,225,238,251,265` — spotify,
+   bandcamp, twitch, pinterest, strava, vimeo, youtube, youtube-music), so
+   `PARTNA_CONNECT_DEFERRED=<one of those>` flips that platform to async today.
+   `PlatformDescriptor.php:54`'s `private bool $deferredConnect = false;` is the
+   *default*, overridden by a fluent builder in the provider — a grep of the
+   descriptor class alone misses the setters. What genuinely blocks roadmap #12 is
+   that the six bespoke platforms (Shop, Apple, Fresha, Eventbrite, Humanitix, Skool)
+   have no opt-in and no `ConnectStrategy`, so `connectDeferred()` never reaches them.
 3. **It is a cross-repo contract change.** `200` → `202 + poll` requires frontend
    work in a separate, read-only-from-here repo
    (`github.com/hunterbalcombesykes/partna-frontend`).
 
-There is also an unresolved architectural fork — migrate the five bespoke
+There is also an unresolved architectural fork — migrate the six bespoke
 controllers onto the registry, or hand-roll async+poll in each — which is Josh's
 decision, not an implementer's.
 
@@ -142,6 +148,32 @@ written against zero load and says so.
 ---
 
 # Part B — Async platform connects (design only)
+
+> **✅ SUPERSEDED — this design ran and is signed off (2026-07-24). Do not
+> re-commission B0–B3.** The deliverables exist:
+> - Design + fork recommendation + unit breakdown:
+>   `docs/superpowers/specs/2026-07-23-platform-connect-async-design.md`
+> - Frontend contract:
+>   `docs/frontend-contracts/2026-07-23-platform-connect-async.md`
+> - B0 status note added in place to the prior plan
+>   (`docs/superpowers/plans/2026-07-20-platform-connect-async.md`).
+>
+> **Recommendation: route (c)** — reuse the shipped deferred-connect *mechanism*
+> (`ConnectFetchJob`, the `pending: true` write, `connectFetchErrorMessage()`)
+> inside the bespoke controllers, **without** migrating them onto the registry and
+> **without** hand-rolling six copies of Instagram. All six of Josh's open
+> questions are answered in §6 of the design doc; the merge/activation sequence is
+> §7. Implementation is a separate orchestrated run and is **not gated on the
+> frontend** — every unit merges dark behind `PARTNA_CONNECT_DEFERRED`.
+>
+> Two factual corrections this design forced on the brief below, recorded so they
+> are not re-inherited: **(1)** `->deferredConnect()` has eight call sites, not zero
+> (blocker #2 in "Read this first" is corrected); **(2)** there is no
+> `deferredFailureMessage` — the real accessor is `connectFetchError()` /
+> `connectFetchErrorMessage()` (`PlatformDescriptor.php:333-343`), which B1 route
+> (a) below misnames.
+>
+> B0–B3 are retained below as the historical brief only.
 
 Covers roadmap **#12**. **Produce documents, not code.** No controller is modified
 in this run.

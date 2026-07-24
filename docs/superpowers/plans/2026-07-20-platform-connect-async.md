@@ -1,9 +1,80 @@
 # Platform connect/highlights — bounded fetch + async connect
 
 **Source:** Unit 11 of `audits/sweeps/2026-07-11-full-work-sweep/TRIAGE-2-P2.md` (LIFE-13..LIFE-24).
-**Status:** awaiting sign-off (2026-07-20).
+**Status:** ✅ **SHIPPED — both phases (re-costed 2026-07-23).** Phase 2 is merged but *dark*: the
+rollout flag defaults empty, so every `connect()` response is byte-identical until a slug is named.
+See the status note below before using this document to plan anything.
 **Execution policy** (from the audit file): Plan = Opus 4.8 · Implement = Sonnet 4.6 · Review = a SEPARATE Sonnet 4.6.
 **Branch:** `audit-fix/unit-11-platform-async-2026-07-20` off `development`, worktree under `backend-wt/`.
+
+---
+
+## Status note — re-cost 2026-07-23
+
+Added when roadmap item **#12** of `docs/reviews/2026-07-23-worker-async-layer-review.md`
+("async+poll the heavy platform connects") was found to be un-implementable as written. Nothing
+below this note has been deleted or rewritten — the reasoning in §2b–§2h is still correct and is
+carried forward. What follows corrects only the plan's **status** and its **scope**.
+
+### Both phases shipped, not one
+
+| Phase | State | Evidence |
+|---|---|---|
+| **Phase 1** — bounded fetch + highlights snapshot (LIFE-21..24) | **Shipped, live, unconditional** | `6e6a0aeb` *"bound request-cycle vendor fetches with a shared FetchBudget"*. `FetchBudget` is bound `scoped` in `AppServiceProvider.php:112` and consumed by `ConnectResolver.php:45`, `HighlightsPicker.php:39`, `YoutubeThumbnailResolver.php:39`. Budget config at `config/partna.php:1222`. |
+| **Phase 2** — async connect (LIFE-13..20) | **Shipped, merged, and DARK** | `088be7f0` *"add the DeferredConnect seam and identify() on 8 strategies"*, `a9066440` *"add ConnectFetchJob and the merge-safe pending write"*, `dde6aadd` *"lock platform connections per-platform, not per-account"*. |
+
+"Dark" is precise, not hedging. Every piece is merged and tested:
+
+- `DeferredConnect` seam interface + `identify()` on all 8 connect strategies
+  (`Strategies/Connect/{Spotify,Bandcamp,Twitch,Pinterest,Strava,Vimeo,Youtube,YoutubeMusic}Connect.php`).
+- `PlatformDescriptor::deferredConnect()` / `connectFetchError()` — **wired for all 8**, at
+  `PlatformRegistryServiceProvider.php:150,177,196,211,225,238,251,265`.
+- `GenericPlatformController::connectDeferred()` (`:157-215`) and `connectStatus()` (`:227-269`).
+- `ConnectFetchJob` with `uniqueFor = 120` (`:65,76-79`) and `markTerminal()` (`:242-249`).
+- `GET /{slug}/connect/status` emitted for all 8 at `routes/api/platforms.php:298-300` — gated on the
+  *capability* flag, deliberately **not** on the runtime flag, so the route never appears/disappears
+  with an env var.
+- Tests: `tests/Feature/Platforms/DeferredConnectTest.php`, `RegistryConnectCoverageTest.php:50-83`
+  (pins flag ⇔ `instanceof DeferredConnect` **and** non-null `connectFetchErrorMessage()`), and the
+  golden-master route inventory (58 → 66 routes).
+
+The only thing not done is **flipping the lever**: `config/partna.php:1405` parses
+`PARTNA_CONNECT_DEFERRED` as a comma-separated slug list defaulting to `''` → `[]`, and
+`ConnectResolver.php:68-73` requires that third conjunct. §2f's rollout sequence is therefore still
+the live, unexecuted to-do list for this plan.
+
+> ⚠️ **Correction for anyone auditing this file.** `PlatformDescriptor.php:54` reads
+> `private bool $deferredConnect = false;`, which looks like a flag nobody sets. It is not — the
+> eight setter calls live in `PlatformRegistryServiceProvider`, because this registry builds
+> descriptors with a fluent builder at boot. Grepping the descriptor class alone will wrongly
+> conclude the seam is dead code. It is armed; only the env list is empty.
+
+### The scope was narrower than roadmap #12 assumes
+
+This plan's Phase 2 covers **exactly the 8 registry platforms that already have a `FetchStrategy`**
+(§2b's table). That is what makes its "L not XL" argument work — *"the seam is not something to
+invent, it is already cut, and `Strategies/Fetch/` is the far side of it"* (§ above, still true).
+
+Roadmap #12 names a **different and disjoint** set: `ShopController`, `AppleController`,
+`FreshaController`, `EventbriteController`, `SkoolController` — plus `HumanitixController`, which the
+review omits but which has the same shape. Six bespoke controllers, twelve endpoints. **None of them
+has a `ConnectStrategy` at all** — `PlatformRegistryServiceProvider` attaches only `->fetch()`,
+`->refreshEvery()`, `->detect()` and `->connectInput()` for those slugs, never `->connect()`.
+
+So the "L not XL" reasoning **does not transfer** to them: for these six there *is* per-platform
+connect code to write, because the seam was never cut. Worse, the review's heaviest offenders live
+entirely in that disjoint set — Shop at ~384 s and Apple at ~192 s are not touched by anything in
+this plan.
+
+**This plan does not discharge roadmap #12, and was never scoped to.** It is not superseded and it
+is not wrong; it is *complete for its own scope and awaiting a rollout decision*. The six bespoke
+controllers are designed separately in:
+
+**→ `docs/superpowers/specs/2026-07-23-platform-connect-async-design.md`**
+
+The single most valuable idea in this document — **the vendor fetch *is* the validation, so defer
+only the separable content fetch, never the validation** — carries forward into that design intact
+and unmodified. It is the constraint the new design is built around.
 
 ---
 
