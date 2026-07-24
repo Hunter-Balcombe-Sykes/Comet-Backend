@@ -198,7 +198,7 @@ git commit -m "test(horizon): pin RV-12 dedicated mail lane invariants (failing)
 - Consumes: the invariants pinned in Task 1.
 - Produces: `horizon.defaults['supervisor-mail']` with keys `connection`, `queue`, `balance`, `maxProcesses`, `maxTime`, `maxJobs`, `memory`, `tries`, `timeout`, `nice` — same key set as every other supervisor.
 
-- [ ] **Step 1: Remove the two queue names from `supervisor-1`**
+- [x] **Step 1: Remove the two queue names from `supervisor-1`**
 
 Replace `supervisor-1`'s `queue` line with:
 
@@ -208,7 +208,7 @@ Replace `supervisor-1`'s `queue` line with:
 
 Ten queues, down from twelve. `moderation_high` stays first; `cloudflare_bulk` stays last (the R3-CACHE-1 invariant, pinned by its own test).
 
-- [ ] **Step 2: Add the new supervisor after `supervisor-1`**
+- [x] **Step 2: Add the new supervisor after `supervisor-1`**
 
 ```php
         // RV-12: transactional mail lane. Split out of supervisor-1 because that
@@ -235,7 +235,7 @@ Ten queues, down from twelve. `moderation_high` stays first; `cloudflare_bulk` s
         ],
 ```
 
-- [ ] **Step 3: Name the lane in every environment block**
+- [x] **Step 3: Name the lane in every environment block**
 
 ```php
         'production' => [
@@ -260,7 +260,7 @@ Ten queues, down from twelve. `moderation_high` stays first; `cloudflare_bulk` s
         ],
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 COMPOSER_PROCESS_TIMEOUT=0 ./vendor/bin/pest tests/Unit/Jobs/HorizonQueueCoverageTest.php
@@ -268,7 +268,7 @@ COMPOSER_PROCESS_TIMEOUT=0 ./vendor/bin/pest tests/Unit/Jobs/HorizonQueueCoverag
 
 Expected: PASS, all tests in the file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add config/horizon.php

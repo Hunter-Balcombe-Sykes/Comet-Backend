@@ -127,7 +127,7 @@ return [
             // bulk-fanout purges are only ever served once every lane above them
             // (including real-time 'cloudflare') is empty. Adds a queue NAME only,
             // no new supervisor/process/memory.
-            'queue' => ['moderation_high', 'notifications', 'mail', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'cloudflare_bulk'],
+            'queue' => ['moderation_high', 'default', 'cloudflare', 'cache-warm', 'analytics', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,
@@ -135,6 +135,28 @@ return [
             'memory' => 256,
             'tries' => 1,
             'timeout' => 300,
+            'nice' => 0,
+        ],
+        // RV-12: transactional mail lane. Split out of supervisor-1 because that
+        // pool drains ten queues with two processes under strict priority — two
+        // concurrent long jobs (a ~180s Cloudflare purge, a ~300s logo job) stalled
+        // every outbound email until one finished. Priority order within the lane
+        // matters: 'notifications' carries the single user-facing confirmations,
+        // 'mail' carries the bulk fan-out (publishMany batches, broadcast leaf
+        // batches of 200), so notifications is drained first.
+        // Longest job on this lane is SendStaffBroadcastEmailsJob at $timeout=120,
+        // so the redis connection's retry_after=360 clears it comfortably. nice=0:
+        // this lane is latency-sensitive and must not be deprioritised.
+        'supervisor-mail' => [
+            'connection' => 'redis',
+            'queue' => ['notifications', 'mail'],
+            'balance' => false,
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 192,
+            'tries' => 1,
+            'timeout' => 180,
             'nice' => 0,
         ],
         // 600s-job lane: MenuFetchJob/InstagramConnectJob scrapes + gdpr
@@ -196,18 +218,21 @@ return [
 
         'production' => [
             'supervisor-1' => ['maxProcesses' => 2],
+            'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
         ],
 
         'development' => [
             'supervisor-1' => ['maxProcesses' => 2],
+            'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
         ],
 
         'local' => [
             'supervisor-1' => ['maxProcesses' => 3],
+            'supervisor-mail' => ['maxProcesses' => 1],
             'supervisor-long' => ['maxProcesses' => 2],
             'supervisor-videos' => ['maxProcesses' => 1],
         ],
