@@ -12,6 +12,7 @@ use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -49,6 +50,13 @@ class InstagramConnectionSeeder
     // high-res uploads while still preventing a pathological response from
     // buffering/storing a huge payload.
     private const MAX_IMAGE_BYTES = 15728640;
+
+    // R1: a reel's CDN URL is short-lived and signed — a bad status or a
+    // dropped connection on the first attempt is often a momentary blip, not
+    // a real absence of video. One retry, not unbounded: a genuinely
+    // oversized or wrong-content-type response would just fail identically
+    // again.
+    private const VIDEO_MIRROR_MAX_ATTEMPTS = 2;
 
     public function __construct(
         private readonly InstagramScraper $scraper,
@@ -159,6 +167,12 @@ class InstagramConnectionSeeder
             // can reclaim them on disconnect/overwrite (CONS-21). Stripped from the
             // public endpoint by PublicIntegrationConnectionResource.
             '_folder' => $folder,
+            // Internal (R1): latestMedia()'s diagnostics trail — what Apify actually
+            // returned this run (post/video counts, per-video mp4 presence) — so a
+            // "reel didn't mirror" report is diagnosable from stored data. Never
+            // added to InstagramPayload/InstagramConnectionResource, so it can't
+            // leak to any wire response (same leading-underscore convention as _folder).
+            '_mediaDiagnostics' => $media['diagnostics'] ?? null,
             // BE2: the profile's own "website" field + every bio link found (both
             // internal — never emitted by InstagramConnectionResource).
             'website' => $website,
@@ -350,18 +364,63 @@ class InstagramConnectionSeeder
         }
     }
 
-    // Mirror a reel's mp4 to R2, STREAMED via a temp file so a large video never
-    // buffers fully in worker memory, and size-capped so a pathological file can't
-    // fill disk/R2. Same layered SSRF guard as mirrorOne (host allowlist +
-    // IP-resolution check + redirects refused). Returns null on any miss → the
-    // caller falls back to the poster.
+    // Mirror a reel's mp4 to R2, retrying once on a transient failure (R1).
+    // Every drop reason a genuine miss is logged so a "reel didn't mirror"
+    // report is diagnosable from stored data instead of a guess.
     private function mirrorVideo(string $url, string $path): ?string
     {
+        for ($attempt = 1; $attempt <= self::VIDEO_MIRROR_MAX_ATTEMPTS; $attempt++) {
+            $transient = false;
+            $result = $this->attemptMirrorVideo($url, $path, $transient);
+
+            if ($result !== null || ! $transient) {
+                return $result;
+            }
+            if ($attempt < self::VIDEO_MIRROR_MAX_ATTEMPTS) {
+                usleep(300_000); // 300ms — long enough for a momentary CDN blip to clear
+            }
+        }
+        $this->logVideoMirrorDrop('retries_exhausted', $url);
+
+        return null;
+    }
+
+    /**
+     * Every mirrorVideo() drop reason must be observable — a silent null
+     * return here is indistinguishable from "no reel existed" after the
+     * fact, which is exactly the ambiguity that made the broken-oven
+     * investigation unable to confirm root cause. Host only, never the full
+     * URL (SEC — avoid logging a CDN URL that could carry a signed/expiring
+     * token).
+     */
+    private function logVideoMirrorDrop(string $reason, string $url): void
+    {
+        Log::info('instagram.mirror_video.dropped', [
+            'reason' => $reason,
+            'host' => parse_url($url, PHP_URL_HOST),
+        ]);
+    }
+
+    // Single mirror attempt, STREAMED via a temp file so a large video never
+    // buffers fully in worker memory, and size-capped so a pathological file
+    // can't fill disk/R2. Same layered SSRF guard as mirrorOne (host
+    // allowlist + IP-resolution check + redirects refused). Returns null on
+    // any miss → the caller falls back to the poster. $transient is set true
+    // only for failure classes that plausibly self-resolve on a bare retry
+    // (a bad HTTP status, or a connection-level exception) — never for a
+    // disallowed host, a SafeUrlException, a content-type mismatch, or
+    // either oversize check, none of which would ever succeed on a retry.
+    private function attemptMirrorVideo(string $url, string $path, bool &$transient): ?string
+    {
         if (! $this->isAllowedHost($url)) {
+            $this->logVideoMirrorDrop('host_not_allowed', $url);
+
             return null;
         }
 
-        // IP-resolution guard matching mirrorOne — defence-in-depth.
+        // IP-resolution guard matching mirrorOne — defence-in-depth. Already
+        // report()-ed (Nightwatch); this is an anomalous case for an
+        // allow-listed CDN host, not a routine drop reason.
         try {
             app(SafeUrlFetcher::class)->assertSafe($url);
         } catch (SafeUrlException $e) {
@@ -384,11 +443,16 @@ class InstagramConnectionSeeder
 
             // Drop non-2xx, including 3xx redirects we refuse to follow (SSRF guard).
             if ($response->status() >= 300) {
+                $transient = true;
+                $this->logVideoMirrorDrop('bad_status_'.$response->status(), $url);
+
                 return null;
             }
 
             $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
             if (! str_starts_with($contentType, 'video/')) {
+                $this->logVideoMirrorDrop('bad_content_type', $url);
+
                 return null;
             }
 
@@ -397,12 +461,16 @@ class InstagramConnectionSeeder
             // before we notice).
             $contentLength = $response->header('Content-Length');
             if ((int) $contentLength > self::MAX_VIDEO_BYTES) {
+                $this->logVideoMirrorDrop('oversize_header', $url);
+
                 return null;
             }
 
             // Oversized reel → drop the video (the poster still renders). Covers
             // absent or inaccurate Content-Length headers.
             if ((int) filesize($tmp) > self::MAX_VIDEO_BYTES) {
+                $this->logVideoMirrorDrop('oversize_actual', $url);
+
                 return null;
             }
 
@@ -417,6 +485,11 @@ class InstagramConnectionSeeder
             }
 
             return $this->mediaDisk()->url($path);
+        } catch (ConnectionException) {
+            $transient = true;
+            $this->logVideoMirrorDrop('connection_exception', $url);
+
+            return null;
         } catch (Throwable $e) {
             report($e);
 

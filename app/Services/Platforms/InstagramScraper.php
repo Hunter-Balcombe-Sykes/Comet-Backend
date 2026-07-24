@@ -188,13 +188,19 @@ class InstagramScraper extends PlatformScraper
      * not array order — before picking, which is why latestPosts[0] alone gave the
      * wrong "latest". Either side is null when the account has no post of that kind.
      *
-     * @return array{photo: array{thumbnailUrl:string, shortCode:?string}|null, video: array{thumbnailUrl:?string, videoUrl:string, shortCode:?string}|null}
+     * diagnostics (R1) records what was actually seen so a future "reel didn't
+     * mirror" report is diagnosable from stored data (InstagramConnectionSeeder
+     * persists it as _mediaDiagnostics) instead of a guess.
+     *
+     * @return array{photo: array{thumbnailUrl:string, shortCode:?string}|null, video: array{thumbnailUrl:?string, videoUrl:string, shortCode:?string}|null, diagnostics: array{posts:int, videos:int, pickedPhoto:bool, pickedVideo:bool, videoCandidates:list<array{shortCode:?string, hasMp4:bool, type:?string}>}}
      */
     public function latestMedia(array $profile, ?string $userId = null): array
     {
         $posts = data_get($profile, 'latestPosts');
         if (! is_array($posts)) {
-            return ['photo' => null, 'video' => null];
+            return ['photo' => null, 'video' => null, 'diagnostics' => [
+                'posts' => 0, 'videos' => 0, 'pickedPhoto' => false, 'pickedVideo' => false, 'videoCandidates' => [],
+            ]];
         }
 
         // Sort newest-first by timestamp so pinned-but-older posts don't win. Posts
@@ -221,6 +227,7 @@ class InstagramScraper extends PlatformScraper
 
         $photo = null;
         $video = null;
+        $videoCandidates = [];
         foreach ($sorted as $entry) {
             $post = $entry['post'];
             // The cover for every type — a video's poster frame too. Actor
@@ -232,33 +239,82 @@ class InstagramScraper extends PlatformScraper
                 ?? data_get($post, 'images.0');
             $cover = is_string($cover) && $cover !== '' ? $cover : null;
 
-            if (data_get($post, 'type') === 'Video') {
-                // Same drift: videoUrl (legacy) vs video_url (figue actor).
-                $vid = data_get($post, 'videoUrl') ?? data_get($post, 'video_url');
-                $vid = is_string($vid) && $vid !== '' ? $vid : null;
+            if ($this->isVideoPost($post)) {
+                $vid = $this->videoUrlFromPost($post);
+                if (count($videoCandidates) < 5) {
+                    $videoCandidates[] = [
+                        'shortCode' => data_get($post, 'shortCode'),
+                        'hasMp4' => $vid !== null,
+                        'type' => is_string(data_get($post, 'type')) ? data_get($post, 'type') : null,
+                    ];
+                }
                 if ($video === null && $vid !== null) {
                     $video = ['thumbnailUrl' => $cover, 'videoUrl' => $vid, 'shortCode' => data_get($post, 'shortCode')];
                 }
             } elseif ($photo === null && $cover !== null) {
                 $photo = ['thumbnailUrl' => $cover, 'shortCode' => data_get($post, 'shortCode')];
             }
+        }
 
-            if ($photo !== null && $video !== null) {
-                break;
+        $diagnostics = [
+            'posts' => count($posts),
+            'videos' => $this->totalVideoCount($sorted),
+            'pickedPhoto' => $photo !== null,
+            'pickedVideo' => $video !== null,
+            'videoCandidates' => $videoCandidates,
+        ];
+        // Diagnostic: confirms from the dev logs whether Apify is returning reels at
+        // all for this account (vs. just mis-ordering them) when a reel doesn't show.
+        Log::info('instagram.latest_media', ['user_id' => $userId, ...$diagnostics]);
+
+        return ['photo' => $photo, 'video' => $video, 'diagnostics' => $diagnostics];
+    }
+
+    /**
+     * Broadened 2026-07-24 (R1): today's figue-actor grid node reliably
+     * carries type==='Video' + videoUrl/video_url (live-tested against a real
+     * account), but reel-specific variance (a clips/igtv product_type, a
+     * GraphQL __typename, or an mp4 nested under video_versions[0].url
+     * instead of a top-level field) has been seen on other Meta scrapers and
+     * would otherwise silently vanish here.
+     */
+    private function isVideoPost(array $post): bool
+    {
+        if (data_get($post, 'type') === 'Video') {
+            return true;
+        }
+        if (data_get($post, 'is_video') === true) {
+            return true;
+        }
+        $productType = data_get($post, 'product_type') ?? data_get($post, 'productType');
+        if (in_array($productType, ['clips', 'igtv'], true)) {
+            return true;
+        }
+        $typename = data_get($post, '__typename');
+
+        return in_array($typename, ['GraphVideo', 'XDTGraphVideo'], true);
+    }
+
+    private function videoUrlFromPost(array $post): ?string
+    {
+        $vid = data_get($post, 'videoUrl')
+            ?? data_get($post, 'video_url')
+            ?? data_get($post, 'video_versions.0.url');
+
+        return is_string($vid) && $vid !== '' ? $vid : null;
+    }
+
+    /** @param  list<array{post: array, i: int, t: ?int}>  $sorted */
+    private function totalVideoCount(array $sorted): int
+    {
+        $count = 0;
+        foreach ($sorted as $entry) {
+            if ($this->isVideoPost($entry['post'])) {
+                $count++;
             }
         }
 
-        // Diagnostic: confirms from the dev logs whether Apify is returning reels at
-        // all for this account (vs. just mis-ordering them) when a reel doesn't show.
-        Log::info('instagram.latest_media', [
-            'user_id' => $userId,
-            'posts' => count($posts),
-            'videos' => count(array_filter($posts, fn ($p) => is_array($p) && data_get($p, 'type') === 'Video')),
-            'picked_photo' => $photo !== null,
-            'picked_video' => $video !== null,
-        ]);
-
-        return ['photo' => $photo, 'video' => $video];
+        return $count;
     }
 
     // Post timestamp as a unix int for sorting, or null if absent/unparseable.
