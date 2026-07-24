@@ -66,7 +66,7 @@ function freshaTeamMember(): array
     return ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null];
 }
 
-function freshaService(): array
+function freshaAsyncService(): array
 {
     return ['serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null, 'price' => '$50', 'priceValue' => null, 'currency' => null, 'category' => 'Cuts', 'hasVariants' => false];
 }
@@ -86,7 +86,7 @@ it('DELIBERATELY VACUOUS — flag off leaves a team-mode fresha connect byte-ide
         $m->shouldReceive('fetchMenu')->once()->andReturn([
             'storeName' => 'Ollies',
             'team' => [freshaTeamMember()],
-            'services' => [freshaService()],
+            'services' => [freshaAsyncService()],
         ]);
     });
 
@@ -99,7 +99,7 @@ it('DELIBERATELY VACUOUS — flag off leaves a team-mode fresha connect byte-ide
             'mode' => 'team',
             'storeName' => 'Ollies',
             'team' => [freshaTeamMember()],
-            'services' => [freshaService()],
+            'services' => [freshaAsyncService()],
         ]);
 
     Queue::assertNothingPushed();
@@ -118,7 +118,7 @@ it('DELIBERATELY VACUOUS — flag off leaves a storewide fresha connect byte-ide
 
     $this->mock(FreshaScraper::class, function ($m) {
         $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u);
-        $m->shouldReceive('fetchMenu')->once()->andReturn(['storeName' => 'Ollies', 'team' => [], 'services' => [freshaService()]]);
+        $m->shouldReceive('fetchMenu')->once()->andReturn(['storeName' => 'Ollies', 'team' => [], 'services' => [freshaAsyncService()]]);
     });
 
     Queue::fake();
@@ -244,7 +244,7 @@ it('flag on: storewide still returns a synchronous 200 (CA-W7 scope) and pushes 
 
     $this->mock(FreshaScraper::class, function ($m) {
         $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u);
-        $m->shouldReceive('fetchMenu')->once()->andReturn(['storeName' => 'Ollies', 'team' => [], 'services' => [freshaService()]]);
+        $m->shouldReceive('fetchMenu')->once()->andReturn(['storeName' => 'Ollies', 'team' => [], 'services' => [freshaAsyncService()]]);
     });
     Queue::fake();
 
@@ -374,7 +374,7 @@ it('job success: FreshaConnectFetch fills teamMenu, flips the row to ok, clears 
     ]);
 
     $this->mock(FreshaScraper::class, fn ($m) => $m->shouldReceive('fetchMenu')->once()->andReturn([
-        'storeName' => 'Ollies', 'team' => [freshaTeamMember()], 'services' => [freshaService()],
+        'storeName' => 'Ollies', 'team' => [freshaTeamMember()], 'services' => [freshaAsyncService()],
     ]));
 
     Queue::fake();
@@ -385,7 +385,7 @@ it('job success: FreshaConnectFetch fills teamMenu, flips the row to ok, clears 
     expect($fresh->last_refresh_status)->toBe('ok');
     expect($fresh->last_refresh_error)->toBeNull();
     expect($fresh->last_refreshed_at)->not->toBeNull();
-    expect($fresh->payload['teamMenu'])->toBe(['storeName' => 'Ollies', 'team' => [freshaTeamMember()], 'services' => [freshaService()]]);
+    expect($fresh->payload['teamMenu'])->toBe(['storeName' => 'Ollies', 'team' => [freshaTeamMember()], 'services' => [freshaAsyncService()]]);
     expect($fresh->payload['connectPendingAt'])->toBeNull();
     expect($fresh->payload['url'])->toBe('https://www.fresha.com/a/ollies-salon');
     expect($fresh->payload['selection'])->toBeNull();
@@ -604,7 +604,7 @@ it("poll: ready row returns the connection in the synchronous 200's shape, with 
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
         'payload' => [
             'url' => 'https://www.fresha.com/a/ollies-salon', 'selection' => null, 'connectMode' => 'team',
-            'teamMenu' => ['storeName' => 'Ollies', 'team' => [freshaTeamMember()], 'services' => [freshaService()]],
+            'teamMenu' => ['storeName' => 'Ollies', 'team' => [freshaTeamMember()], 'services' => [freshaAsyncService()]],
             'connectPendingAt' => null,
         ],
         'is_active' => true, 'last_refresh_status' => 'ok', 'last_refreshed_at' => now(),
@@ -619,7 +619,7 @@ it("poll: ready row returns the connection in the synchronous 200's shape, with 
                 'mode' => 'team',
                 'storeName' => 'Ollies',
                 'team' => [freshaTeamMember()],
-                'services' => [freshaService()],
+                'services' => [freshaAsyncService()],
             ],
         ]);
 
