@@ -3,6 +3,7 @@
 use App\Http\Resources\SiteResource;
 use App\Models\Core\Site\Site;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -118,4 +119,88 @@ it('promoted columns win over residual JSONB value during dual-write', function 
 
     expect($array['booking_mode'])->toBe('none')
         ->and($array['settings']->booking_mode)->toBe('none');
+});
+
+// I1/I4: withResolvedDesignKit() overlays ProfileDesignPresets under the
+// site's manually-set site.design_kits columns (manual wins per column) and
+// reports which columns are manual. Uses the same SQLite-mirror helpers as
+// DesignRationaleServiceTest (setupUsersTable/setupSitesTable/
+// setupDesignKitsTable + createTenant) rather than a real Postgres
+// connection — the mirror already covers every column these tests touch.
+describe('withResolvedDesignKit', function () {
+    beforeEach(function () {
+        setupUsersTable();
+        setupSitesTable();
+        setupDesignKitsTable();
+    });
+
+    it('merges the sector preset under a manual column, manual wins', function () {
+        $user = createTenant('resolved-restaurant');
+        $user->sector = 'restaurant'; // food_drink bucket, no slug refinement
+        $user->sector_source = 'manual';
+        $user->save();
+        DB::connection('pgsql')->table('site.design_kits')->insert([
+            'site_id' => $user->site->id,
+            'color_accent' => '#105030',
+        ]);
+
+        $array = (new SiteResource($user->site->fresh()))
+            ->withResolvedDesignKit($user)
+            ->resolve();
+
+        // preset values show through untouched
+        expect($array['design_kit']->typography_font_family)->toBe('general-sans')
+            ->and($array['design_kit']->weight_regular)->toBe('300')
+            ->and($array['design_kit']->motion_pace)->toBe('fast')
+            ->and($array['design_kit']->effect_image_treatment)->toBe('warm')
+            // manual column wins over the preset's own accent (#e0491f)
+            ->and($array['design_kit']->color_accent)->toBe('#105030')
+            // only the stored column is reported manual
+            ->and($array['design_kit_manual'])->toBe(['color_accent']);
+    });
+
+    it('emits only raw stored columns and no manual marker when NOT opted in', function () {
+        $user = createTenant('resolved-optout');
+        $user->sector = 'restaurant';
+        $user->save();
+        DB::connection('pgsql')->table('site.design_kits')->insert([
+            'site_id' => $user->site->id,
+            'color_accent' => '#105030',
+        ]);
+
+        $array = (new SiteResource($user->site->fresh()))->resolve();
+
+        expect((array) $array['design_kit'])->toBe(['color_accent' => '#105030']);
+        expect($array)->not->toHaveKey('design_kit_manual');
+    });
+
+    it('falls back to the empty preset with no manual columns when the user has no sector', function () {
+        $user = createTenant('resolved-nosector');
+        // sector left null — ProfileDesignPresets::forUser() returns [] for this.
+
+        $array = (new SiteResource($user->site->fresh()))
+            ->withResolvedDesignKit($user)
+            ->resolve();
+
+        expect((array) $array['design_kit'])->toBe([]);
+        expect($array['design_kit_manual'])->toBe([]);
+    });
+
+    it('applies a different bucket correctly with zero manual overrides', function () {
+        $user = createTenant('resolved-plumber');
+        $user->sector = 'plumber'; // home_services bucket, refined (color_accent only)
+        $user->save();
+        // No site.design_kits row inserted at all for this site.
+
+        $array = (new SiteResource($user->site->fresh()))
+            ->withResolvedDesignKit($user)
+            ->resolve();
+
+        expect($array['design_kit']->typography_font_family)->toBe('forma-djr')
+            ->and($array['design_kit']->weight_regular)->toBe('500')
+            ->and($array['design_kit']->text_body)->toBe('0.8125rem')
+            // slug refinement (plumber) wins over the home_services bucket's own accent
+            ->and($array['design_kit']->color_accent)->toBe('#0369a1')
+            ->and($array['design_kit_manual'])->toBe([]);
+    });
 });

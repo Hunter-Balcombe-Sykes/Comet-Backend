@@ -372,3 +372,75 @@ it('silently drops the retired effect_style key over HTTP', function () {
         // 2026-07-10 rework carried values onto is itself dropped now).
         ->and(property_exists($row, 'effect_surface'))->toBeFalse();
 });
+
+// I4: PATCH design_kit.<col> = null is the "reset to auto" affordance —
+// writeDesignKit() doesn't filter nulls out (only unset($valid['site_id'])),
+// so an explicit null reaches updateOrInsert and clears the stored column.
+// Pins that the SAME round-trip (Task 2) then shows the preset value again.
+
+it('PATCH design_kit.<col> = null clears the manual override and the preset re-shows', function () {
+    config(['partna.throttle.enabled' => false]);
+    setupSubdomainAliasesTable(); // real (non-spied) cache invalidation reads this
+    $user = createTenant('reset-to-auto');
+    $user->sector = 'restaurant'; // food_drink -> typography_font_family: general-sans
+    $user->save();
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $user->site->id]);
+
+    actingAsUser($user)->patchJson('/api/site', [
+        'design_kit' => ['typography_font_family' => 'geist'],
+    ])->assertOk()
+        ->assertJsonPath('site.design_kit.typography_font_family', 'geist')
+        ->assertJsonPath('site.design_kit_manual', ['typography_font_family']);
+
+    $response = actingAsUser($user)->patchJson('/api/site', [
+        'design_kit' => ['typography_font_family' => null],
+    ])->assertOk();
+
+    $response->assertJsonPath('site.design_kit.typography_font_family', 'general-sans');
+    $response->assertJsonPath('site.design_kit_manual', []);
+
+    // Defense-in-depth: the column is genuinely NULL in storage, not just
+    // masked by preset-merge ordering in the response.
+    $row = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $user->site->id)->first();
+    expect($row->typography_font_family)->toBeNull();
+});
+
+it('resetting one manual column to auto does not disturb a sibling manual column', function () {
+    config(['partna.throttle.enabled' => false]);
+    setupSubdomainAliasesTable();
+    $user = createTenant('reset-sibling');
+    $user->sector = 'restaurant';
+    $user->save();
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $user->site->id]);
+
+    actingAsUser($user)->patchJson('/api/site', [
+        'design_kit' => ['typography_font_family' => 'geist', 'color_accent' => '#000000'],
+    ])->assertOk();
+
+    $response = actingAsUser($user)->patchJson('/api/site', [
+        'design_kit' => ['typography_font_family' => null],
+    ])->assertOk();
+
+    $response->assertJsonPath('site.design_kit.typography_font_family', 'general-sans'); // reverted
+    $response->assertJsonPath('site.design_kit.color_accent', '#000000'); // untouched sibling
+    expect($response->json('site.design_kit_manual'))->toEqualCanonicalizing(['color_accent']);
+});
+
+it('resetting to null with no sector preset leaves the column fully absent', function () {
+    config(['partna.throttle.enabled' => false]);
+    setupSubdomainAliasesTable();
+    $user = createTenant('reset-nosector');
+    // no sector set — ProfileDesignPresets::forUser() returns [] for this user.
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $user->site->id,
+        'color_accent' => '#123456',
+    ]);
+
+    $response = actingAsUser($user)->patchJson('/api/site', [
+        'design_kit' => ['color_accent' => null],
+    ])->assertOk();
+
+    expect((array) $response->json('site.design_kit'))->toBe([]);
+    expect($response->json('site.design_kit_manual'))->toBe([]);
+});

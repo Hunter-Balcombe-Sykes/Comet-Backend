@@ -862,7 +862,6 @@ function setupWorkplacesTable(): void
         phone TEXT NULL,
         website TEXT NULL,
         previous_website TEXT NULL,
-        previous_website_analysis TEXT NULL,
         category TEXT NULL,
         description TEXT NULL,
         opening_hours TEXT NULL,
@@ -872,11 +871,10 @@ function setupWorkplacesTable(): void
         updated_at TEXT NULL
     )');
     // Defensive ALTERs for suites that created the table before these columns
-    // existed (mirrors the setupSitesTable pattern). previous_website_analysis
-    // predates the central-identity columns (opening_hours/contact_email/
-    // field_sources — migration 20260705150000).
+    // existed (mirrors the setupSitesTable pattern) — the central-identity
+    // columns (opening_hours/contact_email/field_sources, migration
+    // 20260705150000).
     foreach ([
-        'ALTER TABLE site.workplaces ADD COLUMN previous_website_analysis TEXT NULL',
         'ALTER TABLE site.workplaces ADD COLUMN opening_hours TEXT NULL',
         'ALTER TABLE site.workplaces ADD COLUMN contact_email TEXT NULL',
         "ALTER TABLE site.workplaces ADD COLUMN field_sources TEXT NOT NULL DEFAULT '{}'",

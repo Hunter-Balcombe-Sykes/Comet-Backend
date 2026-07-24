@@ -274,10 +274,8 @@ class DataExportPayloadBuilder
         );
 
         // Include workplace from the child table (FOUND-4 — promoted from settings JSONB).
-        // Explicit allow-list (PRIV-5): previous_website_analysis (WebsiteStyleAnalyzer
-        // output) is excluded — WorkplaceResource deliberately withholds it as internal
-        // brand-signal detail, not part of the user-facing workplace-card contract, and
-        // a `select(['*'])`-shaped `first()` was disclosing it anyway.
+        // Explicit allow-list (PRIV-5), not a `select(['*'])` — keeps this export
+        // immune to any future internal-only column landing on site.workplaces.
         $workplaceRow = DB::connection('pgsql')
             ->table('site.workplaces')
             ->select([

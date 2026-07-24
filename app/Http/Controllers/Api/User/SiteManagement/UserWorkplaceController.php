@@ -157,8 +157,9 @@ class UserWorkplaceController extends ApiController
         $this->authorizeForUser($professional, 'update', $site);
 
         // Instance delete (not a bulk query delete) so model events fire —
-        // WorkplaceObserver::deleted sweeps the previous-website design-preset
-        // contributions when the card (and its archived URL) goes away.
+        // WorkplaceObserver::deleted() busts the site cache for the now-gone
+        // card; nothing scan-related re-dispatches (fill-if-empty writes are
+        // permanent, not a reconciled document to sweep).
         Workplace::query()->where('site_id', (string) $site->id)->first()?->delete();
 
         // The workplace row is gone — re-eval flips is_enabled back to false

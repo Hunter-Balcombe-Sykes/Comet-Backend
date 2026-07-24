@@ -36,7 +36,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $product_gid Legacy Shopify product-link column from before the standalone strip-down; not referenced by any current application code.
  * @property string|null $scanned_at CSAM-scan completion marker (NULL = pre-scanning-era media or not yet scanned). NOT in $casts, so unlike every other timestamp column here this returns a raw driver string, not a Carbon instance.
  * @property string|null $dominant_color #RRGGBB mirror of palette['dominant'].
- * @property array{dominant?: string, colors?: list<string>, saturation?: float, warm?: bool}|null $palette Extracted colour metadata for ImageryPaletteFactor; NULL until extraction runs or on failure.
+ * @property array{dominant?: string, colors?: list<string>, saturation?: float, warm?: bool}|null $palette Extracted colour metadata, read by SiteAccentResolver as an accent-colour candidate; NULL until extraction runs or on failure.
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property Carbon|null $deleted_at

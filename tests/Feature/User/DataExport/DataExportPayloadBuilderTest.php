@@ -85,7 +85,7 @@ it('exports site media scoped through the user site, not a user_id column', func
     expect($payload['media']['site_media'][0]['original_filename'])->toBe('holiday-headshot.jpg');
 });
 
-it('excludes previous_website_analysis from the exported workplace, keeping other fields intact (PRIV-5)', function () {
+it('exports the workplace fields intact', function () {
     $pro = seedProForPayload((string) Str::uuid());
     $siteId = (string) Str::uuid();
 
@@ -104,8 +104,6 @@ it('excludes previous_website_analysis from the exported workplace, keeping othe
         'phone' => '+61 2 5550 1234',
         'website' => 'https://janes-salon.example.com',
         'category' => 'Hair Salon',
-        // WebsiteStyleAnalyzer output — internal brand-signal detail, never exported.
-        'previous_website_analysis' => json_encode(['v' => 1, 'accent' => '#ff0000']),
         'created_at' => '2026-03-01T00:00:00Z',
         'updated_at' => '2026-03-01T00:00:00Z',
     ]);
@@ -113,10 +111,6 @@ it('excludes previous_website_analysis from the exported workplace, keeping othe
     $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
 
     expect($payload['site']['workplace'])->not->toBeNull();
-    // The internal field must be gone...
-    expect($payload['site']['workplace'])->not->toHaveKey('previous_website_analysis');
-    // ...but every other user-visible field must still round-trip correctly, so an
-    // over-broad fix (stripping the whole row, or `unset`ting the wrong key) fails this.
     expect($payload['site']['workplace']['name'])->toBe("Jane's Salon")
         ->and($payload['site']['workplace']['address_line1'])->toBe('123 Example St')
         ->and($payload['site']['workplace']['city'])->toBe('Sydney')

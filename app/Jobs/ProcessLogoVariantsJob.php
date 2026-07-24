@@ -140,8 +140,12 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 imageId: $this->imageId,
                 basePath: $this->basePath,
                 siteId: $this->resolveSiteId($siteMedia),
-                // Logos are POOL_DESIGN — the palette factor never reads them (#76 MAJOR-1).
-                extractPalette: false,
+                // Logos ARE palette-scanned (A2) — SiteAccentResolver reads
+                // site_media.dominant_color as an accent-colour candidate. The
+                // former skip (#76 MAJOR-1: "the palette factor never reads
+                // them") is stale — that factor (ImageryPaletteFactor) was
+                // retired with the whole contribution-ledger machine.
+                extractPalette: true,
             );
 
             // 3) Store the SVG (when produced) as its own MediaVariant artifact.

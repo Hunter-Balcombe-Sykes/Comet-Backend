@@ -3,11 +3,10 @@
 /**
  * Coverage for ImageVariantService's palette extraction (#76 Part A):
  * processing a gallery image stores a dominant colour + {saturation, warm}
- * palette jsonb on the media row. The design-preset consumer that used to
- * read this (ImageryPaletteFactor, via IdentityEvidence::mediaPalette()) was
- * retired with the integration factor machine — this metadata is now a
- * write-only, future-useful column (candidate follow-up deletion if it never
- * grows a reader).
+ * palette jsonb on the media row. The original consumer (ImageryPaletteFactor,
+ * via IdentityEvidence::mediaPalette()) was retired with the integration
+ * factor machine; SiteAccentResolver is the current reader (accent-colour
+ * fallback chain).
  */
 
 use App\Models\Core\Site\SiteMedia;

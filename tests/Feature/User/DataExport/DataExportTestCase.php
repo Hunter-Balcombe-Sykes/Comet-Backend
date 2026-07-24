@@ -751,9 +751,6 @@ class DataExportTestCase
         )');
 
         // FOUND-4: workplace card promoted from settings JSONB to child table.
-        // previous_website_analysis (20260701220001) is included so PRIV-5 tests can
-        // prove it's excluded from the export's explicit allow-list, not just absent
-        // from the fixture.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.workplaces (
             site_id TEXT PRIMARY KEY,
             name TEXT NULL,
@@ -768,7 +765,6 @@ class DataExportTestCase
             phone TEXT NULL,
             website TEXT NULL,
             previous_website TEXT NULL,
-            previous_website_analysis TEXT NULL,
             category TEXT NULL,
             description TEXT NULL,
             opening_hours TEXT NULL,

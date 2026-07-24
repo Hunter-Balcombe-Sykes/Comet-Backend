@@ -281,6 +281,115 @@ it('picks photo cover and video url from the snake_case post shape', function ()
     expect($media['video']['thumbnailUrl'])->toBe('https://scontent.cdninstagram.com/reel-cover.jpg');
 });
 
+// ── R1: broadened reel detection + diagnostics ────────────────────────────
+// Live-tested 2026-07-24 against the real account: today's figue-actor grid
+// node reliably carries type==='Video' + videoUrl/video_url — that path
+// already works and must keep working unchanged (test above). This section
+// adds defence-in-depth for actor-field variance seen on other Meta scrapers
+// (a clips/igtv product_type, a GraphQL __typename, an mp4 nested under
+// video_versions[0].url) plus a diagnostics trail so a future "reel didn't
+// mirror" report is diagnosable from stored data instead of a guess.
+
+it('detects a reel via product_type/video_versions when type/videoUrl are absent (actor field variance)', function () {
+    $media = (new InstagramScraper)->latestMedia([
+        'latestPosts' => [
+            [
+                // No 'type' key, no 'videoUrl'/'video_url' — only the fields a
+                // different actor-version grid node might carry.
+                'product_type' => 'clips',
+                'display_url' => 'https://scontent.cdninstagram.com/reel-cover.jpg',
+                'video_versions' => [['url' => 'https://scontent.cdninstagram.com/reel.mp4']],
+                'timestamp' => '2026-07-20T00:00:00.000Z',
+                'shortCode' => 'reel1',
+            ],
+        ],
+    ]);
+
+    expect($media['video']['videoUrl'])->toBe('https://scontent.cdninstagram.com/reel.mp4');
+});
+
+it('detects a reel via is_video=true', function () {
+    $media = (new InstagramScraper)->latestMedia([
+        'latestPosts' => [
+            [
+                'is_video' => true,
+                'display_url' => 'https://scontent.cdninstagram.com/reel-cover.jpg',
+                'video_url' => 'https://scontent.cdninstagram.com/reel.mp4',
+                'timestamp' => '2026-07-20T00:00:00.000Z',
+                'shortCode' => 'reel1',
+            ],
+        ],
+    ]);
+
+    expect($media['video']['videoUrl'])->toBe('https://scontent.cdninstagram.com/reel.mp4');
+});
+
+it('detects a reel via a GraphVideo __typename', function () {
+    $media = (new InstagramScraper)->latestMedia([
+        'latestPosts' => [
+            [
+                '__typename' => 'GraphVideo',
+                'display_url' => 'https://scontent.cdninstagram.com/reel-cover.jpg',
+                'video_url' => 'https://scontent.cdninstagram.com/reel.mp4',
+                'timestamp' => '2026-07-20T00:00:00.000Z',
+                'shortCode' => 'reel1',
+            ],
+        ],
+    ]);
+
+    expect($media['video']['videoUrl'])->toBe('https://scontent.cdninstagram.com/reel.mp4');
+});
+
+it('does not misdetect a plain image post as a video', function () {
+    $media = (new InstagramScraper)->latestMedia([
+        'latestPosts' => [
+            [
+                'type' => 'Image',
+                'product_type' => 'feed', // 'feed' alone (no video signal) must not trip detection
+                'display_url' => 'https://scontent.cdninstagram.com/photo.jpg',
+                'timestamp' => '2026-07-20T00:00:00.000Z',
+                'shortCode' => 'img1',
+            ],
+        ],
+    ]);
+
+    expect($media['video'])->toBeNull();
+    expect($media['photo']['thumbnailUrl'])->toBe('https://scontent.cdninstagram.com/photo.jpg');
+});
+
+it('returns diagnostics: total posts, video count, and per-video mp4 presence', function () {
+    $media = (new InstagramScraper)->latestMedia([
+        'latestPosts' => [
+            // A video post the actor gave NO mp4 for — must still count as a
+            // video candidate (has_mp4 false), not vanish silently.
+            ['type' => 'Video', 'display_url' => 'https://x/cover.jpg', 'timestamp' => '2026-07-20T00:00:00.000Z', 'shortCode' => 'reel1'],
+            ['type' => 'Image', 'display_url' => 'https://x/photo.jpg', 'timestamp' => '2026-07-19T00:00:00.000Z', 'shortCode' => 'img1'],
+        ],
+    ]);
+
+    expect($media['diagnostics'])->toBe([
+        'posts' => 2,
+        'videos' => 1,
+        'pickedPhoto' => true,
+        'pickedVideo' => false,
+        'videoCandidates' => [
+            ['shortCode' => 'reel1', 'hasMp4' => false, 'type' => 'Video'],
+        ],
+    ]);
+});
+
+it('caps videoCandidates in diagnostics at 5, even with more video posts', function () {
+    $posts = [];
+    for ($i = 0; $i < 8; $i++) {
+        $posts[] = ['type' => 'Video', 'display_url' => "https://x/cover{$i}.jpg", 'video_url' => "https://x/reel{$i}.mp4", 'timestamp' => "2026-07-{$i}T00:00:00.000Z", 'shortCode' => "reel{$i}"];
+    }
+
+    $media = (new InstagramScraper)->latestMedia(['latestPosts' => $posts]);
+
+    expect($media['diagnostics']['videos'])->toBe(8);
+    expect($media['diagnostics']['videoCandidates'])->toHaveCount(5);
+});
+
 // ── fetchProfile() failure logging: hashed + case-normalised username, never raw ──
 // SEC-102: the log context must never carry the raw Instagram handle, and the
 // hash must be computed from the LOWERCASED username so "DocPizza" and "docpizza"

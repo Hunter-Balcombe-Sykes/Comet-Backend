@@ -5,8 +5,10 @@ namespace App\Services\Media;
 /**
  * Extracts dominant-colour + palette metadata from an image, using only the GD
  * extension already required for variant generation (#76 Part A). The result
- * feeds IdentityEvidence::mediaPalette() → ImageryPaletteFactor, which reads
- * `saturation` (0..1) and `warm` (bool) to nudge the image treatment + bg tint.
+ * feeds SiteAccentResolver (accent-colour fallback chain) and any future
+ * palette consumers; the former factor pipeline (IdentityEvidence::
+ * mediaPalette() → ImageryPaletteFactor) was retired with the whole
+ * contribution-ledger machine.
  *
  * The whole extractor is best-effort: every entry point returns null on any
  * failure so a colour read can NEVER fail an upload or a backfill (the caller

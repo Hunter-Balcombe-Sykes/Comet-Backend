@@ -42,6 +42,13 @@ class CustomLinkSeeder
             return null;
         }
 
+        $previousWebsite = $user->site?->workplace?->previous_website;
+        if ($previousWebsite !== null && $this->matchesPreviousWebsite($normalized, $previousWebsite)) {
+            Log::info('platforms.custom_link_seeder.skipped_previous_website', ['user_id' => (string) $user->id]);
+
+            return null;
+        }
+
         $rid = 'link-'.substr(sha1(strtolower($normalized)), 0, 16);
         // Built outside the lock — pure/local (no HTTP fetch; see LinkCardScraper).
         $payload = ['kind' => 'link', ...$this->scraper->minimalCard($normalized)];
@@ -85,5 +92,38 @@ class CustomLinkSeeder
         }
 
         return $row;
+    }
+
+    /**
+     * True when $normalizedUrl is the user's previous website or any page on
+     * the same host — so a scrape never re-adds the old site we're replacing
+     * as a link. Hosts compared lowercased with a leading "www." stripped, by
+     * EQUALITY (never substring containment — "notoven.com.au" must not match
+     * "oven.com.au"). An unparseable previous website never matches. Only
+     * auto-seeded links reach this class, so manual link-adds are unaffected.
+     *
+     * NB host-level match is intentional so subpages are caught too. If the
+     * previous website is ever a shared-host service (e.g. linktr.ee/<user>),
+     * this would also skip other links on that host — acceptable given
+     * previous_website is effectively always the user's own domain; revisit
+     * only if that assumption breaks.
+     */
+    private function matchesPreviousWebsite(string $normalizedUrl, string $previousWebsite): bool
+    {
+        $prev = $this->scraper->normalizeUrl($previousWebsite);
+        if ($prev === null) {
+            return false;
+        }
+
+        $host = static function (string $url): ?string {
+            $h = parse_url($url, PHP_URL_HOST);
+
+            return is_string($h) && $h !== '' ? preg_replace('/^www\./i', '', strtolower($h)) : null;
+        };
+
+        $linkHost = $host($normalizedUrl);
+        $prevHost = $host($prev);
+
+        return $linkHost !== null && $linkHost === $prevHost;
     }
 }

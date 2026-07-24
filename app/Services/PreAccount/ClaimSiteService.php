@@ -5,6 +5,8 @@ namespace App\Services\PreAccount;
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
+use App\Jobs\Platforms\RefreshConnectionJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
@@ -138,6 +140,7 @@ class ClaimSiteService
         $this->userCache->invalidateUser($result['professional']);
         $this->siteCache->invalidateSite($result['site']);
         SyncSubdomainToKvJob::dispatch((string) $result['professional']->id);
+        $this->reEnrichClaimedGoogleBusinessConnection($result['professional']);
 
         // EDGE-1: also purge the Cloudflare edge cache — invalidateSite() above
         // only busts Redis, so without this a claim's status flip never reaches
@@ -165,5 +168,40 @@ class ClaimSiteService
         }
 
         return $result;
+    }
+
+    /**
+     * REV1: a pre-account build's google-business connection had its reviews
+     * stripped (GoogleBusinessPayload::stripThirdPartyPii — correct for an
+     * unclaimed listing nobody has proven ownership of). GoogleBusinessFetch
+     * already re-checks live claimed status on every scheduled refresh and
+     * stops stripping the moment it sees 'active' — but that refresh's own
+     * 40h detailsFetchedAt freshness cache was stamped at BUILD time by the
+     * same mapping function, so a claim inside that window (the common case)
+     * makes the next scheduled refresh a no-op cache hit, not a real
+     * re-fetch. Force it: clear detailsFetchedAt so the freshness check fails
+     * open, then dispatch the SAME RefreshConnectionJob the hourly cron and
+     * the dashboard's manual refresh button already use (manual: true gives
+     * it its own dedup lane, matching RefreshController's identical pattern)
+     * — reusing GoogleBusinessFetch's existing fetch/strip/gate/lock logic
+     * rather than duplicating it in a new job.
+     */
+    private function reEnrichClaimedGoogleBusinessConnection(User $professional): void
+    {
+        $connection = IntegrationConnection::query()
+            ->where('user_id', $professional->id)
+            ->where('platform', 'google-business')
+            ->where('is_active', true)
+            ->first();
+
+        if ($connection === null) {
+            return;
+        }
+
+        $payload = $connection->payload;
+        unset($payload['detailsFetchedAt']);
+        $connection->updateQuietly(['payload' => $payload, 'last_refresh_status' => 'pending']);
+
+        RefreshConnectionJob::dispatch($connection->id, 'google-business', manual: true);
     }
 }

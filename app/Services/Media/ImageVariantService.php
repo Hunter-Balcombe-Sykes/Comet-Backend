@@ -48,10 +48,11 @@ class ImageVariantService
         string $imageId,
         string $basePath,
         string $siteId = '',
-        // Palette metadata is only READ for GALLERY_POOLS media (see
-        // IdentityEvidence::mediaPalette). Logo / design-pool uploads pass false
-        // so they don't pay the extraction cost or write dead palette data to
-        // rows the ImageryPaletteFactor never reads (#76 MAJOR-1).
+        // Palette metadata (dominant colour + swatches) is read by
+        // SiteAccentResolver as an accent-colour candidate for both gallery
+        // AND design-pool (logo) media — the former ImageryPaletteFactor
+        // consumer this comment used to describe was retired with the whole
+        // contribution-ledger machine; ProcessLogoVariantsJob passes true.
         bool $extractPalette = true,
     ): array {
         if (! extension_loaded('gd')) {
@@ -233,8 +234,8 @@ class ImageVariantService
     /**
      * Extract and persist colour-palette metadata for a media row from its decoded
      * source image (#76 Part A). Best-effort: any failure is swallowed and logged
-     * at debug level — the row's palette stays NULL and ImageryPaletteFactor
-     * abstains. Writes via a scoped query-builder update so the palette metadata
+     * at debug level — the row's palette simply stays NULL, and SiteAccentResolver
+     * skips it as a candidate. Writes via a scoped query-builder update so the palette metadata
      * write does NOT trip SiteMediaObserver (which would purge the edge cache and
      * re-resolve presets on every image process — the READY transition already
      * handles the intentional purge).

@@ -12,10 +12,10 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Auto-populates EMPTY logo slots from a previous-website's brand-scan
- * candidates (analysis logo.candidates, WebsiteStyleAnalyzer v2). Fills, never
- * replaces: a slot with any active media — user-uploaded or previously
- * auto-grabbed — is left alone, and nothing is ever deleted.
+ * Auto-populates EMPTY logo slots from a previous-website's scraped logo
+ * candidates (WebsiteLogoCandidateExtractor, via ScanPreviousWebsiteContentJob).
+ * Fills, never replaces: a slot with any active media — user-uploaded or
+ * previously auto-grabbed — is left alone, and nothing is ever deleted.
  *
  * v2 sourcing (v1 was favicon/apple-touch/og only):
  *  - the RENDERED header logo (img currentSrc / inline <svg>) is the premier
