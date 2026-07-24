@@ -2281,12 +2281,6 @@ parameters:
 			path: app/Services/Media/ImagePaletteExtractor.php
 
 		-
-			message: '#^Strict comparison using \=\=\= between true and false will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Services/Media/ImagePaletteExtractor.php
-
-		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
 			count: 1
