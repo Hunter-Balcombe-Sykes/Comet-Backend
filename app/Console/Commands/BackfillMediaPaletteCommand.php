@@ -11,11 +11,11 @@ use Illuminate\Support\Facades\Storage;
 
 // Backfill sweep (#76 Part A): extract dominant-colour + palette metadata for
 // EXISTING gallery/content images that predate palette extraction (or where a
-// prior extraction failed) so IdentityEvidence::mediaPalette() → the
-// ImageryPaletteFactor lights up for current users. New uploads get their
-// palette inline in ImageVariantService; this closes the gap for the back
-// catalogue. Idempotent (skips rows that already have a palette), chunked, and
-// per-row failure-tolerant — one unreadable original never aborts the sweep.
+// prior extraction failed) so SiteAccentResolver has a candidate for accounts
+// whose accent scan predates it. New uploads get their palette inline in
+// ImageVariantService; this closes the gap for the back catalogue. Idempotent
+// (skips rows that already have a palette), chunked, and per-row failure-
+// tolerant — one unreadable original never aborts the sweep.
 //
 //   --dry-run    report how many WOULD be filled, write nothing.
 //   --site=<id>  limit to a single site.
@@ -27,7 +27,7 @@ class BackfillMediaPaletteCommand extends Command
         {--site= : Limit to a single site id}
         {--limit=0 : Cap rows processed this run (0 = no cap)}';
 
-    protected $description = 'Extract + store colour-palette metadata for existing gallery images (backfills the ImageryPaletteFactor source)';
+    protected $description = 'Extract + store colour-palette metadata for existing gallery images (backfills the SiteAccentResolver source)';
 
     // One-off manual backfill, not scheduled. Per-row work is a network fetch
     // (stream the original from R2/S3) plus image decode + palette extraction —

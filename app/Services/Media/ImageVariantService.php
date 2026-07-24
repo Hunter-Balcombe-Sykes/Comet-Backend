@@ -234,8 +234,8 @@ class ImageVariantService
     /**
      * Extract and persist colour-palette metadata for a media row from its decoded
      * source image (#76 Part A). Best-effort: any failure is swallowed and logged
-     * at debug level — the row's palette stays NULL and ImageryPaletteFactor
-     * abstains. Writes via a scoped query-builder update so the palette metadata
+     * at debug level — the row's palette simply stays NULL, and SiteAccentResolver
+     * skips it as a candidate. Writes via a scoped query-builder update so the palette metadata
      * write does NOT trip SiteMediaObserver (which would purge the edge cache and
      * re-resolve presets on every image process — the READY transition already
      * handles the intentional purge).
