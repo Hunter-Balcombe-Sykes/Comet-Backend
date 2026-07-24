@@ -33,10 +33,22 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // on the fetch (unlike team, whose write never did). Any other value is a
 // canary: identify()/connectDeferred() only ever stamp these two.
 //
-// Never persists anything the pending write didn't already carry: the
+// Never persists a NEW key the pending write didn't already carry: the
 // returned payload is built from the connection's OWN stored payload, not a
 // fresh array, so any key neither branch below touches (raw, selection on the
-// team side, etc.) rides through unchanged.
+// team side, etc.) rides through unchanged. The one deliberate exception is
+// removal: both branches strip connectMode from what they persist on success
+// (R3, 2026-07-25) — it is a pending-window marker only, and
+// FreshaController::connectStatus()'s discriminator already falls back to
+// teamMenu's array-ness once a row is 'ok' (see that method's own comment),
+// so keeping connectMode forever was dead weight one allowlist edit away
+// from a public leak. teamMenu itself stays for TEAM mode: it is the row's
+// only stored copy of the scraped menu until saveSelection() replaces the
+// whole payload, and it is where a future team() fix (dropped from W8,
+// still open — team() currently live-rescrapes on every call) should read
+// from instead. fetchStorewide() below also drops teamMenu, but only
+// because that branch never fills it — it is always the null the pending
+// write stamped, so dropping it loses no content.
 final readonly class FreshaConnectFetch implements FetchStrategy
 {
     public function __construct(
@@ -92,7 +104,11 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             throw new FetchUnavailableException('fresha_empty_menu');
         }
 
-        return [...$payload, 'teamMenu' => $menu, 'connectPendingAt' => null];
+        // connectMode drops here (R3) — see the class docblock.
+        $next = $payload;
+        unset($next['connectMode']);
+
+        return [...$next, 'teamMenu' => $menu, 'connectPendingAt' => null];
     }
 
     /**
@@ -193,8 +209,12 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             'hiddenServiceIds' => $projected['hiddenServiceIds'],
         ];
 
+        // connectMode and teamMenu drop here too (R3) — see the class
+        // docblock. teamMenu is always the null the pending write stamped on
+        // this branch (only fetchTeam() ever fills it), so dropping it loses
+        // no content.
         $next = $payload;
-        unset($next['connectPendingAt']);
+        unset($next['connectPendingAt'], $next['connectMode'], $next['teamMenu']);
 
         return [...$next, 'url' => $url, 'selection' => $selection, 'raw' => ['services' => $projected['raw']]];
     }

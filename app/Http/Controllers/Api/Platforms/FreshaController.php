@@ -240,18 +240,26 @@ class FreshaController extends ApiController
 
         // $shape branches on the STORED payload, not the caller's current
         // capability — the account type could flip between the 202 and the
-        // poll, and the row records what was promised. connectMode is the
-        // authoritative marker: connectDeferred() stamps it on the pending
-        // write and neither FreshaConnectFetch branch rewrites it, so it is
-        // exact for the whole connect window. teamMenu presence is kept as a
-        // second arm only because it is what the team branch fills on success.
+        // poll, and the row records what was promised. connectMode is only
+        // authoritative while pending: connectDeferred() stamps it on the
+        // pending write, but this closure runs solely on 'ok' rows
+        // (bespokeConnectStatus() only calls $shape there), and both
+        // FreshaConnectFetch success branches now DROP connectMode (R3,
+        // 2026-07-25) — past completion it served no purpose and was one
+        // allowlist edit away from a public leak (see that class's docblock).
+        // teamMenu's array-ness is therefore the REAL discriminator, not a
+        // fallback arm: team mode's fetchTeam() guarantees a non-empty array
+        // on every successful write (an empty menu throws before returning),
+        // and storewide's fetchStorewide() never fills teamMenu and no longer
+        // carries forward its always-null placeholder either. The
+        // `$payload['connectMode'] ?? null` read below only still matches a
+        // hand-seeded test row.
         //
-        // Neither key is eternal: the hourly cron's FreshaFetch returns a fresh
-        // three-key payload, dropping connectMode AND teamMenu, after which a
-        // team row would shape as storewide here. That is outside the connect
-        // window — a completed connect is never polled again, and a row still
-        // mid-connect is caught by the stale-pending guard above — so it is
-        // harmless, but it is a fall-through, not an "unambiguous discriminator".
+        // Neither key is eternal for a second reason too: the hourly cron's
+        // FreshaFetch returns a fresh three-key payload dropping both — moot
+        // in practice, since FreshaFetch 304s any row with no `selection`
+        // (team mode never sets one) and a completed connect is never polled
+        // again anyway.
         return $this->bespokeConnectStatus($user, null, function (array $payload): array {
             $isTeam = ($payload['connectMode'] ?? null) === 'team' || is_array($payload['teamMenu'] ?? null);
 
