@@ -100,7 +100,13 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
         $connection = IntegrationConnection::query()->find($this->connectionId);
 
         // Deleted or deactivated between dispatch and execution — nothing to do.
-        if ($connection === null || ! $connection->is_active) {
+        // E-5: a 'pending' row belongs to an in-flight (or stranded) ConnectFetchJob.
+        // RefreshIntegrationConnectionsCommand's dueForRefresh() scope already
+        // excludes these, but RefreshController::refresh() (the manual "refresh"
+        // button) dispatches this job over every active() row regardless of
+        // status — this guard is what actually keeps THAT path from racing a
+        // pending connect and recording a vendor 304 as a bogus 'ok'.
+        if ($connection === null || ! $connection->is_active || $connection->last_refresh_status === 'pending') {
             return;
         }
 

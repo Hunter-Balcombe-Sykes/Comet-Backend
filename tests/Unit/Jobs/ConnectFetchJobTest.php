@@ -1,9 +1,13 @@
 <?php
 
 use App\Jobs\Platforms\ConnectFetchJob;
+use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
+use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Http\FetchBudget;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\TwitchScraper;
@@ -340,6 +344,27 @@ it('a lock timeout does not throw, does not silently rely on release(), and mark
         $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
     });
 
+    // Defect C's write-time re-check (FeatureAvailability::for()) touches Cache
+    // too (its version/failopen keys, plus CacheLockService's own single-flight
+    // lock) — none of that is what THIS test proves, so it's stubbed inert:
+    // Cache::get() answers a permissive "nothing cached" for those reads, and
+    // CacheLockService's locking is bypassed (straight to the callback) so the
+    // ONLY Cache::lock() call left in this test is the job's own contended
+    // write lock below.
+    Cache::shouldReceive('get')->withAnyArgs()->andReturn(null);
+    $this->app->instance(CacheLockService::class, new class extends CacheLockService
+    {
+        public function rememberLocked(string $key, $ttl, Closure $callback, int $lockSeconds = 10, int $blockSeconds = 5): mixed
+        {
+            return $callback();
+        }
+
+        public function rememberLockedNullable(string $key, $ttl, Closure $callback, $nullTtl = null, int $lockSeconds = 10, int $blockSeconds = 5): mixed
+        {
+            return $callback();
+        }
+    });
+
     $lock = Mockery::mock(Lock::class);
     $lock->shouldReceive('block')->once()->andThrow(new LockTimeoutException);
     Cache::shouldReceive('lock')->once()->andReturn($lock);
@@ -405,4 +430,148 @@ it('computes the same platform-wide lock key regardless of resource_id (no per-a
         ->toBe("platforms:bandcamp:lock:{$user->id}");
     expect(CacheKeyGenerator::platformConnectionLock($singleSelectionRow->platform, $user->id))
         ->toBe("platforms:strava:lock:{$user->id}");
+});
+
+// ── E-1: FetchBudget around the vendor fetch ────────────────────────────────
+// Before this fix, ConnectFetchJob's own comment claimed the vendor fetch was
+// bounded by connect_budget_seconds when nothing in this path ever opened one
+// (FetchBudget::remaining() is null — unbounded — until open() is called).
+
+it('opens a FetchBudget bounded at connect_budget_seconds around the vendor fetch, and clears it afterwards', function () {
+    config(['partna.http_fetch.connect_budget_seconds' => 20]);
+
+    $user = cfjUser('cfjbudget');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'bandcamp',
+        'resource_id' => 'acct-cfjbudget',
+        'payload' => ['url' => 'https://someartist.bandcamp.com'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+        'last_refreshed_at' => null,
+    ]);
+
+    // No budget open before the job runs — the scoped instance starts unbounded.
+    expect(app(FetchBudget::class)->remaining())->toBeNull();
+
+    $remainingDuringFetch = 'not-set';
+    $this->mock(BandcampScraper::class, function ($m) use (&$remainingDuringFetch) {
+        $m->shouldReceive('fetchProfile')->once()->andReturnUsing(function () use (&$remainingDuringFetch) {
+            // Same container, same scoped instance the job's handle() was
+            // given — this is what proves the fetch runs INSIDE the budget,
+            // not just that open() was called somewhere before it.
+            $remainingDuringFetch = app(FetchBudget::class)->remaining();
+
+            return [
+                'name' => 'Real Artist',
+                'thumbnail' => null,
+                'items' => [
+                    ['itemId' => 'album-1', 'name' => 'Album One', 'thumbnail' => 't1', 'link' => 'https://someartist.bandcamp.com/album/one'],
+                ],
+            ];
+        });
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
+    });
+
+    $job = new ConnectFetchJob($connection->id, 'bandcamp');
+    app()->call([$job, 'handle']);
+
+    expect($remainingDuringFetch)->not->toBe('not-set')
+        ->and($remainingDuringFetch)->not->toBeNull()
+        ->and($remainingDuringFetch)->toBeGreaterThan(0)
+        ->and($remainingDuringFetch)->toBeLessThanOrEqual(20.0);
+
+    // The finally in FetchBudget::open() clears the deadline unconditionally —
+    // the SAME scoped instance must report unbounded again once handle() returns.
+    expect(app(FetchBudget::class)->remaining())->toBeNull();
+    expect(app(FetchBudget::class)->exhausted())->toBeFalse();
+
+    expect($connection->fresh()->last_refresh_status)->toBe('ok');
+});
+
+// ── Defect C: staff kill switch re-checked at write time ────────────────────
+
+it('a platform disabled between the 202 and this job running resolves to a terminal state without writing fetched content', function () {
+    setupFeatureAvailabilityTable();
+    FeatureAvailability::flush();
+
+    $user = cfjUser('cfjkill');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'bandcamp',
+        'resource_id' => 'acct-cfjkill',
+        'canonical_key' => 'https://someartist.bandcamp.com',
+        // Exactly the identity stub a 202 write leaves behind.
+        'payload' => ['url' => 'https://someartist.bandcamp.com'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+        'last_refreshed_at' => null,
+    ]);
+
+    // Staff disable landing AFTER the 202 but BEFORE this job runs.
+    FeatureAvailabilityRule::query()->create(['feature_key' => 'integration.bandcamp', 'mode' => 'disabled']);
+    FeatureAvailability::flush();
+
+    // The vendor is still reached — the re-check happens at WRITE time, not
+    // before the fetch — but its result must never reach the row. A non-empty
+    // items array is essential here: an empty one throws FetchUnavailableException
+    // BEFORE the fetch even returns, which would prove nothing about the
+    // write-time re-check this test exists for.
+    $this->mock(BandcampScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->once()->andReturn([
+            'name' => 'Real Artist',
+            'thumbnail' => null,
+            'items' => [
+                ['itemId' => 'album-1', 'name' => 'Album One', 'thumbnail' => 't1', 'link' => 'https://someartist.bandcamp.com/album/one'],
+            ],
+        ]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
+    });
+
+    $job = new ConnectFetchJob($connection->id, 'bandcamp');
+    app()->call([$job, 'handle']);
+
+    $fresh = $connection->fresh();
+    // Terminal, never left pending — a poller must not spin forever.
+    expect($fresh->last_refresh_status)->not->toBe('pending');
+    expect($fresh->last_refresh_status)->toBe('unavailable');
+    expect($fresh->last_refresh_error)->toBe('Could not find releases on that Bandcamp page.');
+    // The fetched content never landed — only the pre-existing identity stub survives.
+    expect($fresh->payload)->not->toHaveKey('artist');
+    expect($fresh->payload['url'])->toBe('https://someartist.bandcamp.com');
+});
+
+it('an available platform (no rule, or an explicit allow) is unaffected by the write-time re-check', function () {
+    setupFeatureAvailabilityTable();
+    FeatureAvailabilityRule::query()->create(['feature_key' => 'integration.bandcamp', 'mode' => 'enabled']);
+    FeatureAvailability::flush();
+
+    $user = cfjUser('cfjallow');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'bandcamp',
+        'resource_id' => 'acct-cfjallow',
+        'payload' => ['url' => 'https://someartist.bandcamp.com'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+        'last_refreshed_at' => null,
+    ]);
+
+    $this->mock(BandcampScraper::class, function ($m) {
+        $m->shouldReceive('fetchProfile')->once()->andReturn([
+            'name' => 'Real Artist',
+            'thumbnail' => null,
+            'items' => [
+                ['itemId' => 'album-1', 'name' => 'Album One', 'thumbnail' => 't1', 'link' => 'https://someartist.bandcamp.com/album/one'],
+            ],
+        ]);
+        $m->shouldReceive('enrichPrices')->andReturnUsing(fn (array $items) => $items);
+    });
+
+    $job = new ConnectFetchJob($connection->id, 'bandcamp');
+    app()->call([$job, 'handle']);
+
+    $fresh = $connection->fresh();
+    expect($fresh->last_refresh_status)->toBe('ok');
+    expect($fresh->payload['artist'])->toBe('Real Artist');
 });

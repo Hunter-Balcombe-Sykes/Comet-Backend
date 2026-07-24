@@ -185,11 +185,25 @@ class IntegrationConnection extends BaseModel
      * in PHP (per-platform TTL) and bound as a param so the query is identical on
      * Postgres and the SQLite test DB. Soft-deleted rows are already excluded by the
      * model's SoftDeletes global scope.
+     *
+     * E-5: a 'pending' row belongs to an in-flight (or stranded) ConnectFetchJob —
+     * last_refreshed_at is NULL on that row, which would otherwise match the
+     * "never refreshed" arm below and let this hourly cron race the connect job,
+     * potentially recording a vendor 304 as a bogus 'ok' over an empty/partial
+     * payload. The exclusion is spelled out as whereNull-OR-!= rather than a
+     * bare `!=` because Postgres' three-valued logic would otherwise ALSO
+     * silently drop the (legitimate, un-pending) NULL-status rows this scope
+     * has always included — see the "never refreshed" case in
+     * DueForRefreshScopeTest.
      */
     public function scopeDueForRefresh($query, \DateTimeInterface $cutoff, int $maxFailures)
     {
         return $query->active()
             ->where('consecutive_failures', '<', $maxFailures)
+            ->where(function ($q) {
+                $q->whereNull('last_refresh_status')
+                    ->orWhere('last_refresh_status', '!=', 'pending');
+            })
             ->where(function ($q) use ($cutoff) {
                 $q->whereNull('last_refreshed_at')
                     ->orWhere('last_refreshed_at', '<', $cutoff);
