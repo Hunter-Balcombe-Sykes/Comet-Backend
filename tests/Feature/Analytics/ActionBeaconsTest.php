@@ -143,6 +143,22 @@ it('rejects a request whose Origin does not match the resolved site (IDOR defenc
     expect(DB::connection('pgsql')->table('analytics.action_events')->count())->toBe(0);
 })->with('actionBeaconEndpoints');
 
+it('rejects a header-less request with a correct public site_id + subdomain pair (SEC-1)', function (string $path, string $event) {
+    $tenant = createTenant('action-'.$event.'-noheaders');
+
+    // No Origin, no Referer — a scripted caller with only the public pair. If this
+    // were accepted it would let a forged caller feed RankedActionsComputer's
+    // demand-rate scoring for a site they don't control.
+    $this->postJson("/api/public/analytics/{$path}", [
+        'site_id' => $tenant->site->id,
+        'subdomain' => 'action-'.$event.'-noheaders',
+        'action_id' => 'menu',
+        'session_id' => (string) Str::uuid(),
+    ])->assertStatus(404);
+
+    expect(DB::connection('pgsql')->table('analytics.action_events')->count())->toBe(0);
+})->with('actionBeaconEndpoints');
+
 it('returns 404 when site is unpublished (does not leak existence)', function (string $path, string $event) {
     $tenant = createTenant('action-'.$event.'-unpub');
     DB::connection('pgsql')->table('site.sites')

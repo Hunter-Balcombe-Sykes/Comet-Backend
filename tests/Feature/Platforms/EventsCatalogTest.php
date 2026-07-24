@@ -5,6 +5,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\LinkCardScraper;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 // The "Tickets & Events" smart-detect facade (EventsCatalog + EventsController).
@@ -95,6 +96,51 @@ it('adds the single event (not the host) when a Humanitix EVENT url is pasted', 
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'humanitix')->where('resource_id', 'like', 'event-%')->exists())->toBeTrue();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('resource_id', 'like', 'acct-%')->exists())->toBeFalse();
+});
+
+// End-to-end proof that IntegrationConnectionObserver::saved() actually reaches
+// EventSlugSync through the real HTTP -> EventsCatalog -> writeRow -> observer
+// chain (not just the isolated EventSlugSync/ItemSlugAllocator unit tests).
+it('mints an item_slugs row for a pasted single event', function () {
+    setupItemSlugsTable();
+    $url = 'https://www.eventbrite.com/e/cool-show-123';
+    $scraper = Mockery::mock(EventbriteScraper::class);
+    $scraper->shouldReceive('normalizeEventUrl')->andReturn($url);
+    $scraper->shouldReceive('fetchSingleEvent')->with($url)->andReturn(sampleEvent($url));
+    app()->instance(EventbriteScraper::class, $scraper);
+    $user = eventsUser('ev4');
+
+    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
+
+    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'eventbrite')->firstOrFail();
+    $hex = $row->payload['id'];
+
+    $slug = DB::connection('pgsql')->table('site.item_slugs')
+        ->where('user_id', $user->id)->where('item_type', 'event')
+        ->where('item_key', $hex)->where('is_current', 1)->value('slug');
+    expect($slug)->toBe('cool-show');
+});
+
+it('mints item_slugs rows for every event in an organiser account payload', function () {
+    setupItemSlugsTable();
+    $url = 'https://www.eventbrite.com/o/my-org-456';
+    $scraper = Mockery::mock(EventbriteScraper::class);
+    $scraper->shouldReceive('normalizeEventUrl')->andReturn(null);
+    $scraper->shouldReceive('normalizeOrgUrl')->andReturn($url);
+    $scraper->shouldReceive('fetchEvents')->with($url)->andReturn([
+        'organiser' => 'My Org',
+        'events' => [
+            sampleEvent('https://www.eventbrite.com/e/a-1'),
+            sampleEvent('https://www.eventbrite.com/e/b-2', '2099-02-01T10:00:00+10:00'),
+        ],
+    ]);
+    app()->instance(EventbriteScraper::class, $scraper);
+    $user = eventsUser('ev5');
+
+    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $url])->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.item_slugs')
+        ->where('user_id', $user->id)->where('item_type', 'event')->count())->toBe(2);
 });
 
 it('stores a non-platform link as a custom event', function () {

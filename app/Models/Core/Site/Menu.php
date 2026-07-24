@@ -4,11 +4,37 @@ namespace App\Models\Core\Site;
 
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $id
+ * @property string $user_id
+ * @property string|null $content_source
+ * @property string|null $store_name
+ * @property string|null $logo_url
+ * @property float|null $rating
+ * @property int|null $review_count
+ * @property string|null $currency
+ * @property string|null $pickup_platform
+ * @property string|null $delivery_platform
+ * @property string|null $fetch_status
+ * @property array|null $dining_modes
+ * @property array|null $scan_items
+ * @property array|null $suppressed_items
+ * @property Carbon|null $last_fetched_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
+ * @property-read User|null $user
+ * @property-read Collection<int, MenuCategory> $categories
+ * @property-read Collection<int, MenuItem> $items
+ * @property-read Collection<int, MenuPlatformLink> $platformLinks
+ */
 // A user's fetched food-ordering menu — the single source of truth for menu
 // CONTENT, now relational: this row holds store-level display + provenance,
 // while the dishes live in site.menu_categories → site.menu_items.

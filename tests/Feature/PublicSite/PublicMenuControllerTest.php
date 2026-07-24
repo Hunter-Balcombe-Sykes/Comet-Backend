@@ -303,3 +303,76 @@ it('B6: item id is stable across a category reorder, so a URL keyed off it never
     // The positional index that USED to mean Steak now means a different dish.
     expect($after->json('data.categories.1.items.0.name'))->toBe('Hero Dish');
 });
+
+// ── Item URL slugs (site.item_slugs) — slug + aliases on the wire ──
+
+it('serves the current slug for a freshly created item (minted by the MenuItem observer)', function () {
+    setupItemSlugsTable();
+    $user = publicMenuUser('pubslug1');
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $item = MenuItem::create(['menu_id' => $menu->id, 'name' => 'Margherita Pizza', 'base_price' => 11.0]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    $publicItem = $res->json('data.categories.0.items.0');
+    expect($publicItem['slug'])->toBe('margherita-pizza');
+    expect($publicItem['aliases'])->toBe([(string) $item->id]);
+});
+
+it('includes retired slugs + the raw uuid in aliases after a rename', function () {
+    setupItemSlugsTable();
+    $user = publicMenuUser('pubslug2');
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $item = MenuItem::create(['menu_id' => $menu->id, 'name' => 'Old Name', 'base_price' => 11.0]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+    $item->update(['name' => 'New Name']);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    $publicItem = $res->json('data.categories.0.items.0');
+    expect($publicItem['slug'])->toBe('new-name');
+    expect($publicItem['aliases'])->toEqualCanonicalizing(['old-name', (string) $item->id]);
+});
+
+it('degrades to a null slug and id-only aliases when the table exists but this item has no row yet', function () {
+    // The table is present (as it always is in production — backend ships
+    // the migration first) but this specific item predates the backfill:
+    // insert the row directly, bypassing MenuItem::create/the observer, so
+    // no item_slugs row exists for it.
+    setupItemSlugsTable();
+    $user = publicMenuUser('pubslug3');
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $itemId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.menu_items')->insert([
+        'id' => $itemId, 'menu_id' => $menu->id, 'name' => 'Margherita', 'base_price' => 11.0,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.menu_item_categories')->insert([
+        'menu_item_id' => $itemId, 'menu_category_id' => $category->id, 'position' => 0,
+    ]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    $publicItem = $res->json('data.categories.0.items.0');
+    expect($publicItem['slug'])->toBeNull();
+    expect($publicItem['aliases'])->toBe([$itemId]);
+});

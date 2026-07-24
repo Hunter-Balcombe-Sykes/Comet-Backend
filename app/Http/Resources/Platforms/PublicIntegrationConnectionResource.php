@@ -87,13 +87,17 @@ class PublicIntegrationConnectionResource extends ApiResource
         // currency / soldOut, 2026-07-17) are listed for the STANDALONE rows —
         // account rows' next/upcoming event objects pass through whole (the
         // allowlist filters top-level keys only) and carry them implicitly.
-        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
-        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
+        // slug/aliases (item-url-slugs, 2026-07-24) are injected onto every
+        // event object by PublicIntegrationController before this resource
+        // resolves — listed here so they survive the STANDALONE top-level
+        // filter; account rows' upcoming/next carry them for free (pass-through).
+        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
+        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
         // events-custom: a non-Eventbrite/Humanitix link added via the Tickets &
         // Events card, stored as a standalone event row so it renders in the
         // sitepage Events section. Single card — no organiser/upcoming. Snapshot
         // once, never refreshed (absent from the registry's refreshable set).
-        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
+        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
         // custom: one row per user-attached link.
         'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],
@@ -102,6 +106,13 @@ class PublicIntegrationConnectionResource extends ApiResource
         'linkedin' => ['username', 'url'],
         'threads' => ['username', 'url'],
         'reddit' => ['username', 'url'],
+        // 2026-07-23 link-only additions (TEST-3 fix). Discord's `username`
+        // carries the invite code, not a handle — see DiscordNormalizer.
+        'snapchat' => ['username', 'url'],
+        'discord' => ['username', 'url'],
+        'telegram' => ['username', 'url'],
+        'kick' => ['username', 'url'],
+        'medium' => ['username', 'url'],
         'fresha' => ['url', 'selection'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
@@ -217,9 +228,11 @@ class PublicIntegrationConnectionResource extends ApiResource
                 ->all();
         }
 
-        // Null / non-array payloads (e.g. a pending connection) pass through.
+        // Fail CLOSED (SEC-3): a non-array payload must never reach this public,
+        // CDN-cached wire unfiltered. `payload` is NOT NULL in prod Postgres
+        // (jsonb, default '{}') — null here is only the nullable SQLite test mirror.
         if (! is_array($payload)) {
-            return $payload;
+            return [];
         }
 
         $allowed = self::ALLOWLIST[$platform] ?? null;

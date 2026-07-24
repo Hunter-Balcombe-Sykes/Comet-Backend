@@ -48,17 +48,16 @@ it('refuses to record a pageview when body site_id does not match the X-Site-Sub
 it('records a pageview when site_id matches the X-Site-Subdomain header', function () {
     $tenant = createTenant('legit');
 
-    $response = $this->withHeaders(['X-Site-Subdomain' => 'legit'])
-        ->postJson('/api/public/analytics/pageviews', [
-            'site_id' => $tenant->site->id,
-            'session_id' => (string) Str::uuid(),
-            'visitor_id' => (string) Str::uuid(),
-        ]);
+    $response = $this->withHeaders([
+        'X-Site-Subdomain' => 'legit',
+        'Origin' => 'https://legit.'.config('partna.public_domain'),
+    ])->postJson('/api/public/analytics/pageviews', [
+        'site_id' => $tenant->site->id,
+        'session_id' => (string) Str::uuid(),
+        'visitor_id' => (string) Str::uuid(),
+    ]);
 
-    // 201 = pageview recorded successfully.
-    // 404/500 acceptable if the aggregate job or cache service hits missing
-    // infrastructure in the SQLite test environment.
-    expect($response->status())->toBeIn([201, 404, 500]);
+    $response->assertStatus(201);
 });
 
 // ── Origin-binding tests (SEC-1 fix) ─────────────────────────────────────────
@@ -131,11 +130,14 @@ it('accepts a pageview when subdomain is provided and Origin matches', function 
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
 });
 
-// (e) No-Origin + no-Referer + both site_id and subdomain present and matching → allowed.
-it('allows a pageview with no Origin when both site_id and subdomain are present and match', function () {
+// (e) No-Origin + no-Referer + both site_id and subdomain present and matching → rejected.
+// This is the SEC-1 regression test: site_id and subdomain are both public values
+// (exposed in every page payload), so matching them can never substitute for a
+// browser-issued Origin/Referer.
+it('rejects a pageview with no Origin and no Referer even when site_id and subdomain both match the site (SEC-1)', function () {
     $tenant = createTenant('idor-both-e');
 
-    // No Origin or Referer — server-side / synthetic caller. Both identifiers present.
+    // No Origin or Referer at all — a scripted caller with only the public pair.
     $response = $this->postJson('/api/public/analytics/pageviews', [
         'site_id' => $tenant->site->id,
         'subdomain' => 'idor-both-e',
@@ -143,8 +145,21 @@ it('allows a pageview with no Origin when both site_id and subdomain are present
         'visitor_id' => (string) Str::uuid(),
     ]);
 
-    $response->assertStatus(201);
-    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
+});
+
+// (e2) No-Origin + no-Referer + subdomain only → rejected (SEC-1).
+it('rejects a pageview with no Origin and no Referer when only subdomain is provided', function () {
+    $tenant = createTenant('idor-subdomain-only-e2');
+
+    $response = $this->postJson('/api/public/analytics/pageviews', [
+        'subdomain' => 'idor-subdomain-only-e2',
+        'session_id' => (string) Str::uuid(),
+    ]);
+
+    $response->assertStatus(404);
+    expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
 });
 
 // (f) No-Origin + no-Referer + site_id only → rejected (the core IDOR attack vector).
@@ -163,11 +178,11 @@ it('rejects a pageview with no Origin when only site_id is provided (IDOR attack
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(0);
 });
 
-// ── SEC-2 — no-Origin caller: site_id/subdomain must resolve to the SAME site ─
+// ── IDOR: site_id/subdomain mismatch still fails independent of Origin ───────
 
-// (g) No-Origin + no-Referer + site_id of one real site paired with the subdomain
-// of a DIFFERENT real site → rejected. Both identifiers exist, but they don't
-// agree on which site is being claimed, so this must fail closed.
+// (g) site_id of one real site paired with the subdomain of a DIFFERENT real site,
+// no Origin/Referer either → rejected inside resolveSiteFromData()'s own cross-check,
+// before originAllowed() is ever reached. Unaffected by the SEC-1 fallback removal.
 it('rejects a pageview with no Origin when site_id and subdomain resolve to different sites', function () {
     $siteA = createTenant('idor-mismatch-a');
     $siteB = createTenant('idor-mismatch-b');
@@ -189,17 +204,19 @@ it('rejects a pageview with no Origin when site_id and subdomain resolve to diff
     expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $siteB->site->id)->count())->toBe(0);
 });
 
-// (h) No-Origin + no-Referer + matching site_id/subdomain pair → accepted (control
-// case — mirrors test (e), restated here for locality with the mismatch test above).
-it('accepts a pageview with no Origin when site_id and subdomain resolve to the same site', function () {
+// (h) Origin absent, Referer present and matching → accepted. Covers the surviving
+// fallback in parseOriginHost(), which would otherwise go untested now that (e)
+// proves site_id+subdomain alone can no longer authenticate a header-less caller.
+it('accepts a pageview when Origin is absent but Referer matches the site host', function () {
     $tenant = createTenant('idor-match-h');
 
-    $response = $this->postJson('/api/public/analytics/pageviews', [
-        'site_id' => $tenant->site->id,
-        'subdomain' => 'idor-match-h',
-        'session_id' => (string) Str::uuid(),
-        'visitor_id' => (string) Str::uuid(),
-    ]);
+    $response = $this->withHeader('Referer', 'https://idor-match-h.'.config('partna.public_domain').'/some/path')
+        ->postJson('/api/public/analytics/pageviews', [
+            'site_id' => $tenant->site->id,
+            'subdomain' => 'idor-match-h',
+            'session_id' => (string) Str::uuid(),
+            'visitor_id' => (string) Str::uuid(),
+        ]);
 
     $response->assertStatus(201);
     expect(DB::connection('pgsql')->table('analytics.site_visits')->where('site_id', $tenant->site->id)->count())->toBe(1);

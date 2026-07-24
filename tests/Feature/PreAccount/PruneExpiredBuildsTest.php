@@ -5,6 +5,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -99,9 +100,17 @@ it('isolates a per-candidate teardown fault and still prunes the remaining candi
 
     // First candidate's cache invalidation throws — the per-candidate transaction
     // rolls back and the sweep must keep going instead of aborting entirely.
+    //
+    // Three calls, not two (CACHE-1). Candidate 1: step 3's direct invalidateSite()
+    // throws inside the transaction, so it rolls back and the after-commit
+    // UserObserver::deleted never fires — one call. Candidate 2: step 3 succeeds,
+    // then the after-commit invalidateUser() ends in its own site bust — two calls.
+    // That last one used to be lost: invalidateUser() built its $keys array with a
+    // non-nullable auth-key generator, and these users are unclaimed (auth_user_id
+    // NULL), so it threw before reaching the bust. The old ->twice() encoded that bug.
     $this->partialMock(SiteCacheService::class, function ($mock) use ($s1) {
         $mock->shouldReceive('invalidateSite')
-            ->twice()
+            ->times(3)
             ->andReturnUsing(function (Site $site) use ($s1) {
                 if ($site->id === $s1->id) {
                     throw new RuntimeException('redis unavailable');
@@ -119,6 +128,22 @@ it('isolates a per-candidate teardown fault and still prunes the remaining candi
         // Successful candidate: still pruned despite the other candidate's fault.
         ->and(User::query()->find($u2->id))->toBeNull()
         ->and(PreAccountBuild::query()->find($b2->id))->toBeNull();
+});
+
+it('prunes to completion on the SQLite test driver without invoking the pgsql-only helper', function () {
+    // Proves the driver guard holds: if the command called
+    // audit.null_user_audit_links() unconditionally, SQLite would throw "no
+    // such function" here and the whole candidate transaction would roll
+    // back. Mirrors PurgePendingDeletionTest's precedent test for
+    // AccountDeletionService::purge(), which this command's forceDelete call
+    // now mirrors (Nightwatch #308).
+    [$user] = makeExpiredBuild();
+
+    expect(DB::connection('pgsql')->getDriverName())->toBe('sqlite');
+
+    $this->artisan('builds:prune-expired')->assertSuccessful();
+
+    expect(User::withTrashed()->find($user->id))->toBeNull();
 });
 
 it('never prunes an unapproved early-access build (null expires_at)', function () {

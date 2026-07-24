@@ -14,6 +14,7 @@ use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
+use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -327,7 +328,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      */
     protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
     {
-        DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now) {
+        // Slug reconcile inputs: computed INSIDE the rebuild transaction (pure
+        // PHP, no DB) but applied only after it commits — see
+        // reconcileItemSlugs(). By-reference so the closure can fill them.
+        /** @var list<string> $vanishedItemIds */
+        $vanishedItemIds = [];
+        /** @var array<string, string> $slugNamesByKey */
+        $slugNamesByKey = [];
+
+        DB::connection('pgsql')->transaction(function () use ($menu, $contentSource, $merged, $now, &$vanishedItemIds, &$slugNamesByKey) {
             // Wholesale rebuild (delete children → reinsert) is intentional, not a perf gap:
             // persist() only runs when handle()'s unchanged-skip gate misses (genuine content
             // change / forced refresh / recovery), so it is not a hot path. Keep it atomic
@@ -579,6 +588,30 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 // Bulk insert (bypasses casts — badges already JSON).
                 MenuItem::query()->insert($itemRows);
             }
+
+            // Slug reconcile inputs (pure PHP — no DB work in here). Every row
+            // this rebuild wrote needs a current slug keyed by its id; the bulk
+            // insert above bypasses MenuItemObserver, so nothing else mints one.
+            $slugNamesByKey = array_column($itemRows, 'name', 'id');
+
+            // Only dishes that genuinely VANISHED may have their slug freed.
+            // $deletableItemIds also holds every SURVIVING dish — persist()
+            // deletes and re-inserts survivors under the SAME uuid (identity
+            // reuse via takeReusedId), and every reused id reappears in
+            // $itemRows exactly once. Forgetting the whole delete set would
+            // destroy and re-mint every slug on every scrape, wrecking redirect
+            // history and permuting the -N suffixes so two dishes' public URLs
+            // could silently swap.
+            $reusedIds = [];
+            foreach (array_keys($slugNamesByKey) as $reusedId) {
+                $reusedIds[(string) $reusedId] = true;
+            }
+            $vanishedItemIds = $deletableItemIds
+                ->map(fn ($id) => (string) $id)
+                ->reject(fn (string $id) => isset($reusedIds[$id]))
+                ->values()
+                ->all();
+
             if ($pivotRows !== []) {
                 DB::connection('pgsql')->table('site.menu_item_categories')->insert($pivotRows);
             }
@@ -586,6 +619,57 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 MenuItemPlatform::query()->insert($platformRows);
             }
         });
+
+        // POST-COMMIT (see reconcileItemSlugs' hazard note) — never inside the
+        // transaction closure above.
+        $this->reconcileItemSlugs((string) $menu->user_id, $vanishedItemIds, $slugNamesByKey);
+    }
+
+    /**
+     * Keep site.item_slugs in step with a wholesale menu rebuild. The rebuild
+     * writes items through the query builder (bulk insert / mass delete), which
+     * bypasses MenuItemObserver entirely — so without this a scraped dish never
+     * gets a pretty URL, and a dropped dish squats its slug forever (the
+     * (user_id, slug) unique index is NOT partial, so a retired row still
+     * blocks reuse).
+     *
+     * Deliberately runs AFTER the rebuild transaction has committed. The
+     * allocator is now safe inside a transaction (insertUnique() allocates with
+     * insertOrIgnore behind a savepoint, so a collision can't abort the caller
+     * with SQLSTATE 25P02), but this walks every dish on the menu one at a
+     * time — keeping those round trips out of the rebuild transaction is the
+     * point, and this is best-effort work that must not be able to roll the
+     * rebuild back.
+     *
+     * FORGET BEFORE ENSURE — the order is load-bearing. A dropped "Café Latte"
+     * and a newly added "Cafe Latte" are distinct dishes to normalizeName() but
+     * share the slug base `cafe-latte`. Ensure-first would hand the newcomer
+     * `cafe-latte-2`, and because ensureCurrent() short-circuits on an unchanged
+     * base thereafter it would keep that suffix permanently.
+     *
+     * Best-effort by design, not style: this runs before writePlatformSyncStatus()
+     * in handle(), so throwing here would invert TXN-101's ordering guarantee and
+     * hide a platform from menu:retry-unavailable's self-heal query.
+     *
+     * @param  list<string>  $forgetIds  ids whose dish is genuinely gone
+     * @param  array<string, string>  $namesByKey  item id => name, for every written row
+     */
+    private function reconcileItemSlugs(string $userId, array $forgetIds, array $namesByKey): void
+    {
+        if ($forgetIds === [] && $namesByKey === []) {
+            return;
+        }
+
+        try {
+            // Container-resolved, not a constructor arg — jobs serialize their
+            // constructor args (same convention as bustSiteCache below).
+            $slugs = app(ItemSlugAllocator::class);
+            $slugs->forgetMany($userId, ItemSlugAllocator::TYPE_MENU_ITEM, $forgetIds);
+            $slugs->ensureCurrentMany($userId, ItemSlugAllocator::TYPE_MENU_ITEM, $namesByKey);
+        } catch (Throwable $e) {
+            report($e);
+            Log::warning('menu_fetch.item_slug_reconcile_failed', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -740,7 +824,13 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             return;
         }
 
-        DB::connection('pgsql')->transaction(function () use ($menu) {
+        // Filled inside the transaction, applied after it commits (see
+        // reconcileItemSlugs). Nothing is re-inserted on this path, so every
+        // deleted dish is genuinely vanished.
+        /** @var list<string> $vanishedItemIds */
+        $vanishedItemIds = [];
+
+        DB::connection('pgsql')->transaction(function () use ($menu, &$vanishedItemIds) {
             $rebuildableCategoryIds = $this->rebuildableCategoryIds($menu->id);
             // Delete only scraped items (non-manual dishes with a membership in a
             // scraper-owned category) — manual dishes survive even when no
@@ -753,6 +843,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 ->whereIn('id', $memberItemIds)
                 ->where('is_manual', false)
                 ->pluck('id');
+            $vanishedItemIds = $deletableItemIds->map(fn ($id) => (string) $id)->values()->all();
             MenuItemPlatform::query()->whereIn('menu_item_id', $deletableItemIds)->delete();
             DB::connection('pgsql')->table('site.menu_item_categories')->whereIn('menu_item_id', $deletableItemIds)->delete();
             MenuItem::query()->whereIn('id', $deletableItemIds)->delete();
@@ -775,6 +866,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 $menu->forceFill(['content_source' => $this->remainingContentSource($menu)])->save();
             }
         });
+
+        // POST-COMMIT. Nothing was re-inserted, so every deleted dish frees its
+        // slug; no ensure pass is needed (manual dishes were never deleted, so
+        // their slugs are untouched).
+        $this->reconcileItemSlugs($userId, $vanishedItemIds, []);
 
         // Scraped rows were removed from the public menu — bust the edge cache
         // (a menu existed, so this is a real content change, not a no-op).

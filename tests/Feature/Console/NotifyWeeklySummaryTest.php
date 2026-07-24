@@ -35,10 +35,13 @@ function weeklyUser(string $status = 'active'): User
 
 function giveSite(User $user): void
 {
+    $siteId = (string) Str::uuid();
+
     DB::table('site.sites')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $siteId,
         'user_id' => $user->id,
-        'architecture_id' => 'one',
+        'subdomain' => 'wk-'.substr($siteId, 0, 8),
+        'architecture_id' => 'staple',
     ]);
 }
 

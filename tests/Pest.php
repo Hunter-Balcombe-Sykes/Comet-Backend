@@ -291,15 +291,24 @@ function attachTestSchemas(): void
 }
 
 /**
- * Permissive core.users table — every column nullable. Just enough
- * structure for tests that read/write professionals via the model or raw queries.
+ * core.users — mirrors the NOT NULL / CHECK constraints of the real dev
+ * Postgres (T3 triage; guarded by SchemaDriftGuardTest). Columns prod leaves
+ * nullable stay nullable here: auth_user_id and primary_email are NULL for
+ * provisional pre-account users, which is why they are NOT tightened.
+ * Defaults mirror prod too — a column that is NOT NULL DEFAULT x in Postgres
+ * must carry that default here, or the test schema is stricter than prod and
+ * manufactures failures prod would never see.
  */
 function setupUsersTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
-        id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY NOT NULL,
         auth_user_id TEXT NULL,
+        -- handle / handle_lc / display_name / first_name are NOT NULL in prod but
+        -- stay nullable here and remain grandfathered in schema-drift-baseline.json:
+        -- tightening them fails 215 test files that seed users without a name, which
+        -- is a suite-wide sweep, not part of this 5-table pass. Tracked as follow-up.
         handle TEXT NULL,
         handle_lc TEXT NULL,
         display_name TEXT NULL,
@@ -311,12 +320,13 @@ function setupUsersTable(): void
         -- so a test seeding a retired value (\'individual\', \'brand\', \'partner\')
         -- fails at the INSERT rather than passing silently — enum casts are lazy,
         -- so an invalid value otherwise only throws if something reads it back.
-        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
-        status TEXT NULL,
+        -- Deliberately stricter than prod, which still tolerates \'staff\'.
+        account_type TEXT NOT NULL DEFAULT \'partna\' CHECK (account_type IN (\'partna\',\'business\')),
+        status TEXT NOT NULL DEFAULT \'active\' CHECK (status IN (\'active\',\'suspended\',\'disabled\',\'pending_deletion\',\'unclaimed\')),
         bio TEXT NULL,
         country_code TEXT NULL,
         timezone TEXT NULL,
-        onboarding_step INTEGER NULL,
+        onboarding_step INTEGER NOT NULL DEFAULT 0,
         public_contact_number TEXT NULL,
         public_contact_email TEXT NULL,
         sector TEXT NULL,
@@ -331,8 +341,8 @@ function setupUsersTable(): void
         location_state TEXT NULL,
         location_country TEXT NULL,
         deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
 
     // Defensive ALTERs for suites that created core.users before the sector
@@ -493,17 +503,17 @@ function setupSitesTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.sites (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        subdomain TEXT NULL,
-        architecture_id TEXT NULL,
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        subdomain TEXT NOT NULL,
+        architecture_id TEXT NOT NULL DEFAULT \'staple\' CHECK (architecture_id = \'staple\'),
         subdomain_changed_at TEXT NULL,
-        is_published INTEGER NULL,
+        is_published INTEGER NOT NULL DEFAULT 0,
         unpublished_at TEXT NULL,
-        settings TEXT NULL,
-        moderation_state TEXT NOT NULL DEFAULT \'active\',
+        settings TEXT NOT NULL DEFAULT \'{}\',
+        moderation_state TEXT NOT NULL DEFAULT \'active\' CHECK (moderation_state IN (\'active\',\'warned\',\'hidden\')),
         custom_domain TEXT NULL,
-        custom_domain_status TEXT NULL,
+        custom_domain_status TEXT NULL CHECK (custom_domain_status IS NULL OR custom_domain_status IN (\'pending\',\'active\',\'error\')),
         custom_domain_verified_at TEXT NULL,
         custom_domain_cf_id TEXT NULL,
         custom_domain_primary INTEGER NOT NULL DEFAULT 0,
@@ -511,13 +521,13 @@ function setupSitesTable(): void
         charlie_enabled INTEGER NULL,
         services_auto_sync_enabled INTEGER NULL,
         content_instagram_auto_enabled INTEGER NULL,
-        booking_mode TEXT NULL,
+        booking_mode TEXT NULL CHECK (booking_mode IS NULL OR booking_mode IN (\'manual\',\'none\')),
         manual_booking_url TEXT NULL,
-        shop_link_mode TEXT NULL DEFAULT \'checkout\',
-        shop_auto_latest INTEGER NULL DEFAULT 1,
+        shop_link_mode TEXT NOT NULL DEFAULT \'checkout\',
+        shop_auto_latest INTEGER NOT NULL DEFAULT 1,
         deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
     // Ensure moderation_state column exists for tests run against a pre-existing table.
     // Wrapped in try-catch because SQLite's ADD COLUMN IF NOT EXISTS syntax differs from Postgres.
@@ -570,25 +580,25 @@ function setupSitesTable(): void
     // dashboard; any test that sets up a site may touch it. Mirrors the
     // production migration 20260602020000 (jsonb→TEXT, bool→INTEGER).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        platform TEXT NULL,
-        resource_id TEXT NULL,
-        payload TEXT NULL,
-        sort_order INTEGER NULL DEFAULT 0,
-        is_active INTEGER NULL DEFAULT 1,
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        payload TEXT NOT NULL DEFAULT \'{}\',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
         last_visited_at TEXT NULL,
         last_refreshed_at TEXT NULL,
-        last_refresh_status TEXT NULL,
+        last_refresh_status TEXT NULL CHECK (last_refresh_status IN (\'ok\',\'unavailable\',\'error\',\'pending\')),
         last_refresh_error TEXT NULL,
-        consecutive_failures INTEGER NULL DEFAULT 0,
-        apify_status TEXT NULL,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        apify_status TEXT NULL CHECK (apify_status IS NULL OR apify_status IN (\'pending\',\'ok\',\'unavailable\')),
         place_id TEXT NULL,
         refresh_etag TEXT NULL,
         refresh_last_modified TEXT NULL,
         display_settings TEXT NULL,
         canonical_key TEXT NULL,
-        resource_kind TEXT NULL,
+        resource_kind TEXT NULL CHECK (resource_kind IS NULL OR resource_kind IN (\'event\',\'link\')),
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
@@ -667,8 +677,8 @@ function setupSitesTable(): void
     // + 20260721090000 (multi-category: menu_item_categories pivot; menu_items
     //   loses category_id + position — they live per-membership on the pivot).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
         content_source TEXT NULL,
         store_name TEXT NULL,
         logo_url TEXT NULL,
@@ -677,7 +687,7 @@ function setupSitesTable(): void
         currency TEXT NULL,
         pickup_platform TEXT NULL,
         delivery_platform TEXT NULL,
-        fetch_status TEXT NULL,
+        fetch_status TEXT NOT NULL DEFAULT \'pending\' CHECK (fetch_status IN (\'pending\',\'ok\',\'unavailable\')),
         dining_modes TEXT NULL,
         scan_items TEXT NULL,
         suppressed_items TEXT NULL,
@@ -791,6 +801,42 @@ function setupSitesTable(): void
     // Wire in workplace table so any test calling setupSitesTable() has the
     // full site-owned schema. Idempotent (CREATE IF NOT EXISTS).
     setupWorkplacesTable();
+}
+
+/**
+ * site.item_slugs — URL-slug registry for events + menu items.
+ * Mirrors migration 20260724120000. SQLite supports partial unique indexes,
+ * so the production constraints port directly; is_current stored as 0/1.
+ */
+function setupItemSlugsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.item_slugs (
+        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+        user_id TEXT NOT NULL,
+        item_type TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NULL
+    )');
+    // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
+    // name (not the table name) — an index must live in the same attached
+    // database as its table.
+    try {
+        DB::connection('pgsql')->statement(
+            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_unique_slug ON item_slugs (user_id, slug)'
+        );
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+    try {
+        DB::connection('pgsql')->statement(
+            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_one_current ON item_slugs (user_id, item_type, item_key) WHERE is_current = 1'
+        );
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
 }
 
 /**
@@ -1042,6 +1088,9 @@ function createTenant(string $handle): User
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
+        // NOT NULL in prod (core.users.first_name) — supplying it here keeps the
+        // helper's rows insertable against the real schema, not just SQLite's.
+        'first_name' => ucfirst($handle),
         'primary_email' => $handle.'@example.test',
         'account_type' => 'partna',
         'status' => 'active',
@@ -2381,7 +2430,7 @@ function setupDesignKitsTable(): void
 {
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
-        site_id TEXT PRIMARY KEY,
+        site_id TEXT PRIMARY KEY NOT NULL,
         color_accent TEXT NULL,
         color_accent_contrast TEXT NULL,
         color_text TEXT NULL,
@@ -2415,8 +2464,8 @@ function setupDesignKitsTable(): void
         theme_mode TEXT NULL,
         theme_contrast TEXT NULL,
         theme_night_shift_auto INTEGER NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
 }
 

@@ -15,7 +15,9 @@ Feature branches off `development`. PR → merge → promote to `production` to 
 
 **Current reality (2026-06-16):** Production env stopped, prod Supabase inactive. **Development** env serves BOTH domains, backed by dev Supabase (`glncumufgaqcmqhzwrxm`) — the live DB. Push `development` updates both APIs (do NOT promote). Apply migrations via `supabase db push` or Supabase MCP against dev ref.
 
-**Cloud CLI** (`~/.composer/vendor/bin/cloud`, arg = env name): `cloud deployment:list development` / `tinker` / `command:run`.
+**Cloud CLI** (`~/.composer/vendor/bin/cloud`, arg = env name): `cloud deployment:list development` / `tinker` / `command:run`. Read an env's configured vars: `cloud environment:get <env> --json --fields=environmentVariables` (masked; `--show-sensitive` to reveal).
+
+**Env-var diff:** `scripts/env/compare-env.sh` — diffs env-var **keys** (never values) across local `.env` / dev / prod + the prod-cutover checklist; prints a presence matrix + "set nowhere / prod-only / dev-only" gap buckets. Use before cutover instead of hand-comparing.
 
 **Push to Supabase:** `supabase link --project-ref <ref>` → `db push --dry-run` → `db push`. Dev freely; prod confirm first. `DB_USERNAME` = `app_backend.<project_ref>` (Supavisor), port 5432.
 

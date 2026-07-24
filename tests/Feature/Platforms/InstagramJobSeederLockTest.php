@@ -107,7 +107,7 @@ it('markFailed still records the terminal state under contention via the best-ef
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);

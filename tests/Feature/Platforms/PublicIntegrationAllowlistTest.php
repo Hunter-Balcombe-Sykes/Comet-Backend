@@ -381,6 +381,36 @@ it('returns an empty payload array (fail-closed) for a platform with no allowlis
     expect($result['payload'])->not->toHaveKey('sourceUrl');
 });
 
+it('fails closed to an empty payload when a stored payload is a scalar, not an array (SEC-3)', function () {
+    // Real code paths only ever write an array/JSONB object into `payload` —
+    // this simulates a corrupt row (e.g. a bug once wrote a raw error string)
+    // by inserting a JSON-encoded SCALAR directly via the query builder,
+    // bypassing IntegrationConnection's array cast on write. On read, the
+    // model's `payload` => 'array' cast json_decodes it back into a plain
+    // PHP string (not an array) — exactly the shape filterPayload() must
+    // reject before it ever reaches the per-platform allowlist.
+    $user = allowlistUser('allowscalar');
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'platform' => 'facebook',
+        'resource_id' => 'facebook',
+        'payload' => json_encode('leaked-scalar-value'),
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $payload = $this->getJson('/api/public/profiles/allowscalar/integrations')
+        ->assertOk()
+        ->json('data.platforms.facebook.0.payload');
+
+    // Fail-closed: never the raw scalar, regardless of platform allowlist.
+    expect($payload)->toBe([]);
+});
+
 it('never exposes booking/reservations on the public endpoint', function () {
     $user = allowlistUser('allow10');
 
@@ -546,4 +576,47 @@ it('allowlists square to only the public booking url and strips any internal key
 
     expect($payload)->toBe(['url' => 'https://book.squareup.com/appointments/abc123/location/xyz/services']);
     expect($payload)->not->toHaveKey('source');
+});
+
+it('allowlists the five 2026-07-23 link-only platforms (TEST-3) and strips internal keys', function () {
+    $user = allowlistUser('allowlink5');
+
+    // Each row seeded username-then-url (array_intersect_key preserves the
+    // STORED order, and toBe() === is order-sensitive) plus a _scratch key
+    // that's on NO allowlist, to prove it gets stripped.
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'snapchat', 'resource_id' => 'snapchat',
+        'payload' => ['username' => 'snapper', 'url' => 'https://snapchat.com/add/snapper', '_scratch' => 'internal'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'discord', 'resource_id' => 'discord',
+        'payload' => ['username' => 'abc123', 'url' => 'https://discord.gg/abc123', '_scratch' => 'internal'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'telegram', 'resource_id' => 'telegram',
+        'payload' => ['username' => 'tguser', 'url' => 'https://t.me/tguser', '_scratch' => 'internal'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'kick', 'resource_id' => 'kick',
+        'payload' => ['username' => 'kicker', 'url' => 'https://kick.com/kicker', '_scratch' => 'internal'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'medium', 'resource_id' => 'medium',
+        'payload' => ['username' => 'writer', 'url' => 'https://medium.com/@writer', '_scratch' => 'internal'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $p = $this->getJson('/api/public/profiles/allowlink5/integrations')
+        ->assertOk()
+        ->json('data.platforms');
+
+    expect($p['snapchat'][0]['payload'])->toBe(['username' => 'snapper', 'url' => 'https://snapchat.com/add/snapper']);
+    expect($p['discord'][0]['payload'])->toBe(['username' => 'abc123', 'url' => 'https://discord.gg/abc123']);
+    expect($p['telegram'][0]['payload'])->toBe(['username' => 'tguser', 'url' => 'https://t.me/tguser']);
+    expect($p['kick'][0]['payload'])->toBe(['username' => 'kicker', 'url' => 'https://kick.com/kicker']);
+    expect($p['medium'][0]['payload'])->toBe(['username' => 'writer', 'url' => 'https://medium.com/@writer']);
 });

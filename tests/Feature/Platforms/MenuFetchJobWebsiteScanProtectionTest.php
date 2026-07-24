@@ -16,6 +16,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // MenuItemObserver + MenuFetchJob write site.item_slugs best-effort — with
+    // no table they swallow "no such table" and mask real slug regressions.
+    setupItemSlugsTable();
 });
 
 function mfjwspUser(string $handle): User

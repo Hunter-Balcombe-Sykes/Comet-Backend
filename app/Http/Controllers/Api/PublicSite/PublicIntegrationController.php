@@ -10,8 +10,11 @@ use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
+use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 
 /**
  * GET /api/public/profiles/{handle}/platforms
@@ -45,6 +48,7 @@ class PublicIntegrationController extends ApiController
     public function __construct(
         private readonly ContentPopularityReader $popularity,
         private readonly CacheLockService $cache,
+        private readonly ItemSlugAllocator $slugs,
     ) {}
 
     public function show(string $handle): JsonResponse
@@ -84,7 +88,11 @@ class PublicIntegrationController extends ApiController
             ->with(['shopBrands.products'])
             // display_settings rides along so the Resource can suppress
             // toggled-off sections (reviews/hours/photos/…) from the payload.
-            ->get(['id', 'platform', 'resource_id', 'payload', 'display_settings', 'last_refreshed_at'])
+            // resource_kind rides along so annotateEventSlugs() below can tell a
+            // standalone/custom event row (payload IS the event) apart from an
+            // account row (payload.upcoming[] is the event list) — same
+            // resource_kind === 'event' check EventsPlatformController uses.
+            ->get(['id', 'platform', 'resource_id', 'resource_kind', 'payload', 'display_settings', 'last_refreshed_at'])
             ->groupBy('platform');
 
         // Instagram: the gallery card is UNIFIED with the Content/Media "auto
@@ -132,6 +140,44 @@ class PublicIntegrationController extends ApiController
             $productRanks = $ranks['shop_product'] ?? [];
         }
 
+        // Pretty URL slugs for the events sitepage section (item-url-slugs):
+        // mutate every eventbrite/humanitix/events-custom row's payload in
+        // place — before the Resource resolves it — to carry `slug` +
+        // `aliases` per event (account rows' upcoming[]/next event objects,
+        // or a standalone row's own top level). Best-effort: a lookup
+        // failure leaves every event annotated with `slug: null, aliases:
+        // [id]` (today's raw-id behaviour) rather than breaking this
+        // response. Inlined here (not its own method) so $connections' type
+        // — an Eloquent Collection-of-Collections from ->groupBy(), which
+        // Eloquent Collection's own `<TKey, TModel of Model>` template can't
+        // honestly describe — never has to cross a separately-typed method
+        // boundary; PHPStan infers it correctly right where it's produced.
+        $eventRows = collect(EventSlugSync::PLATFORMS)
+            ->flatMap(fn (string $platform) => $connections->get($platform) ?? []);
+        if ($eventRows->isNotEmpty()) {
+            $hexIds = $eventRows
+                ->flatMap(fn (IntegrationConnection $row) => EventSlugSync::extractEvents($row->resource_kind, $row->payload))
+                ->filter(fn ($e) => is_array($e) && is_string($e['id'] ?? null))
+                ->pluck('id')
+                ->unique()
+                ->values()
+                ->all();
+
+            $slugMap = [];
+            if ($hexIds !== []) {
+                try {
+                    $slugMap = $this->slugs->lookupCurrent($userId, ItemSlugAllocator::TYPE_EVENT, $hexIds);
+                } catch (\Throwable $e) {
+                    report($e);
+                    Log::warning('PublicIntegrationController event-slug lookup failed', ['user_id' => $userId, 'message' => $e->getMessage()]);
+                }
+            }
+
+            foreach ($eventRows as $row) {
+                $row->payload = $this->annotateEventPayload($row->resource_kind, $row->payload, $slugMap);
+            }
+        }
+
         $platforms = $connections
             ->map(fn ($rows, $platform) => $platform === 'shop'
                 // Thread the globals into each shop connection resource — collection()
@@ -146,5 +192,47 @@ class PublicIntegrationController extends ApiController
             ->toArray();
 
         return $this->success(['data' => ['platforms' => $platforms]]);
+    }
+
+    /**
+     * $payload is declared `mixed`, not `array` — IntegrationConnection's own
+     * docblock notes `payload` is NOT NULL only in Postgres (default '{}');
+     * the SQLite test mirror can carry it nullable, so the is_array guard
+     * below is a real (test-reachable) branch, not a redundant one — matching
+     * how EventsAccountPayload::fromArray / StandaloneEventPayload::fromArray
+     * already guard the same attribute.
+     *
+     * @param  array<string, array{slug: string, aliases: list<string>}>  $slugMap  keyed by event hex id
+     * @return array<string,mixed>
+     */
+    private function annotateEventPayload(?string $resourceKind, mixed $payload, array $slugMap): array
+    {
+        $payload = is_array($payload) ? $payload : [];
+
+        $annotate = function (array $event) use ($slugMap): array {
+            $id = $event['id'] ?? null;
+            if (is_string($id) && isset($slugMap[$id])) {
+                $event['slug'] = $slugMap[$id]['slug'];
+                $event['aliases'] = $slugMap[$id]['aliases'];
+            } else {
+                $event['slug'] = null;
+                $event['aliases'] = is_string($id) ? [$id] : [];
+            }
+
+            return $event;
+        };
+
+        if ($resourceKind === 'event') {
+            return $annotate($payload);
+        }
+
+        if (is_array($payload['upcoming'] ?? null)) {
+            $payload['upcoming'] = array_map(fn ($e) => is_array($e) ? $annotate($e) : $e, $payload['upcoming']);
+        }
+        if (is_array($payload['next'] ?? null)) {
+            $payload['next'] = $annotate($payload['next']);
+        }
+
+        return $payload;
     }
 }

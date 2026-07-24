@@ -295,6 +295,18 @@ class UserCacheService
         ]);
     }
 
+    /**
+     * Callers (UserObserver, LoadCurrentUser) deliberately swallow-and-report any
+     * Throwable from this method rather than letting it propagate — a cache failure
+     * must never abort a write. UserObserver::deleted() is dispatched as an
+     * after-commit callback, so the row is already gone by the time this runs: a
+     * throw here cannot roll the delete back, it only aborts the rest of the caller
+     * (e.g. it kills the remaining candidates in a builds:prune-expired run).
+     * The accepted risk is a *total* invalidation miss (every key here survives to
+     * TTL) rather than a partial one — which is why this method must degrade
+     * gracefully on a legitimate row state (e.g. an unclaimed user's null
+     * auth_user_id) instead of throwing.
+     */
     public function invalidateUser(User $professional, bool $bustSite = true): void
     {
         $handleLc = strtolower($professional->handle);
@@ -304,10 +316,7 @@ class UserCacheService
         $keys = [
             CacheKeyGenerator::professionalPayloadById($professional->id),
             CacheKeyGenerator::professionalPayloadByHandle($handleLc),
-            CacheKeyGenerator::professionalPayloadByAuthId($professional->auth_user_id),
-
             CacheKeyGenerator::userIdByHandle($handleLc),
-            CacheKeyGenerator::userIdByAuthId($professional->auth_user_id),
 
             // Auth-path hydrated-model cache (60 s SWR). Both the primary key and
             // the `:stale` last-good copy must die here, otherwise stale-while-
@@ -322,6 +331,19 @@ class UserCacheService
             CacheKeyGenerator::customerCount($professional->id),
             CacheKeyGenerator::staleKey(CacheKeyGenerator::customerCount($professional->id)),
         ];
+
+        // auth_user_id is nullable (unclaimed pre-account users — see
+        // supabase/migrations/20260718200000_pre_account_sites.sql). The two
+        // generators below take a non-nullable string on purpose: a generator
+        // that accepts null would push null-handling onto every call site and
+        // make `Cache::get(null)` an easy accident. The nullable thing is the
+        // column, not the key space — an authless user simply has no auth-keyed
+        // entries, so skip them rather than casting to '' (which would produce
+        // "pro:payload:auth:", a single key SHARED by every authless user).
+        if ($professional->auth_user_id !== null) {
+            $keys[] = CacheKeyGenerator::professionalPayloadByAuthId($professional->auth_user_id);
+            $keys[] = CacheKeyGenerator::userIdByAuthId($professional->auth_user_id);
+        }
 
         if ($professional->wasChanged('handle')) {
             $old = strtolower((string) $professional->getOriginal('handle'));

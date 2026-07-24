@@ -60,3 +60,44 @@ it("keeps two users' connections separate (per-user isolation)", function () {
 
     expect(IntegrationConnection::where('platform', 'tiktok')->count())->toBe(2);
 });
+
+it('connects each of the five 2026-07-23 link-only platforms and exposes username+url on the public endpoint (TEST-3)', function () {
+    // Closes the normalizer↔allowlist loop: this is the test that would catch a
+    // key-name mismatch between a normalizer's output and
+    // PublicIntegrationConnectionResource::ALLOWLIST — the exact failure class
+    // TEST-3 was about. Inputs satisfy each normalizer's own regex (Telegram's
+    // minimum is 5 chars, the others 2-3).
+    $user = makeLinkUser('link5');
+    $inputs = [
+        'snapchat' => 'snapper',
+        'discord' => 'abc123',
+        'telegram' => 'tguser',
+        'kick' => 'kicker',
+        'medium' => 'writer',
+    ];
+    $expectedUrls = [
+        'snapchat' => 'https://snapchat.com/add/snapper',
+        'discord' => 'https://discord.gg/abc123',
+        'telegram' => 'https://t.me/tguser',
+        'kick' => 'https://kick.com/kicker',
+        'medium' => 'https://medium.com/@writer',
+    ];
+
+    foreach ($inputs as $platform => $input) {
+        actingAsUser($user)->postJson("/api/platforms/{$platform}/connect", ['username' => $input])
+            ->assertOk()
+            ->assertJsonPath('username', $input)
+            ->assertJsonPath('url', $expectedUrls[$platform]);
+    }
+
+    $platforms = $this->getJson("/api/public/profiles/{$user->handle}/integrations")
+        ->assertOk()
+        ->json('data.platforms');
+
+    foreach ($inputs as $platform => $input) {
+        expect($platforms[$platform][0]['payload'])->toBe([
+            'username' => $input,
+            'url' => $expectedUrls[$platform],
+        ]);
+    }
+});

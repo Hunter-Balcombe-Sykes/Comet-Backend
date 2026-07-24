@@ -12,7 +12,9 @@ use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Platforms\MenuItemDeepLinks;
+use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 
 /**
  * GET /api/public/profiles/{handle}/menu
@@ -31,6 +33,7 @@ class PublicMenuController extends ApiController
     public function __construct(
         private readonly ContentPopularityReader $popularity,
         private readonly CacheLockService $cache,
+        private readonly ItemSlugAllocator $slugs,
     ) {}
 
     public function show(string $handle): JsonResponse
@@ -97,6 +100,9 @@ class PublicMenuController extends ApiController
         $categoryRanks = $ranks['menu_category'] ?? [];
         $itemRanks = $ranks['menu_item'] ?? [];
 
+        $itemIds = $menu->categories->flatMap(fn ($cat) => $cat->items->pluck('id'))->unique()->values()->all();
+        $slugMap = $this->menuItemSlugMap($userId, $itemIds);
+
         $categories = $menu->categories
             ->map(fn ($cat) => [
                 'name' => $cat->name,
@@ -111,6 +117,13 @@ class PublicMenuController extends ApiController
                     // Refresh reshuffled category/item order. Additive field; every
                     // existing consumer reading by key is unaffected.
                     'id' => (string) $item->id,
+                    // Pretty URL slug (site.item_slugs) — null until the item's
+                    // first mint (create, rename, or the slugs:backfill sweep).
+                    // aliases: every OTHER value that should 301 to `slug` on
+                    // the sitepage detail route — retired slugs + the raw id
+                    // itself, so a pre-slug bookmarked link keeps working.
+                    'slug' => $slugMap[(string) $item->id]['slug'] ?? null,
+                    'aliases' => $slugMap[(string) $item->id]['aliases'] ?? [(string) $item->id],
                     'name' => $item->name,
                     'description' => $item->description,
                     'imageUrl' => $item->image_url,
@@ -166,6 +179,31 @@ class PublicMenuController extends ApiController
                 'categories' => $categories,
             ],
         ]);
+    }
+
+    /**
+     * Each item's current slug + 301-redirect aliases, keyed by item id —
+     * delegates to ItemSlugAllocator::lookupCurrent (shared with
+     * PublicIntegrationController's event-slug lookup; see its docblock for
+     * the is_current/PDO-boolean note). Best-effort here: this endpoint's
+     * core job is serving the menu, which predates and must survive any
+     * item_slugs outage — a failure degrades every item to `slug: null,
+     * aliases: [id]` (today's raw-id behaviour) rather than 500ing the whole
+     * response.
+     *
+     * @param  list<string>  $itemIds
+     * @return array<string, array{slug: string, aliases: list<string>}>
+     */
+    private function menuItemSlugMap(string $userId, array $itemIds): array
+    {
+        try {
+            return $this->slugs->lookupCurrent($userId, ItemSlugAllocator::TYPE_MENU_ITEM, $itemIds);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('PublicMenuController item-slug lookup failed', ['user_id' => $userId, 'message' => $e->getMessage()]);
+
+            return [];
+        }
     }
 
     /** Mirrors MenuController::numberOrNull() — kept local, duplication over a shared dependency. */

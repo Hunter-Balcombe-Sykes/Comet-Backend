@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\LinkInBioScanJob;
+use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
@@ -23,7 +24,7 @@ function libIgConnection(User $user, array $payload = []): IntegrationConnection
 {
     return IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'instagram',
+        'platform' => 'instagram', 'resource_id' => 'instagram',
         'payload' => $payload,
         'is_active' => true,
     ]);
@@ -50,7 +51,7 @@ it('unrolls a link-in-bio page into a seeded integration and a commerce probe, w
     // The unclassified blog link goes to a commerce probe (signup-v2 C4) — the
     // probe job owns the custom-link fallback on a miss.
     Queue::assertPushed(
-        \App\Jobs\Platforms\ProbeCommerceLinksJob::class,
+        ProbeCommerceLinksJob::class,
         fn ($job) => $job->url === 'https://someblog.example' && $job->category === null,
     );
     expect(IntegrationConnection::where('payload->url', 'https://linktr.ee/venue')->exists())->toBeFalse();
@@ -136,7 +137,7 @@ it('merges a conflict finding into the IG payload syncFindings and notifies the 
     $ig = libIgConnection($user, ['syncFindings' => [], 'unmatched' => []]);
     // An existing fresha connection with a DIFFERENT url — the scanned link conflicts.
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'fresha',
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
         'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
     ]);
     Http::fake([
@@ -170,7 +171,7 @@ it('does not duplicate a finding for a platform the direct bio scan already reco
     ];
     $ig = libIgConnection($user, ['syncFindings' => [$existingFinding], 'unmatched' => []]);
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'fresha',
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
         'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
     ]);
     Http::fake([

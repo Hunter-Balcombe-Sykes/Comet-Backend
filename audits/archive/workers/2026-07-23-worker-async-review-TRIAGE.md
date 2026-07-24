@@ -45,9 +45,11 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
+**Closed out 2026-07-24 — folder archived at Josh's direction.** All 17 in-scope units shipped and reviewed. Of the 4 non-code items: `RV-1` verified (dashboard), `RV-2` set on both envs. `RV-12` and `R3-SCALE-1` are **not done** — they graduated to their own prompts (see the `[~]` notes) and are marked `[~]` so this run's folder can archive without falsely claiming them complete.
+
 - P0 Blockers: 0 of 0 complete
-- P1 High: 10 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 16 of 19 complete (13 pipeline + 6 review-only)
+- P1 High: 11 of 11 complete (6 pipeline + 5 review-only)
+- P2 Medium: 17 of 19 complete + 2 relocated (`RV-12`, `R3-SCALE-1`) — see `[~]` notes
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -338,7 +340,8 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
         }
         ```
 
-- [ ] **R3-SCALE-1** · P2 — Analytics ingest shares a single 2-process Horizon lane with 10 other queues, list-ordered behind all of them
+- [~] **R3-SCALE-1** · P2 — Analytics ingest shares a single 2-process Horizon lane with 10 other queues, list-ordered behind all of them
+    - **OUT OF SCOPE for this pilot run — launch tier.** The pilot prompt explicitly excluded it; it is tracked as launch work in `docs/superpowers/plans/2026-07-23-worker-async-launch-PROMPT.md` (roadmap #11 + TRIAGE unit 10). Marked `[~]` — not done, not this run's scope — so the pilot folder can archive.
     - **Where:** config/horizon.php (`defaults.supervisor-1`, `environments.production`/`development`) + app/Jobs/Analytics/RecordAnalyticsEventJob.php
     - **Affects:** Analytics-dashboard freshness during a viral-traffic spike — the exact scenario this audit is scoped against (single-page virality driving 50–100 events/sec).
     - **Effort:** L (~1–2d) — capacity/memory planning, not a code-only change
@@ -658,7 +661,8 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
 > **Out of scope for this run** (own prompt: `2026-07-23-worker-async-launch-PROMPT.md`): work unit 10
 > (`R3-SCALE-1`) and roadmap items 11, 12, 16–20.
 
-- [ ] **RV-1** · P1 — Valkey `maxmemory-policy` on `partna_dev_cache` is unverified; an `allkeys-*` policy evicts queued jobs with zero trace
+- [x] **RV-1** · P1 — Valkey `maxmemory-policy` on `partna_dev_cache` is unverified; an `allkeys-*` policy evicts queued jobs with zero trace
+    - **DONE 2026-07-24:** Josh verified the policy on the Laravel Cloud dashboard (`partna_dev_cache` → config → `maxmemory-policy`). Not machine-checkable from the app — the cache is IP-allowlisted to Cloud's network and the `application` user's ACL denies `CONFIG`/`INFO`; the dashboard is the only source of truth.
     - **Where:** Laravel Cloud dashboard → `partna_dev_cache` (and the production cache instance). Not a code path — the app's Redis ACL denies `CONFIG` and `INFO`.
     - **Affects:** Every queued job in the system. This is the only failure mode in the whole review that loses work leaving no evidence at all.
     - **Effort:** S — dashboard read, then a one-field change if wrong. 🙋 **Josh action, not code.**
@@ -670,7 +674,8 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** Queue payloads (DB 0), cache (DB 1), sessions (DB 2) and lock keys (DB 4) are all co-resident on one 250 MB Valkey instance. Under any `allkeys-*` policy, Redis evicts by its own key-selection heuristic once `maxmemory` is reached — it has no concept that a `queues:*` list holds work in flight. An evicted job throws nothing, writes no `failed_jobs` row and produces no Nightwatch event; the work simply never happens. `noeviction` converts the same memory-pressure condition into a write error at dispatch time, which is loud, attributable and recoverable. The app cannot self-diagnose this: `CONFIG` and `INFO` are both denied by the ACL, so the dashboard is the only source of truth. §9 Q1 escalates this to "the top P0" if the policy turns out to be `allkeys-lru`.
     - **Plain English:** All the background work waiting to be done is stored in the same limited memory bucket as the app's temporary data. If that bucket is set to "when full, throw out whatever looks least used," it can throw away jobs that haven't run yet — and nothing anywhere records that it happened. A customer's confirmation email, a video that never finishes processing, a deletion request that quietly evaporates. Setting it to "when full, refuse new writes" turns an invisible disappearance into a visible error somebody can act on. Nobody can check this from inside the app; it has to be read off the hosting dashboard.
 
-- [ ] **RV-2** · P2 — `HORIZON_NOTIFICATION_EMAIL` unset, so twelve tuned queue-wait thresholds alert nobody
+- [x] **RV-2** · P2 — `HORIZON_NOTIFICATION_EMAIL` unset, so twelve tuned queue-wait thresholds alert nobody
+    - **DONE 2026-07-24:** set to `jhunter7333@gmail.com` on `development` AND `production` via `cloud env:vars --action=set`. Activates on next `development` deploy (running containers predate the change); prod is stopped so inert until cutover.
     - **Where:** Laravel Cloud environment variables on `development` and `production`; thresholds live in `config/horizon.php` under `waits`.
     - **Affects:** Operators. Queue backlog is unmonitored end to end — today it is observable only by manually opening the Horizon dashboard and looking.
     - **Effort:** S — one env var per environment. 🙋 **Josh action, not code.**
@@ -786,7 +791,8 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** The review found ten `DeleteMirroredMediaJob` failures at `2026-07-23 03:21:15` — R2 returning 4xx on a `platforms/instagram/...` prefix listing — and that job's `failed()` only reports and logs; it schedules no reclamation. Neither existing sweeper covers the gap: `gdpr:sweep-purged-video-artifacts` reads `EVENT_PURGED` audit rows for **video** paths, and `media:gc-orphaned-video-artifacts` LISTs the **`videos/`** prefix. **Nothing touches `platforms/`.** This is the one failure class in the review with no compensating control anywhere in the system, which is why it is here despite being a launch-tier roadmap item.
     - **Plain English:** When a scraped Instagram image needs deleting from cloud storage and that delete fails, the failure gets logged and then nothing else happens — the file stays there, paid for, forever. There are two existing cleanup routines that go looking for exactly this kind of abandoned file, but both were written for video and only look in the video folder. Nobody has ever swept the platform-media folder. The review found ten of these failures in a single night. The fix is a third cleanup routine on the same pattern as the first two, with two cautions: give its "don't run twice at once" lock a longer life than the gap between runs, and make it ignore recently-created files so it cannot delete something a mirror job is still writing.
 
-- [ ] **RV-12** · P2 — Transactional mail shares a 2-process supervisor with nine other queues; two long jobs stall every email
+- [~] **RV-12** · P2 — Transactional mail shares a 2-process supervisor with nine other queues; two long jobs stall every email
+    - **RELOCATED 2026-07-24 — NOT completed in this run.** Gated on the `RV-4` `flex-2gb` resize going live. Graduated to its own gated prompt: `docs/superpowers/plans/2026-07-24-rv12-mail-supervisor-PROMPT.md`. Marked `[~]` (neither open TODO for this run nor a completion claim) so the pilot folder can archive; real doneness is tracked in that prompt.
     - **Where:** config/horizon.php:96-104
     - **Affects:** Every transactional email — enquiry confirmations, notifications, GDPR deletion links — during any period when two long-running jobs occupy `supervisor-1`.
     - **Effort:** M · 🔒 **blocker: strictly after `RV-4`. Do not implement before that decision lands.**

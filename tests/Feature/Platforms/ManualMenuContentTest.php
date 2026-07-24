@@ -17,6 +17,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // MenuItemObserver + MenuFetchJob write site.item_slugs best-effort — with
+    // no table they swallow "no such table" and mask real slug regressions.
+    setupItemSlugsTable();
 });
 
 // Menu is a food-business capability (can_use_menu requires isBusiness() &&
