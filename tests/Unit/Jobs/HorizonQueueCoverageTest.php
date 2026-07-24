@@ -8,8 +8,12 @@ use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
+use App\Mail\Auth\MagicLinkMail;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
+use Illuminate\Mail\SendQueuedMailable;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -199,6 +203,36 @@ it('the longest mail-lane job stays under its connection retry_after and supervi
     // broadcast to every subscriber.
     expect($job->timeout)->toBeLessThan($retryAfter)
         ->and($job->timeout)->toBeLessThanOrEqual($supervisorTimeout);
+});
+
+// RV-12 review fix (Change 4/5): config/queue.php's redis connection defaults to
+// the 'default' queue, and no Mailable declares a queue, so Mail::queue() /
+// ->queue() previously landed every transactional email — including Supabase
+// auth magic links/OTP/reset and GDPR deletion mails — on the shared
+// supervisor-1 pool, exactly the head-of-line-blocking problem this unit exists
+// to fix. BaseTransactionalMail::queue() now defaults every subclass onto the
+// dedicated lane. Goes through the real Mail::queue() -> Mailer::queue() ->
+// Mailable::queue() pipeline (Queue::fake() only fakes the queue connection,
+// not Mail), so this exercises the actual override, not a mock.
+it('a queued transactional Mailable lands on the notifications queue by default (RV-12)', function () {
+    Queue::fake();
+
+    Mail::queue(new MagicLinkMail('someone@example.com', 'Someone', 'https://partna.au/verify/token'));
+
+    Queue::assertPushedOn('notifications', SendQueuedMailable::class);
+});
+
+// The override must not clobber a caller's own routing choice — only fill in
+// the default when nothing was set.
+it('a caller-specified ->onQueue() still wins over the transactional-mail default (RV-12)', function () {
+    Queue::fake();
+
+    $mailable = new MagicLinkMail('someone@example.com', 'Someone', 'https://partna.au/verify/token');
+    $mailable->onQueue('mail');
+
+    Mail::queue($mailable);
+
+    Queue::assertPushedOn('mail', SendQueuedMailable::class);
 });
 
 // Generic sweep: the per-queue tests above pin four historically-bitten lanes,
