@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\ResolveSiteAccentJob;
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
 use App\Jobs\Platforms\WebsiteGalleryScanJob;
 use App\Jobs\Platforms\WebsiteMenuHtmlScanJob;
@@ -20,7 +21,6 @@ use App\Services\Platforms\WebsiteLinkHarvester;
 use App\Services\WebsiteScan\AboutProseExtractor;
 use App\Services\WebsiteScan\AboutTextExtractor;
 use App\Services\WebsiteScan\ContactEmailExtractor;
-use App\Services\WebsiteScan\DesignKitAccentApplier;
 use App\Services\WebsiteScan\FaviconFetcher;
 use App\Services\WebsiteScan\MenuTextExtractor;
 use App\Services\WebsiteScan\PdfLinkDetector;
@@ -85,7 +85,6 @@ function spwcjRun(string $userId, string $siteId, string $url): void
         app(GoogleBusinessAutoSync::class),
         app(FaviconFetcher::class),
         app(WebsiteAccentExtractor::class),
-        app(DesignKitAccentApplier::class),
         app(WebsiteLogoCandidateExtractor::class),
         app(LogoAutoGrabber::class),
         app(MetadataParser::class),
@@ -349,7 +348,14 @@ it('does not notify when the website scan finds nothing conflicting', function (
     expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(0);
 });
 
-it('fills the design_kits accent colour off the same fetch', function () {
+// Accent RESOLUTION (fill-if-empty, priority chain) is ResolveSiteAccentJob's
+// own responsibility now — covered end to end in ResolveSiteAccentJobTest.
+// This job's job is only to extract the theme-color/favicon candidates from
+// the already-fetched page and dispatch the resolver (twice: immediate +
+// delayed, see the dispatch site's comment) with them.
+
+it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color candidate', function () {
+    Queue::fake();
     [$user, $site] = spwcjUser('spwcj7', 'partna');
     Workplace::create(['site_id' => (string) $site->id]);
 
@@ -357,11 +363,13 @@ it('fills the design_kits accent colour off the same fetch', function () {
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
-    $row = DB::connection('pgsql')->table('site.design_kits')->where('site_id', (string) $site->id)->first();
-    expect($row->color_accent)->toBe('#ff5500');
+    Queue::assertPushed(ResolveSiteAccentJob::class, fn ($job) => $job->siteId === (string) $site->id
+        && $job->themeColor === '#ff5500');
+    Queue::assertPushed(ResolveSiteAccentJob::class, 2);
 });
 
-it('does not overwrite an existing accent colour', function () {
+it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if-empty is the resolver job\'s call, not this one\'s)', function () {
+    Queue::fake();
     [$user, $site] = spwcjUser('spwcj7b', 'partna');
     Workplace::create(['site_id' => (string) $site->id]);
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => (string) $site->id, 'color_accent' => '#000000']);
@@ -370,6 +378,9 @@ it('does not overwrite an existing accent colour', function () {
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
+    Queue::assertPushed(ResolveSiteAccentJob::class, 2);
+    // The existing manual accent is untouched at THIS layer — dispatch alone
+    // never writes anything (ResolveSiteAccentJobTest pins the actual guard).
     $row = DB::connection('pgsql')->table('site.design_kits')->where('site_id', (string) $site->id)->first();
     expect($row->color_accent)->toBe('#000000');
 });

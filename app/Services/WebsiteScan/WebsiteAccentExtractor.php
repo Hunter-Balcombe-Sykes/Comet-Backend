@@ -25,7 +25,14 @@ class WebsiteAccentExtractor
         return $faviconColor ?? $themeColor;
     }
 
-    private function themeColorFromHtml(string $html): ?string
+    /**
+     * The theme-color candidate alone (not reconciled against a favicon) —
+     * used by ScanPreviousWebsiteContentJob to feed SiteAccentResolver's
+     * independent priority chain, which has its own theme-color > logo >
+     * favicon > gallery ordering rather than this class's RGB-distance
+     * reconciliation.
+     */
+    public function themeColorFromHtml(string $html): ?string
     {
         if (! preg_match('/<meta[^>]+name=["\']theme-color["\'][^>]+content=["\']([^"\']+)["\']/i', $html, $m)) {
             return null;
@@ -35,7 +42,8 @@ class WebsiteAccentExtractor
         return $hex !== null && AccentQuality::qualifies($hex) ? $hex : null;
     }
 
-    private function dominantColorFromImage(string $bytes): ?string
+    /** The favicon dominant-colour candidate alone — see themeColorFromHtml(). */
+    public function dominantColorFromImage(string $bytes): ?string
     {
         $image = @imagecreatefromstring($bytes);
         if ($image === false) {

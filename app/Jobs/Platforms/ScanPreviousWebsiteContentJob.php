@@ -16,7 +16,6 @@ use App\Services\Platforms\WebsiteLinkHarvester;
 use App\Services\WebsiteScan\AboutProseExtractor;
 use App\Services\WebsiteScan\AboutTextExtractor;
 use App\Services\WebsiteScan\ContactEmailExtractor;
-use App\Services\WebsiteScan\DesignKitAccentApplier;
 use App\Services\WebsiteScan\FaviconFetcher;
 use App\Services\WebsiteScan\MenuTextExtractor;
 use App\Services\WebsiteScan\PdfLinkDetector;
@@ -113,7 +112,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         GoogleBusinessAutoSync $googleBusinessAutoSync,
         FaviconFetcher $faviconFetcher,
         WebsiteAccentExtractor $accentExtractor,
-        DesignKitAccentApplier $accentApplier,
         WebsiteLogoCandidateExtractor $logoCandidateExtractor,
         LogoAutoGrabber $logoAutoGrabber,
         MetadataParser $metadataParser,
@@ -281,12 +279,15 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
-        // Accent colour + logo candidates — one shared favicon fetch, no
-        // headless render, reuses the exact $html/$baseUrl already fetched
-        // above (no second main-page request).
+        // Accent colour candidates + logo candidates — one shared favicon
+        // fetch, no headless render, reuses the exact $html/$baseUrl already
+        // fetched above (no second main-page request). Accent RESOLUTION
+        // itself is deferred to ResolveSiteAccentJob (dispatched below, after
+        // the logo/gallery work is kicked off) so those async palette tiers
+        // get a real shot once their processing has landed.
         $favicon = $faviconFetcher->fetch($html, $baseUrl);
-        $accentHex = $accentExtractor->extract($html, $favicon['bytes'] ?? null);
-        $accentApplier->apply($this->siteId, $accentHex);
+        $themeColor = $accentExtractor->themeColorFromHtml($html);
+        $faviconColor = isset($favicon['bytes']) ? $accentExtractor->dominantColorFromImage($favicon['bytes']) : null;
 
         $logoCandidates = $logoCandidateExtractor->extract($html, $baseUrl);
         if ($favicon !== null) {
@@ -314,6 +315,24 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
                 ->delay(now()->addSeconds(30));
         }
+
+        // Accent resolution — dispatched TWICE, not run inline. Once now
+        // (covers theme-color/favicon, already available — same latency as
+        // before this change) and once delayed (covers the logo/gallery
+        // tiers above, which are async and this job has no direct handle to
+        // chain onto — LogoAutoGrabber/GalleryAutoGrabber dispatch their own
+        // variant-processing jobs several layers down via MediaUploadService,
+        // opaque to this caller). Cheap to over-dispatch: DesignKitAccentApplier
+        // (inside ResolveSiteAccentJob) is fill-if-empty, so the second run is
+        // a no-op once the first (or a manual edit) already set an accent.
+        // 120s comfortably covers the gallery job's own 30s delay plus its
+        // processing, and gives the logo pipeline's typically-fast (but
+        // occasionally slow, cold-container) round-trip a fair shot — not a
+        // guarantee; a genuinely slower run just misses this pass and waits
+        // for the next website re-scan.
+        ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor);
+        ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor)
+            ->delay(now()->addSeconds(120));
     }
 
     /**
