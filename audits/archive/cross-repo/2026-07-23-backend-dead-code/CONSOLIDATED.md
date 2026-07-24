@@ -1,5 +1,8 @@
 # Backend dead-code sweep (Stage 4) — CONSOLIDATED — 2026-07-23
 
+> **3 of 3 reports from the 2026-07-23 cross-repo campaign.** Sibling reports:
+> `../2026-07-23-cross-repo-drift/CONSOLIDATED.md` · `../2026-07-23-frontend-dead-code/CONSOLIDATED.md`
+
 ## Scope & provenance
 
 - **Lens:** `code-quality-slop` (AI slop / dead code / low-value code — P3 by default, never P0/P1).
