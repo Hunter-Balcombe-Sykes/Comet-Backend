@@ -192,13 +192,12 @@ class IntegrationConnection extends BaseModel
      * R1: this is the ONE query-builder spelling of "is this row mid-flight?",
      * shared by scopeDueForRefresh() below and RefreshController::refresh()'s
      * row-selection query (previously duplicated verbatim in both places).
-     * It is deliberately NOT reused by SkoolController::selection() (a
-     * different question — "should this row be withheld from the API?",
-     * asked over a wider status set including terminal failures, against an
-     * already-loaded PHP value rather than a SQL predicate — R4 owns that
-     * policy) or FreshaController::connectStatus()'s connectPendingAt check
-     * (detects a payload a refresh silently replaced, which no status
-     * predicate alone can see).
+     * It is deliberately NOT reused by SkoolController::selection() (which no
+     * longer asks a status question at all — R4 moved it onto payload
+     * renderability, so there is nothing there to share) or
+     * FreshaController::connectStatus()'s connectPendingAt check (detects a
+     * payload a refresh silently replaced, which no status predicate alone can
+     * see).
      */
     public function scopeExcludingPending($query)
     {
