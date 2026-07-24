@@ -18,9 +18,11 @@ use RuntimeException;
 class ItemSlugAllocator
 {
     public const TYPE_EVENT = 'event';
+
     public const TYPE_MENU_ITEM = 'menu_item';
 
     private const MAX_BASE = 80;
+
     private const TABLE = 'site.item_slugs';
 
     // Ensure the item has a current slug matching $name; returns the current slug.

@@ -14,7 +14,6 @@ use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -141,7 +140,43 @@ class PublicIntegrationController extends ApiController
             $productRanks = $ranks['shop_product'] ?? [];
         }
 
-        $this->annotateEventSlugs($connections, $userId);
+        // Pretty URL slugs for the events sitepage section (item-url-slugs):
+        // mutate every eventbrite/humanitix/events-custom row's payload in
+        // place — before the Resource resolves it — to carry `slug` +
+        // `aliases` per event (account rows' upcoming[]/next event objects,
+        // or a standalone row's own top level). Best-effort: a lookup
+        // failure leaves every event annotated with `slug: null, aliases:
+        // [id]` (today's raw-id behaviour) rather than breaking this
+        // response. Inlined here (not its own method) so $connections' type
+        // — an Eloquent Collection-of-Collections from ->groupBy(), which
+        // Eloquent Collection's own `<TKey, TModel of Model>` template can't
+        // honestly describe — never has to cross a separately-typed method
+        // boundary; PHPStan infers it correctly right where it's produced.
+        $eventRows = collect(EventSlugSync::PLATFORMS)
+            ->flatMap(fn (string $platform) => $connections->get($platform) ?? []);
+        if ($eventRows->isNotEmpty()) {
+            $hexIds = $eventRows
+                ->flatMap(fn (IntegrationConnection $row) => EventSlugSync::extractEvents($row->resource_kind, $row->payload))
+                ->filter(fn ($e) => is_array($e) && is_string($e['id'] ?? null))
+                ->pluck('id')
+                ->unique()
+                ->values()
+                ->all();
+
+            $slugMap = [];
+            if ($hexIds !== []) {
+                try {
+                    $slugMap = $this->slugs->lookupCurrent($userId, ItemSlugAllocator::TYPE_EVENT, $hexIds);
+                } catch (\Throwable $e) {
+                    report($e);
+                    Log::warning('PublicIntegrationController event-slug lookup failed', ['user_id' => $userId, 'message' => $e->getMessage()]);
+                }
+            }
+
+            foreach ($eventRows as $row) {
+                $row->payload = $this->annotateEventPayload($row->resource_kind, $row->payload, $slugMap);
+            }
+        }
 
         $platforms = $connections
             ->map(fn ($rows, $platform) => $platform === 'shop'
@@ -160,64 +195,20 @@ class PublicIntegrationController extends ApiController
     }
 
     /**
-     * Mutate every eventbrite/humanitix/events-custom row's payload in place
-     * (before the Resource resolves it) to carry `slug` + `aliases` per event
-     * — account rows' upcoming[]/next event objects, or the standalone row's
-     * own top level. Best-effort: a lookup failure leaves every event
-     * annotated with `slug: null, aliases: [id]` (today's raw-id behaviour)
-     * rather than breaking the platforms response.
-     */
-    /**
-     * $connections is the result of an Eloquent Collection's ->groupBy() —
-     * groupBy's `new static($groups)` construction means it (and every
-     * per-platform sub-collection) stays an Eloquent Collection, not a plain
-     * Support Collection, so ->only() here would resolve to Eloquent
-     * Collection's PRIMARY-KEY-based override (getKey() on each "key") and
-     * blow up on plain platform-name strings. ->get($platform) per platform
-     * sidesteps that — get() isn't one of Eloquent Collection's overridden,
-     * model-key-aware methods.
+     * $payload is declared `mixed`, not `array` — IntegrationConnection's own
+     * docblock notes `payload` is NOT NULL only in Postgres (default '{}');
+     * the SQLite test mirror can carry it nullable, so the is_array guard
+     * below is a real (test-reachable) branch, not a redundant one — matching
+     * how EventsAccountPayload::fromArray / StandaloneEventPayload::fromArray
+     * already guard the same attribute.
      *
-     * @param  Collection<string, Collection<int, IntegrationConnection>>  $connections
-     */
-    private function annotateEventSlugs(Collection $connections, string $userId): void
-    {
-        $eventRows = collect(EventSlugSync::PLATFORMS)
-            ->flatMap(fn (string $platform) => $connections->get($platform) ?? []);
-        if ($eventRows->isEmpty()) {
-            return;
-        }
-
-        $hexIds = $eventRows
-            ->flatMap(fn (IntegrationConnection $row) => EventSlugSync::extractEvents($row->resource_kind, $row->payload))
-            ->filter(fn ($e) => is_array($e) && is_string($e['id'] ?? null))
-            ->pluck('id')
-            ->unique()
-            ->values()
-            ->all();
-
-        $slugMap = [];
-        if ($hexIds !== []) {
-            try {
-                $slugMap = $this->slugs->lookupCurrent($userId, ItemSlugAllocator::TYPE_EVENT, $hexIds);
-            } catch (\Throwable $e) {
-                report($e);
-                Log::warning('PublicIntegrationController event-slug lookup failed', ['user_id' => $userId, 'message' => $e->getMessage()]);
-            }
-        }
-
-        foreach ($eventRows as $row) {
-            $payload = is_array($row->payload) ? $row->payload : [];
-            $row->payload = $this->annotateEventPayload($row->resource_kind, $payload, $slugMap);
-        }
-    }
-
-    /**
-     * @param  array<string,mixed>  $payload
      * @param  array<string, array{slug: string, aliases: list<string>}>  $slugMap  keyed by event hex id
      * @return array<string,mixed>
      */
-    private function annotateEventPayload(?string $resourceKind, array $payload, array $slugMap): array
+    private function annotateEventPayload(?string $resourceKind, mixed $payload, array $slugMap): array
     {
+        $payload = is_array($payload) ? $payload : [];
+
         $annotate = function (array $event) use ($slugMap): array {
             $id = $event['id'] ?? null;
             if (is_string($id) && isset($slugMap[$id])) {
