@@ -141,6 +141,12 @@ jobs:
           #   - OwnMediaAccentFactor        — content-addressed memo (key = md5 of image URL); value is a non-sensitive computed hex colour
           #   - StorePricePointFactor       — site-scoped streak key (design:store-price-streak:<site_id>)
           #   - AccountDeletionService      — Cache::forget of the user's OWN idempotency keys (enumerated from idempotencyIndexKey(authUserId)) during account teardown
+          # File-level exceptions (audited 2026-07-25 — same story a third time: all
+          # three landed while CI was red at PHPStan/Checkpoint, so GS-1 never ran
+          # on them. Each key is scoped/content-addressed — vetted, not a leak):
+          #   - DedupesRecipientSends       — RV-10 per-recipient Cache::add SETNX claim + Cache::forget rollback; key is action-log-scoped and content-addressed (sha256 of "<actionLogId>|<recipient>"), same pattern as SendFeedbackEmailJob
+          #   - MenuApifyScraper            — negative-cache "blocked/hard_error" marker + its recovery forget, key via CacheKeyGenerator::menuScrapeBlocked(platform, url) (same shape as YoutubeThumbnailResolver/AppleSearch)
+          #   - ShopBrandSeeder             — picker-catalog warm mirroring addBrand()'s, key via CacheKeyGenerator::shopifyBrandCatalog($id); ShopController is already allowlisted for this exact cache
           set +e
           BAD=$(git grep -n -E '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
             'app/' \
@@ -166,7 +172,10 @@ jobs:
             ':!app/Jobs/Platforms/GoogleBusinessEnrichJob.php' \
             ':!app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php' \
             ':!app/Services/Design/Presets/Factors/StorePricePointFactor.php' \
-            ':!app/Services/User/AccountDeletionService.php')
+            ':!app/Services/User/AccountDeletionService.php' \
+            ':!app/Jobs/Moderation/Concerns/DedupesRecipientSends.php' \
+            ':!app/Services/Platforms/MenuApifyScraper.php' \
+            ':!app/Services/Platforms/ShopBrandSeeder.php')
           set -e
           if [ -n "$BAD" ]; then
             echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."
