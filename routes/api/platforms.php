@@ -117,6 +117,11 @@ $registerIntegrationRoutes = function (string $base): void {
             $musicPlatform = 'apple-music';
             $podcastPlatform = 'apple-podcast';
             Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', $musicPlatform)->middleware('platform.available');
+            // Deferred-connect poll endpoint (CA-W3) — always registered (mirrors
+            // the registry loop's own supportsDeferredConnect() gate, which Apple's
+            // bespoke group can't reach): a route that appears/disappears with an
+            // env var is worse to debug than one that always 404s a nonexistent row.
+            Route::get('/music/connect/status', [AppleController::class, 'musicConnectStatus']);
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
             // music reads → generic (platform=apple-music)
@@ -125,6 +130,7 @@ $registerIntegrationRoutes = function (string $base): void {
                 ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $musicPlatform);
             Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $musicPlatform);
             Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', $podcastPlatform)->middleware('platform.available');
+            Route::get('/podcast/connect/status', [AppleController::class, 'podcastConnectStatus']);
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
             // podcast reads → generic (platform=apple-podcast)

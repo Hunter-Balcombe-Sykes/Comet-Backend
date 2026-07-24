@@ -577,11 +577,17 @@ it('covers every integration GET read-route in the golden master', function () {
     // instead of blocking the request thread, so the dashboard needs a way to
     // poll for completion — GET {platform}/refresh/status returns the queued/
     // running/done state. 71 -> 72.
-    expect($readRoutes->count())->toBe(72);
+    // CA-W3: 2 new .../connect/status poll routes for Apple (music, podcast) —
+    // added manually inside the BESPOKE apple route group (routeShape stays
+    // Bespoke, so the registry loop's own supportsDeferredConnect() gate above
+    // never reaches it). 72 -> 74.
+    expect($readRoutes->count())->toBe(74);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
+        'api/platforms/apple/music/connect/status',
         'api/platforms/apple/music/selection',
         'api/platforms/apple/podcast/accounts',
+        'api/platforms/apple/podcast/connect/status',
         'api/platforms/apple/podcast/selection',
         'api/platforms/bandcamp/accounts',
         'api/platforms/bandcamp/connect/status',

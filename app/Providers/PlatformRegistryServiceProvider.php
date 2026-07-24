@@ -281,12 +281,27 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('apple-music')->fetch(fn () => new AppleMusicFetch(
                 app(AppleSearch::class),
             ));
+            // CA-W3: the message ConnectFetchJob stores on the row when the
+            // deferred fetch fails — verbatim from connectFor()'s own synchronous
+            // 404 message. Deliberately NOT ->deferredConnect(): that flag means
+            // "this descriptor's ConnectStrategy implements DeferredConnect"
+            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
+            // descriptor), but Apple has no ConnectStrategy at all — its connect
+            // is bespoke (AppleController::connectFor(), via DefersBespokeConnect),
+            // never routed through ConnectResolver/GenericPlatformController. The
+            // rollout flag check (config('partna.connect.deferred')) is read
+            // directly by DefersBespokeConnect::shouldDeferConnect(), not via
+            // supportsDeferredConnect() — so setting that flag here would just be
+            // a false claim that breaks the pinned invariant for no functional gain.
+            $r->get('apple-music')->connectFetchError('Could not find that Apple Music artist or an album.');
             $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
             $r->get('apple-podcast')->fetch(fn () => new ApplePodcastFetch(
                 app(AppleSearch::class),
             ));
+            // CA-W3 — see apple-music's identical note above.
+            $r->get('apple-podcast')->connectFetchError('Could not find that Apple Podcast or an episode.');
             $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable()->payload(GoogleBusinessPayload::class));
             // Attach fetch strategy (Plan 3b). GoogleBusinessPayload is verbatim-preserving
             // (variable key set via array_intersect_key) — read paths migrated in Plan 5.

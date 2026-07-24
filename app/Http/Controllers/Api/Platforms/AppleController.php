@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
@@ -30,6 +31,7 @@ use Illuminate\Http\Request;
 // Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleController extends ApiController
 {
+    use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use RefreshesLatestTile;
     use ResolveCurrentUser;
@@ -64,6 +66,20 @@ class AppleController extends ApiController
     public function connectMusic(PlatformConnectRequest $request): JsonResponse
     {
         return $this->connectFor($request, $this->musicConfig(), $request->validated());
+    }
+
+    // GET /api/platforms/apple/music/connect/status?account={id} — poll target
+    // for the 202 above (CA-W3). Multi-account, so ?account= selects the row.
+    public function musicConnectStatus(Request $request): JsonResponse
+    {
+        $this->activePlatform = self::MUSIC;
+
+        return $this->bespokeConnectStatus(
+            $this->currentUser($request),
+            $request->query('account'),
+            fn (array $payload) => $this->wrapAppleSelection(self::MUSIC, $payload),
+            perAccount: true,
+        );
     }
 
     // GET /api/platforms/apple/music/selection
@@ -102,6 +118,20 @@ class AppleController extends ApiController
     public function connectPodcast(PlatformConnectRequest $request): JsonResponse
     {
         return $this->connectFor($request, $this->podcastConfig(), $request->validated());
+    }
+
+    // GET /api/platforms/apple/podcast/connect/status?account={id} — poll
+    // target for the 202 above (CA-W3). Multi-account, so ?account= selects the row.
+    public function podcastConnectStatus(Request $request): JsonResponse
+    {
+        $this->activePlatform = self::PODCAST;
+
+        return $this->bespokeConnectStatus(
+            $this->currentUser($request),
+            $request->query('account'),
+            fn (array $payload) => $this->wrapAppleSelection(self::PODCAST, $payload),
+            perAccount: true,
+        );
     }
 
     // GET /api/platforms/apple/podcast/selection
@@ -178,12 +208,13 @@ class AppleController extends ApiController
      * The handful of values that differ between Music and Podcast; everything else
      * (storage, locking, tile-refresh, snapshotting) is shared.
      *
-     * @return array{platform:string, inputField:string, idsField:string, idField:string, fetch:callable, flatFields:list<string>, recentKey:string, notFound:string, connectFirst:string, loadError:string}
+     * @return array{platform:string, pathSegment:string, inputField:string, idsField:string, idField:string, fetch:callable, flatFields:list<string>, recentKey:string, notFound:string, connectFirst:string, loadError:string}
      */
     private function musicConfig(): array
     {
         return [
             'platform' => self::MUSIC,
+            'pathSegment' => 'music',
             'inputField' => 'artist',
             'idsField' => 'albumIds',
             'idField' => 'collectionId',
@@ -207,6 +238,7 @@ class AppleController extends ApiController
     {
         return [
             'platform' => self::PODCAST,
+            'pathSegment' => 'podcast',
             'inputField' => 'show',
             'idsField' => 'episodeIds',
             'idField' => 'trackId',
@@ -228,6 +260,13 @@ class AppleController extends ApiController
         $this->activePlatform = $cfg['platform'];
         $user = $this->currentUser($request);
         $input = trim($validated[$cfg['inputField']]);
+
+        // CA-W3: config('partna.connect.deferred') names this slug — skip the
+        // synchronous AppleSearch round-trip entirely and let ConnectFetchJob
+        // fill the row. Checked before any vendor call, never inside it.
+        if ($this->shouldDeferConnect($cfg['platform'])) {
+            return $this->connectDeferredFor($user, $cfg, $input);
+        }
 
         // Budget bounds the whole fetch region — the primary lookup AND the
         // best-effort genre resolver (#76, two sequential iTunes calls) — so a
@@ -274,6 +313,46 @@ class AppleController extends ApiController
 
             return $this->success(['id' => $row->resource_id, ...$this->wrapAppleSelection($cfg['platform'], $selection)]);
         });
+    }
+
+    /**
+     * CA-W3 deferred-connect write path: writes a pending account row carrying
+     * only {input} — AppleMusicFetch/ApplePodcastFetch read exactly that key —
+     * then dispatches ConnectFetchJob. Mirrors GenericPlatformController::
+     * connectDeferred()'s own lock discipline: $row is captured by reference
+     * because withConnectionLock()'s return type is JsonResponse only; the
+     * closure's own return value is a throwaway success once $row is set, or
+     * the real error response (max-accounts 422 / lock-timeout 423) when it
+     * isn't. deferredConnectResponse() (DefersBespokeConnect) dispatches
+     * ConnectFetchJob AFTER this lock has released — the job blocks on the
+     * SAME platform+user lock key, so dispatching from inside would
+     * self-deadlock under a sync queue connection.
+     */
+    private function connectDeferredFor(User $user, array $cfg, string $input): JsonResponse
+    {
+        $row = null;
+
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $input, &$row): JsonResponse {
+            $row = $this->writeAccountConnection($user, $input, ['input' => $input], pending: true);
+            if ($row === null) {
+                return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+            }
+
+            return $this->success([]);
+        });
+
+        if ($row === null) {
+            // Either the max-accounts 422 above, or withConnectionLock's own
+            // 423 lock-timeout response — both correctly short-circuit here.
+            return $lockResponse;
+        }
+
+        return $this->deferredConnectResponse(
+            $row,
+            ['input' => $input],
+            "/api/platforms/apple/{$cfg['pathSegment']}/connect/status",
+            perAccount: true,
+        );
     }
 
     private function selectionFor(Request $request, string $platform): JsonResponse
