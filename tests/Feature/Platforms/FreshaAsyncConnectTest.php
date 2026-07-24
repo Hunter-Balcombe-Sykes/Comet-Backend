@@ -671,7 +671,7 @@ it('poll: stale pending (>5 minutes) reports failed, not pending forever — a f
         ->assertExactJson(['status' => 'pending']);
 });
 
-it('poll: an "ok" row whose connectPendingAt is still set (the hourly cron flipped a stranded pending row) reports failed, not a ready body with stale/missing content', function () {
+it('poll: an "ok" row whose connectPendingAt is still set (manual refresh flipped a stranded pending row) reports failed, not a ready body with stale/missing content', function () {
     $user = freshaAsyncUser('frpoll5');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',

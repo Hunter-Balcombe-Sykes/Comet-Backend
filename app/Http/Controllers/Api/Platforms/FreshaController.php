@@ -214,11 +214,14 @@ class FreshaController extends ApiController
         $user = $this->currentUser($request);
         $row = $this->connectionFor($user);
 
-        // The hourly refresh cron can flip a stranded pending row to 'ok'
-        // without ever running THIS connect's fetch: FreshaFetch (the refresh
-        // strategy) 304s a selection-less/carried-forward row via
+        // The dashboard's manual refresh button (RefreshController::refresh())
+        // can flip a stranded pending row to 'ok' without ever running THIS
+        // connect's fetch: FreshaFetch (the refresh strategy) 304s a
+        // selection-less/carried-forward row via
         // PlatformRefresher::recordNotModified(), which touches last_refresh_*
-        // but never payload — so it can never clear connectPendingAt. An
+        // but never payload — so it can never clear connectPendingAt. (Not the
+        // hourly cron — scopeDueForRefresh() already excludes every 'pending'
+        // row from its own selection.) An
         // absence-only guard ("ok without teamMenu") would still miss a
         // reconnect whose STALE teamMenu/selection got merged forward from a
         // prior connect (a real cron fetch could then legitimately overwrite

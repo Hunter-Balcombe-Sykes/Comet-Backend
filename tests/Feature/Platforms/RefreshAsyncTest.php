@@ -164,6 +164,57 @@ it('429 cooldown still fires on a rapid second POST after the queue swap', funct
     actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(429);
 });
 
+// W6-1: RefreshController::refresh() used to select every active row
+// regardless of status, so it could pick up a row a deferred connect owns
+// (already 'pending') and hand it to RefreshConnectionJob — whose refresh
+// strategy rewrites the payload wholesale on a reconnect, wiping
+// connectPendingAt/connectMode/teamMenu. Selection must exclude 'pending' rows.
+it('excludes an already-pending row from both the count and the dispatch', function () {
+    Queue::fake();
+    $user = refreshAsyncUser('rv8alreadypending');
+    $pending = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-pending',
+        'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'pending',
+    ]);
+    $ok = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('refreshed', 1);
+
+    Queue::assertPushed(RefreshConnectionJob::class, 1);
+    Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $ok->id);
+    Queue::assertNotPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $pending->id);
+});
+
+// The NULL-safe form is the one most likely to be got wrong: a naive
+// `!= 'pending'` predicate evaluates NULL (never true), so it would silently
+// drop every legacy NULL-status row from manual refresh.
+it('still selects a NULL-status row and an "ok" row for manual refresh', function () {
+    Queue::fake();
+    $user = refreshAsyncUser('rv8nullstatus');
+    $nullStatus = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-null',
+        'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => null,
+    ]);
+    $ok = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('refreshed', 2);
+
+    Queue::assertPushed(RefreshConnectionJob::class, 2);
+    foreach ([$nullStatus, $ok] as $row) {
+        Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $row->id);
+    }
+});
+
 // ── GET /refresh/status — poll states ────────────────────────────────────────
 
 it('polls pending while a row is still pending, then ready once all rows read ok', function () {

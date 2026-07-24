@@ -75,10 +75,23 @@ class RefreshController extends ApiController
         // aren't rendered publicly, so refreshing them buys nothing, and this
         // now matches refreshInstagram() above and the cron's dueForRefresh()
         // scope instead of silently diverging from both.
+        //
+        // W6-1: also excludes rows already 'pending' — a deferred connect owns
+        // that row until its job clears the marker, and this controller is
+        // about to stamp 'pending' itself below, so selecting it here would
+        // silently steal the row out from under the connect (see
+        // FreshaConnectFetch's docblock for what that wipes). Must be filtered
+        // at selection, before the stamp — RefreshConnectionJob itself cannot
+        // tell the two meanings of 'pending' apart. NULL-safe, matching
+        // IntegrationConnection::scopeDueForRefresh()'s identical construct.
         $rows = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->active()
+            ->where(function ($q) {
+                $q->whereNull('last_refresh_status')
+                    ->orWhere('last_refresh_status', '!=', 'pending');
+            })
             ->get();
 
         if ($rows->isEmpty()) {

@@ -33,11 +33,12 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // poll's `ready` body (nothing else stores the fetched menu) — and explicitly
 // clears `connectPendingAt` to null. That marker is stamped fresh on every
 // pending write (FreshaController::connectDeferred()) and is how the poll
-// tells a genuine ConnectFetchJob completion apart from the hourly refresh
-// cron flipping a stranded pending row to 'ok' behind our back: FreshaFetch
-// 304s a selection-less/carried-forward row via
-// PlatformRefresher::recordNotModified(), which touches last_refresh_* but
-// never payload, so it can never clear this key.
+// tells a genuine ConnectFetchJob completion apart from the manual refresh
+// button (RefreshController::refresh()) flipping a stranded pending row to
+// 'ok' behind our back: FreshaFetch 304s a selection-less/carried-forward
+// row via PlatformRefresher::recordNotModified(), which touches
+// last_refresh_* but never payload, so it can never clear this key. (Not the
+// hourly cron — scopeDueForRefresh() already excludes every 'pending' row.)
 final readonly class FreshaConnectFetch implements FetchStrategy
 {
     public function __construct(private FreshaScraper $scraper) {}
