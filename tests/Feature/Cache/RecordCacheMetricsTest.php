@@ -204,8 +204,9 @@ it('still swallows redis errors on the batched flush path', function () {
 // on miss, the adjacent ":stale" companion — one logical read, two Redis ops.
 // A one-event lookahead buffer folds the pair into a single hit/miss so the
 // per-prefix hit rate measures "served without recompute", not "primary warm"
-// (see class docblock — the un-folded rate has a ~52.6% ceiling on an
-// SWR-served prefix, which a >=90% SLO can never pass).
+// (see class docblock — the fold takes a stale-serving recompute from 33% to
+// 50%; it does not lift `site`/`pro` past the >=90% SLO, which is a separate
+// calibration decision).
 describe('SWR stale-probe fold (#CACHE-2)', function () {
     it('folds a primary miss + stale hit into ONE hit on the write-through (console) path', function () {
         Redis::shouldReceive('hIncrBy')

@@ -26,14 +26,20 @@ use Illuminate\Support\Facades\Redis;
 // then — on miss — its ":stale" companion, immediately adjacent, in the same
 // call: two Redis reads for what is logically ONE read. Counting both makes the
 // metric measure "primary key was warm" instead of "served without recompute".
-// Serving from stale also recomputes and rewrites both keys, so once reads are
-// spaced further apart than the primary TTL every single one scores exactly one
-// miss + one hit — a hard 50% ceiling, and a >=90% SLO on it can never pass.
-// (Measured on development 2026-07-24: dozens of prefixes sat at precisely
-// 0.5000 with hits == misses.) A one-event lookahead buffer folds the pair into a
-// single hit/miss under the PRIMARY key's prefix/bucket, and drops the ":stale"
-// half of write-through pairs (writeWithJitter() writes both keys for one
-// logical write).
+// A one-event lookahead buffer folds the pair into a single hit/miss under the
+// PRIMARY key's prefix/bucket, and drops the ":stale" half of write-through
+// pairs (writeWithJitter() writes both keys for one logical write).
+//
+// This fold is a partial fix, deliberately. It removes ONE of the two surplus
+// misses per stale-serving recompute: the lock winner also re-reads the primary
+// after acquiring the lock (CacheLockService::rememberLocked() and
+// SiteCacheService::getPublicSitePayload()), firing a second CacheMissed the
+// buffer never sees. So that path goes 1 hit + 2 misses (33%) -> 1 hit + 1 miss
+// (50%), not to 100%. And rememberLockedNullable() — which serves most of the
+// `pro` prefix — keeps no ":stale" copy at all, so the fold changes its counts
+// by exactly zero. A >=90% SLO on `site`/`pro` therefore still cannot pass;
+// folding the post-lock re-check, or recalibrating the threshold and the
+// `total >= 10` floor for a near-zero-traffic environment, is a separate call.
 class RecordCacheMetrics
 {
     // Internal prefixes that add noise without insight (lock acquisition, heartbeat keys).
@@ -82,7 +88,11 @@ class RecordCacheMetrics
             $buffered = $this->bufferedMiss;
             $this->bufferedMiss = null;
 
-            $type = $event instanceof CacheMissed ? 'misses' : 'hits';
+            // Only a real CacheHit counts as a hit. Classifying on "not a miss"
+            // would score a KeyWritten on a ":stale" key as a hit — unreachable
+            // today (every writer fills the primary first, which flushes the
+            // buffer) but a trap the moment one doesn't.
+            $type = $event instanceof CacheHit ? 'hits' : 'misses';
             $this->recordOrDefer($buffered['bucketKey'], "{$buffered['prefix']}:{$type}");
 
             return;
