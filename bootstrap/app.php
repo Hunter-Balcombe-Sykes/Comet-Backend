@@ -37,6 +37,16 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
+    // Application::configure() calls ->withEvents() itself (discover: true by
+    // default), which auto-binds any app/Listeners class onto every event its
+    // handle() signature mentions. AppServiceProvider::boot() ALSO registers
+    // RecordCacheMetrics, RecordScheduledTaskHeartbeat, and
+    // BlockSuppressedRecipients via explicit Event::listen() calls, so without
+    // this every one of those three listeners double-fires (#CACHE-2 — 66
+    // spurious cache-hit-rate SLO alerts in 7 days, verified via
+    // Event::getRawListeners() showing two bindings per event). Disabling
+    // discovery keeps AppServiceProvider's explicit list the single source of truth.
+    ->withEvents(discover: false)
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
