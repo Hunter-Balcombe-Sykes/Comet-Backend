@@ -12,7 +12,10 @@ use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Platforms\MenuItemDeepLinks;
+use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * GET /api/public/profiles/{handle}/menu
@@ -97,6 +100,9 @@ class PublicMenuController extends ApiController
         $categoryRanks = $ranks['menu_category'] ?? [];
         $itemRanks = $ranks['menu_item'] ?? [];
 
+        $itemIds = $menu->categories->flatMap(fn ($cat) => $cat->items->pluck('id'))->unique()->values()->all();
+        $slugMap = $this->menuItemSlugMap($userId, $itemIds);
+
         $categories = $menu->categories
             ->map(fn ($cat) => [
                 'name' => $cat->name,
@@ -111,6 +117,13 @@ class PublicMenuController extends ApiController
                     // Refresh reshuffled category/item order. Additive field; every
                     // existing consumer reading by key is unaffected.
                     'id' => (string) $item->id,
+                    // Pretty URL slug (site.item_slugs) — null until the item's
+                    // first mint (create, rename, or the slugs:backfill sweep).
+                    // aliases: every OTHER value that should 301 to `slug` on
+                    // the sitepage detail route — retired slugs + the raw id
+                    // itself, so a pre-slug bookmarked link keeps working.
+                    'slug' => $slugMap[(string) $item->id]['slug'] ?? null,
+                    'aliases' => $slugMap[(string) $item->id]['aliases'] ?? [(string) $item->id],
                     'name' => $item->name,
                     'description' => $item->description,
                     'imageUrl' => $item->image_url,
@@ -166,6 +179,66 @@ class PublicMenuController extends ApiController
                 'categories' => $categories,
             ],
         ]);
+    }
+
+    /**
+     * Batch-load each item's current slug + its 301-redirect aliases (retired
+     * slugs + the raw uuid) from site.item_slugs, keyed by item id. Two
+     * queries for the whole menu (not one per item): `is_current` is only
+     * ever compared inside a query-builder WHERE, never read back and
+     * compared in PHP — Postgres' PDO driver can return a boolean column as
+     * the strings 't'/'f' rather than true/false, which would silently
+     * break a PHP-side equality/firstWhere check (both are truthy strings)
+     * despite passing fine against the SQLite test mirror's 0/1 integers.
+     *
+     * Best-effort: this endpoint's core job is serving the menu, which
+     * predates and must survive any item_slugs outage — a failure here
+     * degrades every item to `slug: null, aliases: [id]` (today's raw-id
+     * behaviour) rather than 500ing the whole response.
+     *
+     * @param  list<string>  $itemIds
+     * @return array<string, array{slug: string, aliases: list<string>}>
+     */
+    private function menuItemSlugMap(string $userId, array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        try {
+            // A fresh builder per call — each ->where()/->get() chain below
+            // starts from this same base filter but must not share one
+            // mutated instance.
+            $base = fn () => DB::connection('pgsql')->table('site.item_slugs')
+                ->where('user_id', $userId)
+                ->where('item_type', ItemSlugAllocator::TYPE_MENU_ITEM)
+                ->whereIn('item_key', $itemIds);
+
+            /** @var array<string, string> $currentByItem item_key => current slug */
+            $currentByItem = $base()->where('is_current', true)->pluck('slug', 'item_key')->all();
+            if ($currentByItem === []) {
+                return [];
+            }
+
+            $allRows = $base()->get(['item_key', 'slug']);
+
+            $map = [];
+            foreach ($currentByItem as $itemId => $slug) {
+                $retired = $allRows
+                    ->where('item_key', $itemId)
+                    ->pluck('slug')
+                    ->reject(fn ($s) => $s === $slug)
+                    ->all();
+                $map[$itemId] = ['slug' => $slug, 'aliases' => [...array_values($retired), $itemId]];
+            }
+
+            return $map;
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('PublicMenuController item-slug lookup failed', ['user_id' => $userId, 'message' => $e->getMessage()]);
+
+            return [];
+        }
     }
 
     /** Mirrors MenuController::numberOrNull() — kept local, duplication over a shared dependency. */
