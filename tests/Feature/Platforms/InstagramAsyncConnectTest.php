@@ -2,6 +2,7 @@
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
+use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
@@ -134,7 +135,7 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -237,7 +238,7 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -323,7 +324,7 @@ it('InstagramConnectJob hard-fails (does not silently succeed) when the scrape r
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -354,7 +355,7 @@ it('InstagramConnectJob.failed() marks the connection unavailable for the user',
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -377,7 +378,7 @@ it('connectStatus returns pending when the job has not finished yet', function (
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -418,7 +419,7 @@ it('connectStatus returns failed when the job recorded an error', function () {
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'unavailable',
         'last_refresh_error' => 'apify_fetch_failed',
@@ -477,7 +478,7 @@ it('reconnect reclaims stale reel files when the account now leads with a photo 
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -523,7 +524,7 @@ it('first connect writes photo and does not delete any spurious files (JOB-2)', 
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -564,7 +565,7 @@ it('removed profile pic is reclaimed on reconnect when scraper returns null (JOB
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);
@@ -746,7 +747,7 @@ it('dispatches a commerce probe for an unmatched (unclassified) instagram bio li
         ['url' => 'https://someblog.example/post', 'label' => 'someblog.example'],
     ]);
     Queue::assertPushed(
-        \App\Jobs\Platforms\ProbeCommerceLinksJob::class,
+        ProbeCommerceLinksJob::class,
         fn ($job) => $job->url === 'https://someblog.example/post'
             && $job->userId === (string) $user->id
             && $job->category === null,

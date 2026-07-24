@@ -336,7 +336,7 @@ it('surfaces dropped Instagram images when mirroring fails (job-level)', functio
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);

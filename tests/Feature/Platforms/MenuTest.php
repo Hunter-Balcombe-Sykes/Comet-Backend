@@ -840,6 +840,7 @@ it('resolveAll returns only city+state as the doordash locale address when a ful
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
+        'subdomain' => 'menu-'.substr($siteId, 0, 8),
     ]);
     Workplace::create([
         'site_id' => $siteId,
@@ -961,6 +962,7 @@ it('resolveAll returns null as the doordash locale address when only a street is
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
+        'subdomain' => 'menu-'.substr($siteId, 0, 8),
     ]);
     // Street only — no city or state stored.
     Workplace::create([

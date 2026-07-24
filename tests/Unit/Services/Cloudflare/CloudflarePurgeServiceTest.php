@@ -390,7 +390,7 @@ it('purgeHandle also purges shop product detail pages + their shadows', function
         'status' => 'active', 'auth_user_id' => 'auth-1',
         'primary_email' => 'prodowner@example.com',
     ]);
-    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'platform' => 'shopify']);
+    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'platform' => 'shopify', 'resource_id' => 'shopify']);
     $db->table('site.shop_brands')->insert(['id' => 'b-1', 'connection_id' => 'c-1', 'provider' => 'shopify']);
     $db->table('site.shop_products')->insert([
         ['id' => 'p-1', 'brand_id' => 'b-1', 'product_id' => 'sp1', 'data' => json_encode(['handle' => 'crest-pants'])],
@@ -427,7 +427,7 @@ it('percent-encodes the handle and product handle before they land in a purge UR
         'status' => 'active', 'auth_user_id' => 'auth-1',
         'primary_email' => 'jane@example.com',
     ]);
-    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'platform' => 'shopify']);
+    $db->table('site.platform_connections')->insert(['id' => 'c-1', 'user_id' => 'u-1', 'platform' => 'shopify', 'resource_id' => 'shopify']);
     $db->table('site.shop_brands')->insert(['id' => 'b-1', 'connection_id' => 'c-1', 'provider' => 'shopify']);
     $db->table('site.shop_products')->insert([
         'id' => 'p-1', 'brand_id' => 'b-1', 'product_id' => 'sp1', 'data' => json_encode(['handle' => 'foo/bar']),

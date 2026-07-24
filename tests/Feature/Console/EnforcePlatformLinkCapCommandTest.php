@@ -26,6 +26,7 @@ if (! function_exists('createBackfillFixtureIds')) {
         DB::connection('pgsql')->table('site.sites')->insert([
             'id' => $siteId,
             'user_id' => $userId,
+            'subdomain' => 'cap-'.substr($siteId, 0, 8),
             'created_at' => now(),
             'updated_at' => now(),
         ]);

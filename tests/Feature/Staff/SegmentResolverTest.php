@@ -21,11 +21,12 @@ beforeEach(function () {
     // has_integration and ig_followers read site.platform_connections via the
     // model relation. payload mirrors the real jsonb column (TEXT here).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        platform TEXT NULL,
-        payload TEXT NULL,
-        is_active INTEGER NULL,
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        payload TEXT NOT NULL DEFAULT \'{}\',
+        is_active INTEGER NOT NULL DEFAULT 1,
         last_refreshed_at TEXT NULL,
         deleted_at TEXT NULL,
         created_at TEXT NULL,
@@ -92,8 +93,8 @@ it('resolves has_integration as any-active or a specific platform', function () 
     ovaSeedUser(); // no connections
 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
-        ['id' => (string) Str::uuid(), 'user_id' => $withInsta, 'platform' => 'instagram', 'is_active' => 1, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
-        ['id' => (string) Str::uuid(), 'user_id' => $withSquareInactive, 'platform' => 'square', 'is_active' => 0, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
+        ['id' => (string) Str::uuid(), 'user_id' => $withInsta, 'platform' => 'instagram', 'resource_id' => 'instagram', 'is_active' => 1, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
+        ['id' => (string) Str::uuid(), 'user_id' => $withSquareInactive, 'platform' => 'square', 'resource_id' => 'square', 'is_active' => 0, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
     ]);
 
     $resolver = app(SegmentResolver::class);
@@ -229,6 +230,7 @@ function ovaSeedInstagram(string $userId, mixed $followers, array $overrides = [
         'id' => (string) Str::uuid(),
         'user_id' => $userId,
         'platform' => 'instagram',
+        'resource_id' => 'instagram',
         'payload' => json_encode(['followersCount' => $followers]),
         'is_active' => 1,
         'last_refreshed_at' => null,
@@ -273,7 +275,7 @@ it('excludes non-numeric and missing ig follower counts without erroring', funct
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $absent,
-        'platform' => 'instagram',
+        'platform' => 'instagram', 'resource_id' => 'instagram',
         'payload' => json_encode(['username' => 'nofollowers']),
         'is_active' => 1,
         'created_at' => now()->toDateTimeString(),

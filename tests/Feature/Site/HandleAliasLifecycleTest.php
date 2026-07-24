@@ -116,7 +116,8 @@ it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an 
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'user_id' => null,
+        // site.sites.user_id is NOT NULL in prod — the alias path never reads the user.
+        'user_id' => (string) Str::uuid(),
         'subdomain' => 'newhandle',
         'is_published' => 1,
         'settings' => json_encode([]),
@@ -154,7 +155,8 @@ it('CFG-3: honours a configured alias_redirect_max_age on the showByHeader() 301
 
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'user_id' => null,
+        // site.sites.user_id is NOT NULL in prod — the alias path never reads the user.
+        'user_id' => (string) Str::uuid(),
         'subdomain' => 'newhandle2',
         'is_published' => 1,
         'settings' => json_encode([]),

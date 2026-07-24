@@ -35,6 +35,7 @@ function createBackfillFixtureIds(): array
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $userId,
+        'subdomain' => 'blc-'.substr($siteId, 0, 8),
         'created_at' => now(),
         'updated_at' => now(),
     ]);

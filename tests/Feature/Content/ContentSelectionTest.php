@@ -110,7 +110,7 @@ function gbConnectionWithPhotos(User $user, array $photos): IntegrationConnectio
 {
     return IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'google-business',
+        'platform' => 'google-business', 'resource_id' => 'google-business',
         'payload' => ['name' => 'Test Biz', 'photos' => $photos],
         'is_active' => true,
     ]);
@@ -121,7 +121,7 @@ function igConnection(User $user, array $payload = []): IntegrationConnection
 {
     return IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'instagram',
+        'platform' => 'instagram', 'resource_id' => 'instagram',
         'payload' => $payload,
         'is_active' => true,
     ]);
@@ -626,7 +626,7 @@ it('content_photos off excludes google photos from the library', function () {
     [$user] = contentUserWithSite('gp1');
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'google-business',
+        'platform' => 'google-business', 'resource_id' => 'google-business',
         'payload' => ['name' => 'Biz', 'photos' => [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]],
         'display_settings' => ['content_photos' => false],
         'is_active' => true,
@@ -641,7 +641,7 @@ it('content_photos off drops google photos from the resolved selection', functio
     [$user, $site] = contentUserWithSite('gp2');
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'google-business',
+        'platform' => 'google-business', 'resource_id' => 'google-business',
         'payload' => ['name' => 'Biz', 'photos' => [['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg']]],
         'display_settings' => ['content_photos' => false],
         'is_active' => true,
@@ -661,7 +661,7 @@ it('content_photos off makes a GB connect seed no google photos', function () {
     // toggle off and seeds nothing.
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'google-business',
+        'platform' => 'google-business', 'resource_id' => 'google-business',
         'payload' => ['name' => 'Biz', 'photos' => [
             ['ref' => 'places/A/photos/1', 'url' => 'https://lh3/1.jpg'],
             ['ref' => 'places/A/photos/2', 'url' => 'https://lh3/2.jpg'],
