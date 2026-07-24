@@ -50,9 +50,35 @@ Flip **one group at a time**, observe, then proceed. Blast radius ascends:
 | 3 | `skool,apple-music,apple-podcast,eventbrite,humanitix` | Multi-account; shares poll endpoints with `events/add`. |
 | 4 | `…,fresha` | Largest surface, capability-gated, booking-adjacent. |
 
-`config/partna.php:1405` parses this as a comma-separated slug list; the value is
-set per environment via the env var — **no deploy**, and the same var is the kill
-switch (remove a slug → that platform reverts to synchronous instantly).
+`config/partna.php:1513` parses this as a comma-separated slug list, read by
+`ConnectResolver.php:70` (async only when the slug is listed **and** the descriptor
+declares `supportsDeferredConnect()`). Set per environment via the env var — **no code
+change**, and the same var is the kill switch (remove a slug → that platform reverts to
+synchronous).
+
+> ⚠️ **Setting the env var is NOT enough — you must redeploy.** Laravel Cloud bakes
+> `config:cache` at deploy time and does **not** auto-redeploy on a variable change.
+> Verified 2026-07-24: after `environment:variables … --action=set`, the running app
+> still read `config('partna.connect.deferred') === []` until `cloud deploy partna
+> <env>` ran. A step that "didn't work" is almost always a missing redeploy, not a
+> broken flag. Budget ~2 minutes per flip, and note the deploy restarts Horizon.
+
+**Use the single-variable form. Never the bare command.**
+
+```bash
+cloud environment:variables <env> --action=set --key=PARTNA_CONNECT_DEFERRED --value='<slugs>' --force
+cloud deploy partna <env>
+```
+
+`cloud environment:variables <env>` **without** `--action/--key/--value` *replaces every
+variable on the environment from a file*, and the API returns values masked — running it
+would destroy every secret. Snapshot the key count before and after each change and
+confirm it only grew.
+
+**Append, never overwrite.** The step values below assume the var starts empty. It does
+not: `spotify` was activated on `development` on 2026-07-24 so the frontend had a live
+202 to build against. Read the current value first and prepend what is already there —
+setting the var literally to `skool` would silently deactivate Spotify with no error.
 
 ## How to run each step
 
@@ -64,7 +90,9 @@ switch (remove a slug → that platform reverts to synchronous instantly).
   spot-check that a real connect for that platform returns 202 and its
   `/connect/status` reaches `ready`.
 - Only after a clean observation window, add the next group.
-- **Roll back by removing the slug** if anything misbehaves — no deploy, no code.
+- **Roll back by removing the slug** if anything misbehaves — no code change, but it
+  still needs a `cloud deploy` to take effect (see the warning above). Rollback is
+  ~2 minutes, not instant; do not plan an observation window that assumes otherwise.
 
 ## Phase 4 completion
 
