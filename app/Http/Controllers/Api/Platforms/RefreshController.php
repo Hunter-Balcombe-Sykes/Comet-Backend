@@ -82,16 +82,14 @@ class RefreshController extends ApiController
         // silently steal the row out from under the connect (see
         // FreshaConnectFetch's docblock for what that wipes). Must be filtered
         // at selection, before the stamp — RefreshConnectionJob itself cannot
-        // tell the two meanings of 'pending' apart. NULL-safe, matching
-        // IntegrationConnection::scopeDueForRefresh()'s identical construct.
+        // tell the two meanings of 'pending' apart. R1: same NULL-safe
+        // predicate as IntegrationConnection::scopeDueForRefresh(), via the
+        // shared scopeExcludingPending() (see that scope's docblock).
         $rows = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->active()
-            ->where(function ($q) {
-                $q->whereNull('last_refresh_status')
-                    ->orWhere('last_refresh_status', '!=', 'pending');
-            })
+            ->excludingPending()
             ->get();
 
         if ($rows->isEmpty()) {

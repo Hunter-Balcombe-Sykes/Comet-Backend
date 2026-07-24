@@ -180,6 +180,35 @@ class IntegrationConnection extends BaseModel
     }
 
     /**
+     * NULL-safe "not currently pending" predicate: excludes rows a
+     * refresh/connect job owns mid-flight (last_refresh_status = 'pending'),
+     * without also dropping the legitimate NULL-status rows every
+     * pre-deferred-connect row still carries (no NOT NULL/DEFAULT on the
+     * column — see the migration). Spelled whereNull-OR-!= rather than a bare
+     * `!=` because Postgres' three-valued logic evaluates `NULL != 'pending'`
+     * to NULL, not true, which would silently filter those rows out — see the
+     * "never refreshed" case in DueForRefreshScopeTest.
+     *
+     * R1: this is the ONE query-builder spelling of "is this row mid-flight?",
+     * shared by scopeDueForRefresh() below and RefreshController::refresh()'s
+     * row-selection query (previously duplicated verbatim in both places).
+     * It is deliberately NOT reused by SkoolController::selection() (a
+     * different question — "should this row be withheld from the API?",
+     * asked over a wider status set including terminal failures, against an
+     * already-loaded PHP value rather than a SQL predicate — R4 owns that
+     * policy) or FreshaController::connectStatus()'s connectPendingAt check
+     * (detects a payload a refresh silently replaced, which no status
+     * predicate alone can see).
+     */
+    public function scopeExcludingPending($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('last_refresh_status')
+                ->orWhere('last_refresh_status', '!=', 'pending');
+        });
+    }
+
+    /**
      * Connections DUE for a refresh: active, refreshed longer ago than $cutoff (or
      * never), and below the consecutive-failure circuit breaker. $cutoff is computed
      * in PHP (per-platform TTL) and bound as a param so the query is identical on
@@ -190,20 +219,13 @@ class IntegrationConnection extends BaseModel
      * last_refreshed_at is NULL on that row, which would otherwise match the
      * "never refreshed" arm below and let this hourly cron race the connect job,
      * potentially recording a vendor 304 as a bogus 'ok' over an empty/partial
-     * payload. The exclusion is spelled out as whereNull-OR-!= rather than a
-     * bare `!=` because Postgres' three-valued logic would otherwise ALSO
-     * silently drop the (legitimate, un-pending) NULL-status rows this scope
-     * has always included — see the "never refreshed" case in
-     * DueForRefreshScopeTest.
+     * payload. See scopeExcludingPending() above for the NULL-safety reasoning.
      */
     public function scopeDueForRefresh($query, \DateTimeInterface $cutoff, int $maxFailures)
     {
         return $query->active()
             ->where('consecutive_failures', '<', $maxFailures)
-            ->where(function ($q) {
-                $q->whereNull('last_refresh_status')
-                    ->orWhere('last_refresh_status', '!=', 'pending');
-            })
+            ->excludingPending()
             ->where(function ($q) use ($cutoff) {
                 $q->whereNull('last_refreshed_at')
                     ->orWhere('last_refreshed_at', '<', $cutoff);
