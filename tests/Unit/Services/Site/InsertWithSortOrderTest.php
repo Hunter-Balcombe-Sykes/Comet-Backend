@@ -111,3 +111,33 @@ it('emits the pg_advisory_xact_lock SQL inside the transaction', function () {
 
     expect($lockQueries)->toHaveCount(1);
 });
+
+/**
+ * U2 — passing $lockTimeoutMs must not break the SQLite test path: the
+ * driver guard inside AdvisoryLock::acquire() skips SET LOCAL under sqlite
+ * (it has no such statement), so this proves the new optional param is
+ * backward-compatible with the existing shim, not that Postgres actually
+ * bounds the wait — that half is Postgres-only and unverifiable here (see
+ * AdvisoryLockTest for the SQLSTATE-classification unit coverage instead).
+ */
+it('accepts a lockTimeoutMs and still runs normally under sqlite (no SET LOCAL reaches the driver)', function () {
+    $statements = [];
+    DB::listen(function ($query) use (&$statements) {
+        $statements[] = $query->sql;
+    });
+
+    $captured = null;
+    InsertWithSortOrder::run(
+        Service::query()->where('user_id', $this->userId),
+        "services:{$this->userId}",
+        function (int $next) use (&$captured) {
+            $captured = $next;
+
+            return new Service;
+        },
+        5000,
+    );
+
+    expect($captured)->toBe(0);
+    expect(collect($statements)->filter(fn ($sql) => str_contains($sql, 'lock_timeout')))->toBeEmpty();
+});

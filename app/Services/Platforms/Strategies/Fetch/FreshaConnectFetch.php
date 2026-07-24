@@ -12,6 +12,7 @@ use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
@@ -113,10 +114,12 @@ final readonly class FreshaConnectFetch implements FetchStrategy
      * its service teardown undone by this job.
      *
      * TTL 30s (not withConnectionLock's 10s): the closure holds this lock
-     * across sync()'s DB transaction, which itself blocks on an unbounded
-     * pg_advisory_xact_lock (services:{user_id}) — sized to stay under
-     * ConnectFetchJob's 45s timeout backstop. block(5) matches every other
-     * booking-XOR caller.
+     * across sync()'s DB transaction, which itself now bounds its own
+     * pg_advisory_xact_lock (services:{user_id}) via AdvisoryLock (U2) rather
+     * than waiting forever — sized to stay under ConnectFetchJob's 45s timeout
+     * backstop. block(5) matches every other booking-XOR caller. A timeout on
+     * either lock (this one or the inner services one) resolves the same way:
+     * caught below and folded into the job's terminal path.
      */
     private function fetchStorewide(IntegrationConnection $connection, string $url, array $payload): array
     {
@@ -182,6 +185,13 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                 });
         } catch (LockTimeoutException) {
             throw new FetchUnavailableException('fresha_xor_lock', FetchUnavailableException::GENERIC_USER_MESSAGE);
+        } catch (AdvisoryLockTimeoutException) {
+            // U2: sync()'s own bounded pg_advisory_xact_lock (services:{user_id})
+            // timed out inside the closure above — same non-vendor treatment as
+            // the booking-XOR lock timeout caught just above, so ConnectFetchJob's
+            // existing FetchUnavailableException catch marks the row terminal
+            // instead of leaving it 'pending' forever.
+            throw new FetchUnavailableException('fresha_services_lock', FetchUnavailableException::GENERIC_USER_MESSAGE);
         }
 
         $selection = [

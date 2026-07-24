@@ -7,6 +7,7 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Site\AdvisoryLock;
 use Illuminate\Support\Facades\DB;
 
 // Projects Fresha's scraped service menu into REAL site.services rows and
@@ -126,7 +127,16 @@ class FreshaServiceProjector
             // Same advisory key as InsertWithSortOrder's manual-service create —
             // the global (user_id, sort_order) partial unique means every
             // sort_order append must serialize behind one lock.
-            DB::connection('pgsql')->select('select pg_advisory_xact_lock(hashtext(?))', ["services:{$user->id}"]);
+            //
+            // U2: bounded (was unbounded pre-CA-W7-escalation) — this transaction
+            // now also runs inside ConnectFetchJob, which must never block an
+            // interactive dashboard edit indefinitely. A timeout throws
+            // AdvisoryLockTimeoutException; FreshaConnectFetch::fetchStorewide()
+            // folds that into ConnectFetchJob's terminal path, and
+            // ManagesIntegrationConnection::withConnectionLock() folds it into the
+            // same 423 every other interactive platform-connection write returns
+            // on contention.
+            AdvisoryLock::acquire("services:{$user->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
             $existing = Service::withTrashed()
                 ->where('user_id', $user->id)

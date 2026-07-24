@@ -12,6 +12,8 @@ use App\Http\Resources\ServiceResource;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
+use App\Services\Site\AdvisoryLock;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Services\Site\InsertWithSortOrder;
 use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
@@ -106,30 +108,38 @@ class StaffServiceManagementController extends ApiController
 
         $this->assertCategoryBelongsToProfessional($professional->id, $data['category_id'] ?? null);
 
-        $service = InsertWithSortOrder::run(
-            Service::query()
-                ->where('user_id', $professional->id)
-                ->whereNull('deleted_at'),
-            "services:{$professional->id}",
-            function (int $next) use ($professional, $data) {
-                // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
-                $service = $professional->services()->create([
-                    'title' => $data['title'],
-                    'description' => $data['description'] ?? null,
-                    'price_cents' => $data['price_cents'],
-                    'currency_code' => $data['currency_code'] ?? 'AUD',
-                    'duration_minutes' => $data['duration_minutes'] ?? null,
-                    'is_active' => $data['is_active'] ?? true,
-                    'sort_order' => $data['sort_order'] ?? $next,
-                ]);
+        try {
+            $service = InsertWithSortOrder::run(
+                Service::query()
+                    ->where('user_id', $professional->id)
+                    ->whereNull('deleted_at'),
+                "services:{$professional->id}",
+                function (int $next) use ($professional, $data) {
+                    // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
+                    $service = $professional->services()->create([
+                        'title' => $data['title'],
+                        'description' => $data['description'] ?? null,
+                        'price_cents' => $data['price_cents'],
+                        'currency_code' => $data['currency_code'] ?? 'AUD',
+                        'duration_minutes' => $data['duration_minutes'] ?? null,
+                        'is_active' => $data['is_active'] ?? true,
+                        'sort_order' => $data['sort_order'] ?? $next,
+                    ]);
 
-                if (($data['category_id'] ?? null) !== null) {
-                    $service->categories()->attach($data['category_id']);
-                }
+                    if (($data['category_id'] ?? null) !== null) {
+                        $service->categories()->attach($data['category_id']);
+                    }
 
-                return $service->fresh();
-            },
-        );
+                    return $service->fresh();
+                },
+                AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS,
+            );
+        } catch (AdvisoryLockTimeoutException) {
+            // U2: a background ConnectFetchJob (or another dashboard write) held
+            // the services lock past the bound — same 423 every other interactive
+            // platform-connection write returns on contention.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->success(['service' => new ServiceResource($service)], 201);
     }
@@ -206,11 +216,18 @@ class StaffServiceManagementController extends ApiController
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
-        app(ReorderService::class)->reorder(
-            $request->input('ids', []),
-            Service::query()->where('user_id', $professional->id),
-            "services:{$professional->id}",
-        );
+        try {
+            app(ReorderService::class)->reorder(
+                $request->input('ids', []),
+                Service::query()->where('user_id', $professional->id),
+                "services:{$professional->id}",
+                null,
+                AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS,
+            );
+        } catch (AdvisoryLockTimeoutException) {
+            // U2: same contention/423 as store() above.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->success(['ok' => true]);
     }

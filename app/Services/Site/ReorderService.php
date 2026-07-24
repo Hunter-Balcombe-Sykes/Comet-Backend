@@ -18,11 +18,13 @@ class ReorderService
      * @param  Builder  $scopeQuery  WHERE-only builder; cloned internally per use
      * @param  string  $lockKey  pg advisory lock key, e.g. "blocks-links:{$site->id}"
      * @param  Closure|null  $afterCommit  runs after the transaction commits (e.g. fn () => $site->touch())
+     * @param  int|null  $lockTimeoutMs  bound the advisory-lock wait (see AdvisoryLock); null
+     *                                   preserves the old unbounded wait for keys this doesn't apply to
      */
-    public function reorder(array $ids, Builder $scopeQuery, string $lockKey, ?Closure $afterCommit = null): void
+    public function reorder(array $ids, Builder $scopeQuery, string $lockKey, ?Closure $afterCommit = null, ?int $lockTimeoutMs = null): void
     {
-        DB::connection('pgsql')->transaction(function () use ($ids, $scopeQuery, $lockKey) {
-            DB::connection('pgsql')->select('select pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
+        DB::connection('pgsql')->transaction(function () use ($ids, $scopeQuery, $lockKey, $lockTimeoutMs) {
+            AdvisoryLock::acquire($lockKey, $lockTimeoutMs);
 
             $allIds = (clone $scopeQuery)
                 ->lockForUpdate()

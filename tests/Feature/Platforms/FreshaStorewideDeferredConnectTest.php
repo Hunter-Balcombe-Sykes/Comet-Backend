@@ -30,6 +30,7 @@ use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -530,6 +531,46 @@ it('job: a held booking-XOR lock resolves terminally instead of stranding the ro
     expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
     expect($fresh->payload['selection'])->toBeNull();
     expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
+});
+
+/**
+ * U2 — mirrors the booking-XOR lock timeout test above, but for the INNER
+ * lock: FreshaServiceProjector::sync()'s own bounded pg_advisory_xact_lock
+ * (services:{user_id}) timing out instead of the booking-XOR lock. Real
+ * Postgres contention can't be reproduced under SQLite (see AdvisoryLock's
+ * docblock), so this proves FreshaConnectFetch::fetchStorewide()'s NEW
+ * catch (AdvisoryLockTimeoutException) branch by making sync() throw it
+ * directly — a genuine exercise of that catch clause and of ConnectFetchJob's
+ * existing FetchUnavailableException terminal path, not a Postgres proof.
+ */
+it('job: a services-lock timeout inside sync() resolves terminally instead of stranding the row', function () {
+    $user = freshaStorewideUser('swjob4b');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/ollies-salon', 'selection' => null, 'connectMode' => 'storewide', 'teamMenu' => null, 'connectPendingAt' => now()->toIso8601String()],
+        'is_active' => true, 'last_refresh_status' => 'pending', 'last_refreshed_at' => null,
+    ]);
+
+    $this->mock(FreshaScraper::class, fn ($m) => $m->shouldReceive('fetchMenu')->once()->andReturn([
+        'storeName' => 'Ollies', 'team' => [], 'services' => [freshaStorewideService()],
+    ]));
+    $this->mock(FreshaServiceProjector::class, fn ($m) => $m->shouldReceive('sync')->once()
+        ->andThrow(new AdvisoryLockTimeoutException("services:{$user->id}")));
+
+    $threw = false;
+    try {
+        app()->call([new ConnectFetchJob($connection->id, 'fresha'), 'handle']);
+    } catch (Throwable) {
+        $threw = true;
+    }
+
+    expect($threw)->toBeFalse();
+    $fresh = $connection->fresh();
+    // NOT 'pending' — a stranded row would poll forever (the whole point of U2).
+    expect($fresh->last_refresh_status)->toBe('unavailable');
+    // Our own lock contention, not a vendor miss.
+    expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
+    expect($fresh->payload['selection'])->toBeNull();
 });
 
 it('job: a transport failure resolves to a terminal unavailable row with the contract failure string', function () {

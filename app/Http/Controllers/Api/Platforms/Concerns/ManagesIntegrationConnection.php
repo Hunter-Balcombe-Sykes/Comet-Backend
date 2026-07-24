@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -277,6 +278,12 @@ trait ManagesIntegrationConnection
      * that built different suffixes for the same platform+user silently failed
      * to exclude each other, a lost-update bug). Do not reintroduce one here.
      *
+     * U2: also catches AdvisoryLockTimeoutException — FreshaController's
+     * synchronous connect()/employeeServices() bodies call
+     * FreshaServiceProjector::sync() from inside this closure, and that Postgres
+     * advisory lock (services:{user_id}) is now bounded rather than unbounded.
+     * Same 423 either way: the client can't tell which lock contended.
+     *
      * Note: assumes the using class extends ApiController (for error()).
      */
     protected function withConnectionLock(User $user, callable $callback): JsonResponse
@@ -285,7 +292,7 @@ trait ManagesIntegrationConnection
 
         try {
             return Cache::lock($key, 10)->block(5, $callback);
-        } catch (LockTimeoutException) {
+        } catch (LockTimeoutException|AdvisoryLockTimeoutException) {
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
     }

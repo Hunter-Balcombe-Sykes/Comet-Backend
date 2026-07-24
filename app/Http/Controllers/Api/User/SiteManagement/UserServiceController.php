@@ -16,6 +16,8 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Services\Cache\UserCacheService;
 use App\Services\Platforms\FreshaServiceProjector;
+use App\Services\Site\AdvisoryLock;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Services\Site\InsertWithSortOrder;
 use App\Services\Site\ReorderService;
 use Illuminate\Http\JsonResponse;
@@ -158,7 +160,14 @@ class UserServiceController extends ApiController
 
                     return $service->fresh();
                 },
+                AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS,
             );
+        } catch (AdvisoryLockTimeoutException) {
+            // U2: a background ConnectFetchJob (or another dashboard write) held
+            // the services lock past the bound — expected contention, not a bug,
+            // so no Log::error() (unlike the generic catch below): same 423 every
+            // other interactive platform-connection write returns on contention.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
         } catch (\Throwable $e) {
             // Log the actual cause so the user sees the real error in server
             // logs instead of the generic "An error occurred" wrapper from
@@ -371,12 +380,18 @@ class UserServiceController extends ApiController
         // events, so ServiceObserver never touches the site. Touch explicitly in
         // afterCommit to fire SiteObserver — Redis invalidation + Cloudflare edge
         // purge + cache warm (mirrors UserGalleryController::reorder).
-        app(ReorderService::class)->reorder(
-            $request->input('ids', []),
-            Service::query()->where('user_id', $pro->id),
-            "services:{$pro->id}",
-            fn () => $site->touch(),
-        );
+        try {
+            app(ReorderService::class)->reorder(
+                $request->input('ids', []),
+                Service::query()->where('user_id', $pro->id),
+                "services:{$pro->id}",
+                fn () => $site->touch(),
+                AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS,
+            );
+        } catch (AdvisoryLockTimeoutException) {
+            // U2: same contention/423 as store() above.
+            return $this->error('Another change is still saving — please retry in a moment.', 423);
+        }
 
         return $this->success(['ok' => true]);
     }
