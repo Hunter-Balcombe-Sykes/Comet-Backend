@@ -344,7 +344,7 @@ git commit -m "docs(horizon): RV-12 — four-lane footprint arithmetic + verifie
 
 ### Task 4: Full-suite verification
 
-- [ ] **Step 1: Run the full suite**
+- [x] **Step 1: Run the full suite**
 
 ```bash
 COMPOSER_PROCESS_TIMEOUT=0 composer test
@@ -352,7 +352,7 @@ COMPOSER_PROCESS_TIMEOUT=0 composer test
 
 Expected: PASS. Read the `Tests:` summary line. Do **not** run this while any other agent is running tests.
 
-- [ ] **Step 2: If anything fails, verify it is pre-existing**
+- [x] **Step 2: If anything fails, verify it is pre-existing** — N/A, full suite passed clean (`1 warning, 158 skipped, 5063 passed`, no failures).
 
 Check out the merge-base and re-run the same failing test there before claiming "pre-existing". Never assert it without that evidence.
 
