@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -158,7 +159,7 @@ class EventsSeeder
         });
     }
 
-    /** @return \Illuminate\Support\Collection<int, IntegrationConnection> */
+    /** @return Collection<int, IntegrationConnection> */
     private function liveRows(User $user, string $platform)
     {
         return IntegrationConnection::query()
