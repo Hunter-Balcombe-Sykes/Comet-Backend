@@ -356,14 +356,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 app(FreshaServiceProjector::class),
             ));
             $r->get('fresha')->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400));
-            // CA-W6: the CONNECT path needs a different fetch — FreshaFetch
+            // CA-W6/CA-W7: the CONNECT path needs a different fetch — FreshaFetch
             // (above) is refresh-only (throws on a pending row with no
-            // selection, and calls the service projector, which individual-
-            // mode connect must never do at connect time — see
-            // FreshaConnectFetch's own docblock). connectFetchStrategy()
-            // defaults to fetchStrategy() for every other platform; fresha is
-            // the one override.
-            $r->get('fresha')->connectFetch(fn () => new FreshaConnectFetch(app(FreshaScraper::class)));
+            // selection). connectFetchStrategy() defaults to fetchStrategy()
+            // for every other platform; fresha is the one override. The
+            // projector dependency is CA-W7's: the storewide branch runs
+            // FreshaServiceProjector::sync() itself (team mode never touches it).
+            $r->get('fresha')->connectFetch(fn () => new FreshaConnectFetch(app(FreshaScraper::class), app(FreshaServiceProjector::class)));
             // The message ConnectFetchJob stores when the deferred team-mode
             // menu fetch fails — verbatim from connect()'s own synchronous 502
             // ('Could not reach Fresha — please try again.' was the old abort()

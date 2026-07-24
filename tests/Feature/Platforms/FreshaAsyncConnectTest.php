@@ -238,23 +238,30 @@ it('flag on: statusUrl carries no ?account= segment (fresha is single-selection)
     expect($response->json('statusUrl'))->not->toContain('account=');
 });
 
-it('flag on: storewide still returns a synchronous 200 (CA-W7 scope) and pushes nothing', function () {
+it('flag on: storewide now defers too (CA-W7) — 202 and a queued job, never touches the vendor', function () {
+    // CA-W6 left storewide synchronous (this test's former pin); CA-W7 removes
+    // that split — see FreshaStorewideDeferredConnectTest.php for the full
+    // storewide proof. Kept here specifically because it pins the W6/W7
+    // boundary inverting, not as new coverage.
     config(['partna.connect.deferred' => ['fresha']]);
     $user = freshaAsyncUser('fron4', 'business', 'barber');
 
-    $this->mock(FreshaScraper::class, function ($m) {
-        $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u);
-        $m->shouldReceive('fetchMenu')->once()->andReturn(['storeName' => 'Ollies', 'team' => [], 'services' => [freshaAsyncService()]]);
-    });
+    $this->mock(FreshaScraper::class, fn ($m) => $m->shouldReceive('stripLocale')->once()->andReturnUsing(fn ($u) => $u));
     Queue::fake();
 
     actingAsUser($user)->postJson('/api/platforms/fresha/connect', ['url' => 'https://www.fresha.com/a/ollies-salon'])
-        ->assertOk()
-        ->assertJsonPath('mode', 'storewide');
+        ->assertStatus(202)
+        ->assertExactJson([
+            'status' => 'pending',
+            'url' => 'https://www.fresha.com/a/ollies-salon',
+            'mode' => 'storewide',
+            'statusUrl' => url('/api/platforms/fresha/connect/status'),
+        ]);
 
-    Queue::assertNothingPushed();
     $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->first();
-    expect($row->last_refresh_status)->toBe('ok');
+    expect($row->last_refresh_status)->toBe('pending');
+    expect($row->payload['connectMode'])->toBe('storewide');
+    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === $row->id && $job->platform === 'fresha');
 });
 
 // ── Guards run before dispatch (flag on) — constraint 1 ─────────────────────
@@ -557,12 +564,15 @@ it('job: a corrupt pending row (no url) reports and resolves to error, never sil
     Exceptions::assertReported(FetchShapeException::class);
 });
 
-it('job: a connectMode other than team is an unreachable canary in W6 — fails cleanly and terminally rather than silently proceeding (the CA-W7 storewide seam)', function () {
+it('job: a connectMode outside {team,storewide} is an unreachable canary — fails cleanly and terminally rather than silently proceeding', function () {
+    // 'storewide' used to be this canary in W6 (unimplemented); CA-W7 gives it
+    // a real branch (see FreshaStorewideDeferredConnectTest.php), so the
+    // canary now needs a genuinely unsupported value to still prove the guard.
     Exceptions::fake();
     $user = freshaAsyncUser('frjob8');
     $connection = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
-        'payload' => ['url' => 'https://www.fresha.com/a/ollies-salon', 'selection' => null, 'connectMode' => 'storewide', 'connectPendingAt' => now()->toIso8601String()],
+        'payload' => ['url' => 'https://www.fresha.com/a/ollies-salon', 'selection' => null, 'connectMode' => 'bogus-mode', 'connectPendingAt' => now()->toIso8601String()],
         'is_active' => true, 'last_refresh_status' => 'pending', 'last_refreshed_at' => null,
     ]);
 
