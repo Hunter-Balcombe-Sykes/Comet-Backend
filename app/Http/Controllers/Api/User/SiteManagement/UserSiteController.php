@@ -56,9 +56,10 @@ class UserSiteController extends ApiController
 
         // design_kit writes to site.design_kits, not site.sites. Pull it out
         // before handing off to UpdateSiteAction (which only knows about the
-        // sites row). At this phase no var columns exist on design_kits so
-        // any keys are silently dropped — the row stays empty until layer-
-        // sweep migrations add column-validated keys.
+        // sites row). writeDesignKit() filters keys against the live
+        // design_kits columns (information_schema); unknown/retired keys are
+        // silently dropped, valid ones persist — including an explicit null,
+        // which clears a manual override back to the preset (I4).
         $designKit = $data['design_kit'] ?? null;
         unset($data['design_kit']);
 
@@ -101,11 +102,8 @@ class UserSiteController extends ApiController
     /**
      * Persist a partial design kit. Filters incoming keys to the columns
      * that actually exist on site.design_kits — keys with no matching column
-     * are silently ignored (FormRequest already validated the shape).
-     *
-     * At cleanup-deploy time the table has zero var columns, so this is a
-     * no-op. As layer-sweep steps add columns, this method automatically
-     * picks them up via the information_schema query.
+     * are silently ignored (FormRequest already validated the shape). A key
+     * present with a null value clears that column (reset to auto, I4).
      */
     private function writeDesignKit(string $siteId, array $designKit): void
     {
