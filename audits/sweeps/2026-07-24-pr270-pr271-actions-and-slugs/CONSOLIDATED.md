@@ -609,7 +609,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 1 of 3 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 7 complete
 
@@ -665,7 +665,7 @@ None.
             coverage: none
         ```
 
-- [ ] **#TEST-3** · P1 — Snapchat/Discord/Telegram/Kick/Medium (commit e1879529) have no `ALLOWLIST` entry — they render empty on every public sitepage today, and no test catches it
+- [x] **#TEST-3** · P1 — Snapchat/Discord/Telegram/Kick/Medium (commit e1879529) have no `ALLOWLIST` entry — they render empty on every public sitepage today, and no test catches it
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:78-147 (`ALLOWLIST` const), app/Providers/PlatformRegistryServiceProvider.php:124-131; tests/Feature/Platforms/PublicIntegrationAllowlistTest.php
     - **Affects:** Every professional who connects one of these 5 platforms (shipped in commit `e1879529 feat: add Snapchat, Discord, Telegram, Kick, Medium as link-only integrations`). The link they connect never appears on their public sitepage — a live, currently-shipping functional regression, not just a coverage gap.
     - **Effort:** M (~2–4h)

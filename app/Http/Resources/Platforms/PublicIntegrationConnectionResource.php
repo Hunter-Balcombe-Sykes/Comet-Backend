@@ -106,6 +106,13 @@ class PublicIntegrationConnectionResource extends ApiResource
         'linkedin' => ['username', 'url'],
         'threads' => ['username', 'url'],
         'reddit' => ['username', 'url'],
+        // 2026-07-23 link-only additions (TEST-3 fix). Discord's `username`
+        // carries the invite code, not a handle — see DiscordNormalizer.
+        'snapchat' => ['username', 'url'],
+        'discord' => ['username', 'url'],
+        'telegram' => ['username', 'url'],
+        'kick' => ['username', 'url'],
+        'medium' => ['username', 'url'],
         'fresha' => ['url', 'selection'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
