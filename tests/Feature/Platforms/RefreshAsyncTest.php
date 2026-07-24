@@ -10,6 +10,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\PlatformRefresher;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -107,6 +108,26 @@ it('excludes inactive rows from both the count and the dispatch', function () {
     Queue::assertNotPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $inactive->id);
 });
 
+// CA-SM review fix: every other test in this file (deliberately) uses
+// Queue::fake(), which never runs RefreshConnectionJob::handle() and so never
+// exercised the controller→job seam — precisely why the reviewer caught that
+// the controller writes 'pending' at line 92 above and the job used to bail
+// out on exactly that status, making the manual refresh button's happy path
+// unreachable 100% of the time. QUEUE_CONNECTION=sync in tests (phpunit.xml),
+// so with NO Queue::fake() the POST's dispatch() runs the real job inline,
+// in-process, right here — end to end through the same seam production hits.
+it('actually runs the refresh after the controller marks the row pending — the seam Queue::fake() never exercises', function () {
+    [$user, $connection] = refreshAsyncConnectedUser('rv8seam');
+
+    $refresher = Mockery::mock(PlatformRefresher::class);
+    $refresher->shouldReceive('refresh')->once()
+        ->with(Mockery::on(fn (IntegrationConnection $c) => $c->id === $connection->id))
+        ->andReturn($connection);
+    app()->instance(PlatformRefresher::class, $refresher);
+
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(202);
+});
+
 it('stamps the row pending quietly — no model observer event, no cache purge', function () {
     Queue::fake();
     [$user] = refreshAsyncConnectedUser('rv8quiet');
@@ -141,6 +162,57 @@ it('429 cooldown still fires on a rapid second POST after the queue swap', funct
 
     actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(202);
     actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(429);
+});
+
+// W6-1: RefreshController::refresh() used to select every active row
+// regardless of status, so it could pick up a row a deferred connect owns
+// (already 'pending') and hand it to RefreshConnectionJob — whose refresh
+// strategy rewrites the payload wholesale on a reconnect, wiping
+// connectPendingAt/connectMode/teamMenu. Selection must exclude 'pending' rows.
+it('excludes an already-pending row from both the count and the dispatch', function () {
+    Queue::fake();
+    $user = refreshAsyncUser('rv8alreadypending');
+    $pending = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-pending',
+        'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'pending',
+    ]);
+    $ok = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('refreshed', 1);
+
+    Queue::assertPushed(RefreshConnectionJob::class, 1);
+    Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $ok->id);
+    Queue::assertNotPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $pending->id);
+});
+
+// The NULL-safe form is the one most likely to be got wrong: a naive
+// `!= 'pending'` predicate evaluates NULL (never true), so it would silently
+// drop every legacy NULL-status row from manual refresh.
+it('still selects a NULL-status row and an "ok" row for manual refresh', function () {
+    Queue::fake();
+    $user = refreshAsyncUser('rv8nullstatus');
+    $nullStatus = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-null',
+        'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => null,
+    ]);
+    $ok = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('refreshed', 2);
+
+    Queue::assertPushed(RefreshConnectionJob::class, 2);
+    foreach ([$nullStatus, $ok] as $row) {
+        Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $row->id);
+    }
 });
 
 // ── GET /refresh/status — poll states ────────────────────────────────────────
@@ -235,4 +307,46 @@ it('never resolves another user\'s row when polling status', function () {
 
     actingAsUser($caller)->getJson('/api/platforms/pinterest/refresh/status')
         ->assertStatus(404);
+});
+
+// Whole-branch review, finding 1: PlatformRefresher only catches the three
+// Fetch*Exception subclasses (see its own docblock) — anything else propagates
+// uncaught. Before this fix, RefreshConnectionJob::failed() wrote no terminal
+// status, so the row RefreshController stamped 'pending' just before dispatch
+// stayed 'pending' forever: scopeDueForRefresh() and this same controller's own
+// selection both deliberately exclude 'pending' rows now, so nothing would ever
+// pick it back up, and the refresh button would 404 ("Nothing connected to
+// refresh.") on a platform the user can plainly see is connected.
+it('resolves a stranded pending row to a terminal status when the refresher throws an exception type it never catches, so a later manual refresh can select it again', function () {
+    [$user, $connection] = refreshAsyncConnectedUser('rv8uncaught');
+    // Mirrors RefreshController::refresh()'s own stamp, immediately before dispatch.
+    $connection->updateQuietly(['last_refresh_status' => 'pending']);
+
+    $refresher = Mockery::mock(PlatformRefresher::class);
+    $refresher->shouldReceive('refresh')->once()
+        ->andThrow(new RuntimeException('unexpected fetch failure — not a Fetch*Exception'));
+    app()->instance(PlatformRefresher::class, $refresher);
+
+    // QUEUE_CONNECTION=sync (phpunit.xml): dispatch() runs handle() inline, and
+    // SyncQueue::handleException() calls the job's failed() BEFORE rethrowing —
+    // this exercises the exact seam production hits, not a simulated call to
+    // failed().
+    try {
+        RefreshConnectionJob::dispatch($connection->id, 'pinterest', manual: true);
+        $this->fail('Expected the uncaught exception to propagate.');
+    } catch (RuntimeException $e) {
+        expect($e->getMessage())->toBe('unexpected fetch failure — not a Fetch*Exception');
+    }
+
+    expect($connection->refresh()->last_refresh_status)->toBe('error');
+    expect($connection->last_refresh_error)->toBe('unexpected fetch failure — not a Fetch*Exception');
+
+    // No longer stranded: RefreshController's manual-refresh selection excludes
+    // ONLY 'pending' rows, so this now-'error' row is selectable again.
+    app()->forgetInstance(PlatformRefresher::class);
+    Queue::fake();
+    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+        ->assertStatus(202)
+        ->assertJsonPath('refreshed', 1);
+    Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $connection->id);
 });

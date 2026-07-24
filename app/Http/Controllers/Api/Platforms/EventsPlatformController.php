@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
@@ -30,6 +31,7 @@ use Illuminate\Support\Collection;
 // at write + on every refresh, so readers (public wire included) never see it.
 abstract class EventsPlatformController extends ApiController
 {
+    use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -63,6 +65,13 @@ abstract class EventsPlatformController extends ApiController
     /** Shared connect flow — subclasses expose it under their typed FormRequest. */
     protected function addAccount(User $user, string $rawUrl): JsonResponse
     {
+        // CA-W5: config('partna.connect.deferred') names this slug — skip the
+        // synchronous account-events scrape and let ConnectFetchJob fill the
+        // row. Checked before any vendor call, never inside one.
+        if ($this->shouldDeferConnect($this->platform())) {
+            return $this->addAccountDeferred($user, $rawUrl);
+        }
+
         // Budget spans BOTH the URL normalisation (Humanitix's resolveHostUrl
         // is itself a fetch) and the account-events scrape. Both early-return
         // branches (bad URL / unreachable page) are preserved by signalling
@@ -102,6 +111,73 @@ abstract class EventsPlatformController extends ApiController
 
             return $this->success(['id' => $row->resource_id, ...$this->accountData($payload)]);
         });
+    }
+
+    /**
+     * CA-W5 deferred-connect write path: URL normalisation still runs INLINE
+     * (Humanitix's resolveHostUrl is itself a fetch, and it IS the row's
+     * identity — deferring it would key the pending row on the wrong URL, see
+     * the plan's §2), budget-wrapped exactly like the synchronous branch's
+     * first half. Only the account-events scrape defers. Writes a pending row
+     * carrying only {url} — EventbriteFetch/HumanitixFetch read exactly that
+     * key — then dispatches ConnectFetchJob. Mirrors AppleController::
+     * connectDeferredFor's lock discipline: $row is captured by reference
+     * because withConnectionLock()'s return type is JsonResponse only; the
+     * closure's own return value is a throwaway success once $row is set, or
+     * the real error response (max-accounts 422 / lock-timeout 423) when it
+     * isn't. deferredConnectResponse() (DefersBespokeConnect) dispatches
+     * ConnectFetchJob AFTER this lock has released — the job blocks on the
+     * SAME per-user platform lock, so dispatching from inside would
+     * self-deadlock under a sync queue connection.
+     */
+    private function addAccountDeferred(User $user, string $rawUrl): JsonResponse
+    {
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $url = $this->budget->open($seconds, fn () => $this->normalizeAccountUrl($rawUrl));
+
+        if ($url === null) {
+            return $this->error($this->accountUrlError(), 422);
+        }
+
+        $row = null;
+
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $url, &$row): JsonResponse {
+            $row = $this->writeAccountConnection($user, $url, ['url' => $url], pending: true);
+            if ($row === null) {
+                return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
+            }
+
+            return $this->success([]);
+        });
+
+        if ($row === null) {
+            // Either the max-accounts 422 above, or withConnectionLock's own
+            // 423 lock-timeout response — both correctly short-circuit here.
+            return $lockResponse;
+        }
+
+        return $this->deferredConnectResponse(
+            $row,
+            ['url' => $url],
+            "/api/platforms/{$this->platform()}/connect/status",
+            perAccount: true,
+        );
+    }
+
+    // GET /api/platforms/{platform}/connect/status?account={id} — poll target
+    // for the 202 above (CA-W5). Multi-account, so ?account= selects the row.
+    // $shape is accountData() rather than the platform's Resource class:
+    // EventbriteConnectionResource/HumanitixConnectionResource skip withIds()/
+    // dropElapsed(), so the poll's `ready` body must NOT use them — it would
+    // diverge from the connect 200's own shape.
+    public function connectStatus(Request $request): JsonResponse
+    {
+        return $this->bespokeConnectStatus(
+            $this->currentUser($request),
+            $request->query('account'),
+            fn (array $payload) => $this->accountData($payload),
+            perAccount: true,
+        );
     }
 
     // GET /api/platforms/{platform}/accounts — every connected organiser/host.

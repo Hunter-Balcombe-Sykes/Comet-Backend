@@ -81,6 +81,9 @@ class PlatformDescriptor
     /** @var (Closure(): FetchStrategy)|null Lazily builds the fetch strategy (see fetch()). */
     private ?Closure $fetchFactory = null;
 
+    /** @var (Closure(): FetchStrategy)|null Lazily builds the CONNECT-only fetch strategy (see connectFetch()). */
+    private ?Closure $connectFetchFactory = null;
+
     /** @var (Closure(): HighlightsStrategy)|null Lazily builds the highlights strategy (same rationale as fetch()). */
     private ?Closure $highlightsFactory = null;
 
@@ -459,6 +462,38 @@ class PlatformDescriptor
     public function fetchStrategy(): ?FetchStrategy
     {
         return $this->fetchFactory !== null ? ($this->fetchFactory)() : null;
+    }
+
+    /**
+     * CA-W6: attach the strategy ConnectFetchJob should run to COMPLETE a fresh
+     * connect, when it differs from this platform's own refresh fetchStrategy().
+     * Fresha is the first (and, as of this unit, only) user: FreshaFetch is
+     * refresh-only (throws on a pending row with no selection — see its own
+     * docblock) and calls FreshaServiceProjector::sync(), which individual-mode
+     * connect must never trigger. Same lazy-Closure-factory contract as fetch()
+     * — the SEC-1 registry-timing gotcha applies identically (the registry
+     * singleton is built at boot to emit routes).
+     *
+     * @param  FetchStrategy|(Closure(): FetchStrategy)  $strategy
+     */
+    public function connectFetch(FetchStrategy|Closure $strategy): self
+    {
+        $this->connectFetchFactory = $strategy instanceof Closure ? $strategy : fn () => $strategy;
+
+        return $this;
+    }
+
+    /**
+     * Resolve the strategy ConnectFetchJob should run for a fresh connect.
+     * Defaults to fetchStrategy() when no connectFetch() was registered — this
+     * is what keeps the eight already-armed deferred platforms (spotify,
+     * bandcamp, twitch, pinterest, strava, vimeo, youtube-music, youtube)
+     * resolving byte-identically to today; only a descriptor that calls
+     * connectFetch() (Fresha) diverges.
+     */
+    public function connectFetchStrategy(): ?FetchStrategy
+    {
+        return $this->connectFetchFactory !== null ? ($this->connectFetchFactory)() : $this->fetchStrategy();
     }
 
     /**

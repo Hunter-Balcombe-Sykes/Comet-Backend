@@ -313,8 +313,16 @@ trait ManagesIntegrationConnection
     // not re-flag them as missing-lock bugs. Each has no plausible concurrent
     // writer racing the SAME row, so a lock would add contention for no safety.
     //   • Link-only socials (facebook / tiktok / x / linkedin / threads /
-    //     reddit / skool / square): a single stored URL, never refreshed by a
-    //     job and with no sibling writer — nothing to race.
+    //     reddit / square): a single stored URL, never refreshed by a job and
+    //     with no sibling writer — nothing to race.
+    //   • skool REMOVED from the list above by CA-W4: config('partna.connect.
+    //     deferred') naming it gives it a real sibling writer (ConnectFetchJob),
+    //     so the "nothing to race" premise no longer holds for that path. Both
+    //     the deferred pending write (SkoolController::connectDeferred, via
+    //     withConnectionLock) and the job's own completion write now take the
+    //     same per-user platform lock as every other deferred platform. The
+    //     synchronous (flag-off) write stays exactly as unlocked/safe as before
+    //     — still no sibling writer on that path.
     //   • DisplaySettingsController::update(): writes only the display_settings
     //     column via Eloquent dirty-tracking; the only race is two concurrent
     //     display-settings PATCHes (not a connection-payload clobber) — low.

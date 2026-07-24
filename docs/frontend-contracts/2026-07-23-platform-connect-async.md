@@ -227,6 +227,112 @@ This is the cleanest of the six: **the only thing that moves behind the poll is 
 generic `502`.** Today those already render as `{"message":"An error occurred"}` in production, so no
 message the user currently reads is lost.
 
+### 8. Shop — `POST /api/platforms/shop/brands`
+
+Request — **unchanged**: `{ "url": "https://store.example.com" }` (the optional `discountCode` and the
+client-assisted `storeApi` payload are unaffected).
+
+> ⚠️ **Status code is provider-dependent — read this before anything else in this section.** Once
+> `shop` is in `PARTNA_CONNECT_DEFERRED`, `POST /brands` returns **either `202` or `200` for the same
+> request shape.** No other endpoint in this contract does that. The choice is made by which store
+> platform detection found:
+
+| Detected provider | Response | Why |
+|---|---|---|
+| `shopify`, `woocommerce`, `squarespace` | **202** + poll | the brand profile fetch is deferred to a job |
+| `bigcartel`, `generic`, client-assisted (`storeApi`) | **200** + complete brand | the profile is already in memory at response time — there is nothing to defer |
+
+This is deliberate, not an inconsistency: returning `202 {"status":"pending"}` for a brand that is
+already complete would be a lie, and the rule already published above already covers it —
+**branch on the status code, never on the platform slug, and never assume Shop returns `202`.** A
+client that treats every `POST /brands` response the same way will render a stub spinner over a brand
+that has, in fact, already finished.
+
+#### 202 response (shopify / woocommerce / squarespace only)
+
+```json
+{
+  "id": "9f2c1b74e8a03d55",
+  "provider": "shopify",
+  "url": "https://store.example.com",
+  "name": null,
+  "currency": "AUD",
+  "favicon": null,
+  "logo": null,
+  "discountCode": "",
+  "selectionMode": "manual",
+  "linkMode": "product",
+  "referralQuery": "",
+  "individual": false,
+  "products": [],
+  "connectStatus": "pending",
+  "status": "pending",
+  "statusUrl": "https://api.partna.au/api/platforms/shop/brands/9f2c1b74e8a03d55/connect/status"
+}
+```
+
+This is the **full brand object**, not the trimmed `identify()`-only subset the other six carry in
+their 202 body. That is deliberate: the other six strip nulls because an explicit `null` there means
+"confirmed absent," and there is nothing useful to render yet. Shop's stub already has a URL, a
+provider, and a **working product picker** — `GET /brands/{id}/products` succeeds immediately, see
+below — so it is a renderable card, not a placeholder. `name`, `currency`, `favicon` and `logo` are
+`null` exactly where the profile hasn't landed. `currency` is the one exception for Shopify: it's
+resolved synchronously during detection, so a Shopify stub already carries its real currency.
+
+#### 200 response (bigcartel / generic / client-assisted)
+
+The same brand object, complete, with **no** `status`/`statusUrl` envelope and **no** `connectStatus`
+key — byte-identical to what this endpoint returns today, deferred or not.
+
+#### Status poll — `GET /api/platforms/shop/brands/{id}/connect/status`
+
+Legacy alias, same handler: `GET /api/platforms/shopify/brands/{id}/connect/status`.
+
+| Status | Body | Meaning |
+|---|---|---|
+| `200` | `{"status":"pending"}` | Job still running — keep polling. |
+| `200` | `{"status":"ready","id":"<brandId>","brand":{…}}` | Done. `brand` is the same object `addBrand` returns synchronously today. |
+| `200` | `{"status":"failed","error":"<sentence>","brand":{…}}` | Terminal. Show `error`; the brand is present and usable — see below. |
+| `404` | `{"message":"Brand not found."}` | Not found, or not the caller's. Never `403` — matches every other Shop 404. |
+
+Recommended cadence matches the recommendation above, unchanged: Shop's job carries the identical
+timeout/backoff shape as `ConnectFetchJob` (45 s timeout, 3 tries, `[5, 20]` backoff), so the same
+180 s cap applies. There is no Shop-specific cadence.
+
+**Two deliberate divergences from the other six, both frontend-visible:**
+
+1. **The ready payload is keyed `brand`, not `connection`.** The other six poll a connection row; Shop
+   polls a brand, a sub-resource of the connection. `GET /brands` already returns `{"brands":[…]}` and
+   `addBrand` already returns a bare brand object, so `brand` is the shape this contract already
+   speaks — inventing `connection` here would be the actual inconsistency.
+2. **`failed` still carries `brand`.** For the other six, `failed` means there is nothing to render.
+   For Shop the brand is fully usable even in the failed state — `brand_id`, `provider`, `url` and
+   `source_url` are all truthful, the product picker works, only the display profile is missing —
+   so withholding it would force a needless refetch.
+
+#### During the pending window
+
+- **`GET /brands/{id}/products` works normally.** This is guaranteed by design, not incidental —
+  `provider`, `url`, `source_url` (and, for Shopify, `currency`) are all written truthfully at 202
+  time, so the picker never 404s or degrades while a brand is pending.
+- `connectStatus` and `connectError` appear on the brand object — in `GET /brands`,
+  `PATCH /brands/{id}`, and everywhere else a brand is rendered — **only when non-null**. A settled
+  brand never carries these keys at all; do not treat their absence as `false`.
+- A **pending** brand is omitted from the public sitepage payload — on its own it cannot cause a Shop
+  page to appear, and it will not ship as an empty card once another brand's products already make the
+  page live. A **failed** brand is **not** omitted: its content is identical to what a failed homepage
+  fetch already produces today, so this is pre-existing behaviour, not something new.
+- **5-minute stale-pending backstop.** A row stuck `pending` with `updated_at` older than 5 minutes
+  polls as `{"status":"failed","error":"We couldn't save your connection just then — please try
+  again."}` — the same shared infrastructure sentence used across every platform in this contract.
+  This is **synthetic**: it does not write the row, so a merely-slow (not dead) worker can still land
+  its real result afterwards, and the next poll reports `ready`.
+
+#### What did NOT change (Shop)
+
+`GET /brands`, `GET /selection`, `PUT /brands/{id}/selection`, `POST /products`, `PATCH /brands/{id}`,
+and every `DELETE` path are all unchanged — same status codes, same bodies, same behaviour as today.
+
 ---
 
 ## How a deferred failure reaches the user
@@ -338,8 +444,8 @@ deploy coordination to manage — only the env var, flipped when the frontend is
 |---|---|---|
 | `GET /api/platforms/shop/brands` | **unchanged** | Pure DB read, no vendor fetch. |
 | `GET /api/platforms/shop/selection` | **unchanged** | Pure DB read. |
-| `POST /api/platforms/shop/brands` | **unchanged for now** | The heaviest endpoint in the system (~768 s worst case), but its identity key *is* the probe result and its storage is relational — it needs a schema change to express a pending state. Being fixed separately with a fetch budget first. |
-| `PUT /api/platforms/shop/brands/{id}/selection` | **unchanged** | Same reason. |
+| `POST /api/platforms/shop/brands` | **changed — provider-dependent** | Returns `202` (shopify/woocommerce/squarespace) or `200` (bigcartel/generic/client-assisted) for the same request shape. Full detail in §8, not summarised here. |
+| `PUT /api/platforms/shop/brands/{id}/selection` | **unchanged** | Wire contract unchanged — an internal lock restructure only (the vendor fetch moved outside the connection lock); no new status code, no new keys. |
 | `POST /api/platforms/shop/products` | **unchanged** | Single fetch. |
 | `GET /api/platforms/fresha/selection` | **unchanged** | Pure DB read. |
 | `POST /api/platforms/fresha/selection` | **unchanged** | Still synchronous; still re-fetches live. |

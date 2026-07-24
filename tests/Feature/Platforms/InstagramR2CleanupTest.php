@@ -31,7 +31,8 @@ function r2CleanupUser(string $h): User
     ]);
 }
 
-function makeIgConnection(User $user, ?array $payload): IntegrationConnection
+/** payload is NOT NULL in prod — the pending placeholder is an empty array, never null. */
+function makeIgConnection(User $user, array $payload): IntegrationConnection
 {
     return IntegrationConnection::create([
         'user_id' => $user->id,
@@ -102,7 +103,7 @@ it('does not dispatch cleanup when the folder is unchanged across an update', fu
 
 it('does not dispatch cleanup on the pending→ready transition (null → folder)', function () {
     Queue::fake();
-    $conn = makeIgConnection(r2CleanupUser('r2up3'), null); // pending placeholder
+    $conn = makeIgConnection(r2CleanupUser('r2up3'), []); // pending placeholder
 
     $conn->update(['payload' => ['username' => 'x', '_folder' => 'platforms/instagram/NEW']]);
 
@@ -136,7 +137,7 @@ it('the async connect job stores the R2 _folder in the payload', function () {
         'user_id' => $user->id,
         'platform' => 'instagram',
         'resource_id' => 'instagram',
-        'payload' => null,
+        'payload' => [],
         'is_active' => false,
         'last_refresh_status' => 'pending',
     ]);

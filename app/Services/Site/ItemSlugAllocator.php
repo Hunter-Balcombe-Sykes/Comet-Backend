@@ -2,17 +2,19 @@
 
 namespace App\Services\Site;
 
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 // Owns site.item_slugs: the per-profile human-readable URL slug registry for
 // public sitepage detail items (events + menu items). is_current=false rows are
 // retired slugs kept alive as 301 redirect targets.
 //
-// Collision handling mirrors SiteProvisioningService: insert, catch the unique
-// violation, retry with a -N suffix. Uses -2-first (fish-tacos, fish-tacos-2),
+// Collision handling: insert-or-ignore, retry the next -N suffix when the slug
+// was already taken (see insertUnique() for why NOT catch-and-retry, which is
+// what SiteProvisioningService does). Uses -2-first (fish-tacos, fish-tacos-2),
 // matching the pages-app fallback loop and the user-approved scheme — distinct
 // from the subdomain allocator's -1-first convention (left unchanged).
 class ItemSlugAllocator
@@ -64,6 +66,107 @@ class ItemSlugAllocator
         DB::connection('pgsql')->table(self::TABLE)
             ->where('user_id', $userId)->where('item_type', $itemType)->where('item_key', $itemKey)
             ->delete();
+    }
+
+    /**
+     * Batch forget() — one DELETE per 1000 keys instead of one per item, for
+     * the wholesale-rebuild callers (MenuFetchJob, the events observer, the
+     * backfill prune). Hard-deletes current AND retired rows exactly like
+     * forget(): item_slugs_unique_slug is NON-partial, so a retired row still
+     * squats the slug and a soft retire would not free it.
+     *
+     * Chunked at 1000: comfortably inside the bind-parameter ceiling on every
+     * driver this actually runs against — SQLite defaults to 32766 (PHP 8.2
+     * bundles SQLite >= 3.32, so the old sub-1000 builds don't apply here) and
+     * Postgres to 65535 — with headroom to spare for the handful of extra
+     * scalar binds (user_id, item_type, and — in ensureCurrentMany()'s
+     * prefilter — is_current) each call adds on top of the chunk.
+     *
+     * Best paired with ensureCurrentMany() OUTSIDE an open transaction — see
+     * that method's note.
+     *
+     * @param  list<string>  $itemKeys
+     */
+    public function forgetMany(string $userId, string $itemType, array $itemKeys): void
+    {
+        $keys = array_values(array_unique(array_map('strval', $itemKeys)));
+        if ($keys === []) {
+            return;
+        }
+
+        foreach (array_chunk($keys, 1000) as $chunk) {
+            DB::connection('pgsql')->table(self::TABLE)
+                ->where('user_id', $userId)->where('item_type', $itemType)
+                ->whereIn('item_key', $chunk)
+                ->delete();
+        }
+    }
+
+    /**
+     * Batch ensureCurrent() for a whole rebuilt collection: one chunked
+     * prefilter SELECT establishes which keys already carry a live slug on the
+     * right base, and only the remainder fall through to the per-item
+     * ensureCurrent() write path. An unchanged 300-dish menu therefore costs
+     * ONE query instead of ~600.
+     *
+     * PREFER CALLING OUTSIDE AN OPEN TRANSACTION. It is no longer unsafe inside
+     * one — insertUnique() allocates with insertOrIgnore behind a savepoint, so
+     * a collision can neither raise nor abort a caller's Postgres transaction
+     * (SQLSTATE 25P02) — but this walks a whole rebuilt collection, and holding
+     * someone else's write transaction open across that many round trips is its
+     * own hazard.
+     *
+     * `is_current` is compared ONLY inside the SQL WHERE, never read back into
+     * PHP — Postgres' PDO driver can hand a boolean column back as the strings
+     * 't'/'f' rather than true/false (see lookupCurrent()'s note), which would
+     * pass against the SQLite mirror's 0/1 integers and misbehave in production.
+     *
+     * Per-item failures are swallowed: one unallocatable name must not strand
+     * the rest of the batch.
+     *
+     * @param  array<string, string>  $namesByKey  item_key => name
+     */
+    public function ensureCurrentMany(string $userId, string $itemType, array $namesByKey): void
+    {
+        if ($namesByKey === []) {
+            return;
+        }
+
+        /** @var array<string, string> $currentByKey item_key => live slug */
+        $currentByKey = [];
+        foreach (array_chunk(array_map('strval', array_keys($namesByKey)), 1000) as $chunk) {
+            $rows = DB::connection('pgsql')->table(self::TABLE)
+                ->where('user_id', $userId)->where('item_type', $itemType)
+                ->whereIn('item_key', $chunk)
+                ->where('is_current', true)
+                ->get(['item_key', 'slug']);
+            foreach ($rows as $row) {
+                $currentByKey[(string) $row->item_key] = (string) $row->slug;
+            }
+        }
+
+        foreach ($namesByKey as $itemKey => $name) {
+            $itemKey = (string) $itemKey;
+            $name = (string) $name;
+            $live = $currentByKey[$itemKey] ?? null;
+
+            // Already on the right base (suffix included) → ensureCurrent would
+            // no-op anyway; skip the round trip.
+            if ($live !== null && $this->stripSuffix($live) === $this->base($name, $itemKey)) {
+                continue;
+            }
+
+            try {
+                $this->ensureCurrent($userId, $itemType, $itemKey, $name);
+            } catch (Throwable $e) {
+                report($e);
+                Log::warning('item-slug batch mint failed', [
+                    'item_type' => $itemType,
+                    'item_key' => $itemKey,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**
@@ -142,25 +245,59 @@ class ItemSlugAllocator
             ->where('item_key', $itemKey)->where('is_current', true)->first();
     }
 
+    /**
+     * Allocate the first free slug for this item and return it.
+     *
+     * Runs inside a NESTED transaction whenever the caller already holds one.
+     * MenuItemObserver swallows allocator failures by design ("slug bookkeeping
+     * must never break a dish write"), but on Postgres a failed statement puts
+     * the whole enclosing transaction into an aborted state (SQLSTATE 25P02)
+     * where every later statement errors — so a swallow with nothing to roll
+     * back to takes the caller's work down with it. A nested transaction
+     * compiles to SAVEPOINT / ROLLBACK TO SAVEPOINT on pgsql AND sqlite
+     * (Grammar::supportsSavepoints() is true and neither driver grammar
+     * overrides it), containing any failure to this insert. At level 0 the
+     * insert runs bare — no extra BEGIN/COMMIT round trip for the ordinary
+     * caller. SQLite aborts only the statement, so the suite cannot reproduce
+     * the production failure; see allocateSlug() for what it can.
+     */
     private function insertUnique(string $userId, string $itemType, string $itemKey, string $base, bool $isCurrent): string
+    {
+        $connection = DB::connection('pgsql');
+        $allocate = fn (): string => $this->allocateSlug($userId, $itemType, $itemKey, $base, $isCurrent);
+
+        return $connection->transactionLevel() > 0
+            ? $connection->transaction($allocate)
+            : $allocate();
+    }
+
+    /**
+     * Walk `$base`, `$base-2`, `$base-3`… until one lands.
+     *
+     * insertOrIgnore, NOT insert-and-catch: it compiles to `ON CONFLICT DO
+     * NOTHING` on Postgres and `INSERT OR IGNORE` on SQLite, so a slug already
+     * taken in this profile comes back as 0 rows affected rather than raising.
+     * The expected collision therefore never produces a failed statement at
+     * all — which is what the old catch-and-retry got wrong: it worked on
+     * SQLite and aborted the caller's transaction on Postgres (see
+     * insertUnique()'s note), and MenuScanApplier::apply() wraps the
+     * MenuItem::create() that lands here.
+     */
+    private function allocateSlug(string $userId, string $itemType, string $itemKey, string $base, bool $isCurrent): string
     {
         for ($n = 1; $n <= 200; $n++) {
             $slug = $n === 1 ? $base : $base.'-'.$n;
-            try {
-                DB::connection('pgsql')->table(self::TABLE)->insert([
-                    'id' => (string) Str::uuid(),
-                    'user_id' => $userId,
-                    'item_type' => $itemType,
-                    'item_key' => $itemKey,
-                    'slug' => $slug,
-                    'is_current' => $isCurrent,
-                    'created_at' => now()->toDateTimeString(),
-                ]);
-
+            $inserted = DB::connection('pgsql')->table(self::TABLE)->insertOrIgnore([
+                'id' => (string) Str::uuid(),
+                'user_id' => $userId,
+                'item_type' => $itemType,
+                'item_key' => $itemKey,
+                'slug' => $slug,
+                'is_current' => $isCurrent,
+                'created_at' => now()->toDateTimeString(),
+            ]);
+            if ($inserted > 0) {
                 return $slug;
-            } catch (UniqueConstraintViolationException $e) {
-                // Slug taken in this profile (unique_slug) — try the next suffix.
-                continue;
             }
         }
 

@@ -67,6 +67,7 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
@@ -86,12 +87,14 @@ use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
+use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
 use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
@@ -148,6 +151,23 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // Skool + Strava are link/card style under their own resources.
             $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
+            // CA-W4: attach the fetch strategy so ConnectFetchJob can complete a
+            // pending row. Consumed ONLY by that job — skool stays non-refreshable
+            // (no ->refreshable() call above), so ScheduledRefresh/the manual
+            // refresh button never resolve this (PlatformDescriptor::refreshStrategy()
+            // requires BOTH flags).
+            $r->get('skool')->fetch(fn () => new SkoolFetch(app(SkoolScraper::class)));
+            // The message ConnectFetchJob stores on the row when the deferred
+            // fetch fails — verbatim from connect()'s own synchronous 404
+            // message. Deliberately NOT ->deferredConnect(): that flag means
+            // "this descriptor's ConnectStrategy implements DeferredConnect"
+            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
+            // descriptor), but Skool has no ConnectStrategy at all — its
+            // connect is bespoke (SkoolController::connect(), via
+            // DefersBespokeConnect), never routed through
+            // ConnectResolver/GenericPlatformController. Mirrors apple-music's
+            // identical note above.
+            $r->get('skool')->connectFetchError('Could not read that Skool community — check the URL.');
             $r->register(PD::make('strava')->label('Strava')->category(Cat::Content)->resource(StravaConnectionResource::class)->refreshable());
             // Attach the live fetch strategy (Plan 6). Consumed by the registry-driven refresher.
             $r->get('strava')->fetch(fn () => new StravaFetch(app(StravaClubScraper::class)));
@@ -281,12 +301,27 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('apple-music')->fetch(fn () => new AppleMusicFetch(
                 app(AppleSearch::class),
             ));
+            // CA-W3: the message ConnectFetchJob stores on the row when the
+            // deferred fetch fails — verbatim from connectFor()'s own synchronous
+            // 404 message. Deliberately NOT ->deferredConnect(): that flag means
+            // "this descriptor's ConnectStrategy implements DeferredConnect"
+            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
+            // descriptor), but Apple has no ConnectStrategy at all — its connect
+            // is bespoke (AppleController::connectFor(), via DefersBespokeConnect),
+            // never routed through ConnectResolver/GenericPlatformController. The
+            // rollout flag check (config('partna.connect.deferred')) is read
+            // directly by DefersBespokeConnect::shouldDeferConnect(), not via
+            // supportsDeferredConnect() — so setting that flag here would just be
+            // a false claim that breaks the pinned invariant for no functional gain.
+            $r->get('apple-music')->connectFetchError('Could not find that Apple Music artist or an album.');
             $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()->coverable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
             $r->get('apple-podcast')->fetch(fn () => new ApplePodcastFetch(
                 app(AppleSearch::class),
             ));
+            // CA-W3 — see apple-music's identical note above.
+            $r->get('apple-podcast')->connectFetchError('Could not find that Apple Podcast or an episode.');
             $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable()->payload(GoogleBusinessPayload::class));
             // Attach fetch strategy (Plan 3b). GoogleBusinessPayload is verbatim-preserving
             // (variable key set via array_intersect_key) — read paths migrated in Plan 5.
@@ -301,6 +336,15 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
             $r->get('eventbrite')->fetch(fn () => new EventbriteFetch(app(EventbriteScraper::class)));
             $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
+            // CA-W5 — see apple-music's identical note above: the message
+            // ConnectFetchJob stores when the deferred scrape fails, verbatim
+            // from addAccount()'s own synchronous 422. Deliberately NOT
+            // ->deferredConnect() — neither descriptor has a ConnectStrategy
+            // (their connect is bespoke, via DefersBespokeConnect), so that flag
+            // would falsely claim one exists (RegistryConnectCoverageTest pins
+            // flag<=>instanceof for every descriptor).
+            $r->get('eventbrite')->connectFetchError('Could not load that Eventbrite page.');
+            $r->get('humanitix')->connectFetchError('Could not load that Humanitix page.');
             $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
 
             // ── Picker / booking / reservations (no cron refresh) ──
@@ -312,6 +356,24 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 app(FreshaServiceProjector::class),
             ));
             $r->get('fresha')->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400));
+            // CA-W6/CA-W7: the CONNECT path needs a different fetch — FreshaFetch
+            // (above) is refresh-only (throws on a pending row with no
+            // selection). connectFetchStrategy() defaults to fetchStrategy()
+            // for every other platform; fresha is the one override. The
+            // projector dependency is CA-W7's: the storewide branch runs
+            // FreshaServiceProjector::sync() itself (team mode never touches it).
+            $r->get('fresha')->connectFetch(fn () => new FreshaConnectFetch(app(FreshaScraper::class), app(FreshaServiceProjector::class)));
+            // The message ConnectFetchJob stores when the deferred team-mode
+            // menu fetch fails — verbatim from connect()'s own synchronous 502
+            // ('Could not reach Fresha — please try again.' was the old abort()
+            // message; this is the poll-shaped equivalent). Deliberately NOT
+            // ->deferredConnect(): fresha's connect is bespoke
+            // (FreshaController::connect(), via DefersBespokeConnect), never
+            // routed through ConnectResolver/GenericPlatformController, so that
+            // flag would falsely claim a ConnectStrategy exists
+            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
+            // descriptor). Mirrors skool/apple-music/eventbrite's identical notes.
+            $r->get('fresha')->connectFetchError("We couldn't read that Fresha page just then — please try again.");
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));

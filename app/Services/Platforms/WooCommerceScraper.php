@@ -59,6 +59,18 @@ class WooCommerceScraper extends PlatformScraper
     }
 
     /**
+     * The canonical brand id: a slug of the host (WooCommerce has no global
+     * shop id). Extracted out of fetchBrand() (W9) — fetchBrand() and
+     * brandFromClient() both call this instead of each carrying their own
+     * copy, and ShopBrandIdentity's synchronous derivation calls it too, so
+     * the three can never disagree.
+     */
+    public function brandIdFor(string $origin): string
+    {
+        return preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST)));
+    }
+
+    /**
      * Brand profile for the store. `id` is a slug of the host (WooCommerce has
      * no global shop id). `currency` falls back to the first product's
      * currency code at product-fetch time.
@@ -79,7 +91,7 @@ class WooCommerceScraper extends PlatformScraper
         $html = ($home !== null && $home['status'] === 200) ? $home['body'] : '';
 
         return [
-            'id' => preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST))),
+            'id' => $this->brandIdFor($origin),
             'name' => $name ?? $this->metaContent($html, 'og:site_name'),
             'currency' => null,
             'favicon' => $this->favicon($html, $origin),
@@ -251,7 +263,7 @@ class WooCommerceScraper extends PlatformScraper
         $name = is_string($name) && trim($name) !== '' ? mb_substr(trim($name), 0, 200) : null;
 
         return [
-            'id' => preg_replace('/[^A-Za-z0-9]+/', '-', strtolower((string) parse_url($origin, PHP_URL_HOST))),
+            'id' => $this->brandIdFor($origin),
             'name' => $name,
             'currency' => null,
             'favicon' => $origin.'/favicon.ico',

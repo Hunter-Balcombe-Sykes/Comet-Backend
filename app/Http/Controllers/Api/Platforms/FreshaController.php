@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\FreshaEmployeeServicesRequest;
@@ -20,6 +21,7 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,6 +38,7 @@ use Illuminate\Http\Request;
 // table per user, and wire to /account/platforms in Partna-Frontend.
 class FreshaController extends ApiController
 {
+    use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -77,6 +80,23 @@ class FreshaController extends ApiController
         $validated = $request->validated();
 
         $url = $this->scraper->stripLocale($validated['url']);
+
+        // CA-W6/CA-W7: config('partna.connect.deferred') names 'fresha' —
+        // skip the synchronous ~96s menu scrape entirely and let
+        // ConnectFetchJob fill the row via FreshaConnectFetch, for EITHER
+        // mode. Team mode's write never depended on the fetch (CA-W6);
+        // storewide's does (projector->sync() + a real selection), so
+        // FreshaConnectFetch runs that work itself (CA-W7) instead of this
+        // method falling through to the synchronous body below. Checked
+        // after the 403/409 guards and the pure stripLocale() parse, never
+        // before them or inside any vendor call. $mode is read from the
+        // capability, not the vendor, so it is known at 202 time.
+        if ($this->shouldDeferConnect($this->platform())) {
+            $mode = AccountCapabilities::for($user)->can_book_storewide ? 'storewide' : 'team';
+
+            return $this->connectDeferred($user, $url, $mode);
+        }
+
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
         try {
             $menu = $this->budget->open($seconds, fn () => $this->scraper->fetchMenu($url));
@@ -132,6 +152,116 @@ class FreshaController extends ApiController
             ]);
 
             return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
+        });
+    }
+
+    /**
+     * CA-W6/CA-W7 deferred-connect write path, shared by both modes. Writes a
+     * pending row carrying {url, selection (carried forward exactly like the
+     * synchronous branch above — see §4.4 in the design doc for why a
+     * storewide reconnect must NOT blank it), connectMode:$mode,
+     * teamMenu:null, connectPendingAt}, then dispatches ConnectFetchJob.
+     * Mirrors SkoolController::connectDeferred()'s lock discipline: $row is
+     * captured by reference because withConnectionLock()'s return type is
+     * JsonResponse only; deferredConnectResponse() (DefersBespokeConnect)
+     * dispatches ConnectFetchJob AFTER this lock has released — the job
+     * blocks on the SAME per-user platform lock, so dispatching from inside
+     * would self-deadlock under a sync queue connection.
+     *
+     * `teamMenu => null` is written EXPLICITLY on BOTH modes so a mode flip
+     * (or a reconnect to a different salon) can't leave a stale team snapshot
+     * merged forward and served as `ready`. `connectPendingAt` is stamped
+     * fresh on every pending write — see FreshaConnectFetch's docblock for
+     * what clears it and connectStatus() for why it's checked instead of an
+     * absence-only ("ok without teamMenu") guard, which would wrongly fail
+     * every storewide `ready` row (storewide never writes teamMenu at all).
+     */
+    private function connectDeferred(User $user, string $url, string $mode): JsonResponse
+    {
+        $row = null;
+
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $url, $mode, &$row): JsonResponse {
+            $existingPayload = $this->readConnection($user) ?? [];
+            $existing = SelectionPayload::fromArray($existingPayload);
+            $carriedRaw = is_array($existingPayload['raw'] ?? null) ? $existingPayload['raw'] : null;
+
+            $row = $this->writeConnection($user, [
+                'url' => $url,
+                'selection' => $existing->selection?->toArray(),
+                'connectMode' => $mode,
+                'teamMenu' => null,
+                'connectPendingAt' => now()->toIso8601String(),
+                ...($carriedRaw !== null ? ['raw' => $carriedRaw] : []),
+            ], pending: true);
+
+            return $this->success([]);
+        });
+
+        if ($row === null) {
+            // withConnectionLock's own 423 lock-timeout response.
+            return $lockResponse;
+        }
+
+        return $this->deferredConnectResponse(
+            $row,
+            ['url' => $url, 'mode' => $mode],
+            '/api/platforms/fresha/connect/status',
+        );
+    }
+
+    // GET /api/platforms/fresha/connect/status — poll target for the 202
+    // above (CA-W6). Single-selection (no ?account=) — bespokeConnectStatus
+    // reads the platform's one row via connectionFor(), same as /selection below.
+    public function connectStatus(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $row = $this->connectionFor($user);
+
+        // The dashboard's manual refresh button (RefreshController::refresh())
+        // can flip a stranded pending row to 'ok' without ever running THIS
+        // connect's fetch: FreshaFetch (the refresh strategy) 304s a
+        // selection-less/carried-forward row via
+        // PlatformRefresher::recordNotModified(), which touches last_refresh_*
+        // but never payload — so it can never clear connectPendingAt. (Not the
+        // hourly cron — scopeDueForRefresh() already excludes every 'pending'
+        // row from its own selection.) An absence-only guard ("ok without
+        // teamMenu") would still miss a reconnect whose STALE teamMenu/
+        // selection got merged forward from a prior connect (a real cron
+        // fetch could then legitimately overwrite the row with genuinely-
+        // present-but-wrong content); this timestamp marker catches both, AND
+        // — because it is stamped identically for both connectMode values —
+        // covers storewide's equivalent "ok with a carried-forward selection"
+        // case for free, with no second guard. Cleared only by
+        // FreshaConnectFetch's own success write (team: set to null;
+        // storewide: key removed).
+        if ($row !== null && $row->last_refresh_status === 'ok' && ($row->payload['connectPendingAt'] ?? null) !== null) {
+            return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
+        }
+
+        // $shape branches on the STORED payload, not the caller's current
+        // capability — the account type could flip between the 202 and the
+        // poll, and the row records what was promised. connectMode is the
+        // authoritative marker: connectDeferred() stamps it on the pending
+        // write and neither FreshaConnectFetch branch rewrites it, so it is
+        // exact for the whole connect window. teamMenu presence is kept as a
+        // second arm only because it is what the team branch fills on success.
+        //
+        // Neither key is eternal: the hourly cron's FreshaFetch returns a fresh
+        // three-key payload, dropping connectMode AND teamMenu, after which a
+        // team row would shape as storewide here. That is outside the connect
+        // window — a completed connect is never polled again, and a row still
+        // mid-connect is caught by the stale-pending guard above — so it is
+        // harmless, but it is a fall-through, not an "unambiguous discriminator".
+        return $this->bespokeConnectStatus($user, null, function (array $payload): array {
+            $isTeam = ($payload['connectMode'] ?? null) === 'team' || is_array($payload['teamMenu'] ?? null);
+
+            return $isTeam
+                ? ['url' => $payload['url'] ?? null, 'mode' => 'team', ...($payload['teamMenu'] ?? [])]
+                : [
+                    'url' => $payload['url'] ?? null,
+                    'mode' => 'storewide',
+                    'selection' => (new FreshaSelectionResource($payload['selection'] ?? []))->resolve(),
+                ];
         });
     }
 

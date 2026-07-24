@@ -106,6 +106,13 @@ class PublicIntegrationConnectionResource extends ApiResource
         'linkedin' => ['username', 'url'],
         'threads' => ['username', 'url'],
         'reddit' => ['username', 'url'],
+        // 2026-07-23 link-only additions (TEST-3 fix). Discord's `username`
+        // carries the invite code, not a handle — see DiscordNormalizer.
+        'snapchat' => ['username', 'url'],
+        'discord' => ['username', 'url'],
+        'telegram' => ['username', 'url'],
+        'kick' => ['username', 'url'],
+        'medium' => ['username', 'url'],
         'fresha' => ['url', 'selection'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
@@ -208,7 +215,16 @@ class PublicIntegrationConnectionResource extends ApiResource
             // no annotation (keeps parity if the controller didn't thread ranks).
             $productRanks = $this->productRanks;
 
+            // W9: a brand mid deferred-connect has no display profile yet — a
+            // nameless, logo-less, empty-products card must never ship on the
+            // CDN-cached public wire (it can't cause the Shop page to appear
+            // by itself, since presentPageIds() additionally requires a chosen
+            // product, but it WOULD ride along once another brand qualifies
+            // the page). 'failed' is deliberately NOT filtered — a failed
+            // brand's content is identical to what today's synchronous path
+            // already produces when a homepage fetch fails, so it stays public.
             return $this->shopBrands
+                ->reject(fn ($b) => $b->connect_status === 'pending')
                 ->mapWithKeys(function ($b) use ($linkMode, $productRanks) {
                     $brand = array_intersect_key(
                         $b->toBrandArray($productRanks), array_flip(self::SHOP_BRAND_ALLOWLIST));
@@ -221,9 +237,11 @@ class PublicIntegrationConnectionResource extends ApiResource
                 ->all();
         }
 
-        // Null / non-array payloads (e.g. a pending connection) pass through.
+        // Fail CLOSED (SEC-3): a non-array payload must never reach this public,
+        // CDN-cached wire unfiltered. `payload` is NOT NULL in prod Postgres
+        // (jsonb, default '{}') — null here is only the nullable SQLite test mirror.
         if (! is_array($payload)) {
-            return $payload;
+            return [];
         }
 
         $allowed = self::ALLOWLIST[$platform] ?? null;

@@ -37,9 +37,15 @@ it('detects a WooCommerce store from the URL alone and stores its provider', fun
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(false);
+        // W9: ShopProviderDetector now calls probeMeta() instead of probe() —
+        // false above means "not shopify", so this must be null too.
+        $m->shouldReceive('probeMeta')->andReturn(null);
     });
     $this->mock(WooCommerceScraper::class, function ($m) {
         $m->shouldReceive('probe')->andReturn(true);
+        // W9 Unit 4: ShopBrandIdentity::for() now calls brandIdFor($origin) —
+        // must agree with fetchBrand()'s id below (same expression, WooCommerceScraper::brandIdFor()).
+        $m->shouldReceive('brandIdFor')->andReturn('store-example');
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'store-example', 'name' => 'Organic Shop', 'currency' => null, 'favicon' => null, 'logo' => null,
         ]);
@@ -63,6 +69,8 @@ it('falls through to the generic JSON-LD provider and warms its catalog', functi
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => 'https://shop.example');
         $m->shouldReceive('probe')->andReturn(false);
+        // W9: see the woocommerce block above — false means null.
+        $m->shouldReceive('probeMeta')->andReturn(null);
     });
     $this->mock(WooCommerceScraper::class, fn ($m) => $m->shouldReceive('probe')->andReturn(false));
     $this->mock(GenericShopScraper::class, function ($m) {
@@ -94,6 +102,8 @@ it('rejects a URL no provider recognises with a helpful 422', function () {
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => 'https://blog.example');
         $m->shouldReceive('probe')->andReturn(false);
+        // W9: see the woocommerce block above — false means null.
+        $m->shouldReceive('probeMeta')->andReturn(null);
     });
     $this->mock(WooCommerceScraper::class, fn ($m) => $m->shouldReceive('probe')->andReturn(false));
     $this->mock(GenericShopScraper::class, fn ($m) => $m->shouldReceive('fetchPageDetailed')

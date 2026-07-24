@@ -214,7 +214,7 @@ describe('pending-deletion gate on Instagram connect (direct-write path)', funct
             'user_id' => $user->id,
             'platform' => 'instagram',
             'resource_id' => 'instagram',
-            'payload' => null,
+            'payload' => [],
             'is_active' => false,
             'last_refresh_status' => 'pending',
         ]);

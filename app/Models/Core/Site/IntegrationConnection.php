@@ -185,14 +185,66 @@ class IntegrationConnection extends BaseModel
      * in PHP (per-platform TTL) and bound as a param so the query is identical on
      * Postgres and the SQLite test DB. Soft-deleted rows are already excluded by the
      * model's SoftDeletes global scope.
+     *
+     * E-5: a 'pending' row belongs to an in-flight (or stranded) ConnectFetchJob —
+     * last_refreshed_at is NULL on that row, which would otherwise match the
+     * "never refreshed" arm below and let this hourly cron race the connect job,
+     * potentially recording a vendor 304 as a bogus 'ok' over an empty/partial
+     * payload. The exclusion is spelled out as whereNull-OR-!= rather than a
+     * bare `!=` because Postgres' three-valued logic would otherwise ALSO
+     * silently drop the (legitimate, un-pending) NULL-status rows this scope
+     * has always included — see the "never refreshed" case in
+     * DueForRefreshScopeTest.
      */
     public function scopeDueForRefresh($query, \DateTimeInterface $cutoff, int $maxFailures)
     {
         return $query->active()
             ->where('consecutive_failures', '<', $maxFailures)
+            ->where(function ($q) {
+                $q->whereNull('last_refresh_status')
+                    ->orWhere('last_refresh_status', '!=', 'pending');
+            })
             ->where(function ($q) use ($cutoff) {
                 $q->whereNull('last_refreshed_at')
                     ->orWhere('last_refreshed_at', '<', $cutoff);
             });
+    }
+
+    /**
+     * CA-SM review fix (E-5 follow-up): scopeDueForRefresh() above now excludes
+     * EVERY 'pending' row from the cron's own selection — correct, a fresh
+     * pending row is a healthy in-flight refresh/connect, not a fault. But that
+     * exclusion also means a row stranded 'pending' by a dead worker (one that
+     * never wrote a terminal status) silently disappears from every query built
+     * on that scope, including the backlog alarm — with nothing left to notice
+     * it. This is a SEPARATE, visibility-only query: it does not feed back into
+     * dueForRefresh() or make the cron touch these rows (see
+     * CheckPlatformRefreshBacklogCommand for why remediation is deliberately
+     * out of scope here). $cutoff distinguishes "still in flight" from
+     * "abandoned" — a NULL updated_at can't be proven stale, so (matching
+     * RefreshController::refreshStatus()'s identical stale-pending reasoning)
+     * it is treated as still in flight, not stranded.
+     *
+     * CA-SM review fix: filtered to ->active(), matching scopeDueForRefresh().
+     * A row deactivated while still 'pending' (e.g. ReconcilePlatformTakedownJob)
+     * is never touched again by anything, so without this filter it would trip
+     * this alarm forever — a permanent false positive, not a transient one.
+     *
+     * Whole-branch review, finding 2: 'custom' (link-card) rows are excluded —
+     * for that platform 'pending' is an intended RESTING state, not a fault.
+     * CustomLinkSeeder resets an existing row to 'pending' without dispatching
+     * EnrichLinkCardJob at all on a re-seed (only $isNew does), and
+     * EnrichLinkCardJob itself deliberately leaves a row 'pending' on lock
+     * contention rather than force a terminal write. Without this exclusion
+     * those legitimate rows accumulate into $overdue permanently and erode the
+     * one alarm that now also has to catch finding 1's stranded refresh rows.
+     */
+    public function scopeStrandedPending($query, \DateTimeInterface $cutoff)
+    {
+        return $query->active()
+            ->where('platform', '!=', 'custom')
+            ->where('last_refresh_status', 'pending')
+            ->whereNotNull('updated_at')
+            ->where('updated_at', '<', $cutoff);
     }
 }

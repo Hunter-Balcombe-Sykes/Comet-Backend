@@ -47,8 +47,9 @@ it('resolves the site from the payload subdomain on POST /api/public/analytics/p
     $tenant = createTenant('hydrogen-affiliate');
 
     // Hydrogen proxy sends the subdomain in the body and must include an Origin header
-    // matching the mini-site page it's serving (browser origin check). Server-side callers
-    // with no Origin must provide both site_id + subdomain (the approved fallback).
+    // matching the mini-site page it's serving (browser origin check). A header-less
+    // caller is rejected outright (SEC-1) — site_id/subdomain can no longer stand in
+    // for Origin.
     $response = $this->withHeader('Origin', 'https://hydrogen-affiliate.'.config('partna.public_domain'))
         ->postJson('/api/public/analytics/pageviews', [
             'subdomain' => 'hydrogen-affiliate',

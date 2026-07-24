@@ -39,6 +39,7 @@
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\RankedActionsComputer;
 
@@ -232,4 +233,16 @@ it('shop_brands_link_mode_check matches UpdateShopBrandRequest and the hardcoded
 
     lockstepAssertSameSet($migrationList, $expected, 'shop_brands_link_mode_check (migration vs hardcoded)');
     lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest linkMode (app vs hardcoded)');
+});
+
+// ─── site.shop_brands.connect_status (W9) ────────────────────────────────────
+
+it('shop_brands_connect_status_check matches ShopBrand::CONNECT_STATUSES and the hardcoded expected set', function () {
+    $expected = ['pending', 'failed'];
+
+    $sql = lockstepMigrationSql('20260724150000_shop_brands_connect_status.sql');
+    $migrationList = lockstepExtractInList($sql, 'connect_status');
+
+    lockstepAssertSameSet($migrationList, $expected, 'shop_brands_connect_status_check (migration vs hardcoded)');
+    lockstepAssertSameSet(ShopBrand::CONNECT_STATUSES, $expected, 'ShopBrand::CONNECT_STATUSES (app vs hardcoded)');
 });

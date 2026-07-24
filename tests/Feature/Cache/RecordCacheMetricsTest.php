@@ -418,3 +418,162 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $listener->handle(new CacheHit('redis', 'lock:site:payload:abc', []));
     });
 });
+
+// CACHE-3: the other half of the over-counting #CACHE-2 left behind. Both
+// CacheLockService::rememberLocked() (:102/:161) and rememberLockedNullable()
+// (:245/:257) re-read the primary key AFTER winning the single-flight lock —
+// a third Redis probe for the same logical read, which the one-event lookahead
+// buffer never saw. rememberLockedNullable() keeps no ":stale" copy at all, so
+// for most of the `pro` prefix the SWR fold changed nothing and every cold read
+// still booked two misses.
+//
+// The rule: once a read of key K has been scored, further READ events on K
+// belong to the same logical read until K is written. A hit that was NOT
+// preceded by a miss on the same key is never folded — collapsing repeated
+// hot-path hits would deflate the hit rate rather than correct it.
+describe('post-lock re-check fold (CACHE-3)', function () {
+    // Capture EVERY hIncrBy rather than asserting `->once()->withArgs(...)`:
+    // write() swallows Throwable by design, so an unmatched Mockery expectation
+    // is caught and logged instead of failing the test. A surplus increment
+    // would be invisible — exactly the bug these tests exist to catch.
+    beforeEach(function () {
+        $this->fields = [];
+        Redis::shouldReceive('hIncrBy')->andReturnUsing(function ($key, $field, $by) {
+            $this->fields[] = $field;
+
+            return $by;
+        });
+        Redis::shouldReceive('expire')->andReturn(true);
+    });
+
+    it('folds the post-lock re-check that follows an SWR stale probe', function () {
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'site:payload:x'));          // primary probe
+        $listener->handle(new CacheMissed('redis', 'site:payload:x:stale'));    // SWR companion
+        $listener->handle(new CacheMissed('redis', 'site:payload:x'));          // post-lock re-check
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['site:misses']);
+    });
+
+    it('folds a repeated primary miss with no :stale companion (rememberLockedNullable)', function () {
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'pro:model:abc'));   // primary probe
+        $listener->handle(new CacheMissed('redis', 'pro:model:abc'));   // post-lock re-check
+        $listener->flush();
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['pro:misses']);
+    });
+
+    it('folds a post-lock re-check that finds the key warm into an already-scored read', function () {
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'site:payload:y'));
+        $listener->handle(new CacheMissed('redis', 'site:payload:y:stale'));
+        $listener->handle(new CacheHit('redis', 'site:payload:y', []));  // another worker filled it
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['site:misses']);
+    });
+
+    it('scores an unpaired read as a hit when the post-lock re-check finds it warm', function () {
+        // rememberLockedNullable(): no ":stale" copy, so the buffered miss is
+        // still unscored when the re-check lands. Another process filled the key
+        // while we queued for the lock — we served without recomputing, so the
+        // logical read is a HIT, not a miss.
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'pro:model:def'));
+        $listener->handle(new CacheHit('redis', 'pro:model:def', []));
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['pro:hits']);
+    });
+
+    it('records the miss that drove a recompute exactly once alongside its write', function () {
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'pro:model:ghi'));
+        $listener->handle(new CacheMissed('redis', 'pro:model:ghi'));
+        $listener->handle(new KeyWritten('redis', 'pro:model:ghi', 'v', 60));
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['pro:misses', 'pro:writes']);
+    });
+
+    it('starts a new logical read for the same key once it has been written', function () {
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'pro:model:jkl'));
+        $listener->handle(new KeyWritten('redis', 'pro:model:jkl', 'v', 60));
+        $listener->handle(new CacheHit('redis', 'pro:model:jkl', []));  // genuinely a second read
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['pro:misses', 'pro:writes', 'pro:hits']);
+    });
+
+    it('never folds repeated hits on a key that did not miss first', function () {
+        // Guard against over-folding: a hot request reading the same warm key
+        // several times is several hits. Collapsing them would shrink the
+        // numerator while other keys' misses stayed in the denominator.
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheHit('redis', 'pro:model:warm', []));
+        $listener->handle(new CacheHit('redis', 'pro:model:warm', []));
+        $listener->handle(new CacheHit('redis', 'pro:model:warm', []));
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['pro:hits', 'pro:hits', 'pro:hits']);
+    });
+
+    it('does not fold a repeated miss across two different keys', function () {
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'pro:model:one'));
+        $listener->handle(new CacheMissed('redis', 'pro:model:two'));
+        $listener->flush();
+
+        $listener->flush();
+
+        expect($this->fields)->toBe(['pro:misses', 'pro:misses']);
+    });
+});
+
+// CACHE-3: two sources dominate the metrics hash without carrying any signal.
+describe('noise prefixes are not recorded (CACHE-3)', function () {
+    it('skips illuminate: framework-internal keys', function () {
+        // Queue workers poll illuminate:queue:restart on every loop; the key is
+        // only ever set by `queue:restart`, so it is a permanent 100% miss —
+        // ~9.7k events/hour on dev, about 90% of everything recorded.
+        Redis::shouldReceive('hIncrBy')->never();
+
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheMissed('redis', 'illuminate:queue:restart'));
+        $listener->flush();
+    });
+
+    it('skips hash-shaped rate limiter keys', function () {
+        // ThrottleRequests hashes its request signature, so each limited caller
+        // mints its own single-use "prefix" field in the bucket hash. They can
+        // never aggregate into a meaningful rate and the hash lives 48h.
+        Redis::shouldReceive('hIncrBy')->never();
+
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheHit('redis', 'a7106324236cf58f7c9a5bc67c05877c', []));
+        $listener->handle(new CacheMissed('redis', 'a7106324236cf58f7c9a5bc67c05877c:timer'));
+        $listener->flush();
+    });
+
+    it('still records ordinary named prefixes', function () {
+        Redis::shouldReceive('hIncrBy')
+            ->once()
+            ->withArgs(fn ($key, $field, $by) => $field === 'analytics:hits')
+            ->andReturn(1);
+        Redis::shouldReceive('expire')->andReturn(true);
+
+        $listener = new RecordCacheMetrics;
+        $listener->handle(new CacheHit('redis', 'analytics:summary:abc', []));
+    });
+});

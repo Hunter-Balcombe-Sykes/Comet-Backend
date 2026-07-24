@@ -70,15 +70,15 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
-- P2 Medium: 0 of 1 complete
+- P1 High: 2 of 2 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Origin-absent analytics fallback trusts publicly-known `site_id` + `subdomain`, letting a scripted caller forge another site's action/analytics events
+- [x] **#SEC-1** · P1 — Origin-absent analytics fallback trusts publicly-known `site_id` + `subdomain`, letting a scripted caller forge another site's action/analytics events
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:465-478
     - **Affects:** Every published sitepage's `pageview`/`click`/`sectionSeen`/`itemSeen`/`actionSeen`/`actionTap`/`ping`/`sectionDwell` ingest endpoints. Fabricated `actionSeen`/`actionTap` events feed directly into `RankedActionsComputer`'s demand-rate scoring, so a scripted attacker can inflate or suppress another user's action ordering shown to real visitors.
     - **Effort:** S (~0.5–1h)
@@ -99,7 +99,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
         }
         ```
 
-- [ ] **#SEC-2** · P1 — Admin-cancelled deletion never restores the user's email because the restore query only matches self-service confirmations
+- [x] **#SEC-2** · P1 — Admin-cancelled deletion never restores the user's email because the restore query only matches self-service confirmations
     - **Where:** app/Services/User/AccountDeletionService.php:1305-1317
     - **Affects:** Any user whose deletion was started by staff (`adminInitiate()`, `event = 'admin_initiated'`) and later cancelled by staff (`adminCancel()`). Status and the site are correctly restored, but `primary_email` stays `deleted+{id}@partna.au` — the user cannot receive password resets or any other account-recovery email until someone notices and fixes it by hand.
     - **Effort:** S (~0.5–1h)
@@ -127,7 +127,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Non-array `payload` values bypass the public per-platform allowlist and would reach the CDN-cached public wire verbatim
+- [x] **#SEC-3** · P2 — Non-array `payload` values bypass the public per-platform allowlist and would reach the CDN-cached public wire verbatim
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:220-223
     - **Affects:** Unauthenticated sitepage visitors hitting `GET /api/public/profiles/{handle}/platforms` — only in the hypothetical case a `site.platform_connections.payload` row is ever written as a scalar (an error string, a stray token) instead of an array.
     - **Effort:** S (~0.5–1h)
@@ -609,7 +609,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 1 of 3 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 7 complete
 
@@ -665,7 +665,7 @@ None.
             coverage: none
         ```
 
-- [ ] **#TEST-3** · P1 — Snapchat/Discord/Telegram/Kick/Medium (commit e1879529) have no `ALLOWLIST` entry — they render empty on every public sitepage today, and no test catches it
+- [x] **#TEST-3** · P1 — Snapchat/Discord/Telegram/Kick/Medium (commit e1879529) have no `ALLOWLIST` entry — they render empty on every public sitepage today, and no test catches it
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:78-147 (`ALLOWLIST` const), app/Providers/PlatformRegistryServiceProvider.php:124-131; tests/Feature/Platforms/PublicIntegrationAllowlistTest.php
     - **Affects:** Every professional who connects one of these 5 platforms (shipped in commit `e1879529 feat: add Snapchat, Discord, Telegram, Kick, Medium as link-only integrations`). The link they connect never appears on their public sitepage — a live, currently-shipping functional regression, not just a coverage gap.
     - **Effort:** M (~2–4h)
@@ -1480,7 +1480,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 1 complete
 
@@ -1488,7 +1488,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **271-DINT-1** · P1 — `MenuFetchJob`'s bulk scrape-rebuild writes bypass Eloquent events, so `site.item_slugs` never mints for new scraped dishes and never frees on removed ones
+- [x] **271-DINT-1** · P1 — `MenuFetchJob`'s bulk scrape-rebuild writes bypass Eloquent events, so `site.item_slugs` never mints for new scraped dishes and never frees on removed ones
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:412, 580, 758; app/Observers/MenuItemObserver.php:23-33; supabase/migrations/20260724120000_create_item_slugs.sql:10-15,35
     - **Affects:** Every site with a connected Uber Eats/DoorDash menu — i.e. most menu-enabled Partna profiles. The pretty-URL slug feature (`slug`/`aliases` on the public menu payload, shipped this session) only ever activates for owner-authored (`is_manual`) dishes; every scraped dish — the primary content source, per the model's own docblock ("Items are rebuilt wholesale on every scrape") — permanently degrades to the raw-UUID fallback the feature was built to replace. `site.item_slugs` also silently accumulates orphaned rows for every dish a re-scrape removes.
     - **Effort:** M (~2–4h)
@@ -1578,7 +1578,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
             ON site.item_slugs (user_id, slug);
         ```
 
-- [ ] **271-DINT-4** · P2 — Event `item_slugs` rows are never retired — no code path anywhere calls `forget()` for `item_type = 'event'`
+- [x] **271-DINT-4** · P2 — Event `item_slugs` rows are never retired — no code path anywhere calls `forget()` for `item_type = 'event'`
     - **Where:** app/Services/Platforms/EventSlugSync.php:56-69 (`syncEvents()`); app/Observers/Core/IntegrationConnectionObserver.php:241-247 (`deleted()`)
     - **Affects:** Every user with a connected Eventbrite/Humanitix/custom-events integration — an event that ends, is deleted upstream, or whose whole integration is disconnected leaves its `site.item_slugs` row permanently `is_current = true`, occupying that slug forever with zero cleanup mechanism (unlike the menu-item side, which at least has a `forget()` call for the direct-delete path).
     - **Effort:** M (~2–4h)

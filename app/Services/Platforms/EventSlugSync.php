@@ -52,6 +52,65 @@ class EventSlugSync
             : EventsAccountPayload::fromArray($payload)->upcoming();
     }
 
+    /**
+     * The event ids a stored payload carries, deduped and in payload order —
+     * the retirement side's counterpart to extractEvents(). Static + pure so it
+     * unit-tests without a container and works on ANY payload (the pre-write
+     * original as well as the live one).
+     *
+     * Ids are kept as strings deliberately: an all-digit hex id would come back
+     * as an int through an array-key dedupe, which then leaks an int into a
+     * `list<string>` and into forgetMany()'s binds.
+     *
+     * @return list<string>
+     */
+    public static function eventIds(?string $resourceKind, mixed $payload): array
+    {
+        $ids = [];
+        foreach (self::extractEvents($resourceKind, $payload) as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
+            $id = $event['id'] ?? null;
+            if (is_string($id) && $id !== '') {
+                $ids[] = $id;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Free the slugs of events that have dropped out of a profile — a refresh
+     * that no longer lists them, or a disconnected connection. Hard-deletes
+     * (forgetMany), because item_slugs_unique_slug is NON-partial: a merely
+     * retired row would keep squatting the slug so a same-named future event
+     * would land on `-2` forever.
+     *
+     * The CALLER owns the "is this id really gone?" decision — event ids are
+     * link-derived, so the same event can legitimately appear under several of
+     * a user's connections and item_slugs has no connection column. See
+     * IntegrationConnectionObserver::retireVanishedEventSlugs().
+     *
+     * Best-effort: a slug-bookkeeping failure must never break the connection
+     * write that triggered it.
+     *
+     * @param  list<string>  $eventIds
+     */
+    public function retireEvents(string $userId, array $eventIds): void
+    {
+        $ids = array_values(array_filter($eventIds, fn ($id) => $id !== ''));
+        if ($ids === []) {
+            return;
+        }
+
+        try {
+            $this->slugs->forgetMany($userId, ItemSlugAllocator::TYPE_EVENT, $ids);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     /** @param list<mixed> $events */
     public function syncEvents(string $userId, array $events): void
     {

@@ -41,10 +41,11 @@ manual repair?
 # 1. public profile read (edge-uncached, straight to Laravel)
 curl -s -o /dev/null -w "profile  %{http_code}  %{time_total}s\n" "$BASE/api/public/profiles/<handle>"
 
-# 2. analytics beacon
+# 2. analytics beacon (Origin required — SEC-1 rejects header-less callers)
 curl -s -o /dev/null -w "pageview %{http_code}  %{time_total}s\n" \
   -X POST "$BASE/api/public/analytics/pageviews" \
   -H 'Content-Type: application/json' \
+  -H 'Origin: https://<handle>.partna.au' \
   -d '{"subdomain": "<handle>"}'
 
 # 3. an authed dashboard read (grab a real bearer token from the frontend session)

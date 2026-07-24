@@ -1886,6 +1886,26 @@ return [
     ],
 
     'cache' => [
+        // CACHE-3: hourly cache hit-rate SLO, checked by AggregateCacheMetricsJob
+        // and reported to Nightwatch on breach.
+        //
+        // A hit rate is bounded by 1 - 1/(lambda * TTL): with a 60s TTL
+        // ('ttls.professional_model' below), reaching 90% needs ~10 reads per key
+        // per minute. Under that, the once-per-TTL expiry miss dominates and the
+        // alert measures traffic volume rather than cache health — dev observed
+        // ~5.7 hits per recompute on `pro`, an ~87% ceiling, and fired hourly
+        // regardless. Both knobs are per-environment for that reason: keep the
+        // production target here and raise min_sample where traffic is thin.
+        'slo' => [
+            'prefixes' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env('PARTNA_CACHE_SLO_PREFIXES', 'site,pro'))
+            ))),
+            'min_hit_rate' => (float) env('PARTNA_CACHE_SLO_MIN_HIT_RATE', 0.9),
+            // Reads (hits + misses) a bucket needs before it is judged at all.
+            'min_sample' => (int) env('PARTNA_CACHE_SLO_MIN_SAMPLE', 10),
+        ],
+
         // CFG-3: CDN/edge TTL (seconds) for AddPublicCacheHeaders' allow-listed public
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min

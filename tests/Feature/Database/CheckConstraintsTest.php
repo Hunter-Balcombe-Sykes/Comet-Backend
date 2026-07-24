@@ -260,6 +260,13 @@ it('shop_brands_link_mode_check constraint exists and is validated', function ()
     assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_link_mode_check');
 });
 
+it('shop_brands_connect_status_check constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_connect_status_check');
+});
+
 // ─── analytics.content_popularity_scores (SCHEMA-2) ──────────────────────────
 
 it('content_popularity_scores_content_type_check constraint exists and is validated', function () {

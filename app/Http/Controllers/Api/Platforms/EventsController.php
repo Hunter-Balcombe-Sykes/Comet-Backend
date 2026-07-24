@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\AddEventRequest;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\EventsCatalog;
 use Illuminate\Http\JsonResponse;
@@ -29,6 +30,28 @@ class EventsController extends ApiController
 
         if (! ($result['ok'] ?? false)) {
             return $this->error($result['error'] ?? 'Could not add that link.', $result['status'] ?? 422);
+        }
+
+        // CA-W5: the organiser branch deferred its scrape. Dispatch HERE, never in
+        // EventsCatalog — this point is outside BOTH storeAccount()'s withPlatformLock
+        // AND the ambient FetchBudget above. On QUEUE_CONNECTION=sync dispatch() runs
+        // handle() inline: inside the lock it self-deadlocks on the same key, and
+        // inside the budget its own FetchBudget::open() nests (the inner finally
+        // clears the outer deadline — nesting fails OPEN).
+        //
+        // Deliberately does NOT use DefersBespokeConnect::deferredConnectResponse():
+        // that helper's envelope is {status, id, statusUrl} for a single platform
+        // controller, and this endpoint's contract is {status, selection, statusUrl}
+        // with NO top-level id and a statusUrl on the DETECTED platform's route.
+        $pending = $result['pending'] ?? null;
+        if (is_array($pending)) {
+            ConnectFetchJob::dispatch($pending['connectionId'], $pending['platform'])->afterCommit();
+
+            return $this->success([
+                'status' => 'pending',
+                'selection' => $result['selection'] ?? null,
+                'statusUrl' => url("/api/platforms/{$pending['platform']}/connect/status").'?account='.$pending['resourceId'],
+            ], 202);
         }
 
         return $this->success(['selection' => $result['selection'] ?? null]);

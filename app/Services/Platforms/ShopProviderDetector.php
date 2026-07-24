@@ -44,9 +44,10 @@ class ShopProviderDetector
     ) {}
 
     /**
-     * @return array{provider:string, origin:string, sourceUrl:string, page:array|null, store:array|null}|null
-     *                                                                                                         `page` is the GenericShopScraper::fetchPage result (generic only);
-     *                                                                                                         `store` is the BigCartelScraper::fetchStore result (bigcartel only).
+     * @return array{provider:string, origin:string, sourceUrl:string, page:array|null, store:array|null, meta:array|null}|null
+     *                                                                                                                          `page` is the GenericShopScraper::fetchPage result (generic only);
+     *                                                                                                                          `store` is the BigCartelScraper::fetchStore result (bigcartel only);
+     *                                                                                                                          `meta` is the ShopifyScraper::probeMeta() result (shopify only — W9).
      */
     public function detect(string $url): ?array
     {
@@ -65,7 +66,7 @@ class ShopProviderDetector
      *     "we couldn't get in", not "unsupported" — and the dashboard's
      *     client-assisted Store API fallback may still succeed.
      *
-     * @return array{detected: array{provider:string, origin:string, sourceUrl:string, page:array|null, store:array|null}|null, failure: ?string}
+     * @return array{detected: array{provider:string, origin:string, sourceUrl:string, page:array|null, store:array|null, meta:array|null}|null, failure: ?string}
      */
     public function detectDetailed(string $url): array
     {
@@ -87,28 +88,33 @@ class ShopProviderDetector
                     'sourceUrl' => $store['origin'],
                     'page' => null,
                     'store' => $store,
+                    'meta' => null,
                 ], 'failure' => null];
         }
 
-        if ($this->shopify->probe($origin)) {
-            return ['detected' => ['provider' => self::PROVIDER_SHOPIFY, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null], 'failure' => null];
+        // W9: probeMeta() replaces probe()'s own fetch (no extra HTTP call) —
+        // the decoded meta.json rides forward on the detected array so
+        // ShopBrandIdentity can derive the shop id without re-fetching it.
+        $meta = $this->shopify->probeMeta($origin);
+        if ($meta !== null) {
+            return ['detected' => ['provider' => self::PROVIDER_SHOPIFY, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null, 'meta' => $meta], 'failure' => null];
         }
 
         if ($this->woocommerce->probe($origin)) {
-            return ['detected' => ['provider' => self::PROVIDER_WOOCOMMERCE, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null], 'failure' => null];
+            return ['detected' => ['provider' => self::PROVIDER_WOOCOMMERCE, 'origin' => $origin, 'sourceUrl' => $origin, 'page' => null, 'store' => null, 'meta' => null], 'failure' => null];
         }
 
         // sourceUrl = the discovered products-collection URL — product fetches
         // and refreshes hit it directly instead of re-discovering.
         if ($productsUrl = $this->squarespace->discoverProductsUrl($url)) {
-            return ['detected' => ['provider' => self::PROVIDER_SQUARESPACE, 'origin' => $origin, 'sourceUrl' => $productsUrl, 'page' => null, 'store' => null], 'failure' => null];
+            return ['detected' => ['provider' => self::PROVIDER_SQUARESPACE, 'origin' => $origin, 'sourceUrl' => $productsUrl, 'page' => null, 'store' => null, 'meta' => null], 'failure' => null];
         }
 
         // Last probe fetches the pasted page itself — its detail doubles as
         // the reachable/unsupported discriminator.
         $detail = $this->generic->fetchPageDetailed($url);
         if ($detail['page'] !== null) {
-            return ['detected' => ['provider' => self::PROVIDER_GENERIC, 'origin' => $origin, 'sourceUrl' => $url, 'page' => $detail['page'], 'store' => null], 'failure' => null];
+            return ['detected' => ['provider' => self::PROVIDER_GENERIC, 'origin' => $origin, 'sourceUrl' => $url, 'page' => $detail['page'], 'store' => null, 'meta' => null], 'failure' => null];
         }
 
         $failure = $detail['reachable'] && ! $detail['storefrontMarkers']

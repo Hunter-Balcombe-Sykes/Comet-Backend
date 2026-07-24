@@ -100,6 +100,15 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
         $connection = IntegrationConnection::query()->find($this->connectionId);
 
         // Deleted or deactivated between dispatch and execution — nothing to do.
+        // CA-SM review fix: this used to also bail out on last_refresh_status
+        // === 'pending', but RefreshController::refresh() (the manual "refresh"
+        // button) WRITES 'pending' itself before dispatching this exact job —
+        // so that guard made the button's happy path unreachable, 100% of the
+        // time, not just racily. scopeDueForRefresh() is what keeps the hourly
+        // CRON from selecting a row an in-flight/stranded ConnectFetchJob owns
+        // (E-5) — that exclusion belongs at selection time, not here, because
+        // this job has no way to tell "pending because a connect is running"
+        // apart from "pending because a refresh just stamped it on the way in".
         if ($connection === null || ! $connection->is_active) {
             return;
         }
@@ -115,5 +124,26 @@ class RefreshConnectionJob implements ShouldBeUnique, ShouldQueue
             'platform' => $this->platform,
             'error' => $e->getMessage(),
         ]);
+
+        // Whole-branch review, finding 1: PlatformRefresher only catches the three
+        // Fetch*Exception subclasses (see its docblock) — anything else (e.g.
+        // FreshaFetch's uncaught SafeUrlException/HttpException) propagates here
+        // uncaught, and this job's own handle() has no pending-guard to fall back
+        // on (see the comment above it for why). Whoever dispatched this job —
+        // the cron, or RefreshController::refresh(), which stamps 'pending' on the
+        // row immediately before dispatch — handed off a row it now owns
+        // resolving. scopeDueForRefresh() and RefreshController's own selection
+        // both deliberately exclude 'pending' rows now, so without a terminal
+        // write here nothing else will ever re-select a row this job doesn't
+        // resolve, and it stays 'pending' forever. Mirrors the status+error
+        // bookkeeping PlatformRefresher::recordFailure() does for its own three
+        // known exception types.
+        $connection = IntegrationConnection::query()->find($this->connectionId);
+        if ($connection !== null) {
+            $connection->increment('consecutive_failures', 1, [
+                'last_refresh_status' => 'error',
+                'last_refresh_error' => $e->getMessage(),
+            ]);
+        }
     }
 }

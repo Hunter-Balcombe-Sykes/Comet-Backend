@@ -577,11 +577,37 @@ it('covers every integration GET read-route in the golden master', function () {
     // instead of blocking the request thread, so the dashboard needs a way to
     // poll for completion — GET {platform}/refresh/status returns the queued/
     // running/done state. 71 -> 72.
-    expect($readRoutes->count())->toBe(72);
+    // CA-W3: 2 new .../connect/status poll routes for Apple (music, podcast) —
+    // added manually inside the BESPOKE apple route group (routeShape stays
+    // Bespoke, so the registry loop's own supportsDeferredConnect() gate above
+    // never reaches it). 72 -> 74.
+    // CA-W4: 1 new .../connect/status poll route for Skool — added manually
+    // inside the loop's SingleSelection branch (that branch returns before the
+    // loop's own supportsDeferredConnect() gate too, and Skool has no
+    // ConnectStrategy to satisfy that flag's pinned invariant anyway). 74 -> 75.
+    // CA-W5: 2 new .../connect/status poll routes for Eventbrite + Humanitix —
+    // added manually inside the events foreach group (bespoke, multi-account,
+    // same reasoning as Apple/Skool above — neither descriptor gets
+    // ->deferredConnect(), so the registry loop's own gate never reaches
+    // them either). 75 -> 77.
+    // CA-W6: 1 new .../connect/status poll route for Fresha (team mode only —
+    // added manually inside its own bespoke route group, same reasoning as
+    // Apple/Skool/Eventbrite/Humanitix above; fresha has no ConnectStrategy to
+    // satisfy ->deferredConnect()'s pinned invariant). 77 -> 78.
+    // W9 (Shop): 2 new BRAND-scoped .../brands/{id}/connect/status poll routes —
+    // one per alias (shop + its legacy shopify alias). Brand-scoped, not
+    // connection-scoped, because Shop is the only platform where one connection
+    // fans out to many content rows. Registered regardless of the rollout flag
+    // (capability, not activation). Does NOT touch the settled-brand shape test
+    // above ("freezes the shop brands list contract"), which stays unmodified —
+    // this is purely a new route appearing in the enumeration. 78 -> 80.
+    expect($readRoutes->count())->toBe(80);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
+        'api/platforms/apple/music/connect/status',
         'api/platforms/apple/music/selection',
         'api/platforms/apple/podcast/accounts',
+        'api/platforms/apple/podcast/connect/status',
         'api/platforms/apple/podcast/selection',
         'api/platforms/bandcamp/accounts',
         'api/platforms/bandcamp/connect/status',
@@ -592,12 +618,15 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/custom/links/{id}/status',
         'api/platforms/discord/selection',
         'api/platforms/eventbrite/accounts',
+        'api/platforms/eventbrite/connect/status',
         'api/platforms/eventbrite/selection',
         'api/platforms/events/selection',
         'api/platforms/facebook/selection',
+        'api/platforms/fresha/connect/status',
         'api/platforms/fresha/selection',
         'api/platforms/google-business/selection',
         'api/platforms/humanitix/accounts',
+        'api/platforms/humanitix/connect/status',
         'api/platforms/humanitix/selection',
         'api/platforms/instagram/connect/status',
         'api/platforms/instagram/selection',
@@ -618,11 +647,14 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/reservations/detect/status',
         'api/platforms/reservations/status',
         'api/platforms/shop/brands',
+        'api/platforms/shop/brands/{id}/connect/status',
         'api/platforms/shop/selection',
         'api/platforms/shop/settings',
         'api/platforms/shopify/brands',
+        'api/platforms/shopify/brands/{id}/connect/status',
         'api/platforms/shopify/selection',
         'api/platforms/shopify/settings',
+        'api/platforms/skool/connect/status',
         'api/platforms/skool/selection',
         'api/platforms/snapchat/selection',
         'api/platforms/soundcloud/accounts',

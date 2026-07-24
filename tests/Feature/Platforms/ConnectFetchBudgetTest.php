@@ -141,6 +141,10 @@ it('shop setProducts surfaces a 502, not a 500, when the fetch budget is exhaust
     $this->mock(ShopifyScraper::class, function ($m) {
         $m->shouldReceive('originOf')->andReturnUsing(fn ($url) => rtrim($url, '/'));
         $m->shouldReceive('probe')->andReturn(true);
+        // W9: see ShopRelationalStorageTest's 'rel-brand' block — id mirrors fetchBrand()'s.
+        $m->shouldReceive('probeMeta')->andReturn(['id' => 'fb-brand', 'name' => 'FB Store']);
+        // W9 Unit 4: ShopBrandIdentity::for() now calls brandIdFrom($meta, $origin).
+        $m->shouldReceive('brandIdFrom')->andReturnUsing(fn ($meta, $origin) => (string) ($meta['id'] ?? $origin));
         $m->shouldReceive('fetchBrand')->andReturn([
             'id' => 'fb-brand', 'name' => 'FB Store', 'currency' => 'AUD', 'favicon' => null, 'logo' => null,
         ]);

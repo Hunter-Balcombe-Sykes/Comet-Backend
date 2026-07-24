@@ -4,6 +4,8 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\HighlightsPicker;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
@@ -54,9 +56,10 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
     public array $backoff = [5, 20];
 
     // Must exceed config('partna.http_fetch.connect_budget_seconds') (20s
-    // default) with headroom: that budget bounds the vendor fetch itself via
-    // Phase 1's SafeUrlFetcher deadline; this is the job's own wall-clock
-    // backstop on top of it.
+    // default) with headroom: handle() below opens a FetchBudget at exactly that
+    // config value around the vendor fetch (E-1 fix), so THIS is the job's own
+    // wall-clock backstop on top of a real, enforced bound — not, as an earlier
+    // draft of this comment claimed, on top of nothing.
     public int $timeout = 45;
 
     // Short on purpose: a user who mistypes, sees the failure, and retries
@@ -89,7 +92,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         return [];
     }
 
-    public function handle(PlatformRegistry $registry, HighlightsPicker $picker): void
+    public function handle(PlatformRegistry $registry, HighlightsPicker $picker, FetchBudget $budget): void
     {
         // ::find() respects the soft-delete scope — a null result already
         // covers both "never existed" and "user disconnected while queued"
@@ -100,7 +103,12 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         }
 
         $descriptor = $registry->get($this->platform);
-        $fetch = $descriptor?->fetchStrategy();
+        // CA-W6: connectFetchStrategy() defaults to fetchStrategy() for every
+        // descriptor that hasn't called connectFetch() — byte-identical lookup
+        // for the eight already-armed platforms. Fresha is the one override
+        // (FreshaFetch, its refreshStrategy()'s fetch, is refresh-only and
+        // would 304 a fresh pending row — see FreshaConnectFetch's docblock).
+        $fetch = $descriptor?->connectFetchStrategy();
         if ($descriptor === null || $fetch === null) {
             $this->markTerminal($connection, 'error', 'unsupported_platform');
 
@@ -109,8 +117,18 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
 
         // FETCH OUTSIDE THE LOCK — multi-second, touches nothing shared. Same
         // discipline as ScheduledRefresh::run() and HighlightsPicker::items().
+        //
+        // E-1: wrapped in the SAME wall-clock budget ConnectResolver/HighlightsPicker
+        // open around every other vendor call reachable from a connect — this job
+        // was the one gap (identify() at 202-time was bounded, the fetch that
+        // completes it here was not). FetchBudget is a SCOPED container binding
+        // (see its docblock); nothing else in this path opens one, so there is no
+        // nesting to worry about.
         try {
-            $next = $fetch->fetch($connection);
+            $next = $budget->open(
+                (float) config('partna.http_fetch.connect_budget_seconds', 20),
+                fn () => $fetch->fetch($connection),
+            );
         } catch (FetchNotModifiedException) {
             // Upstream confirmed the stored payload is still current. The
             // pending row's payload (the identity key + whatever identify()
@@ -130,8 +148,13 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             $this->markTerminal($connection, 'error', $descriptor->connectFetchErrorMessage());
 
             return;
-        } catch (FetchUnavailableException) {
-            $this->markTerminal($connection, 'unavailable', $descriptor->connectFetchErrorMessage());
+        } catch (FetchUnavailableException $e) {
+            // A strategy that knows its failure was NOT a vendor miss (a staff
+            // disable, a booking-XOR conflict, a mid-flight disconnect, a lock
+            // timeout) carries its own wording; anything else is a genuine
+            // vendor miss and gets the platform's own copy. Same rule the two
+            // branches below already apply to this job's own non-vendor failures.
+            $this->markTerminal($connection, 'unavailable', $e->userMessage() ?? $descriptor->connectFetchErrorMessage());
 
             return;
         }
@@ -146,6 +169,29 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         // HighlightsPicker::warmInto's docblock).
         if ($descriptor->hasHighlights()) {
             $next = $picker->warmInto($next, $connection);
+        }
+
+        // C: re-check the staff kill switch AT WRITE TIME. This job's write never
+        // goes through ManagesIntegrationConnection::upsertConnection() — the only
+        // place assertPlatformAvailable() normally runs — so nothing stops a staff
+        // disable landing between the 202 and this job from writing fresh content
+        // for a platform that's now off. Same underlying rule
+        // (FeatureAvailability::for($user)->allows('integration.<platform>')) the
+        // trait checks, just without its abort(503)-shaped wrapper, which has no
+        // meaning in a queue worker. A user that vanished (soft-deleted) between
+        // dispatch and now can't be checked either way, so it fails the same as a
+        // disabled platform — a terminal row, never a content write.
+        //
+        // The message is deliberately NOT $descriptor->connectFetchErrorMessage():
+        // a staff disable (or the user vanishing) is not a vendor miss, and that
+        // wording ("Could not find releases on that Bandcamp page.") would tell the
+        // user we couldn't find their account when we never even asked the vendor —
+        // same reasoning as the LockTimeoutException catch below.
+        $user = $connection->user;
+        if ($user === null || ! FeatureAvailability::for($user)->allows("integration.{$this->platform}")) {
+            $this->markTerminal($connection, 'unavailable', FetchUnavailableException::GENERIC_USER_MESSAGE);
+
+            return;
         }
 
         // SINGLE LOCKED WRITE — same platform-wide key as ScheduledRefresh::
@@ -203,14 +249,19 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             //
             // The message is deliberately NOT $descriptor->connectFetchErrorMessage():
             // that wording ("couldn't find that channel") would misrepresent
-            // OUR lock contention as a vendor miss.
+            // OUR lock contention as a vendor miss. Same string the poll side
+            // shows for a stale pending row (FetchUnavailableException::
+            // STALE_CONNECT_ERROR — a neutral home both this job and
+            // DefersBespokeConnect reference, since PHP cannot reference a
+            // trait constant externally) — one wire copy, not a second
+            // hand-typed copy of it here.
             report($e);
             Log::warning('platform.connect_job.lock_timeout', [
                 'connection_id' => $connection->id,
                 'platform' => $connection->platform,
                 'user_id' => $connection->user_id,
             ]);
-            $this->markTerminal($connection, 'unavailable', 'We couldn\'t save your connection just then — please try again.');
+            $this->markTerminal($connection, 'unavailable', FetchUnavailableException::STALE_CONNECT_ERROR);
         }
     }
 
@@ -229,7 +280,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             $this->markTerminal(
                 $connection,
                 'unavailable',
-                $descriptor?->connectFetchErrorMessage() ?? 'We could not load that account. Please try again.',
+                $descriptor?->connectFetchErrorMessage() ?? FetchUnavailableException::GENERIC_USER_MESSAGE,
             );
         }
     }

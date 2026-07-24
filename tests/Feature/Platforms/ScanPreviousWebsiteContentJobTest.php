@@ -322,7 +322,7 @@ it('notifies the user when the website scan surfaces a conflict finding', functi
     [$user, $site] = spwcjUser('spwcj10', 'business', 'hair-salon');
     Workplace::create(['site_id' => (string) $site->id]);
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'fresha',
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
         'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
     ]);
 

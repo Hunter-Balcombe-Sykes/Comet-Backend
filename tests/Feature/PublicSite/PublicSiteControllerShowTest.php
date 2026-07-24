@@ -19,7 +19,9 @@ function seedCanonicalSiteWithAlias(string $aliasSub, string $canonicalSub, call
     $siteId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
-        'user_id' => null,
+        // site.sites.user_id is NOT NULL in prod — every site has an owner. The
+        // alias-redirect path under test never reads the user, so an id is enough.
+        'user_id' => (string) Str::uuid(),
         'subdomain' => $canonicalSub,
         'is_published' => 1,
         'settings' => json_encode([]),

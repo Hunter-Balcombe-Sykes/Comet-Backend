@@ -50,7 +50,9 @@ it('blocks a pending-deletion professional at the controller policy even when th
         ->patchJson('/api/site', ['architecture_id' => 'staple'])
         ->assertStatus(423);
 
-    // The write must not have landed.
+    // The write must not have landed — the row still holds the seeded default.
+    // NOTE: sites_architecture_id_check pins this column to 'staple', so a landed
+    // write looks identical here — the 423 above is the operative assertion.
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBeNull();
+        ->toBe('staple');
 });

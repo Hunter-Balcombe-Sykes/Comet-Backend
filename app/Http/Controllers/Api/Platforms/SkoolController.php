@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\PlatformConnectRequest;
 use App\Http\Resources\Platforms\SkoolConnectionResource;
+use App\Models\Core\User\User;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\SkoolScraper;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +20,7 @@ use Illuminate\Http\Request;
 // no auth. Scraping lives in App\Services\Platforms\SkoolScraper.
 class SkoolController extends ApiController
 {
+    use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -34,9 +37,19 @@ class SkoolController extends ApiController
         $user = $this->currentUser($request);
         $validated = $request->validated();
 
+        // Local validation (URL regex + reserved-slug blocklist, both inside
+        // normalizeUrl()) stays synchronous and inline either way — only the
+        // vendor fetch below is what CA-W4 defers.
         $canonical = $this->scraper->normalizeUrl($validated['url']);
         if (! $canonical) {
             return $this->error('Enter your Skool community URL (skool.com/your-community).', 422);
+        }
+
+        // CA-W4: config('partna.connect.deferred') names 'skool' — skip the
+        // synchronous scrape entirely and let ConnectFetchJob fill the row.
+        // Checked after local validation, never before any vendor call.
+        if ($this->shouldDeferConnect('skool')) {
+            return $this->connectDeferred($user, $canonical);
         }
 
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
@@ -50,12 +63,75 @@ class SkoolController extends ApiController
         return $this->success((new SkoolConnectionResource($community))->resolve());
     }
 
+    /**
+     * CA-W4 deferred-connect write path: writes a pending row carrying only
+     * {url} — SkoolFetch reads exactly that key — then dispatches
+     * ConnectFetchJob. Mirrors AppleController::connectDeferredFor's lock
+     * discipline: this write was deliberately UNLOCKED on the synchronous path
+     * (PWL-16 — no sibling writer), but ConnectFetchJob is now one, so it goes
+     * through the same per-user platform lock as the job's own completion
+     * write. $row is captured by reference because withConnectionLock()'s
+     * return type is JsonResponse only; the closure's own return value is a
+     * throwaway success once $row is set, or the lock-timeout 423 when it isn't.
+     * deferredConnectResponse() (DefersBespokeConnect) dispatches
+     * ConnectFetchJob AFTER this lock has released — the job blocks on the
+     * SAME lock key, so dispatching from inside would self-deadlock under a
+     * sync queue connection.
+     */
+    private function connectDeferred(User $user, string $canonical): JsonResponse
+    {
+        $row = null;
+
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $canonical, &$row): JsonResponse {
+            $row = $this->writeConnection($user, ['url' => $canonical], pending: true);
+
+            return $this->success([]);
+        });
+
+        if ($row === null) {
+            // withConnectionLock's own 423 lock-timeout response.
+            return $lockResponse;
+        }
+
+        return $this->deferredConnectResponse($row, ['url' => $canonical], '/api/platforms/skool/connect/status');
+    }
+
+    // GET /api/platforms/skool/connect/status — poll target for the 202 above
+    // (CA-W4). Single-selection (no ?account=) — bespokeConnectStatus reads
+    // the platform's one row via connectionFor(), same as /selection below.
+    public function connectStatus(Request $request): JsonResponse
+    {
+        return $this->bespokeConnectStatus(
+            $this->currentUser($request),
+            null,
+            fn (array $payload) => (new SkoolConnectionResource($payload))->resolve(),
+        );
+    }
+
     // GET /api/platforms/skool/selection
     public function selection(Request $request): JsonResponse
     {
-        $payload = $this->readConnection($this->currentUser($request));
+        $row = $this->connectionFor($this->currentUser($request));
 
-        return $this->success(['selection' => $payload ? (new SkoolConnectionResource($payload))->resolve() : null]);
+        // CA-W4/SM review fix: only 'pending' (and the terminal-failure states)
+        // withhold the row — NULL is a legal, unset status (no NOT NULL/DEFAULT
+        // on last_refresh_status; see the migration) carried by legacy rows, and
+        // treating it like 'pending' would render an already-connected, fully-
+        // populated community as if it had never been connected at all. A
+        // pending row's payload is {url} only — no name/image/description —
+        // which SkoolConnectionResource would render as {url, name: null,
+        // image: null, description: null}. That shape was IMPOSSIBLE before this
+        // unit: SkoolScraper::fetchCommunity() never returns without a real
+        // og:title, so a stored row's `name` was always non-null. Withholding
+        // pending/unavailable/error preserves that invariant and avoids
+        // rendering a half-formed card indistinguishable from "a community with
+        // no metadata" — the dashboard already has /connect/status for the
+        // in-flight state.
+        if ($row === null || in_array($row->last_refresh_status, ['pending', 'unavailable', 'error'], true)) {
+            return $this->success(['selection' => null]);
+        }
+
+        return $this->success(['selection' => (new SkoolConnectionResource($row->payload))->resolve()]);
     }
 
     // DELETE /api/platforms/skool

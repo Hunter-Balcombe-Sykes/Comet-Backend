@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
@@ -13,6 +14,7 @@ use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
+use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
@@ -23,15 +25,18 @@ use App\Services\Http\FetchBudget;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
+use App\Services\Platforms\ShopBrandIdentity;
+use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
-use App\Services\Platforms\SquarespaceScraper;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // PROVIDER-AGNOSTIC shop endpoints (formerly ShopifyController) — MULTI-BRAND.
@@ -58,6 +63,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 // keeps rendering the Shop card until the skeleton is reworked for multi-brand.
 class ShopController extends ApiController
 {
+    use DefersBespokeConnect;
     use JitteredTtl;
     use ManagesIntegrationConnection;
     use ResolveCurrentSite;
@@ -80,15 +86,27 @@ class ShopController extends ApiController
     // authorization anchor.
     private const MARKER = ['storage' => 'relational'];
 
+    // W9 §3a/§7 R1: the only three providers whose brandProfileFor() actually
+    // performs HTTP beyond detection. bigcartel/generic/client-assisted already
+    // hold the whole profile in memory at 202 time (zero extra fetch), so
+    // deferring them would only serialise a no-op into a job — they stay
+    // synchronous regardless of the flag.
+    private const DEFERRABLE_PROVIDERS = [
+        ShopProviderDetector::PROVIDER_SHOPIFY,
+        ShopProviderDetector::PROVIDER_WOOCOMMERCE,
+        ShopProviderDetector::PROVIDER_SQUARESPACE,
+    ];
+
     public function __construct(
         private readonly ShopProviderDetector $detector,
         private readonly ShopifyScraper $shopify,
         private readonly WooCommerceScraper $woocommerce,
-        private readonly SquarespaceScraper $squarespace,
         private readonly GenericShopScraper $generic,
         private readonly IntegrationConnectionCacheRefresher $refresher,
         private readonly ShopCatalog $catalog,
         private readonly FetchBudget $budget,
+        private readonly ShopBrandProfiler $profiler,
+        private readonly ShopBrandIdentity $identity,
     ) {}
 
     protected function platform(): string
@@ -107,6 +125,15 @@ class ShopController extends ApiController
     // POST /api/platforms/shop/brands — add (or refresh) a brand. Detects the
     // provider, resolves the brand profile, dedups by canonical id, caps at
     // MAX_BRANDS, stores with the brand's existing products preserved.
+    //
+    // W9 §4 Unit 4: detection stays fully synchronous (it's where almost all of
+    // Shop's latency lives, and it's what makes brand_id/provider truthful at
+    // 202 time). Only the brand-profile fetch (name/currency/favicon/logo) is
+    // deferred, and only for shopify/woocommerce/squarespace (self::DEFERRABLE_
+    // PROVIDERS) — bigcartel/generic/client-assisted already hold the whole
+    // profile in memory (zero extra HTTP), so they stay synchronous 200s
+    // regardless of the flag (§7 R1/R2 — this endpoint's status code is
+    // provider-dependent by design).
     public function addBrand(AddShopBrandRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -133,9 +160,37 @@ class ShopController extends ApiController
                 return ['detected' => null, 'failure' => $detection['failure']];
             }
 
-            [$brand, $detectedProducts] = $this->brandProfileFor($detected);
+            // $id is deliberately derived PER-BRANCH, not once up front — the
+            // two derivations are not interchangeable for Shopify. $deferred
+            // itself only reads provider + clientBrand, never $id, so the
+            // branch decision doesn't need to wait for either derivation.
+            $deferred = $this->shouldDeferConnect('shop')
+                && in_array($detected['provider'], self::DEFERRABLE_PROVIDERS, true)
+                // Client-assisted detection always reports provider=woocommerce
+                // (WooCommerceScraper::brandFromClient()) but already holds the
+                // whole profile from the browser fetch — never defer it.
+                && ! isset($detected['clientBrand']);
 
-            return ['detected' => $detected, 'brand' => $brand, 'detectedProducts' => $detectedProducts];
+            if ($deferred) {
+                // No profile fetch on this path (that's the whole point of
+                // deferring), so ShopBrandIdentity is the ONLY way to get a
+                // truthful key — exactly what it exists for.
+                $id = $this->identity->for($detected);
+
+                return ['detected' => $detected, 'id' => $id, 'deferred' => true, 'brand' => null, 'detectedProducts' => null];
+            }
+
+            [$brand, $detectedProducts] = $this->profiler->forDetected($detected);
+            // Byte-identical to pre-W9: the id comes from the SAME fetch that
+            // produced name/currency/favicon/logo (for Shopify, fetchBrand()'s
+            // own GET /meta.json), so the two can never disagree. Using
+            // ShopBrandIdentity here instead would derive the id from a
+            // SEPARATE meta.json read (the one probeMeta() captured during
+            // detection) — atomic-by-construction today, but not once two
+            // independent HTTP round-trips are in play.
+            $id = $brand['id'];
+
+            return ['detected' => $detected, 'id' => $id, 'deferred' => false, 'brand' => $brand, 'detectedProducts' => $detectedProducts];
         });
 
         if ($outcome['detected'] === null) {
@@ -158,11 +213,22 @@ class ShopController extends ApiController
         }
 
         $detected = $outcome['detected'];
+        $id = $outcome['id'];
+        $deferred = $outcome['deferred'];
         $brand = $outcome['brand'];
         $detectedProducts = $outcome['detectedProducts'];
-        $id = $brand['id'];
 
-        return $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $validated) {
+        // Sentinel pattern (GenericPlatformController::connectDeferred()'s own
+        // idiom): the lock closure always returns a JsonResponse, but the REAL
+        // signal is $brandRow via reference. A null $brandRow after the lock
+        // releases means the closure already produced a terminal response (the
+        // cap's 422, or withConnectionLock's own 423 lock-timeout) — return it
+        // unchanged, dispatch nothing. This is what lets the job dispatch
+        // happen AFTER the lock releases: under QUEUE_CONNECTION=sync,
+        // dispatching from inside the closure would self-deadlock the job
+        // against this same per-user platform lock.
+        $brandRow = null;
+        $lockResponse = $this->withConnectionLock($user, function () use ($user, $detected, $brand, $detectedProducts, $id, $deferred, $validated, &$brandRow): JsonResponse {
             $connection = $this->writeConnection($user, self::MARKER);
 
             $existing = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
@@ -179,28 +245,80 @@ class ShopController extends ApiController
             $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
             $position = $existing?->position ?? (($maxPosition === null ? -1 : $maxPosition) + 1);
 
+            $values = [
+                'provider' => $detected['provider'],
+                'url' => $detected['origin'],
+                'source_url' => $detected['sourceUrl'],
+                'discount_code' => $discount,
+                // Client-connected brands can't be re-scraped server-side; the
+                // flag routes product reads through the catalog cache + the
+                // client re-warm endpoint instead of abort(502)ing.
+                'fetch_mode' => $detected['fetchMode'] ?? null,
+                'is_individual' => false,
+                'position' => $position,
+            ];
+
+            if ($deferred) {
+                // name/favicon/logo are OMITTED entirely (not set to null) —
+                // updateOrCreate only writes present keys, so a re-add of an
+                // already-settled brand keeps its display profile for the
+                // whole pending window instead of being blanked (§3c).
+                //
+                // currency is the one exception: for Shopify it is truthfully
+                // known at 202 time with zero extra HTTP (the carried
+                // meta.json), and ShopCatalog::providerProducts() passes it as
+                // the per-product currency fallback — omitting it would make
+                // a picker GET during the pending window show null currency
+                // wherever a Shopify variant lacks presentment_prices. Woo's
+                // currency is always null anyway; Squarespace's genuinely
+                // isn't known until the deferred fetch. syncCurrencyFor()
+                // returns null for both, so the key is simply omitted there —
+                // the same non-destructive-omit discipline still holds.
+                $currency = $this->profiler->syncCurrencyFor($detected);
+                if ($currency !== null) {
+                    $values['currency'] = $currency;
+                }
+                $values['connect_status'] = 'pending';
+                $values['connect_error'] = null;
+            } else {
+                $values['name'] = $brand['name'];
+                $values['currency'] = $brand['currency'] ?? null;
+                $values['favicon'] = $brand['favicon'];
+                $values['logo'] = $brand['logo'];
+                // Settle/clear any prior pending or failed state.
+                $values['connect_status'] = null;
+                $values['connect_error'] = null;
+            }
+
             $brandRow = ShopBrand::updateOrCreate(
                 ['connection_id' => $connection->id, 'brand_id' => $id],
-                [
-                    'provider' => $detected['provider'],
-                    'url' => $detected['origin'],
-                    'source_url' => $detected['sourceUrl'],
-                    'name' => $brand['name'],
-                    'currency' => $brand['currency'] ?? null,
-                    'favicon' => $brand['favicon'],
-                    'logo' => $brand['logo'],
-                    'discount_code' => $discount,
-                    // Client-connected brands can't be re-scraped server-side; the
-                    // flag routes product reads through the catalog cache + the
-                    // client re-warm endpoint instead of abort(502)ing.
-                    'fetch_mode' => $detected['fetchMode'] ?? null,
-                    'is_individual' => false,
-                    'position' => $position,
-                ],
+                $values,
             );
 
+            if ($deferred) {
+                // P1 review fix: force-refresh the staleness clock on every
+                // pending write. A retry of an ALREADY-pending brand writes
+                // byte-identical values to what's already stored (provider/
+                // url/source_url/discount/fetch_mode/position/currency/
+                // connect_status/connect_error all unchanged), so nothing is
+                // dirty — updateOrCreate()'s fill($values)->save() would then
+                // skip the UPDATE entirely and leave updated_at at its
+                // original timestamp. The poll's 5-minute stale-pending
+                // backstop (connectStatus() below) would then report a
+                // freshly-retried connect as 'failed'. touch() sets
+                // updated_at directly (it isn't in $fillable, so it can't
+                // ride along in $values above) and always issues the UPDATE,
+                // dirty or not. The synchronous branch below settles
+                // connect_status to null, so the backstop (gated on
+                // connect_status === 'pending') never reads this row's
+                // updated_at and does not need the same treatment.
+                $brandRow->touch();
+            }
+
             // The generic detector already read the page's products — warm the
-            // picker catalog so the immediately-following GET is instant.
+            // picker catalog so the immediately-following GET is instant. Never
+            // reached on the deferred branch ($detectedProducts is only ever
+            // non-null for generic/client, both always synchronous — §3e).
             if ($detectedProducts !== null) {
                 Cache::put($this->catalogKey($id), $detectedProducts, self::applyJitter(self::CATALOG_TTL_MINUTES * 60));
             }
@@ -210,8 +328,95 @@ class ShopController extends ApiController
             // first connect, so purge + preset-resolve explicitly, once.
             $this->refresher->refresh($connection);
 
-            return $this->success((new ShopBrandResource($brandRow->fresh('products')->toBrandArray()))->resolve());
+            // P3 review fix: build the response body INSIDE the lock (restored
+            // pre-W9 behaviour). Reading $brandRow->fresh() AFTER the lock
+            // releases left a window where a concurrent removeBrand()/forget()
+            // from the same user could delete this row between lock release
+            // and the read, turning fresh() into null and toBrandArray() into
+            // a fatal error on a null. Only the job DISPATCH below needs to
+            // stay outside the lock (self-deadlocks under the sync driver —
+            // see the sentinel comment above); the response payload itself has
+            // no such constraint and is cheap to build while still holding it.
+            $resolved = (new ShopBrandResource($brandRow->fresh('products')->toBrandArray()))->resolve();
+
+            if (! $deferred) {
+                return $this->success($resolved);
+            }
+
+            // Envelope wins over a colliding resource key (matches
+            // DefersBespokeConnect::deferredConnectResponse()'s own spread order) —
+            // not load-bearing here (the resource carries no 'status'/'statusUrl'
+            // keys) but kept consistent with the rest of the deferred-connect family.
+            return $this->success([
+                ...$resolved,
+                'status' => 'pending',
+                'statusUrl' => url("/api/platforms/shop/brands/{$id}/connect/status"),
+            ], 202);
         });
+
+        if ($brandRow === null) {
+            return $lockResponse;
+        }
+
+        if ($deferred) {
+            // AFTER the lock has released — see the sentinel comment above.
+            ShopBrandConnectJob::dispatch($brandRow->id)->afterCommit();
+        }
+
+        return $lockResponse;
+    }
+
+    // GET /api/platforms/shop/brands/{id}/connect/status — poll a deferred
+    // connect (W9 §4 Unit 4). Shop polls a per-BRAND sub-resource, not the
+    // connection row the six bespoke platforms poll, so this does not reuse
+    // DefersBespokeConnect::bespokeConnectStatus() (that method hardcodes
+    // last_refresh_status off the connection; see the trait's own docblock) —
+    // only shouldDeferConnect() is shared. 404, never 403: connectionFor()
+    // already scopes to the caller's own connection, so another user's brand
+    // is never visible to look up in the first place (mirrors updateBrand()/
+    // brandProducts()'s existing contract).
+    public function connectStatus(Request $request, string $id): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $connection = $this->connectionFor($user);
+        $brand = $connection ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first() : null;
+
+        if (! $brand) {
+            return $this->error('Brand not found.', 404);
+        }
+
+        if ($brand->connect_status === 'pending') {
+            // Stale-pending backstop, ported from GenericPlatformController::
+            // connectStatus() (NOT Instagram's connectStatus(), which has no
+            // staleness check) — a worker that dies leaves the row 'pending'
+            // forever with nothing to flip it. Five minutes comfortably exceeds
+            // ShopBrandConnectJob's 45s timeout plus its two backoffs (5s, 20s).
+            // SYNTHETIC — never writes the row, so a merely-slow (not dead)
+            // worker can still land its real settle afterwards and the next
+            // poll reports 'ready'.
+            if ($brand->updated_at !== null && $brand->updated_at->lt(now()->subMinutes(5))) {
+                return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
+            }
+
+            return $this->success(['status' => 'pending']);
+        }
+
+        if ($brand->connect_status === 'failed') {
+            // Unlike the six bespoke platforms, a failed Shop brand IS still
+            // usable — brand_id/provider/url/source_url are all truthful, so
+            // the picker and public render both work (§3g) — carry it.
+            return $this->success([
+                'status' => 'failed',
+                'error' => $brand->connect_error ?: self::UNKNOWN_CONNECT_ERROR,
+                'brand' => (new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve(),
+            ]);
+        }
+
+        return $this->success([
+            'status' => 'ready',
+            'id' => $brand->brand_id,
+            'brand' => (new ShopBrandResource($brand->fresh('products')->toBrandArray()))->resolve(),
+        ]);
     }
 
     // PATCH /api/platforms/shop/brands/{id} — update PER-BRAND settings: the
@@ -377,12 +582,42 @@ class ShopController extends ApiController
 
     // PUT /api/platforms/shop/brands/{id}/selection — snapshot the chosen
     // products (re-fetched live, order preserved). Callable any time.
+    //
+    // W9 §3f/unit 5: the vendor fetch (up to the 20s connect budget) runs
+    // OUTSIDE withConnectionLock() — its lock has only a 10s TTL, so running
+    // the fetch inside it let the TTL expire while the DB transaction below
+    // was still open, letting a second writer acquire the "free" lock and
+    // interleave with this request's uncommitted write. Only the
+    // read→mutate→write cycle is serialised now.
     public function setProducts(SetShopProductsRequest $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
         $validated = $request->validated();
 
-        return $this->withConnectionLock($user, function () use ($user, $id, $validated) {
+        // Pre-lock read — deliberately duplicated by the authoritative re-read
+        // inside the lock below, not a simplification opportunity: a concurrent
+        // removeBrand/forget can delete this brand while the fetch (below) is
+        // still running, and collapsing the two reads into one would reopen
+        // exactly the delete-between-read-and-write race this split closes.
+        // This read exists only to produce the 404 and to give providerProducts()
+        // a brand shape to dispatch on.
+        $connection = $this->connectionFor($user);
+        $brand = $connection
+            ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->with('products')->first()
+            : null;
+        if (! $brand) {
+            return $this->error('Brand not found.', 404);
+        }
+
+        // Prefer the catalog the picker just warmed; only re-scrape if it has
+        // gone cold (a save long after the picker was opened). Outside the
+        // lock — see the docblock above.
+        $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
+        $catalog = Cache::get($this->catalogKey($id))
+            ?? $this->budget->open($seconds, fn () => $this->providerProducts($brand->toBrandArray()));
+
+        return $this->withConnectionLock($user, function () use ($user, $id, $validated, $catalog) {
+            // Authoritative re-read — the pre-lock $brand above may be stale.
             $connection = $this->connectionFor($user);
             $brand = $connection
                 ? ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->with('products')->first()
@@ -391,11 +626,15 @@ class ShopController extends ApiController
                 return $this->error('Brand not found.', 404);
             }
 
-            // Prefer the catalog the picker just warmed; only re-scrape if it
-            // has gone cold (a save long after the picker was opened).
-            $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
-            $catalog = Cache::get($this->catalogKey($id))
-                ?? $this->budget->open($seconds, fn () => $this->providerProducts($brand->toBrandArray()));
+            // A fresher catalog may have landed in the cache while the pre-lock
+            // fetch was in flight (a picker GET, or another setProducts() call
+            // for the same brand — the two now scrape unserialized, unlike the
+            // old fully-locked version). Prefer it; the pre-lock snapshot is
+            // only a FALLBACK for a genuinely cold cache, never the authority.
+            // Do NOT re-scrape here — that would put the vendor fetch back
+            // inside the lock and undo the whole point of this unit.
+            $catalog = Cache::get($this->catalogKey($id)) ?? $catalog;
+
             $all = collect($catalog)->keyBy('productId');
             $selected = collect($validated['productIds'])
                 ->map(fn (string $pid) => $all->get($pid))
@@ -407,15 +646,27 @@ class ShopController extends ApiController
             // Transactional (MenuFetchJob::persist() precedent): the old single
             // JSONB write was atomic by nature, so the delete+reinsert here must
             // be too — a mid-loop failure must not leave a partial product set.
+            //
+            // Bulk insert (MenuFetchJob::persist()'s own idiom), not a per-row
+            // create() loop: up to 250 productIds (SetShopProductsRequest's
+            // max) means up to 250 sequential round-trips over Supavisor inside
+            // this lock's 10s TTL — the exact failure mode unit 5 exists to
+            // close. A single insert() bypasses ShopProduct's HasUuids hook and
+            // `data` array cast, so both are reproduced by hand below.
             DB::connection('pgsql')->transaction(function () use ($brand, $selected) {
                 ShopProduct::where('brand_id', $brand->id)->delete();
-                foreach ($selected as $index => $productData) {
-                    ShopProduct::create([
+                if ($selected->isNotEmpty()) {
+                    $now = now();
+                    $rows = $selected->map(fn (array $productData, int $index) => [
+                        'id' => (string) Str::uuid7(),
                         'brand_id' => $brand->id,
                         'product_id' => (string) ($productData['productId'] ?? ''),
                         'position' => $index,
-                        'data' => $productData,
-                    ]);
+                        'data' => json_encode($productData),
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ])->all();
+                    ShopProduct::query()->insert($rows);
                 }
             });
 
@@ -645,32 +896,6 @@ class ShopController extends ApiController
     }
 
     // ── internals ────────────────────────────────────────────────
-
-    /**
-     * Resolve the brand profile (and, for generic pages, the products that
-     * came with it) for a freshly-detected store.
-     *
-     * @param  array{provider:string, origin:string, sourceUrl:string, page:array|null,
-     *               store:array|null, clientBrand?:array, clientProducts?:array,
-     *               fetchMode?:string}  $detected
-     * @return array{0: array{id:string, name:?string, currency:?string, favicon:?string, logo:?string}, 1: ?array}
-     */
-    private function brandProfileFor(array $detected): array
-    {
-        // Client-assisted detection already carries the brand + products the
-        // browser fetched — no server round-trips (they'd be blocked anyway).
-        if (isset($detected['clientBrand'])) {
-            return [$detected['clientBrand'], $detected['clientProducts']];
-        }
-
-        return match ($detected['provider']) {
-            ShopProviderDetector::PROVIDER_WOOCOMMERCE => [$this->woocommerce->fetchBrand($detected['origin']), null],
-            ShopProviderDetector::PROVIDER_SQUARESPACE => [$this->squarespace->fetchBrand($detected['sourceUrl']), null],
-            ShopProviderDetector::PROVIDER_BIGCARTEL => [$detected['store'], null],
-            ShopProviderDetector::PROVIDER_GENERIC => [$detected['page']['brand'], $detected['page']['products']],
-            default => [$this->shopify->fetchBrand($detected['origin']), null],
-        };
-    }
 
     /**
      * Server-probe-failed fallback: build a detection result from the

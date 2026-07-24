@@ -52,6 +52,11 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [FreshaController::class, 'connect'])->defaults('platform', 'fresha')->middleware('platform.available');
+            // CA-W6: poll target for the 202 above. Deliberately WITHOUT
+            // platform.available — a staff kill switch landing mid-poll must
+            // not 503 an in-flight connect with no terminal state (mirrors
+            // Skool/Apple/Eventbrite/Humanitix's identical connect/status routes).
+            Route::get('/connect/status', [FreshaController::class, 'connectStatus']);
             Route::get('/team', [FreshaController::class, 'team']);
             Route::get('/url', [FreshaController::class, 'show']);
             Route::get('/employee-services', [FreshaController::class, 'employeeServices']);
@@ -81,6 +86,7 @@ $registerIntegrationRoutes = function (string $base): void {
             ->group(function () {
                 Route::get('/brands', [ShopController::class, 'brands']);
                 Route::post('/brands', [ShopController::class, 'addBrand']);
+                Route::get('/brands/{id}/connect/status', [ShopController::class, 'connectStatus'])->where('id', '[A-Za-z0-9._-]+');
                 Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
                 Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');
                 Route::get('/brands/{id}/products', [ShopController::class, 'brandProducts'])->where('id', '[A-Za-z0-9._-]+');
@@ -117,6 +123,11 @@ $registerIntegrationRoutes = function (string $base): void {
             $musicPlatform = 'apple-music';
             $podcastPlatform = 'apple-podcast';
             Route::post('/music/connect', [AppleController::class, 'connectMusic'])->defaults('platform', $musicPlatform)->middleware('platform.available');
+            // Deferred-connect poll endpoint (CA-W3) — always registered (mirrors
+            // the registry loop's own supportsDeferredConnect() gate, which Apple's
+            // bespoke group can't reach): a route that appears/disappears with an
+            // env var is worse to debug than one that always 404s a nonexistent row.
+            Route::get('/music/connect/status', [AppleController::class, 'musicConnectStatus']);
             Route::get('/music/recent', [AppleController::class, 'musicRecent']);
             Route::post('/music/highlights', [AppleController::class, 'musicHighlights']);
             // music reads → generic (platform=apple-music)
@@ -125,6 +136,7 @@ $registerIntegrationRoutes = function (string $base): void {
                 ->where('id', '[A-Za-z0-9._-]+')->defaults('platform', $musicPlatform);
             Route::get('/music/selection', [GenericPlatformController::class, 'selection'])->defaults('platform', $musicPlatform);
             Route::post('/podcast/connect', [AppleController::class, 'connectPodcast'])->defaults('platform', $podcastPlatform)->middleware('platform.available');
+            Route::get('/podcast/connect/status', [AppleController::class, 'podcastConnectStatus']);
             Route::get('/podcast/recent', [AppleController::class, 'podcastRecent']);
             Route::post('/podcast/highlights', [AppleController::class, 'podcastHighlights']);
             // podcast reads → generic (platform=apple-podcast)
@@ -143,6 +155,9 @@ $registerIntegrationRoutes = function (string $base): void {
             ->middleware($middleware)
             ->group(function () use ($controller, $slug) {
                 Route::post('/connect', [$controller, 'connect'])->defaults('platform', $slug)->middleware('platform.available');
+                // Deferred-connect poll endpoint (CA-W5) — mirrors Apple's/Skool's
+                // own status route, always registered regardless of the flag.
+                Route::get('/connect/status', [$controller, 'connectStatus']);
                 Route::get('/accounts', [$controller, 'accounts']);
                 Route::delete('/accounts/{id}', [$controller, 'removeAccount'])->where('id', '[A-Za-z0-9._-]+');
                 Route::post('/events', [$controller, 'addEvent']);
@@ -276,6 +291,24 @@ $registerIntegrationRoutes = function (string $base): void {
                     $controller = $descriptor->connectController();
                     Route::get('/selection', [$controller, 'selection']);
                     Route::delete('/', [$controller, 'forget']);
+
+                    // Deferred-connect poll endpoint (CA-W4) — this branch
+                    // RETURNS before the loop's own supportsDeferredConnect()
+                    // gate below, so that gate can never emit this route for a
+                    // SingleSelection descriptor. Wired explicitly instead,
+                    // mirroring Apple's bespoke status routes (CA-W3): a route
+                    // that appears/disappears with an env var is worse to debug
+                    // than one that always 404s a nonexistent row. Deliberately
+                    // NOT ->deferredConnect() on the descriptor — Skool has no
+                    // ConnectStrategy to satisfy that flag's pinned invariant
+                    // (RegistryConnectCoverageTest) — see DefersBespokeConnect's
+                    // own note. Gated by slug (not "every SingleSelection
+                    // descriptor") because google-business — this shape's only
+                    // other member — has no connectStatus() method; wiring the
+                    // route for it too would 500 on the first hit.
+                    if ($slug === 'skool') {
+                        Route::get('/connect/status', [$controller, 'connectStatus']);
+                    }
 
                     return;
                 }

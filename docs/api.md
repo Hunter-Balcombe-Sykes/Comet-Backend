@@ -573,7 +573,7 @@ Frontend can connect in 2 modes:
 2. Header-based API host fallback (no subdomain DNS needed)  
 `https://api.{SIDEST_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`
 
-For analytics endpoints, provide either `site_id` in the JSON body OR `X-Site-Subdomain` header.
+For analytics endpoints, provide either `site_id` in the JSON body OR `X-Site-Subdomain` header. Ingest additionally requires an `Origin` or `Referer` header whose host is `{subdomain}.{public_domain}` or the site's active custom domain — a request with neither header is rejected with 404 (SEC-1).
 
 Frontend quick-start (header-based API host):
 

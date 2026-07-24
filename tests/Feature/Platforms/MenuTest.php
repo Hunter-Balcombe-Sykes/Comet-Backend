@@ -14,14 +14,20 @@ use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // MenuFetchJob + MenuItemObserver both write site.item_slugs. Without the
+    // table their best-effort try/catch swallows a "no such table" and any slug
+    // assertion below would silently pass against nothing.
+    setupItemSlugsTable();
 });
 
 // Business + food sector: Menu is a food-business-only capability (2026-07-15
@@ -435,6 +441,15 @@ it('does not mark the platform sync status ok when persist() fails after a succe
     ]);
     $priorSyncedAt = MenuPlatformLink::query()->where('menu_id', $menu->id)->where('platform', 'uber-eats')->firstOrFail()->synced_at;
 
+    // A live dish with a minted slug — the item_slugs reconcile (271-DINT-1)
+    // hangs off persist() too, so the same ordering guarantee has to hold for
+    // it: a failed rebuild must not free or re-mint a single slug.
+    $priorCategory = MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
+    $priorDish = MenuItem::create(['menu_id' => $menu->id, 'name' => 'Existing Dish']);
+    $priorDish->categories()->attach($priorCategory->id, ['position' => 0]);
+    $priorSlugs = DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get()->toArray();
+    expect($priorSlugs)->toHaveCount(1);
+
     $this->mock(MenuApifyScraper::class, function ($m) {
         $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
@@ -461,6 +476,10 @@ it('does not mark the platform sync status ok when persist() fails after a succe
     // never actually completed.
     expect($link->status)->toBe('unavailable');
     expect($link->synced_at->equalTo($priorSyncedAt))->toBeTrue();
+
+    // The slug registry is byte-identical — the reconcile lives after the
+    // transaction closure, so a failed persist() never reaches it.
+    expect(DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get()->toArray())->toEqual($priorSlugs);
 });
 
 it('still marks the platform sync status ok when persist() succeeds (control)', function () {
@@ -821,6 +840,7 @@ it('resolveAll returns only city+state as the doordash locale address when a ful
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
+        'subdomain' => 'menu-'.substr($siteId, 0, 8),
     ]);
     Workplace::create([
         'site_id' => $siteId,
@@ -942,6 +962,7 @@ it('resolveAll returns null as the doordash locale address when only a street is
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
+        'subdomain' => 'menu-'.substr($siteId, 0, 8),
     ]);
     // Street only — no city or state stored.
     Workplace::create([
@@ -1410,4 +1431,249 @@ it('serves an explicit platforms:[] (not an omitted key) for a scanned item on a
     expect($scanned['platforms'])->toBe([]);
     // The scraped sibling dish keeps its own real per-platform entry, unaffected.
     expect($items['Scraped Dish']['platforms'])->toHaveCount(1);
+});
+
+// ── 271-DINT-1: the wholesale rebuild must keep site.item_slugs in step ──
+// persist() writes items through the query builder (bulk insert + mass
+// delete), which bypasses MenuItemObserver entirely — so pre-fix a scraped
+// dish never got a pretty URL at all, and a dropped dish squatted its slug
+// forever (item_slugs_unique_slug is NOT partial, so even a retired row
+// blocks reuse). The reconcile still runs AFTER the rebuild transaction
+// commits — best-effort per-dish work that must not be able to roll the
+// rebuild back — though the allocator is now safe inside a transaction too
+// (insertOrIgnore behind a savepoint; see ItemSlugAllocator::insertUnique).
+
+/** The live item_slugs row (id + slug) for a menu item, or null. */
+function menuSlugRow(User $user, string $itemId): ?object
+{
+    return DB::connection('pgsql')->table('site.item_slugs')
+        ->where('user_id', $user->id)->where('item_type', 'menu_item')
+        ->where('item_key', $itemId)->where('is_current', 1)
+        ->first(['id', 'slug']);
+}
+
+/** Every item_slugs row for a menu item, current and retired. */
+function menuSlugRowCount(User $user, string $itemId): int
+{
+    return DB::connection('pgsql')->table('site.item_slugs')
+        ->where('user_id', $user->id)->where('item_type', 'menu_item')
+        ->where('item_key', $itemId)->count();
+}
+
+/** Mock one Uber Eats scrape returning $categories verbatim. */
+function mockMenuScrape(array $categories): void
+{
+    test()->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+        'categories' => $categories,
+    ]]));
+}
+
+function runMenuFetch(User $user): void
+{
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+}
+
+/** One scraped dish entry with the price keys the merger needs. */
+function scrapedDish(string $name): array
+{
+    return ['name' => $name, 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5];
+}
+
+it('mints an item_slugs row for a brand-new scraped dish', function () {
+    $user = menuUser('slugmint');
+    ordering($user, 'https://www.ubereats.com/store/slugmint', null, '2026-06-17 10:00:00');
+
+    mockMenuScrape([['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos'), scrapedDish('Beef Tacos')]]]);
+    runMenuFetch($user);
+
+    $fish = MenuItem::query()->where('name', 'Fish Tacos')->firstOrFail();
+    $beef = MenuItem::query()->where('name', 'Beef Tacos')->firstOrFail();
+    expect(menuSlugRow($user, $fish->id)?->slug)->toBe('fish-tacos');
+    expect(menuSlugRow($user, $beef->id)?->slug)->toBe('beef-tacos');
+});
+
+it('frees a dropped dish slug on the next scrape and leaves the survivor row untouched', function () {
+    $user = menuUser('slugdrop');
+    ordering($user, 'https://www.ubereats.com/store/slugdrop', null, '2026-06-17 10:00:00');
+
+    mockMenuScrape([['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos'), scrapedDish('Beef Tacos')]]]);
+    runMenuFetch($user);
+
+    $fish = MenuItem::query()->where('name', 'Fish Tacos')->firstOrFail();
+    $beef = MenuItem::query()->where('name', 'Beef Tacos')->firstOrFail();
+    $fishRow = menuSlugRow($user, $fish->id);
+
+    // Scrape 2 drops the beef tacos entirely.
+    mockMenuScrape([['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos')]]]);
+    runMenuFetch($user);
+
+    // The dropped dish's slug is HARD-deleted (a retired row would still squat
+    // the slug — the unique index is not partial).
+    expect(menuSlugRowCount($user, $beef->id))->toBe(0);
+    // ...and the survivor's row is the SAME row, not a delete-and-remint.
+    $fishAfter = menuSlugRow($user, $fish->id);
+    expect($fishAfter->id)->toBe($fishRow->id);
+    expect($fishAfter->slug)->toBe('fish-tacos');
+});
+
+it('does not churn item_slugs rows when an identical scrape reuses every dish identity', function () {
+    $user = menuUser('slugchurn');
+    ordering($user, 'https://www.ubereats.com/store/slugchurn', null, '2026-06-17 10:00:00');
+
+    $categories = [['name' => 'Tacos', 'items' => [scrapedDish('Fish Tacos'), scrapedDish('Beef Tacos')]]];
+    mockMenuScrape($categories);
+    runMenuFetch($user);
+
+    $before = DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get(['id', 'item_key', 'slug'])->toArray();
+    expect($before)->toHaveCount(2);
+
+    mockMenuScrape($categories);
+    runMenuFetch($user);
+
+    // Byte-identical ROW IDS — asserting only the slug would still pass under a
+    // delete-and-remint, which would reset redirect history and can permute the
+    // -N suffixes between two same-based dishes.
+    $after = DB::connection('pgsql')->table('site.item_slugs')->orderBy('item_key')->get(['id', 'item_key', 'slug'])->toArray();
+    expect($after)->toEqual($before);
+});
+
+it('forgets a dropped dish before minting the replacement that shares its slug base', function () {
+    $user = menuUser('slugorder');
+    ordering($user, 'https://www.ubereats.com/store/slugorder', null, '2026-06-17 10:00:00');
+
+    // "Café Latte" and "Cafe Latte" are DIFFERENT dishes to normalizeName()
+    // (the accented byte is stripped, not transliterated → "caf latte" vs
+    // "cafe latte"), so no identity is reused — but Str::slug transliterates
+    // both to the same base `cafe-latte`.
+    mockMenuScrape([['name' => 'Drinks', 'items' => [scrapedDish('Café Latte')]]]);
+    runMenuFetch($user);
+
+    $old = MenuItem::query()->where('name', 'Café Latte')->firstOrFail();
+    expect(menuSlugRow($user, $old->id)?->slug)->toBe('cafe-latte');
+
+    mockMenuScrape([['name' => 'Drinks', 'items' => [scrapedDish('Cafe Latte')]]]);
+    runMenuFetch($user);
+
+    $new = MenuItem::query()->where('name', 'Cafe Latte')->firstOrFail();
+    expect($new->id)->not->toBe($old->id);
+    // Ensure-before-forget would hand this `cafe-latte-2` — and ensureCurrent()
+    // short-circuits on an unchanged base afterwards, so it would stay there
+    // permanently.
+    expect(menuSlugRow($user, $new->id)?->slug)->toBe('cafe-latte');
+    expect(menuSlugRowCount($user, $old->id))->toBe(0);
+});
+
+it('frees scraped dish slugs when the last ordering link is removed but keeps manual dish slugs', function () {
+    $user = menuUser('slugclear');
+    ordering($user, 'https://www.ubereats.com/store/slugclear', null, '2026-06-17 10:00:00');
+
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Mains', 'items' => [['name' => 'Scraped Dish', 'base_price' => 10.0]]],
+    ]);
+    $scraped = MenuItem::query()->where('name', 'Scraped Dish')->firstOrFail();
+    $category = MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail();
+    $manual = MenuItem::create(['menu_id' => $menu->id, 'name' => 'House Special', 'is_manual' => true]);
+    $manual->categories()->attach($category->id, ['position' => 1]);
+
+    expect(menuSlugRow($user, $scraped->id)?->slug)->toBe('scraped-dish');
+    $manualRow = menuSlugRow($user, $manual->id);
+    expect($manualRow?->slug)->toBe('house-special');
+
+    // No ordering platform left at all → clearScrapedContent().
+    IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'online-ordering')->delete();
+    (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    expect(menuSlugRowCount($user, $scraped->id))->toBe(0);
+    expect(menuSlugRow($user, $manual->id)?->id)->toBe($manualRow->id);
+});
+
+it('leaves a manual dish item_slugs row untouched across a scraper rebuild', function () {
+    $user = menuUser('slugmanual');
+    ordering($user, 'https://www.ubereats.com/store/slugmanual', null, '2026-06-17 10:00:00');
+
+    $menu = seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Mains', 'items' => [['name' => 'Old Scraped Dish', 'base_price' => 10.0]]],
+    ]);
+    $category = MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail();
+    $manual = MenuItem::create(['menu_id' => $menu->id, 'name' => 'House Special', 'is_manual' => true]);
+    $manual->categories()->attach($category->id, ['position' => 1]);
+    $manualRow = menuSlugRow($user, $manual->id);
+    expect($manualRow?->slug)->toBe('house-special');
+
+    mockMenuScrape([['name' => 'Fresh', 'items' => [scrapedDish('New Scraped Dish')]]]);
+    runMenuFetch($user);
+
+    $manualAfter = menuSlugRow($user, $manual->id);
+    expect($manualAfter->id)->toBe($manualRow->id);
+    expect($manualAfter->slug)->toBe('house-special');
+    // ...and the new scraped dish got its own.
+    $fresh = MenuItem::query()->where('name', 'New Scraped Dish')->firstOrFail();
+    expect(menuSlugRow($user, $fresh->id)?->slug)->toBe('new-scraped-dish');
+});
+
+// ── the collision surface Unit 5 opened: MenuScanApplier runs INSIDE a
+// transaction. Every scraped dish now owns an item_slugs row, so a scan item
+// whose name misses MenuScanApplier::normalize() (lowercase + trim only) but
+// whose Str::slug() collides with an existing row hits the allocator's retry
+// path with the scan's transaction open. Pre-fix that INSERT raised, which on
+// Postgres aborts the whole transaction (25P02) — every later statement in the
+// apply fails and the enrichment rolls back (a 500 on this endpoint, a
+// swallowed-and-logged no-op inside MenuFetchJob). SQLite aborts only the
+// statement, so this test can only prove the enrichment lands and the slug
+// resolves; it cannot reproduce the Postgres abort.
+
+it('commits a scan apply whose new dish collides with an existing slug base', function () {
+    $user = menuUser('scanslugclash');
+
+    // "Café Latte" holds the `cafe-latte` slug (Str::slug transliterates the
+    // accent away), but MenuScanApplier's matcher compares raw lowercased
+    // names — "café latte" ≠ "cafe latte" — so the scan item below is a NEW
+    // dish that wants an already-taken base.
+    seedMenu($user, ['content_source' => 'uber-eats'], [
+        ['name' => 'Drinks', 'items' => [['name' => 'Café Latte', 'base_price' => 5.0]]],
+    ]);
+    $existing = MenuItem::query()->where('name', 'Café Latte')->firstOrFail();
+    $existingRow = menuSlugRow($user, $existing->id);
+    expect($existingRow?->slug)->toBe('cafe-latte');
+
+    $levels = [];
+    Event::listen(TransactionBeginning::class, function (TransactionBeginning $e) use (&$levels) {
+        $levels[] = $e->connection->transactionLevel();
+    });
+
+    $res = actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [
+            ['name' => 'Cafe Latte', 'description' => 'House blend.', 'price' => 5.5, 'category' => 'Specials'],
+            // A SECOND item processed after the colliding one — on Postgres an
+            // aborted transaction fails every later statement, so this landing
+            // is the part that proves the transaction survived the collision.
+            ['name' => 'Blueberry Muffin', 'description' => null, 'price' => 4.0, 'category' => 'Specials'],
+        ],
+    ])->assertOk();
+
+    expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
+
+    $minted = MenuItem::query()->where('name', 'Cafe Latte')->firstOrFail();
+    expect($minted->description)->toBe('House blend.');
+    expect(menuSlugRow($user, $minted->id)?->slug)->toBe('cafe-latte-2');
+
+    // The pivot attach runs AFTER the colliding MenuItem::create in the same
+    // transaction — its category membership landing is the second proof.
+    $scanCategory = MenuCategory::query()->where('name', 'Specials')->where('source_platform', 'scan')->firstOrFail();
+    expect($minted->categories()->pluck('site.menu_categories.id')->all())->toBe([(string) $scanCategory->id]);
+
+    $muffin = MenuItem::query()->where('name', 'Blueberry Muffin')->firstOrFail();
+    expect(menuSlugRow($user, $muffin->id)?->slug)->toBe('blueberry-muffin');
+
+    // The incumbent keeps its row and its bare base — the newcomer took -2.
+    $existingAfter = menuSlugRow($user, $existing->id);
+    expect($existingAfter->id)->toBe($existingRow->id);
+    expect($existingAfter->slug)->toBe('cafe-latte');
+
+    // The one assertion here that DOES fail pre-fix on SQLite: each mint ran at
+    // transaction level 2 — nested inside MenuScanApplier's own level-1
+    // transaction, i.e. behind a SAVEPOINT. Everything above passes either way,
+    // because SQLite aborts only the failed statement.
+    expect(array_count_values($levels)[2] ?? 0)->toBe(2);
 });
