@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -38,10 +39,10 @@ trait DefersBespokeConnect
     // connectStatus() — kept duplicated there rather than hoisted out of the
     // generic controller's file, since deduplicating would mean editing the
     // eight already-armed registry platforms' code path for a cosmetic win
-    // (design doc §7 Risk R3). Public so ConnectFetchJob's own lock-timeout
-    // catch can point at this constant directly instead of carrying its own
-    // duplicate of the string.
-    public const STALE_CONNECT_ERROR = "We couldn't save your connection just then — please try again.";
+    // (design doc §7 Risk R3). Lives on FetchUnavailableException, not here,
+    // so ConnectFetchJob's own lock-timeout catch can reference the SAME
+    // constant without a Job depending on a Controller trait for a string —
+    // PHP has no way to reference a trait constant externally otherwise.
 
     private const UNKNOWN_CONNECT_ERROR = 'We could not load that account. Please try again.';
 
@@ -143,7 +144,7 @@ trait DefersBespokeConnect
             // merely-slow (not dead) worker can still land its real 'ok'
             // write afterwards and the next poll reports 'ready'.
             if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(5))) {
-                return $this->success(['status' => 'failed', 'error' => self::STALE_CONNECT_ERROR]);
+                return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
             }
 
             return $this->success(['status' => 'pending']);

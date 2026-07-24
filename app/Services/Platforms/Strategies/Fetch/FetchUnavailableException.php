@@ -20,6 +20,14 @@ class FetchUnavailableException extends \RuntimeException
     // copy enters the connect contract.
     public const GENERIC_USER_MESSAGE = 'We could not load that account. Please try again.';
 
+    // Shared with DefersBespokeConnect::bespokeConnectStatus() (the stale-pending
+    // poll branch) and ConnectFetchJob's own lock-timeout catch — one wire copy,
+    // not a second hand-typed copy of it. Lives here, not on either caller, since
+    // PHP cannot reference a trait constant externally and a Job depending on a
+    // Controller for a string is a layering inversion; this class is already the
+    // neutral home for GENERIC_USER_MESSAGE for the identical reason.
+    public const STALE_CONNECT_ERROR = "We couldn't save your connection just then — please try again.";
+
     public function __construct(string $message = '', private readonly ?string $userMessage = null)
     {
         parent::__construct($message);

@@ -21,6 +21,7 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -234,7 +235,7 @@ class FreshaController extends ApiController
         // FreshaConnectFetch's own success write (team: set to null;
         // storewide: key removed).
         if ($row !== null && $row->last_refresh_status === 'ok' && ($row->payload['connectPendingAt'] ?? null) !== null) {
-            return $this->success(['status' => 'failed', 'error' => self::STALE_CONNECT_ERROR]);
+            return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
         }
 
         // $shape branches on the STORED payload, not the caller's current

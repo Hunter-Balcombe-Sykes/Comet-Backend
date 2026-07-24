@@ -2,7 +2,6 @@
 
 namespace App\Jobs\Platforms;
 
-use App\Http\Controllers\Api\Platforms\FreshaController;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
@@ -251,16 +250,18 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             // The message is deliberately NOT $descriptor->connectFetchErrorMessage():
             // that wording ("couldn't find that channel") would misrepresent
             // OUR lock contention as a vendor miss. Same string the poll side
-            // shows for a stale pending row (DefersBespokeConnect::
-            // STALE_CONNECT_ERROR, public for exactly this cross-reference) —
-            // one wire copy, not a second hand-typed copy of it here.
+            // shows for a stale pending row (FetchUnavailableException::
+            // STALE_CONNECT_ERROR — a neutral home both this job and
+            // DefersBespokeConnect reference, since PHP cannot reference a
+            // trait constant externally) — one wire copy, not a second
+            // hand-typed copy of it here.
             report($e);
             Log::warning('platform.connect_job.lock_timeout', [
                 'connection_id' => $connection->id,
                 'platform' => $connection->platform,
                 'user_id' => $connection->user_id,
             ]);
-            $this->markTerminal($connection, 'unavailable', FreshaController::STALE_CONNECT_ERROR);
+            $this->markTerminal($connection, 'unavailable', FetchUnavailableException::STALE_CONNECT_ERROR);
         }
     }
 
