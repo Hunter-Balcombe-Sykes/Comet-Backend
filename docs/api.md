@@ -903,6 +903,7 @@ HTTP 423 Locked
 Fresha and Square are mutually exclusive booking providers — only one may be connected at a time, enforced by a shared per-user lock (U1, 2026-07-25) covering both connect endpoints plus `BookingController`, `DELETE /api/platforms/fresha`, and the Google/Instagram "Change to" auto-sync actions.
 
 - `POST /api/platforms/square/connect` — `403` (booking unavailable), `409` (Fresha already connected), `422` (invalid URL), and now `423` — `{"message":"Another change is still saving — please retry in a moment."}` — when a concurrent booking-family write (a Fresha connect/disconnect, `POST`/`DELETE /api/platforms/booking`, or an auto-sync "Change to") holds the lock. Retry, same as the existing `423` on `POST /api/platforms/fresha/connect`.
+- `POST /api/platforms/google-business/synced/apply` and `POST /api/platforms/instagram/synced/apply` (the auto-sync "Change to" actions) — now also `423` with the identical body when the finding being applied targets a booking/reservations slot (Fresha/Square, or the reservations family) and a concurrent booking-family write holds that same shared lock. Retry, same as above.
 
 ### Feedback (OV-D)
 

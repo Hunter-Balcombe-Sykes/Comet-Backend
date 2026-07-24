@@ -125,6 +125,15 @@ class FreshaController extends ApiController
                 return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
             }
 
+            // Whole-branch review fix: 30s (not withConnectionLock's 10s
+            // default) — this closure's storewide branch runs
+            // FreshaServiceProjector::sync() (the same projection the OUTER
+            // bookingXorLock above was raised to 30s for), so the same
+            // overrun risk applies one level down. Left at 10, an expiry
+            // mid-projection would let ConnectFetchJob / ScheduledRefresh /
+            // saveSelection — all keyed on this 'fresha' platform lock alone
+            // — in behind it, reopening PWL-5. See
+            // ManagesIntegrationConnection::withConnectionLock's docblock.
             return $this->withConnectionLock($user, function () use ($user, $url, $menu): JsonResponse {
                 // Business Partna accounts book storewide — no team-member picker. Finalise
                 // the selection here so connect() completes setup in one step; the dashboard
@@ -173,7 +182,7 @@ class FreshaController extends ApiController
                 ]);
 
                 return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
-            });
+            }, 30);
         }, 30);
     }
 
@@ -382,6 +391,10 @@ class FreshaController extends ApiController
         $employee = $resolved['employee'];
         $services = $resolved['services'];
 
+        // Whole-branch review fix: 30s, same as connect()'s storewide branch
+        // above — this closure also runs FreshaServiceProjector::sync() (the
+        // services advisory lock + projection) INSIDE the lock, so the 10s
+        // default carries the identical mid-write-expiry risk here.
         return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {
             // Preserve previously hidden services, dropping ids that no longer exist
             // in the refreshed menu so the hidden list never drifts stale. The kept
@@ -410,7 +423,7 @@ class FreshaController extends ApiController
             ]);
 
             return $this->success((new FreshaSelectionResource($selection))->resolve());
-        });
+        }, 30);
     }
 
     // GET /api/platforms/fresha/employee-services?employeeId=X — the per-employee

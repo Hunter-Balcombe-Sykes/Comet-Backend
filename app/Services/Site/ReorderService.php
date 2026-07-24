@@ -4,6 +4,7 @@ namespace App\Services\Site;
 
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,12 +27,33 @@ class ReorderService
         DB::connection('pgsql')->transaction(function () use ($ids, $scopeQuery, $lockKey, $lockTimeoutMs) {
             AdvisoryLock::acquire($lockKey, $lockTimeoutMs);
 
-            $allIds = (clone $scopeQuery)
-                ->lockForUpdate()
-                ->orderBy('sort_order')
-                ->orderBy('created_at')
-                ->pluck('id')
-                ->all();
+            // Whole-branch review fix: AdvisoryLock::acquire()'s `SET LOCAL
+            // lock_timeout` above is scoped to the REST of this transaction
+            // (Postgres, not just the one statement) — so when a bound is
+            // passed, this row lock now aborts at that SAME ceiling (5s for
+            // the services key) instead of DatabaseServiceProvider's 10s
+            // session-level default. It fails with the identical SQLSTATE
+            // (55P03 lock_not_available) as the advisory-lock timeout just
+            // above, so reuse AdvisoryLock's own detection rather than
+            // duplicating it, and reuse AdvisoryLockTimeoutException too —
+            // every caller (UserServiceController::reorder(),
+            // StaffServiceManagementController) already catches that type and
+            // returns 423. Left uncaught, this was a raw QueryException
+            // nothing matched, surfacing as a 500.
+            try {
+                $allIds = (clone $scopeQuery)
+                    ->lockForUpdate()
+                    ->orderBy('sort_order')
+                    ->orderBy('created_at')
+                    ->pluck('id')
+                    ->all();
+            } catch (QueryException $e) {
+                if (AdvisoryLock::isLockTimeout($e)) {
+                    throw new AdvisoryLockTimeoutException($lockKey, $e);
+                }
+
+                throw $e;
+            }
 
             $allSet = array_flip($allIds);
             foreach ($ids as $id) {

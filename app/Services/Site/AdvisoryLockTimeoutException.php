@@ -9,6 +9,14 @@ namespace App\Services\Site;
 // withConnectionLock and the two ServiceManagementController reorder/store
 // methods); a queued job folds it into its own terminal-failure path
 // (FreshaConnectFetch::fetchStorewide()).
+//
+// Also (re)thrown by ReorderService::reorder() when its OWN `lockForUpdate()`
+// row lock times out — SET LOCAL's timeout persists for the rest of the
+// transaction, so a bounded advisory-lock acquire leaves the subsequent row
+// lock bounded too, and it fails with the SAME SQLSTATE. Classified via
+// AdvisoryLock::isLockTimeout() rather than a second detection path, so it
+// folds into the identical 423 the advisory-lock case already gets — the
+// caller can't tell which lock contended either way.
 class AdvisoryLockTimeoutException extends \RuntimeException
 {
     public function __construct(public readonly string $lockKey, ?\Throwable $previous = null)

@@ -279,7 +279,7 @@ trait ManagesIntegrationConnection
      * to exclude each other, a lost-update bug). Do not reintroduce one here.
      *
      * U2: also catches AdvisoryLockTimeoutException — FreshaController's
-     * synchronous connect()/employeeServices() bodies call
+     * synchronous connect()/saveSelection() bodies call
      * FreshaServiceProjector::sync() from inside this closure, and that Postgres
      * advisory lock (services:{user_id}) now has a tighter, explicit 5s bound
      * and a typed exception, replacing the raw, uncaught SQLSTATE 55P03 a
@@ -287,14 +287,37 @@ trait ManagesIntegrationConnection
      * session-level `SET lock_timeout` would otherwise have produced. Same
      * 423 either way: the client can't tell which lock contended.
      *
+     * Whole-branch review fix: $ttlSeconds defaults to 10 (unchanged) but can
+     * be raised for a caller whose closure holds the lock across FreshaServiceProjector::
+     * sync() — the same rationale withCrossPlatformLock's docblock already
+     * gives for its own $ttlSeconds param (a projection that itself waits up
+     * to 5s on the services advisory lock before doing real work can
+     * plausibly exceed 10s), applied one level down: this lock is the INNER
+     * one FreshaController::connect()'s storewide branch and saveSelection()
+     * hold WHILE running that same sync() call, under the outer 30s
+     * bookingXorLock. Left at 10 expiring mid-projection would let
+     * ConnectFetchJob / ScheduledRefresh / another saveSelection — every one
+     * of which takes ONLY this 'fresha' platform key — in behind it, reopening
+     * PWL-5. Checked every caller of this method (OnlineOrderingController,
+     * FreshaController::connectDeferred()/setServiceVisibility()/forget() [via
+     * withCrossPlatformLock, not this method], GoogleBusinessController,
+     * CustomLinksController, EventsPlatformController, ShopController,
+     * GenericPlatformController, SkoolController, InstagramController,
+     * AppleController): none of the others ever calls
+     * FreshaServiceProjector::sync() or waits on any advisory lock inside its
+     * closure — every one is a fast DB read/write — so they all stay on the
+     * default. Do not raise the default itself, same reasoning as
+     * withCrossPlatformLock's docblock: a longer TTL on a path that doesn't
+     * need it only lengthens the window a crashed process holds the lock.
+     *
      * Note: assumes the using class extends ApiController (for error()).
      */
-    protected function withConnectionLock(User $user, callable $callback): JsonResponse
+    protected function withConnectionLock(User $user, callable $callback, int $ttlSeconds = 10): JsonResponse
     {
         $key = CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id);
 
         try {
-            return Cache::lock($key, 10)->block(5, $callback);
+            return Cache::lock($key, $ttlSeconds)->block(5, $callback);
         } catch (LockTimeoutException|AdvisoryLockTimeoutException) {
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }

@@ -8,6 +8,7 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Site\AdvisoryLockTimeoutException;
 
 // Scheduled Fresha refresh: re-scrapes the saved selection's service menu so
 // prices/durations/new services stay current without the user re-picking.
@@ -76,7 +77,25 @@ final readonly class FreshaFetch implements FetchStrategy
         if ($user === null) {
             throw new FetchNotModifiedException('fresha');
         }
-        $projected = $this->projector->sync($user, $services, $hidden);
+        try {
+            $projected = $this->projector->sync($user, $services, $hidden);
+        } catch (AdvisoryLockTimeoutException) {
+            // Whole-branch review fix: mirrors FreshaConnectFetch::fetchStorewide()'s
+            // identical catch — sync()'s pg_advisory_xact_lock (services:{user_id})
+            // is a RuntimeException subtree PlatformRefresher::refresh() doesn't
+            // know about (it only catches FetchNotModified/FetchShape/
+            // FetchUnavailable), so left uncaught it escaped to
+            // RefreshConnectionJob's handle(), which has no pending-guard of its
+            // own to fall back on. Rethrowing as FetchUnavailableException routes
+            // it back through the SAME recordFailure('unavailable') +
+            // PlatformHealthNotifier path every other transient Fresha miss gets,
+            // on the FIRST attempt, instead of relying on the job's $maxExceptions=3
+            // generic-exception ceiling (see RefreshConnectionJob::failed()) — that
+            // ceiling does eventually bump consecutive_failures too, but only after
+            // three wasted retries (each re-waiting on a lock that's likely still
+            // contended) and without ever calling the health notifier.
+            throw new FetchUnavailableException('fresha_services_lock');
+        }
 
         $inner = [
             ...$selection,
