@@ -67,6 +67,7 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
@@ -92,6 +93,7 @@ use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
 use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
@@ -148,6 +150,23 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // Skool + Strava are link/card style under their own resources.
             $r->register(PD::make('skool')->label('Skool')->category(Cat::Education)->resource(SkoolConnectionResource::class));
+            // CA-W4: attach the fetch strategy so ConnectFetchJob can complete a
+            // pending row. Consumed ONLY by that job — skool stays non-refreshable
+            // (no ->refreshable() call above), so ScheduledRefresh/the manual
+            // refresh button never resolve this (PlatformDescriptor::refreshStrategy()
+            // requires BOTH flags).
+            $r->get('skool')->fetch(fn () => new SkoolFetch(app(SkoolScraper::class)));
+            // The message ConnectFetchJob stores on the row when the deferred
+            // fetch fails — verbatim from connect()'s own synchronous 404
+            // message. Deliberately NOT ->deferredConnect(): that flag means
+            // "this descriptor's ConnectStrategy implements DeferredConnect"
+            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
+            // descriptor), but Skool has no ConnectStrategy at all — its
+            // connect is bespoke (SkoolController::connect(), via
+            // DefersBespokeConnect), never routed through
+            // ConnectResolver/GenericPlatformController. Mirrors apple-music's
+            // identical note above.
+            $r->get('skool')->connectFetchError('Could not read that Skool community — check the URL.');
             $r->register(PD::make('strava')->label('Strava')->category(Cat::Content)->resource(StravaConnectionResource::class)->refreshable());
             // Attach the live fetch strategy (Plan 6). Consumed by the registry-driven refresher.
             $r->get('strava')->fetch(fn () => new StravaFetch(app(StravaClubScraper::class)));

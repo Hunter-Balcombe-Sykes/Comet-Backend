@@ -581,7 +581,11 @@ it('covers every integration GET read-route in the golden master', function () {
     // added manually inside the BESPOKE apple route group (routeShape stays
     // Bespoke, so the registry loop's own supportsDeferredConnect() gate above
     // never reaches it). 72 -> 74.
-    expect($readRoutes->count())->toBe(74);
+    // CA-W4: 1 new .../connect/status poll route for Skool — added manually
+    // inside the loop's SingleSelection branch (that branch returns before the
+    // loop's own supportsDeferredConnect() gate too, and Skool has no
+    // ConnectStrategy to satisfy that flag's pinned invariant anyway). 74 -> 75.
+    expect($readRoutes->count())->toBe(75);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -629,6 +633,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/shopify/brands',
         'api/platforms/shopify/selection',
         'api/platforms/shopify/settings',
+        'api/platforms/skool/connect/status',
         'api/platforms/skool/selection',
         'api/platforms/snapchat/selection',
         'api/platforms/soundcloud/accounts',

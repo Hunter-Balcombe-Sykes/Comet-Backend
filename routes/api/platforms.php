@@ -283,6 +283,24 @@ $registerIntegrationRoutes = function (string $base): void {
                     Route::get('/selection', [$controller, 'selection']);
                     Route::delete('/', [$controller, 'forget']);
 
+                    // Deferred-connect poll endpoint (CA-W4) — this branch
+                    // RETURNS before the loop's own supportsDeferredConnect()
+                    // gate below, so that gate can never emit this route for a
+                    // SingleSelection descriptor. Wired explicitly instead,
+                    // mirroring Apple's bespoke status routes (CA-W3): a route
+                    // that appears/disappears with an env var is worse to debug
+                    // than one that always 404s a nonexistent row. Deliberately
+                    // NOT ->deferredConnect() on the descriptor — Skool has no
+                    // ConnectStrategy to satisfy that flag's pinned invariant
+                    // (RegistryConnectCoverageTest) — see DefersBespokeConnect's
+                    // own note. Gated by slug (not "every SingleSelection
+                    // descriptor") because google-business — this shape's only
+                    // other member — has no connectStatus() method; wiring the
+                    // route for it too would 500 on the first hit.
+                    if ($slug === 'skool') {
+                        Route::get('/connect/status', [$controller, 'connectStatus']);
+                    }
+
                     return;
                 }
 
