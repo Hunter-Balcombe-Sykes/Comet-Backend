@@ -4,8 +4,10 @@ namespace App\Services\Site;
 
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 // Owns site.item_slugs: the per-profile human-readable URL slug registry for
 // public sitepage detail items (events + menu items). is_current=false rows are
@@ -64,6 +66,108 @@ class ItemSlugAllocator
         DB::connection('pgsql')->table(self::TABLE)
             ->where('user_id', $userId)->where('item_type', $itemType)->where('item_key', $itemKey)
             ->delete();
+    }
+
+    /**
+     * Batch forget() — one DELETE per 1000 keys instead of one per item, for
+     * the wholesale-rebuild callers (MenuFetchJob, the events observer, the
+     * backfill prune). Hard-deletes current AND retired rows exactly like
+     * forget(): item_slugs_unique_slug is NON-partial, so a retired row still
+     * squats the slug and a soft retire would not free it.
+     *
+     * Chunked at 1000: comfortably inside the bind-parameter ceiling on every
+     * driver this actually runs against — SQLite defaults to 32766 (PHP 8.2
+     * bundles SQLite >= 3.32, so the old sub-1000 builds don't apply here) and
+     * Postgres to 65535 — with headroom to spare for the handful of extra
+     * scalar binds (user_id, item_type, and — in ensureCurrentMany()'s
+     * prefilter — is_current) each call adds on top of the chunk.
+     *
+     * ⚠ MUST NOT be called inside an open transaction alongside
+     * ensureCurrentMany() — see that method's note.
+     *
+     * @param  list<string>  $itemKeys
+     */
+    public function forgetMany(string $userId, string $itemType, array $itemKeys): void
+    {
+        $keys = array_values(array_unique(array_map('strval', $itemKeys)));
+        if ($keys === []) {
+            return;
+        }
+
+        foreach (array_chunk($keys, 1000) as $chunk) {
+            DB::connection('pgsql')->table(self::TABLE)
+                ->where('user_id', $userId)->where('item_type', $itemType)
+                ->whereIn('item_key', $chunk)
+                ->delete();
+        }
+    }
+
+    /**
+     * Batch ensureCurrent() for a whole rebuilt collection: one chunked
+     * prefilter SELECT establishes which keys already carry a live slug on the
+     * right base, and only the remainder fall through to the per-item
+     * ensureCurrent() write path. An unchanged 300-dish menu therefore costs
+     * ONE query instead of ~600.
+     *
+     * ⚠ CALL OUTSIDE ANY OPEN TRANSACTION. ensureCurrent() allocates through
+     * insertUnique(), which INSERTs and catches the unique violation with NO
+     * savepoint. On Postgres a failed statement inside a transaction aborts the
+     * WHOLE transaction (SQLSTATE 25P02) and every later statement fails, so a
+     * collision here would take the caller's transaction down with it. SQLite
+     * does not behave that way, so the test suite cannot catch a misplacement —
+     * placement is the only defence.
+     *
+     * `is_current` is compared ONLY inside the SQL WHERE, never read back into
+     * PHP — Postgres' PDO driver can hand a boolean column back as the strings
+     * 't'/'f' rather than true/false (see lookupCurrent()'s note), which would
+     * pass against the SQLite mirror's 0/1 integers and misbehave in production.
+     *
+     * Per-item failures are swallowed: one unallocatable name must not strand
+     * the rest of the batch.
+     *
+     * @param  array<string, string>  $namesByKey  item_key => name
+     */
+    public function ensureCurrentMany(string $userId, string $itemType, array $namesByKey): void
+    {
+        if ($namesByKey === []) {
+            return;
+        }
+
+        /** @var array<string, string> $currentByKey item_key => live slug */
+        $currentByKey = [];
+        foreach (array_chunk(array_map('strval', array_keys($namesByKey)), 1000) as $chunk) {
+            $rows = DB::connection('pgsql')->table(self::TABLE)
+                ->where('user_id', $userId)->where('item_type', $itemType)
+                ->whereIn('item_key', $chunk)
+                ->where('is_current', true)
+                ->get(['item_key', 'slug']);
+            foreach ($rows as $row) {
+                $currentByKey[(string) $row->item_key] = (string) $row->slug;
+            }
+        }
+
+        foreach ($namesByKey as $itemKey => $name) {
+            $itemKey = (string) $itemKey;
+            $name = (string) $name;
+            $live = $currentByKey[$itemKey] ?? null;
+
+            // Already on the right base (suffix included) → ensureCurrent would
+            // no-op anyway; skip the round trip.
+            if ($live !== null && $this->stripSuffix($live) === $this->base($name, $itemKey)) {
+                continue;
+            }
+
+            try {
+                $this->ensureCurrent($userId, $itemType, $itemKey, $name);
+            } catch (Throwable $e) {
+                report($e);
+                Log::warning('item-slug batch mint failed', [
+                    'item_type' => $itemType,
+                    'item_key' => $itemKey,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**

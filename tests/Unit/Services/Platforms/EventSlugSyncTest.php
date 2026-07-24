@@ -3,12 +3,13 @@
 use App\Services\Platforms\EventSlugSync;
 use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     setupItemSlugsTable();
-    $this->sync = new EventSlugSync(new ItemSlugAllocator());
+    $this->sync = new EventSlugSync(new ItemSlugAllocator);
 });
 
 function eventSlug(string $key): ?string
@@ -54,4 +55,70 @@ it('skips malformed entries (missing id/name, or a non-array element)', function
 it('ignores an empty list', function () {
     $this->sync->syncEvents('user-1', []);
     expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(0);
+});
+
+// ── eventIds() + retireEvents() (271-DINT-4) ──────────────────────────
+
+it('eventIds() plucks ids from an account payload upcoming list', function () {
+    $ids = EventSlugSync::eventIds(null, [
+        'url' => 'https://x/o/1',
+        'organiser' => 'Org',
+        'upcoming' => [
+            ['id' => 'hexaaa', 'name' => 'Trivia Night'],
+            ['id' => 'hexbbb', 'name' => 'Comedy Gala'],
+        ],
+    ]);
+    expect($ids)->toBe(['hexaaa', 'hexbbb']);
+});
+
+it('eventIds() plucks the single id from a standalone-event payload', function () {
+    $ids = EventSlugSync::eventIds('event', ['kind' => 'event', 'id' => 'hexccc', 'name' => 'Sold Out Show']);
+    expect($ids)->toBe(['hexccc']);
+});
+
+it('eventIds() skips malformed entries and dedupes', function () {
+    $ids = EventSlugSync::eventIds(null, ['upcoming' => [
+        ['name' => 'No Id'],
+        ['id' => ''],
+        ['id' => 123],
+        'not-an-array',
+        ['id' => 'hexok', 'name' => 'Good'],
+        ['id' => 'hexok', 'name' => 'Duplicate'],
+    ]]);
+    expect($ids)->toBe(['hexok']);
+});
+
+it('eventIds() returns an empty list for a null / non-array / shapeless payload', function () {
+    expect(EventSlugSync::eventIds(null, null))->toBe([]);
+    expect(EventSlugSync::eventIds(null, 'a json string'))->toBe([]);
+    expect(EventSlugSync::eventIds(null, []))->toBe([]);
+    expect(EventSlugSync::eventIds('event', []))->toBe([]);
+});
+
+it('eventIds() keeps an all-digit id as a string (never an int array key)', function () {
+    // 16 hex chars can legitimately be all digits (~1 in 2000), and an int here
+    // would leak out of the declared list<string> into forgetMany()'s binds.
+    $ids = EventSlugSync::eventIds(null, ['upcoming' => [['id' => '1234567890123456', 'name' => 'Numeric']]]);
+    expect($ids)->toBe(['1234567890123456']);
+    expect($ids[0])->toBeString();
+});
+
+it('retireEvents() hard-deletes the named events and leaves the rest alone', function () {
+    $this->sync->syncEvents('user-1', [
+        ['id' => 'hexaaa', 'name' => 'Trivia Night'],
+        ['id' => 'hexbbb', 'name' => 'Comedy Gala'],
+    ]);
+
+    $this->sync->retireEvents('user-1', ['hexaaa']);
+
+    expect(eventSlug('hexaaa'))->toBeNull();
+    expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'hexaaa')->count())->toBe(0);
+    expect(eventSlug('hexbbb'))->toBe('comedy-gala');
+});
+
+it('retireEvents() no-ops on an empty or all-blank list', function () {
+    $this->sync->syncEvents('user-1', [['id' => 'hexaaa', 'name' => 'Trivia Night']]);
+    $this->sync->retireEvents('user-1', []);
+    $this->sync->retireEvents('user-1', ['']);
+    expect(eventSlug('hexaaa'))->toBe('trivia-night');
 });

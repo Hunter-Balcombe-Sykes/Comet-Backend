@@ -1480,7 +1480,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 1 complete
 
@@ -1488,7 +1488,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **271-DINT-1** · P1 — `MenuFetchJob`'s bulk scrape-rebuild writes bypass Eloquent events, so `site.item_slugs` never mints for new scraped dishes and never frees on removed ones
+- [x] **271-DINT-1** · P1 — `MenuFetchJob`'s bulk scrape-rebuild writes bypass Eloquent events, so `site.item_slugs` never mints for new scraped dishes and never frees on removed ones
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:412, 580, 758; app/Observers/MenuItemObserver.php:23-33; supabase/migrations/20260724120000_create_item_slugs.sql:10-15,35
     - **Affects:** Every site with a connected Uber Eats/DoorDash menu — i.e. most menu-enabled Partna profiles. The pretty-URL slug feature (`slug`/`aliases` on the public menu payload, shipped this session) only ever activates for owner-authored (`is_manual`) dishes; every scraped dish — the primary content source, per the model's own docblock ("Items are rebuilt wholesale on every scrape") — permanently degrades to the raw-UUID fallback the feature was built to replace. `site.item_slugs` also silently accumulates orphaned rows for every dish a re-scrape removes.
     - **Effort:** M (~2–4h)
@@ -1578,7 +1578,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
             ON site.item_slugs (user_id, slug);
         ```
 
-- [ ] **271-DINT-4** · P2 — Event `item_slugs` rows are never retired — no code path anywhere calls `forget()` for `item_type = 'event'`
+- [x] **271-DINT-4** · P2 — Event `item_slugs` rows are never retired — no code path anywhere calls `forget()` for `item_type = 'event'`
     - **Where:** app/Services/Platforms/EventSlugSync.php:56-69 (`syncEvents()`); app/Observers/Core/IntegrationConnectionObserver.php:241-247 (`deleted()`)
     - **Affects:** Every user with a connected Eventbrite/Humanitix/custom-events integration — an event that ends, is deleted upstream, or whose whole integration is disconnected leaves its `site.item_slugs` row permanently `is_current = true`, occupying that slug forever with zero cleanup mechanism (unlike the menu-item side, which at least has a `forget()` call for the direct-delete path).
     - **Effort:** M (~2–4h)
