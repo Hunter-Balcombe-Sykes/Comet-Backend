@@ -5,11 +5,12 @@ namespace App\Services\Platforms;
 use App\Services\Site\ItemSlugAllocator;
 
 /**
- * Mints/re-slugs event item_slugs from a platform_connections payload
- * (eventbrite / humanitix / events-custom). Handles both payload shapes
- * EventsPayload produces:
- *  - account rows: {..., upcoming: [ {id, name, ...}, ... ]}
- *  - standalone/custom rows: {kind: 'event', id, name, ...}
+ * Mints/reuses event item_slugs from an already-extracted list of event
+ * arrays (each {id, name, ...}). The caller pulls that list out of a
+ * connection's typed payload DTO first (EventsAccountPayload::upcoming() or
+ * StandaloneEventPayload::event()) — this class stays Eloquent- and
+ * payload-shape-free so it's trivial to unit test and never touches a raw
+ * ->payload access itself.
  *
  * Event slugs are pinned once and never re-derived from a later title edit
  * (design decision — the hex id is link-derived, not title-derived, so it
@@ -21,12 +22,21 @@ use App\Services\Site\ItemSlugAllocator;
  */
 class EventSlugSync
 {
+    // The events-platform set. Platform enum has no cases for these (by
+    // design — see Platform.php); mirrors CloudflarePurgeService's own
+    // string list. Single source of truth for both the sync hook
+    // (IntegrationConnectionObserver) and the backfill command.
+    public const PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
+
     public function __construct(private ItemSlugAllocator $slugs) {}
 
-    /** @param  array<string,mixed>  $payload */
-    public function sync(string $userId, array $payload): void
+    /** @param list<mixed> $events */
+    public function syncEvents(string $userId, array $events): void
     {
-        foreach ($this->events($payload) as $event) {
+        foreach ($events as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
             $id = $event['id'] ?? null;
             $name = $event['name'] ?? null;
             if (! is_string($id) || $id === '' || ! is_string($name) || $name === '') {
@@ -34,20 +44,5 @@ class EventSlugSync
             }
             $this->slugs->ensureCurrent($userId, ItemSlugAllocator::TYPE_EVENT, $id, $name);
         }
-    }
-
-    /**
-     * @param  array<string,mixed>  $payload
-     * @return list<array<string,mixed>>
-     */
-    private function events(array $payload): array
-    {
-        if (($payload['kind'] ?? null) === 'event') {
-            return [$payload];
-        }
-
-        $upcoming = $payload['upcoming'] ?? null;
-
-        return is_array($upcoming) ? array_values(array_filter($upcoming, 'is_array')) : [];
     }
 }

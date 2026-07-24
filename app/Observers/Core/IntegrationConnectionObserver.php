@@ -9,8 +9,10 @@ use App\Models\Core\Site\Site;
 use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Support\Facades\Log;
@@ -30,10 +32,6 @@ use Illuminate\Support\Facades\Log;
 class IntegrationConnectionObserver
 {
     public bool $afterCommit = true;
-
-    // Mirrors CloudflarePurgeService's events-platform set — Platform enum has
-    // no cases for these (by design, see Platform.php), so gate on the string.
-    private const EVENTS_PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
 
     // Defaulted (not just container-resolved) because a couple of tests
     // instantiate this observer directly with `new` to exercise updated()'s
@@ -72,7 +70,7 @@ class IntegrationConnectionObserver
         // daily refresh land here). Best-effort — a failure here must never
         // break the connection save; the pages app's raw-hex-id fallback still
         // resolves the item until the next successful sync mints the slug.
-        if (in_array($connection->platform, self::EVENTS_PLATFORMS, true)
+        if (in_array($connection->platform, EventSlugSync::PLATFORMS, true)
             && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
             $this->syncEventSlugs($connection);
         }
@@ -121,13 +119,18 @@ class IntegrationConnectionObserver
 
     /**
      * Mint/reuse item_slugs for every event carried in this connection's
-     * payload (account row's `upcoming` list, or a standalone/custom row).
+     * payload (account row's `upcoming` list, or a standalone/custom row) —
+     * the same `resource_kind === 'event'` branch EventsPlatformController
+     * uses to tell the two row shapes apart (EventsPlatformController.php:318).
      * Best-effort — a failure here must never break the connection save.
      */
     private function syncEventSlugs(IntegrationConnection $connection): void
     {
         try {
-            app(EventSlugSync::class)->sync($connection->user_id, $connection->payload ?? []);
+            $events = $connection->resource_kind === 'event'
+                ? [StandaloneEventPayload::fromArray($connection->payload)->event()]
+                : EventsAccountPayload::fromArray($connection->payload)->upcoming();
+            app(EventSlugSync::class)->syncEvents($connection->user_id, $events);
         } catch (\Throwable $e) {
             report($e);
             Log::warning('IntegrationConnectionObserver event-slug sync failed', [
