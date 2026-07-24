@@ -170,9 +170,13 @@ it('T16d: a scraper HttpException still surfaces as 502, same body', function ()
         ->once()
         ->andThrow(new HttpException(502, 'Shopify returned HTTP 502')));
 
+    // The STATUS is the contract here: #P2-30 replaces every 5xx body with the
+    // generic message in the deployed env, so the scraper's own text never
+    // reaches the wire. Asserting the generic body also pins that no internal
+    // detail leaks out.
     actingAsUser($user)->putJson('/api/platforms/shop/brands/lockbrand/selection', ['productIds' => ['p1']])
         ->assertStatus(502)
-        ->assertJsonPath('message', 'Shopify returned HTTP 502');
+        ->assertJsonPath('message', 'An error occurred');
 
     // Never reached the transaction — no product rows written.
     $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();

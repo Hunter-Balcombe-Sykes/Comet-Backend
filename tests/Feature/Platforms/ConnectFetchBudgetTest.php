@@ -185,7 +185,10 @@ it('fresha connect surfaces a 502, not a 500, when the fetch budget is exhausted
     actingAsUser(fbUser('fbfr1'))
         ->postJson('/api/platforms/fresha/connect', ['url' => 'https://www.fresha.com/a/ollies-salon'])
         ->assertStatus(502)
-        ->assertJsonPath('message', 'Could not reach Fresha — please try again.');
+        // 502-not-500 is what this test pins. abort()'s sentence is swallowed by
+        // #P2-30's generic 5xx body in the deployed env — the friendly copy that
+        // does reach users is the poll payload's connectFetchError().
+        ->assertJsonPath('message', 'An error occurred');
 
     expect($spy->opened)->toBeTrue();
 });
