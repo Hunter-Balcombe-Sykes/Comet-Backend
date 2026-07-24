@@ -78,3 +78,33 @@ it('forget() removes rows and frees the slug for reuse', function () {
     expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'k1')->count())->toBe(0);
     expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos');
 });
+
+// ── lookupCurrent(): shared batch read for public API controllers ──
+
+it('lookupCurrent returns slug + aliases (retired slugs + raw key) for each requested item', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Old Name');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'New Name');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Untouched');
+
+    $map = $this->alloc->lookupCurrent($this->u, 'menu_item', ['k1', 'k2', 'k-missing']);
+
+    expect($map['k1']['slug'])->toBe('new-name');
+    expect($map['k1']['aliases'])->toEqualCanonicalizing(['old-name', 'k1']);
+    expect($map['k2']['slug'])->toBe('untouched');
+    expect($map['k2']['aliases'])->toBe(['k2']);
+    expect($map)->not->toHaveKey('k-missing');
+});
+
+it('lookupCurrent scopes to the given item_type and user', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'A Dish');
+    $this->alloc->ensureCurrent($this->u, 'event', 'k1', 'Same Key Different Type');
+    $this->alloc->ensureCurrent('user-2', 'menu_item', 'k1', 'Someone Elses Dish');
+
+    $map = $this->alloc->lookupCurrent($this->u, 'menu_item', ['k1']);
+
+    expect($map['k1']['slug'])->toBe('a-dish');
+});
+
+it('lookupCurrent returns an empty map for an empty key list', function () {
+    expect($this->alloc->lookupCurrent($this->u, 'menu_item', []))->toBe([]);
+});

@@ -64,6 +64,56 @@ class ItemSlugAllocator
             ->delete();
     }
 
+    /**
+     * Batch read for public API controllers: current slug + 301-redirect
+     * aliases (retired slugs + the raw item key) for each requested item, in
+     * two queries total — never one per item. Items with no current slug are
+     * simply absent from the returned map (the caller's own fallback, e.g.
+     * `slug: null, aliases: [id]`, covers that case).
+     *
+     * `is_current` is only ever compared inside a query-builder WHERE here,
+     * never read back and compared in PHP — Postgres' PDO driver can return a
+     * boolean column as the strings 't'/'f' rather than true/false, which
+     * would silently misbehave against a PHP-side equality check despite
+     * passing fine against the SQLite test mirror's 0/1 integers.
+     *
+     * @param  list<string>  $itemKeys
+     * @return array<string, array{slug: string, aliases: list<string>}>
+     */
+    public function lookupCurrent(string $userId, string $itemType, array $itemKeys): array
+    {
+        if ($itemKeys === []) {
+            return [];
+        }
+
+        // A fresh builder per call — each ->where()/->get() chain below starts
+        // from this same base filter but must not share one mutated instance.
+        $base = fn () => DB::connection('pgsql')->table(self::TABLE)
+            ->where('user_id', $userId)
+            ->where('item_type', $itemType)
+            ->whereIn('item_key', $itemKeys);
+
+        /** @var array<string, string> $currentByKey item_key => current slug */
+        $currentByKey = $base()->where('is_current', true)->pluck('slug', 'item_key')->all();
+        if ($currentByKey === []) {
+            return [];
+        }
+
+        $allRows = $base()->get(['item_key', 'slug']);
+
+        $map = [];
+        foreach ($currentByKey as $itemKey => $slug) {
+            $retired = $allRows
+                ->where('item_key', $itemKey)
+                ->pluck('slug')
+                ->reject(fn ($s) => $s === $slug)
+                ->all();
+            $map[$itemKey] = ['slug' => $slug, 'aliases' => [...array_values($retired), $itemKey]];
+        }
+
+        return $map;
+    }
+
     private function base(string $name, string $itemKey): string
     {
         $slug = Str::slug($name);

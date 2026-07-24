@@ -14,7 +14,6 @@ use App\Services\Cache\CacheLockService;
 use App\Services\Platforms\MenuItemDeepLinks;
 use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -34,6 +33,7 @@ class PublicMenuController extends ApiController
     public function __construct(
         private readonly ContentPopularityReader $popularity,
         private readonly CacheLockService $cache,
+        private readonly ItemSlugAllocator $slugs,
     ) {}
 
     public function show(string $handle): JsonResponse
@@ -182,57 +182,22 @@ class PublicMenuController extends ApiController
     }
 
     /**
-     * Batch-load each item's current slug + its 301-redirect aliases (retired
-     * slugs + the raw uuid) from site.item_slugs, keyed by item id. Two
-     * queries for the whole menu (not one per item): `is_current` is only
-     * ever compared inside a query-builder WHERE, never read back and
-     * compared in PHP — Postgres' PDO driver can return a boolean column as
-     * the strings 't'/'f' rather than true/false, which would silently
-     * break a PHP-side equality/firstWhere check (both are truthy strings)
-     * despite passing fine against the SQLite test mirror's 0/1 integers.
-     *
-     * Best-effort: this endpoint's core job is serving the menu, which
-     * predates and must survive any item_slugs outage — a failure here
-     * degrades every item to `slug: null, aliases: [id]` (today's raw-id
-     * behaviour) rather than 500ing the whole response.
+     * Each item's current slug + 301-redirect aliases, keyed by item id —
+     * delegates to ItemSlugAllocator::lookupCurrent (shared with
+     * PublicIntegrationController's event-slug lookup; see its docblock for
+     * the is_current/PDO-boolean note). Best-effort here: this endpoint's
+     * core job is serving the menu, which predates and must survive any
+     * item_slugs outage — a failure degrades every item to `slug: null,
+     * aliases: [id]` (today's raw-id behaviour) rather than 500ing the whole
+     * response.
      *
      * @param  list<string>  $itemIds
      * @return array<string, array{slug: string, aliases: list<string>}>
      */
     private function menuItemSlugMap(string $userId, array $itemIds): array
     {
-        if ($itemIds === []) {
-            return [];
-        }
-
         try {
-            // A fresh builder per call — each ->where()/->get() chain below
-            // starts from this same base filter but must not share one
-            // mutated instance.
-            $base = fn () => DB::connection('pgsql')->table('site.item_slugs')
-                ->where('user_id', $userId)
-                ->where('item_type', ItemSlugAllocator::TYPE_MENU_ITEM)
-                ->whereIn('item_key', $itemIds);
-
-            /** @var array<string, string> $currentByItem item_key => current slug */
-            $currentByItem = $base()->where('is_current', true)->pluck('slug', 'item_key')->all();
-            if ($currentByItem === []) {
-                return [];
-            }
-
-            $allRows = $base()->get(['item_key', 'slug']);
-
-            $map = [];
-            foreach ($currentByItem as $itemId => $slug) {
-                $retired = $allRows
-                    ->where('item_key', $itemId)
-                    ->pluck('slug')
-                    ->reject(fn ($s) => $s === $slug)
-                    ->all();
-                $map[$itemId] = ['slug' => $slug, 'aliases' => [...array_values($retired), $itemId]];
-            }
-
-            return $map;
+            return $this->slugs->lookupCurrent($userId, ItemSlugAllocator::TYPE_MENU_ITEM, $itemIds);
         } catch (\Throwable $e) {
             report($e);
             Log::warning('PublicMenuController item-slug lookup failed', ['user_id' => $userId, 'message' => $e->getMessage()]);
