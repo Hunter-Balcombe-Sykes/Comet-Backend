@@ -99,9 +99,17 @@ it('isolates a per-candidate teardown fault and still prunes the remaining candi
 
     // First candidate's cache invalidation throws — the per-candidate transaction
     // rolls back and the sweep must keep going instead of aborting entirely.
+    //
+    // Three calls, not two (CACHE-1). Candidate 1: step 3's direct invalidateSite()
+    // throws inside the transaction, so it rolls back and the after-commit
+    // UserObserver::deleted never fires — one call. Candidate 2: step 3 succeeds,
+    // then the after-commit invalidateUser() ends in its own site bust — two calls.
+    // That last one used to be lost: invalidateUser() built its $keys array with a
+    // non-nullable auth-key generator, and these users are unclaimed (auth_user_id
+    // NULL), so it threw before reaching the bust. The old ->twice() encoded that bug.
     $this->partialMock(SiteCacheService::class, function ($mock) use ($s1) {
         $mock->shouldReceive('invalidateSite')
-            ->twice()
+            ->times(3)
             ->andReturnUsing(function (Site $site) use ($s1) {
                 if ($site->id === $s1->id) {
                     throw new RuntimeException('redis unavailable');
