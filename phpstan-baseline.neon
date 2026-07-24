@@ -1,6 +1,24 @@
 parameters:
 	ignoreErrors:
 		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Console/Commands/BackfillSocialLinksCommand.php
+
+		-
+			message: '#^Variable \$normalized in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: app/Console/Commands/BackfillSocialLinksCommand.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Console/Commands/CleanupStuckMediaProcessingCommand.php
+
+		-
 			message: '#^Offset ''dwell_ms'' on array\{clicks\: float, impressions\: float, dwell_ms\: float\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -114,9 +132,6 @@ parameters:
 			count: 1
 			path: app/Http/Controllers/Api/Platforms/InstagramController.php
 
-		# U6 (2026-07-22): $scrapedCategory = $model->categories->first(fn ...) —
-		# Collection::first(callback) returns TValue|null and CAN be null at
-		# runtime (no match); the ?-> is correct, this analyzer verdict is unsound.
 		-
 			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
@@ -214,9 +229,27 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php
 
 		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$external_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
+
+		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
 			identifier: property.notFound
 			count: 2
+			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$notes\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$phone\.$#'
+			identifier: property.notFound
+			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
 
 		-
@@ -252,6 +285,12 @@ parameters:
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuItemPlatform\:\:\$platform\.$#'
 			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
+
+		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
 			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
 
@@ -328,9 +367,6 @@ parameters:
 			path: app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php
 
 		-
-			# Surfaced by the M1 property sweep: account_type is now known non-nullable
-			# AccountType, so ?->value here is a redundant nullsafe access. Real, harmless
-			# — a code cleanup, not a bug. Out of scope for M1 (touch-list is model files only).
 			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -371,6 +407,36 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffDataExportController.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
+
+		-
+			message: '#^Offset ''code'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Offset ''error'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Offset ''reasons'' on \*NEVER\* in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
+
+		-
+			message: '#^Offset ''success'' on array\{success\: bool, code\: int, error\?\: string, reasons\?\: array\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$recipient_email\.$#'
@@ -433,6 +499,12 @@ parameters:
 			path: app/Http/Controllers/Api/User/Customers/UserEnquiryController.php
 
 		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
+
+		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 2
@@ -463,9 +535,18 @@ parameters:
 			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
 
 		-
-			# Surfaced by the M1 property sweep: account_type is now known non-nullable
-			# AccountType, so account_type?->value is provably never null and the ?? '' is
-			# dead. Real, harmless — a code cleanup, not a bug. Out of scope for M1.
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
+
+		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
 			count: 1
@@ -476,6 +557,42 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Http/Middleware/Logging/LogLeadRateLimits.php
+
+		-
+			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
+
+		-
+			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
+
+		-
+			message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
+
+		-
+			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Middleware/VerifyBotToken.php
+
+		-
+			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Middleware/VerifyBotToken.php
+
+		-
+			message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: app/Http/Middleware/VerifyBotToken.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -512,6 +629,12 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Http/Requests/Api/User/Site/UpdateSiteRequest.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\CustomerResource\:\:\$created_at\.$#'
@@ -578,6 +701,12 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/CustomerResource.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/DocumentMediaResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\EnquiryDetailResource\:\:\$customer\.$#'
@@ -826,6 +955,18 @@ parameters:
 			path: app/Http/Resources/FeedbackResource.php
 
 		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/GalleryImageResource.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/LinkBlockResource.php
+
+		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\Moderation\\CaseSignalResource\:\:\$created_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1030,6 +1171,12 @@ parameters:
 			path: app/Http/Resources/NotificationListingResource.php
 
 		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
+
+		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\PublicSite\\IndividualProfileResource\:\:\$account_type\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1070,6 +1217,12 @@ parameters:
 			identifier: identical.alwaysTrue
 			count: 1
 			path: app/Http/Resources/PublicSite/IndividualProfileResource.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/SectionBlockResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\ServiceCategoryResource\:\:\$created_at\.$#'
@@ -1130,6 +1283,24 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Http/Resources/SiteMediaResource.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/SiteMediaResource.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Http/Resources/SiteResource.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: app/Http/Resources/SiteResource.php
 
 		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\Staff\\FeatureAvailabilityRuleResource\:\:\$created_at\.$#'
@@ -1426,6 +1597,24 @@ parameters:
 			path: app/Http/Resources/UserDashboardResource.php
 
 		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserDashboardResource.php
+
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserPublicResource.php
+
+		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Http/Resources/UserStaffResource.php
+
+		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Gdpr\\DataExportAudit\:\:\$email_sent_at\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1629,11 +1818,6 @@ parameters:
 			count: 1
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
-		# U6 (2026-07-22): 2 hits merged under one message. Line 97 guards
-		# $unmatched entries from a by-reference array param (list<array<string,
-		# mixed>> per docblock only, not enforced at runtime); line 132 guards
-		# IntegrationConnection::$payload, a jsonb column that could diverge at
-		# runtime. Both defensive, neither dead.
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
@@ -1674,6 +1858,18 @@ parameters:
 			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
 			identifier: argument.type
 			count: 1
+			path: app/Jobs/ProcessLogoVariantsJob.php
+
+		-
+			message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: app/Jobs/ProcessLogoVariantsJob.php
+
+		-
+			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
+			identifier: argument.type
+			count: 1
 			path: app/Jobs/ProcessVideoVariantsJob.php
 
 		-
@@ -1681,6 +1877,12 @@ parameters:
 			identifier: arguments.count
 			count: 1
 			path: app/Jobs/ProcessVideoVariantsJob.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$title\.$#'
@@ -1761,6 +1963,12 @@ parameters:
 			path: app/Models/Core/Site/Enquiry.php
 
 		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Models/Core/Site/IntegrationConnection.php
+
+		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1822,6 +2030,12 @@ parameters:
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Models/Core/Site/ShopBrand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Support\\HigherOrderCollectionProxy\<string, App\\Models\\Core\\Site\\ShopProduct, Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\ShopProduct\>\>\:\:\$data\.$#'
 			identifier: property.notFound
 			count: 1
 			path: app/Models/Core/Site/ShopBrand.php
@@ -1923,6 +2137,12 @@ parameters:
 			path: app/Notifications/Moderation/ReportOutcomeNotification.php
 
 		-
+			message: '#^Using nullsafe property access on non\-nullable type App\\Models\\Core\\Site\\Site\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Observers/Core/SiteMediaObserver.php
+
+		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\Enquiry\:\:\$user_id\.$#'
 			identifier: property.notFound
 			count: 2
@@ -1951,6 +2171,12 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 4
 			path: app/Services/Analytics/AnalyticsQueryService.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Analytics/ContentFreshness.php
 
 		-
 			message: '#^Offset ''dwell_n'' on array\{title\: string, dwell_sum_ms\: int, dwell_n\: int\} on left side of \?\? always exists and is not nullable\.$#'
@@ -1995,6 +2221,36 @@ parameters:
 			path: app/Services/Audit/StaffAuditService.php
 
 		-
+			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Services/Auth/TokenRevocationService.php
+
+		-
+			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Services/Auth/TokenRevocationService.php
+
+		-
+			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Services/Auth/TokenRevocationService.php
+
+		-
+			message: '#^Static method Redis\:\:eval\(\) invoked with 9 parameters, 1\-3 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: app/Services/Auth/TokenRevocationService.php
+
+		-
+			message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: app/Services/Auth/TokenRevocationService.php
+
+		-
 			message: '#^Static method Redis\:\:pipeline\(\) invoked with 1 parameter, 0 required\.$#'
 			identifier: arguments.count
 			count: 1
@@ -2011,6 +2267,12 @@ parameters:
 			identifier: arrayValues.list
 			count: 1
 			path: app/Services/Cache/SiteCacheService.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Cache/UserCacheService.php
 
 		-
 			message: '#^Parameter \#1 \$array \(non\-empty\-list\<string\>\) of array_values is already a list, call has no effect\.$#'
@@ -2073,9 +2335,21 @@ parameters:
 			path: app/Services/FeatureFlags/FeatureFlagService.php
 
 		-
+			message: '#^Comparison operation "\<" between int\<1, max\> and 1 is always false\.$#'
+			identifier: smaller.alwaysFalse
+			count: 4
+			path: app/Services/Media/ImagePaletteExtractor.php
+
+		-
 			message: '#^Offset 2 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
+			path: app/Services/Media/ImagePaletteExtractor.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 2
 			path: app/Services/Media/ImagePaletteExtractor.php
 
 		-
@@ -2117,6 +2391,12 @@ parameters:
 		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
+			count: 2
+			path: app/Services/Moderation/EvidenceSnapshotService.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\Block\>\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
 			count: 2
 			path: app/Services/Moderation/EvidenceSnapshotService.php
 
@@ -2235,10 +2515,22 @@ parameters:
 			path: app/Services/Notifications/NotificationPublisher.php
 
 		-
+			message: '#^Offset ''booking''\|''custom''\|''events''\|''linkedin''\|''online\-ordering''\|''pinterest''\|''reservations''\|''soundcloud''\|''spotify''\|''strava''\|''tiktok''\|''vimeo''\|''x''\|''youtube'' on array\{booking\: ''Booking'', reservations\: ''Reservations'', online\-ordering\: ''Online ordering'', events\: ''Event tickets'', linkedin\: ''LinkedIn'', pinterest\: ''Pinterest'', strava\: ''Strava'', spotify\: ''Spotify'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Services/Onboarding/OnboardingSuggestions.php
+
+		-
 			message: '#^Offset ''status'' on array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/Platforms/BandcampScraper.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Services/Platforms/EventbriteScraper.php
 
 		-
 			message: '#^Parameter \#1 \$array \(list\<non\-empty\-array\<string, mixed\>\>\) of array_values is already a list, call has no effect\.$#'
@@ -2246,26 +2538,24 @@ parameters:
 			count: 1
 			path: app/Services/Platforms/EventsPayload.php
 
-		# U6 (2026-07-22): defensive is_array() guard on
-		# IntegrationConnection::$payload — a jsonb column that could diverge at
-		# runtime.
+		-
+			message: '#^Using nullsafe property access "\?\-\>resource_id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/EventsSeeder.php
+
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/FreshaServiceProjector.php
 
-		# U6 (2026-07-22): $row->categories->first()?->title — no-arg first()
-		# returns null at runtime on an empty collection; the ?-> is correct,
-		# this analyzer verdict is unsound.
 		-
 			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Services/Platforms/FreshaServiceProjector.php
 
-		# U6 (2026-07-22): defensive is_array() guard on Workplace::$field_sources
-		# — a jsonb column that could diverge at runtime.
 		-
 			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
@@ -2289,6 +2579,30 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/Platforms/GoogleBusinessService.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/IdentitySync.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/InstagramConnectionSeeder.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Services/Platforms/InstagramConnectionSeeder.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: app/Services/Platforms/InstagramIdentitySync.php
 
 		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
@@ -2411,10 +2725,40 @@ parameters:
 			path: app/Services/Platforms/MenuPayloadComposer.php
 
 		-
+			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: app/Services/Platforms/MenuPayloadComposer.php
+
+		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/MenuScanApplier.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$discount_code\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$position\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>discount_code" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>position" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Services/Platforms/ShopBrandSeeder.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$url\.$#'
@@ -2423,8 +2767,26 @@ parameters:
 			path: app/Services/Platforms/ShopCatalog.php
 
 		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopProductSeeder.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$product_id\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Services/Platforms/ShopProductSeeder.php
+
+		-
 			message: '#^Parameter \#1 \$array \(non\-empty\-list\<non\-empty\-string\>\) of array_values is already a list, call has no effect\.$#'
 			identifier: arrayValues.list
+			count: 1
+			path: app/Services/Platforms/UberEatsMenuDriver.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-list\<array\{externalId\: null, name\: string, description\: string\|null, price\: float\|null, currency\: string\|null, image\: string\|null, rating\: null, ratingCount\: null, \.\.\.\}\> and array\{\} will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
 			count: 1
 			path: app/Services/Platforms/UberEatsMenuDriver.php
 
@@ -2445,6 +2807,12 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/WooCommerceScraper.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
 
 		-
 			message: '#^Offset ''category'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
@@ -2503,7 +2871,7 @@ parameters:
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
-			count: 1
+			count: 2
 			path: app/Services/PublicSite/SiteActionsService.php
 
 		-
@@ -2513,7 +2881,7 @@ parameters:
 			path: app/Services/PublicSite/SiteActionsService.php
 
 		-
-			message: '#^Offset ''id'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			message: '#^Offset ''state'' on array\{state\: string, data\: array\|null, block_id\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/PublicSite/SiteActionsService.php
@@ -2527,8 +2895,14 @@ parameters:
 		-
 			message: '#^Offset ''url'' on array\{id\: string, title\: string, url\: string, category\: string, platform\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
-			count: 1
+			count: 2
 			path: app/Services/PublicSite/SiteActionsService.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 3
+			path: app/Services/PublicSite/SitepageDataResolverService.php
 
 		-
 			message: '#^Method App\\Services\\PublicSite\\SitepageDataResolverService\:\:buildMediaItem\(\) never returns null so it can be removed from the return type\.$#'
@@ -2539,6 +2913,12 @@ parameters:
 		-
 			message: '#^Parameter \#1 \$array \(list\<string\>\) of array_values is already a list, call has no effect\.$#'
 			identifier: arrayValues.list
+			count: 1
+			path: app/Services/PublicSite/SitepageDataResolverService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
 			count: 1
 			path: app/Services/PublicSite/SitepageDataResolverService.php
 
@@ -2615,6 +2995,12 @@ parameters:
 			path: app/Services/Site/ContentSelectionService.php
 
 		-
+			message: '#^Strict comparison using \=\=\= between string and null will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: app/Services/Site/ContentSelectionService.php
+
+		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\UserHandleAlias\:\:\$reclaim_until\.$#'
 			identifier: property.notFound
 			count: 1
@@ -2687,10 +3073,6 @@ parameters:
 			path: app/Services/User/AccountDeletionService.php
 
 		-
-			# Surfaced by the M1 property sweep: deletion_requested_at/deletion_confirmed_at
-			# are now known Carbon|null, so `instanceof \DateTimeInterface` on them (defensive
-			# code guarding against a raw un-cast string) is provably always true. Real,
-			# harmless — a simplification opportunity, not a bug. Out of scope for M1.
 			message: '#^Instanceof between Illuminate\\Support\\Carbon and DateTimeInterface will always evaluate to true\.$#'
 			identifier: instanceof.alwaysTrue
 			count: 2
@@ -2703,454 +3085,31 @@ parameters:
 			path: app/Services/User/DataExport/DataExportZipWriter.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$phone\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$notes\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$external_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Support\\HigherOrderCollectionProxy\<string, App\\Models\\Core\\Site\\ShopProduct, Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\ShopProduct\>\>\:\:\$data\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Core\\Site\\MenuItemPlatform\>\:\:map\(\) contains unresolvable type\.$#'
-			identifier: argument.unresolvableType
-			count: 1
-			path: app/Services/Platforms/MenuPayloadComposer.php
-
-		# Larastan cannot resolve the callback type for Collection<int, Model>::map() when the
-		# closure parameter is explicitly typed to that model. Tooling limitation, not a code
-		# defect — fully-qualifying the name and typing the callable both changed nothing, and
-		# removing the explicit param type made it strictly worse (39->52), so the annotation is
-		# load-bearing. 46 of 61 typed-closure map() sites are unaffected. Same shape as the 7
-		# entries already baselined in eca70112.
-		-
-			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
-
-		-
-			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
-
-		-
-			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/VerifyBotToken.php
-
-		-
-			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/VerifyBotToken.php
-
-		-
-			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/Concerns/GuardsMediaProcessing.php
-
-		-
-			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		# Larastan's Redis stub uses `@mixin \Redis` (phpredis C-extension arity) and does not
-		# model Laravel's PhpRedisConnection::eval() variadic / ::set() 5-param overrides.
-		# Each call verified correct, incl. eval $numkeys against its Lua script's KEYS/ARGV.
-		# (Covers these 5 arguments.count findings; the 8 sibling argument.type findings for
-		# the same root cause are baselined above.)
-		-
-			message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
-
-		-
-			message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Http/Middleware/VerifyBotToken.php
-
-		-
-			message: '#^Static method Redis\:\:eval\(\) invoked with 9 parameters, 1\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Jobs/Concerns/GuardsMediaProcessing.php
-
-		# Dead conditions confirmed by individual code reads: each is unreachable via type
-		# narrowing or guaranteed control flow, with no logic bug behind it. Retained rather than
-		# deleted because they are cheap runtime defensive guards and the analyser's narrowing
-		# depends on annotations that have proven unreliable elsewhere in this codebase.
-		-
-			message: '#^Comparison operation "\<" between int\<1, max\> and 1 is always false\.$#'
-			identifier: smaller.alwaysFalse
-			count: 4
-			path: app/Services/Media/ImagePaletteExtractor.php
-
-		-
-			message: '#^Result of \|\| is always false\.$#'
-			identifier: booleanOr.alwaysFalse
-			count: 2
-			path: app/Services/Media/ImagePaletteExtractor.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} and null will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Services/Platforms/EventbriteScraper.php
-
-		-
-			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: app/Services/Platforms/InstagramConnectionSeeder.php
-
-		# U6 (2026-07-22): defensive is_array() guard on $unmatched entries built
-		# via a by-reference array param (list<array<string,mixed>> per docblock
-		# only, not enforced at runtime) — same pattern as LinkInBioScanJob above.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Platforms/InstagramConnectionSeeder.php
-
-		-
-			message: '#^Strict comparison using \!\=\= between non\-empty\-list\<array\{externalId\: null, name\: string, description\: string\|null, price\: float\|null, currency\: string\|null, image\: string\|null, rating\: null, ratingCount\: null, \.\.\.\}\> and array\{\} will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: app/Services/Platforms/UberEatsMenuDriver.php
-
-		# Model-property sweep 2026-07-20: Workplace::$field_sources now typed array<string, array{source:string, at:string}>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php
-
-		# Model-property sweep 2026-07-20: Workplace::$field_sources now typed array<string, array{source:string, at:string}>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Platforms/IdentitySync.php
-
-		# U6 (2026-07-22): defensive is_array() guard on Workplace::$field_sources
-		# — a jsonb column that could diverge at runtime — same pattern as
-		# IdentitySync.php above.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Platforms/InstagramIdentitySync.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffSectionManagementController.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Jobs/Streaming/CheckStreamingLiveStatusJob.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Analytics/ContentFreshness.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Services/Cache/UserCacheService.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 3
-			path: app/Services/PublicSite/SitepageDataResolverService.php
-
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
-		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/User/Visibility/Rules/BookingVisibility.php
 
-		# Model-property sweep 2026-07-20: Block::$settings / IntegrationConnection::$payload / Site::$settings now typed array<string, mixed>; is_array() guard kept defensive. R9.
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/User/Visibility/Rules/ContactVisibility.php
 
-		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period; is_array() guard kept defensive. R9.
 		-
-			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
+			message: '#^Offset ''mime'' on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
 			count: 1
-			path: app/Http/Controllers/Api/User/Uploads/UserUploadController.php
+			path: app/Services/WebsiteScan/GalleryAutoGrabber.php
 
-		# Model-property sweep 2026-07-20: known case — IntegrationConnection::booted() is_string($platform) now redundant, kept defensive. R9.
 		-
-			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Models/Core/Site/IntegrationConnection.php
-
-		# Model-property sweep 2026-07-20: Workplace::$opening_hours shape now precisely typed, narrowing $period to a fixed open/close shape; ?? kept defensive. R9.
-		-
-			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
 			count: 1
-			path: app/Services/PublicSite/SitepageDataResolverService.php
+			path: app/Services/WebsiteScan/PdfLinkDetector.php
 
-		# Model-property sweep 2026-07-20: known case — Site::$user_id is NOT NULL, so the null comparison is now provably constant; guard kept defensive. R9.
-		-
-			message: '#^Strict comparison using \=\=\= between string and null will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Services/Site/ContentSelectionService.php
-
-		# Model-property sweep 2026-07-20: Site::$blocks relation now typed non-nullable Collection; nullsafe kept defensive. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\Core\\Site\\Block\>\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Services/Moderation/EvidenceSnapshotService.php
-
-		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Console/Commands/CleanupStuckMediaProcessingCommand.php
-
-		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Resources/Content/ContentLibraryUploadResource.php
-
-		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/DocumentMediaResource.php
-
-		# Model-property sweep 2026-07-20: SiteMedia::$created_at/$updated_at now typed non-nullable Carbon; nullsafe kept defensive. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/SiteMediaResource.php
-
-		# Model-property sweep 2026-07-20: known case — nullsafe on a non-nullable Site, kept defensive. R9.
-		-
-			message: '#^Using nullsafe property access on non\-nullable type App\\Models\\Core\\Site\\Site\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Observers/Core/SiteMediaObserver.php
-
-		# Model-property sweep 2026-07-20: Block::$platform now typed ?string, narrowing $platformKey and proving $normalized is always set here; the isset() guard is defensive, not dead. R9.
-		-
-			message: '#^Variable \$normalized in isset\(\) always exists and is not nullable\.$#'
-			identifier: isset.variable
-			count: 1
-			path: app/Console/Commands/BackfillSocialLinksCommand.php
-
-		# Model-property sweep 2026-07-20 (M5, Resource @mixin pass): SiteMedia::$created_at/$updated_at
-		# are non-null Carbon (Postgres NOT NULL), so the ?-> here is a redundant nullsafe. Real, harmless
-		# — a code cleanup, not a bug. Out of scope for M5 (touch-list is Resource @mixin lines only). R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/GalleryImageResource.php
-
-		# Model-property sweep 2026-07-20 (M5): Block::$created_at/$updated_at are non-null Carbon
-		# (Postgres NOT NULL). Same redundant-nullsafe narrowing as GalleryImageResource above. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/LinkBlockResource.php
-
-		# Model-property sweep 2026-07-20 (M5): same Block::$created_at/$updated_at narrowing as
-		# LinkBlockResource — SectionBlockResource wraps the same Block model. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/SectionBlockResource.php
-
-		# Model-property sweep 2026-07-20 (M5): Site::$created_at/$updated_at are non-null Carbon
-		# (Postgres NOT NULL). Same redundant-nullsafe narrowing as the Resources above. R9.
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/SiteResource.php
-
-		# Model-property sweep 2026-07-20 (M5): $this->settings is now typed array<string, mixed>
-		# (non-nullable) via the SiteResource @mixin, so the is_array() defensive guard is provably
-		# redundant. Real, harmless — a code cleanup, not a bug. Out of scope for M5. R9.
-		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Http/Resources/SiteResource.php
-
-		# Model-property sweep 2026-07-20 (M5): User::$account_type is non-null AccountType, so
-		# ?->value here is a redundant nullsafe — same narrowing M1 already baselined at
-		# StaffSegmentController/LoadCurrentUser.php, now surfaced in the Resource itself via @mixin. R9.
-		-
-			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Resources/UserDashboardResource.php
-
-		# Model-property sweep 2026-07-20 (M5): same User::$account_type non-null narrowing as
-		# UserDashboardResource above. R9.
-		-
-			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		# Model-property sweep 2026-07-20 (M5): same User::$account_type non-null narrowing as
-		# UserDashboardResource above.
-		-
-			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Resources/UserStaffResource.php
-
-		# Model-property sweep 2026-07-20 (M5): the IntegrationConnection @mixin now correctly types
-		# $this->shopBrands as Collection<int, ShopBrand>, so $b->brand_id here resolves against the
-		# ShopBrand model — which carries NO @property block at all (out of scope for M5's model list;
-		# it's neither one of the 9 M2-M4 models nor a target of any Resource in this unit). brand_id is
-		# a real, fillable column (see ShopBrand::$fillable and its own toBrandArray()), not a bug — a
-		# pre-existing gap in ShopBrand's own annotations, now visible through improved Resource typing.
-		# A matching baseline entry already exists for this exact message scoped to ShopBrand.php itself
-		# (line ~3190); this is the same underlying gap surfacing at a second call site.
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		# U6 (2026-07-22): defensive is_array() guard on Workplace::$field_sources
-		# — a jsonb column that could diverge at runtime — same pattern as
-		# IdentitySync.php / InstagramIdentitySync.php above.
 		-
 			message: '#^Call to function is_array\(\) with array\<string, array\{source\: string, at\: string\}\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
-			count: 1
+			count: 3
 			path: app/Services/WebsiteScan/WorkplaceContentApplier.php
-
-
-		-
-			message: '#^Offset ''code'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Offset ''error'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Offset ''reasons'' on \*NEVER\* in isset\(\) always exists and is not nullable\.$#'
-			identifier: isset.offset
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
-
-		-
-			message: '#^Offset ''success'' on array\{success\: bool, code\: int, error\?\: string, reasons\?\: array\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php
