@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Staff\StaffSite\StaffAccountDeletionController;
 use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Http\Requests\Api\Staff\StaffCancelDeletionRequest;
 use App\Http\Requests\Api\Staff\StaffInitiateDeletionRequest;
+use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
@@ -228,6 +229,124 @@ it('admin cancel fails with 409 if no pending deletion exists', function () {
 
     expect($result['success'])->toBeFalse()
         ->and($result['code'])->toBe(409);
+});
+
+// ─── Email restoration on admin-cancel ───────────────────────────────────────
+//
+// adminInitiate() and confirm() both route through executeConfirmation(), which
+// snapshots the live email into the audit row THEN pseudonymises primary_email.
+// restoreEmailFromAuditSnapshot() must match on both 'confirmed' and
+// 'admin_initiated' — filtering on 'confirmed' alone (the pre-fix behaviour)
+// means adminCancel() finds no snapshot for a staff-initiated deletion and
+// leaves the account on its placeholder "deleted+{id}@partna.au" address
+// indefinitely, with no password reset or account recovery possible.
+
+it('admin cancel restores the real email for an admin-initiated deletion', function () {
+    $staff = makeAdminStaff();
+    $pro = makeActiveUser();
+    $originalEmail = $pro->primary_email;
+
+    $service = new AccountDeletionService;
+    $service->adminInitiate(
+        professional: $pro,
+        staffActorId: $staff->id,
+        staffActorHandle: $staff->name,
+        reason: 'GDPR Article 17 request — support ticket #4242',
+        overrideObligations: false,
+        request: makeAdminRequest($staff),
+    );
+
+    $pro->refresh();
+    // Anti-vacuous guard: prove the account really was pseudonymised, so the
+    // restore below is undoing something real.
+    expect($pro->primary_email)->not->toBe($originalEmail)
+        ->and($pro->primary_email)->toStartWith('deleted+');
+
+    // Anti-vacuous guard: prove the OLD filter (event = 'confirmed' only) had
+    // nothing to match on this path — there is no 'confirmed' row at all.
+    $confirmedRow = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'confirmed')
+        ->first();
+    expect($confirmedRow)->toBeNull();
+
+    $adminInitiatedRow = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'admin_initiated')
+        ->first();
+    expect($adminInitiatedRow)->not->toBeNull()
+        ->and($adminInitiatedRow->professional_email_snapshot)->toBe($originalEmail);
+
+    $result = $service->adminCancel(
+        professional: $pro,
+        staffActorId: $staff->id,
+        staffActorHandle: $staff->name,
+        reason: 'User contacted support to reverse — ticket #5678',
+        request: makeAdminRequest($staff),
+    );
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['code'])->toBe(200);
+
+    $pro->refresh();
+    expect($pro->status)->toBe('active')
+        ->and($pro->primary_email)->toBe($originalEmail);
+
+    Mail::assertQueued(
+        AccountDeletionCancelledMail::class,
+        fn ($mail) => $mail->hasTo($originalEmail),
+    );
+
+    $adminCancelledRow = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('user_id', $pro->id)
+        ->where('event', 'admin_cancelled')
+        ->first();
+    expect($adminCancelledRow)->not->toBeNull()
+        ->and($adminCancelledRow->professional_email_snapshot)->toBe($originalEmail);
+});
+
+it('admin cancel restores the newest snapshot, not a stale confirmed row from an earlier cycle', function () {
+    $staff = makeAdminStaff();
+    $pro = makeActiveUser();
+    $originalEmail = $pro->primary_email;
+    $staleEmail = 'stale-'.Str::random(6).'@example.com';
+
+    // Simulate a much earlier request→confirm→cancel cycle that left behind a
+    // 'confirmed' row carrying a DIFFERENT (now-stale) email snapshot.
+    DB::connection('pgsql')->table('audit.user_deletion_audit')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'professional_handle_snapshot' => $pro->handle,
+        'professional_email_snapshot' => $staleEmail,
+        'event' => 'confirmed',
+        // TEXT column, ordered lexicographically — must match the model's
+        // 'Y-m-d H:i:s' write format, NOT toIso8601String(): the 'T' separator
+        // (0x54) sorts AFTER a space (0x20) at byte 10, so an ISO string would
+        // wrongly sort after every same-day model-written row below.
+        'created_at' => now()->subDays(90)->format('Y-m-d H:i:s'),
+    ]);
+
+    $service = new AccountDeletionService;
+    $service->adminInitiate(
+        professional: $pro,
+        staffActorId: $staff->id,
+        staffActorHandle: $staff->name,
+        reason: 'GDPR Article 17 request — support ticket #9001',
+        overrideObligations: false,
+        request: makeAdminRequest($staff),
+    );
+
+    $service->adminCancel(
+        professional: $pro,
+        staffActorId: $staff->id,
+        staffActorHandle: $staff->name,
+        reason: 'User contacted support to reverse — ticket #9002',
+        request: makeAdminRequest($staff),
+    );
+
+    $pro->refresh();
+    expect($pro->primary_email)->toBe($originalEmail)
+        ->and($pro->primary_email)->not->toBe($staleEmail);
 });
 
 it('non-admin staff get 403 from EnsurePartnaAdmin middleware', function () {

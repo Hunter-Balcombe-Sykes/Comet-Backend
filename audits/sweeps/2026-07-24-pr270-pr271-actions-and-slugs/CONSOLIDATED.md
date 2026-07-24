@@ -70,7 +70,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 1 complete
 
@@ -99,7 +99,7 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
         }
         ```
 
-- [ ] **#SEC-2** · P1 — Admin-cancelled deletion never restores the user's email because the restore query only matches self-service confirmations
+- [x] **#SEC-2** · P1 — Admin-cancelled deletion never restores the user's email because the restore query only matches self-service confirmations
     - **Where:** app/Services/User/AccountDeletionService.php:1305-1317
     - **Affects:** Any user whose deletion was started by staff (`adminInitiate()`, `event = 'admin_initiated'`) and later cancelled by staff (`adminCancel()`). Status and the site are correctly restored, but `primary_email` stays `deleted+{id}@partna.au` — the user cannot receive password resets or any other account-recovery email until someone notices and fixes it by hand.
     - **Effort:** S (~0.5–1h)

@@ -1297,17 +1297,35 @@ class AccountDeletionService
     }
 
     /**
-     * Re-hydrate primary_email from the most recent EVENT_CONFIRMED audit row.
+     * Re-hydrate primary_email from the most recent snapshot-bearing audit row.
      * Used by cancel() / adminCancel() to undo the pseudonymisation applied at
-     * confirm time. No-op when no confirmed snapshot exists (request → cancel
-     * before confirmation never overwrote the live row).
+     * confirm time. No-op when no snapshot exists (request → cancel before
+     * confirmation never overwrote the live row).
+     *
+     * CONFIRMED and ADMIN_INITIATED are the only two events whose snapshot is
+     * captured immediately BEFORE pseudonymiseAccountPii() runs — both are
+     * written by executeConfirmation(), which confirm() and adminInitiate()
+     * share. Filtering on CONFIRMED alone left every staff-initiated deletion
+     * unrestorable: adminCancel() found no row, the guard below no-opped, and
+     * primary_email stayed "deleted+{id}@partna.au". ResolvesDeletedEmail hit
+     * the same gap and also matches REQUESTED, which is redundant here: callers
+     * only run while status is pending_deletion, so a newer CONFIRMED or
+     * ADMIN_INITIATED row always exists to win the ordering.
+     *
+     * Do NOT widen this further: CANCELLED/ADMIN_CANCELLED are written AFTER
+     * this restore (self-referential), and PURGE_FAILED is written while the
+     * row is already pseudonymised — it would be the newest match and would
+     * restore the placeholder over itself.
      */
     private function restoreEmailFromAuditSnapshot(User $professional): void
     {
         $snapshotEmail = DB::connection('pgsql')
             ->table('audit.user_deletion_audit')
             ->where('user_id', $professional->id)
-            ->where('event', UserDeletionAuditEntry::EVENT_CONFIRMED)
+            ->whereIn('event', [
+                UserDeletionAuditEntry::EVENT_CONFIRMED,
+                UserDeletionAuditEntry::EVENT_ADMIN_INITIATED,
+            ])
             ->orderByDesc('created_at')
             ->value('professional_email_snapshot');
 
