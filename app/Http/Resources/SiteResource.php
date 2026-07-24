@@ -6,6 +6,7 @@ use App\Enums\PublicFeature;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Design\DesignRationaleService;
+use App\Services\Design\ProfileDesignPresets;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use Illuminate\Http\Request;
 
@@ -30,6 +31,25 @@ class SiteResource extends ApiResource
     public function withRationale(bool $with = true): static
     {
         $this->withRationale = $with;
+
+        return $this;
+    }
+
+    /** Owner whose sector presets to overlay; null = emit raw stored kit only (default, backward compatible). */
+    private ?User $resolvedDesignKitOwner = null;
+
+    /**
+     * Opt this resource into emitting the preset-merged effective design_kit
+     * (ProfileDesignPresets overlaid by the site's manual site.design_kits
+     * columns, manual wins) plus design_kit_manual (the manual column names).
+     * Fluent, for the design GET/PATCH — the dashboard editor's only read
+     * surface, so the /account/design round-trip can show the same
+     * auto-determined design the public sitepage already renders instead of
+     * a raw, preset-blind partial (I1).
+     */
+    public function withResolvedDesignKit(User $owner): static
+    {
+        $this->resolvedDesignKitOwner = $owner;
 
         return $this;
     }
@@ -83,6 +103,18 @@ class SiteResource extends ApiResource
 
         $settings = array_merge($settings, $promoted);
 
+        // Stored design-kit vars (non-null partial from site.design_kits).
+        $manualDesignKit = $this->resource->designKitVars();
+
+        // I1: when opted in, overlay ProfileDesignPresets (industry-derived,
+        // read-time, never persisted) UNDER the manual columns — manual always
+        // wins per column, matching the public sitepage's own resolution
+        // (IndividualProfilePayloadBuilder::loadDesignKit). Default (opt-out)
+        // path is unchanged: raw stored columns only, no manual marker.
+        $designKit = $this->resolvedDesignKitOwner !== null
+            ? array_merge(ProfileDesignPresets::forUser($this->resolvedDesignKitOwner), $manualDesignKit)
+            : $manualDesignKit;
+
         return array_merge([
             'id' => (string) $this->id,
             'user_id' => $this->user_id,
@@ -92,14 +124,21 @@ class SiteResource extends ApiResource
             'subdomain_changed_at' => $this->subdomain_changed_at?->toIso8601String(),
             'unpublished_at' => $this->unpublished_at?->toIso8601String(),
             'settings' => (object) $settings,
-            // Stored design-kit vars (non-null partial from site.design_kits).
             // The /account/design editor reads this to show saved choices on
             // reload — until now its only read surface was same-session cache
             // seeding after saves. (object) so an empty kit serialises as {}.
-            'design_kit' => (object) $this->resource->designKitVars(),
+            'design_kit' => (object) $designKit,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ],
+            // I4: which design_kit keys are the site's own manual columns (vs
+            // preset-derived) — lets the editor show Auto/manual badges and a
+            // reset-to-auto affordance. Only emitted alongside the resolved kit;
+            // absent (not empty) when opted out, so opt-out clients see no shape
+            // change at all.
+            $this->resolvedDesignKitOwner !== null
+                ? ['design_kit_manual' => array_keys($manualDesignKit)]
+                : [],
             // Transparency line (spec §3): plain-language WHY the design looks the
             // way it does, from the contribution ledger + manual overrides. Never
             // exposes raw column names or sensitive detail. Opt-in (withRationale)
