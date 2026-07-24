@@ -239,17 +239,29 @@ class FreshaController extends ApiController
 
         // $shape branches on the STORED payload, not the caller's current
         // capability — the account type could flip between the 202 and the
-        // poll, and the row records what was promised. teamMenu is only ever
-        // written by the team branch (an array on success, null while
-        // pending/never-set otherwise), so its presence is an unambiguous
-        // discriminator; storewide never writes that key at all.
-        return $this->bespokeConnectStatus($user, null, fn (array $payload) => is_array($payload['teamMenu'] ?? null)
-            ? ['url' => $payload['url'] ?? null, 'mode' => 'team', ...$payload['teamMenu']]
-            : [
-                'url' => $payload['url'] ?? null,
-                'mode' => 'storewide',
-                'selection' => (new FreshaSelectionResource($payload['selection'] ?? []))->resolve(),
-            ]);
+        // poll, and the row records what was promised. connectMode is the
+        // authoritative marker: connectDeferred() stamps it on the pending
+        // write and neither FreshaConnectFetch branch rewrites it, so it is
+        // exact for the whole connect window. teamMenu presence is kept as a
+        // second arm only because it is what the team branch fills on success.
+        //
+        // Neither key is eternal: the hourly cron's FreshaFetch returns a fresh
+        // three-key payload, dropping connectMode AND teamMenu, after which a
+        // team row would shape as storewide here. That is outside the connect
+        // window — a completed connect is never polled again, and a row still
+        // mid-connect is caught by the stale-pending guard above — so it is
+        // harmless, but it is a fall-through, not an "unambiguous discriminator".
+        return $this->bespokeConnectStatus($user, null, function (array $payload): array {
+            $isTeam = ($payload['connectMode'] ?? null) === 'team' || is_array($payload['teamMenu'] ?? null);
+
+            return $isTeam
+                ? ['url' => $payload['url'] ?? null, 'mode' => 'team', ...($payload['teamMenu'] ?? [])]
+                : [
+                    'url' => $payload['url'] ?? null,
+                    'mode' => 'storewide',
+                    'selection' => (new FreshaSelectionResource($payload['selection'] ?? []))->resolve(),
+                ];
+        });
     }
 
     // GET /api/platforms/fresha/team — team + services for the saved URL.

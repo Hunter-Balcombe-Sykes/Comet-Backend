@@ -26,6 +26,7 @@ use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Platforms\FreshaScraper;
+use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
@@ -39,6 +40,11 @@ use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 const FRESHA_STOREWIDE_FAIL = "We couldn't read that Fresha page just then — please try again.";
+// Non-vendor failures (staff disable, XOR conflict, mid-flight disconnect, lock
+// timeout) never asked Fresha anything, so they must NOT report a vendor miss.
+// Pinned as a literal, not as FetchUnavailableException::GENERIC_USER_MESSAGE —
+// a silent re-wording of that constant has to fail here.
+const FRESHA_STOREWIDE_NON_VENDOR_FAIL = 'We could not load that account. Please try again.';
 
 beforeEach(function () {
     setupUsersTable();
@@ -398,12 +404,19 @@ it('job: the XOR is re-asserted — a square row landing mid-flight blocks the w
     expect($threw)->toBeFalse();
     $fresh = $connection->fresh();
     expect($fresh->last_refresh_status)->toBe('unavailable');
+    // A Square conflict is OUR refusal, not a vendor miss — the user must never
+    // be told we couldn't read their Fresha page when we read it fine.
+    expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
     expect($fresh->payload['selection'])->toBeNull(); // no new selection landed
     expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
     Exceptions::assertReported(FetchUnavailableException::class);
 });
 
-it('job: a disconnect mid-flight does not resurrect fresha service rows', function () {
+it('job: a disconnect landing BEFORE the job starts short-circuits at find() — the vendor is never even asked', function () {
+    // The cheap case: handle()'s own ::find() misses the soft-deleted row and
+    // returns immediately. This proves the pre-flight short-circuit ONLY — the
+    // in-lock guard is not reached here, which is why the mid-scrape case
+    // below exists as a separate test.
     $user = freshaStorewideUser('swjob3');
     $connection = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
@@ -413,6 +426,10 @@ it('job: a disconnect mid-flight does not resurrect fresha service rows', functi
 
     actingAsUser($user)->deleteJson('/api/platforms/fresha')->assertOk();
 
+    // Without this the test would silently reach the REAL scraper if the
+    // short-circuit ever regressed.
+    $this->mock(FreshaScraper::class, fn ($m) => $m->shouldNotReceive('fetchMenu'));
+
     $threw = false;
     try {
         app()->call([new ConnectFetchJob($connection->id, 'fresha'), 'handle']);
@@ -421,6 +438,59 @@ it('job: a disconnect mid-flight does not resurrect fresha service rows', functi
     }
 
     expect($threw)->toBeFalse();
+    expect(Service::where('user_id', $user->id)->where('source', 'fresha')->whereNull('deleted_at')->count())->toBe(0);
+});
+
+it('job: a disconnect landing MID-SCRAPE is caught inside the booking-XOR lock — the projector never runs', function () {
+    // The case the lock actually exists for. handle() is already PAST its
+    // ::find() and the strategy is mid-fetch when the row disappears, so the
+    // only thing that can stop FreshaServiceProjector::sync() resurrecting the
+    // teardown is the re-check inside the booking-XOR lock.
+    $user = freshaStorewideUser('swjob3b');
+
+    // A projected row from the prior connect — forget() tombstones it with
+    // deleted_origin='sync', which is precisely what sync() resurrects.
+    $user->services()->create([
+        'title' => 'Cut', 'price_cents' => 5000, 'currency_code' => 'AUD', 'duration_minutes' => 30,
+        'is_active' => true, 'sort_order' => 0, 'source' => 'fresha', 'is_manual' => false, 'external_id' => 's:1',
+    ]);
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/ollies-salon', 'selection' => null, 'connectMode' => 'storewide', 'teamMenu' => null, 'connectPendingAt' => now()->toIso8601String()],
+        'is_active' => true, 'last_refresh_status' => 'pending', 'last_refreshed_at' => null,
+    ]);
+
+    // The disconnect happens INSIDE the scrape — the scrape runs outside every
+    // lock, so forget() takes and releases the booking-XOR lock freely here,
+    // exactly as a real concurrent request would.
+    $this->mock(FreshaScraper::class, fn ($m) => $m->shouldReceive('fetchMenu')->once()->andReturnUsing(function () use ($user) {
+        actingAsUser($user)->deleteJson('/api/platforms/fresha')->assertOk();
+
+        return ['storeName' => 'Ollies', 'team' => [], 'services' => [freshaStorewideService()]];
+    }));
+
+    // THE assertion: sync() is the resurrecting call, and reaching it at all
+    // would mean the guard never fired. forget() itself never touches the
+    // projector, so this expectation is not satisfied by the disconnect above.
+    $this->mock(FreshaServiceProjector::class, fn ($m) => $m->shouldNotReceive('sync'));
+
+    // Captures the message rather than a bare bool so a regression reads as
+    // "Mockery: sync() should not have been received", not "true is not false".
+    $failure = null;
+    try {
+        app()->call([new ConnectFetchJob($connection->id, 'fresha'), 'handle']);
+    } catch (Throwable $e) {
+        $failure = $e->getMessage();
+    }
+
+    expect($failure)->toBeNull();
+
+    // withTrashed(): the row is soft-deleted now, so ->fresh() would be null.
+    $fresh = IntegrationConnection::withTrashed()->find($connection->id);
+    expect($fresh->last_refresh_status)->toBe('unavailable');
+    expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
+    expect($fresh->payload['selection'])->toBeNull(); // the scraped menu was discarded
     expect(Service::where('user_id', $user->id)->where('source', 'fresha')->whereNull('deleted_at')->count())->toBe(0);
 });
 
@@ -456,6 +526,8 @@ it('job: a held booking-XOR lock resolves terminally instead of stranding the ro
     expect($threw)->toBeFalse();
     $fresh = $connection->fresh();
     expect($fresh->last_refresh_status)->toBe('unavailable');
+    // Our own lock contention, not a vendor miss.
+    expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
     expect($fresh->payload['selection'])->toBeNull();
     expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
 });
@@ -550,6 +622,8 @@ it('job: a staff-disabled platform mid-flight writes no content and no services,
 
     $fresh = $connection->fresh();
     expect($fresh->last_refresh_status)->toBe('unavailable');
+    // A staff kill switch is not a vendor miss — the vendor was never asked.
+    expect($fresh->last_refresh_error)->toBe(FRESHA_STOREWIDE_NON_VENDOR_FAIL);
     expect($fresh->payload['selection'])->toBeNull();
     expect(Service::where('user_id', $user->id)->where('source', 'fresha')->count())->toBe(0);
 });

@@ -148,8 +148,13 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             $this->markTerminal($connection, 'error', $descriptor->connectFetchErrorMessage());
 
             return;
-        } catch (FetchUnavailableException) {
-            $this->markTerminal($connection, 'unavailable', $descriptor->connectFetchErrorMessage());
+        } catch (FetchUnavailableException $e) {
+            // A strategy that knows its failure was NOT a vendor miss (a staff
+            // disable, a booking-XOR conflict, a mid-flight disconnect, a lock
+            // timeout) carries its own wording; anything else is a genuine
+            // vendor miss and gets the platform's own copy. Same rule the two
+            // branches below already apply to this job's own non-vendor failures.
+            $this->markTerminal($connection, 'unavailable', $e->userMessage() ?? $descriptor->connectFetchErrorMessage());
 
             return;
         }
@@ -184,7 +189,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         // same reasoning as the LockTimeoutException catch below.
         $user = $connection->user;
         if ($user === null || ! FeatureAvailability::for($user)->allows("integration.{$this->platform}")) {
-            $this->markTerminal($connection, 'unavailable', 'We could not load that account. Please try again.');
+            $this->markTerminal($connection, 'unavailable', FetchUnavailableException::GENERIC_USER_MESSAGE);
 
             return;
         }
@@ -270,7 +275,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             $this->markTerminal(
                 $connection,
                 'unavailable',
-                $descriptor?->connectFetchErrorMessage() ?? 'We could not load that account. Please try again.',
+                $descriptor?->connectFetchErrorMessage() ?? FetchUnavailableException::GENERIC_USER_MESSAGE,
             );
         }
     }

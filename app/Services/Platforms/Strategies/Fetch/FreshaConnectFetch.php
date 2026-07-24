@@ -127,8 +127,13 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             throw new FetchShapeException('fresha_no_user');
         }
 
+        // Every non-vendor failure below carries GENERIC_USER_MESSAGE: we never
+        // reached Fresha, so ConnectFetchJob's fallback copy ("we couldn't read
+        // that Fresha page") would describe a request that was never made. Only
+        // the three genuine vendor misses (unreachable / bad page / empty menu)
+        // leave $userMessage null and take the platform's own wording.
         if (! FeatureAvailability::for($user)->allows('integration.fresha')) {
-            throw new FetchUnavailableException('fresha_disabled');
+            throw new FetchUnavailableException('fresha_disabled', FetchUnavailableException::GENERIC_USER_MESSAGE);
         }
 
         try {
@@ -150,7 +155,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                     // this row while the scrape above was in flight — that
                     // teardown must win, not get resurrected by sync() below.
                     if (IntegrationConnection::find($connection->id) === null) {
-                        throw new FetchUnavailableException('fresha_disconnected');
+                        throw new FetchUnavailableException('fresha_disconnected', FetchUnavailableException::GENERIC_USER_MESSAGE);
                     }
 
                     // Re-assert the XOR under the SAME lock forget()/clearBooking()
@@ -160,7 +165,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                     // connect, so reaching this branch means that pre-existing,
                     // out-of-scope interleaving race actually fired.
                     if ($user->integrationConnections()->where('platform', Platform::Square->value)->exists()) {
-                        $violation = new FetchUnavailableException('fresha_xor_violated');
+                        $violation = new FetchUnavailableException('fresha_xor_violated', FetchUnavailableException::GENERIC_USER_MESSAGE);
                         report($violation);
 
                         throw $violation;
@@ -170,13 +175,13 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                     // generic recheck: a staff disable landing exactly inside
                     // this lock window must still stop the projection.
                     if (! FeatureAvailability::for($user)->allows('integration.fresha')) {
-                        throw new FetchUnavailableException('fresha_disabled');
+                        throw new FetchUnavailableException('fresha_disabled', FetchUnavailableException::GENERIC_USER_MESSAGE);
                     }
 
                     return $this->projector->sync($user, $menu['services']);
                 });
         } catch (LockTimeoutException) {
-            throw new FetchUnavailableException('fresha_xor_lock');
+            throw new FetchUnavailableException('fresha_xor_lock', FetchUnavailableException::GENERIC_USER_MESSAGE);
         }
 
         $selection = [
