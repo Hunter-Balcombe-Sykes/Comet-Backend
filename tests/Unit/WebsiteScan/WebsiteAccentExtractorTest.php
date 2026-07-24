@@ -87,12 +87,12 @@ it('prefers the favicon colour when it strongly disagrees with the theme-color',
 it('does not crash on a pure-black theme-color (regression: int/float saturation guard)', function () {
     $html = '<meta name="theme-color" content="#000000">';
 
-    expect(fn () => app(WebsiteAccentExtractor::class)->extract($html, null))->not->toThrow(\DivisionByZeroError::class);
+    expect(fn () => app(WebsiteAccentExtractor::class)->extract($html, null))->not->toThrow(DivisionByZeroError::class);
 });
 
 it('does not crash on a pure-black favicon (regression: int/float saturation guard)', function () {
     $blackSquare = solidColorPng(0, 0, 0);
 
-    expect(fn () => app(WebsiteAccentExtractor::class)->extract('<html></html>', $blackSquare))->not->toThrow(\DivisionByZeroError::class);
+    expect(fn () => app(WebsiteAccentExtractor::class)->extract('<html></html>', $blackSquare))->not->toThrow(DivisionByZeroError::class);
     expect(app(WebsiteAccentExtractor::class)->extract('<html></html>', $blackSquare))->toBeNull();
 });

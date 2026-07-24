@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Platforms\WebsiteLinkHarvester;
 
 /**
@@ -215,7 +216,7 @@ class OnboardingSuggestions
     }
 
     /** The sector-gating LAW: gated categories consult AccountCapabilities, never type. */
-    private function capabilityAllows(string $key, \App\Services\Accounts\AccountCapabilitySet $caps): bool
+    private function capabilityAllows(string $key, AccountCapabilitySet $caps): bool
     {
         return match ($key) {
             'booking' => $caps->can_use_booking,
