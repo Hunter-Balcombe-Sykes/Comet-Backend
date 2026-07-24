@@ -33,6 +33,15 @@ The cooldown is still enforced **before** the job is queued, so a rapid second `
 | `200`  | `{ "status": "failed", "error": "apify_fetch_failed" \| "job_failed" }` | Terminal failure (scrape/network/job error). Stop polling; show an error + offer retry (subject to cooldown). |
 | `404`  | `{ "message": "No Instagram connection found." }` | No connect attempt for this user (or not owned by caller). |
 
+### Server-side staleness backstop (added 2026-07-25)
+
+If the worker dies mid-flight the row would otherwise poll `pending` forever. The status
+endpoint independently reports any `pending` row untouched for **more than 5 minutes** as
+`{"status":"failed","error":"We couldn't save your connection just then — please try again."}`
+— the same shared infrastructure sentence every other platform's poll uses. This is
+**synthetic**: it does not write the row, so a merely-slow (not dead) worker can still land its
+real result afterwards and the next poll reports `ready`.
+
 ### Recommended polling
 - First poll ~2s after the `202`, then every ~3s.
 - Terminal states: `ready` and `failed` — stop on either.

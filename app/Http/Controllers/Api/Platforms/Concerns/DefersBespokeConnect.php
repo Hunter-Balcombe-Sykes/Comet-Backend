@@ -16,7 +16,9 @@ use Illuminate\Http\JsonResponse;
  * flag, the pending write, ConnectFetchJob, and its failure-message
  * convention — without moving them onto GenericPlatformController's registry
  * router (design doc §2, route (c)). Currently used by Apple, Skool, Fresha,
- * and the Eventbrite/Humanitix pair (via EventsPlatformController).
+ * and the Eventbrite/Humanitix pair (via EventsPlatformController). Instagram
+ * uses bespokeConnectStatus() ALONE — its connect is driven by
+ * InstagramConnectJob, not ConnectFetchJob, and it is not flag-gated (R7).
  * EventsController's own events/add facade deliberately does NOT use this
  * trait — see its own docblock for why.
  *
@@ -121,12 +123,20 @@ trait DefersBespokeConnect
      * always reads the platform's own default resource row via
      * connectionFor() and IGNORES $accountId entirely — a single-selection
      * platform must never let a stray query param select a different row.
+     *
+     * $notFoundMessage defaults to the async-connect contract's sentence, which
+     * all six deferred platforms take unchanged — do not vary it for them, six
+     * Feature tests and the contract doc pin it. It is a parameter only because
+     * Instagram's poll predates that contract with its own published 404
+     * sentence, and aligning that string is a separate frontend-visible
+     * decision from sharing this method's staleness check.
      */
     protected function bespokeConnectStatus(
         User $user,
         ?string $accountId,
         callable $shape,
         bool $perAccount = false,
+        string $notFoundMessage = 'Account not found.',
     ): JsonResponse {
         $row = $perAccount
             ? $this->requestedAccountRow($user, $accountId)
@@ -136,7 +146,7 @@ trait DefersBespokeConnect
         // connections, so another user's row is never visible to look up in
         // the first place — no existence leak, no separate policy check.
         if ($row === null) {
-            return $this->error('Account not found.', 404);
+            return $this->error($notFoundMessage, 404);
         }
 
         if ($row->last_refresh_status === 'pending') {
