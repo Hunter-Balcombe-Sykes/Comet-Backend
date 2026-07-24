@@ -1528,7 +1528,7 @@ parameters:
 			path: app/Jobs/Moderation/NotifyReporterJob.php
 
 		-
-			message: '#^Parameter \#1 \$decision of class App\\Notifications\\Moderation\\ReportOutcomeNotification constructor expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
+			message: '#^Parameter \#2 \$decision of method App\\Jobs\\Moderation\\NotifyReporterJob\:\:sendTo\(\) expects App\\Models\\Moderation\\Decision, Illuminate\\Database\\Eloquent\\Model given\.$#'
 			identifier: argument.type
 			count: 1
 			path: app/Jobs/Moderation/NotifyReporterJob.php
