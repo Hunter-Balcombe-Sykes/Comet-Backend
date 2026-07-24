@@ -87,13 +87,17 @@ class PublicIntegrationConnectionResource extends ApiResource
         // currency / soldOut, 2026-07-17) are listed for the STANDALONE rows —
         // account rows' next/upcoming event objects pass through whole (the
         // allowlist filters top-level keys only) and carry them implicitly.
-        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
-        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
+        // slug/aliases (item-url-slugs, 2026-07-24) are injected onto every
+        // event object by PublicIntegrationController before this resource
+        // resolves — listed here so they survive the STANDALONE top-level
+        // filter; account rows' upcoming/next carry them for free (pass-through).
+        'eventbrite' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
+        'humanitix' => ['url', 'organiser', 'next', 'upcoming', 'kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
         // events-custom: a non-Eventbrite/Humanitix link added via the Tickets &
         // Events card, stored as a standalone event row so it renders in the
         // sitepage Events section. Single card — no organiser/upcoming. Snapshot
         // once, never refreshed (absent from the registry's refreshable set).
-        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link'],
+        'events-custom' => ['kind', 'id', 'name', 'venue', 'location', 'startDate', 'endDate', 'description', 'startsAt', 'endsAt', 'price', 'priceMin', 'currency', 'availability', 'soldOut', 'image', 'link', 'slug', 'aliases'],
         // custom: one row per user-attached link.
         'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],

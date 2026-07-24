@@ -6,6 +6,7 @@ use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Services\Platforms\EventSlugSync;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -63,6 +64,15 @@ class IntegrationConnectionObserver
             $this->syncIdentityFromGoogle($connection);
         }
 
+        // Pretty-URL slugs for the events sitepage section (connect + every
+        // daily refresh land here). Best-effort — a failure here must never
+        // break the connection save; the pages app's raw-hex-id fallback still
+        // resolves the item until the next successful sync mints the slug.
+        if (in_array($connection->platform, EventSlugSync::PLATFORMS, true)
+            && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
+            $this->syncEventSlugs($connection);
+        }
+
         // Content-selection connect hooks (best-effort, never break the save):
         //   - google-business connect → one-time seed of google-photo picks
         //   - instagram connect       → turn the content Instagram-auto flag on
@@ -103,6 +113,28 @@ class IntegrationConnectionObserver
         }
 
         app(IdentitySync::class)->applyFromGooglePayload($user, $payload->toArray());
+    }
+
+    /**
+     * Mint/reuse item_slugs for every event carried in this connection's
+     * payload (account row's `upcoming` list, or a standalone/custom row) —
+     * the same `resource_kind === 'event'` branch EventsPlatformController
+     * uses to tell the two row shapes apart (EventsPlatformController.php:318).
+     * Best-effort — a failure here must never break the connection save.
+     */
+    private function syncEventSlugs(IntegrationConnection $connection): void
+    {
+        try {
+            $events = EventSlugSync::extractEvents($connection->resource_kind, $connection->payload);
+            app(EventSlugSync::class)->syncEvents($connection->user_id, $events);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver event-slug sync failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
