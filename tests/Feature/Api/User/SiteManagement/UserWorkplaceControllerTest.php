@@ -2,10 +2,7 @@
 
 // Contract guard for API-1: UserWorkplaceController's show/upsert now shape
 // their response through WorkplaceResource instead of the removed
-// normalizeProfile() hand-built array. This locks the exact key set —
-// especially that previous_website_analysis (the system-written
-// WebsiteStyleAnalyzer output, see the Workplace model) never crosses the
-// wire, matching the old method's deliberate omission.
+// normalizeProfile() hand-built array. This locks the exact key set.
 
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
@@ -57,7 +54,7 @@ function uwcWorkplaceKeys(): array
     ];
 }
 
-it('show returns the exact workplace-card shape and never leaks previous_website_analysis', function () {
+it('show returns the exact workplace-card shape', function () {
     $user = uwcUser('cardshow');
     $siteId = uwcSite($user);
 
@@ -66,8 +63,6 @@ it('show returns the exact workplace-card shape and never leaks previous_website
         'name' => "Ollie's Diner",
         'address_line1' => '1 Main St',
         'previous_website' => 'https://old.example.com',
-        // System-written analysis blob — must never reach the API response.
-        'previous_website_analysis' => json_encode(['v' => 1, 'accent' => '#fff']),
         'category' => 'Restaurant',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -76,13 +71,12 @@ it('show returns the exact workplace-card shape and never leaks previous_website
     $response = actingAsUser($user)->getJson('/api/site/workplace')->assertOk();
 
     expect(array_keys($response->json('workplace')))->toEqualCanonicalizing(uwcWorkplaceKeys());
-    expect($response->json('workplace'))->not->toHaveKey('previous_website_analysis');
     expect($response->json('workplace.name'))->toBe("Ollie's Diner");
     expect($response->json('workplace.previous_website'))->toBe('https://old.example.com');
     expect($response->json('workplace.category'))->toBe('Restaurant');
 });
 
-it('upsert returns the exact workplace-card shape and never leaks previous_website_analysis', function () {
+it('upsert returns the exact workplace-card shape', function () {
     $user = uwcUser('cardupsert');
     uwcSite($user);
 
@@ -92,7 +86,6 @@ it('upsert returns the exact workplace-card shape and never leaks previous_websi
     ])->assertOk();
 
     expect(array_keys($response->json('workplace')))->toEqualCanonicalizing(uwcWorkplaceKeys());
-    expect($response->json('workplace'))->not->toHaveKey('previous_website_analysis');
     expect($response->json('workplace.name'))->toBe('New Name');
     expect($response->json('workplace.address_line1'))->toBe('2 Other St');
 });

@@ -8,10 +8,6 @@ use Illuminate\Http\Request;
 /**
  * The workplace-card shape returned by UserWorkplaceController's show/upsert.
  *
- * `previous_website_analysis` (WebsiteStyleAnalyzer output, system-written —
- * see Workplace model) is deliberately excluded: it is internal brand-signal
- * detail, not part of the public workplace-card contract.
- *
  * @mixin Workplace
  */
 class WorkplaceResource extends ApiResource
