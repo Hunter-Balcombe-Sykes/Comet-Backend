@@ -60,6 +60,8 @@ R5); keep them separate for R2 and R4.
 | **R4** | Skool's `selection()` latent trap | **S** | none |
 | **R5** | Stale comments: dev no longer runs `queue.default=sync` | **XS** | none |
 | **R6** | Dark-merge proof covers `events/add` for Eventbrite only | **S** | none |
+| **R7** | Instagram's poll still has no staleness check | **S/M** | none |
+| **R8** | Fresha's booking GraphQL is budget-blind | **M** | none |
 
 ### R1 — three different idioms now express the same gate
 
@@ -177,6 +179,43 @@ naming convention; it exists so reviewers do not delete inertness tests as no-op
 That file is mutation-tested — three deliberate breakages were shown to make it fail.
 **Hold your addition to the same standard: prove it can fail before you call it done.**
 
+### R7 — Instagram's poll still strands rows forever
+
+`InstagramController::connectStatus()` has **no 5-minute staleness escape hatch**. A row
+stranded by a dead worker polls `pending` forever, with no terminal state.
+
+This is not a new discovery — it is the design's own central argument. Design §2 rejected
+"hand-roll six copies of Instagram" precisely *because* `GenericPlatformController` has the
+check and Instagram does not: *"Copying Instagram six times copies that defect six times."*
+Phase 3 built the correct mechanism for six platforms and never went back for the seventh.
+Instagram has been async since 2026-06-09, so this is live.
+
+**The work:** give Instagram the same staleness behaviour the other platforms now have. The
+canonical implementation is `DefersBespokeConnect::bespokeConnectStatus()`; the port source is
+`GenericPlatformController::connectStatus()`. Prefer reusing the shared concern over a third
+copy of the logic — a third copy is how this defect survived in the first place.
+
+**Also note a contract divergence while you are there:** Instagram returns
+`404 "No Instagram connection found."`, whereas the async-connect contract specifies
+`404 {"message":"Account not found."}` for every other platform. Decide deliberately whether to
+align it — it is a frontend-visible string, so if you change it, say so explicitly in the report
+rather than folding it in silently.
+
+### R8 — Fresha's booking GraphQL is budget-blind
+
+`FreshaScraper::fetchEmployeeServices()` calls the booking GraphQL through a raw
+`Http::withHeaders(...)->timeout(12)->post()` (~`:205-212`) rather than `SafeUrlFetcher`, so the
+`FetchBudget` cannot see it. `saveSelection()`'s worst case is therefore the 20 s budget **plus**
+that 12 s timeout, ≈32 s.
+
+This was recorded as a known residual when W1 shipped the fetch budgets and has never been
+addressed; it was explicitly outside W1's remit because it is a scraper change.
+
+**The work:** route the GraphQL leg through `SafeUrlFetcher`, or give it its own deadline derived
+from the open budget. `FetchBudget::remaining()` returns `null` when no budget is open — treat
+that as "unbounded", not as zero. **Nesting `open()` is unsupported and fails OPEN** (an inner
+`finally` clears the outer deadline), so do not wrap this in a second budget.
+
 ---
 
 ## Completion
@@ -192,7 +231,10 @@ That file is mutation-tested — three deliberate breakages were shown to make i
 
 ## Reference
 
-- Phase 3 ledger (what was found and why these were deferred): `.superpowers/sdd/progress-2026-07-24-connect-async.md`
+- Phase 3's findings and corrections are recorded in the design doc's **"Phase 3 shipped"** note
+  (seven design corrections + three live shared-machinery defects) and in the 16 commit messages
+  between `904d51c7` and `4f040dc9`. *(The run ledger was worktree scratch and was not committed —
+  do not go looking for it.)*
 - Design + its seven implementation-proved corrections: `docs/superpowers/specs/2026-07-23-platform-connect-async-design.md`
 - Contract: `docs/frontend-contracts/2026-07-23-platform-connect-async.md`
 - Runbook: `scripts/audit/fix-flow.md`
