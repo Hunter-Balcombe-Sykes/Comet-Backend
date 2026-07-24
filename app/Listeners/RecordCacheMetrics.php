@@ -21,34 +21,39 @@ use Illuminate\Support\Facades\Redis;
 // accumulate unbounded across thousands of jobs or be discarded between jobs
 // (the binding is `scoped`, reset per job) — both worse than a direct write.
 //
-// #CACHE-2: stale-while-revalidate (CacheLockService::rememberLocked(),
-// SiteCacheService::getPublicSitePayload()) always probes the primary key,
-// then — on miss — its ":stale" companion, immediately adjacent, in the same
-// call: two Redis reads for what is logically ONE read. Counting both makes the
-// metric measure "primary key was warm" instead of "served without recompute".
-// A one-event lookahead buffer folds the pair into a single hit/miss under the
-// PRIMARY key's prefix/bucket, and drops the ":stale" half of write-through
-// pairs (writeWithJitter() writes both keys for one logical write).
+// #CACHE-2 / CACHE-3: one logical cache read fires up to three Redis probes,
+// and counting each of them made the hit rate measure "this exact key was warm"
+// rather than "we served without recomputing". The single-flight read paths
+// (CacheLockService::rememberLocked()/rememberLockedNullable(),
+// SiteCacheService::getPublicSitePayload()) do, in order:
 //
-// This fold is a partial fix, deliberately. It removes ONE of the two surplus
-// misses per stale-serving recompute: the lock winner also re-reads the primary
-// after acquiring the lock (CacheLockService::rememberLocked() and
-// SiteCacheService::getPublicSitePayload()), firing a second CacheMissed the
-// buffer never sees. So that path goes 1 hit + 2 misses (33%) -> 1 hit + 1 miss
-// (50%), not to 100%. And rememberLockedNullable() — which serves most of the
-// `pro` prefix — keeps no ":stale" copy at all, so the fold changes its counts
-// by exactly zero. A >=90% SLO on `site`/`pro` therefore still cannot pass;
-// folding the post-lock re-check, or recalibrating the threshold and the
-// `total >= 10` floor for a near-zero-traffic environment, is a separate call.
+//   1. probe the primary key
+//   2. on miss, probe its ":stale" companion (rememberLocked only)
+//   3. after winning the lock, re-probe the primary in case a racing worker
+//      already filled it (CacheLockService:102/161/245/257)
+//
+// So a cold read used to book 2-3 misses. rememberLockedNullable() keeps no
+// ":stale" copy at all and serves most of the `pro` prefix, so #CACHE-2's
+// ":stale" fold alone left it counting two misses per read.
+//
+// The listener therefore tracks ONE logical read at a time: a primary-key miss
+// opens it, the ":stale" probe or a post-lock re-check resolves it, and a write
+// to that key closes it. Once a read is scored, further read events on the same
+// key are suppressed until it is written. A hit that was NOT preceded by a miss
+// on the same key is never folded — collapsing repeated hot-path hits would
+// deflate the hit rate rather than correct it.
+//
+// Even with the fold the number is a function of traffic, not just cache
+// health: a hit rate is bounded by 1 - 1/(lambda * TTL), so the >=90% target is
+// unreachable on a 60s-TTL key below ~10 reads/key/minute. That is why the
+// target and sample floor live in config('partna.cache.slo.*') per environment.
 class RecordCacheMetrics
 {
-    // Internal prefixes that add noise without insight (lock acquisition, heartbeat keys).
-    public const SKIP_PREFIXES = ['lock', 'scheduler'];
-
-    // Hot-path prefixes whose hit rate is tracked against the SLO.
-    public const SLO_PREFIXES = ['site', 'pro'];
-
-    public const SLO_MIN_HIT_RATE = 0.9;
+    // Prefixes that add noise without insight: lock acquisition and heartbeat
+    // keys, plus framework internals — queue workers poll
+    // `illuminate:queue:restart` every loop and it is only ever set by
+    // `queue:restart`, making it a permanent 100% miss that dominated the hash.
+    public const SKIP_PREFIXES = ['lock', 'scheduler', 'illuminate'];
 
     // Redis hash key pattern. One key per UTC hour, expired after 48 h so yesterday's
     // data is still queryable when the next day's aggregation job runs.
@@ -66,47 +71,64 @@ class RecordCacheMetrics
     private bool $flushRegistered = false;
 
     /**
-     * A CacheMissed on a primary key, held back one event on the chance the very
-     * next event is its SWR ":stale" companion (#CACHE-2). bucketKey/prefix are
-     * captured HERE, at buffer time — not when the buffer is later resolved —
-     * so a miss buffered right before an hour boundary is still credited to the
-     * hour it actually happened in.
+     * The logical read currently in flight, opened by a CacheMissed on a primary
+     * key. bucketKey/prefix are captured HERE, when the read opens — not when it
+     * is later resolved — so a read that opens right before an hour boundary is
+     * still credited to the hour it actually happened in. `scored` records
+     * whether its hit/miss has already been written; an unscored read still owes
+     * a miss when it closes.
      *
-     * @var array{key: string, bucketKey: string, prefix: string}|null
+     * @var array{key: string, bucketKey: string, prefix: string, scored: bool}|null
      */
-    private ?array $bufferedMiss = null;
+    private ?array $currentRead = null;
 
     public function handle(CacheHit|CacheMissed|KeyWritten $event): void
     {
         $key = $event->key;
         $isStaleKey = str_ends_with($key, ':stale');
 
-        // Paired SWR probe: the buffered primary miss's own ":stale" companion,
-        // arriving as the very next event. Fold into ONE hit/miss under the
-        // primary's prefix/bucket instead of counting both Redis reads.
-        if ($isStaleKey && $this->bufferedMiss !== null && $key === $this->bufferedMiss['key'].':stale') {
-            $buffered = $this->bufferedMiss;
-            $this->bufferedMiss = null;
-
+        // Paired SWR probe: the open read's own ":stale" companion, arriving as
+        // the very next event. Fold into ONE hit/miss under the primary's
+        // prefix/bucket instead of counting both Redis reads.
+        if ($isStaleKey && $this->currentRead !== null && ! $this->currentRead['scored']
+            && $key === $this->currentRead['key'].':stale') {
             // Only a real CacheHit counts as a hit. Classifying on "not a miss"
             // would score a KeyWritten on a ":stale" key as a hit — unreachable
-            // today (every writer fills the primary first, which flushes the
-            // buffer) but a trap the moment one doesn't.
-            $type = $event instanceof CacheHit ? 'hits' : 'misses';
-            $this->recordOrDefer($buffered['bucketKey'], "{$buffered['prefix']}:{$type}");
+            // today (every writer fills the primary first, which closes the
+            // read) but a trap the moment one doesn't.
+            $this->scoreCurrentRead($event instanceof CacheHit ? 'hits' : 'misses');
 
             return;
         }
 
-        // Anything else arriving while a miss is buffered means it didn't pair —
-        // a genuine cold read with no live stale sibling. Flush it as a miss
-        // using the bucket/prefix captured when it was buffered, then fall
-        // through to handle the current event on its own merits.
-        if ($this->bufferedMiss !== null) {
-            $buffered = $this->bufferedMiss;
-            $this->bufferedMiss = null;
-            $this->recordOrDefer($buffered['bucketKey'], "{$buffered['prefix']}:misses");
+        // Same key as the read in flight: probe 3 of the single-flight dance.
+        if ($this->currentRead !== null && $key === $this->currentRead['key']) {
+            if ($event instanceof KeyWritten) {
+                // The recompute this read triggered. Settle the read's own
+                // hit/miss first, then count the write under the current bucket.
+                $prefix = $this->currentRead['prefix'];
+                $this->closeCurrentRead();
+                $this->recordOrDefer($this->currentBucketKey(), "{$prefix}:writes");
+
+                return;
+            }
+
+            // A post-lock re-check that found the key warm means a racing worker
+            // filled it while we queued for the lock — we served it without
+            // recomputing, so the read is a hit. A repeat miss adds nothing:
+            // leave the read open and still owing its miss.
+            if (! $this->currentRead['scored'] && $event instanceof CacheHit) {
+                $this->scoreCurrentRead('hits');
+            }
+
+            return;
         }
+
+        // An event for any other key ends the read in flight — a cold read with
+        // no live stale sibling and no recompute we can see. It settles under
+        // the bucket/prefix captured when it opened, then this event is handled
+        // on its own merits.
+        $this->closeCurrentRead();
 
         if ($isStaleKey) {
             // writeWithJitter() / writePayloadWithStale() always write the
@@ -125,18 +147,19 @@ class RecordCacheMetrics
             return;
         }
 
-        // Hold a primary miss back — it may be the first half of an SWR pair,
-        // resolved above on the next event, or by flush() at request/job end.
+        // Open a logical read — resolved above by its ":stale" companion or a
+        // post-lock re-check, or settled by flush() at request/job end.
         if ($event instanceof CacheMissed) {
-            $this->bufferedMiss = [
+            $this->currentRead = [
                 'key' => $key,
                 'bucketKey' => $this->currentBucketKey(),
                 'prefix' => $prefix,
+                'scored' => false,
             ];
 
-            // Buffering alone doesn't touch `pending`, so without this a lone
-            // buffered miss that's never paired would have no app()->terminating()
-            // callback registered to flush it — it would only surface via the
+            // Opening a read doesn't touch `pending`, so without this a read
+            // that never resolves would have no app()->terminating() callback
+            // registered to settle it — it would only surface via the
             // __destruct() safety net, at whatever moment GC happens to run
             // rather than deterministically at request end.
             if ($this->shouldDefer()) {
@@ -150,19 +173,56 @@ class RecordCacheMetrics
         $this->recordOrDefer($this->currentBucketKey(), "{$prefix}:{$type}");
     }
 
+    // Write the open read's hit/miss under the bucket/prefix captured when it
+    // opened. The read stays open so the post-lock re-check on the same key is
+    // recognised as part of it rather than counted again.
+    private function scoreCurrentRead(string $type): void
+    {
+        $read = $this->currentRead;
+
+        if ($read === null) {
+            return;
+        }
+
+        $this->currentRead['scored'] = true;
+        $this->recordOrDefer($read['bucketKey'], "{$read['prefix']}:{$type}");
+    }
+
+    // End the read in flight, settling the miss it still owes if nothing
+    // resolved it.
+    private function closeCurrentRead(): void
+    {
+        $read = $this->currentRead;
+
+        if ($read === null) {
+            return;
+        }
+
+        $this->currentRead = null;
+
+        if (! $read['scored']) {
+            $this->recordOrDefer($read['bucketKey'], "{$read['prefix']}:misses");
+        }
+    }
+
     /**
      * Flush all counts accumulated during this request as one HINCRBY per field.
      * Registered on app()->terminating() so it runs after the response is sent.
-     * Also folds in a still-buffered miss that never got a pairing SWR event, so
-     * it isn't silently dropped when the request ends.
+     * Also settles a read still in flight that nothing resolved, so it isn't
+     * silently dropped when the request ends. That count goes straight into
+     * `pending` rather than through recordOrDefer(), which would re-register a
+     * terminating callback from inside the one already running.
      */
     public function flush(): void
     {
-        if ($this->bufferedMiss !== null) {
-            $buffered = $this->bufferedMiss;
-            $this->bufferedMiss = null;
-            $field = "{$buffered['prefix']}:misses";
-            $this->pending[$buffered['bucketKey']][$field] = ($this->pending[$buffered['bucketKey']][$field] ?? 0) + 1;
+        if ($this->currentRead !== null) {
+            $read = $this->currentRead;
+            $this->currentRead = null;
+
+            if (! $read['scored']) {
+                $field = "{$read['prefix']}:misses";
+                $this->pending[$read['bucketKey']][$field] = ($this->pending[$read['bucketKey']][$field] ?? 0) + 1;
+            }
         }
 
         if ($this->pending === []) {
@@ -180,9 +240,9 @@ class RecordCacheMetrics
 
     /**
      * Safety net for the write-through (console/queue) path, which has no
-     * request-termination hook to rely on: a buffered miss with no pairing SWR
-     * event and no explicit flush() call would otherwise vanish when the scoped
-     * instance is torn down between jobs. forgetScopedInstances() drops the
+     * request-termination hook to rely on: a read left in flight with no
+     * resolving event and no explicit flush() call would otherwise vanish when
+     * the scoped instance is torn down between jobs. forgetScopedInstances() drops the
      * container's only reference, so PHP's refcounting destructs the object
      * deterministically right there — this is the last chance to write it.
      * Deliberately does NOT unconditionally call flush(): the HTTP path already
@@ -192,7 +252,7 @@ class RecordCacheMetrics
      */
     public function __destruct()
     {
-        if ($this->bufferedMiss !== null) {
+        if ($this->currentRead !== null && ! $this->currentRead['scored']) {
             // Destructors can run during PHP shutdown, after the container and
             // facade roots are torn down (see class docblock above) — Redis::
             // and Log:: may both be unusable at that point. A dropped metric
@@ -284,6 +344,14 @@ class RecordCacheMetrics
         $prefix = explode(':', $key)[0];
 
         if (in_array($prefix, self::SKIP_PREFIXES, true)) {
+            return null;
+        }
+
+        // ThrottleRequests hashes its request signature, so every rate-limited
+        // caller mints a single-use "prefix" of its own. Those can never
+        // aggregate into a meaningful rate — they just accumulate fields in a
+        // hash that lives 48 h.
+        if (preg_match('/^[0-9a-f]{32,}$/', $prefix) === 1) {
             return null;
         }
 

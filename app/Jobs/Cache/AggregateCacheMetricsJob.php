@@ -2,7 +2,6 @@
 
 namespace App\Jobs\Cache;
 
-use App\Listeners\RecordCacheMetrics;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -51,6 +50,13 @@ class AggregateCacheMetricsJob implements ShouldQueue
             $stats[$prefix][$type] = (int) $value;
         }
 
+        // CACHE-3: the target and the noise floor are per-environment — a hit
+        // rate is capped by traffic density, not just cache health (see
+        // config/partna.php 'cache.slo').
+        $sloPrefixes = (array) config('partna.cache.slo.prefixes', []);
+        $minHitRate = (float) config('partna.cache.slo.min_hit_rate');
+        $minSample = (int) config('partna.cache.slo.min_sample');
+
         foreach ($stats as $prefix => $counts) {
             $hits = $counts['hits'] ?? 0;
             $misses = $counts['misses'] ?? 0;
@@ -67,17 +73,21 @@ class AggregateCacheMetricsJob implements ShouldQueue
                 'hit_rate' => $hitRate,
             ]);
 
-            // SLO check: hot prefixes should sustain ≥ 90% hit rate. Require
-            // at least 10 requests to filter out noise on cold or sparse buckets.
+            // SLO check: tracked prefixes should sustain the configured hit
+            // rate, judged only once the bucket carries enough reads to mean
+            // anything.
             if (
-                in_array($prefix, RecordCacheMetrics::SLO_PREFIXES, true)
+                in_array($prefix, $sloPrefixes, true)
                 && $hitRate !== null
-                && $total >= 10
-                && $hitRate < RecordCacheMetrics::SLO_MIN_HIT_RATE
+                && $total >= $minSample
+                && $hitRate < $minHitRate
             ) {
                 $pct = number_format($hitRate * 100, 1);
+                // Trailing zeros trimmed so the default reads "≥90%", keeping the
+                // Nightwatch issue title stable rather than forking a new issue.
+                $slo = rtrim(rtrim(number_format($minHitRate * 100, 1), '0'), '.');
                 report(new \RuntimeException(
-                    "Cache SLO violation: prefix={$prefix} hit_rate={$pct}% (SLO: ≥90%) bucket={$bucket}"
+                    "Cache SLO violation: prefix={$prefix} hit_rate={$pct}% (SLO: ≥{$slo}%) bucket={$bucket}"
                 ));
             }
         }
