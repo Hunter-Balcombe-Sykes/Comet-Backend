@@ -13,14 +13,16 @@ use Illuminate\Support\Facades\DB;
  *
  * $timeoutMs bounds the wait via SET LOCAL lock_timeout, which only holds for
  * the CURRENT transaction — that's why it's set immediately before the lock
- * call rather than once at connection level (DatabaseServiceProvider's own
- * session-level SET would survive a reconnect losing its value, and wouldn't
- * apply retroactively to a lock already being waited on). Omit $timeoutMs
- * (null) to keep the old unbounded pg_advisory_xact_lock behaviour for keys
- * this unit doesn't touch — every OTHER pg_advisory_xact_lock call site in
- * the app (site-images, site-documents, blocks-sections, service-layout,
- * feedback, claim-invite, pre_account_build_ip) still calls DB::select(...)
- * directly and is deliberately untouched here.
+ * call rather than relying solely on connection level (DatabaseServiceProvider
+ * already issues a session-level `SET lock_timeout` at boot, so a contended
+ * pg_advisory_xact_lock was never truly unbounded — but that session-level
+ * value can be lost on a reconnect, and a timeout there surfaces as a raw,
+ * uncaught SQLSTATE 55P03 rather than something a caller can catch and handle).
+ * Omit $timeoutMs (null) to fall back to that pre-existing session-level
+ * ceiling for keys this unit doesn't touch — every OTHER pg_advisory_xact_lock
+ * call site in the app (site-images, site-documents, blocks-sections,
+ * service-layout, feedback, claim-invite, pre_account_build_ip) still calls
+ * DB::select(...) directly and is deliberately untouched here.
  *
  * SQLite (the test driver — see tests/TestCase.php's connection swap) has
  * neither SET LOCAL nor pg_advisory_xact_lock/hashtext; Pest registers those

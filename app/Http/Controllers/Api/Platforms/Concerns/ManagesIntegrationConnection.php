@@ -281,8 +281,11 @@ trait ManagesIntegrationConnection
      * U2: also catches AdvisoryLockTimeoutException — FreshaController's
      * synchronous connect()/employeeServices() bodies call
      * FreshaServiceProjector::sync() from inside this closure, and that Postgres
-     * advisory lock (services:{user_id}) is now bounded rather than unbounded.
-     * Same 423 either way: the client can't tell which lock contended.
+     * advisory lock (services:{user_id}) now has a tighter, explicit 5s bound
+     * and a typed exception, replacing the raw, uncaught SQLSTATE 55P03 a
+     * timeout on the pre-existing (but unreliable — lost on reconnect)
+     * session-level `SET lock_timeout` would otherwise have produced. Same
+     * 423 either way: the client can't tell which lock contended.
      *
      * Note: assumes the using class extends ApiController (for error()).
      */
@@ -301,8 +304,28 @@ trait ManagesIntegrationConnection
      * Like withConnectionLock() but for a caller-supplied cross-platform lock
      * key (e.g. CacheKeyGenerator::bookingXorLock / reservationsXorLock) — used
      * by the single-slot booking/reservations families whose clear+write spans
-     * multiple platform rows and so cannot use the per-platform key. Same 10s
-     * TTL / block(5) / 423-on-timeout contract.
+     * multiple platform rows and so cannot use the per-platform key. Same
+     * block(5) / 423-on-timeout contract; TTL defaults to 10s but can be
+     * raised for a caller whose closure holds the lock across genuinely
+     * slower work (see $ttlSeconds below).
+     *
+     * U1 review fix: the 10s default is fine for a fast read→mutate→write
+     * span, but FreshaController::connect()'s storewide branch runs
+     * FreshaServiceProjector::sync() (a Postgres-bound projection, itself
+     * waiting up to 5s on an advisory lock before doing real work) INSIDE
+     * this lock — a span that can plausibly exceed 10s under load. A lock
+     * that expires mid-write is worse than no lock: a concurrent
+     * SquareController::connect would then acquire it and produce the exact
+     * "both booking providers active" state this lock exists to prevent. That
+     * call site passes 30 (matching FreshaConnectFetch.php's identical
+     * projection under the raw Cache::lock it uses instead of this helper,
+     * CA-W7). Every OTHER caller of this method — SquareController::connect,
+     * FreshaController::connectDeferred()/forget(), BookingController,
+     * ReservationsController — only does a fast DB read/write inside its
+     * closure (never a scrape, sync(), or advisory-lock wait), so they stay on
+     * the default. Do not raise the default itself: a longer TTL on a path
+     * that doesn't need it only lengthens the window a crashed process holds
+     * the lock.
      *
      * Lock-ordering rule (U1): a cross-platform lock from this method is
      * always acquired OUTER to platformConnectionLock, never the reverse.
@@ -317,10 +340,10 @@ trait ManagesIntegrationConnection
      * site would create exactly that cycle against a concurrent
      * SquareController::connect — do not add one.
      */
-    protected function withCrossPlatformLock(string $lockKey, callable $callback): JsonResponse
+    protected function withCrossPlatformLock(string $lockKey, callable $callback, int $ttlSeconds = 10): JsonResponse
     {
         try {
-            return Cache::lock($lockKey, 10)->block(5, $callback);
+            return Cache::lock($lockKey, $ttlSeconds)->block(5, $callback);
         } catch (LockTimeoutException) {
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }

@@ -128,14 +128,18 @@ class FreshaServiceProjector
             // the global (user_id, sort_order) partial unique means every
             // sort_order append must serialize behind one lock.
             //
-            // U2: bounded (was unbounded pre-CA-W7-escalation) — this transaction
-            // now also runs inside ConnectFetchJob, which must never block an
-            // interactive dashboard edit indefinitely. A timeout throws
-            // AdvisoryLockTimeoutException; FreshaConnectFetch::fetchStorewide()
-            // folds that into ConnectFetchJob's terminal path, and
-            // ManagesIntegrationConnection::withConnectionLock() folds it into the
-            // same 423 every other interactive platform-connection write returns
-            // on contention.
+            // U2: tightened to a 5s bound with a typed exception (previously
+            // relied only on DatabaseServiceProvider's session-level `SET
+            // lock_timeout` — a real but unreliable ~10s ceiling that could be
+            // lost on a reconnect and, on timeout, surfaced as a raw uncaught
+            // SQLSTATE 55P03 rather than something callable code could catch)
+            // — this transaction now also runs inside ConnectFetchJob, which
+            // must never block an interactive dashboard edit indefinitely. A
+            // timeout throws AdvisoryLockTimeoutException; FreshaConnectFetch::
+            // fetchStorewide() folds that into ConnectFetchJob's terminal path,
+            // and ManagesIntegrationConnection::withConnectionLock() folds it
+            // into the same 423 every other interactive platform-connection
+            // write returns on contention.
             AdvisoryLock::acquire("services:{$user->id}", AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS);
 
             $existing = Service::withTrashed()

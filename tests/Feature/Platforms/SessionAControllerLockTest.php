@@ -26,6 +26,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // HELPER COLLISION WARNING: Pest loads every test file into one process —
@@ -171,13 +172,15 @@ it('POST /platforms/google-business/synced/apply runs applyFinding OUTSIDE the l
 
     // U1 provenance guard: applyFinding()'s own false-return branch and
     // withConnectionLock's block(5) timeout produce an IDENTICAL 423 status,
-    // body, and unflipped-finding outcome — verified empirically by
-    // temporarily forcing the mock above to ->andReturnFalse(), which made
-    // every assertion below still pass, in ~0.15s instead of ~5s. Elapsed
-    // time is therefore the only thing that actually distinguishes "returned
-    // 423 from the new branch without ever reaching the lock" from "genuinely
-    // blocked on the held platform lock" — assert it so this guard can fail.
-    $start = microtime(true);
+    // body, and unflipped-finding outcome — a wall-clock assertion used to be
+    // the only thing distinguishing them here (verified empirically: forcing
+    // the mock above to ->andReturnFalse() still passed every other assertion
+    // below). Log::spy() replaces it: the controller logs a warning ON ONLY
+    // the applyFinding-false branch (GoogleBusinessController::applySync),
+    // never on withConnectionLock's own timeout — so asserting it was NOT
+    // recorded proves this 423 came from the genuinely-contended platform
+    // lock below, deterministically and without relying on elapsed time.
+    Log::spy();
 
     try {
         actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'instagram'])
@@ -187,7 +190,7 @@ it('POST /platforms/google-business/synced/apply runs applyFinding OUTSIDE the l
         $lock->release();
     }
 
-    expect(microtime(true) - $start)->toBeGreaterThan(4.0);
+    Log::shouldNotHaveReceived('warning', fn (string $message): bool => $message === 'platforms.google_business.apply_finding_lock_contended');
 
     // The mock's ->once() expectation (verified at test teardown) proves
     // applyFinding ran despite the lock being held throughout the request —

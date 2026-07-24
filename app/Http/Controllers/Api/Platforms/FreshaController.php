@@ -113,6 +113,13 @@ class FreshaController extends ApiController
         // all still take only the 'fresha' platform key. Order is fixed:
         // bookingXor outer, platform inner — never the reverse (see
         // ManagesIntegrationConnection::withCrossPlatformLock's docblock).
+        //
+        // U1 review fix: TTL 30 (not the 10s default) — the storewide branch
+        // below runs FreshaServiceProjector::sync() (Postgres advisory lock +
+        // projection) INSIDE this closure, which can plausibly exceed 10s; a
+        // lock that expires mid-write would let a concurrent Square connect
+        // in and produce the exact XOR violation this lock exists to prevent.
+        // Matches FreshaConnectFetch.php's identical projection (CA-W7).
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $menu): JsonResponse {
             if ($this->hasConflictingConnection($user, Platform::Square->value)) {
                 return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
@@ -167,7 +174,7 @@ class FreshaController extends ApiController
 
                 return $this->success(['url' => $url, 'mode' => 'team', ...$menu]);
             });
-        });
+        }, 30);
     }
 
     /**
@@ -194,6 +201,14 @@ class FreshaController extends ApiController
      * the Square conflict check — a per-platform lock alone cannot exclude a
      * concurrent Square connect. Order: bookingXor outer, platform inner,
      * same as the synchronous connect() path above.
+     *
+     * U1 review fix: stays on withCrossPlatformLock's 10s default (unlike
+     * connect()'s synchronous storewide branch, which passes 30) — this
+     * closure only reads/writes the pending row; it never calls
+     * FreshaServiceProjector::sync(). That work happens later, for a
+     * dispatch that runs strictly AFTER this lock releases (see above), inside
+     * ConnectFetchJob → FreshaConnectFetch's own separate lock acquisition,
+     * already TTL'd to 30 (FreshaConnectFetch.php:155, CA-W7).
      *
      * `teamMenu => null` is written EXPLICITLY on BOTH modes so a mode flip
      * (or a reconnect to a different salon) can't leave a stale team snapshot

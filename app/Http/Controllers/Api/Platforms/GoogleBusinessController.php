@@ -23,6 +23,7 @@ use App\Support\BusinessName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 // Google Business — connect via the Places picker (canonical) or a pasted
 // Maps share link (legacy). Picker connects are enriched server-side with the
@@ -296,6 +297,18 @@ class GoogleBusinessController extends ApiController
             // Contended booking/reservations-slot lock — nothing was removed
             // or written. Must NOT fall through to the flip below: that would
             // mark the finding 'seeded' for a change that never happened.
+            //
+            // U1 review fix (test provenance): this 423 and the one below
+            // (withConnectionLock's own block(5) timeout) are otherwise
+            // identical in status, body, and unflipped-finding outcome —
+            // SessionAControllerLockTest distinguishes them via Log::spy() on
+            // this line instead of a wall-clock assertion, so log it even
+            // though nothing downstream currently consumes the line.
+            Log::warning('platforms.google_business.apply_finding_lock_contended', [
+                'user_id' => (string) $user->id,
+                'platform' => $platform,
+            ]);
+
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
 

@@ -124,9 +124,12 @@ trait BuildsAutoSyncFindings
      * its remove-then-write as ONE atomic span under that family's shared XOR
      * lock (bookingXorLock / reservationsXorLock) — closing the gap that let
      * a concurrent Square/Fresha connect (or a second "Change to") observe
-     * the slot mid-swap and install a second live provider. Every other
-     * finding (social, ordering, workplace) is unaffected — still lock-free,
-     * byte-identical to before.
+     * the slot mid-swap and install a second live provider. A finding whose
+     * remove list spans BOTH families takes BOTH locks (booking outer,
+     * reservations inner — see applyFinding()'s cross-family branch) so
+     * neither family's delete is left unguarded. Every other finding (social,
+     * ordering, workplace) is unaffected — still lock-free, byte-identical to
+     * before.
      *
      * Unlike the connect controllers (which re-assert their conflict check
      * INSIDE the lock), this does not re-derive a conflict — the finding IS
@@ -147,12 +150,74 @@ trait BuildsAutoSyncFindings
             return true;
         }
 
-        if ($this->isBookingSlotApply($finding, $apply)) {
+        $looksBooking = $this->looksLikeBookingSlotApply($finding, $apply);
+        $looksReservations = $this->looksLikeReservationsSlotApply($finding, $apply);
+
+        // Trap 4 / escape hatch: `apply.instagram` is produced in exactly one
+        // place — GoogleBusinessAutoSync's Instagram/social recipe — and that
+        // recipe is ALWAYS category:'social', never 'booking'/'reservations'.
+        // So a finding that looks booking- and/or reservations-eligible AND
+        // carries apply.instagram should be structurally unreachable;
+        // report() makes a future hybrid recipe a loud canary instead of
+        // silently holding a 10s lock across applyFindingHandled()'s ~110s
+        // inline Apify scrape. Checked ONCE here, ahead of both family
+        // branches below (not once per family inside each predicate) — a
+        // finding whose remove list happens to match BOTH BOOKING_SLOT_
+        // PLATFORMS and RESERVATIONS_SLOT_PLATFORMS would otherwise trip this
+        // same canary twice for one applyFinding() call.
+        if (($looksBooking || $looksReservations) && is_array($apply['instagram'] ?? null)) {
+            $slot = match (true) {
+                $looksBooking && $looksReservations => 'booking+reservations',
+                $looksBooking => 'booking',
+                default => 'reservations',
+            };
+            report(new \RuntimeException(
+                'applyFinding: apply.instagram co-occurred with a '.$slot.'-slot recipe (finding category='.
+                var_export($finding['category'] ?? null, true).
+                ') — should be structurally impossible; bailing to the unlocked path.'
+            ));
+            $looksBooking = false;
+            $looksReservations = false;
+        }
+
+        if ($looksBooking && $looksReservations) {
+            // U1 review fix: a cross-family recipe (remove spans BOTH
+            // booking and reservations platforms) must hold BOTH XOR locks
+            // for the whole remove+write span, or whichever family only got
+            // the other lock would have its delete race that family's own
+            // controller (e.g. the opentable delete below racing
+            // ReservationsController::forget()). No real producer emits a
+            // remove list spanning both families today (each conflictFinding
+            // call site hardcodes a single family's platform list) — this is
+            // belt-and-braces for a legacy/hand-crafted finding, same spirit
+            // as the escape hatch above.
+            //
+            // Deterministic order: bookingXorLock OUTER, reservationsXorLock
+            // INNER. This cannot cycle: reservationsXorLock's own closure
+            // here never itself acquires another lock (runApply() is a plain
+            // DB read/delete/write), and nothing else in the codebase ever
+            // holds reservationsXorLock and then requests bookingXorLock (or
+            // platformConnectionLock) — every other reservationsXorLock
+            // holder (ReservationsController, GoogleBusinessAutoSync::
+            // seedReservation) takes it ALONE. So this is a strict two-level
+            // chain (booking -> reservations), consistent with the existing
+            // bookingXor-outer/platformConnectionLock-inner precedent in
+            // ManagesIntegrationConnection::withCrossPlatformLock, and adds
+            // no new edge that could complete a cycle against it.
+            return $this->withBookingXorLock($userId, function () use ($userId, $apply): bool {
+                return $this->withReservationsXorLock($userId, function () use ($userId, $apply): bool {
+                    $this->runApply($userId, $apply);
+
+                    return true;
+                }, false);
+            }, false); // $default=false => "contended, nothing applied"
+        }
+
+        if ($looksBooking) {
             // Booking slot: remove + write are ONE span under the same key
             // every other booking writer takes. runApply()'s
             // applyFindingHandled() step is a proven no-op here (see the
-            // escape hatch in isBookingSlotApply()) — no vendor call, no
-            // dispatch, DB only.
+            // escape hatch above) — no vendor call, no dispatch, DB only.
             return $this->withBookingXorLock($userId, function () use ($userId, $apply): bool {
                 $this->runApply($userId, $apply);
 
@@ -160,7 +225,7 @@ trait BuildsAutoSyncFindings
             }, false); // $default=false => "contended, nothing applied"
         }
 
-        if ($this->isReservationsSlotApply($finding, $apply)) {
+        if ($looksReservations) {
             // Same seam, reservations family (U1 addendum, orchestrator
             // decision): the identical unlocked bypass existed here too
             // (category:'reservations', remove => RESERVATIONS_SLOT_PLATFORMS)
@@ -188,66 +253,32 @@ trait BuildsAutoSyncFindings
      * NOT keyed on `apply.write.platform` — BookingXorLockTest's synthetic
      * social findings carry write.platform='square' and must stay unlocked.
      *
-     * Trap 4 / escape hatch: `apply.instagram` is produced in exactly one
-     * place — GoogleBusinessAutoSync's Instagram/social recipe — and that
-     * recipe is ALWAYS category:'social', never 'booking'. So a finding that
-     * looks booking-eligible AND carries apply.instagram should be
-     * structurally unreachable; report() makes a future hybrid recipe a loud
-     * canary instead of silently holding a 10s lock across
-     * applyFindingHandled()'s ~110s inline Apify scrape.
+     * Pure predicate — no side effects. The apply.instagram escape hatch
+     * (Trap 4) that used to live in here is now checked once in applyFinding()
+     * itself, after both this and looksLikeReservationsSlotApply() have run,
+     * so a cross-family finding can't report() the same canary twice.
      *
      * @param  array<string,mixed>  $finding
      * @param  array<string,mixed>  $apply
      */
-    private function isBookingSlotApply(array $finding, array $apply): bool
+    private function looksLikeBookingSlotApply(array $finding, array $apply): bool
     {
-        $looksBooking = ($finding['category'] ?? null) === 'booking'
+        return ($finding['category'] ?? null) === 'booking'
             || array_intersect((array) ($apply['remove'] ?? []), self::BOOKING_SLOT_PLATFORMS) !== [];
-
-        if (! $looksBooking) {
-            return false;
-        }
-
-        if (is_array($apply['instagram'] ?? null)) {
-            report(new \RuntimeException(
-                'applyFinding: apply.instagram co-occurred with a booking-slot recipe (finding category='.
-                var_export($finding['category'] ?? null, true).
-                ') — should be structurally impossible; bailing to the unlocked path.'
-            ));
-
-            return false;
-        }
-
-        return true;
     }
 
     /**
-     * Reservations counterpart to isBookingSlotApply() — same shape, same
-     * escape hatch, RESERVATIONS_SLOT_PLATFORMS instead of the booking list.
+     * Reservations counterpart to looksLikeBookingSlotApply() — same shape,
+     * RESERVATIONS_SLOT_PLATFORMS instead of the booking list. Also a pure
+     * predicate; see that method's docblock for the escape-hatch note.
      *
      * @param  array<string,mixed>  $finding
      * @param  array<string,mixed>  $apply
      */
-    private function isReservationsSlotApply(array $finding, array $apply): bool
+    private function looksLikeReservationsSlotApply(array $finding, array $apply): bool
     {
-        $looksReservations = ($finding['category'] ?? null) === 'reservations'
+        return ($finding['category'] ?? null) === 'reservations'
             || array_intersect((array) ($apply['remove'] ?? []), self::RESERVATIONS_SLOT_PLATFORMS) !== [];
-
-        if (! $looksReservations) {
-            return false;
-        }
-
-        if (is_array($apply['instagram'] ?? null)) {
-            report(new \RuntimeException(
-                'applyFinding: apply.instagram co-occurred with a reservations-slot recipe (finding category='.
-                var_export($finding['category'] ?? null, true).
-                ') — should be structurally impossible; bailing to the unlocked path.'
-            ));
-
-            return false;
-        }
-
-        return true;
     }
 
     /**
