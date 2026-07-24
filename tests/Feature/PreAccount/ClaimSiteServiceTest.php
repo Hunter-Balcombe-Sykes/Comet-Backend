@@ -2,6 +2,8 @@
 
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Jobs\Platforms\RefreshConnectionJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
@@ -275,4 +277,88 @@ it('allows a claim whose verified email matches an email-gated build (case-insen
 
     expect($result['professional']->status)->toBe('active')
         ->and($site->fresh()->is_published)->toBeTrue();
+});
+
+// REV1: a pre-account build's google-business connection is stripped of
+// third-party review PII (stripThirdPartyPii, correct for an unclaimed
+// listing). GoogleBusinessFetch already self-heals this on the NEXT scheduled
+// refresh once status flips to 'active' — but that refresh is gated on a
+// same-mapping-function detailsFetchedAt stamped at BUILD time, so a claim
+// within the 40h freshness window (the common case — broken-oven claimed
+// same-session as build) makes the next scheduled refresh a no-op cache hit,
+// not a real re-fetch. Claim must force it: clear detailsFetchedAt (so the
+// freshness check fails open) and dispatch the SAME RefreshConnectionJob the
+// hourly cron and the dashboard's manual refresh button already use — reusing
+// GoogleBusinessFetch's existing claimed-status-gated strip logic rather than
+// duplicating fetch/merge/lock/WS-B2.2-gating code in a new job.
+
+it('REV1: clears detailsFetchedAt and dispatches a manual RefreshConnectionJob for a claimed google-business connection', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'is_active' => true,
+        'payload' => [
+            'placeId' => 'ChIJtestPlaceId',
+            'name' => 'Jane Doe Salon',
+            'rating' => 4.7,
+            'reviewCount' => 12,
+            'detailsFetchedAt' => now()->subHours(2)->toIso8601String(), // well within the 40h freshness window
+        ],
+    ]);
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    $fresh = $connection->fresh();
+    expect($fresh->payload)->not->toHaveKey('detailsFetchedAt')
+        // untouched fields survive the same read-modify-write
+        ->and($fresh->payload['placeId'])->toBe('ChIJtestPlaceId')
+        ->and($fresh->payload['name'])->toBe('Jane Doe Salon');
+    expect($fresh->last_refresh_status)->toBe('pending');
+
+    Queue::assertPushed(RefreshConnectionJob::class, fn ($job) => $job->connectionId === $connection->id
+        && $job->platform === 'google-business'
+        && $job->manual === true);
+});
+
+it('REV1: does nothing when the claimed user has no google-business connection', function () {
+    makeReadyBuild();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    Queue::assertNotPushed(RefreshConnectionJob::class);
+});
+
+it('REV1: does not touch an INACTIVE (disconnected) google-business connection', function () {
+    [$user] = makeReadyBuild();
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'is_active' => false,
+        'payload' => ['placeId' => 'p1', 'detailsFetchedAt' => now()->toIso8601String()],
+    ]);
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($connection->fresh()->payload)->toHaveKey('detailsFetchedAt');
+    Queue::assertNotPushed(RefreshConnectionJob::class);
+});
+
+it('REV1: only refreshes the claimed users own connection, never another users', function () {
+    [$user] = makeReadyBuild();
+    $otherUser = User::factory()->create(['status' => 'active']);
+    $otherConnection = IntegrationConnection::create([
+        'user_id' => $otherUser->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'is_active' => true,
+        'payload' => ['placeId' => 'other-place', 'detailsFetchedAt' => now()->toIso8601String()],
+    ]);
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    expect($otherConnection->fresh()->payload)->toHaveKey('detailsFetchedAt');
+    Queue::assertNotPushed(RefreshConnectionJob::class, fn ($job) => $job->connectionId === $otherConnection->id);
 });
