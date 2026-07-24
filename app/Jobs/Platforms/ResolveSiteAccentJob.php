@@ -29,6 +29,9 @@ class ResolveSiteAccentJob implements ShouldQueue
 
     public int $tries = 2;
 
+    /** @var list<int> A single 30s backoff before the one retry — matches this job's sibling scan jobs. */
+    public array $backoff = [30];
+
     public int $timeout = 30;
 
     public function __construct(
