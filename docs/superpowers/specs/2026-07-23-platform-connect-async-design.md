@@ -272,28 +272,68 @@ contract rather than silently normalising.
 `skool` in the PWL-16 register as having nothing to race. Deferring the write to a job reintroduces
 exactly the concurrency the comment argues away. **Take the lock in the job.**
 
-### 3.5 Shop — blocked without a migration; not in the first slice
+### 3.5 Shop — blocked without a migration at the time this was written; unblocked 2026-07-24, see below
 
-Two independent blockers:
+**Original framing (2026-07-23) — two independent blockers:**
 
-1. **The identity is the probe result.** `brand_id` is what detection computes — a numeric shop id
-   from Shopify's `meta.json`, `bigcartel-{account}`, or a host slug for Woo/Squarespace/generic.
+1. **Blocker 1 — the identity is the probe result.** `brand_id` is what detection computes — a numeric
+   shop id from Shopify's `meta.json`, `bigcartel-{account}`, or a host slug for Woo/Squarespace/generic.
    There is no cheap `identify()`; provider-agnosticism is the feature
    (`ShopProviderDetector.php:5` — the user never picks the provider). A correctly-keyed placeholder
    cannot be written before the fetch.
-2. **The status has nowhere to live.** `site.shop_brands` has no status column
+2. **Blocker 2 — the status has nowhere to live.** `site.shop_brands` has no status column
    (`20260704160000_shop_brands_products.sql:15-38`), and the connection row's payload is the frozen
    marker `{"storage":"relational"}`, so `last_refresh_status` cannot express "brand A pending,
    brand B ready."
 
-Either a nullable `status` column on `site.shop_brands` (a real migration → fix-flow blocker gate), or
-a provisional host-slug key reconciled by the job once the true `brand_id` resolves — a step no other
-platform needs. Compounding it, `ShopController.php:53-55` documents that the frontend calls
-`GET /brands/{id}/products` **immediately** after `addBrand()` returns, so the placeholder must be
-real and queryable at 202 time.
+**Verification (2026-07-24, `.superpowers/sdd/PLAN-2026-07-24-connect-shop.md` + its progress ledger)
+found the framing above understated the problem by one blocker and carried one stale premise:**
 
-**Shop's best near-term fix is not async at all — it is a `FetchBudget`** (see W1). That converts a
-~768 s tail into ~20 s for a fraction of the work and with no contract change.
+3. **Blocker 3 — the two-blocker framing missed a second `NOT NULL` probe output.** `provider` is
+   `NOT NULL` on `site.shop_brands` exactly like `brand_id`
+   (`20260704160000_shop_brands_products.sql:18-19` — `brand_id text NOT NULL`, `provider text NOT
+   NULL`), and `provider` is *also* an output of the same probe that computes `brand_id`. Blocker 1
+   framed this as one identity problem; it is two required columns, both outputs of the call being
+   deferred, not one.
+
+**PREMISE-STALE — "reuse `ConnectFetchJob`" does not hold.** `ConnectFetchJob::handle()` resolves the
+platform's registered `FetchStrategy`. Shop's is `ShopFetch`, the 6-hourly **latest-mode product
+re-sync** over brands that already exist — it never touches `ShopProviderDetector` and cannot turn a
+pasted URL into a brand. Reusing it would throw `FetchNotModifiedException` → `markOk()` → a row that
+reports success having created nothing. Corroborated by `DefersBespokeConnect`'s own docblock: *"A
+future platform needing a different job writes its own dispatch and does not use this helper."*
+→ Shop needed its own job.
+
+4. **Blocker 4 — `ConnectFetchJob::uniqueId()` collapses N brands into one job.** Its `uniqueId()` is
+   `"{platform}:{connectionId}"`, `uniqueFor = 120`. Shop is the only platform where one connection row
+   fans out to up to `MAX_BRANDS = 5` brands — two brands added within 120 s of each other would share
+   a `uniqueId`, and the second job would be silently dropped, stranding that brand `pending` forever.
+5. **Blocker 5 — the shared poll action cannot be reused.** `DefersBespokeConnect::bespokeConnectStatus()`
+   reads `last_refresh_status` off the **connection** row — one status field describing N brands, the
+   same limitation as Blocker 2 restated at the poll layer, not just the write layer.
+
+**The resolution — design path (c), hybrid.** Detection stays fully synchronous, so both `NOT NULL`
+columns (`brand_id`, `provider` — Blocker 3) are truthful at write time; a real `ShopBrand` row is
+written immediately with `connect_status = 'pending'`; only the profile fetch
+(`name`/`currency`/`favicon`/`logo`) defers to a new brand-keyed job, `ShopBrandConnectJob`, closing
+Blockers 4 and 5 and the `ConnectFetchJob` premise together — its uniqueness key is the brand row, not
+the connection, and it carries its own poll action. Per-brand state lives in a new nullable
+`connect_status` / `connect_error` column pair. No sentinel `provider`, no provisional-key rename, no
+`UNIQUE (connection_id, brand_id)` collision, no id-swap on the wire.
+
+**The honest cost note.** Only 3 of the 6 provider paths defer any network work at all: shopify (2
+calls), woocommerce (2 calls), squarespace (1 call). BigCartel, generic and client-assisted defer
+**zero** — their profile is already in memory at detection time, so they stay synchronous `200`s (see
+the frontend contract §8 for the resulting provider-dependent status code). The 1–4-call probe cascade
+that dominates Shop's latency stays synchronous by design on every path — that is what keeps `brand_id`
+and `provider` truthful. W1's 20 s `FetchBudget` already bounded that cascade's worst case; W9 only
+shortens the *typical* case, and only for three of the six providers.
+
+**Superseded 2026-07-24** — the recommendation below was this design's near-term answer before the
+verification above and Josh's decision to proceed with all 7 units. Kept for the record, not deleted:
+
+> **Shop's best near-term fix is not async at all — it is a `FetchBudget`** (see W1). That converts a
+> ~768 s tail into ~20 s for a fraction of the work and with no contract change.
 
 Two further Shop notes for whoever picks it up: `setProducts()` runs its vendor fetch **inside** the
 10 s Redis lock (`:365,376-377`), which can expire mid-closure while the DB transaction at `:389-399`
@@ -368,7 +408,7 @@ touches auth/money/DB-schema, or is L/XL effort.
 | **W6** ✅ | Fresha individual mode | Write the URL-only row synchronously, 202, defer the menu fetch. | **M** | **yes** — capability + XOR | W2 | 202 + poll |
 | **W7** ✅ | Fresha storewide | Real pending row + job; **re-assert the XOR in the job's locked write**; handle the advisory-lock overlap. | **L** | **yes** — capability, money-adjacent (booking), L | W6 | 202 + poll |
 | **W8** ⏸ | Fresha `team()` | Independent conversion — it is its own ~96 s synchronous GET. | **M** | no | W6 | new |
-| **W9** | Shop | Migration for a per-brand status column (or provisional-key reconciliation); pending `ShopBrand` row; explicit cache refresh in the job. | **XL** | **yes** — DB migration + XL | W1, W2 | 202 + poll |
+| **W9** ✅ | Shop | Migration for a per-brand status column (or provisional-key reconciliation); pending `ShopBrand` row; explicit cache refresh in the job. | **XL** | **yes** — DB migration + XL | W1, W2 | 202 + poll |
 
 **Phase 3 shipped 2026-07-24** — branch `audit-fix/connect-async-impl-2026-07-24`, 15 commits,
 awaiting review/merge. **W2–W7 complete; W8 deliberately dropped** (⏸) — the frontend contract's
@@ -412,6 +452,13 @@ fetch (so the vendor call ran unbounded against a 45 s timeout); the hourly refr
 backstop; and the job's locked write bypassed `assertPlatformAvailable()`.
 
 **W1 shipped 2026-07-24** — branch `audit-fix/connect-fetchbudget-2026-07-24`, awaiting review/merge.
+**W9 unblocked 2026-07-24** — branch `audit-fix/connect-shop-async-2026-07-24`
+(`.superpowers/sdd/PLAN-2026-07-24-connect-shop.md`). Verification found the §3.5 two-blocker framing
+understated the problem and carried one stale premise; design path (c) — synchronous detection,
+deferred profile fetch, a new nullable `connect_status` column — resolves all five findings (see the
+updated §3.5). Migration, model, the brand-identity seam and the job (Units 1–3) shipped and were
+independently reviewed; the deferred `addBrand()` + poll wiring (Unit 4) and this document's sibling
+frontend contract (Unit 6) are in flight as of this write.
 **Seven** call-site groups, not six: `EventsController::add()` (the smart-detect facade over the same
 scrapers) was unbudgeted too and is included. Two adjacent null-deref defects surfaced and were fixed
 with it — `ShopifyScraper::fetchProducts()` and `HumanitixScraper::resolveHostUrl()` each read
@@ -458,7 +505,7 @@ input on scope.
 | 3 | Is Fresha in the first slice? | **Yes.** W6 and W7 are in the first slice, not deferred to a second. |
 | 4 | `EventsCatalog` (§3.3) | **Convert alongside.** `POST /platforms/events/add` is in scope — organiser branch only (see §6.1). |
 | 5 | Frontend timing | **No slug is activated before the frontend ships polling.** W1–W8 merge dark; activation is a separate, later action. |
-| 6 | Shop (§3.5) | **W1 alone is the near-term answer.** W9 deferred. |
+| 6 | Shop (§3.5) | ~~**W1 alone is the near-term answer.** W9 deferred.~~ **Superseded 2026-07-24** — W9 taken up on branch `audit-fix/connect-shop-async-2026-07-24` under design path (c). The deferral reasoning still holds on the numbers (see §3.5's cost note: 3 of 6 providers defer zero network work), so this was re-decided with the quantification on the table, not overturned by new information. |
 
 **Consequences for §5's unit table:**
 
@@ -513,11 +560,15 @@ W1  FetchBudget ×6 ────────────────────
                                     └─ W6  Fresha individual ─┬─ W7  Fresha storewide  ← activate 4th
                                                               └─ W8  Fresha team()
 
-W9  Shop ── deferred (decision 6). W1 removes its acute risk.
+W9  Shop ── taken up 2026-07-24 (decision 6 superseded). Independent of W2–W8:
+           shares only DefersBespokeConnect::shouldDeferConnect(), and runs its
+           own job + its own per-brand poll (blockers 4 and 5, §3.5). Merges on
+           its own branch; W1 had already removed its acute risk.
 ```
 
 **Merge order follows the dependency arrows; activation order follows decision 2** — and the two are
 deliberately different. W3 is implemented before W5 but Skool activates before Apple, because
 activation order is about blast radius while merge order is about dependencies. Nothing activates
 until the frontend ships polling (decision 5).
-6. **Shop (§3.5).** Confirm W1 alone is an acceptable near-term answer for Shop, deferring W9.
+6. **Shop (§3.5).** ~~Confirm W1 alone is an acceptable near-term answer for Shop, deferring W9.~~
+   **Answered 2026-07-24: W9 proceeds**, with the win explicitly quantified first — see §3.5.
