@@ -22,36 +22,33 @@
 // on a statement error, so it cannot reproduce this bug at all — a SQLite
 // test would pass with OR without the fix and prove nothing. This bug class
 // has shipped THREE times (site-provisioning signup, the pre-pilot slug
-// slice, the MenuScanApplier exposure fixed here), so this sentinel gates on
-// a REAL PostgreSQL driver and SKIPS otherwise, following the precedent in
-// tests/Feature/Bootstrap/SiteProvisioningSavepointTest.php.
+// slice, the MenuScanApplier exposure fixed here).
 //
-// ⚠ IT CANNOT CURRENTLY RUN THROUGH `php artisan test`. Tests\TestCase::setUp()
-// unconditionally repoints the 'pgsql' connection at in-memory SQLite, with no
-// env escape hatch, so getDriverName() is always 'sqlite' inside a Feature test
-// and this file always SKIPS — even with DB_CONNECTION=pgsql set. That defeats
-// every Postgres-gated sentinel in the repo (~19 files, incl. the exemplar) and
-// CI runs no pgsql pass, so today this is a documentary guard, not a live one.
-// To make it (and its peers) actually execute, a pgsql suite path is needed
-// that skips the setUp() connection override — see the branch report.
+// Runs for real via the Postgres lane (tests/PostgresTestCase.php, wired below
+// with `uses()`): `composer test:pg` / `./vendor/bin/pest -c phpunit.pg.xml`
+// against a real Postgres. Originally lived under tests/Feature/Site (bound to
+// Tests\TestCase, whose setUp() unconditionally repoints 'pgsql' at in-memory
+// SQLite with no escape hatch), so it always skipped — moved here so it
+// actually executes. PostgresTestCase now owns the skip-without-Postgres
+// guard, so the two tests below no longer gate on the driver themselves.
 //
-// The 3cd4ff63 fix WAS verified on real dev Postgres by running these exact
-// statements (temp table + outer/nested transaction + insertOrIgnore, and the
-// bare insert-and-catch negative control) directly via `cloud tinker
+// See tests/Postgres/ItemSlugAllocatorRegressionTest.php for the companion
+// sentinel that drives the real production ItemSlugAllocator end to end
+// against a real site.item_slugs table — this file only reproduces the
+// insertOrIgnore-in-a-savepoint MECHANISM against a scratch table.
+//
+// The 3cd4ff63 fix WAS ALSO verified on real dev Postgres by running these
+// exact statements (temp table + outer/nested transaction + insertOrIgnore,
+// and the bare insert-and-catch negative control) directly via `cloud tinker
 // development` — Test A → inserted=0/rows=2, Test B → 23505 caught then 25P02
-// poison — i.e. the mechanism below is confirmed on Postgres even though Pest
-// cannot yet reach it here.
+// poison.
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\PostgresTestCase;
 
-if (! function_exists('itemSlugSavepointIsPostgres')) {
-    function itemSlugSavepointIsPostgres(): bool
-    {
-        return DB::connection()->getDriverName() === 'pgsql';
-    }
-}
+uses(PostgresTestCase::class)->in(__FILE__);
 
 // ─── 1. Mechanism sentinel — insertOrIgnore + nested transaction survives ─────
 //
@@ -62,10 +59,6 @@ if (! function_exists('itemSlugSavepointIsPostgres')) {
 // without core.users INSERT rights.
 
 it('insertOrIgnore inside a nested transaction survives a collision without poisoning the outer transaction', function () {
-    if (! itemSlugSavepointIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $table = 'item_slug_probe_'.Str::lower(Str::random(8));
     DB::statement("CREATE TEMPORARY TABLE {$table} (val text UNIQUE)");
 
@@ -105,10 +98,6 @@ it('insertOrIgnore inside a nested transaction survives a collision without pois
 });
 
 it('without insertOrIgnore, a bare insert-and-catch collision poisons the whole outer transaction (negative control)', function () {
-    if (! itemSlugSavepointIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $table = 'item_slug_probe_'.Str::lower(Str::random(8));
     DB::statement("CREATE TEMPORARY TABLE {$table} (val text UNIQUE)");
 
