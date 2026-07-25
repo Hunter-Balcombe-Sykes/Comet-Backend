@@ -1,4 +1,0 @@
-→ Adjudicating with claude --model sonnet ...
-
-✓ Wrote audits/.drafts/pilot-1779343058/audit-schemarls.md — 10 findings, 168s elapsed
-Final audit ready: audits/.drafts/pilot-1779343058/audit-schemarls.md

@@ -28,6 +28,28 @@ Two merged audit runs. PR #271 finding IDs are namespaced `271-*`; PR #270 IDs a
 | P3 — low      | 14 | 8 | 22 |
 | **Total**     | **28** | **21** | **49** |
 
+## Checkbox state — reviewed 2026-07-25
+
+**6 done / 43 open.** Two execution runs drew from this sweep — the pre-pilot slice (merged `ebf84141`)
+and the slug residuals (merged `91d11ccf`) — but most of what remains is genuine backlog, not stale
+bookkeeping. The open items are dominated by test-coverage findings that were never in either run's scope.
+Verified against live code on 2026-07-25:
+
+- `271-PRIV-2` (Google reviewer PII) — **open by decision**, not oversight. Josh chose 2026-07-24 to keep
+  current behaviour and revisit before the pilot. This folder must not be archived while it stands.
+- `#TEST-2` — **still open, confirmed.** `CheckConstraintsTest` / `IndexCoverageTest` guard on
+  `DB::connection()->getDriverName() === 'pgsql'`; the suite runs SQLite, so they still never execute in CI.
+- `#TEST-9` / `271-TEST-1` (no invariant test that `site.themes` stays dropped) — **still open, confirmed**:
+  no test under `tests/` references `site.themes`.
+- `271-PARITY-1` — **partially addressed only.** The T3 schema-drift pass tightened `site.menus.user_id`
+  to `NOT NULL` in the test schema, but `site.menu_items.menu_id` and `.name` remain nullable and are still
+  grandfathered in `scripts/launch-check/schema-drift-baseline.json`. Closing this is T3-follow-up work.
+- `#TEST-1` (hand-maintained SQLite fixtures can drift from prod undetected) — **mostly addressed** by the
+  schema-drift gate + its dedicated CI job, but deliberately left open: the gate only introspects tables
+  built by the shared `setup*Table()` helpers, so the ~42 test files carrying their own `CREATE TABLE` are
+  still invisible to it. That hole is Task B of
+  `docs/superpowers/plans/2026-07-25-schema-drift-t3-followup-PROMPT.md`.
+
 ## Execution policy  (how `execute audit` runs this file)
 
 - **Plan:**       Opus 4.8

@@ -1,1 +1,0 @@
-No transaction boundary violations found in the provided files. All `DB::transaction` / `DB::beginTransaction` calls are free of external I/O, queue dispatches, cache writes, and observer side effects, and comply with the gold-standard discipline.

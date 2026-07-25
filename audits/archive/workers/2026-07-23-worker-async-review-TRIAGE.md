@@ -45,11 +45,11 @@ Counts reconcile against the union of IDs (24 ✓). No semantic duplicates acros
 
 Includes the twelve `RV-*` units folded in from the review roadmap — see **Review-only addendum — pilot tier** at the foot of this file. Pipeline findings: 24. Review-only: 12. Total 36.
 
-**Closed out 2026-07-24 — folder archived at Josh's direction.** All 17 in-scope units shipped and reviewed. Of the 4 non-code items: `RV-1` verified (dashboard), `RV-2` set on both envs. `RV-12` and `R3-SCALE-1` are **not done** — they graduated to their own prompts (see the `[~]` notes) and are marked `[~]` so this run's folder can archive without falsely claiming them complete.
+**Closed out 2026-07-24 — folder archived at Josh's direction.** All 17 in-scope units shipped and reviewed. Of the 4 non-code items: `RV-1` verified (dashboard), `RV-2` set on both envs. `RV-12` and `R3-SCALE-1` graduated to their own prompts and were marked `[~]` so this run's folder could archive without falsely claiming them complete. **Update 2026-07-25: `RV-12` has since SHIPPED** (see its line below) and is now `[x]`; only `R3-SCALE-1` remains outstanding.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 11 of 11 complete (6 pipeline + 5 review-only)
-- P2 Medium: 17 of 19 complete + 2 relocated (`RV-12`, `R3-SCALE-1`) — see `[~]` notes
+- P2 Medium: 18 of 19 complete + 1 relocated (`R3-SCALE-1`) — `RV-12` shipped 2026-07-24, re-ticked 2026-07-25
 - P3 Low: 6 of 6 complete (5 pipeline + 1 review-only)
 
 ---
@@ -791,7 +791,7 @@ Includes the twelve `RV-*` units folded in from the review roadmap — see **Rev
     - **Technical:** The review found ten `DeleteMirroredMediaJob` failures at `2026-07-23 03:21:15` — R2 returning 4xx on a `platforms/instagram/...` prefix listing — and that job's `failed()` only reports and logs; it schedules no reclamation. Neither existing sweeper covers the gap: `gdpr:sweep-purged-video-artifacts` reads `EVENT_PURGED` audit rows for **video** paths, and `media:gc-orphaned-video-artifacts` LISTs the **`videos/`** prefix. **Nothing touches `platforms/`.** This is the one failure class in the review with no compensating control anywhere in the system, which is why it is here despite being a launch-tier roadmap item.
     - **Plain English:** When a scraped Instagram image needs deleting from cloud storage and that delete fails, the failure gets logged and then nothing else happens — the file stays there, paid for, forever. There are two existing cleanup routines that go looking for exactly this kind of abandoned file, but both were written for video and only look in the video folder. Nobody has ever swept the platform-media folder. The review found ten of these failures in a single night. The fix is a third cleanup routine on the same pattern as the first two, with two cautions: give its "don't run twice at once" lock a longer life than the gap between runs, and make it ignore recently-created files so it cannot delete something a mirror job is still writing.
 
-- [~] **RV-12** · P2 — Transactional mail shares a 2-process supervisor with nine other queues; two long jobs stall every email
+- [x] **RV-12** · P2 — Transactional mail shares a 2-process supervisor with nine other queues; two long jobs stall every email _(DONE 2026-07-24 — shipped after this folder was archived. `supervisor-mail` (`["notifications","mail"]`, 2x128 MiB) is live in `config/horizon.php`, carrying an explicit `RV-12:` rationale comment. Unblocked by `RV-4`, whose flex-2gb resize was applied live 2026-07-24. Re-verified against config 2026-07-25.)_
     - **RELOCATED 2026-07-24 — NOT completed in this run.** Gated on the `RV-4` `flex-2gb` resize going live. Graduated to its own gated prompt: `docs/superpowers/plans/2026-07-24-rv12-mail-supervisor-PROMPT.md`. Marked `[~]` (neither open TODO for this run nor a completion claim) so the pilot folder can archive; real doneness is tracked in that prompt.
     - **Where:** config/horizon.php:96-104
     - **Affects:** Every transactional email — enquiry confirmations, notifications, GDPR deletion links — during any period when two long-running jobs occupy `supervisor-1`.
