@@ -2,6 +2,8 @@
 
 namespace App\Services\WebsiteScan;
 
+use App\Services\Http\UrlAbsolutizer;
+
 /**
  * Best-effort static-HTML equivalent of the deleted EvidenceConclusions::
  * logoCandidates() — everything except rendered-geometry filtering (top
@@ -54,7 +56,7 @@ class WebsiteLogoCandidateExtractor
             if (! str_contains($rel, 'icon')) {
                 continue;
             }
-            $href = $this->absolutize(trim((string) $link->getAttribute('href')), $baseUrl);
+            $href = UrlAbsolutizer::absolutize(trim((string) $link->getAttribute('href')), $baseUrl);
             if ($href === null) {
                 continue;
             }
@@ -77,7 +79,7 @@ class WebsiteLogoCandidateExtractor
             if (! $link instanceof \DOMElement) {
                 continue;
             }
-            $href = $this->absolutize(trim((string) $link->getAttribute('href')), $baseUrl);
+            $href = UrlAbsolutizer::absolutize(trim((string) $link->getAttribute('href')), $baseUrl);
             if ($href !== null) {
                 $out[] = ['kind' => 'manifest', 'url' => $href];
             }
@@ -95,7 +97,7 @@ class WebsiteLogoCandidateExtractor
                 if (! $meta instanceof \DOMElement) {
                     continue;
                 }
-                $url = $this->absolutize(trim((string) $meta->getAttribute('content')), $baseUrl);
+                $url = UrlAbsolutizer::absolutize(trim((string) $meta->getAttribute('content')), $baseUrl);
                 if ($url !== null) {
                     $out[] = ['kind' => $kind, 'url' => $url];
                 }
@@ -121,7 +123,7 @@ class WebsiteLogoCandidateExtractor
             if (! $img instanceof \DOMElement) {
                 continue;
             }
-            $src = $this->absolutize(trim((string) $img->getAttribute('src')), $baseUrl);
+            $src = UrlAbsolutizer::absolutize(trim((string) $img->getAttribute('src')), $baseUrl);
             if ($src === null) {
                 continue;
             }
@@ -176,7 +178,7 @@ class WebsiteLogoCandidateExtractor
             if (! $img instanceof \DOMElement) {
                 continue;
             }
-            $src = $this->absolutize(trim((string) $img->getAttribute('src')), $baseUrl);
+            $src = UrlAbsolutizer::absolutize(trim((string) $img->getAttribute('src')), $baseUrl);
             if ($src === null || isset($seen[$src])) {
                 continue;
             }
@@ -201,30 +203,5 @@ class WebsiteLogoCandidateExtractor
     private function looksLikeLogo(string $haystack): bool
     {
         return str_contains(strtolower($haystack), 'logo');
-    }
-
-    private function absolutize(string $href, string $baseUrl): ?string
-    {
-        if ($href === '' || str_starts_with($href, 'data:')) {
-            return null;
-        }
-        if (preg_match('~^https?://~i', $href)) {
-            return $href;
-        }
-        $base = parse_url($baseUrl);
-        if (! isset($base['scheme'], $base['host'])) {
-            return null;
-        }
-
-        // Protocol-relative ("//cdn.example.com/x") — the Squarespace CDN's
-        // standard src form. Without this branch it was treated as a path and
-        // mangled into "<origin>//cdn.example.com/x" (2026-07-23 live find).
-        if (str_starts_with($href, '//')) {
-            return $base['scheme'].':'.$href;
-        }
-
-        $origin = $base['scheme'].'://'.$base['host'].(isset($base['port']) ? ':'.$base['port'] : '');
-
-        return $href[0] === '/' ? $origin.$href : $origin.'/'.ltrim($href, '/');
     }
 }

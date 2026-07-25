@@ -3,6 +3,7 @@
 namespace App\Services\WebsiteScan;
 
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Http\UrlAbsolutizer;
 
 /**
  * Finds and fetches a business's favicon from an already-fetched homepage —
@@ -19,7 +20,7 @@ class FaviconFetcher
     /** @return array{url: string, bytes: string}|null */
     public function fetch(string $html, string $baseUrl): ?array
     {
-        $url = $this->findIconUrl($html, $baseUrl) ?? $this->absolutize('/favicon.ico', $baseUrl);
+        $url = $this->findIconUrl($html, $baseUrl) ?? UrlAbsolutizer::absolutize('/favicon.ico', $baseUrl);
         if ($url === null) {
             return null;
         }
@@ -67,23 +68,6 @@ class FaviconFetcher
             }
         }
 
-        return $best !== null ? $this->absolutize($best, $baseUrl) : null;
-    }
-
-    private function absolutize(string $href, string $baseUrl): ?string
-    {
-        if ($href === '' || str_starts_with($href, 'data:')) {
-            return null;
-        }
-        if (preg_match('~^https?://~i', $href)) {
-            return $href;
-        }
-        $base = parse_url($baseUrl);
-        if (! isset($base['scheme'], $base['host'])) {
-            return null;
-        }
-        $origin = $base['scheme'].'://'.$base['host'].(isset($base['port']) ? ':'.$base['port'] : '');
-
-        return $href[0] === '/' ? $origin.$href : $origin.'/'.ltrim($href, '/');
+        return $best !== null ? UrlAbsolutizer::absolutize($best, $baseUrl) : null;
     }
 }
