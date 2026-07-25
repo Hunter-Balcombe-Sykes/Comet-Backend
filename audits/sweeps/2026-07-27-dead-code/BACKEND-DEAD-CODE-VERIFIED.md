@@ -29,7 +29,7 @@ provider edit, a decision, or a migration.
   `## Standalone — do NOT bundle` **pauses for explicit go-ahead** before implementation.
 
 ## Progress
-- **Total findings: 14** — 8 / 14 done.
+- **Total findings: 14** — 9 / 14 done.
 - Auto-run: Bundle 1 (8), Bundle 2 (1), Bundle 3 (3) = 12.
 - Standalone (pause for sign-off): DC-C2, DC-D1 = 2.
 - Decided no-action (not counted): B2 `visibility()` — keep.
@@ -77,7 +77,7 @@ Delete each target **and its paired test**, then `composer test`.
 ### Bundle 2 — Eventbrite/Humanitix resource cleanup (P2 · S) — AUTO-RUN, own review
 Separate session because it edits the provider registration + a contract test, not just files.
 
-- [ ] **DC-C1** — Delete `app/Http/Resources/Platforms/EventbriteConnectionResource.php` and
+- [x] **DC-C1** — Delete `app/Http/Resources/Platforms/EventbriteConnectionResource.php` and
   `HumanitixConnectionResource.php`. THEN:
   1. Drop the `->resource(EventbriteConnectionResource::class)` argument from
      `app/Providers/PlatformRegistryServiceProvider.php:334`, and

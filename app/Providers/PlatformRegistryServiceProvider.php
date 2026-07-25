@@ -7,10 +7,8 @@ use App\Http\Controllers\Api\Platforms\SkoolController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
-use App\Http\Resources\Platforms\EventbriteConnectionResource;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
-use App\Http\Resources\Platforms\HumanitixConnectionResource;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Http\Resources\Platforms\LinkConnectionResource;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
@@ -331,8 +329,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
-            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->resource(EventbriteConnectionResource::class)->refreshable()->coverable()->payload(EventsAccountPayload::class));
-            $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->resource(HumanitixConnectionResource::class)->refreshable()->payload(EventsAccountPayload::class));
+            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->refreshable()->coverable()->payload(EventsAccountPayload::class));
+            $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->refreshable()->payload(EventsAccountPayload::class));
             // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
             $r->get('eventbrite')->fetch(fn () => new EventbriteFetch(app(EventbriteScraper::class)));
             $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
