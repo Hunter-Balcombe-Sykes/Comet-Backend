@@ -86,6 +86,47 @@ else
     warn "schema snapshot at $SNAP but repo has $LATEST_REPO — run refresh-schema-snapshot.php (and 'supabase db push' if the migration isn't applied yet)"
 fi
 
+# --- 4. Migration set-diff: repo files vs applied versions (both directions) ---
+# Snapshot staleness (§3) only compares the LATEST filename; this catches drift
+# anywhere in the set — a repo migration never applied to dev, or a migration
+# applied directly to dev that never made it into the repo (see the drift
+# reconcile runbook: reference_supabase_migration_drift).
+mset_resp=$(curl -s --max-time 30 -w $'\n%{http_code}' -X POST \
+    "https://api.supabase.com/v1/projects/$REF/database/query" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg q "SELECT version FROM supabase_migrations.schema_migrations ORDER BY 1" '{query: $q}')")
+mset_curl_exit=$?
+mset_code="${mset_resp##*$'\n'}"
+mset_body="${mset_resp%$'\n'*}"
+if [[ $mset_curl_exit -ne 0 ]] || is_unreachable "$mset_code"; then
+    fail "could not verify migration set-diff — API unreachable (curl exit $mset_curl_exit, status ${mset_code:-none})"
+elif ! is_success "$mset_code"; then
+    fail "could not verify migration set-diff — API returned $mset_code: $(echo "$mset_body" | tr -d '\n' | cut -c1-120)"
+elif ! echo "$mset_body" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    fail "could not verify migration set-diff — unexpected response shape (status $mset_code): $(echo "$mset_body" | tr -d '\n' | cut -c1-120)"
+else
+    REPO_VERSIONS="$(ls "$DIR/../../supabase/migrations/"*.sql 2>/dev/null | xargs -n1 basename 2>/dev/null \
+        | grep -oE '^[0-9]+' | sort -u)"
+    APPLIED="$(echo "$mset_body" | jq -r '.[].version' 2>/dev/null | sort -u)"
+    if [[ -z "$REPO_VERSIONS" ]]; then
+        fail "could not verify migration set-diff — no repo migration files found under supabase/migrations/"
+    else
+        only_repo="$(comm -23 <(echo "$REPO_VERSIONS") <(echo "$APPLIED"))"
+        only_db="$(comm -13 <(echo "$REPO_VERSIONS") <(echo "$APPLIED"))"
+        if [[ -z "$only_repo" ]]; then
+            pass "every repo migration is applied on dev"
+        else
+            fail "repo migrations NOT applied on dev:"
+            echo "$only_repo" | sed 's/^/        /'
+        fi
+        if [[ -z "$only_db" ]]; then
+            pass "no applied-but-unversioned migrations on dev"
+        else
+            warn "applied on dev but absent from repo (direct-to-Supabase drift): $(echo "$only_db" | tr '\n' ' ')"
+        fi
+    fi
+fi
+
 echo
 if [[ $FAILS -gt 0 ]]; then echo "SUPABASE-CHECK: $FAILS failure(s)"; exit 1; fi
 echo "SUPABASE-CHECK: passed"

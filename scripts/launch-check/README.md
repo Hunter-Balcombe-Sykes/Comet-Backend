@@ -11,18 +11,29 @@ Counterpart to `scripts/audit/` (static code): verifies the **running system**.
 | E | Security audit (Vigil): filesystem/secrets/dependency checks, same gate as CI (`--fail-on=critical`) | `APP_DEBUG=false php artisan vigil:audit --fail-on=critical` |
 | F | Drill-log freshness: each failure-mode drill has a log postdating changes to its drilled path (read-only — never runs a drill; see `docs/runbooks/drills/`) | `scripts/launch-check/drill-freshness.sh` |
 | G | Deployed env config: required vars present + APP_DEBUG/APP_ENV/queue/cache correct on the running Cloud env (via `cloud command:run`) | `scripts/launch-check/env-check.sh` |
-| H | Manual residue | `MANUAL-CHECKLIST.md` |
+| H | Deployed runtime health: sitepage served via edge (cf-cache HIT, alias 301, TLS), Horizon masters up, Redis/storage/scheduler alive | `scripts/launch-check/runtime-health.sh` |
+| I | Manual residue | `MANUAL-CHECKLIST.md` |
 
 Full run: `scripts/launch-check/launch-check.sh` → `audits/launch-check/<date>/REPORT.md`
 
-**Group G (`env`) is opt-in only** — it needs the `cloud` CLI and a reachable, deployed
-Laravel Cloud env, neither of which a plain local run can assume. It is not in the
-default group set; run it explicitly with `scripts/launch-check/launch-check.sh --only env`
-(or `scripts/launch-check/env-check.sh` directly). Defaults to `--env development --target
-pilot`; `--env production` requires `LAUNCH_CHECK_CONFIRM_PROD=1` and is otherwise refused.
+**Group G (`env`) and group H (`runtime`) are opt-in only** — both need the `cloud` CLI and a
+reachable, deployed Laravel Cloud env, neither of which a plain local run can assume. Neither
+is in the default group set; run them explicitly with `scripts/launch-check/launch-check.sh
+--only env,runtime` (or `scripts/launch-check/env-check.sh` / `scripts/launch-check/runtime-health.sh`
+directly). Both default to `--env development --target pilot`; `--env production` requires
+`LAUNCH_CHECK_CONFIRM_PROD=1` and is otherwise refused.
 
-**`env-check.sh` internals — never reintroduce a line-scanning parser.** `cloud
-command:run --json` has a confirmed, live, INTERMITTENT bug: raw `0x0A` bytes are emitted
+**Group H (`runtime`) setup** — set `LAUNCH_CHECK_HANDLE` to a canary sitepage handle
+(a currently published `<handle>.partna.au`) so the edge-probe half of group H has a
+target to hit. Without it, `edge-check.sh` WARNs and skips the edge probe cleanly rather
+than failing or silently passing — it never infers "edge works" from "nothing was checked."
+The runtime-liveness half (Horizon/Redis/storage/scheduler, run via `cloud command:run`)
+is unaffected by `LAUNCH_CHECK_HANDLE` and always runs when the `cloud` CLI is available.
+
+**`env-check.sh` / `runtime-health.sh` internals — never reintroduce a line-scanning
+parser.** Both scripts shell out through `cloud command:run --json` and both source the
+SAME parser, `scripts/launch-check/lib/cloud-json-parse.sh` — do not fork a second copy.
+`cloud command:run --json` has a confirmed, live, INTERMITTENT bug: raw `0x0A` bytes are emitted
 inside the `output` string value instead of the `\n` escape JSON requires, which breaks
 strict JSON parsing on almost any multi-line remote output (i.e. most real output,
 including `launch-check:env`'s own). The observed real shape is `{"output":"…","exitCode":N}`
