@@ -23,6 +23,7 @@ use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -109,4 +110,84 @@ it('does not resurrect the fresha connection when forget() lands during saveSele
     expect(Service::where('user_id', $user->id)->where('source', 'fresha')->whereNull('deleted_at')->count())->toBe(0);
     $freshService = Service::withTrashed()->find($service->id);
     expect($freshService->deleted_at)->not->toBeNull();
+});
+
+// pt.3 fix: the case above only exercises a forget() landing during the
+// UNLOCKED scrape (caught by the existence re-check). The residual half-fix bug
+// was a forget()+Square-connect landing in the window BETWEEN the re-check and
+// the write — while saveSelection holds its lock. The pt.2 guard held only the
+// per-platform 'fresha' key there; forget()/clearBooking() delete under
+// bookingXorLock, a DIFFERENT key, so nothing stopped that interleaving.
+//
+// PHP test execution is single-threaded, so we cannot literally run a
+// concurrent forget() mid-write. Instead we prove the STRUCTURAL property that
+// makes the interleaving impossible: at the exact point the pt.2 guard missed
+// (inside projector->sync(), after the re-check, before the write),
+// saveSelection now holds the SAME bookingXorLock key forget() takes. The probe
+// (Cache::lock(...)->get(), the BookingXorLockTest convention) stands in for
+// forget()'s own acquisition: it fails, so a lock-respecting forget() would
+// block and could NOT delete the row before the write completes — the row
+// survives and the write returns 200.
+//
+// What this proves: saveSelection and forget serialise on one key across the
+// whole check→sync→write span, closing the TOCTOU. What it does NOT prove: real
+// multi-process Redis lock semantics (array store here) or wall-clock ordering
+// under genuine contention — that is covered structurally by the shared key.
+it('holds the booking-XOR lock across saveSelection\'s re-check → sync → write span, so a lock-respecting forget() cannot interleave and resurrect the row', function () {
+    $user = freshaSaveSelectionRaceUser('frsel2');
+    // Hard-coded, NOT read from CacheKeyGenerator — the whole point is that
+    // saveSelection and forget() derive the identical key.
+    $key = "platforms:booking-xor:lock:{$user->id}";
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'fresha',
+        'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://www.fresha.com/a/acme', 'selection' => null],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    // Probe fires at the point the pt.2 guard missed: inside sync(), AFTER the
+    // existence re-check and BEFORE writeConnection(). If saveSelection holds
+    // bookingXorLock here, this acquisition (forget()'s own) must fail.
+    $lockHeldDuringWriteSpan = false;
+    $this->mock(FreshaServiceProjector::class, function ($m) use (&$lockHeldDuringWriteSpan, $key) {
+        $m->shouldReceive('sync')->once()->andReturnUsing(function () use (&$lockHeldDuringWriteSpan, $key) {
+            $probe = Cache::lock($key, 5);
+            $lockHeldDuringWriteSpan = ! $probe->get();
+            if (! $lockHeldDuringWriteSpan) {
+                // MANDATORY release — a wrongly-acquired ArrayLock left held
+                // would deadlock the write this same request is about to do.
+                $probe->release();
+            }
+
+            return ['services' => [], 'hiddenServiceIds' => [], 'raw' => []];
+        });
+    });
+
+    $this->mock(FreshaScraper::class, function ($m) {
+        $m->shouldReceive('fetchLocation')->andReturn(['name' => 'Acme']);
+        $m->shouldReceive('extractTeam')->andReturn([
+            ['employeeId' => 'e1', 'displayName' => 'Jo', 'jobTitle' => null, 'avatarUrl' => null, 'rating' => null],
+        ]);
+        $m->shouldReceive('slugFromUrl')->andReturn('acme');
+        $m->shouldReceive('fetchEmployeeServices')->andReturn([
+            ['serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null, 'price' => '$50', 'priceValue' => null, 'currency' => null, 'category' => 'Cuts', 'hasVariants' => false],
+        ]);
+        $m->shouldReceive('extractStoreName')->andReturn('Acme');
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/fresha/selection', ['employeeId' => 'e1'])
+        ->assertStatus(200);
+
+    // The lock was genuinely held across the re-check → sync → write span: a
+    // forget() on the same key could not have deleted the row in between.
+    expect($lockHeldDuringWriteSpan)->toBeTrue();
+
+    // And the row survived + was written (not deleted, not resurrected-from-nothing).
+    $fresh = IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->first();
+    expect($fresh)->not->toBeNull();
+    expect($fresh->deleted_at)->toBeNull();
+    expect($fresh->payload['selection']['employee']['employeeId'])->toBe('e1');
 });

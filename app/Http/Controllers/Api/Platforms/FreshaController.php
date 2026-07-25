@@ -391,52 +391,76 @@ class FreshaController extends ApiController
         $employee = $resolved['employee'];
         $services = $resolved['services'];
 
-        // Whole-branch review fix: 30s, same as connect()'s storewide branch
-        // above — this closure also runs FreshaServiceProjector::sync() (the
-        // services advisory lock + projection) INSIDE the lock, so the 10s
-        // default carries the identical mid-write-expiry risk here.
-        return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {
-            // Fix A (whole-branch review pt.2): the scrape above runs UNLOCKED
-            // for up to 20s; a forget() landing in that window soft-deletes
-            // this connection (and its synced services) under bookingXorLock —
-            // a key this method never takes. writeConnection() below is an
-            // updateOrCreate, so without this re-check it would resurrect the
-            // row (and projector->sync() would resurrect the tombstoned
-            // deleted_origin='sync' service rows) even if a Square connect had
-            // landed in between, breaching the at-most-one-booking-provider
-            // invariant U1 exists to enforce. Mirrored from
-            // FreshaConnectFetch.php's identical re-check.
-            if ($this->connectionFor($user) === null) {
-                return $this->error('No Fresha URL saved yet. Save one first.', 404);
+        // Whole-branch review pt.3 fix: take bookingXorLock OUTER, the
+        // per-platform lock INNER — the exact structure connect()/
+        // connectDeferred() above use (and FreshaConnectFetch.php:155-184 for
+        // the async path). The earlier pt.2 guard re-checked existence under
+        // the 'fresha' platform key ALONE, but forget()/BookingController::
+        // clearBooking() delete under bookingXorLock — a DIFFERENT key — so the
+        // two never excluded each other: a forget()+Square-connect landing
+        // between the re-check and the write still resurrected Fresha alongside
+        // an active Square, the very at-most-one-booking-provider violation U1
+        // exists to prevent. Holding bookingXorLock across the whole check →
+        // sync() → write span closes that residual TOCTOU — forget() now blocks
+        // on the same key and cannot interleave.
+        //
+        // Lock order is fixed (bookingXor outer, platform inner) — never the
+        // reverse; see ManagesIntegrationConnection::withCrossPlatformLock's
+        // lock-ordering docblock (reversing it is the one cycle the branch
+        // confirmed does not exist). The ~20s scrape above stays OUTSIDE both
+        // locks, same discipline as connect(). TTL 30s on BOTH locks: this
+        // closure runs FreshaServiceProjector::sync() (services advisory lock +
+        // projection) inside, the identical overrun risk connect()'s storewide
+        // branch raised both of its locks to 30s for.
+        return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $location, $employee, $services): JsonResponse {
+            // Re-assert the Square XOR under the lock forget()/clearBooking()/
+            // SquareController::connect() all serialise on — a Square that
+            // connected during the unlocked scrape above must block this write,
+            // mirroring FreshaConnectFetch.php:170 for the async path.
+            if ($this->hasConflictingConnection($user, Platform::Square->value)) {
+                return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
             }
 
-            // Preserve previously hidden services, dropping ids that no longer exist
-            // in the refreshed menu so the hidden list never drifts stale. The kept
-            // list seeds is_active on first-time projections; projected rows then
-            // own the hidden state (compose() re-derives the list from is_active).
-            $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
-            $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
-            $hidden = array_values(array_filter(
-                $existing->selection?->hiddenServiceIds() ?? [],
-                static fn ($id): bool => in_array($id, $serviceIds, true),
-            ));
+            return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {
+                // Existence re-check (kept from pt.2, still necessary but no
+                // longer sufficient alone): a forget() landing during the
+                // unlocked scrape soft-deletes this row before either lock is
+                // taken. writeConnection() below is an updateOrCreate, so
+                // without this it would resurrect the row (and projector->sync()
+                // the tombstoned deleted_origin='sync' service rows). Mirrored
+                // from FreshaConnectFetch.php's identical re-check.
+                if ($this->connectionFor($user) === null) {
+                    return $this->error('No Fresha URL saved yet. Save one first.', 404);
+                }
 
-            $projected = $this->projector->sync($user, $services, $hidden);
-            $selection = [
-                'url' => $url,
-                'storeName' => $this->scraper->extractStoreName($location),
-                'mode' => 'employee',
-                'employee' => $employee,
-                'services' => $projected['services'],
-                'hiddenServiceIds' => $projected['hiddenServiceIds'],
-            ];
-            $this->writeConnection($user, [
-                'url' => $url,
-                'selection' => $selection,
-                'raw' => ['services' => $projected['raw']],
-            ]);
+                // Preserve previously hidden services, dropping ids that no longer exist
+                // in the refreshed menu so the hidden list never drifts stale. The kept
+                // list seeds is_active on first-time projections; projected rows then
+                // own the hidden state (compose() re-derives the list from is_active).
+                $serviceIds = array_map(static fn (array $s): string => (string) $s['serviceId'], $services);
+                $existing = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+                $hidden = array_values(array_filter(
+                    $existing->selection?->hiddenServiceIds() ?? [],
+                    static fn ($id): bool => in_array($id, $serviceIds, true),
+                ));
 
-            return $this->success((new FreshaSelectionResource($selection))->resolve());
+                $projected = $this->projector->sync($user, $services, $hidden);
+                $selection = [
+                    'url' => $url,
+                    'storeName' => $this->scraper->extractStoreName($location),
+                    'mode' => 'employee',
+                    'employee' => $employee,
+                    'services' => $projected['services'],
+                    'hiddenServiceIds' => $projected['hiddenServiceIds'],
+                ];
+                $this->writeConnection($user, [
+                    'url' => $url,
+                    'selection' => $selection,
+                    'raw' => ['services' => $projected['raw']],
+                ]);
+
+                return $this->success((new FreshaSelectionResource($selection))->resolve());
+            }, 30);
         }, 30);
     }
 
