@@ -1,7 +1,10 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -124,4 +127,26 @@ it('returns setup null when nothing is connected', function () {
         ->assertOk()
         ->assertJsonPath('connected', false)
         ->assertJsonPath('setup', null);
+});
+
+it('purges the sitepage cache when a payload write completes a connection', function () {
+    $user = setupStateUser('purgeonsel');
+    // IntegrationConnectionCacheRefresher resolves user -> site -> subdomain;
+    // setupStateUser() alone leaves the user site-less, so the purge would
+    // never fire regardless of the observer wiring under test here. Raw-insert
+    // the site (same pattern as PlatformConnectionModelTest's purge test) to
+    // isolate the assertion to the observer's invalidation path.
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => 'purgeonsel',
+    ]);
+    $row = seedFresha($user, ['url' => 'https://www.fresha.com/a/x', 'selection' => null]);
+
+    Queue::fake();
+
+    $row->payload = ['url' => 'https://www.fresha.com/a/x', 'selection' => ['mode' => 'employee', 'services' => []]];
+    $row->save();
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 });
