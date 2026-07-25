@@ -66,6 +66,12 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         public readonly string $userId,
         public readonly string $username,
         public readonly string $connectionId,
+        // Whether completing this scrape means the user just ADDED Instagram, and
+        // so is owed a bell. Fail-closed: two of the three dispatchers are not
+        // connects (see handle()), and a new one must opt in rather than discover
+        // it opted out — a spurious notice on an unclaimed account is worse than
+        // a missing one.
+        public readonly bool $notifyOnConnect = false,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -127,18 +133,16 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         // for pre-account (site-first) builds.
         $seeder->seed($connection, $this->username, $this->userId, $profile);
 
-        // Bell notice on the DASHBOARD connect only. Hooked here and not in the
-        // seeder precisely because the seeder is the shared half: InstagramSourceGenerator
-        // calls seed() directly for an unclaimed pre-account build, which must never
-        // notify. seed() writes through this same instance ('ok' on success,
-        // 'unavailable' on a lock timeout), so the notifier's own status guard decides
-        // — no status check belongs here.
-        //
-        // Resolved from the container rather than injected into handle(): unlike
-        // ConnectFetchJob, a dozen existing tests invoke this handle() directly with
-        // explicit arguments, so a fourth parameter would fatal them. Same call shape
-        // as the trait's emit point (ManagesIntegrationConnection::upsertConnection).
-        app(IntegrationNotifier::class)->connected($connection);
+        // Bell notice only for a dispatcher that means "the user just added this".
+        // The other two must stay silent: GoogleBusinessAutoSync::dispatchInstagram
+        // runs for an UNCLAIMED pre-account build (its google_business_full_sync gate
+        // has no claimed-status term, and every GBP build is account_type business),
+        // and RefreshController::refreshInstagram is a manual re-pull of an account
+        // that is already connected. seed() writes 'ok'/'unavailable' through this
+        // same instance, so the notifier's status guard decides the rest.
+        if ($this->notifyOnConnect) {
+            app(IntegrationNotifier::class)->connected($connection);
+        }
     }
 
     public function failed(Throwable $e): void

@@ -176,8 +176,6 @@ it('does not notify when ConnectFetchJob fails terminally', function () {
     expect(icwRows($user))->toHaveCount(0);
 });
 
-// ── Instagram: the job notifies, the shared seeder must not ──────────────────
-
 // Vendor-boundary stub, copied from InstagramAsyncConnectTest: InstagramConnectionSeeder
 // resolves its OWN InstagramScraper from the container, so the mock has to be bound as
 // an instance, not just handed to handle(). No media is returned — mirroring needs
@@ -209,13 +207,41 @@ it('notifies once InstagramConnectJob completes a dashboard connect', function (
     $connection = icwPendingInstagramRow($user);
     icwStubInstagramScraper();
 
-    app()->call([new InstagramConnectJob($user->id, 'icwig', $connection->id), 'handle']);
+    // notifyOnConnect mirrors InstagramController::connect — the one dispatcher
+    // that means "the user just added Instagram".
+    app()->call([new InstagramConnectJob($user->id, 'icwig', $connection->id, notifyOnConnect: true), 'handle']);
 
     expect($connection->fresh()->last_refresh_status)->toBe('ok');
 
     $rows = icwRows($user);
     expect($rows)->toHaveCount(1);
     expect($rows->first()->title)->toContain('Instagram');
+});
+
+it('does not notify for a system-initiated InstagramConnectJob', function () {
+    // The other two dispatchers construct the job with three args, leaving
+    // notifyOnConnect at its fail-closed default:
+    //   - GoogleBusinessAutoSync::dispatchInstagram, reached from an UNCLAIMED
+    //     pre-account GBP build (GoogleBusinessSourceGenerator → GoogleBusinessEnrichJob
+    //     → seed()); its google_business_full_sync gate has no claimed-status term and
+    //     every GBP build is account_type business, so nothing downstream stops it.
+    //     ClaimSiteService purges no notifications, so a bell published here would
+    //     survive the claim and greet whoever claims the site.
+    //   - RefreshController::refreshInstagram, a manual re-pull of an account that is
+    //     ALREADY connected (the row is deliberately not reset to pending). Dedupe
+    //     hides that only until the 30-day retention prune hard-deletes the row.
+    // The user below is partna + active on purpose: the intent flag is the only thing
+    // holding this at zero, so no capability gate can mask a regression.
+    $user = icwUser('icw13');
+    $connection = icwPendingInstagramRow($user);
+    // The source tag GoogleBusinessAutoSync writes on its placeholder row.
+    $connection->forceFill(['payload' => ['source' => 'google-business']])->saveQuietly();
+    icwStubInstagramScraper();
+
+    app()->call([new InstagramConnectJob($user->id, 'icwig', $connection->id), 'handle']);
+
+    expect($connection->fresh()->last_refresh_status)->toBe('ok');
+    expect(icwRows($user))->toHaveCount(0);
 });
 
 it('does not notify for a pre-account Instagram seed', function () {
@@ -234,8 +260,6 @@ it('does not notify for a pre-account Instagram seed', function () {
     expect($connection->fresh()->last_refresh_status)->toBe('ok');
     expect(icwRows($user))->toHaveCount(0);
 });
-
-// ── Link cards: resource_kind decides ────────────────────────────────────────
 
 it('notifies once EnrichLinkCardJob completes a resource_kind-NULL card', function () {
     // Booking / reservations / online ordering leave resource_kind NULL (only
@@ -287,8 +311,6 @@ it('does not notify when a seeded custom link completes enrichment', function ()
     expect(icwRows($user))->toHaveCount(0);
 });
 
-// ── Events catalogue ─────────────────────────────────────────────────────────
-
 it('notifies on a synchronous events-organiser connect', function () {
     config(['partna.connect.deferred' => []]);
     $user = icwUser('icw11');
@@ -307,8 +329,6 @@ it('notifies on a synchronous events-organiser connect', function () {
     expect($rows)->toHaveCount(1);
     expect($rows->first()->title)->toContain('Eventbrite');
 });
-
-// ── Shop: a delete must never resurrect the marker row ───────────────────────
 
 it('does not notify when removeBrand runs with no shop connection', function () {
     // removeBrand used to call writeConnection() unconditionally, so a stale

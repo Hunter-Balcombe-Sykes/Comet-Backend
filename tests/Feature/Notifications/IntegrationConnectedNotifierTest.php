@@ -80,9 +80,10 @@ it('publishes a non-critical in-app notification naming the platform', function 
 });
 
 it('never queues a transactional email', function () {
-    // Email delivery is off in the test env, and NotificationPublisher checks that
-    // flag BEFORE $critical — so without this the assertion below would pass just as
-    // happily with critical: true, proving nothing about the gate it exists to prove.
+    // email_enabled is a separate necessary term alongside $critical in
+    // NotificationPublisher's dispatch condition, and it is off in the test env — so
+    // without this the assertion below would pass just as happily with critical: true,
+    // proving nothing about the gate it exists to prove.
     Config::set('partna.notifications.email_enabled', true);
 
     Queue::fake();
