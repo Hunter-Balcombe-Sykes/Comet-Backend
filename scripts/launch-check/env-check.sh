@@ -51,22 +51,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# production is gated: requires an explicit opt-in env var so it can never fire
-# by accident from a plain `--env production` (prod Supabase ref must stay out of
-# this suite's default path — see CLAUDE.md).
-if [[ "$CLOUD_ENV" == "production" && "${LAUNCH_CHECK_CONFIRM_PROD:-}" != "1" ]]; then
-    echo "FAIL  refusing to run against production without LAUNCH_CHECK_CONFIRM_PROD=1 (prod probing is gated)"
-    exit 1
-fi
+# production is gated (shared gate — see lib/cloud-json-parse.sh).
+launch_check_prod_gate "$CLOUD_ENV" || exit 1
 
 # Resolve the cloud CLI (PATH first, then the composer global bin — see CLAUDE.md).
-launch_check_resolve_cloud_cli
+# Fails closed: absent tooling means this check did not run, not that it passed.
+launch_check_require_cloud_cli "$CLOUD_ENV" "php artisan launch-check:env --target=$TARGET" || exit 1
 CLOUD="$LAUNCH_CHECK_CLOUD"
-if [[ -z "$CLOUD" ]]; then
-    echo "FAIL  cloud CLI not found — run manually:"
-    echo "      cloud command:run $CLOUD_ENV --cmd=\"php artisan launch-check:env --target=$TARGET\""
-    exit 1   # fail closed — absent tooling means this check did not run, not that it passed
-fi
 
 # --json/--fields=exitCode,output gives a machine-readable result — needed because
 # the CLI's own process can exit 0 even when the remote command failed (outer
@@ -76,44 +67,23 @@ CLI_EXIT=$?
 
 if [[ $CLI_EXIT -ne 0 ]]; then
     echo "FAIL  cloud CLI invocation failed (exit $CLI_EXIT):"
-    echo "$RAW"
+    launch_check_dump_raw "$RAW"
     exit 1
 fi
 
 if ! launch_check_parse_cloud_result "$RAW"; then
     echo "FAIL  $LAUNCH_CHECK_PARSE_FAIL_REASON — cannot verify deployed env config"
-    # Only dump the raw payload for genuine parse failures. A well-formed
-    # `{"error":true,...}` record was already extracted into the reason above.
-    if [[ "$LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT" != "1" && -n "$RAW" ]]; then
-        echo "$RAW"
+    # Only dump the raw payload for genuine parse failures, truncated and
+    # redacted — this output is copied verbatim into the run report. A
+    # well-formed `{"error":true,...}` record was already extracted above.
+    if [[ "$LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT" != "1" ]]; then
+        launch_check_dump_raw "$RAW"
     fi
     exit 1
 fi
-PARSE_MODE="$LAUNCH_CHECK_PARSE_MODE"
-REMOTE_EXIT="$LAUNCH_CHECK_REMOTE_EXIT"
-OUT="$LAUNCH_CHECK_OUT"
 
-echo "$OUT"
+echo "$LAUNCH_CHECK_OUT"
 
-HAS_PASS=false
-HAS_FAIL=false
-is_sentinel_line "$OUT" "LAUNCH-CHECK-ENV: PASS" && HAS_PASS=true
-is_sentinel_line "$OUT" "LAUNCH-CHECK-ENV: FAIL" && HAS_FAIL=true
-
-# Positive evidence required for PASS: genuine exit 0 AND the PASS sentinel
-# present as its own line AND no FAIL sentinel also present. Never infer
-# success from the mere absence of a FAIL marker — a truncated/garbled/
-# no-sentinel/spoofed payload must fail closed, not pass by default.
-if [[ "$REMOTE_EXIT" == "0" && "$HAS_PASS" == true && "$HAS_FAIL" == false ]]; then
-    echo "ok    deployed env ($CLOUD_ENV) config check passed"
-    exit 0
-fi
-
-if [[ "$HAS_FAIL" == true ]]; then
-    echo "FAIL  deployed env ($CLOUD_ENV) config check failed"
-elif [[ "$HAS_PASS" == false ]]; then
-    echo "FAIL  deployed env ($CLOUD_ENV) config check output contained no PASS/FAIL sentinel (exitCode=$REMOTE_EXIT, parse mode: $PARSE_MODE) — cannot verify"
-else
-    echo "FAIL  deployed env ($CLOUD_ENV) config check did not report a clean PASS (exitCode=$REMOTE_EXIT) — treating as failure"
-fi
-exit 1
+# Shared verdict convention — see launch_check_verdict in lib/cloud-json-parse.sh.
+launch_check_verdict "$LAUNCH_CHECK_OUT" "$LAUNCH_CHECK_REMOTE_EXIT" \
+    "LAUNCH-CHECK-ENV" "deployed env ($CLOUD_ENV) config check" "$LAUNCH_CHECK_PARSE_MODE"

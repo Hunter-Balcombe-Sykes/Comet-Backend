@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group G orchestrator — edge/sitepage probe (external) + deployed runtime
+# Group H orchestrator — edge/sitepage probe (external) + deployed runtime
 # liveness (inside the env, via cloud command:run). Aggregates both.
 #
 # The `cloud command:run --json` leg reuses lib/cloud-json-parse.sh — the same
@@ -34,13 +34,9 @@ case "$TARGET" in
     *) echo "error: unknown --target '$TARGET' (must be pilot or launch)"; exit 2 ;;
 esac
 
-# production is gated: same rule as env-check.sh — prod probing must never
-# fire from a plain `--env production`, and the prod Supabase ref must stay
-# out of this suite's default path (see CLAUDE.md).
-if [[ "$CLOUD_ENV" == "production" && "${LAUNCH_CHECK_CONFIRM_PROD:-}" != "1" ]]; then
-    echo "FAIL  refusing to run against production without LAUNCH_CHECK_CONFIRM_PROD=1 (prod probing is gated)"
-    exit 1
-fi
+# production is gated — the SAME shared gate env-check.sh uses, so the two can
+# never drift (see lib/cloud-json-parse.sh).
+launch_check_prod_gate "$CLOUD_ENV" || exit 1
 
 FAIL=0
 
@@ -58,55 +54,37 @@ EDGE_ARGS=()
 
 echo
 echo "── Deployed runtime liveness ────────────────"
-launch_check_resolve_cloud_cli
-CLOUD="$LAUNCH_CHECK_CLOUD"
-if [[ -z "$CLOUD" ]]; then
-    echo "WARN  cloud CLI not found — run manually:"
-    echo "      cloud command:run $CLOUD_ENV --cmd=\"php artisan launch-check:runtime --target=$TARGET\""
+# Absent tooling is a FAIL, not a WARN. A WARN that cannot reach the exit code is
+# indistinguishable from a pass: this leg previously WARNed and left FAIL=0, so a
+# run with no `cloud` CLI and no handle probed NOTHING and the runner still
+# printed "all automated groups passed". Same convention as env-check.sh, now
+# from the same shared helper so it cannot drift again.
+if ! launch_check_require_cloud_cli "$CLOUD_ENV" "php artisan launch-check:runtime --target=$TARGET"; then
+    FAIL=1
 else
+    CLOUD="$LAUNCH_CHECK_CLOUD"
     RAW="$("$CLOUD" command:run "$CLOUD_ENV" --cmd="php artisan launch-check:runtime --target=$TARGET" --json --fields=exitCode,output --no-interaction 2>&1)"
     CLI_EXIT=$?
 
     if [[ $CLI_EXIT -ne 0 ]]; then
         echo "FAIL  cloud CLI invocation failed (exit $CLI_EXIT):"
-        echo "$RAW"
+        launch_check_dump_raw "$RAW"
         FAIL=1
     elif ! launch_check_parse_cloud_result "$RAW"; then
         echo "FAIL  $LAUNCH_CHECK_PARSE_FAIL_REASON — cannot verify deployed runtime health"
-        # Only dump the raw payload for genuine parse failures. A well-formed
-        # `{"error":true,...}` record was already extracted into the reason
-        # above — echoing $RAW too would needlessly widen what a probe failure
-        # can put on screen.
-        if [[ "$LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT" != "1" && -n "$RAW" ]]; then
-            echo "$RAW"
+        # Only dump the raw payload for genuine parse failures, truncated and
+        # redacted — this output is copied verbatim into the run report. A
+        # well-formed `{"error":true,...}` record was already extracted above.
+        if [[ "$LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT" != "1" ]]; then
+            launch_check_dump_raw "$RAW"
         fi
         FAIL=1
     else
-        PARSE_MODE="$LAUNCH_CHECK_PARSE_MODE"
-        REMOTE_EXIT="$LAUNCH_CHECK_REMOTE_EXIT"
-        OUT="$LAUNCH_CHECK_OUT"
-        echo "$OUT"
-
-        HAS_PASS=false
-        HAS_FAIL=false
-        is_sentinel_line "$OUT" "LAUNCH-CHECK-RUNTIME: PASS" && HAS_PASS=true
-        is_sentinel_line "$OUT" "LAUNCH-CHECK-RUNTIME: FAIL" && HAS_FAIL=true
-
-        # Positive evidence required for PASS, mirroring env-check.sh: genuine
-        # exit 0 AND the PASS sentinel as its own line AND no FAIL sentinel
-        # also present. Absence of a FAIL marker is never treated as success.
-        if [[ "$REMOTE_EXIT" == "0" && "$HAS_PASS" == true && "$HAS_FAIL" == false ]]; then
-            echo "ok    deployed runtime ($CLOUD_ENV) health check passed"
-        elif [[ "$HAS_FAIL" == true ]]; then
-            echo "FAIL  deployed runtime ($CLOUD_ENV) health check failed"
-            FAIL=1
-        elif [[ "$HAS_PASS" == false ]]; then
-            echo "FAIL  deployed runtime ($CLOUD_ENV) health check output contained no PASS/FAIL sentinel (exitCode=$REMOTE_EXIT, parse mode: $PARSE_MODE) — cannot verify"
-            FAIL=1
-        else
-            echo "FAIL  deployed runtime ($CLOUD_ENV) health check did not report a clean PASS (exitCode=$REMOTE_EXIT) — treating as failure"
-            FAIL=1
-        fi
+        echo "$LAUNCH_CHECK_OUT"
+        # Shared verdict convention — identical to env-check.sh by construction.
+        launch_check_verdict "$LAUNCH_CHECK_OUT" "$LAUNCH_CHECK_REMOTE_EXIT" \
+            "LAUNCH-CHECK-RUNTIME" "deployed runtime ($CLOUD_ENV) health check" \
+            "$LAUNCH_CHECK_PARSE_MODE" || FAIL=1
     fi
 fi
 

@@ -69,6 +69,86 @@ launch_check_resolve_cloud_cli() {
     fi
 }
 
+# launch_check_prod_gate CLOUD_ENV — production probing is opt-in only: it must
+# never fire from a plain `--env production`, and the prod Supabase ref must stay
+# out of this suite's default path (see CLAUDE.md). Shared by every probe that
+# takes an --env so the gate cannot drift between them. Returns 1 (and prints the
+# FAIL line) when the gate refuses.
+launch_check_prod_gate() {
+    local cloud_env="$1"
+    if [[ "$cloud_env" == "production" && "${LAUNCH_CHECK_CONFIRM_PROD:-}" != "1" ]]; then
+        echo "FAIL  refusing to run against production without LAUNCH_CHECK_CONFIRM_PROD=1 (prod probing is gated)"
+        return 1
+    fi
+    return 0
+}
+
+# launch_check_require_cloud_cli CLOUD_ENV ARTISAN_CMD — resolve the `cloud`
+# binary or FAIL. Absent tooling means the check DID NOT RUN, which is never a
+# pass: every caller must propagate the non-zero return into its own exit code.
+# (Group H once WARNed here and left its FAIL counter at 0, so a run that probed
+# nothing reported "all automated groups passed" — see the C1 finding.)
+launch_check_require_cloud_cli() {
+    local cloud_env="$1" cmd="$2"
+    launch_check_resolve_cloud_cli
+    if [[ -z "$LAUNCH_CHECK_CLOUD" ]]; then
+        echo "FAIL  cloud CLI not found — this check did not run (absent tooling is not a pass). Run manually:"
+        echo "      cloud command:run $cloud_env --cmd=\"$cmd\""
+        return 1
+    fi
+    return 0
+}
+
+# launch_check_dump_raw RAW — print a TRUNCATED, redacted excerpt of a cloud
+# payload for diagnosis. Never dump the payload whole: the runner copies probe
+# output verbatim into audits/launch-check/<date>/REPORT.md, and remote output
+# can carry a DSN, token or password (a connection-failure exception message
+# routinely does). Uses only bash substring expansion + sed so it still works
+# under the deliberately minimal PATH the parser regression suite builds.
+launch_check_dump_raw() {
+    local raw="$1"
+    [[ -z "$raw" ]] && return 0
+    printf '%s\n' "${raw:0:2000}" | sed -E \
+        -e 's#(://[^:/@ ]+):[^@ ]+@#\1:***@#g' \
+        -e 's#([Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Kk][Ee][Yy])([^A-Za-z0-9]{1,4})[A-Za-z0-9/+=_.-]{8,}#\1\2***#g'
+    if [[ ${#raw} -gt 2000 ]]; then
+        echo "      … payload excerpt truncated at 2000 bytes"
+    fi
+    return 0
+}
+
+# launch_check_verdict OUT REMOTE_EXIT SENTINEL_PREFIX LABEL PARSE_MODE — the
+# ONE verdict convention shared by every `cloud command:run` probe.
+#
+# Positive evidence required for PASS: a genuine numeric exit 0 AND the PASS
+# sentinel present as its own whole line AND no FAIL sentinel also present.
+# Success is NEVER inferred from the mere absence of a FAIL marker — a
+# truncated/garbled/no-sentinel/spoofed payload fails closed.
+#
+# This lives here, not in each caller, because two near-identical copies had
+# already diverged (group H WARNed where group G failed closed). Callers get the
+# printed line and the exit convention; they only choose the label.
+launch_check_verdict() {
+    local out="$1" remote_exit="$2" prefix="$3" label="$4" parse_mode="$5"
+    local has_pass=false has_fail=false
+    is_sentinel_line "$out" "$prefix: PASS" && has_pass=true
+    is_sentinel_line "$out" "$prefix: FAIL" && has_fail=true
+
+    if [[ "$remote_exit" == "0" && "$has_pass" == true && "$has_fail" == false ]]; then
+        echo "ok    $label passed"
+        return 0
+    fi
+
+    if [[ "$has_fail" == true ]]; then
+        echo "FAIL  $label failed"
+    elif [[ "$has_pass" == false ]]; then
+        echo "FAIL  $label output contained no PASS/FAIL sentinel (exitCode=$remote_exit, parse mode: $parse_mode) — cannot verify"
+    else
+        echo "FAIL  $label did not report a clean PASS (exitCode=$remote_exit) — treating as failure"
+    fi
+    return 1
+}
+
 # is_sentinel_line "$multiline_text" "SENTINEL: TEXT" — true iff some ENTIRE
 # physical line of the text equals the sentinel exactly. Deliberately NOT a
 # substring grep and deliberately NOT whitespace-tolerant.

@@ -50,3 +50,9 @@ claude-overnight.log
 /bin/
 .wrangler/
 scripts/launch-check/.env
+
+# launch-check run output — a local diagnostic artefact, never a deliverable.
+# The report embeds each probe's verbatim output (cloud CLI payloads, exception
+# messages), so it must never be committable even though those paths are now
+# truncated/redacted at the source.
+audits/launch-check/

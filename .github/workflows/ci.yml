@@ -202,6 +202,15 @@ jobs:
           # See supabase/migrations/CONVENTIONS.md for the safe alternatives.
           php scripts/guard-no-unsafe-migrations.php
 
+      - name: Launch-check parser regression suite
+        # scripts/launch-check/env-check.sh's cloud-payload parser shipped a FALSE
+        # PASS twice; this suite pins both PoCs plus the fail-closed cases (absent
+        # cloud CLI, absent jq, ungated production). It was previously unwired —
+        # an unrun regression test is exactly how the group-H WARN-instead-of-FAIL
+        # drift went unnoticed. Plain bash + jq (both present on ubuntu-latest),
+        # no bats; a non-zero exit fails the build.
+        run: bash scripts/launch-check/env-check-parser.test.sh
+
       - name: Run tests
         run: composer test
 

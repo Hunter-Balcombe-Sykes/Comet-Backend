@@ -24,7 +24,13 @@ check_code_drill() { # $1 slug, $2 runbook file, $3.. watched paths
         echo "FAIL  $slug — never drilled. Run docs/runbooks/drills/$runbook"; FAIL=1; return
     fi
     last_change="$(cd "$ROOT" && git log -1 --format=%cs -- "$@")"
-    if [[ -n "$last_change" && "$last_change" > "$log_date" ]]; then
+    # An empty result means NO commit touches any watched path — the path was
+    # renamed or deleted, so this drill's blast radius no longer points at real
+    # code and it would otherwise report `ok` forever, immune to every future
+    # change. "Cannot determine staleness" is a FAIL, never a pass.
+    if [[ -z "$last_change" ]]; then
+        echo "FAIL  $slug — watched path not found in git — update the drill's blast radius (docs/runbooks/drills/README.md): $*"; FAIL=1
+    elif [[ "$last_change" > "$log_date" ]]; then
         echo "FAIL  $slug — drilled $log_date but $last_change changed: $*"; FAIL=1
     else
         echo "ok    $slug — log $log_date current for: $*"

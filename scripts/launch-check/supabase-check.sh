@@ -77,7 +77,10 @@ else
 fi
 
 # --- 3. Snapshot staleness: latest repo migration vs snapshot's recorded one ---
-LATEST_REPO=$(ls ../../supabase/migrations/2*.sql 2>/dev/null || ls "$DIR/../../supabase/migrations/"2*.sql)
+# $DIR-anchored, like §4 below — a relative `../../` glob resolved against the
+# caller's CWD, so running this from anywhere but scripts/launch-check/ silently
+# picked a different (or empty) migration set.
+LATEST_REPO=$(ls "$DIR/../../supabase/migrations/"2*.sql 2>/dev/null)
 LATEST_REPO=$(basename "$(echo "$LATEST_REPO" | sort | tail -1)" | cut -d_ -f1)
 SNAP=$(jq -r '.latest_migration' "$DIR/schema-snapshot.json" 2>/dev/null || echo "missing")
 if [[ "$SNAP" == "$LATEST_REPO" ]]; then

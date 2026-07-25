@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Media\MediaDiskResolver;
 use Illuminate\Console\Command;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +14,7 @@ use Laravel\Horizon\Contracts\MasterSupervisorRepository;
 /**
  * Deployed RUNTIME liveness — is the system actually processing, not just
  * configured to? Run ON the env via `cloud command:run` (runtime-health.sh).
- * Config-correctness is group F's job; this checks the moving parts are alive.
+ * Config-correctness is group G's job; this checks the moving parts are alive.
  */
 class LaunchCheckRuntimeCommand extends Command
 {
@@ -79,14 +80,22 @@ class LaunchCheckRuntimeCommand extends Command
         });
 
         // --- Media disk writable (upload path) --- no legitimate dev deviation.
-        $this->check('storage', $launch, function () {
-            $disk = Storage::disk(config('filesystems.default'));
+        // MUST probe the disk real uploads use — MediaDiskResolver::resolve()
+        // (config('partna.media_disk'), default `media` = R2), which is what
+        // ImageVariantService/MediaUploadService resolve. This previously wrote to
+        // config('filesystems.default') and still reported "media disk ... ok": with
+        // FILESYSTEM_DISK unset that is the container's ephemeral LOCAL filesystem,
+        // so a revoked R2 token or renamed bucket 500'd every user upload while this
+        // probe wrote 4 bytes to disk and reported green.
+        $this->check('storage-media', $launch, function () {
+            $name = MediaDiskResolver::resolve();
+            $disk = Storage::disk($name);
             $key = '_launch-check/probe.txt';
             $disk->put($key, 'ok');
             $read = $disk->get($key);
             $disk->delete($key);
 
-            return [$read === 'ok', 'media disk write/read/delete ok'];
+            return [$read === 'ok', "media disk ({$name}) write/read/delete ok"];
         });
 
         // --- Scheduler has registered events (cron wiring) --- no legitimate dev deviation.
@@ -144,7 +153,7 @@ class LaunchCheckRuntimeCommand extends Command
         } catch (\Throwable $e) {
             $healthy = false;
             $unverifiable = true;
-            $label = "{$name}: {$e->getMessage()}";
+            $label = $name.': '.self::redact($e->getMessage());
         }
 
         if ($healthy) {
@@ -179,5 +188,29 @@ class LaunchCheckRuntimeCommand extends Command
         }
 
         $this->fail[] = $label;
+    }
+
+    /**
+     * Strip credentials out of a probe exception message and cap its length.
+     *
+     * This text travels back through `cloud command:run` into runtime-health.sh,
+     * which the launch-check runner copies verbatim into
+     * audits/launch-check/<date>/REPORT.md — a file on someone's laptop. A
+     * connection-failure message routinely carries a full DSN
+     * (`pgsql:host=…;user=…;password=…`) or a bearer token, so redact before it
+     * can ever be written down.
+     */
+    private static function redact(string $message): string
+    {
+        $patterns = [
+            // user:secret@host in any URI/DSN
+            '#(://[^:/@\s]+):[^@\s]+@#i' => '$1:***@',
+            // key=value / key: value / "key":"value" for credential-ish keys
+            '#\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|authorization)\b(["\']?\s*[:=]\s*["\']?)[^\s"\',;)]+#i' => '$1$2***',
+        ];
+
+        $clean = (string) preg_replace(array_keys($patterns), array_values($patterns), $message);
+
+        return mb_strlen($clean) > 300 ? mb_substr($clean, 0, 300).'… (truncated)' : $clean;
     }
 }

@@ -37,7 +37,15 @@ resp_code="${resp##*$'\n'}"
 body="${resp%$'\n'*}"
 if [[ $curl_exit -ne 0 ]] || is_unreachable "$resp_code"; then
     fail "bogus route unreachable (curl exit $curl_exit, status ${resp_code:-none}) — cannot verify clean error body"
-elif echo "$body" | grep -qE 'Stack trace|vendor/laravel|Illuminate\\\\'; then
+# Positive signal, not path spotting: Laravel's JSON error body escapes `/` as
+# `\/`, so a `vendor/laravel` pattern can NEVER match a JSON debug response —
+# that half of the old regex was dead, leaving the whole check resting on
+# `Illuminate\\` inside the trace array. A debug body is identified by its
+# STRUCTURE instead: APP_DEBUG=true adds exception/trace/file keys that a
+# production error body ({"message": "..."}) never has.
+elif echo "$body" | grep -qE '"(exception|trace|file)"[[:space:]]*:'; then
+    fail "bogus route leaks a debug payload (exception/trace/file keys present — APP_DEBUG on?)"
+elif echo "$body" | grep -qE 'Stack trace|Illuminate\\'; then
     fail "bogus route leaks stack trace (APP_DEBUG on?)"
 else
     pass "bogus route returns clean error body"
