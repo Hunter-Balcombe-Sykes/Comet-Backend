@@ -1,16 +1,9 @@
 [
     "tests/Feature/Account/AccountDeletionNightwatchReportingTest.php",
-    "tests/Feature/Api/BootstrapHandleAliasUniquenessTest.php",
     "tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php",
     "tests/Feature/FeatureFlags/FeatureFlagTestCase.php",
     "tests/Feature/FeatureFlags/SectionVisibilityTestCase.php",
-    "tests/Feature/Moderation/QuarantineMediaJobTest.php",
-    "tests/Feature/Notifications/AddingNewCategoryTest.php",
-    "tests/Feature/Notifications/NotificationPublisherTest.php",
-    "tests/Feature/Notifications/OvhCriticalSeverityTest.php",
-    "tests/Feature/Staff/SegmentResolverTest.php",
     "tests/Feature/Staff/StaffAdminNotesTest.php",
-    "tests/Feature/Subdomain/SubdomainChangeTest.php",
     "tests/Feature/User/AccountDeletion/AccountDeletionTestCase.php",
     "tests/Feature/User/DataExport/DataExportTestCase.php",
     "tests/Postgres/ItemSlugAllocatorRegressionTest.php"

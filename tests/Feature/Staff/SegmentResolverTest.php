@@ -19,19 +19,9 @@ beforeEach(function () {
     setupLinkClicksTable();
 
     // has_integration and ig_followers read site.platform_connections via the
-    // model relation. payload mirrors the real jsonb column (TEXT here).
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        platform TEXT NOT NULL,
-        resource_id TEXT NOT NULL,
-        payload TEXT NOT NULL DEFAULT \'{}\',
-        is_active INTEGER NOT NULL DEFAULT 1,
-        last_refreshed_at TEXT NULL,
-        deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
+    // model relation — setupSitesTable() creates that table (payload mirrors
+    // the real jsonb column as TEXT) along with site.sites.
+    setupSitesTable();
 
     DB::connection('pgsql')->statement('DELETE FROM core.users');
     DB::connection('pgsql')->statement('DELETE FROM site.platform_connections');
