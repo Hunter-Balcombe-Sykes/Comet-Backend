@@ -86,7 +86,7 @@ SCALE-B/D/E, TEST-D/E, DATA-D, External X5 (pentest can wait until 10+ brands).
 - [ ] **DATA-D** — Enum DB ↔ app drift
 
 ### External additions
-- [ ] **X4** — Full load test suite (all 4 scenarios from `audit-checklist-external.md`)
+- [ ] **X4** — Full load test suite (all 4 scenarios from `checklist-external.md`)
 - [ ] **X5** — Third-party pentest before opening to real public users (~$5–15K AUD, ~2 weeks lead time)
 - [ ] **X7** — CI hardening: `composer audit` + `npm audit` + critical-path coverage gates in CI
 
@@ -559,4 +559,4 @@ FK hygiene, soft-delete coherence, orphan-row risk, PII inventory + retention, G
 
 Runner: `scripts/audit/audit.sh` (DeepSeek scan → Sonnet adjudicate → dated output file).
 
-**Companion checklist:** `audit-checklist-external.md` covers the items that can't be source-scanned — Composer / npm CVE audits, Supabase RLS review, frontend repo audit, load testing, pentest, infrastructure hardening. Run them in parallel with this checklist.
+**Companion checklist:** `checklist-external.md` covers the items that can't be source-scanned — Composer / npm CVE audits, Supabase RLS review, frontend repo audit, load testing, pentest, infrastructure hardening. Run them in parallel with this checklist.
