@@ -23,6 +23,19 @@ it('builds a Partna-branded brand from defaults', function () {
         ->and($b->palette->accent)->toBe(EmailBrandDefaults::ACCENT);
 });
 
+it('sources logo URLs from the frontend SPA domain, not the API domain', function () {
+    // app.url is the API's own domain (and is unset -> localhost in some deployed
+    // envs) — it never serves /branding/*. Regression guard for exactly that bug:
+    // the logo must resolve against app.frontend_url regardless of what app.url is.
+    config()->set('app.url', 'http://localhost');
+    config()->set('app.frontend_url', 'https://app.partna.au');
+
+    $b = EmailBrand::partna();
+
+    expect($b->logoUrlLight)->toBe('https://app.partna.au/branding/partna-wordmark-light.png')
+        ->and($b->logoUrlDark)->toBe('https://app.partna.au/branding/partna-wordmark-dark.png');
+});
+
 it('round-trips through toArray/fromArray (cache payload)', function () {
     $brand = new EmailBrand(
         isPartna: false,

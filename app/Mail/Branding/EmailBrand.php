@@ -27,7 +27,10 @@ final class EmailBrand
 
     public static function partna(): self
     {
-        $appUrl = (string) config('app.url', 'https://app.partna.au');
+        // Deliberately app.frontend_url, not app.url: app.url is the API's own
+        // domain (api.partna.au / unset -> localhost in some envs), which never
+        // serves /branding/* — the dashboard SPA (app.partna.au) does.
+        $appUrl = (string) config('app.frontend_url', 'https://app.partna.au');
 
         return new self(
             isPartna: true,
