@@ -19,41 +19,28 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-// Resolves ONE scanned link into the richest thing it can be (signup-v2 C4):
-//
-//   category 'event'           → standalone event row      (EventsSeeder)
-//   category 'event-organiser' → organiser account row     (EventsSeeder)
-//   category 'shop'            → ShopBrand                 (detector → ShopBrandSeeder)
-//   category null (unknown)    → probe: product page?      (ShopProductSeeder)
-//                                       storefront?        (detector → ShopBrandSeeder)
-//                                       neither            → custom link
-//
-// Every miss/failure falls through to CustomLinkSeeder — "nothing vanishes,"
-// upgraded. Dispatched (not inline) from InstagramConnectionSeeder and
-// LinkInBioScanJob because the probe chain is up to ~5 HTTP round-trips and
-// the event/brand fetches are full page loads — InstagramConnectJob's 150s
-// budget is mostly consumed by Apify's 110s scrape, so this work must never
-// ride inside it. Dispatch sites budget how many links get a probe per scan
-// (excess goes straight to CustomLinkSeeder there).
-//
-// Gating (all fail-closed, resolved here because this job runs detached from
-// the scan that queued it): missing user and pending deletion downgrade to a
-// custom link — and the custom-link seeder itself re-checks deletion + feature
-// availability. (DISC-7 consent gate removed 2026-07-25 — unclaimed users now
-// receive the same auto-sync as claimed users.)
-class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
+/**
+ * Resolves ONE scanned link into the richest thing it can be.
+ *
+ * Replaces ProbeCommerceLinksJob (2026-07-25, Phase 10). The key difference:
+ * this job calls CustomLinkSeeder::seedCustom() on failure, not seed() —
+ * avoiding the mutual recursion between seed() → LinkRouter → seed().
+ *
+ * Resolution chain:
+ *   category 'event'           → EventsSeeder::seedStandalone()
+ *   category 'event-organiser' → EventsSeeder::seedAccount()
+ *   category 'shop'            → ShopProviderDetector → ShopBrandSeeder
+ *   category null (unknown)    → GenericShopScraper probe → product/store/neither
+ *
+ * Every miss falls through to seedCustom() — "nothing vanishes."
+ */
+class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 2;
-
     public array $backoff = [30];
-
-    // Worst case: detector probe chain + a brand-profile fetch, all on 8s
-    // fetch timeouts — 90s covers it with room.
     public int $timeout = 90;
-
-    /** Coalesce duplicate probes of the same link queued within the window. */
     public int $uniqueFor = 300;
 
     public function __construct(
@@ -83,14 +70,6 @@ class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Auto-sync consent gate removed 2026-07-25 — capability is always true.
-        // Kept as dead code since this entire job is removed in Phase 10.
-        if (! AccountCapabilities::for($user)->can_autosync_scraped_connections) {
-            $links->seedCustom($user, $this->url);
-
-            return;
-        }
-
         try {
             $resolved = match ($this->category) {
                 'event' => $events->seedStandalone($user, (string) $this->platform, $this->url),
@@ -114,7 +93,6 @@ class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
         ]);
     }
 
-    /** Unknown link: one read discriminates product page / storefront / neither. */
     private function probe(
         GenericShopScraper $generic,
         ShopProviderDetector $detector,
@@ -132,11 +110,6 @@ class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
             return $this->seedStore($detector, $brands, $user, $read['storeUrl']);
         }
 
-        // Reachable but no product markup: could still be a store LISTING page
-        // whose platform only the detector's own probe chain recognizes
-        // (live case: a Squarespace /-store collection page — no product
-        // JSON-LD, no generic storefront markers, but ?format=json answers).
-        // Unreachable pages skip this — the detector would just re-fail.
         if ($read['outcome'] === GenericShopScraper::OUTCOME_NO_PRODUCT) {
             return $this->seedStore($detector, $brands, $user, $this->url);
         }
@@ -154,14 +127,11 @@ class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
         return $brands->seed($user, $detected) !== null;
     }
 
-    // Terminal failure is otherwise invisible: without this the job lands in
-    // failed_jobs with no Nightwatch signal and the link is silently never
-    // upgraded OR downgraded to a custom link, so it just vanishes from the scan.
     public function failed(Throwable $e): void
     {
         report($e);
 
-        Log::error('platforms.probe_commerce_links.failed', [
+        Log::error('platforms.commerce_probe.failed', [
             'user_id' => $this->userId,
             'url' => $this->url,
             'category' => $this->category,

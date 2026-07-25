@@ -21,8 +21,9 @@ use Illuminate\Support\Facades\Log;
 //
 // Contract (mirrors InstagramAutoSync::seed): $user MUST be server-derived —
 // callers are queue jobs holding a userId they were dispatched with, never raw
-// request input. There is no ownership check inside; capability gating
-// (DISC-7 can_autosync_scraped_connections) is the CALLER's responsibility.
+// request input. There is no ownership check inside; capability gating on
+// can_autosync_scraped_connections was the caller's responsibility — removed
+// 2026-07-25 (unclaimed users now auto-sync identically to claimed).
 class EventsSeeder
 {
     /** Mirrors ManagesIntegrationConnection::maxAccounts() — keep in lockstep. */

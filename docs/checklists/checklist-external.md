@@ -1,6 +1,6 @@
 # Partna external audit checklist — things the lenses can't see
 
-The six source lenses (`audit-checklist.md`) scan static code. These items can't be caught that way. Run them in parallel with the lens-based audits.
+The six source lenses (`checklist.md`) scan static code. These items can't be caught that way. Run them in parallel with the lens-based audits.
 
 ---
 
@@ -168,6 +168,6 @@ Foundational items that aren't bugs but become bugs the day you wish you'd done 
 - **Phase X1 + X2 are quick** (under 30min each) and high-leverage; do them first.
 - **Phase X3 + X4 + X5 are pre-pilot blockers** — schedule before opening the doors.
 - **Phase X6 + X7 are ongoing** — they become process, not events.
-- **The source lens audits (`audit-checklist.md`) and these external audits are complementary** — neither is sufficient alone. The combination is what gives confidence.
+- **The source lens audits (`checklist.md`) and these external audits are complementary** — neither is sufficient alone. The combination is what gives confidence.
 
 A vulnerable dependency, a missing RLS rule, a frontend XSS, a Stripe-rate-limit storm, and a buried assumption are five things no source-scan can find — close each via the phase above.

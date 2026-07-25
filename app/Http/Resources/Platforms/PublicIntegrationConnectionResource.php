@@ -146,13 +146,17 @@ class PublicIntegrationConnectionResource extends ApiResource
         // fallback entry. Neither renders on the public sitepage, so they expose
         // NOTHING (empty list → {}); the public controller also excludes them
         // from the query (belt-and-suspenders).
-        'booking' => [],
-        'reservations' => [],
+        // Widened 2026-07-25 — link classification consolidation adds provider
+        // to shared-key rows so non-Fresha/Square/Vagaro etc. bookings render
+        // as "Book with {provider}" on the sitepage. Still fail-closed: only
+        // explicitly listed keys emit.
+        'booking' => ['url', 'provider'],
+        'reservations' => ['url', 'provider'],
         // online-ordering (2026-07-23 actions rebuild): entries now feed the
         // public ordering:<resource_id> actions (SiteActionsService::pool()
         // reads url + name from this exact payload). id/provider/source/data
         // stay private — internal bookkeeping the sitepage doesn't need.
-        'online-ordering' => ['url', 'name', 'favicon', 'logo'],
+        'online-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
         // shop: brands live in the site.shop_brands child table now (FOUND-25) —
         // built from $this->shopBrands below, not from this allowlist map.
     ];

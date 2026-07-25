@@ -2,6 +2,8 @@
 
 namespace App\Services\WebsiteScan;
 
+use App\Services\Http\UrlAbsolutizer;
+
 /**
  * Finds absolute, deduped .pdf-suffixed anchor hrefs on an already-fetched
  * page — feeds the website menu-PDF OCR path. Returns each link's anchor text
@@ -26,7 +28,11 @@ class PdfLinkDetector
             if ($href === '') {
                 continue;
             }
-            $abs = $this->absolutize($href, $baseUrl);
+            // Anchor hrefs, unlike img srcs, carry contact schemes — reject before absolutizing.
+            if (str_starts_with($href, 'mailto:') || str_starts_with($href, 'tel:')) {
+                continue;
+            }
+            $abs = UrlAbsolutizer::absolutize($href, $baseUrl);
             if ($abs === null || ! $this->isPdfPath($abs)) {
                 continue;
             }
@@ -43,22 +49,5 @@ class PdfLinkDetector
         $path = (string) parse_url($url, PHP_URL_PATH);
 
         return str_ends_with(strtolower($path), '.pdf');
-    }
-
-    private function absolutize(string $href, string $baseUrl): ?string
-    {
-        if ($href === '' || str_starts_with($href, 'data:') || str_starts_with($href, 'mailto:') || str_starts_with($href, 'tel:')) {
-            return null;
-        }
-        if (preg_match('~^https?://~i', $href)) {
-            return $href;
-        }
-        $base = parse_url($baseUrl);
-        if (! isset($base['scheme'], $base['host'])) {
-            return null;
-        }
-        $origin = $base['scheme'].'://'.$base['host'].(isset($base['port']) ? ':'.$base['port'] : '');
-
-        return $href[0] === '/' ? $origin.$href : $origin.'/'.ltrim($href, '/');
     }
 }

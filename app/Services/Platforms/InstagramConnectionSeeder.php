@@ -253,22 +253,12 @@ class InstagramConnectionSeeder
     /** @param  list<array<string,mixed>>  $unmatched */
     private function autoSaveUnmatchedLinks(User $user, array $unmatched): void
     {
-        $probes = 0;
+        // LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
+        // routing, commerce probes, and custom-link fallback. The re-classify
+        // + ProbeCommerceLinksJob dispatch is now inside LinkRouter::route().
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;
             if (! is_string($url)) {
-                continue;
-            }
-
-            // Unmatched mixes two shapes: genuinely-unclassified URLs (worth a
-            // commerce probe — could be a store/product page) and classified-
-            // but-gated links (a known platform we already decided not to
-            // sync — probing those would just burn fetches). Re-classifying
-            // here cheaply separates them.
-            if ($probes < self::MAX_COMMERCE_PROBES && $this->harvester->classify($url) === null) {
-                ProbeCommerceLinksJob::dispatch((string) $user->id, $url);
-                $probes++;
-
                 continue;
             }
 

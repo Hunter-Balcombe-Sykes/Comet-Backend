@@ -127,6 +127,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 'linkedin' => 'LinkedIn', 'threads' => 'Threads', 'reddit' => 'Reddit',
                 'snapchat' => 'Snapchat', 'discord' => 'Discord', 'telegram' => 'Telegram',
                 'kick' => 'Kick', 'medium' => 'Medium',
+                // Added 2026-07-25 — link classification consolidation (Phase 2)
+                'whatsapp' => 'WhatsApp', 'substack' => 'Substack', 'patreon' => 'Patreon',
+                'ko-fi' => 'Ko-fi', 'buymeacoffee' => 'Buy Me a Coffee', 'github' => 'GitHub',
+                'gitlab' => 'GitLab', 'codepen' => 'CodePen', 'dribbble' => 'Dribbble',
+                'behance' => 'Behance', 'gumroad' => 'Gumroad',
             ] as $key => $label) {
                 $r->register(PD::linkOnly($key, $label, LinkConnectionResource::class));
             }

@@ -80,24 +80,21 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         // clears the outer deadline), so this strategy deliberately does not
         // open its own — it relies on the caller's, for either branch below.
         return $mode === 'team'
-            ? $this->fetchTeam($url, $payload)
+            ? $this->fetchTeam($url, $payload, (string) $connection->user_id)
             : $this->fetchStorewide($connection, $url, $payload);
     }
 
     /**
-     * CA-W6: the write itself never depended on the fetch, so only the
-     * private teamMenu snapshot is filled here — the connection's public
-     * `selection` is untouched until saveSelection() (the team-member picker).
+     * CA-W6: snapshots the raw menu into payload.teamMenu. If the user's name
+     * matches a team member, auto-selects them (2026-07-25, Phase 11).
      */
-    private function fetchTeam(string $url, array $payload): array
+    private function fetchTeam(string $url, array $payload, string $userId): array
     {
         try {
             $menu = $this->scraper->fetchMenu($url);
         } catch (SafeUrlException|ConnectionException) {
             throw new FetchUnavailableException('fresha_unreachable');
         } catch (HttpException) {
-            // The scraper's own abort(502, …) for a non-200 response, a
-            // missing __NEXT_DATA__ blob, or undecodable JSON.
             throw new FetchUnavailableException('fresha_bad_page');
         }
 
@@ -105,9 +102,14 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             throw new FetchUnavailableException('fresha_empty_menu');
         }
 
-        // connectMode drops here (R3) — see the class docblock.
         $next = $payload;
         unset($next['connectMode']);
+
+        // Auto-select staff member by name match (Phase 11).
+        $autoEmployee = $this->matchEmployee($userId, $menu['team']);
+        if ($autoEmployee !== null) {
+            $next['autoSelectedEmployeeId'] = $autoEmployee;
+        }
 
         return [...$next, 'teamMenu' => $menu, 'connectPendingAt' => null];
     }
@@ -227,5 +229,100 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         unset($next['connectPendingAt'], $next['connectMode'], $next['teamMenu']);
 
         return [...$next, 'url' => $url, 'selection' => $selection, 'raw' => ['services' => $projected['raw']]];
+    }
+
+    /**
+     * Fuzzy-match the user's name against the Fresha team. Returns an
+     * employeeId when exactly one match is found at medium confidence or
+     * above, or null when the name is blank or the match is ambiguous.
+     *
+     * Confidence tiers:
+     *   - Exact full-name match → auto-select
+     *   - Both first AND last name tokens present → auto-select
+     *   - Last-name token match → auto-select (only if exactly one)
+     *   - First-name-only match → too ambiguous, skip
+     */
+    private function matchEmployee(string $userId, array $team): ?string
+    {
+        if ($team === []) {
+            return null;
+        }
+
+        $user = User::find($userId);
+        if ($user === null) {
+            return null;
+        }
+
+        $fullName = trim(implode(' ', array_filter([
+            $user->first_name,
+            $user->last_name,
+        ])));
+
+        if ($fullName === '') {
+            return null;
+        }
+
+        $nameLower = strtolower($fullName);
+        $tokens = array_filter(explode(' ', $nameLower), fn ($t) => $t !== '');
+        $firstName = $tokens[0] ?? '';
+        $lastName = count($tokens) > 1 ? end($tokens) : '';
+
+        $candidates = [];
+
+        foreach ($team as $employee) {
+            $empName = strtolower((string) ($employee['displayName'] ?? ''));
+            if ($empName === '') {
+                continue;
+            }
+
+            $empId = (string) ($employee['employeeId'] ?? '');
+            if ($empId === '') {
+                continue;
+            }
+
+            // Exact match — highest confidence.
+            if ($empName === $nameLower) {
+                $candidates[] = ['id' => $empId, 'score' => 3];
+
+                continue;
+            }
+
+            // Both first and last name tokens present in the employee name.
+            if ($firstName !== '' && $lastName !== '' && $lastName !== $firstName
+                && str_contains($empName, $firstName)
+                && str_contains($empName, $lastName)) {
+                $candidates[] = ['id' => $empId, 'score' => 2];
+
+                continue;
+            }
+
+            // Last name match (medium confidence — only if unique).
+            if ($lastName !== '' && str_contains($empName, $lastName)) {
+                $candidates[] = ['id' => $empId, 'score' => 1];
+
+                continue;
+            }
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        // Take the highest-scoring candidates.
+        usort($candidates, fn ($a, $b) => $b['score'] <=> $a['score']);
+        $bestScore = $candidates[0]['score'];
+        $best = array_filter($candidates, fn ($c) => $c['score'] === $bestScore);
+
+        // Score 1 (last-name only): require exactly one match.
+        if ($bestScore === 1 && count($best) !== 1) {
+            return null;
+        }
+
+        // Multiple exact or high-confidence matches — ambiguous, skip.
+        if (count($best) > 1) {
+            return null;
+        }
+
+        return $best[0]['id'];
     }
 }

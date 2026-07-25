@@ -63,6 +63,15 @@ it('ignores a data: uri icon href and falls back to /favicon.ico', function () {
     expect($result['url'])->toBe('https://venue.example/favicon.ico');
 });
 
+it('resolves a protocol-relative icon href against the base scheme', function () {
+    $html = '<link rel="icon" href="//cdn.example.com/fav.png">';
+    $fetcher = faviconFetcherReturning('https://cdn.example.com/fav.png', 'bytes');
+
+    $result = $fetcher->fetch($html, 'https://venue.example');
+
+    expect($result['url'])->toBe('https://cdn.example.com/fav.png');
+});
+
 it('rejects a favicon over the byte cap', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
     $fetcher->shouldReceive('tryFetch')->once()->andReturn([

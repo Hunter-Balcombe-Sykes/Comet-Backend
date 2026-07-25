@@ -2,6 +2,8 @@
 
 namespace App\Services\WebsiteScan;
 
+use App\Services\Http\UrlAbsolutizer;
+
 /**
  * Harvests candidate content-photo URLs from an already-fetched page —
  * <img> tags outside the header/nav/footer chrome (those are the logo
@@ -44,7 +46,7 @@ class WebsiteGalleryCandidateExtractor
             }
 
             $src = trim($img->getAttribute('src')) ?: trim($img->getAttribute('data-src'));
-            $abs = $this->absolutize($src, $baseUrl);
+            $abs = UrlAbsolutizer::absolutize($src, $baseUrl);
             if ($abs === null || isset($seen[$abs])) {
                 continue;
             }
@@ -90,22 +92,5 @@ class WebsiteGalleryCandidateExtractor
         $value = trim($el->getAttribute($name));
 
         return ($value !== '' && ctype_digit($value)) ? (int) $value : null;
-    }
-
-    private function absolutize(string $href, string $baseUrl): ?string
-    {
-        if ($href === '' || str_starts_with($href, 'data:')) {
-            return null;
-        }
-        if (preg_match('~^https?://~i', $href)) {
-            return $href;
-        }
-        $base = parse_url($baseUrl);
-        if (! isset($base['scheme'], $base['host'])) {
-            return null;
-        }
-        $origin = $base['scheme'].'://'.$base['host'].(isset($base['port']) ? ':'.$base['port'] : '');
-
-        return $href[0] === '/' ? $origin.$href : $origin.'/'.ltrim($href, '/');
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\Platforms\Concerns;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -451,5 +452,125 @@ trait BuildsAutoSyncFindings
 
             return $default;
         }
+    }
+
+    /**
+     * Booking platforms InstagramAutoSync seeds — Fresha and Square.
+     * Moved here from InstagramAutoSync (2026-07-25, Phase 2.5) so LinkRouter
+     * can reach them. Deliberately narrower than BOOKING_SLOT_PLATFORMS above.
+     *
+     * @var list<string>
+     */
+    /**
+     * Booking platforms in the XOR set — fresha, square, and the shared
+     * 'booking' key (for non-Fresha/Square providers like Booksy, Timely).
+     * Must match BOOKING_SLOT_PLATFORMS above for the XOR lock to cover
+     * all conflict checks. Expanded 2026-07-25 for shared-key booking.
+     */
+    protected const BOOKING_PLATFORMS = [
+        Platform::Fresha->value,
+        Platform::Square->value,
+        Platform::Booking->value,
+    ];
+
+    /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */
+    protected function resolveWrite(string $platform, string $url): array
+    {
+        if ($platform === Platform::Fresha->value) {
+            return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
+                'url' => $url, 'selection' => null, 'source' => 'instagram',
+            ]];
+        }
+        if ($platform === Platform::Square->value) {
+            return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
+                'url' => $url, 'source' => 'instagram',
+            ]];
+        }
+
+        return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
+            'username' => $this->socialUsername($platform, $url), 'url' => $url, 'source' => 'instagram',
+        ]];
+    }
+
+    /**
+     * LIFE-106: booking-category span under withBookingXorLock().
+     *
+     * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
+     * @param  array{platform:string,category:string,label:string}  $classified
+     * @return array{findings:list<array<string,mixed>>,unmatched:list<array<string,mixed>>,consumed:bool}
+     */
+    protected function resolveBookingLink(string $userId, string $platform, string $url, array $write, array $classified): array
+    {
+        $conflictingBooking = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->whereIn('platform', self::BOOKING_PLATFORMS)
+            ->where('platform', '!=', $platform)
+            ->first();
+
+        if ($conflictingBooking !== null) {
+            return [
+                'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                    'remove' => self::BOOKING_PLATFORMS,
+                    'write' => $write,
+                ])],
+                'unmatched' => [],
+                'consumed' => true,
+            ];
+        }
+
+        $existing = IntegrationConnection::query()
+            ->where('user_id', $userId)->where('platform', $platform)
+            ->first();
+
+        if ($existing === null) {
+            $wasDisconnected = IntegrationConnection::onlyTrashed()
+                ->where('user_id', $userId)->where('platform', $platform)
+                ->exists();
+
+            if ($wasDisconnected) {
+                return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
+            }
+
+            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+
+            return [
+                'findings' => [$this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url)],
+                'unmatched' => [],
+                'consumed' => true,
+            ];
+        }
+
+        $existingUrl = CardPayload::fromArray($existing->payload)->url();
+        if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {
+            return ['findings' => [], 'unmatched' => [], 'consumed' => true];
+        }
+
+        return [
+            'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                'remove' => [$write['platform']],
+                'write' => $write,
+            ])],
+            'unmatched' => [],
+            'consumed' => true,
+        ];
+    }
+
+    protected function socialUsername(string $platform, string $url): string
+    {
+        $patterns = [
+            'tiktok' => '~tiktok\.com/@?([A-Za-z0-9._]+)~i',
+            'x' => '~(?:twitter|x)\.com/([A-Za-z0-9_]+)~i',
+            'linkedin' => '~linkedin\.com/(?:in|company)/([A-Za-z0-9-]+)~i',
+        ];
+        if (isset($patterns[$platform]) && preg_match($patterns[$platform], $url, $m)) {
+            return strtolower($m[1]) === 'profile.php' ? '' : $m[1];
+        }
+
+        return '';
+    }
+
+    protected function sameUrl(string $a, string $b): bool
+    {
+        return strtolower(rtrim(trim($a), '/')) === strtolower(rtrim(trim($b), '/'));
     }
 }

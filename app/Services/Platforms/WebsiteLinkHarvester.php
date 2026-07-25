@@ -29,6 +29,22 @@ class WebsiteLinkHarvester
         'linkedin' => '~(^|\.)linkedin\.com$~',
         'youtube' => '~(^|\.)(youtube\.com|youtu\.be)$~',
         'pinterest' => '~(^|\.)pinterest\.[a-z.]+$~',
+        // Expanded 2026-07-25 — link classification consolidation
+        'spotify' => '~(^|\.)spotify\.com$~',
+        'soundcloud' => '~(^|\.)soundcloud\.com$~',
+        'snapchat' => '~(^|\.)snapchat\.com$~',
+        'threads' => '~(^|\.)threads\.net$~',
+        'discord' => '~(^|\.)(discord\.gg|discord\.com)$~',
+        'reddit' => '~(^|\.)reddit\.com$~',
+        'telegram' => '~(^|\.)(t\.me|telegram\.me)$~',
+        'whatsapp' => '~(^|\.)(wa\.me|whatsapp\.com)$~',
+        'substack' => '~(^|\.)substack\.com$~',
+        'patreon' => '~(^|\.)patreon\.com$~',
+        'github' => '~(^|\.)github\.com$~',
+        'behance' => '~(^|\.)behance\.net$~',
+        'dribbble' => '~(^|\.)dribbble\.com$~',
+        'vimeo' => '~(^|\.)vimeo\.com$~',
+        'twitch' => '~(^|\.)twitch\.tv$~',
     ];
 
     /**
@@ -40,12 +56,29 @@ class WebsiteLinkHarvester
         'OpenTable' => '~(^|\.)opentable\.[a-z.]+$~',
         'ResDiary' => '~(^|\.)resdiary\.com$~',
         'NowBookit' => '~(^|\.)nowbookit\.com$~',
+        // Expanded 2026-07-25
+        'SevenRooms' => '~(^|\.)sevenrooms\.com$~',
+        'Tock' => '~(^|\.)exploretock\.com$~',
+        'TheFork' => '~(^|\.)thefork\.[a-z.]+$~',
+        'Quandoo' => '~(^|\.)quandoo\.[a-z.]+$~',
+        'Resy' => '~(^|\.)resy\.com$~',
+        'Chope' => '~(^|\.)chope\.co$~',
+        'Tablein' => '~(^|\.)tablein\.com$~',
+        'Eat App' => '~(^|\.)eatapp\.co$~',
+        'TableCheck' => '~(^|\.)tablecheck\.com$~',
+        'Yelp Reservations' => '~(^|\.)yelp\.com/reservations~',
     ];
 
     /** Label => platform slug for RESERVATION_HOSTS, used only by classify(). */
-    private const RESERVATION_PLATFORM = ['OpenTable' => 'opentable', 'ResDiary' => 'resdiary', 'NowBookit' => 'nowbookit'];
+    private const RESERVATION_PLATFORM = [
+        'OpenTable' => 'opentable', 'ResDiary' => 'resdiary', 'NowBookit' => 'nowbookit',
+        'SevenRooms' => 'reservations', 'Tock' => 'reservations', 'TheFork' => 'reservations',
+        'Quandoo' => 'reservations', 'Resy' => 'reservations', 'Chope' => 'reservations',
+        'Tablein' => 'reservations', 'Eat App' => 'reservations', 'TableCheck' => 'reservations',
+        'Yelp Reservations' => 'reservations',
+    ];
 
-    /** Online-ordering provider hosts (AU market set). */
+    /** Online-ordering provider hosts (AU market set + expanded 2026-07-25). */
     private const ORDERING_HOSTS = [
         'Uber Eats' => '~(^|\.)ubereats\.com$~',
         'DoorDash' => '~(^|\.)doordash\.com$~',
@@ -53,16 +86,50 @@ class WebsiteLinkHarvester
         'Deliveroo' => '~(^|\.)deliveroo\.[a-z.]+$~',
         'Order Online' => '~(^|\.)order\.online$~',
         'OrderMate' => '~(^|\.)ordermate\.online$~',
+        // Expanded 2026-07-25
+        'SkipTheDishes' => '~(^|\.)skipthedishes\.com$~',
+        'Just Eat' => '~(^|\.)justeat\.[a-z.]+$~',
+        'Grubhub' => '~(^|\.)grubhub\.com$~',
+        'Slice' => '~(^|\.)slicelife\.com$~',
+        'ChowNow' => '~(^|\.)chownow\.com$~',
+        'Toast Takeout' => '~(^|\.)toasttab\.com$~',
+        'Wolt' => '~(^|\.)wolt\.com$~',
+        'Zomato' => '~(^|\.)zomato\.com$~',
     ];
 
-    /** Booking provider hosts (Fresha / Square), keyed by label — see RESERVATION_HOSTS note. */
+    /** Booking provider hosts, keyed by label. Expanded 2026-07-25. */
     private const BOOKING_HOSTS = [
         'Fresha' => '~(^|\.)fresha\.com$~',
         'Square' => '~(^|\.)(squareup\.com|square\.site)$~',
+        // Expanded 2026-07-25 — stored under shared 'booking' key (Decision 10)
+        'Booksy' => '~(^|\.)booksy\.com$~',
+        'Timely' => '~(^|\.)gettimely\.com$~',
+        'Calendly' => '~(^|\.)calendly\.com$~',
+        'Vagaro' => '~(^|\.)vagaro\.com$~',
+        'Mindbody' => '~(^|\.)mindbodyonline\.com$~',
+        'Acuity' => '~(^|\.)acuityscheduling\.com$~',
+        'Setmore' => '~(^|\.)setmore\.com$~',
+        'Genbook' => '~(^|\.)genbook\.com$~',
+        'GlossGenius' => '~(^|\.)glossgenius\.com$~',
+        'Mangomint' => '~(^|\.)mangomint\.com$~',
+        'Boulevard' => '~(^|\.)boulevard\.io$~',
+        'Ovatu' => '~(^|\.)ovatu\.com$~',
+        'Treatwell' => '~(^|\.)treatwell\.[a-z.]+$~',
+        'Noterro' => '~(^|\.)noterro\.com$~',
+        'Schedulicity' => '~(^|\.)schedulicity\.com$~',
+        'SimplyBook.me' => '~(^|\.)simplybook\.me$~',
     ];
 
     /** Label => platform slug for BOOKING_HOSTS, used only by classify(). */
-    private const BOOKING_PLATFORM = ['Fresha' => 'fresha', 'Square' => 'square'];
+    private const BOOKING_PLATFORM = [
+        'Fresha' => 'fresha', 'Square' => 'square',
+        'Booksy' => 'booking', 'Timely' => 'booking', 'Calendly' => 'booking',
+        'Vagaro' => 'booking', 'Mindbody' => 'booking', 'Acuity' => 'booking',
+        'Setmore' => 'booking', 'Genbook' => 'booking', 'GlossGenius' => 'booking',
+        'Mangomint' => 'booking', 'Boulevard' => 'booking', 'Ovatu' => 'booking',
+        'Treatwell' => 'booking', 'Noterro' => 'booking', 'Schedulicity' => 'booking',
+        'SimplyBook.me' => 'booking',
+    ];
 
     /**
      * Decisive store hosts (signup-v2 C1) — a URL on these IS a storefront, no
@@ -89,6 +156,22 @@ class WebsiteLinkHarvester
         'linkedin' => ['linkedin', 'LinkedIn'],
         'youtube' => ['youtube', 'YouTube'],
         'pinterest' => ['pinterest', 'Pinterest'],
+        // Expanded 2026-07-25
+        'spotify' => ['spotify', 'Spotify'],
+        'soundcloud' => ['soundcloud', 'SoundCloud'],
+        'snapchat' => ['snapchat', 'Snapchat'],
+        'threads' => ['threads', 'Threads'],
+        'discord' => ['discord', 'Discord'],
+        'reddit' => ['reddit', 'Reddit'],
+        'telegram' => ['telegram', 'Telegram'],
+        'whatsapp' => ['whatsapp', 'WhatsApp'],
+        'substack' => ['substack', 'Substack'],
+        'patreon' => ['patreon', 'Patreon'],
+        'github' => ['github', 'GitHub'],
+        'behance' => ['behance', 'Behance'],
+        'dribbble' => ['dribbble', 'Dribbble'],
+        'vimeo' => ['vimeo', 'Vimeo'],
+        'twitch' => ['twitch', 'Twitch'],
     ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
@@ -285,6 +368,28 @@ class WebsiteLinkHarvester
             if ($this->humanitix()->normalizeEventUrl($url) !== null) {
                 return ['platform' => 'humanitix', 'category' => 'event', 'label' => 'Humanitix'];
             }
+        }
+        // Expanded 2026-07-25 — link classification consolidation
+        if (preg_match('~(^|\.)lu\.ma$~', $host)) {
+            if (preg_match('~^https?://lu\.ma/[a-z0-9-]+$~i', $url)) {
+                return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Luma'];
+            }
+            if (preg_match('~^https?://lu\.ma/user/[a-z0-9-]+~i', $url)) {
+                return ['platform' => 'events-custom', 'category' => 'event-organiser', 'label' => 'Luma'];
+            }
+            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Luma'];
+        }
+        if (preg_match('~(^|\.)partiful\.com$~', $host)) {
+            if (preg_match('~^https?://partiful\.com/u/[a-zA-Z0-9-]+~i', $url)) {
+                return ['platform' => 'events-custom', 'category' => 'event-organiser', 'label' => 'Partiful'];
+            }
+            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Partiful'];
+        }
+        if (preg_match('~(^|\.)ticketmaster\.[a-z.]+$~', $host)) {
+            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Ticketmaster'];
+        }
+        if (preg_match('~(^|\.)meetup\.com$~', $host)) {
+            return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Meetup'];
         }
 
         foreach (self::SHOP_HOSTS as $label => $pattern) {

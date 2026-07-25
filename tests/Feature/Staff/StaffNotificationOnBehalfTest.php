@@ -236,24 +236,43 @@ it('markReadForProfessional denies a non-admin staff member at the policy layer'
     expect(DB::connection('pgsql')->table('notifications.notification_receipts')->count())->toBe(0);
 });
 
-// #NOTIF-1's optional HTTP smoke test was attempted here and dropped — NOT
-// because of a test-fixture gap, but because these two routes are genuinely
-// broken and a passing HTTP test cannot be written until that is fixed.
-//
-// routes/api/staff.php:254 wraps them in Route::withoutScopedBindings(), but
-// that does not take effect inside the parent group's ->scopeBindings() at
-// :186 — the live routes report enforcesScopedBindings=true and
-// preventsScopedBindings=false. Scoped binding therefore resolves
-// {notification} through $professional->notifications(), which is Laravel's
-// HasDatabaseNotifications trait relation to Illuminate\Notifications\
-// DatabaseNotification (table `notifications`), NOT
-// App\Models\Core\Notifications\Notification (table `notifications.notifications`).
-// So the real request 500s on a notifiable_type/notifiable_id query. This
-// affects Postgres too, not just SQLite — it is a production bug, filed
-// separately; fixing it is out of scope for #NOTIF-1.
-//
-// The direct-controller tests above prove the authorization seam (admin
-// allowed, non-admin denied with no write) without depending on the binding.
+// Route-level coverage. The tests above call the controller directly, so they
+// never exercise route-model binding — which is exactly how these two endpoints
+// 500'd in production unnoticed: scoped binding resolved {notification} through
+// $professional->notifications(), Laravel's Notifiable trait relation to
+// DatabaseNotification, instead of the app's Notification model. These two tests
+// go through the router and would have caught it.
+
+it('POST .../notifications/{notification}/read binds the app Notification model and returns 200', function () {
+    $pro = staffNotif_makeBrand();
+    $notification = staffNotif_seedNotificationForPro($pro->id);
+
+    $admin = new PartnaStaff;
+    $admin->id = (string) Str::uuid();
+    $admin->role = PartnaStaff::ROLE_ADMIN;
+
+    actingAsStaff($admin)
+        ->postJson("/api/staff/professionals/{$pro->id}/notifications/{$notification->id}/read")
+        ->assertStatus(200);
+
+    expect(DB::connection('pgsql')->table('notifications.notification_receipts')
+        ->where('notification_id', $notification->id)->whereNotNull('read_at')->count())->toBe(1);
+});
+
+it('the same route still denies a support-role staff member with 403', function () {
+    $pro = staffNotif_makeBrand();
+    $notification = staffNotif_seedNotificationForPro($pro->id);
+
+    $support = new PartnaStaff;
+    $support->id = (string) Str::uuid();
+    $support->role = PartnaStaff::ROLE_SUPPORT;
+
+    actingAsStaff($support)
+        ->postJson("/api/staff/professionals/{$pro->id}/notifications/{$notification->id}/read")
+        ->assertStatus(403);
+
+    expect(DB::connection('pgsql')->table('notifications.notification_receipts')->count())->toBe(0);
+});
 
 it('dismissForProfessional denies a non-admin staff member at the policy layer', function () {
     $pro = staffNotif_makeBrand();
