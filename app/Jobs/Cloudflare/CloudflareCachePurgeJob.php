@@ -71,8 +71,9 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      * under redis retry_after=360. Pinned by a test — do not raise $timeout without
      * raising this too.
      *
-     * Follow-ups keep a SHORT 30s lock instead: their dispatch delay (120s)
-     * exceeds any lock we'd want, and a lock outliving the delay would coalesce
+     * Follow-ups keep a SHORT 30s lock instead: their dispatch delay (the
+     * shortest schedule offset, 120s by default) exceeds any lock we'd want,
+     * and a lock outliving the delay would coalesce
      * away the follow-up owed to a LATER edit — leaving that edit's stale re-pin
      * window uncovered for the router's 24h HTML TTL. A follow-up does the same
      * ~50-chunk work, but its lock is deliberately shorter than $timeout: dropping
@@ -95,6 +96,20 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      */
     public bool $bulk = false;
 
+    /**
+     * Which follow-up in the schedule this is (1-based); 0 for a primary purge.
+     * Feeds uniqueId() so the up-front-dispatched follow-ups don't coalesce into
+     * each other, and logging. No job ever re-dispatches on the strength of it.
+     *
+     * Plain property with a class-level default, assigned in the constructor body
+     * — NOT a promoted readonly param. A promoted property has no class default,
+     * so a payload serialized before this deploy and unserialized after it would
+     * leave this uninitialized and fatal in uniqueId() on retry. Same reasoning
+     * as $bulk above; $followUp stays a promoted bool so in-flight payloads
+     * carrying it keep working.
+     */
+    public int $followUpDepth = 0;
+
     public function uniqueId(): string
     {
         // Include the custom domain so a purge that must also bust the custom
@@ -108,7 +123,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // purge gets its own discriminator for the same reason — see $bulk.
         return strtolower(trim($this->handle))
             .'|'.strtolower(trim((string) $this->customDomain))
-            .($this->followUp ? '|fu' : '')
+            .($this->followUp ? '|fu'.$this->followUpDepth : '')
             .($this->moderationCaseId !== null ? '|m'.$this->moderationCaseId : '')
             .($this->bulk ? '|b' : '');
     }
@@ -123,8 +138,10 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // NOT page on-call, so this stays null for every other dispatch site.
         public readonly ?string $moderationCaseId = null,
         bool $bulk = false,
+        int $followUpDepth = 0,
     ) {
         $this->bulk = $bulk;
+        $this->followUpDepth = $followUpDepth;
 
         // Isolated from user-facing work so a burst of site mutations can't
         // delay notifications or mail delivery. Bulk (takedown fan-out) purges
@@ -171,18 +188,31 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         // still inside their staleness windows (Laravel Cloud's OWN Cloudflare
         // edge honours s-maxage on api/public/profiles and sits outside our
         // zone's purge reach, + the Worker's subrequest cache) — the router
-        // would then re-pin that stale render under its 24h HTML TTL. One
-        // delayed follow-up purge lands after every payload layer has turned
-        // over, evicting any stale re-pin. Follow-ups never chain.
+        // would then re-pin that stale render under its 24h HTML TTL. Delayed
+        // follow-up purges evict any such re-pin.
+        //
+        // All of them are dispatched HERE, up-front, one per schedule entry —
+        // not chained. A chain loses its tail if any link exhausts its retries,
+        // and the last offset is precisely the one a degraded-Cloudflare window
+        // most needs. uniqueId()'s depth discriminator keeps them from
+        // coalescing, and the 30s follow-up lock expires long before any delay.
         if (! $this->followUp) {
-            // Forward $bulk so a takedown's follow-up purge also stays on the
-            // cloudflare_bulk lane — dropping that would let the follow-up
-            // compete with real-time purges, defeating the lane isolation for
-            // half of a bulk purge's fan-out.
-            self::dispatch($this->handle, $this->customDomain, followUp: true, moderationCaseId: $this->moderationCaseId, bulk: $this->bulk)
-                ->delay(now()->addSeconds(
-                    (int) config('partna.cache.purge_followup_seconds', 120),
-                ));
+            /** @var list<int> $schedule */
+            $schedule = array_values((array) config('partna.cache.purge_followup_schedule', [120, 300, 900]));
+
+            foreach ($schedule as $index => $offsetSeconds) {
+                // Forward $bulk so a takedown's follow-ups also stay on the
+                // cloudflare_bulk lane — dropping that would let them compete
+                // with real-time purges, defeating the lane isolation.
+                self::dispatch(
+                    $this->handle,
+                    $this->customDomain,
+                    followUp: true,
+                    moderationCaseId: $this->moderationCaseId,
+                    bulk: $this->bulk,
+                    followUpDepth: $index + 1,
+                )->delay(now()->addSeconds((int) $offsetSeconds));
+            }
         }
     }
 
