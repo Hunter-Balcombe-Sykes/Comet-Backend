@@ -635,7 +635,7 @@ class SiteCacheService
         // delete. The floor is the authoritative lower bound the reader can't
         // regress below.
         if ($handle !== '') {
-            $this->raiseResolveFloor($handle, $site->updated_at?->timestamp);
+            $this->raiseResolveFloor($handle, $site->updated_at->timestamp);
         }
     }
 
