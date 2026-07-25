@@ -593,4 +593,17 @@ class PlatformDescriptor
     {
         return $this->completenessGate === null || ($this->completenessGate)($connection);
     }
+
+    /**
+     * Whether this platform has opted into the completeness seam at all (see
+     * complete()). Lets callers that only care about content-dependent
+     * page-presence — e.g. IntegrationConnectionObserver's cache-touch gate —
+     * scope themselves to just the platforms isComplete() can return false
+     * for, without hardcoding a platform-key list that would silently go
+     * stale as more platforms opt in.
+     */
+    public function hasCompletenessPredicate(): bool
+    {
+        return $this->completenessGate !== null;
+    }
 }

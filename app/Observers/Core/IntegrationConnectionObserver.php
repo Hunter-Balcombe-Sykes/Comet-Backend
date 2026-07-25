@@ -12,6 +12,7 @@ use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Support\Facades\Log;
 
@@ -56,10 +57,25 @@ class IntegrationConnectionObserver
             // (IndividualProfileController) rotates too — the CDN purge above
             // only covers the edge cache. Needed since page presence can now
             // depend on a connection's own payload (PlatformDescriptor::
-            // isComplete — shop's chosen product, fresha's saved selection):
-            // without this, completing a booking selection wouldn't surface the
-            // Services page until something unrelated happened to touch the site.
-            $connection->user?->site?->touch();
+            // isComplete — fresha's saved selection today; shop is NOT covered
+            // here, see below). Without this, completing a booking selection
+            // wouldn't surface the Services page until something unrelated
+            // happened to touch the site.
+            //
+            // Scoped to hasCompletenessPredicate() platforms ONLY — this
+            // "meaningful change" gate above also fires for every platform's
+            // routine scheduled refresh (RefreshConnectionJob/PlatformRefresher:
+            // youtube, instagram, GBP, ...), and SiteObserver::saved() reacts
+            // to touch() with its own CloudflareCachePurgeJob + cache
+            // invalidation + conditional warm job, on top of the CDN purge
+            // this observer already dispatches above. Touching for every
+            // platform would multiply that cost platform-wide for content that
+            // was never presence-gated in the first place. A descriptor-driven
+            // check (rather than a hardcoded platform list) means a future
+            // platform that opts into complete() is covered automatically.
+            if (app(PlatformRegistry::class)->get($connection->platform)?->hasCompletenessPredicate()) {
+                $connection->user?->site?->touch();
+            }
         }
 
         // Central-identity fold: a google-business connect OR a refresh that

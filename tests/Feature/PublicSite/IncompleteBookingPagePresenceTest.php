@@ -145,3 +145,32 @@ it('does not gate a platform that never declares completeness', function () {
 
     expect($this->getJson("/api/public/profiles/{$user->handle}")->json('data.pageOrder'))->toContain('watch');
 });
+
+it('does not touch the site on a routine payload write for a platform with no completeness predicate', function () {
+    // Guards IntegrationConnectionObserver::saved()'s touch() scoping:
+    // page-presence only depends on connection payload content for
+    // hasCompletenessPredicate() platforms (fresha, shop today), so a
+    // routine scheduled-refresh-style payload write for any other platform
+    // (youtube here, standing in for the many refreshable platforms
+    // RefreshConnectionJob/PlatformRefresher cycle through) must NOT roll
+    // site.updated_at — that would fan the observer's cache-touch fallout
+    // (SiteObserver's purge + invalidation + warm) out to every platform's
+    // routine writes instead of just the two whose presence can change.
+    $user = bookingPresenceUser('untouched');
+    $site = bookingPresenceSite($user);
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'youtube',
+        'resource_id' => 'youtube',
+        'payload' => ['url' => 'https://youtube.com/@someone'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+        'last_refreshed_at' => now(),
+    ]);
+
+    $before = $site->fresh()->updated_at;
+    $this->travel(1)->seconds();
+    $connection->update(['payload' => ['url' => 'https://youtube.com/@someone-else']]);
+
+    expect($site->fresh()->updated_at->equalTo($before))->toBeTrue();
+});
