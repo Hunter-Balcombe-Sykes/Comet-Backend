@@ -62,6 +62,14 @@ class IntegrationConnectionObserver
             // wouldn't surface the Services page until something unrelated
             // happened to touch the site.
             //
+            // A full (not quiet) touch() is required, not just a raw timestamp
+            // bump: SiteCacheService::raiseResolveFloor() — called via
+            // SiteObserver::saved() → invalidateSite() — is what defeats the
+            // short-TTL handle.resolve cache that ALSO caches updated_at_ts;
+            // skipping the observer here would rotate the DB column but leave
+            // stale in-flight resolve-cache entries pointing at the old ts for
+            // up to that cache's TTL.
+            //
             // Scoped to hasCompletenessPredicate() platforms ONLY — this
             // "meaningful change" gate above also fires for every platform's
             // routine scheduled refresh (RefreshConnectionJob/PlatformRefresher:

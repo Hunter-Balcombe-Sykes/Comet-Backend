@@ -510,6 +510,7 @@ it('freezes booking status contract when nothing is connected', function () {
             'provider' => null,
             'name' => null,
             'url' => null,
+            'setup' => null,
         ]);
 });
 

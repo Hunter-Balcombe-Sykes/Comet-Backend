@@ -10,6 +10,7 @@ use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\ShopCatalog;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 
 // Task B: PlatformRefresher::refresh() is the ONE chokepoint every refresh (cron,
 // manual button, ShopController, observer, ShopBrandConnectJob) flows through. Its
@@ -28,6 +29,16 @@ beforeEach(function () {
     setupSitesTable();
     setupServicesTable();
     shimPgAdvisoryLockForSqlite();
+
+    // Every test here creates a fresha (a hasCompletenessPredicate() platform)
+    // connection, so IntegrationConnectionObserver now touches the tenant's
+    // site on save (booking-incomplete-connection plan). That fires
+    // SiteObserver::saved(), which queues WarmPublicSiteCacheJob when the
+    // site is published — real DB has the full site-cache-payload table set,
+    // but this file's minimal beforeEach doesn't set up that unrelated
+    // machinery, and this file isn't testing it. Fake the queue so those jobs
+    // never actually run.
+    Queue::fake();
 });
 
 // ── 1. Mechanism proof ───────────────────────────────────────────────────────
