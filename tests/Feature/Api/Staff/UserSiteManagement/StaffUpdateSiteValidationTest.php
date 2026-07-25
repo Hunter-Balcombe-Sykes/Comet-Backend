@@ -179,15 +179,19 @@ it('denies a support-role staffer the site edit (staffManage is admin-only)', fu
     $staff = PartnaStaff::factory()->create();
     $pro = createTenant('staff-site-support');
 
-    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])
+    // Send an UNPINNED column (is_published, seeded true by createTenant) alongside
+    // architecture_id so a landed write would leave an observable trace.
+    patchStaffSite($staff, $pro, ['architecture_id' => 'dock', 'is_published' => false])
         ->assertStatus(403);
 
-    // The write must not have landed — architecture_id stays at its seeded default.
-    // NOTE: sites_architecture_id_check pins this column to the single legal value
-    // 'staple', and the write path collapses legacy ids to it, so a landed write is
-    // indistinguishable here — the 403 above is what actually proves it was blocked.
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+    // The write must not have landed. sites_architecture_id_check pins architecture_id
+    // to 'staple' (the write path collapses legacy ids to it), so that column is
+    // indistinguishable whether or not a write landed. is_published is NOT pinned — the
+    // same PATCH would have flipped it to false — so its staying at the seeded published
+    // value is what actually proves the 403 blocked the write.
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+    expect((int) $row->is_published)->toBe(1);
+    expect($row->architecture_id)->toBe('staple');
 });
 
 it('allows an admin-role staffer the site edit', function () {
