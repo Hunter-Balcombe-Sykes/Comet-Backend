@@ -8,6 +8,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PublicSite\Actions\ActionVocabulary;
 use Illuminate\Support\Collection;
 
@@ -104,7 +105,7 @@ class SiteActionsService
             IntegrationConnection::query()
                 ->where('user_id', $pro->id)
                 ->where('is_active', true)
-                ->get(['id', 'platform', 'resource_id', 'payload', 'created_at']) as $conn
+                ->get(['id', 'user_id', 'platform', 'resource_id', 'payload', 'created_at']) as $conn
         ) {
             $connectionsByPlatform[strtolower((string) $conn->platform)][] = $conn;
         }
@@ -142,6 +143,8 @@ class SiteActionsService
             if ($url !== null) {
                 $out[] = $this->entry('booking-services', 'external', ActionVocabulary::labelFor('booking-services'), url: $url);
             }
+        } elseif (($url = $this->incompleteBookingUrl($connectionsByPlatform)) !== null) {
+            $out[] = $this->entry('booking-services', 'external', ActionVocabulary::labelFor('booking-services'), url: $url);
         }
 
         if (isset($present['menu'])) {
@@ -294,6 +297,35 @@ class SiteActionsService
         usort($candidates, static fn (IntegrationConnection $a, IntegrationConnection $b): int => ($a->created_at ?? '') <=> ($b->created_at ?? ''));
 
         return $candidates[0];
+    }
+
+    /**
+     * The harvested URL of a booking connection that exists but has no
+     * publishable content yet — an auto-seeded fresha row is {url,
+     * selection:null}, so its Services page is empty and presentPageIds()
+     * withholds it. The link itself is real and works, so visitors keep a
+     * working Book-now rather than losing the action entirely while the owner
+     * finishes setup.
+     *
+     * Fresha only: square's connect stores a url and nothing else, so a square
+     * row is complete by definition and never reaches this path.
+     *
+     * @param  array<string, list<IntegrationConnection>>  $connectionsByPlatform
+     */
+    private function incompleteBookingUrl(array $connectionsByPlatform): ?string
+    {
+        $descriptor = app(PlatformRegistry::class)->get('fresha');
+        if ($descriptor === null) {
+            return null;
+        }
+
+        foreach ($connectionsByPlatform['fresha'] ?? [] as $conn) {
+            if (! $descriptor->isComplete($conn)) {
+                return $this->safeHref($this->connectionPayload($conn)['url'] ?? null);
+            }
+        }
+
+        return null;
     }
 
     /**
