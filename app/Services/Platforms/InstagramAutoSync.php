@@ -167,9 +167,8 @@ class InstagramAutoSync
         try {
             $userId = (string) $user->id;
             $caps = AccountCapabilities::for($user);
-            // DISC-7: don't auto-create platform connections from a scraped bio for a
-            // not-yet-consenting provisional (unclaimed) subject — surfaced as an
-            // unmatched custom-link suggestion instead (same routing as a capability-gated link).
+            // Auto-sync consent gate removed 2026-07-25 — unclaimed users now
+            // auto-sync identically to claimed users. The capability is always true.
             $canAutosync = $caps->can_autosync_scraped_connections;
             $canSyncSocial = $caps->google_business_full_sync && $canAutosync;
             $canSyncBooking = $caps->can_use_booking && $canAutosync;

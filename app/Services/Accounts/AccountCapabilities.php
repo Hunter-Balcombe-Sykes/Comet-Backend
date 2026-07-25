@@ -67,11 +67,12 @@ final class AccountCapabilities
             can_use_reservations: $isBusiness ? $isFood : true,
             can_use_booking: $isBusiness ? ! $isFood : true,
             can_use_online_ordering: $isBusiness && $isFood,
-            // DISC-7: consent gate — provisional/unclaimed subjects have not
-            // consented to auto-created platform connections from scraped
-            // data. Canonical predicate (isUnclaimed()), not a raw $status
-            // comparison — mirrors isActive()/isPendingDeletion() above.
-            can_autosync_scraped_connections: ! $pro->isUnclaimed(),
+            // Pre-account auto-sync gate (2026-07-25): previously gated on
+            // !isUnclaimed() (DISC-7 consent). Removed — unclaimed users now
+            // receive the same auto-sync as claimed users. Kept as an always-true
+            // flag rather than deleted so it remains a one-line kill switch if the
+            // consent question returns before pilot.
+            can_autosync_scraped_connections: true,
         );
     }
 }

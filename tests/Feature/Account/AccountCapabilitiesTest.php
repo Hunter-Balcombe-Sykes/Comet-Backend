@@ -187,13 +187,11 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
     });
 });
 
-describe('AccountCapabilities — DISC-7 consent gate (auto-synced scraped connections)', function () {
-    it('withholds auto-sync consent from an unclaimed (provisional) account', function () {
-        // status is deliberately NOT fillable (SEC-2) — forceFill it directly,
-        // same as every other status-setting test in this suite.
+describe('AccountCapabilities — auto-sync consent gate (removed 2026-07-25, now always true)', function () {
+    it('grants auto-sync consent to an unclaimed (provisional) account (gate removed)', function () {
         $pro = (new User(['account_type' => 'partna']))->forceFill(['status' => 'unclaimed']);
 
-        expect(AccountCapabilities::for($pro)->can_autosync_scraped_connections)->toBeFalse();
+        expect(AccountCapabilities::for($pro)->can_autosync_scraped_connections)->toBeTrue();
     });
 
     it('grants auto-sync consent to an active (claimed) account', function () {

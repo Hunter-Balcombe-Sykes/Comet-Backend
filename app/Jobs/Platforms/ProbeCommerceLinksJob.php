@@ -37,10 +37,10 @@ use Throwable;
 // (excess goes straight to CustomLinkSeeder there).
 //
 // Gating (all fail-closed, resolved here because this job runs detached from
-// the scan that queued it): missing user, pending deletion, and DISC-7
-// can_autosync_scraped_connections (an unclaimed provisional subject has not
-// consented to auto-created connections) all downgrade to a custom link — and
-// the custom-link seeder itself re-checks deletion + feature availability.
+// the scan that queued it): missing user and pending deletion downgrade to a
+// custom link — and the custom-link seeder itself re-checks deletion + feature
+// availability. (DISC-7 consent gate removed 2026-07-25 — unclaimed users now
+// receive the same auto-sync as claimed users.)
 class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -83,9 +83,8 @@ class ProbeCommerceLinksJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // DISC-7 fail-closed: no auto-created connections for a not-yet-
-        // consenting provisional subject. The custom-link fallback applies its
-        // own feature gate, so routing there is safe either way.
+        // Auto-sync consent gate removed 2026-07-25 — capability is always true.
+        // Kept as dead code since this entire job is removed in Phase 10.
         if (! AccountCapabilities::for($user)->can_autosync_scraped_connections) {
             $links->seed($user, $this->url);
 

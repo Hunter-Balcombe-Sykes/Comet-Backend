@@ -362,7 +362,7 @@ it('seeds booking for a partna account while its social link falls through to un
 // ── DISC-7: consent gate — unclaimed (provisional) subjects have not
 // consented to auto-created platform connections from a scraped bio ─────────
 
-it('does not auto-create social or booking connections from a scraped bio for an UNCLAIMED (provisional) subject', function () {
+it('DOES auto-create social and booking connections from a scraped bio for an UNCLAIMED subject (gate removed 2026-07-25)', function () {
     $user = igAutoSyncUser('discunclaimed1', 'business');
     $user->forceFill(['status' => 'unclaimed'])->save();
 
@@ -371,14 +371,9 @@ it('does not auto-create social or booking connections from a scraped bio for an
         'https://www.fresha.com/a/doc-cuts',
     ]);
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
-
-    // Not silently dropped — same "add as custom link" fallback as any other
-    // capability-gated link.
-    expect($result['findings'])->toBe([]);
-    expect($result['unmatched'])->toContain(['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook']);
-    expect($result['unmatched'])->toContain(['url' => 'https://www.fresha.com/a/doc-cuts', 'label' => 'Fresha']);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(collect($result['findings'])->pluck('outcome')->unique()->all())->toBe(['seeded']);
 });
 
 it('DOES auto-create social and booking connections from the same bio for a CLAIMED subject with the same capabilities (gate is not a blanket disable)', function () {
