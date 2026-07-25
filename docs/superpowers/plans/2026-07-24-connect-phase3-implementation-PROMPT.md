@@ -15,7 +15,8 @@
 | 1 | `…phase1-fetchbudget…` | W1 |
 | 2 | `…phase2-worker-prereqs…` | RV-4 + RV-8 |
 | **3 — you are here** | this file | **W2–W8** |
-| 4/5 | `…phase4-5-rollout-shop…` | activation + Shop |
+| 4 | `…phase4-activation…` | activation (ops) |
+| W9 | `…w9-shop…` | Shop — independent, any time |
 
 **Prerequisites, verify before starting:**
 1. **Phase 0 merged** — the design doc is on `development`. This prompt is a thin

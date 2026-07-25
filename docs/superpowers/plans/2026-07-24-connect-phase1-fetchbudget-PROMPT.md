@@ -14,7 +14,8 @@
 | **1 — you are here** | this file | **W1 — `FetchBudget` ×6** |
 | 2 | `2026-07-24-connect-phase2-worker-prereqs-PROMPT.md` | RV-4 + RV-8 |
 | 3 | `2026-07-24-connect-phase3-implementation-PROMPT.md` | W2–W8 (dark) |
-| 4/5 | `2026-07-24-connect-phase4-5-rollout-shop-PROMPT.md` | activation + Shop |
+| 4 | `2026-07-24-connect-phase4-activation-PROMPT.md` | activation (ops) |
+| W9 | `2026-07-24-connect-w9-shop-PROMPT.md` | Shop — independent, any time |
 
 **This phase depends on nothing.** It adds no queue load, so it does **not** wait on
 Phase 2's RV-4 (worker memory). It can run before, during, or after the pilot tier.
