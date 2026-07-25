@@ -43,5 +43,17 @@ abstract class PostgresTestCase extends BaseTestCase
         } catch (Throwable $e) {
             $this->markTestSkipped('Postgres lane requires a reachable Postgres server: '.$e->getMessage());
         }
+
+        // Guard: this lane CREATEs and DROPs production-named tables in core.*/site.*.
+        // Local .env here points DB_CONNECTION=pgsql at a real dev host, and
+        // phpunit.pg.xml deliberately does not override DB_* (see its own docblock)
+        // — so an unguarded `composer test:pg` run locally would aim these
+        // destructive statements at whatever database .env happens to name. Only
+        // ever run this lane against a throwaway database — the CI service
+        // container (DB_DATABASE=partna_test) or an explicitly opted-in local one.
+        $db = DB::connection('pgsql')->selectOne('select current_database() as db')->db;
+        if ($db !== 'partna_test' && getenv('PG_LANE_DISPOSABLE') !== '1') {
+            $this->markTestSkipped("Refusing to provision core.*/site.* on '{$db}' — set PG_LANE_DISPOSABLE=1 to override.");
+        }
     }
 }

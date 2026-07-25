@@ -23,16 +23,6 @@ beforeEach(function () {
     Cache::flush();
     FeatureFlagTestCase::boot();
 
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.partna_staff (
-        id TEXT PRIMARY KEY,
-        auth_user_id TEXT,
-        role TEXT,
-        name TEXT,
-        primary_email TEXT,
-        created_at TEXT,
-        updated_at TEXT
-    )');
-
     $this->staff = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid()]);
     $this->service = app(FeatureFlagService::class);
     $this->flagController = new StaffFeatureFlagController($this->service);
@@ -252,7 +242,6 @@ it('destroy override removes the override', function () {
         'id' => $overrideId,
         'flag_key' => 'destroy_ov_flag',
         'user_id' => $proId,
-        'brand_id' => null,
         'enabled' => 1,
         'reason' => 'to be deleted',
         'created_by' => (string) Str::uuid(),

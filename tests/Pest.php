@@ -323,7 +323,11 @@ function setupUsersTable(): void
         -- Deliberately stricter than prod, which still tolerates \'staff\'.
         account_type TEXT NOT NULL DEFAULT \'partna\' CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NOT NULL DEFAULT \'active\' CHECK (status IN (\'active\',\'suspended\',\'disabled\',\'pending_deletion\',\'unclaimed\')),
-        bio TEXT NULL,
+        -- bio: dropped from prod by 20260705120002_drop_dead_profile_columns_tables.
+        -- icon_bucket/icon_path/headshot_bucket/headshot_path: dropped pre-baseline
+        -- (see baseline:313-315 comment) and never existed in any migration here.
+        -- All five were phantom here with zero read/write consumers, caught by
+        -- FixtureSchemaParityTest (#FFLAG-1 sibling finding).
         country_code TEXT NULL,
         timezone TEXT NULL,
         onboarding_step INTEGER NOT NULL DEFAULT 0,
@@ -331,10 +335,6 @@ function setupUsersTable(): void
         public_contact_email TEXT NULL,
         sector TEXT NULL,
         sector_source TEXT NULL,
-        icon_bucket TEXT NULL,
-        icon_path TEXT NULL,
-        headshot_bucket TEXT NULL,
-        headshot_path TEXT NULL,
         location_street_address TEXT NULL,
         location_postcode TEXT NULL,
         location_city TEXT NULL,
@@ -1534,7 +1534,15 @@ function createDocumentFor(User $pro, array $overrides = []): SiteMedia
 /**
  * core.feature_flags + core.feature_flag_overrides — needed by any test that
  * exercises feature gating (the `feature:` middleware, FeatureFlagService, the
- * flag-prune command). Schema mirrors tests/Feature/FeatureFlags/FeatureFlagTestCase.
+ * flag-prune command).
+ *
+ * CANONICAL definition — Tests\Feature\FeatureFlags\FeatureFlagTestCase::boot()
+ * calls this rather than keeping its own copy. Columns must match
+ * supabase/migrations/20260526000000_baseline_standalone_user.sql:575-590
+ * exactly (nine, after the professional_id -> user_id rename in 20260527030000).
+ * Never add a column that has no migration backing: a phantom `brand_id` in the
+ * old duplicate masked a live Postgres 42703 for two months (#FFLAG-1).
+ * Enforced by tests/Feature/Database/FixtureSchemaParityTest.php.
  */
 function setupFeatureFlagsTable(): void
 {

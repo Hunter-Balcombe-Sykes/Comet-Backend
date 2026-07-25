@@ -15,7 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
 
-// Staff admin endpoints to set / clear per-professional or per-brand flag overrides.
+// Staff admin endpoints to set / clear per-professional flag overrides.
 class StaffFeatureFlagOverrideController extends ApiController
 {
     use ReturnsPaginatedResponse;
@@ -34,7 +34,7 @@ class StaffFeatureFlagOverrideController extends ApiController
         return $this->success($this->paginatedResponse($overrides, 'overrides'));
     }
 
-    /** POST /staff/feature-flags/{key}/overrides — upsert an override for a brand or professional. */
+    /** POST /staff/feature-flags/{key}/overrides — upsert an override for a professional. */
     public function store(CreateOverrideRequest $request, string $key): JsonResponse
     {
         $staff = $request->attributes->get('partna_staff');
@@ -45,7 +45,7 @@ class StaffFeatureFlagOverrideController extends ApiController
 
         $scope = OverrideScope::forUser($data['user_id']);
 
-        $cacheInvalidated = $this->service->setOverride(
+        $result = $this->service->setOverride(
             $key,
             $scope,
             (bool) $data['enabled'],
@@ -54,15 +54,9 @@ class StaffFeatureFlagOverrideController extends ApiController
             $staff->id,
         );
 
-        // Fetch the upserted row to return in the response.
-        $created = FeatureFlagOverride::where('flag_key', $key)
-            ->where('user_id', $scope->userId)
-            ->whereNull('brand_id')
-            ->first();
+        $response = (new FeatureFlagOverrideResource($result->override))->response()->setStatusCode(201);
 
-        $response = (new FeatureFlagOverrideResource($created))->response()->setStatusCode(201);
-
-        if (! $cacheInvalidated) {
+        if (! $result->cacheInvalidated) {
             $response->header('X-Cache-Stale', '1');
         }
 

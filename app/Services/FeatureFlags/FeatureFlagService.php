@@ -94,7 +94,11 @@ class FeatureFlagService
      * Upsert a feature flag override for the given scope, then invalidate
      * the relevant cache key so the next read reflects the change.
      *
-     * @return bool true if cache invalidation succeeded, false if it failed (DB write always succeeds)
+     * Returns the upserted row itself (not just a bool) so callers never
+     * re-read it — a re-read whose predicates drifted from this method's
+     * 500'd the staff override endpoint for two months (#FFLAG-1).
+     *
+     * @return OverrideResult the upserted row + whether push-invalidation succeeded
      */
     public function setOverride(
         string $key,
@@ -103,7 +107,7 @@ class FeatureFlagService
         ?string $reason = null,
         ?Carbon $expiresAt = null,
         ?string $createdBy = null,
-    ): bool {
+    ): OverrideResult {
         $attrs = [
             'flag_key' => $key,
             'enabled' => $enabled,
@@ -112,7 +116,7 @@ class FeatureFlagService
             'created_by' => $createdBy,
         ];
 
-        FeatureFlagOverride::updateOrCreate(
+        $override = FeatureFlagOverride::updateOrCreate(
             ['flag_key' => $key, 'user_id' => $scope->userId],
             $attrs + ['user_id' => $scope->userId],
         );
@@ -124,7 +128,7 @@ class FeatureFlagService
         try {
             $this->forgetPro($scope->userId);
 
-            return true;
+            return new OverrideResult($override, true);
         } catch (Throwable $e) {
             Log::warning('feature_flags.invalidation_failed', [
                 'error' => $e->getMessage(),
@@ -132,7 +136,7 @@ class FeatureFlagService
                 'scope_user_id' => $scope->userId,
             ]);
 
-            return false;
+            return new OverrideResult($override, false);
         }
     }
 

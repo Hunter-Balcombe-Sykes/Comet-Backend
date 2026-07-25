@@ -30,6 +30,15 @@ class SqliteIntrospector
         return null;
     }
 
+    /** @return string[] column names actually declared on the table; [] if the table doesn't exist. */
+    public function columns(string $schema, string $table): array
+    {
+        return array_map(
+            fn ($col) => $col->name,
+            $this->conn->select("PRAGMA {$schema}.table_info({$table})")
+        );
+    }
+
     public function tableDdl(string $schema, string $table): ?string
     {
         $row = $this->conn->selectOne(

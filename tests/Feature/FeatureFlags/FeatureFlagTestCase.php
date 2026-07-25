@@ -2,73 +2,21 @@
 
 namespace Tests\Feature\FeatureFlags;
 
-use Illuminate\Support\Facades\DB;
-
 /**
  * Boots the minimum SQLite schema for FeatureFlagService tests.
- * Follows the same pattern as the global Pest.php helpers (attachTestSchemas +
- * CREATE TABLE IF NOT EXISTS on the 'pgsql' connection, which TestCase::setUp
- * has already redirected to in-memory SQLite).
+ *
+ * Thin alias over the canonical tests/Pest.php helpers — the DDL lives there and
+ * only there. This used to be a second hand-copied definition and it drifted: it
+ * carried a phantom `brand_id` column (dropped from core.feature_flag_overrides
+ * by the 2026-05-22 standalone strip-down) which made a real Postgres 42703 on
+ * POST /staff/feature-flags/{key}/overrides pass green for two months (#FFLAG-1).
+ * Never re-inline a CREATE TABLE here.
  */
 class FeatureFlagTestCase
 {
     public static function boot(): void
     {
-        // Attach schema namespaces to the SQLite in-memory connection. Inlined
-        // here rather than calling attachTestSchemas() to avoid duplicate-function
-        // issues with the worktree + main-repo Pest.php both being scanned.
-        $conn = DB::connection('pgsql');
-        foreach (['core', 'brand'] as $schema) {
-            try {
-                $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
-            } catch (\Throwable) {
-            }
-        }
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
-            id TEXT PRIMARY KEY,
-            handle TEXT,
-            display_name TEXT,
-            primary_email TEXT,
-            status TEXT DEFAULT "active",
-            professional_type TEXT DEFAULT "professional",
-            account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
-            created_at TEXT,
-            updated_at TEXT,
-            deleted_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            brand_status TEXT DEFAULT "building",
-            setup_complete INTEGER NULL,
-            business_website TEXT NULL,
-            created_at TEXT,
-            updated_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.feature_flags (
-            key TEXT PRIMARY KEY,
-            description TEXT,
-            default_enabled INTEGER DEFAULT 0,
-            rollout_percent INTEGER DEFAULT 0,
-            deleted_at TEXT,
-            created_at TEXT,
-            updated_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.feature_flag_overrides (
-            id TEXT PRIMARY KEY,
-            flag_key TEXT,
-            user_id TEXT,
-            brand_id TEXT,
-            enabled INTEGER DEFAULT 0,
-            reason TEXT,
-            expires_at TEXT,
-            created_by TEXT,
-            created_at TEXT,
-            updated_at TEXT
-        )');
+        setupUsersTable();          // also boots core.partna_staff (Pest.php:362)
+        setupFeatureFlagsTable();
     }
 }
