@@ -45,19 +45,38 @@ for g in "${ONLY_GROUPS[@]}"; do
     fi
 done
 
+# Same rule as --only: an invalid --runtime-target must hard-error immediately,
+# never silently fall through to runtime-health.sh's own (correct, but later
+# and non-fatal-to-the-whole-run) validation.
+if [[ -n "$RUNTIME_TARGET" && "$RUNTIME_TARGET" != "pilot" && "$RUNTIME_TARGET" != "launch" ]]; then
+    echo "error: unknown --runtime-target '$RUNTIME_TARGET' (must be pilot or launch)" >&2
+    exit 2
+fi
+
 OUT_DIR="$ROOT/audits/launch-check/$(date +%F)"
 mkdir -p "$OUT_DIR"
 REPORT="$OUT_DIR/REPORT.md"
 OVERALL=0
 
-run_group() { # $1 name, $2 command string
-    echo "════════ $1 ════════"
+# run_group NAME CODE [ARG...] — CODE is a FIXED, hand-written bash -c script
+# (never built from a variable) that reads its dynamic inputs ONLY as
+# positional parameters ($1, $2, ...) supplied via ARG. This is deliberately
+# NOT `eval "$built_string"`: eval re-parses whatever bytes end up in the
+# string, so anything reaching it — a --runtime-target value, a handle, a
+# path — becomes shell syntax, not data, the moment it contains a quote,
+# `;`, `$(...)`, backtick or newline (see the launch-check:runtime target
+# injection this replaced). `bash -c CODE bash "$@"` never re-parses ARG:
+# each one lands in $1.. as an inert string no matter what bytes it holds.
+run_group() { # $1 name, $2 bash -c code (fixed, references $1..), $3.. args
+    local name="$1" code="$2"
+    shift 2
+    echo "════════ $name ════════"
     local output status
-    output=$(eval "$2" 2>&1); status=$?
+    output=$(bash -c "$code" bash "$@" 2>&1); status=$?
     echo "$output"
     [[ $status -ne 0 ]] && OVERALL=1
     {
-        echo "## $1 — $([[ $status -eq 0 ]] && echo PASS || echo '**FAIL**')"
+        echo "## $name — $([[ $status -eq 0 ]] && echo PASS || echo '**FAIL**')"
         echo
         echo '```'
         echo "$output"
@@ -74,27 +93,27 @@ run_group() { # $1 name, $2 command string
 } > "$REPORT"
 
 [[ ",$ONLY," == *",schema,"* ]] && run_group "A · Schema-drift gate" \
-    "cd '$ROOT' && php artisan test --filter=SchemaDriftGuardTest --compact"
+    'cd "$1" && php artisan test --filter=SchemaDriftGuardTest --compact' "$ROOT"
 [[ ",$ONLY," == *",smoke,"* ]] && run_group "B · Runtime smoke probe" \
-    "'$DIR/smoke.sh' ${SMOKE_ARGS[*]:-}"
+    '"$1" "${@:2}"' "$DIR/smoke.sh" "${SMOKE_ARGS[@]+"${SMOKE_ARGS[@]}"}"
 [[ ",$ONLY," == *",supabase,"* ]] && run_group "C · Supabase config" \
-    "'$DIR/supabase-check.sh'"
+    '"$1"' "$DIR/supabase-check.sh"
 [[ ",$ONLY," == *",supply,"* ]] && run_group "D · Supply chain" \
-    "cd '$ROOT' && composer audit --no-interaction && cd cloudflare-worker && npm audit --audit-level=high"
+    'cd "$1" && composer audit --no-interaction && cd cloudflare-worker && npm audit --audit-level=high' "$ROOT"
 [[ ",$ONLY," == *",security,"* ]] && run_group "E · Security audit (Vigil)" \
-    "cd '$ROOT' && APP_DEBUG=false php artisan vigil:audit --fail-on=critical"
+    'cd "$1" && APP_DEBUG=false php artisan vigil:audit --fail-on=critical' "$ROOT"
 [[ ",$ONLY," == *",drills,"* ]] && run_group "F · Drill-log freshness" \
-    "'$DIR/drill-freshness.sh'"
+    '"$1"' "$DIR/drill-freshness.sh"
 [[ ",$ONLY," == *",env,"* ]] && run_group "G · Deployed env config" \
-    "'$DIR/env-check.sh'"
-# runtime-health.sh already reads $LAUNCH_CHECK_HANDLE itself (it's inherited by
-# the eval'd subshell below), so no --handle is interpolated here — an earlier
-# version did `${LAUNCH_CHECK_HANDLE:+--handle $LAUNCH_CHECK_HANDLE}` unquoted
-# inside an eval'd string, which both word-splits/injects on a handle containing
-# whitespace or `;` and was redundant with the env var it duplicates.
-RUNTIME_CMD="'$DIR/runtime-health.sh'"
-[[ -n "$RUNTIME_TARGET" ]] && RUNTIME_CMD="$RUNTIME_CMD --target '$RUNTIME_TARGET'"
-[[ ",$ONLY," == *",runtime,"* ]] && run_group "H · Deployed runtime health" "$RUNTIME_CMD"
+    '"$1"' "$DIR/env-check.sh"
+# runtime-health.sh already reads $LAUNCH_CHECK_HANDLE itself (inherited from
+# this script's own environment — no --handle is passed here at all). The
+# target, if given, travels as a genuine argv element ($2 inside the bash -c
+# code below), never spliced into a string that gets re-parsed — see run_group.
+RUNTIME_ARGS=()
+[[ -n "$RUNTIME_TARGET" ]] && RUNTIME_ARGS=(--target "$RUNTIME_TARGET")
+[[ ",$ONLY," == *",runtime,"* ]] && run_group "H · Deployed runtime health" \
+    '"$1" "${@:2}"' "$DIR/runtime-health.sh" "${RUNTIME_ARGS[@]+"${RUNTIME_ARGS[@]}"}"
 
 {
     echo "## I · Manual residue (no script can verify these)"
