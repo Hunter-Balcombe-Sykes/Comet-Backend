@@ -25,6 +25,8 @@ use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Endpoints for the Fresha integration (fully authenticated — 'user.api' middleware
 // on the route group, routes/api/platforms.php). Saves a per-user Fresha store URL
@@ -329,21 +331,68 @@ class FreshaController extends ApiController
     }
 
     // GET /api/platforms/fresha/team — team + services for the saved URL.
+    // Read-through cached into payload.teamMenuCache: the dashboard's
+    // finish-setup prompt can open once per session, and a live scrape per open
+    // would hammer fresha.com for a roster that changes only when staff join or
+    // leave. ?refresh=1 forces a re-scrape.
+    //
+    // The cache key is deliberately NOT 'teamMenu' — connectStatus() uses
+    // is_array(payload.teamMenu) to discriminate team from storewide mode, so
+    // writing that key here would make a completed storewide connection report
+    // mode:'team' on its next poll.
     public function team(Request $request): JsonResponse
     {
-        $url = $this->freshaUrl($this->currentUser($request));
+        $user = $this->currentUser($request);
+        $payload = $this->readConnection($user) ?? [];
+        $url = SelectionPayload::fromArray($payload)->url;
         if (! $url) {
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
+        }
+
+        $cached = is_array($payload['teamMenuCache'] ?? null) ? $payload['teamMenuCache'] : null;
+        if ($cached !== null && ! $request->boolean('refresh') && $this->teamCacheIsFresh($payload)) {
+            return $this->success(['url' => $url, ...$cached]);
         }
 
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
         try {
             $menu = $this->budget->open($seconds, fn () => $this->scraper->fetchMenu($url));
-        } catch (SafeUrlException|ConnectionException) {
+        } catch (SafeUrlException|ConnectionException|HttpException) {
+            // A stale roster beats a dead picker — the owner can still identify
+            // themselves, and saveSelection() re-scrapes server-side anyway, so
+            // a departed employee 404s correctly at submit time.
+            if ($cached !== null) {
+                return $this->success(['url' => $url, ...$cached]);
+            }
             abort(502, 'Could not reach Fresha — please try again.');
         }
 
+        // Quiet, merged write. saveQuietly() because IntegrationConnectionObserver
+        // ::saved() purges the Cloudflare sitepage cache on ANY payload change —
+        // and this roster is private dashboard data that appears nowhere in the
+        // public payload, so a purge here would be pure waste. Merged so
+        // url/selection/raw ride through untouched. Never writeConnection(pending:)
+        // — this must not move last_refresh_status.
+        $row = $this->connectionFor($user);
+        if ($row !== null) {
+            $row->payload = [...($row->payload ?? []), 'teamMenuCache' => $menu, 'teamMenuCachedAt' => now()->toIso8601String()];
+            $row->saveQuietly();
+        }
+
         return $this->success(['url' => $url, ...$menu]);
+    }
+
+    /** Whether payload.teamMenuCachedAt is inside the configured TTL. */
+    private function teamCacheIsFresh(array $payload): bool
+    {
+        $at = $payload['teamMenuCachedAt'] ?? null;
+        if (! is_string($at)) {
+            return false;
+        }
+
+        $ttl = (int) config('partna.platforms.fresha.team_cache_seconds', 86400);
+
+        return Carbon::parse($at)->addSeconds($ttl)->isFuture();
     }
 
     // GET /api/platforms/fresha/url — peek at what's saved without re-scraping.
