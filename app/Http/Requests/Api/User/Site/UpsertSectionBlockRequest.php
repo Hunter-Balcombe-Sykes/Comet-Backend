@@ -52,11 +52,11 @@ class UpsertSectionBlockRequest extends BaseFormRequest
     /**
      * Contact section — enquiry form authoring.
      *
-     * notification_email is nullable here so the affiliate can save a draft
+     * notification_email is nullable here so the professional can save a draft
      * without it; SectionVisibilityService::checkContactRequirements gates
      * Publish on a valid email being present. subject_options is the
-     * affiliate's *additions* to the platform defaults (config
-     * `sidest.contact_subject_defaults`); at render + submission time the
+     * professional's *additions* to the platform defaults (config
+     * `partna.contact_subject_defaults`); at render + submission time the
      * two lists are merged.
      *
      * notification_channels constrains delivery to known channel identifiers;

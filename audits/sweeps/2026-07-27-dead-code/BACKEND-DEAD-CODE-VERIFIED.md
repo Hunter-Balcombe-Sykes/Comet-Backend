@@ -29,7 +29,7 @@ provider edit, a decision, or a migration.
   `## Standalone — do NOT bundle` **pauses for explicit go-ahead** before implementation.
 
 ## Progress
-- **Total findings: 14** — 9 / 14 done.
+- **Total findings: 14** — 12 / 14 done.
 - Auto-run: Bundle 1 (8), Bundle 2 (1), Bundle 3 (3) = 12.
 - Standalone (pause for sign-off): DC-C2, DC-D1 = 2.
 - Decided no-action (not counted): B2 `visibility()` — keep.
@@ -97,7 +97,7 @@ Comment-only, cannot break tests. For each dead symbol, **grep repo-wide and fix
 cited line** (the source doc's line list is not exhaustive — e.g. `FanOutBrandStatusNotificationJob`
 also lives at `SendStaffBroadcastEmailsJob.php:51`).
 
-- [ ] **SC-E1** — Correct/remove the comments citing symbols VERIFIED not to exist:
+- [x] **SC-E1** — Correct/remove the comments citing symbols VERIFIED not to exist:
   `RenameSubdomainAction.php:126` (`HydrogenAffiliateController`), `UpdateSiteAction.php:69`
   (`commerce.affiliate_product_selections`), `config/partna.php:1659` **+**
   `SendStaffBroadcastEmailsJob.php:51` (`FanOutBrandStatusNotificationJob`), `config/queue.php:98` +
@@ -105,12 +105,12 @@ also lives at `SendStaffBroadcastEmailsJob.php:51`).
   (`RebuildProfessionalHourlyAggregatesJob`/`RebuildBrandHourlyAggregatesJob`),
   `NotificationPublisher.php:23` (`config/sidest.php` → real source `config('partna.notifications.mailables')`),
   `MediaVariant.php:14` (`core.media_variants` → real table is `site.media_variants`).
-- [ ] **SC-E2** — Fix the false-claim comments: `EnvCheckService.php:12` (Fresha/Square "dropped" — they're
+- [x] **SC-E2** — Fix the false-claim comments: `EnvCheckService.php:12` (Fresha/Square "dropped" — they're
   live; fix the *reason*, keep the env-key exclusion), `TrackableBlockTypes.php:8-9` (overclaims a
   removed consumer), `FeatureFlagService.php:18-22` (numbering gap / removed tier),
   `UserSectionBlockController.php:18` (docblock claims account-type restrictions the method doesn't have),
   `SubmitFeedbackRequest.php:10-12` (cites a superseded migration; field now has a DB CHECK).
-- [ ] **SC-E3** — Sweep pre-pivot terminology fossils (comment-only, opportunistic) across the files
+- [x] **SC-E3** — Sweep pre-pivot terminology fossils (comment-only, opportunistic) across the files
   listed under "Reference — E3 file list" below.
 
 ---

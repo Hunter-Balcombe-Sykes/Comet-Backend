@@ -14,10 +14,11 @@ use App\Services\Platforms\SkoolScraper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-// Test-mode endpoints for Skool. Connect by community URL — the community's
-// public about page carries og: tags (name, avatar, description) even for
-// private communities, so the sitepage can show a rich community card with
-// no auth. Scraping lives in App\Services\Platforms\SkoolScraper.
+// Endpoints for Skool (fully authenticated — 'user.api' middleware applied by the
+// registry-driven route loop, routes/api/platforms.php). Connect by community URL —
+// the community's public about page carries og: tags (name, avatar, description)
+// even for private communities, so the sitepage can show a rich community card
+// with no third-party auth needed. Scraping lives in App\Services\Platforms\SkoolScraper.
 class SkoolController extends ApiController
 {
     use DefersBespokeConnect;

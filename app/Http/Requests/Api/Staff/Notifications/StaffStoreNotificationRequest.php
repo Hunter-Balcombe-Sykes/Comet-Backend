@@ -45,8 +45,8 @@ class StaffStoreNotificationRequest extends FormRequest
             'send_email' => ['nullable', 'boolean'],
             'email_list_key' => ['nullable', 'string', 'max:50'],
             // Whitelisted to the three staff-broadcast categories only. Categories
-            // like 'commissions' / 'payouts' have canonical event sources and must
-            // not be manually issuable via this endpoint.
+            // like 'platform_connection' / 'achievement' have canonical event sources
+            // and must not be manually issuable via this endpoint.
             'category' => ['nullable', 'string', Rule::in(['policy_update', 'incident', 'feature_announcement'])],
         ];
     }

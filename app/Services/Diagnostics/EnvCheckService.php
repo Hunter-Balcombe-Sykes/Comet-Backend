@@ -9,7 +9,9 @@ namespace App\Services\Diagnostics;
  * `/api/internal/env-check` HTTP endpoint. Checks resolved config paths,
  * not raw env keys, so typos in a config/*.php file surface too.
  *
- * Fresha + Square are excluded — both integrations dropped (2026-05-11).
+ * Fresha + Square are excluded — both are link/scrape-based integrations whose
+ * config values (config/services.php, config/partna.php) all ship with working
+ * defaults, so there's nothing required to track here.
  * AWS S3 keys are excluded — we use Cloudflare R2 / direct disks.
  */
 class EnvCheckService

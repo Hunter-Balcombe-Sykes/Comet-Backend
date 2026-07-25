@@ -40,12 +40,10 @@ class SendTransactionalNotificationEmailJob implements ShouldQueue
     // Keys MUST match the category strings registered in
     // config('partna.notifications.mailables') — silent fallthrough on a
     // mistyped key would bypass the gate for financially-sensitive mail.
-    // `payout_warnings`, `brand_links`, `subscriptions`, `policy_update`,
-    // `incident`, `feature_announcement`, `integrations`, `analytics_*`,
-    // and `profile_tasks` are intentionally absent — they apply to all
-    // account types (or use a non-account-type policy elsewhere).
-    // No commerce/brand notification gates — all categories gated here are
-    // only applicable to brand/partner accounts (dropped in standalone strip).
+    // Empty: Partna is individual-only, and no current notification category
+    // needs an AccountCapabilities gate. Kept as the extensibility point for
+    // NotificationEmailPreferenceController/NotificationPublisher below —
+    // add an entry here if a future category needs one.
     private const CAPABILITY_GATE_MAP = [];
 
     /**

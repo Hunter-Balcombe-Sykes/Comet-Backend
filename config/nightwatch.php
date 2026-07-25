@@ -22,7 +22,7 @@ return [
     // Capture surrounding lines around exception sites — opt-in; set NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE=true when actively debugging.
     'capture_exception_source_code' => env('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', false),
 
-    // Off by default: request bodies often contain PII (Supabase JWTs, Shopify tokens, customer data).
+    // Off by default: request bodies often contain PII (Supabase JWTs, platform integration tokens, customer data).
     'capture_request_payload' => env('NIGHTWATCH_CAPTURE_REQUEST_PAYLOAD', false),
 
     // Field/header names scrubbed before send. Comma-separated.

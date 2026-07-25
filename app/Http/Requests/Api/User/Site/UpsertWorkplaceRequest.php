@@ -58,7 +58,7 @@ class UpsertWorkplaceRequest extends BaseFormRequest
             // Public contact email — manual-only (Google Places never returns one).
             'contact_email' => ['nullable', 'email', 'max:255'],
             // Structured per-day opening hours. Keys are weekday slugs; each maps
-            // to a list of {open,close} HHMM entries. Shape owned by the Brand Info
+            // to a list of {open,close} HHMM entries. Shape owned by the workplace
             // editor + the Google hours mapper — validated loosely here.
             'opening_hours' => ['nullable', 'array'],
         ];

@@ -123,8 +123,8 @@ class RenameSubdomainAction
         }
 
         // Keep the canonical handle on the professional in sync with the subdomain.
-        // HydrogenAffiliateController + public site resolver both look up by handle_lc,
-        // so a desync means the affiliate URL breaks immediately after a rename.
+        // The public site resolver (IndividualProfileController / ResolvesSiteFromRequest)
+        // looks up by handle_lc, so a desync means the public URL breaks immediately after a rename.
         // The DB trigger (trg_professional_handle_change) records the old handle into
         // user_handle_aliases automatically on this save. We also write it
         // from PHP (belt-and-suspenders) so tests without the trigger stay green.

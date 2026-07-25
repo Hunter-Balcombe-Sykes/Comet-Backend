@@ -15,7 +15,8 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-// V2: Manages site section visibility (gallery, services, shop, booking). Account-type restrictions apply.
+// V2: Manages site section visibility (gallery, services, shop, booking). All accounts are
+// individual; no account-type restrictions.
 class UserSectionBlockController extends ApiController
 {
     use ResolveCurrentSite;

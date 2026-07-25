@@ -909,8 +909,8 @@ return [
     'section_block_types' => $blockTypes['sections'],
 
     // Platform-default subject dropdown options for the contact section block.
-    // Merged with the affiliate's settings.subject_options at render and
-    // submission-validation time. Affiliates can extend but not remove in v1.
+    // Merged with the professional's settings.subject_options at render and
+    // submission-validation time. Professionals can extend but not remove in v1.
     'contact_subject_defaults' => [
         'General enquiry',
         'Booking',
@@ -1664,9 +1664,9 @@ return [
         'prune_batch_size' => (int) env('PARTNA_NOTIFICATIONS_PRUNE_BATCH_SIZE', 1000),
 
         // Max jobs per Bus::batch() sub-chunk for fan-out paths. Bounds the
-        // size of a single Redis pipeline write so a large affiliate / staff
+        // size of a single Redis pipeline write so a large notification
         // broadcast list can't spike Redis memory. Shared between
-        // FanOutBrandStatusNotificationJob and SendStaffBroadcastEmailsJob.
+        // NotificationPublisher and SendStaffBroadcastEmailsJob.
         'batch_chunk_size' => (int) env('PARTNA_NOTIFICATIONS_BATCH_CHUNK_SIZE', 200),
 
         // TTL (seconds) for the cached /me/notifications index payload.
@@ -1764,9 +1764,9 @@ return [
     | GDPR
     |--------------------------------------------------------------------------
     |
-    | Config for Shopify GDPR webhook handlers. Jobs dispatch onto a dedicated
-    | queue so they don't contend with the default worker on a mature shop
-    | (RedactShopJob can take several minutes). The placeholder domain is used
+    | Config for the GDPR data-export flow (ExportUserDataJob). Jobs dispatch onto a
+    | dedicated queue so they don't contend with the default worker (a large
+    | export can take several minutes). The placeholder domain is used
     | when anonymising customer email addresses — pick a domain you own so
     | bounces don't confuse third-party mail providers.
     |

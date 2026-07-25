@@ -66,7 +66,8 @@ class UpdateSiteAction
         $incomingSettings = [];
         if ($hasSettings) {
             $incomingSettings = is_array($data['settings']) ? $data['settings'] : [];
-            // Product selections are stored in commerce.affiliate_product_selections, not site settings JSON.
+            // Affiliate/product-selection feature was removed with the commerce schema; strip any
+            // legacy key so it can't reappear in site settings JSON.
             unset($incomingSettings['selected_products']);
             // Skeleton-system cleanup: settings.design.* is dead. Any
             // incoming `design` sub-key gets dropped on the floor.

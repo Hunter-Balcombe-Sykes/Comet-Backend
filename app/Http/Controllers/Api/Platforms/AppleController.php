@@ -19,11 +19,13 @@ use App\Services\Platforms\Payloads\FeedPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-// Test-mode endpoints for Apple Music + Apple Podcasts. One controller, two
+// Endpoints for Apple Music + Apple Podcasts (fully authenticated — 'user.api'
+// middleware on the route group, routes/api/platforms.php). One controller, two
 // independent selections (music = latest album + highlights, podcast = latest
-// episode + highlights), both on the unauthenticated iTunes Search API via
-// App\Services\Platforms\AppleSearch. No auth, no key. Two keys, so this
-// controller keeps its own storage rather than the single-key trait.
+// episode + highlights), both backed by the unauthenticated iTunes Search API
+// via App\Services\Platforms\AppleSearch — no third-party auth/key needed
+// there. Two keys, so this controller keeps its own storage rather than the
+// single-key trait.
 // Music and Podcast flows share generic helpers (connectFor, recentFor,
 // highlightsFor, forgetFor) driven by musicConfig()/podcastConfig() — a fix
 // to one platform can't silently miss the other (the `latest`-key drift that

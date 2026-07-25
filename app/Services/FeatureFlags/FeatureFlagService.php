@@ -15,7 +15,8 @@ use Throwable;
 /**
  * Resolves feature flag state for a given professional context.
  *
- * Resolution order (highest → lowest precedence):
+ * Resolution order (highest → lowest precedence; the brand-scoped override tier
+ * that used to sit at #2 was removed with the brand→individual pivot):
  *   1. Professional-scoped override
  *   3. Percentage rollout — deterministic hash(key + pro.id) % 100
  *   4. Registry default (feature_flags.default_enabled)
@@ -223,7 +224,7 @@ class FeatureFlagService
         array $proOverrides,
         ?User $pro,
     ): bool {
-        // 1. Pro override.
+        // 1. Pro override. (#2, brand-scoped override, was removed with the brand pivot.)
         if (isset($proOverrides[$key])) {
             return $proOverrides[$key];
         }

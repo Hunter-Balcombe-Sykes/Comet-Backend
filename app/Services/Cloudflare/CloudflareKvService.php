@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Log;
 
 // Wraps the Cloudflare Workers KV REST API for the subdomain routing table.
 // Entries are keyed by subdomain handle; values are JSON routing descriptors
-// read by the Edge Worker to decide brand pass-through vs affiliate redirect.
+// read by the Edge Worker to decide individual-site pass-through vs alias redirect.
 //
 // Gracefully no-ops when unconfigured (local dev without CF credentials).
 class CloudflareKvService

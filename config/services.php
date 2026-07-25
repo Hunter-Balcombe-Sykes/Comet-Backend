@@ -72,7 +72,7 @@ return [
     ],
 
     // Cloudflare DNS + KV — DNS provisions subdomains; KV holds the subdomain
-    // routing table read by the Edge Worker to route brands vs affiliate redirects.
+    // routing table read by the Edge Worker to route individual sites vs alias redirects.
     'cloudflare' => [
         'zone_id' => env('CLOUDFLARE_ZONE_ID'),
         'account_id' => env('CLOUDFLARE_ACCOUNT_ID'),

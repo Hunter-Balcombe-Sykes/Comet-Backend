@@ -247,26 +247,6 @@ class MediaUploadService
     }
 
     /**
-     * createSingletonRow(), converting a lost concurrent-replace race into a
-     * typed 409 instead of an uncaught QueryException.
-     *
-     * purgeExistingSingleton() (above) runs with NO lock, before
-     * createSingletonRow() ever takes the per-site advisory lock. Two
-     * concurrent uploads for the same (site, purpose) can therefore both pass
-     * the purge before either commits its INSERT — the DB's partial unique
-     * index (site_media_design_singleton_purpose_uq) then rejects whichever
-     * INSERT lands second. That's expected under contention, not corruption:
-     * the winner's row stands as the singleton. Nothing has touched storage
-     * yet at this point — storeOriginal() only runs after this method returns
-     * successfully — so the loser leaves no orphaned file behind; it simply
-     * never wrote one. (We deliberately do NOT move the purge inside the
-     * advisory-locked transaction to close the window instead: that lock is
-     * site-wide, shared with the plain gallery upload path, and purging calls
-     * out to storage (deleteVariants) — holding the lock across that I/O would
-     * serialise every upload for the site behind a network round-trip, a worse
-     * trade than the narrow race this catch already resolves.)
-     */
-    /**
      * SVG uploads are accepted ONLY for logo singletons with the logo-removal
      * pipeline on — the processor container handles rasterization, so a
      * pipeline-off SVG would have no path to renderable variants and must keep
@@ -315,6 +295,26 @@ class MediaUploadService
         return $path;
     }
 
+    /**
+     * Wraps createSingletonRow(), converting a lost concurrent-replace race into a
+     * typed 409 instead of an uncaught QueryException.
+     *
+     * purgeExistingSingleton() (above) runs with NO lock, before
+     * createSingletonRow() ever takes the per-site advisory lock. Two
+     * concurrent uploads for the same (site, purpose) can therefore both pass
+     * the purge before either commits its INSERT — the DB's partial unique
+     * index (site_media_design_singleton_purpose_uq) then rejects whichever
+     * INSERT lands second. That's expected under contention, not corruption:
+     * the winner's row stands as the singleton. Nothing has touched storage
+     * yet at this point — storeOriginal() only runs after this method returns
+     * successfully — so the loser leaves no orphaned file behind; it simply
+     * never wrote one. (We deliberately do NOT move the purge inside the
+     * advisory-locked transaction to close the window instead: that lock is
+     * site-wide, shared with the plain gallery upload path, and purging calls
+     * out to storage (deleteVariants) — holding the lock across that I/O would
+     * serialise every upload for the site behind a network round-trip, a worse
+     * trade than the narrow race this catch already resolves.)
+     */
     private function createSingletonRowOrConflict(Site $site, string $purpose, UploadedFile $file): SiteMedia
     {
         try {

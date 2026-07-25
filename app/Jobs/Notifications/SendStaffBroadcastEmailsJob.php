@@ -48,7 +48,7 @@ class SendStaffBroadcastEmailsJob implements ShouldBeUnique, ShouldQueue
     }
 
     // Batch size sourced from config('partna.notifications.batch_chunk_size')
-    // so this and FanOutBrandStatusNotificationJob stay in lockstep without
+    // so this and NotificationPublisher's chunking stay in lockstep without
     // manual sync (#CFG-3).
 
     public function __construct(

@@ -4,10 +4,9 @@ namespace App\Services\Analytics;
 
 // Single source of truth for which blocks are click-trackable. The normalized
 // section-type allowlist is read from config('partna.section_block_types') and
-// consumed by BOTH the ingest writer (PostgresEventWriter — per-block boolean) and
-// the dashboard read path (AnalyticsQueryService::topSections — SQL whereIn), keeping
-// write-side and read-side in lockstep so a config change can't make one count blocks
-// the other drops.
+// consumed by the ingest writer (PostgresEventWriter — per-block boolean).
+// AnalyticsQueryService::topSections() no longer derives from block clicks —
+// it reads analytics.section_views directly (block model retired).
 final class TrackableBlockTypes
 {
     /**

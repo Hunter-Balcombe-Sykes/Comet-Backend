@@ -15,11 +15,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
-// V2: Sends the contact-form notification email to the affiliate's configured inbox after an enquiry is saved.
-// No capability gate: enquiries originate from public site contact forms and apply to all 3 account types
-// (brand, partner, individual) — there is no account_type restriction for this notification path.
+// V2: Sends the contact-form notification email to the professional's configured inbox after an enquiry is saved.
+// No capability gate: enquiries originate from public site contact forms and there is no
+// account_type restriction for this notification path.
 //
-// B3/P1-10: ctor payload is UUIDs only. The brand's notification_email setting
+// B3/P1-10: ctor payload is UUIDs only. The professional's notification_email setting
 // lives in the contact block's settings JSON — looked up at handle() time so
 // the Redis payload carries no PII. If the block was disabled, deleted, or
 // scrubbed of its notification_email between dispatch and handle, the job
@@ -92,7 +92,7 @@ class SendEnquiryNotificationJob implements ShouldBeUnique, ShouldQueue
         }
 
         // Resolve the notification inbox from the contact block at handle() time
-        // so the brand's email never sits in a Redis-serialised job payload.
+        // so the professional's email never sits in a Redis-serialised job payload.
         $block = Block::query()
             ->whereKey($this->blockId)
             ->where('is_active', true)
