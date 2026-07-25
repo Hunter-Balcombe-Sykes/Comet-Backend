@@ -6,15 +6,35 @@ set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../.." && pwd)"
+KNOWN_GROUPS="schema smoke supabase supply security drills"
 ONLY="schema,smoke,supabase,supply,security,drills"
+BASE_URL="https://dev-api.partna.au"
 SMOKE_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --only) ONLY="$2"; shift 2 ;;
-        --base-url) SMOKE_ARGS+=(--base-url "$2"); shift 2 ;;
+        --base-url) SMOKE_ARGS+=(--base-url "$2"); BASE_URL="$2"; shift 2 ;;
         --rate-limit) SMOKE_ARGS+=(--rate-limit); shift ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
+done
+
+# Validate --only BEFORE dispatching anything — an unrecognised or empty group
+# list must be a hard, loud error, never a silent zero-groups "pass".
+if [[ -z "$ONLY" ]]; then
+    echo "error: --only must not be empty. Valid groups: $KNOWN_GROUPS" >&2
+    exit 2
+fi
+IFS=',' read -ra ONLY_GROUPS <<< "$ONLY"
+for g in "${ONLY_GROUPS[@]}"; do
+    known=false
+    for k in $KNOWN_GROUPS; do
+        [[ "$g" == "$k" ]] && { known=true; break; }
+    done
+    if ! $known; then
+        echo "error: unknown --only group '$g'. Valid groups: $KNOWN_GROUPS" >&2
+        exit 2
+    fi
 done
 
 OUT_DIR="$ROOT/audits/launch-check/$(date +%F)"
@@ -41,7 +61,7 @@ run_group() { # $1 name, $2 command string
 {
     echo "# Launch-Check Report — $(date +%F)"
     echo
-    echo "Groups: $ONLY · Target: ${SMOKE_ARGS[*]:-https://dev-api.partna.au (default)}"
+    echo "Groups: $ONLY · Target: $BASE_URL"
     echo
 } > "$REPORT"
 
