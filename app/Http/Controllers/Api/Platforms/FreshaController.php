@@ -343,7 +343,8 @@ class FreshaController extends ApiController
     public function team(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $payload = $this->readConnection($user) ?? [];
+        $row = $this->connectionFor($user);
+        $payload = $row?->payload ?? [];
         $url = SelectionPayload::fromArray($payload)->url;
         if (! $url) {
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
@@ -373,8 +374,16 @@ class FreshaController extends ApiController
         // public payload, so a purge here would be pure waste. Merged so
         // url/selection/raw ride through untouched. Never writeConnection(pending:)
         // — this must not move last_refresh_status.
-        $row = $this->connectionFor($user);
-        if ($row !== null) {
+        //
+        // connectionFor() only authorizes 'view' (no denyIfPendingDeletion —
+        // see IntegrationConnectionPolicy), unlike every other connection-write
+        // path in this controller which goes through upsertConnection()'s
+        // 'update'/'create' abilities. A GET is supposed to stay side-effect-free
+        // for a pending-deletion account (EnforcePendingDeletionReadOnly lets GETs
+        // through on that assumption) — so skip the persist and just serve the
+        // freshly-scraped result, matching denyIfPendingDeletion's convention
+        // without routing this read through a write-gated ability.
+        if ($row !== null && ! $user->isPendingDeletion()) {
             $row->payload = [...($row->payload ?? []), 'teamMenuCache' => $menu, 'teamMenuCachedAt' => now()->toIso8601String()];
             $row->saveQuietly();
         }

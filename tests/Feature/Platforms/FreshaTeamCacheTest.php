@@ -3,6 +3,7 @@
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -37,6 +38,17 @@ function seedTeamCacheFresha(User $user, array $payload): IntegrationConnection
         'last_refresh_status' => 'ok',
         'last_refreshed_at' => now(),
     ]);
+}
+
+/** Set an existing user's status to pending_deletion and reload — mirrors
+ *  PlatformConnectionAuthorizationTest's makePendingDeletion() helper. */
+function markTeamCacheUserPendingDeletion(User $user): User
+{
+    DB::connection('pgsql')->table('core.users')->where('id', $user->id)->update([
+        'status' => 'pending_deletion',
+    ]);
+
+    return $user->fresh();
 }
 
 /** Minimal __NEXT_DATA__ page the scraper can parse. */
@@ -133,6 +145,22 @@ it('serves a stale cache when the scrape fails rather than 502ing', function () 
 it('still 404s when no url is connected', function () {
     actingAsUser(teamCacheUser('nourl'))->getJson('/api/platforms/fresha/team')
         ->assertStatus(404);
+});
+
+it('serves the scraped roster but does not write the cache for a pending-deletion user', function () {
+    Http::fake(['*' => Http::response(freshaPageHtml(), 200)]);
+    $user = teamCacheUser('pendingdel');
+    $row = seedTeamCacheFresha($user, ['url' => 'https://www.fresha.com/a/anseo-studio', 'selection' => null]);
+    $user = markTeamCacheUserPendingDeletion($user);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/team')
+        ->assertOk()
+        ->assertJsonPath('storeName', 'Anseo Studio')
+        ->assertJsonPath('team.0.displayName', 'Simon');
+
+    $payload = $row->fresh()->payload;
+    expect($payload)->not->toHaveKey('teamMenuCache')
+        ->and($payload)->not->toHaveKey('teamMenuCachedAt');
 });
 
 it('does not purge the sitepage cache when caching the roster', function () {
