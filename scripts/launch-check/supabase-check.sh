@@ -15,35 +15,65 @@ pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; FAILS=$((FAILS + 1)); }
 warn() { echo "WARN  $1"; }
 
-pg_query() {
-    curl -s --max-time 30 -X POST "https://api.supabase.com/v1/projects/$REF/database/query" \
-        -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-        -d "$(jq -n --arg q "$1" '{query: $q}')"
-}
+# A "000"/empty status means curl never got a response at all (DNS, TLS, timeout, refused).
+is_unreachable() { [[ -z "$1" || "$1" == "000" ]]; }
+is_success() { [[ "$1" == 2* ]]; }
 
 # --- 1. RLS enabled on every table in the app schemas ---
-RLS_OFF=$(pg_query "SELECT schemaname || '.' || tablename AS t FROM pg_tables
-    WHERE schemaname IN ('core','site','notifications','analytics','audit','moderation')
-    AND rowsecurity = false ORDER BY 1" | jq -r '.[].t' 2>/dev/null)
-if [[ -z "$RLS_OFF" ]]; then
-    pass "RLS enabled on all app-schema tables"
+rls_resp=$(curl -s --max-time 30 -w $'\n%{http_code}' -X POST \
+    "https://api.supabase.com/v1/projects/$REF/database/query" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg q "SELECT schemaname || '.' || tablename AS t FROM pg_tables
+        WHERE schemaname IN ('core','site','notifications','analytics','audit','moderation')
+        AND rowsecurity = false ORDER BY 1" '{query: $q}')")
+rls_curl_exit=$?
+rls_code="${rls_resp##*$'\n'}"
+rls_body="${rls_resp%$'\n'*}"
+if [[ $rls_curl_exit -ne 0 ]] || is_unreachable "$rls_code"; then
+    fail "could not verify RLS coverage — API unreachable (curl exit $rls_curl_exit, status ${rls_code:-none})"
+elif ! is_success "$rls_code"; then
+    fail "could not verify RLS coverage — API returned $rls_code: $(echo "$rls_body" | tr -d '\n' | cut -c1-120)"
+elif ! echo "$rls_body" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    fail "could not verify RLS coverage — unexpected response shape (status $rls_code): $(echo "$rls_body" | tr -d '\n' | cut -c1-120)"
 else
-    while IFS= read -r t; do fail "RLS DISABLED: $t"; done <<< "$RLS_OFF"
+    RLS_OFF=$(echo "$rls_body" | jq -r '.[].t')
+    if [[ -z "$RLS_OFF" ]]; then
+        pass "RLS enabled on all app-schema tables"
+    else
+        while IFS= read -r t; do fail "RLS DISABLED: $t"; done <<< "$RLS_OFF"
+    fi
 fi
 
 # --- 2. Supabase security advisors (server-side lint) ---
-ADVISORS=$(curl -s --max-time 30 "https://api.supabase.com/v1/projects/$REF/advisors/security" \
+# Severity gate is a deliberate, human-approved deviation from the plan's literal code:
+# ERROR advisors FAIL the run; WARN advisors are surfaced loudly but do NOT gate exit code
+# (dev currently carries 2 legitimate WARNs — gating on them would train operators to ignore
+# the probe). An unreachable/unauthenticated/malformed advisors call is a hard FAIL either way
+# — "could not verify" must never read as "verified clean".
+adv_resp=$(curl -s --max-time 30 -w $'\n%{http_code}' \
+    "https://api.supabase.com/v1/projects/$REF/advisors/security" \
     -H "Authorization: Bearer $TOKEN")
-if echo "$ADVISORS" | jq -e '.lints' >/dev/null 2>&1; then
-    COUNT=$(echo "$ADVISORS" | jq '[.lints[] | select(.level == "ERROR" or .level == "WARN")] | length')
-    if [[ "$COUNT" == "0" ]]; then
-        pass "security advisors clean"
-    else
-        fail "security advisors report $COUNT issue(s):"
-        echo "$ADVISORS" | jq -r '.lints[] | select(.level == "ERROR" or .level == "WARN") | "      [\(.level)] \(.title): \(.detail // "" | .[0:120])"'
-    fi
+adv_curl_exit=$?
+adv_code="${adv_resp##*$'\n'}"
+adv_body="${adv_resp%$'\n'*}"
+if [[ $adv_curl_exit -ne 0 ]] || is_unreachable "$adv_code"; then
+    fail "could not verify security advisors — API unreachable (curl exit $adv_curl_exit, status ${adv_code:-none})"
+elif ! is_success "$adv_code"; then
+    fail "could not verify security advisors — API returned $adv_code: $(echo "$adv_body" | tr -d '\n' | cut -c1-120)"
+elif ! echo "$adv_body" | jq -e '.lints' >/dev/null 2>&1; then
+    fail "could not verify security advisors — response missing .lints (status $adv_code): $(echo "$adv_body" | tr -d '\n' | cut -c1-120)"
 else
-    warn "advisors endpoint unavailable (HTTP shape unexpected) — check manually via Supabase MCP get_advisors"
+    ERROR_COUNT=$(echo "$adv_body" | jq '[.lints[] | select(.level == "ERROR")] | length')
+    if [[ "$ERROR_COUNT" == "0" ]]; then
+        pass "security advisors: no ERROR-level issues"
+    else
+        fail "security advisors report $ERROR_COUNT ERROR-level issue(s):"
+        echo "$adv_body" | jq -r '.lints[] | select(.level == "ERROR") | "      [\(.level)] \(.title): \(.detail // "" | .[0:160])"'
+    fi
+    WARN_LINES=$(echo "$adv_body" | jq -r '.lints[] | select(.level == "WARN") | "\(.title): \(.detail // "" | .[0:160])"')
+    if [[ -n "$WARN_LINES" ]]; then
+        while IFS= read -r line; do warn "advisor: $line"; done <<< "$WARN_LINES"
+    fi
 fi
 
 # --- 3. Snapshot staleness: latest repo migration vs snapshot's recorded one ---
