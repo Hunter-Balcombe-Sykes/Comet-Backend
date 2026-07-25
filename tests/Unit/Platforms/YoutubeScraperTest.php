@@ -83,6 +83,66 @@ it('logs a discriminating reason when a 200 channel page matches none of the id 
             && $ctx['reason'] === 'no_channel_id_match');
 });
 
+// ── normalizeHandle() — the identity persisted as payload.handle ────────────
+
+// Regression: normalizeHandle() matched only /@name, /c/name and /user/name, so
+// a pasted /channel/UC… URL (YouTube's own "share channel" form) fell through
+// verbatim and became the stored handle. resolveChannelId() then requested
+// youtube.com/@https%3A%2F%2F… → 404 → "Could not find that YouTube channel".
+// Whatever this returns is persisted and replayed by YoutubeFetch every 12h, so
+// each form must reduce to something that ROUND-TRIPS through fetchRecentVideos().
+it('reduces every channel-addressing URL form to a stable identity', function (string $input, string $expected) {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle($input))->toBe($expected);
+})->with([
+    'bare handle' => ['mrbeast', 'mrbeast'],
+    '@handle' => ['@MrBeast', 'MrBeast'],
+    'handle URL' => ['https://www.youtube.com/@MrBeast', 'MrBeast'],
+    'handle URL, no scheme' => ['youtube.com/@MrBeast', 'MrBeast'],
+    'handle URL with subpath' => ['https://www.youtube.com/@MrBeast/videos', 'MrBeast'],
+    'handle URL with tracking query' => ['https://youtube.com/@mrbeast?si=abc123', 'mrbeast'],
+    'mobile host' => ['https://m.youtube.com/@MrBeast', 'MrBeast'],
+    '/c/ vanity' => ['https://www.youtube.com/c/MrBeast6000', 'MrBeast6000'],
+    '/user/ vanity' => ['https://www.youtube.com/user/MrBeast6000', 'MrBeast6000'],
+    // The two that regressed to a verbatim URL:
+    '/channel/ id URL' => ['https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA', 'UCX6OQ3DkcsbYNE6H8uQQuVA'],
+    '/channel/ id URL with subpath' => ['https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA/videos', 'UCX6OQ3DkcsbYNE6H8uQQuVA'],
+    'legacy bare vanity' => ['https://www.youtube.com/MrBeast', 'MrBeast'],
+    // A raw id must survive untouched — it is what a /channel/ connect persists,
+    // so the 12h refresh feeds it straight back in.
+    'raw channel id' => ['UCX6OQ3DkcsbYNE6H8uQQuVA', 'UCX6OQ3DkcsbYNE6H8uQQuVA'],
+]);
+
+// A video link addresses a video, not a channel. Reducing it to a token would
+// send "LgbyEFILLJI" to the @handle resolver and produce a misleading
+// "channel not found"; '' makes YoutubeConnect fail with the descriptor's
+// "Enter your YouTube channel." instead.
+it('refuses to read a video link as a channel', function (string $input) {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle($input))->toBe('');
+})->with([
+    'youtu.be short link' => ['https://youtu.be/LgbyEFILLJI'],
+    'watch URL' => ['https://www.youtube.com/watch?v=LgbyEFILLJI'],
+    'shorts URL' => ['https://www.youtube.com/shorts/LgbyEFILLJI'],
+    'live URL' => ['https://www.youtube.com/live/LgbyEFILLJI'],
+]);
+
+// The seam that caused this: fetchRecentVideos() called the private,
+// handle-only resolver directly, bypassing channelIdFrom()'s format tolerance
+// (which YoutubeMusicConnect was already using). A raw id must short-circuit
+// to the feed with NO channel-page fetch at all.
+it('resolves a raw channel id straight to the feed, without a channel-page fetch', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')
+        ->once()
+        ->withArgs(fn (string $url) => $url === 'https://www.youtube.com/feeds/videos.xml?channel_id=UCX6OQ3DkcsbYNE6H8uQQuVA')
+        ->andReturn(null);
+
+    youtubeScraperWith($fetcher)->fetchRecentVideos('UCX6OQ3DkcsbYNE6H8uQQuVA');
+});
+
 // ── fetchUploadsFeed() — LIFE-26 ────────────────────────────────────────────
 
 // Regression: the feed was requested as ?playlist_id=UU<suffix> (the uploads

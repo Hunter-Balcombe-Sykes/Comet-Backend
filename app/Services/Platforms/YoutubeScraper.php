@@ -17,12 +17,44 @@ class YoutubeScraper extends PlatformScraper
         private readonly YoutubeThumbnailResolver $thumbnails,
     ) {}
 
-    // Reduce any of bare handle / @handle / full URL (scheme optional) to a
-    // bare handle.
+    // Paths that never address a channel: video links (a video is not a
+    // channel) and YouTube's own utility pages. Also catches a /channel/ URL
+    // whose id is NOT a well-formed UC id — without the lookahead that would
+    // fall through to the legacy-vanity branch below and yield the literal
+    // handle "channel".
+    private const NON_CHANNEL_PATH = '~youtu\.be/|youtube\.com/(?:watch|shorts/|live/|embed/|playlist|results|feed/|channel/(?!UC[A-Za-z0-9_-]{22}))~i';
+
+    /**
+     * Reduce any channel reference — bare handle, @handle, or full URL (scheme
+     * optional) — to the identity persisted as payload.handle: either a bare
+     * handle or, for /channel/ URLs, the UC… id itself. Both round-trip through
+     * fetchRecentVideos(), which is what YoutubeFetch replays on every refresh.
+     * Returns '' for anything that doesn't address a channel, so the caller
+     * fails with the descriptor's "Enter your YouTube channel." rather than
+     * sending garbage to the @handle resolver and reporting it as missing.
+     */
     public function normalizeHandle(string $input): string
     {
         $s = PlatformInput::urlish($input);
+
+        if (preg_match(self::NON_CHANNEL_PATH, $s)) {
+            return '';
+        }
+
+        // /channel/UC… — YouTube's own "share channel" URL. The id IS the
+        // identity here; there is no handle to recover from it without a fetch,
+        // and channelIdFrom() short-circuits a raw id straight to the feed.
+        if (preg_match('~youtube\.com/channel/(UC[A-Za-z0-9_-]{22})~i', $s, $m)) {
+            return $m[1];
+        }
+
         if (preg_match('~youtube\.com/(?:@|c/|user/)([A-Za-z0-9._-]+)~i', $s, $m)) {
+            return $m[1];
+        }
+
+        // Legacy bare vanity ("youtube.com/MrBeast") — pre-@ custom URLs still
+        // circulate and still resolve. Last, so every prefixed form above wins.
+        if (preg_match('~youtube\.com/([A-Za-z0-9._-]+)~i', $s, $m)) {
             return $m[1];
         }
 
@@ -59,7 +91,12 @@ class YoutubeScraper extends PlatformScraper
      */
     public function fetchRecentVideos(string $handle, int $limit = 15): ?array
     {
-        $channelId = $this->resolveChannelId($handle, ['User-Agent' => self::USER_AGENT]);
+        // Via channelIdFrom(), NOT the private handle-only resolver: the stored
+        // identity may be a bare handle OR a UC… id (see normalizeHandle), and
+        // only channelIdFrom() accepts both — a raw id short-circuits to the
+        // feed with no channel-page fetch. Reaching past it is what made a
+        // pasted /channel/UC… URL 404 while the same channel's @handle worked.
+        $channelId = $this->channelIdFrom($handle);
         if ($channelId === null) {
             return null;
         }
