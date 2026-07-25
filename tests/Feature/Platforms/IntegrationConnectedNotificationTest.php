@@ -244,6 +244,28 @@ it('does not notify for a system-initiated InstagramConnectJob', function () {
     expect(icwRows($user))->toHaveCount(0);
 });
 
+it('runs a job enqueued before notifyOnConnect existed', function () {
+    // A job already sitting in Redis at deploy time carries no notifyOnConnect key,
+    // and SerializesModels::__unserialize skips absent properties. A PROMOTED default
+    // is not a DECLARED one, so the typed property would restore uninitialized and
+    // fatal on read — AFTER seed() wrote 'ok', costing a re-billed Apify scrape
+    // ($tries = 0) and a false 'unavailable' from failed(). Hence the declared default.
+    $user = icwUser('icw14');
+    $connection = icwPendingInstagramRow($user);
+    icwStubInstagramScraper();
+
+    $payload = (new InstagramConnectJob($user->id, 'icwig', $connection->id, notifyOnConnect: true))->__serialize();
+    unset($payload['notifyOnConnect']);
+
+    $restored = (new ReflectionClass(InstagramConnectJob::class))->newInstanceWithoutConstructor();
+    $restored->__unserialize($payload);
+
+    app()->call([$restored, 'handle']);
+
+    expect($connection->fresh()->last_refresh_status)->toBe('ok');
+    expect(icwRows($user))->toHaveCount(0);   // fail-closed across the deploy window
+});
+
 it('does not notify for a pre-account Instagram seed', function () {
     // PreAccount\Generators\InstagramSourceGenerator::generate() calls seed()
     // DIRECTLY and never dispatches InstagramConnectJob, so the hook belongs on
