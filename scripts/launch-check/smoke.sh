@@ -19,6 +19,8 @@ fail() { echo "FAIL  $1"; FAILS=$((FAILS + 1)); }
 warn() { echo "WARN  $1"; }
 
 status() { curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$1"; }
+status_fast() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$1"; }
+is_unreachable() { [[ -z "$1" || "$1" == "000" ]]; }
 
 # --- 1. Sensitive files must not be HTTP-reachable ---
 for path in .env composer.json .git/config storage/logs/laravel.log; do
@@ -29,8 +31,13 @@ for path in .env composer.json .git/config storage/logs/laravel.log; do
 done
 
 # --- 2. Debug leakage: bogus route must return clean JSON, no stack trace ---
-body=$(curl -s --max-time 15 -H 'Accept: application/json' "$BASE/api/definitely-not-a-route-xyz")
-if echo "$body" | grep -qE 'Stack trace|vendor/laravel|Illuminate\\\\'; then
+resp=$(curl -s --max-time 15 -H 'Accept: application/json' -w $'\n%{http_code}' "$BASE/api/definitely-not-a-route-xyz")
+curl_exit=$?
+resp_code="${resp##*$'\n'}"
+body="${resp%$'\n'*}"
+if [[ $curl_exit -ne 0 ]] || is_unreachable "$resp_code"; then
+    fail "bogus route unreachable (curl exit $curl_exit, status ${resp_code:-none}) — cannot verify clean error body"
+elif echo "$body" | grep -qE 'Stack trace|vendor/laravel|Illuminate\\\\'; then
     fail "bogus route leaks stack trace (APP_DEBUG on?)"
 else
     pass "bogus route returns clean error body"
@@ -39,7 +46,13 @@ fi
 # --- 3. Dev tooling must be gated ---
 for path in telescope horizon; do
     code=$(status "$BASE/$path")
-    [[ "$code" == "200" ]] && fail "/$path publicly reachable (200)" || pass "/$path gated ($code)"
+    if is_unreachable "$code"; then
+        fail "/$path unreachable (status ${code:-none}) — cannot verify gating"
+    elif [[ "$code" == "200" ]]; then
+        fail "/$path publicly reachable (200)"
+    else
+        pass "/$path gated ($code)"
+    fi
 done
 
 # --- 4. Health endpoint answers ---
@@ -60,11 +73,26 @@ code=$(status "$BASE/api/public/documents/00000000-0000-4000-8000-000000000000/d
 # --- 7. Rate limiter actually fires (opt-in: hammers the env) ---
 if $RATE_LIMIT_TEST; then
     got429=false
+    aborted=false
+    consecutive_unreachable=0
     for _ in $(seq 1 90); do
-        [[ "$(status "$BASE/api/ping")" == "429" ]] && { got429=true; break; }
+        code=$(status_fast "$BASE/api/ping")
+        if is_unreachable "$code"; then
+            consecutive_unreachable=$((consecutive_unreachable + 1))
+            if [[ $consecutive_unreachable -ge 3 ]]; then
+                fail "target unreachable during rate-limit probe (status ${code:-none}, $consecutive_unreachable consecutive) — aborting"
+                aborted=true
+                break
+            fi
+            continue
+        fi
+        consecutive_unreachable=0
+        [[ "$code" == "429" ]] && { got429=true; break; }
     done
-    $got429 && pass "throttle fired (429 within 90 hits on /api/ping)" \
-        || fail "no 429 after 90 hits — is the limiter live?"
+    if ! $aborted; then
+        $got429 && pass "throttle fired (429 within 90 hits on /api/ping)" \
+            || fail "no 429 after 90 hits — is the limiter live?"
+    fi
 fi
 
 echo
