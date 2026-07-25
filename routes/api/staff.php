@@ -251,12 +251,9 @@ Route::prefix('staff')
         // Notifications
         Route::post('/notifications', [StaffNotificationController::class, 'store']);
 
-        Route::withoutScopedBindings()->group(function (): void {
-            Route::post('/professionals/{professional}/notifications/{notification}/read', [StaffNotificationController::class, 'markReadForProfessional'])
-                ->whereUuid('notification');
-            Route::post('/professionals/{professional}/notifications/{notification}/dismiss', [StaffNotificationController::class, 'dismissForProfessional'])
-                ->whereUuid('notification');
-        });
+        // The two on-behalf notification writes live OUTSIDE this group — see the
+        // unscoped group at the foot of this file. A nested withoutScopedBindings()
+        // here does not override the group's scopeBindings() above.
 
         // Notification email policies
         Route::get('/notification-email-policies', [StaffNotificationEmailPolicyController::class, 'indexGlobal']);
@@ -321,4 +318,29 @@ Route::prefix('staff')
             Route::delete('overrides/{id}', [StaffFeatureFlagOverrideController::class, 'destroy'])
                 ->whereUuid('id');
         });
+    });
+
+// Authorised Staff Admin Editing — UNSCOPED bindings.
+//
+// Same gate as the admin group above, minus ->scopeBindings(). Scoping resolves a
+// child param through a parent relation named after it, so {notification} would
+// resolve via $professional->notifications() — which is Laravel's Notifiable trait
+// relation to Illuminate\Notifications\DatabaseNotification (table `notifications`),
+// not App\Models\Core\Notifications\Notification (table `notifications.notifications`).
+// It also cannot express a global broadcast, whose user_id is NULL and so belongs to
+// no per-user relation. Both writes therefore need plain binding, and the controller
+// enforces the professional<->notification relationship itself via assertVisibleTo().
+//
+// This must stay a SEPARATE top-level group: a nested Route::withoutScopedBindings()
+// inside the scoped group does not take effect (the route still reports
+// enforcesScopedBindings=true), which 500'd both endpoints.
+Route::prefix('staff')
+    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'staff.admin', 'throttle:staff', 'staff.audit'])
+    ->whereUuid('professional')
+    ->group(function () {
+
+        Route::post('/professionals/{professional}/notifications/{notification}/read', [StaffNotificationController::class, 'markReadForProfessional'])
+            ->whereUuid('notification');
+        Route::post('/professionals/{professional}/notifications/{notification}/dismiss', [StaffNotificationController::class, 'dismissForProfessional'])
+            ->whereUuid('notification');
     });
