@@ -34,6 +34,10 @@
         body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
         a { color: #3a6efc; text-decoration: none; }
 
+        /* Logo dark mode variants */
+        .logo-dark { display: none !important; }
+        .logo-light { display: block !important; }
+
         /* Mobile */
         @media screen and (max-width: 600px) {
             .container { width: 100% !important; }
@@ -43,11 +47,13 @@
             .button-cell { padding: 22px 0 14px 0 !important; }
         }
 
-        /* Dark-mode-safe — explicit light scheme */
+        /* Dark-mode-safe — explicit light scheme + logo swapping */
         @media (prefers-color-scheme: dark) {
             body, .bg-body { background: #ffffff !important; }
             .text-primary { color: #1d1d1f !important; }
             .text-secondary { color: #6e6e73 !important; }
+            .logo-dark { display: block !important; }
+            .logo-light { display: none !important; }
         }
     </style>
 </head>
@@ -64,7 +70,7 @@
 
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="container" style="width:600px; max-width:600px;">
 
-                    {{-- Header: pro logo / wordmark in white-label mode, Partna assets otherwise. --}}
+                    {{-- Header: pro logo / wordmark in white-label mode, Partna assets with dark mode support otherwise. --}}
                     <tr>
                         <td class="px-gutter" align="left" style="padding: 8px 40px 40px 40px;">
                             @if (! $brand->isPartna && $brand->logoUrl)
@@ -74,6 +80,11 @@
                             @elseif (! $brand->isPartna)
                                 <a href="{{ $brand->siteUrl }}" style="text-decoration:none;">
                                     <span style="font-size:20px; font-weight:600; color:{{ $brand->palette->text }};">{{ $brand->proName }}</span>
+                                </a>
+                            @elseif ($brand->logoUrlLight && $brand->logoUrlDark)
+                                <a href="https://app.partna.au" style="text-decoration:none;">
+                                    <img class="logo-light" src="{{ $brand->logoUrlLight }}" alt="Partna" width="76" height="20" style="display:block; width:76px; height:20px; border:0; outline:none;">
+                                    <img class="logo-dark" src="{{ $brand->logoUrlDark }}" alt="Partna" width="76" height="20" style="display:none; width:76px; height:20px; border:0; outline:none;">
                                 </a>
                             @else
                                 <a href="https://app.partna.au" style="text-decoration:none;">

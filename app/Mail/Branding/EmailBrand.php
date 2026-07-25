@@ -19,17 +19,23 @@ final class EmailBrand
         public readonly string $proName,
         public readonly string $siteUrl,
         public readonly ?string $logoUrl,
+        public readonly ?string $logoUrlLight,
+        public readonly ?string $logoUrlDark,
         public readonly ?string $replyToEmail,
         public readonly EmailPalette $palette,
     ) {}
 
     public static function partna(): self
     {
+        $appUrl = (string) config('app.url', 'https://app.partna.au');
+
         return new self(
             isPartna: true,
             proName: (string) config('mail.from.name', 'Partna'),
             siteUrl: (string) config('app.partna_marketing_url', 'https://partna.au'),
             logoUrl: null,
+            logoUrlLight: "{$appUrl}/branding/partna-wordmark-light.png",
+            logoUrlDark: "{$appUrl}/branding/partna-wordmark-dark.png",
             replyToEmail: null,
             palette: EmailBrandDefaults::defaults(),
         );
@@ -43,6 +49,8 @@ final class EmailBrand
             'proName' => $this->proName,
             'siteUrl' => $this->siteUrl,
             'logoUrl' => $this->logoUrl,
+            'logoUrlLight' => $this->logoUrlLight,
+            'logoUrlDark' => $this->logoUrlDark,
             'replyToEmail' => $this->replyToEmail,
             'palette' => [
                 'accent' => $this->palette->accent,
@@ -67,6 +75,8 @@ final class EmailBrand
             proName: (string) ($data['proName'] ?? ''),
             siteUrl: (string) ($data['siteUrl'] ?? config('app.partna_marketing_url', 'https://partna.au')),
             logoUrl: $data['logoUrl'] ?? null,
+            logoUrlLight: $data['logoUrlLight'] ?? null,
+            logoUrlDark: $data['logoUrlDark'] ?? null,
             replyToEmail: $data['replyToEmail'] ?? null,
             palette: new EmailPalette(
                 accent: (string) ($p['accent'] ?? EmailBrandDefaults::ACCENT),
