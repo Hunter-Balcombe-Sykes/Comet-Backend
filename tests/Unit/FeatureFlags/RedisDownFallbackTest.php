@@ -82,7 +82,9 @@ it('allFor() returns merged DB registry + user override when Redis is down', fun
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'override-pro',
+        'handle_lc' => 'override-pro',
         'display_name' => 'Override Pro',
+        'first_name' => 'Override',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),

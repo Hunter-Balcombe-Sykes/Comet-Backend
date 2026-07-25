@@ -299,7 +299,9 @@ it('store override creates a professional override', function () {
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'override-pro',
+        'handle_lc' => 'override-pro',
         'display_name' => 'Override Pro',
+        'first_name' => 'Override',
         'primary_email' => 'override@example.com',
         'status' => 'active',
     ]);
@@ -334,7 +336,9 @@ it('override destroy returns 403 for a support-role staff actor', function () {
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'support-denied-pro',
+        'handle_lc' => 'support-denied-pro',
         'display_name' => 'Support Denied Pro',
+        'first_name' => 'Support',
         'primary_email' => 'support-denied@example.com',
         'status' => 'active',
     ]);
@@ -366,7 +370,9 @@ it('destroy override removes the override', function () {
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'destroy-pro',
+        'handle_lc' => 'destroy-pro',
         'display_name' => 'Destroy Pro',
+        'first_name' => 'Destroy',
         'primary_email' => 'destroy@example.com',
         'status' => 'active',
     ]);

@@ -20,6 +20,9 @@ function makePro(): User
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => 'pro-'.substr($id, 0, 8),
+        'handle_lc' => 'pro-'.substr($id, 0, 8),
+        'display_name' => 'Rollout Pro',
+        'first_name' => 'Rollout',
         'status' => 'active',
     ]);
 
