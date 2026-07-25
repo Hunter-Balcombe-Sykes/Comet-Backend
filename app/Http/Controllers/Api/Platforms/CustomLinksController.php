@@ -10,8 +10,10 @@ use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
+use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\RouteContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -29,7 +31,10 @@ class CustomLinksController extends ApiController
 
     private const MAX_LINKS = 20;
 
-    public function __construct(private readonly LinkCardScraper $scraper) {}
+    public function __construct(
+        private readonly LinkCardScraper $scraper,
+        private readonly LinkRouter $router,
+    ) {}
 
     protected function platform(): string
     {
@@ -42,9 +47,10 @@ class CustomLinksController extends ApiController
         return $this->success(['links' => $this->linksData($this->currentUser($request))]);
     }
 
-    // POST /api/platforms/custom/links — attach a URL. Returns 202 immediately
-    // with a minimal card derived from the URL; EnrichLinkCardJob upgrades
-    // name/logo/description off-thread once the HTTP fetch completes (JOB-1).
+    // POST /api/platforms/custom/links — attach a URL. Routes through LinkRouter
+    // first: if the URL is a known platform, it becomes the right connection type
+    // instead of a custom link. Returns 202 with the routed result or falls
+    // through to the custom-link write.
     public function addLink(AddCustomLinkRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -54,6 +60,25 @@ class CustomLinksController extends ApiController
             return $this->error('Enter a valid link (https://...).', 422);
         }
 
+        // Route FIRST, outside the connection lock, so LinkRouter's own
+        // locks (booking XOR, platform seed) can't deadlock with this one.
+        $result = $this->router->route($user, $url, new RouteContext(maxProbes: 1));
+
+        if ($result->outcome === 'seeded') {
+            return $this->success([
+                'status' => 'ok',
+                'routedTo' => ['platform' => $result->platform, 'category' => $result->category],
+            ], 200);
+        }
+
+        if ($result->outcome === 'pending') {
+            return $this->success([
+                'status' => 'pending',
+                'routedTo' => ['platform' => $result->platform, 'category' => $result->category],
+            ], 202);
+        }
+
+        // outcome === 'custom' or 'skipped' — proceed with custom-link write.
         $payload = ['kind' => 'link', ...$this->scraper->minimalCard($url)];
         $rid = 'link-'.substr(sha1(strtolower($url)), 0, 16);
 

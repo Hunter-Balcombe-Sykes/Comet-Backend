@@ -13,53 +13,27 @@ use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Throwable;
 
-// Seeds social + booking connections from the links found in an Instagram bio —
-// mirrors GoogleBusinessAutoSync::seed()'s shape (only-if-empty seeding,
-// persisted findings for the connect modal, conflict apply = remove existing +
-// write found link) but classifies each link independently by host via
-// WebsiteLinkHarvester::classify() rather than a structured Google enrichment.
+// Seeds social + booking connections from the links found in an Instagram bio.
 //
-// Scope (deliberate): only platforms whose connection payload is safely
-// buildable from a bare URL are auto-synced — social handles (facebook /
-// tiktok / x / linkedin) and booking (fresha / square), matching
-// GoogleBusinessAutoSync's own resolveBookingWrite payload shapes exactly.
-// classify() also recognises reservation (opentable / resdiary / nowbookit),
-// online-ordering, youtube, pinterest and instagram hosts — those need either
-// provider-specific parsing (a reservation embed needs a rid, GB's own
-// resolveReservationWrite calls into OpenTableService/etc. for that) or a real
-// scrape (youtube/pinterest, same reason GoogleBusinessAutoSync::seedSocials
-// never syncs them either) to render a working card, so a bio link that
-// classifies to one of those surfaces in `unmatched` instead — a safe "add as
-// custom link" suggestion rather than a half-built card.
+// 2026-07-25 refactor: classification and routing now live in LinkRouter.
+// This class delegates to LinkRouter::route() for each bio link and translates
+// the result back to the findings/unmatched contract the Instagram synced modal
+// expects. ACTIONABLE was removed; capability gating and RULING 1 were repealed
+// (Decisions 5 + 8). Social auto-sync now works for all account types.
 //
-// Capability split (mirrors GoogleBusinessAutoSync::seed exactly): the SOCIAL
-// bucket is a Business-Partna convenience, gated on the same capability GB's
-// socials tier uses — AccountCapabilities::google_business_full_sync. A
-// standard (partna) account's classified social links fall through to
-// `unmatched` (still offered as custom links, never silently dropped). Booking
-// is gated on can_use_booking (2026-07-15 sector gating: food-sector
-// businesses don't use booking) — gated links ALSO fall to `unmatched`,
-// mirroring GB's now-gated seedBooking.
-//
-// Best-effort: each link is isolated in its own try/catch so one bad link
-// never blocks the rest (mirrors GoogleBusinessAutoSync's per-seed try/catch).
+// Best-effort: each link is isolated in its own try/catch.
 class InstagramAutoSync
 {
     use BuildsAutoSyncFindings;
 
-    /** Platforms this service knows how to seed from a bare URL. Category per platform mirrors GoogleBusinessAutoSync's finding categories. */
-    private const ACTIONABLE = [
-        'facebook' => 'social', 'tiktok' => 'social', 'x' => 'social', 'linkedin' => 'social',
-        'fresha' => 'booking', 'square' => 'booking',
-    ];
-
-    /** Mutually-exclusive booking providers — mirrors FreshaController/SquareController::hasConflictingConnection()'s XOR and now lives on BuildsAutoSyncFindings. */
-    // BOOKING_PLATFORMS moved to BuildsAutoSyncFindings (Phase 2.5, 2026-07-25).
+    /** Mutually-exclusive booking providers — now lives on BuildsAutoSyncFindings. */
+    // BOOKING_PLATFORMS and ACTIONABLE moved/removed (Phase 2.5 + 7, 2026-07-25).
 
     public function __construct(
         private readonly WebsiteLinkHarvester $harvester,
         private readonly FacebookNormalizer $facebookNormalizer,
         private readonly LinkInBioDetector $linkInBioDetector,
+        private readonly LinkRouter $router,
     ) {}
 
     /**
@@ -77,20 +51,15 @@ class InstagramAutoSync
      */
     public function seed(string $userId, array $bioLinks): array
     {
-        // Dominant case today: the Apify actor returns no bio fields at all, so
-        // the connect job calls this with []. Skip the user lookup entirely.
         if ($bioLinks === []) {
             return ['findings' => [], 'unmatched' => []];
         }
 
-        // A missing user reads as no capability — fail closed, below, exactly
-        // like handleClassifiedLink()'s own capability derivation would if it
-        // could resolve a $user at all.
         $user = User::find($userId);
 
         $findings = [];
         $unmatched = [];
-        $seenPlatforms = [];
+        $ctx = new \App\Services\Platforms\RouteContext(maxProbes: 6);
 
         foreach ($bioLinks as $url) {
             if (! is_string($url) || trim($url) === '') {
@@ -100,12 +69,6 @@ class InstagramAutoSync
 
             try {
                 if ($this->linkInBioDetector->matches($url)) {
-                    // A curated link-in-bio page (Linktree/Milkshake/Beacons/Stan
-                    // Store) isn't itself classifiable — it's a page to unroll, not
-                    // a platform to connect. Scanned async (its own fetch can be
-                    // slow/JS-heavy) rather than inline here, which would risk
-                    // blowing InstagramConnectJob's timeout. Nothing about the
-                    // bio-link URL itself is persisted; see LinkInBioScanJob.
                     LinkInBioScanJob::dispatch($userId, $url);
 
                     continue;
@@ -124,7 +87,19 @@ class InstagramAutoSync
                     continue;
                 }
 
-                $this->handleClassifiedLink($user, $classified, $url, $seenPlatforms, $findings, $unmatched);
+                // Route through LinkRouter — creates the typed connection or
+                // falls back to custom link. Findings/unmatched contract
+                // preserved for the Instagram synced modal.
+                $result = $this->router->route($user, $url, $ctx);
+
+                if ($result->outcome === 'seeded') {
+                    $findings[] = $this->seededFinding(
+                        $result->platform, $result->resourceId, $result->category,
+                        $classified['label'], $url,
+                    );
+                } elseif ($result->outcome === 'custom' || $result->outcome === 'pending') {
+                    $unmatched[] = ['url' => $url, 'label' => $classified['label']];
+                }
             } catch (Throwable $e) {
                 report($e);
             }
