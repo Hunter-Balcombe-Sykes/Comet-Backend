@@ -89,3 +89,66 @@ it('shares one instance across the container, so every consumer observes the sam
         // clocks that happen to both be open.
         ->and(abs($remainingA - $remainingB))->toBeLessThan(0.05);
 });
+
+it('ensureOpen() behaves like open() when no budget is active', function () {
+    $budget = app(FetchBudget::class);
+
+    $observed = $budget->ensureOpen(5.0, fn () => $budget->remaining());
+
+    expect($observed)->not->toBeNull()
+        ->and($observed)->toBeGreaterThan(0.0)
+        ->and($observed)->toBeLessThanOrEqual(5.0);
+
+    // Cleared after ensureOpen() returns — same as open().
+    expect($budget->remaining())->toBeNull();
+});
+
+it('ensureOpen() runs inside an already-open budget without touching its deadline', function () {
+    $budget = app(FetchBudget::class);
+    $innerRemaining = null;
+
+    $budget->open(2.0, function () use ($budget, &$innerRemaining) {
+        // Nested ensureOpen with a LONGER budget: it must run inside the outer 2s,
+        // not start a fresh 60s deadline.
+        $budget->ensureOpen(60.0, function () use ($budget, &$innerRemaining) {
+            $innerRemaining = $budget->remaining();
+        });
+
+        // After the inner call returns, the OUTER deadline must still be live.
+        // A naive open()-delegating ensureOpen would have cleared it in its finally.
+        expect($budget->remaining())->not->toBeNull()
+            ->and($budget->remaining())->toBeGreaterThan(0.0);
+    });
+
+    // Inside the nested call, remaining reflected the OUTER ~2s, never 60s.
+    expect($innerRemaining)->not->toBeNull()
+        ->and($innerRemaining)->toBeLessThanOrEqual(2.0);
+});
+
+it('ensureOpen() ignores its own $seconds when nested inside a shorter outer budget', function () {
+    $budget = app(FetchBudget::class);
+    $innerRemaining = null;
+
+    $budget->open(1.0, function () use ($budget, &$innerRemaining) {
+        $budget->ensureOpen(60.0, function () use ($budget, &$innerRemaining) {
+            $innerRemaining = $budget->remaining();
+        });
+    });
+
+    expect($innerRemaining)->not->toBeNull()
+        ->and($innerRemaining)->toBeLessThanOrEqual(1.0);
+});
+
+it('ensureOpen() propagates a nested exception and leaves the outer deadline intact', function () {
+    $budget = app(FetchBudget::class);
+
+    $budget->open(2.0, function () use ($budget) {
+        expect(fn () => $budget->ensureOpen(60.0, function () {
+            throw new RuntimeException('boom');
+        }))->toThrow(RuntimeException::class);
+
+        // The inner ensureOpen() set nothing to clear — outer deadline survives.
+        expect($budget->remaining())->not->toBeNull()
+            ->and($budget->remaining())->toBeGreaterThan(0.0);
+    });
+});
