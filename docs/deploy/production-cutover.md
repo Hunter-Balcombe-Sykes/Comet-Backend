@@ -77,7 +77,36 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
       from the deployed branch's `supabase/migrations/`, so the unpushed prep branch must land first.
 - [ ] **Env-var parity audit.** Diff the dev Laravel Cloud env's keys against `.env.example` and build the
       complete prod secret set (see Phase 2). Every key dev has, prod needs — with prod values.
-- [ ] **Decide reference/seed data** a fresh prod needs: platform config, feature flags, any bootstrap rows.
+- [x] **Decide reference/seed data** a fresh prod needs: platform config, feature flags, any bootstrap rows.
+      **DECIDED 2026-07-26 (Josh). Execute via `docs/deploy/PROMPT-execute-prod-seed-bootstrap.md` — the
+      seeding itself runs in Phase 1, AFTER the baseline applies and AFTER `ALTER ROLE app_backend … LOGIN`.**
+      - **Survey (dev `glncumufgaqcmqhzwrxm`, read-only, 2026-07-26):** the schema has **no lookup/reference
+        tables at all** — every populated table across `core`/`site`/`notifications`/`analytics`/`audit` holds
+        user-generated data (`pg_stat_user_tables`). There is no `database/seeders/` and no migration carries
+        reference data. "Platform config" for this system means `config/partna.php` (reserved subdomains, the
+        integrations registry, pre-account sources) — a **deploy artifact**, so a fresh prod gets it for free
+        when the branch deploys. Nothing to seed there.
+      - **SEED (2 tables, 4 rows total):** `core.partna_staff` — **2 rows, Josh + Tobias, both `admin`** (dev's
+        third row `staff-test@partna.tech` is a test account, not carried). `core.feature_availability` —
+        **2 rows, `integration.strava` + `integration.skool`, global `disabled`** (dev's third row,
+        `integration.fresha` enabled @ a QA segment, is **not** carried — Fresha is in pilot scope and
+        absence-of-row already means available).
+      - **SEED NOTHING:** `core.feature_flags` / `_overrides` (empty on dev, `config('partna.features') === []`,
+        and the `feature:` middleware at `bootstrap/app.php:112` has **zero usages in `routes/`** — wired but
+        dormant); `core.user_segments` (dev's one row is a QA artifact, 0 members); `storage.buckets` (none —
+        media is R2); all per-user derived rows (`design_kits` comes from a DB trigger on site create).
+      - **Two ordering constraints, both hard.** `partna_staff.auth_user_id` is FK → prod `auth.users`, so Josh
+        and Tobias must each sign up **on prod** and enrol TOTP first (staff routes are `require.aal2`; dev's
+        auth UUIDs are worthless in the prod pool). And `feature_availability.created_by` is FK →
+        `partna_staff(id)`, so staff lands before availability.
+      - **⚠ The seed depends on `postgres` retaining `BYPASSRLS` through the collapse.**
+        `core.partna_staff` is `FORCE ROW LEVEL SECURITY` and its only INSERT policy
+        (`partna_staff_insert_admin`) requires an already-existing admin — an unbreakable chicken-and-egg that
+        `postgres`'s `rolbypassrls` is the *only* thing resolving. Verified true on dev 2026-07-26. This is the
+        same role-attribute posture the collapse plan's BYPASSRLS stitch guards; if it is lost, the first staff
+        row cannot be inserted at all. Precondition-checked as a STOP in the execute prompt.
+      - **`FeatureAvailability` is fail-OPEN** (absence of a row = available). So skipping the two `disabled`
+        rows raises no error — it silently ships Strava and Skool live. That inversion is why this step exists.
 - [x] **Decide the fate of currently-live dev-served sitepages.** Prod starts EMPTY: at go-live the Worker
       flips to the prod KV and api.partna.au to the prod DB, so every `<handle>.partna.au` page published
       from dev — including pre-account builds with claim invites in flight — 404s unless migrated. Count
@@ -237,6 +266,19 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
         (Phase 1 hooks); this checklist covers only the non-hook Auth surface. Staff AAL2 depends on both the
         MFA hook AND TOTP-enabled here.
 
+- [ ] **Seed the bootstrap rows** — the LAST step of Phase 1, after the baseline is applied and after
+      `ALTER ROLE app_backend WITH LOGIN PASSWORD`. 4 rows total: 2 `core.partna_staff` (Josh + Tobias,
+      `admin`) + 2 `core.feature_availability` (`integration.strava`, `integration.skool`, global
+      `disabled`). Decision + rationale recorded at the Phase-0 "Decide reference/seed data" checkbox.
+      **Execute via `docs/deploy/PROMPT-execute-prod-seed-bootstrap.md`** — it carries the STOP-level
+      precondition checks (`postgres` must still hold `BYPASSRLS`, or the first staff row cannot be
+      inserted at all) and the AAL2 prerequisite (both staff sign up on prod + enrol TOTP first; their
+      prod `auth.users` UUIDs are the only parameters). Nothing staff-facing in Phase 4 is reachable
+      until this passes. **Prerequisite is the Auth config above, not the baseline** — Task 1 needs two
+      humans to receive a confirmation email and enrol TOTP on prod, so do it days earlier if possible.
+      **Straddles two phases:** the prompt's Tasks 0–4 (DB only, no running app) belong here; its Task 5
+      end-to-end verify calls `api.partna.au` and therefore defers to **Phase 4**.
+
 ---
 
 ## Phase 2 — Production Laravel Cloud env
@@ -301,6 +343,19 @@ prod IS the public go-live. Sequence accordingly:
 ---
 
 ## Phase 4 — Verify
+
+> **Run this phase as the formal launch-check gate — don't hand-check it.** The read-only assurance
+> suite (`scripts/launch-check/`, already built) mechanizes the bullets below and adds the deployed-env
+> config gate (`launch-check:env --target=launch`, FAILS on `APP_DEBUG=on` / `QUEUE_CONNECTION≠redis`
+> post-worker-flip / `CACHE_STORE≠redis` / missing secrets), runtime health (`launch-check:runtime`),
+> supabase-check (RLS coverage + advisors), smoke, and the Group-H manual residue (PITR/backups + a real
+> restore drill, Cloudflare Cache-Deception-Armor / edge rate-limiting / SSL Full-strict, Supabase SSL
+> enforced / network restrictions / auth rate limits, Nightwatch verified firing, DAST). Run it per
+> **`docs/superpowers/plans/2026-07-24-launch-check-3-cutover-PROMPT.md`** (handoff 3 of 3 — RUN, not
+> build). Point every prod-facing check at ref `edplucmvkcnokyygxqsb`, **confirm each with Josh before it
+> touches prod**, and treat a Task-8/Task-9 FAIL or any **RLS-DISABLED** (supabase-check) as a launch
+> blocker — don't soften a check to make it green. Output: `audits/launch-check/<date>/REPORT.md` +
+> outstanding manual items = the go/no-go. The bullets below are that gate's key assertions:
 
 - [ ] Health endpoint on `api.partna.au` (prod) responds.
 - [ ] End-to-end smoke: signup → create a site → confirm `SyncSubdomainToKvJob` wrote prod KV →
