@@ -27,7 +27,7 @@ function weeklyUser(string $status = 'active'): User
     return User::forceCreate([ // B11 SEC-2: status no longer fillable — forceCreate to persist a non-active status
         'id' => $id,
         'handle' => 'wk-'.substr($id, 0, 8), 'handle_lc' => 'wk-'.substr($id, 0, 8),
-        'display_name' => 'Weekly', 'account_type' => 'partna',
+        'display_name' => 'Weekly', 'first_name' => 'Weekly', 'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(), 'primary_email' => substr($id, 0, 8).'@example.com',
         'status' => $status,
     ]);

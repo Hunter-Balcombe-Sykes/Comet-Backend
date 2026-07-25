@@ -25,6 +25,7 @@ function mfjwspUser(string $handle): User
 {
     $user = User::create([
         'handle' => $handle, 'handle_lc' => strtolower($handle), 'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'business', 'sector' => 'restaurant', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$handle}@example.com",
     ]);

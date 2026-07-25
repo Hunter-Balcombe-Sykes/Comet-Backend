@@ -23,6 +23,7 @@ function makeGuardTestUser(string $handle = 'guard-user'): User
         'handle' => $handle,
         'handle_lc' => $handle,
         'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
     ]);
 }

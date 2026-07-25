@@ -28,12 +28,14 @@ beforeEach(function () {
 function seedFeedbackPro(): User
 {
     $id = (string) Str::uuid();
+    $handle = 'fb-'.Str::random(6);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'auth_user_id' => (string) Str::uuid(),
-        'handle' => 'fb-'.Str::random(6),
-        'handle_lc' => 'fb-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Feedback Tester',
+        'first_name' => 'Feedback',
         'primary_email' => 'tester@example.test',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

@@ -66,7 +66,8 @@ function staffPiiTest_seedProfessional(): User
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'auth_user_id' => 'auth-uid-'.Str::random(8),
-        'handle' => 'pro-'.Str::random(6),
+        'handle' => $handle = 'pro-'.Str::random(6),
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Ada L',
         'first_name' => 'Ada',
         'last_name' => 'Lovelace',

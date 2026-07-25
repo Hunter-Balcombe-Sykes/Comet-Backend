@@ -39,7 +39,10 @@ beforeEach(function () {
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $this->userId,
+        'handle' => 'analytics-test-pro',
+        'handle_lc' => 'analytics-test-pro',
         'display_name' => 'Analytics Test Pro',
+        'first_name' => 'Analytics',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
@@ -132,7 +135,10 @@ it('summary() returns 404 when professional has no site', function () {
     $userId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => 'no-site-pro',
+        'handle_lc' => 'no-site-pro',
         'display_name' => 'No Site Pro',
+        'first_name' => 'No',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

@@ -397,12 +397,20 @@ async function serveIndividual(env, ctx, request, handleOverride) {
 
   const originRequest = withHandleHeader(request, handleOverride);
 
-  // Preview requests (?architecture= — current — or legacy ?skeleton=) render a
-  // transient alternate architecture; never cache them, or a stale variant would
-  // pin in the edge cache. Always fetch fresh. EDGE-7: still finalise so the
+  // Bypass the edge entirely for preview-shaped requests: ?preview= (the
+  // dashboard live preview), ?architecture= (transient alternate architecture),
+  // or legacy ?skeleton=. No cache read, no cache write — cacheKeyFor() strips
+  // the query string, so a cached preview would pin under the plain URL's key
+  // for the full 24h TTL. Always fetch fresh. EDGE-7: still finalise so the
   // preview carries security headers.
+  //
+  // Known trade-off (accepted, see the 2026-07-25 cache-freshness design): any
+  // of these params is a cache-busting lever for anonymous traffic. Not new —
+  // ?architecture= and ?skeleton= already were — but "preview" is more
+  // guessable. Cloudflare bot protection sits in front; origin rate-limiting
+  // for bypass params is separate, out-of-scope work.
   const previewParams = new URL(request.url).searchParams;
-  if (previewParams.has("skeleton") || previewParams.has("architecture")) {
+  if (previewParams.has("preview") || previewParams.has("skeleton") || previewParams.has("architecture")) {
     return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true, noStore: true});
   }
 

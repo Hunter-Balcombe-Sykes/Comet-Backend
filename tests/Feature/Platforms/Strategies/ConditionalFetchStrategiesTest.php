@@ -25,7 +25,7 @@ beforeEach(function () {
 function condStratUser(string $h): User
 {
     return User::create([
-        'handle' => $h, 'handle_lc' => $h, 'display_name' => $h,
+        'handle' => $h, 'handle_lc' => $h, 'display_name' => $h, 'first_name' => $h,
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => $h.'@example.com',
     ]);

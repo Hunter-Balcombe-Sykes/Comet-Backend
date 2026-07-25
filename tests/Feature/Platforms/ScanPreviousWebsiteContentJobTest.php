@@ -62,6 +62,7 @@ function spwcjUser(string $handle, string $accountType = 'business', string $sec
 {
     $user = User::create([
         'handle' => $handle, 'handle_lc' => strtolower($handle), 'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => $accountType, 'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(), 'primary_email' => "{$handle}@mail.example.com",
     ]);

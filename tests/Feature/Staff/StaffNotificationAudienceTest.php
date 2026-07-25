@@ -55,9 +55,13 @@ function ovaNotifStaff(): PartnaStaff
 function ovaNotifUser(): string
 {
     $id = (string) Str::uuid();
+    $handle = 'n-'.Str::random(8);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
-        'handle' => 'n-'.Str::random(8),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

@@ -72,6 +72,7 @@ function triageSeedUser(string $handle): User
         'handle' => $handle,
         'handle_lc' => mb_strtolower($handle),
         'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'primary_email' => "{$handle}@example.test",
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

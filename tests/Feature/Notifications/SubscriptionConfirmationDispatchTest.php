@@ -29,6 +29,7 @@ function seedPublishedSubscribeSite(string $subdomain = 'subpro'): string
         'handle' => $subdomain,
         'handle_lc' => $subdomain,
         'display_name' => 'Sub Pro',
+        'first_name' => 'Sub Pro',
         'primary_email' => 'subpro@example.com',
         'status' => 'active',
     ]);

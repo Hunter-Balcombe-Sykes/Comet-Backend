@@ -589,5 +589,5 @@ it('exempts the follow-up purge from that rule on purpose, because a stale lock 
     $followUp = new CloudflareCachePurgeJob('some-handle', null, followUp: true);
 
     expect($followUp->uniqueFor)->toBeLessThan($followUp->timeout)
-        ->and($followUp->uniqueFor)->toBeLessThan((int) config('partna.cache.purge_followup_seconds', 120));
+        ->and($followUp->uniqueFor)->toBeLessThan((int) min(config('partna.cache.purge_followup_schedule', [120])));
 });

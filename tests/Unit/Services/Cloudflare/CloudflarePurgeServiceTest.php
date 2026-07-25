@@ -386,7 +386,7 @@ it('purgeHandle also purges shop product detail pages + their shadows', function
     $db = DB::connection('pgsql');
     $db->table('core.users')->insert([
         'id' => 'u-1', 'handle' => 'prodowner', 'handle_lc' => 'prodowner',
-        'display_name' => 'Prod Owner', 'account_type' => 'business',
+        'display_name' => 'Prod Owner', 'first_name' => 'Prod', 'account_type' => 'business',
         'status' => 'active', 'auth_user_id' => 'auth-1',
         'primary_email' => 'prodowner@example.com',
     ]);
@@ -423,7 +423,7 @@ it('percent-encodes the handle and product handle before they land in a purge UR
     $db = DB::connection('pgsql');
     $db->table('core.users')->insert([
         'id' => 'u-1', 'handle' => 'jane doe', 'handle_lc' => 'jane doe',
-        'display_name' => 'Jane Doe', 'account_type' => 'business',
+        'display_name' => 'Jane Doe', 'first_name' => 'Jane', 'account_type' => 'business',
         'status' => 'active', 'auth_user_id' => 'auth-1',
         'primary_email' => 'jane@example.com',
     ]);

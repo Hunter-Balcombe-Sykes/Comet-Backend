@@ -32,6 +32,7 @@ function seedGalleryReorderFixture(): array
         'handle' => 'gallery-purge',
         'handle_lc' => 'gallery-purge',
         'display_name' => 'Gallery Purge',
+        'first_name' => 'Gallery',
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

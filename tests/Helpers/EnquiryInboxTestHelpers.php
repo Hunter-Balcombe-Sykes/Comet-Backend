@@ -108,6 +108,7 @@ if (! function_exists('makeInboxUser')) {
             'handle' => 'inbox-'.substr($id, 0, 8),
             'handle_lc' => 'inbox-'.substr($id, 0, 8),
             'display_name' => 'Inbox Pro',
+            'first_name' => 'Inbox',
             'primary_email' => 'inbox-'.substr($id, 0, 8).'@example.com',
             'status' => 'active',
         ]);

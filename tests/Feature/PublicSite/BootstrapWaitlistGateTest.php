@@ -60,6 +60,7 @@ it('does not gate existing professionals when waitlist mode is enabled', functio
         'handle' => 'existing',
         'handle_lc' => 'existing',
         'display_name' => 'Existing User',
+        'first_name' => 'Existing',
         'status' => 'active',
         'account_type' => 'partna',
     ]);

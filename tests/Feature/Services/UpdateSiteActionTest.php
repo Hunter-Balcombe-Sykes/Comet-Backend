@@ -52,6 +52,7 @@ function makeSiteOwner(array $userOverrides = [], array $siteOverrides = []): Us
         'handle' => 'alpha',
         'handle_lc' => 'alpha',
         'display_name' => 'Alpha Pro',
+        'first_name' => 'Alpha',
         'primary_email' => 'alpha@example.test',
         'account_type' => 'partna',
         'status' => 'active',
@@ -177,7 +178,10 @@ it('collapses the redirect alias when renaming back to a subdomain the site alre
 });
 
 it('refuses to publish a site whose professional has no display name', function () {
-    $pro = makeSiteOwner(userOverrides: ['display_name' => null]);
+    // display_name is NOT NULL in prod (and in this suite's schema) — the
+    // action's empty() guard treats '' the same as null, so this exercises
+    // the same "no display name" branch without violating the constraint.
+    $pro = makeSiteOwner(userOverrides: ['display_name' => '']);
 
     try {
         app(UpdateSiteAction::class)->execute($pro, ['is_published' => true]);

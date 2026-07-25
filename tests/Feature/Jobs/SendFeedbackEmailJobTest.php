@@ -17,12 +17,14 @@ beforeEach(function () {
 function seedFeedbackRow(array $overrides = []): string
 {
     $proId = (string) Str::uuid();
+    $handle = 'p-'.Str::random(6);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'auth_user_id' => (string) Str::uuid(),
-        'handle' => 'p-'.Str::random(6),
-        'handle_lc' => 'p-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'P',
+        'first_name' => 'P',
         'primary_email' => 'p@example.test',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

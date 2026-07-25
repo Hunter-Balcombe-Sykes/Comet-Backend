@@ -17,7 +17,7 @@ beforeEach(function () {
 function backlogUser(): User
 {
     return User::create([
-        'handle' => 'bk', 'handle_lc' => 'bk', 'display_name' => 'BK',
+        'handle' => 'bk', 'handle_lc' => 'bk', 'display_name' => 'BK', 'first_name' => 'BK',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'bk@example.com',
     ]);

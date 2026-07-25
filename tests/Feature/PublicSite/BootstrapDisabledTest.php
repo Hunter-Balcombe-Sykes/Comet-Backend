@@ -19,6 +19,7 @@ it('returns 403 ACCOUNT_DISABLED for disabled accounts (not 200 with empty body)
         'handle' => 'disableduser',
         'handle_lc' => 'disableduser',
         'display_name' => 'Disabled User',
+        'first_name' => 'Disableduser',
         'account_type' => 'partna',
         'status' => 'disabled',
     ]);

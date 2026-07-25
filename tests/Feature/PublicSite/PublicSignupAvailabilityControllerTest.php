@@ -109,6 +109,8 @@ it('skips the Supabase check when the email is already taken in Laravel', functi
         'id' => (string) Str::uuid(),
         'handle' => 'existing',
         'handle_lc' => 'existing',
+        'display_name' => 'Existing',
+        'first_name' => 'Existing',
         'status' => 'active',
         'primary_email' => 'taken@example.com',
         'created_at' => now()->toDateTimeString(),

@@ -31,6 +31,7 @@ function createProWithSite(string $subdomain): User
         'handle' => $subdomain,
         'handle_lc' => strtolower($subdomain),
         'display_name' => ucfirst($subdomain),
+        'first_name' => ucfirst($subdomain),
         'primary_email' => $subdomain.'@example.test',
         'status' => 'active',
         'created_at' => $now,

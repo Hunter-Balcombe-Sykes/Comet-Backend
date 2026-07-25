@@ -33,6 +33,7 @@ it('provisions new sites with is_published=true', function () {
         'handle' => 'newpro',
         'handle_lc' => 'newpro',
         'display_name' => 'New Pro',
+        'first_name' => 'New Pro',
         'primary_email' => 'newpro@example.test',
         'status' => 'active',
         'account_type' => 'partna',

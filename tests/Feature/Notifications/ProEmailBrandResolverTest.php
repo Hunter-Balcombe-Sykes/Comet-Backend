@@ -57,7 +57,10 @@ it('resolves a pro brand from display_name, handle and design kit', function () 
 
 it('falls back to defaults when display_name/handle are missing', function () {
     $domain = (string) (config('partna.public_domain') ?: 'partna.au');
-    $site = makeProSite(['display_name' => null, 'handle' => null, 'handle_lc' => null]);
+    // handle/handle_lc/display_name are NOT NULL in prod — '' is the representable
+    // "missing" value here, and the resolver treats it identically to null
+    // (trim(...) ?: 'the team', and $user->handle is falsy when empty).
+    $site = makeProSite(['display_name' => '', 'handle' => '', 'handle_lc' => '']);
 
     $brand = app(ProEmailBrandResolver::class)->forSite($site->id);
 

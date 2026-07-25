@@ -58,6 +58,7 @@ it('enforces the cooldown against the DB-committed subdomain_changed_at, not the
         'handle' => 'current-handle',
         'handle_lc' => 'current-handle',
         'display_name' => 'Test Pro',
+        'first_name' => 'Test',
         'primary_email' => 'testpro@example.test',
         'status' => 'active',
         'created_at' => $now,

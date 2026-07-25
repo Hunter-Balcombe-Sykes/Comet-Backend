@@ -68,7 +68,7 @@ it('does NOT dispatch when enabling, or for a non-integration key', function () 
 
 it('re-enabling does not reactivate a taken-down connection', function () {
     $user = User::create([
-        'handle' => 'tkreenable', 'handle_lc' => 'tkreenable', 'display_name' => 'Re',
+        'handle' => 'tkreenable', 'handle_lc' => 'tkreenable', 'display_name' => 'Re', 'first_name' => 'Re',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'tkreenable@example.com',
     ]);
     // Already taken down.

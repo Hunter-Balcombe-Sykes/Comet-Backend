@@ -68,9 +68,9 @@ function seedIndividualProfile(string $handle, ?string $architectureId = null, s
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => 'Solo Pro',
+        'first_name' => 'Solo Pro',
         // bio dropped from core.users by 20260705120002_drop_dead_profile_columns_tables
-        // — this insert used to write a value nothing reads back; removed rather
-        // than resurrected in the fixture (caught by FixtureSchemaParityTest).
+        // — this insert wrote a value nothing reads back (caught by FixtureSchemaParityTest).
         'account_type' => 'partna',
         'location_city' => 'Sydney',
         'location_state' => 'NSW',

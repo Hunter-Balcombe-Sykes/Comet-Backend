@@ -22,8 +22,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="x-apple-disable-message-reformatting">
     <meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
     <title>@yield('title', config('app.name', 'Partna'))</title>
 
     <style type="text/css">
@@ -79,7 +79,7 @@
                                 </a>
                             @elseif (! $brand->isPartna)
                                 <a href="{{ $brand->siteUrl }}" style="text-decoration:none;">
-                                    <span style="font-size:20px; font-weight:600; color:{{ $brand->palette->text }};">{{ $brand->proName }}</span>
+                                    <span style="font-size:22px; font-weight:600; letter-spacing:-0.01em; color:{{ $brand->palette->text }};">{{ $brand->proName }}</span>
                                 </a>
                             @elseif ($brand->logoUrlLight && $brand->logoUrlDark)
                                 <a href="https://app.partna.au" style="text-decoration:none;">

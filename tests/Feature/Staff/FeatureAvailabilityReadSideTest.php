@@ -42,9 +42,13 @@ beforeEach(function () {
 function ovaAvailUser(): User
 {
     $id = (string) Str::uuid();
+    $handle = 'avail-'.Str::random(6);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
-        'handle' => 'avail-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

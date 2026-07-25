@@ -22,6 +22,7 @@ function catUser(string $h, string $accountType = 'partna', ?string $sector = nu
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => $accountType,
         'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),

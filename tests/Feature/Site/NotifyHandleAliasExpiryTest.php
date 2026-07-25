@@ -21,6 +21,8 @@ it('sends a T-3 email exactly once per alias and stamps notified_t3_at', functio
         'id' => $proId,
         'handle' => 'notifytest',
         'handle_lc' => 'notifytest',
+        'display_name' => 'Notifytest',
+        'first_name' => 'Notifytest',
         'status' => 'active',
         'primary_email' => 'notifytest@example.test',
 

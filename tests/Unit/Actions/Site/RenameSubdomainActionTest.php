@@ -45,6 +45,7 @@ function seedRenameActionUser(string $subdomain): array
         'handle' => $subdomain,
         'handle_lc' => $subdomain,
         'display_name' => 'Test User',
+        'first_name' => 'Test',
         'primary_email' => $userId.'@example.test',
         'status' => 'active',
         'created_at' => $now,

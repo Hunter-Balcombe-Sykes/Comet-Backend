@@ -44,7 +44,7 @@ it('dispatches a segment takedown when adding members to a segment with a disabl
     $staff = segmentTriggerStaff();
 
     $newbie = User::create([
-        'handle' => 'segnew', 'handle_lc' => 'segnew', 'display_name' => 'Seg',
+        'handle' => 'segnew', 'handle_lc' => 'segnew', 'display_name' => 'Seg', 'first_name' => 'Seg',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'segnew@example.com',
     ]);
 
@@ -68,7 +68,7 @@ it('does not dispatch when the segment has no disabled integration rule', functi
     $staff = segmentTriggerStaff();
 
     $newbie = User::create([
-        'handle' => 'segnone', 'handle_lc' => 'segnone', 'display_name' => 'None',
+        'handle' => 'segnone', 'handle_lc' => 'segnone', 'display_name' => 'None', 'first_name' => 'None',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'segnone@example.com',
     ]);
     $segment = UserSegment::query()->create(['name' => 'seg-'.Str::random(4), 'filters' => []]);

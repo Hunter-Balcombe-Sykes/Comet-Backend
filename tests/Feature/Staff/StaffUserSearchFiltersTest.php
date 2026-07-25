@@ -34,7 +34,7 @@ beforeEach(function () {
 function ovaSearchUser(array $overrides = []): string
 {
     $id = (string) Str::uuid();
-    DB::connection('pgsql')->table('core.users')->insert(array_merge([
+    $attrs = array_merge([
         'id' => $id,
         'handle' => 'search-'.Str::random(8),
         'display_name' => 'Search Target',
@@ -42,7 +42,15 @@ function ovaSearchUser(array $overrides = []): string
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
-    ], $overrides));
+    ], $overrides);
+
+    // Derived AFTER the merge so an override that changes 'handle' (several
+    // call sites below do) still yields a consistent handle_lc/first_name,
+    // rather than baking a mismatch from the base handle.
+    $attrs['handle_lc'] ??= strtolower($attrs['handle']);
+    $attrs['first_name'] ??= ucfirst($attrs['handle']);
+
+    DB::connection('pgsql')->table('core.users')->insert($attrs);
 
     return $id;
 }

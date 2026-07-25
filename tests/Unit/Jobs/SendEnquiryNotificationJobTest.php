@@ -31,6 +31,9 @@ function seedEnquiryAndBlock(array $blockOverrides = []): array
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => 'testpro',
+        'handle_lc' => 'testpro',
+        'display_name' => 'Testpro',
+        'first_name' => 'Testpro',
         'primary_email' => 'pro@example.test',
         'status' => 'active',
     ]);

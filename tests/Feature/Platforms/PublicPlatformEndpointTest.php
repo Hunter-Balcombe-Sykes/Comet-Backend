@@ -14,6 +14,7 @@ function makePublicUser(string $handle): User
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
     ]);
 }
