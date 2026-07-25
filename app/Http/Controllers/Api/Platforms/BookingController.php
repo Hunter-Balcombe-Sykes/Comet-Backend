@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\EnrichLinkCardJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
@@ -14,6 +15,7 @@ use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\ProviderDetector;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -135,11 +137,20 @@ class BookingController extends ApiController
      * Aggregate connected-state across the booking-family connections. Priority
      * fresha > square > custom (only one is ever connected — single slot).
      *
-     * @return array{connected:bool, provider:?string, name:?string, url:?string}
+     * `setup` distinguishes "connected AND usable" from "connected but still
+     * awaiting the owner" — an auto-harvested fresha row is {url, selection:null}
+     * and renders nothing. Null when nothing is connected. This is the only
+     * signal the dashboard has; /fresha/selection reveals the same state but is
+     * not called from the Booking page's mount path.
+     *
+     * @return array{connected:bool, provider:?string, name:?string, url:?string, setup:?array{complete:bool, reason:?string, seededFrom:?string, seededAt:?string}}
      */
     private function statusFor(User $user): array
     {
-        $fresha = $user->integrationConnections()->where('platform', Platform::Fresha->value)->first();
+        // active() on both provider lookups: a staff-disabled row is invisible
+        // publicly (every read path filters is_active), so reporting it as
+        // connected here left the dashboard contradicting the live site.
+        $fresha = $user->integrationConnections()->where('platform', Platform::Fresha->value)->active()->first();
         if ($fresha) {
             $sel = SelectionPayload::fromArray($fresha->payload);
 
@@ -148,16 +159,18 @@ class BookingController extends ApiController
                 'provider' => 'fresha',
                 'name' => $sel->selection?->storeName(),
                 'url' => $sel->url,
+                'setup' => $this->setupFor($fresha, $sel->source),
             ];
         }
 
-        $square = $user->integrationConnections()->where('platform', Platform::Square->value)->first();
+        $square = $user->integrationConnections()->where('platform', Platform::Square->value)->active()->first();
         if ($square) {
             return [
                 'connected' => true,
                 'provider' => 'square',
                 'name' => null,
                 'url' => SelectionPayload::fromArray($square->payload)->url,
+                'setup' => $this->setupFor($square, SelectionPayload::fromArray($square->payload)->source),
             ];
         }
 
@@ -168,10 +181,33 @@ class BookingController extends ApiController
                 'provider' => 'custom',
                 'name' => $custom->name(),
                 'url' => $custom->url(),
+                'setup' => ['complete' => true, 'reason' => null, 'seededFrom' => null, 'seededAt' => null],
             ];
         }
 
-        return ['connected' => false, 'provider' => null, 'name' => null, 'url' => null];
+        return ['connected' => false, 'provider' => null, 'name' => null, 'url' => null, 'setup' => null];
+    }
+
+    /**
+     * `reason` is a string rather than a bool so a second incompleteness cause
+     * is additive. `seededFrom` is payload.source — written by the two
+     * auto-harvest services, absent on every user-initiated connect — so the
+     * prompt can say "we found this on your Instagram" instead of a generic nag.
+     *
+     * @return array{complete:bool, reason:?string, seededFrom:?string, seededAt:?string}
+     */
+    private function setupFor(IntegrationConnection $connection, ?string $source): array
+    {
+        $complete = app(PlatformRegistry::class)
+            ->get(strtolower((string) $connection->platform))
+            ?->isComplete($connection) ?? true;
+
+        return [
+            'complete' => $complete,
+            'reason' => $complete ? null : 'awaiting_selection',
+            'seededFrom' => $complete ? null : $source,
+            'seededAt' => $complete ? null : $connection->created_at?->toIso8601String(),
+        ];
     }
 
     /** Remove every booking-family connection (the single-slot guarantee). */
