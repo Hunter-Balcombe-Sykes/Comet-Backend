@@ -927,7 +927,6 @@ function setupMediaTables(): void
         poster_path TEXT NULL,
         sort_order INTEGER NULL,
         is_active INTEGER NULL,
-        product_gid TEXT NULL,
         alt_text TEXT NULL,
         caption TEXT NULL,
         purpose TEXT NULL,
@@ -1886,7 +1885,6 @@ function setupEmailSubscriptionsTable(): void
         consent_source TEXT NULL,
         consent_ip_hash TEXT NULL,
         consent_user_agent TEXT NULL,
-        qr_slug TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

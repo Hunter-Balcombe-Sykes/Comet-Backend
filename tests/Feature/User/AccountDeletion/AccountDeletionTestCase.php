@@ -386,7 +386,6 @@ class AccountDeletionTestCase
             consent_ip_hash TEXT NULL,
             consent_user_agent TEXT NULL,
             email_lc TEXT NOT NULL DEFAULT '',
-            qr_slug TEXT NULL,
             created_at TEXT NULL,
             updated_at TEXT NULL
         )");

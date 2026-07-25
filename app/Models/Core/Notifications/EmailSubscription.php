@@ -25,7 +25,6 @@ use Illuminate\Support\Str;
  * @property string|null $consent_ip_hash
  * @property string|null $consent_user_agent
  * @property string $email_lc Lowercased email, backs the per-list uniqueness indexes.
- * @property string|null $qr_slug Unique when set; not currently written or read by any app code (legacy/reserved column).
  * @property Carbon|null $confirmation_sent_at Visitor-facing confirmation-email idempotency stamp; reset to null on a genuine re-subscribe.
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at

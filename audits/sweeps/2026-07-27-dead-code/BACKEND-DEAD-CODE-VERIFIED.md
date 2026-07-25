@@ -29,7 +29,7 @@ provider edit, a decision, or a migration.
   `## Standalone — do NOT bundle` **pauses for explicit go-ahead** before implementation.
 
 ## Progress
-- **Total findings: 14** — 12 / 14 done.
+- **Total findings: 14** — 14 / 14 done.
 - Auto-run: Bundle 1 (8), Bundle 2 (1), Bundle 3 (3) = 12.
 - Standalone (pause for sign-off): DC-C2, DC-D1 = 2.
 - Decided no-action (not counted): B2 `visibility()` — keep.
@@ -128,7 +128,7 @@ also lives at `SendStaffBroadcastEmailsJob.php:51`).
   `FeatureFlagService` as a fallback) — only these three entries are dead.
 
 ### DC-D1 — Drop two dead DB columns (P3) — DB MIGRATION
-- [ ] **DC-D1** — Drop `site.site_media.product_gid` and `core.email_subscriptions.qr_slug`, and remove
+- [x] **DC-D1** — Drop `site.site_media.product_gid` and `core.email_subscriptions.qr_slug`, and remove
   their `@property` docblock lines on `SiteMedia` / `EmailSubscription`. *Evidence:* only refs are those
   self-documenting docblocks; zero read/write anywhere. ⚠ **Requires a raw SQL migration in
   `supabase/migrations/`** against the live dev DB (this repo's migration conventions apply) — a DB

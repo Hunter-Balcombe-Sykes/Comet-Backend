@@ -81,7 +81,6 @@ beforeEach(function () {
         poster_path TEXT NULL,
         sort_order INTEGER NULL,
         is_active INTEGER NULL,
-        product_gid TEXT NULL,
         alt_text TEXT NULL,
         caption TEXT NULL,
         purpose TEXT NULL,
