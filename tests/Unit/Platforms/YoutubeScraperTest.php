@@ -85,6 +85,21 @@ it('logs a discriminating reason when a 200 channel page matches none of the id 
 
 // ── fetchUploadsFeed() — LIFE-26 ────────────────────────────────────────────
 
+// Regression: the feed was requested as ?playlist_id=UU<suffix> (the uploads
+// playlist) until YouTube stopped serving that feed entirely — 404/500 for
+// every channel — which surfaced to users as "Could not find that YouTube
+// channel or its latest video." on a channel that resolved perfectly well.
+// Pins the query parameter, since only the URL distinguishes the two feeds.
+it('requests the channel feed, not the retired uploads-playlist feed', function () {
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')
+        ->once()
+        ->withArgs(fn (string $url) => $url === 'https://www.youtube.com/feeds/videos.xml?channel_id=UCabcdefghijklmnopqrstuv')
+        ->andReturn(null);
+
+    youtubeScraperWith($fetcher)->fetchUploadsFeed('UCabcdefghijklmnopqrstuv');
+});
+
 it('logs a discriminating reason when the uploads-feed fetch fails at transport level', function () {
     Log::spy();
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
