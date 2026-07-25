@@ -9,6 +9,8 @@ it('renders pro logo + accent button in white-label mode', function () {
         proName: 'Jane Doe',
         siteUrl: 'https://jane.partna.au',
         logoUrl: 'https://media.partna.au/logo.webp',
+        logoUrlLight: null,
+        logoUrlDark: null,
         replyToEmail: null,
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000', 'button_primary_bg' => '#aa0000']),
     );
@@ -27,6 +29,7 @@ it('renders pro logo + accent button in white-label mode', function () {
 it('falls back to Partna branding when no brand is passed', function () {
     $html = view('mail.layouts.partna')->render();
 
-    expect($html)->toContain('email-wordmark.png')
+    expect($html)->toContain('partna-wordmark-light.png')
+        ->and($html)->toContain('partna-wordmark-dark.png')
         ->and($html)->not->toContain('sent via Partna');
 });
