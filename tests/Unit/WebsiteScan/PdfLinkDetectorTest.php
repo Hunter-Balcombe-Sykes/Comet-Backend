@@ -47,6 +47,20 @@ it('ignores a data: or mailto: href', function () {
     expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([]);
 });
 
+it('resolves a protocol-relative .pdf href against the base scheme', function () {
+    $html = '<a href="//cdn.example.com/menu.pdf">Menu</a>';
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://cdn.example.com/menu.pdf', 'text' => 'Menu'],
+    ]);
+});
+
+it('excludes a mailto: anchor even when it would otherwise resolve to a .pdf-suffixed path', function () {
+    $html = '<a href="mailto:menu@venue.example">Email us</a><a href="/menu.pdf">Menu</a>';
+    expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([
+        ['url' => 'https://venue.example/menu.pdf', 'text' => 'Menu'],
+    ]);
+});
+
 it('collapses whitespace in nested link text', function () {
     $html = "<a href=\"/menu.pdf\"><span>Wine</span>\n  <span>List</span></a>";
     expect(app(PdfLinkDetector::class)->find($html, 'https://venue.example'))->toBe([

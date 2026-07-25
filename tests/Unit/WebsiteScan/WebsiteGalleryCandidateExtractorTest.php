@@ -69,6 +69,12 @@ it('excludes a data: URI image', function () {
     expect(wgceExtract($html))->toBe([]);
 });
 
+it('resolves a protocol-relative src against the base scheme', function () {
+    $html = '<img src="//cdn.example.com/photos/plate.jpg">';
+
+    expect(wgceExtract($html))->toBe(['https://cdn.example.com/photos/plate.jpg']);
+});
+
 it('returns an empty list for a page with no images', function () {
     expect(wgceExtract('<p>No photos here.</p>'))->toBe([]);
 });
