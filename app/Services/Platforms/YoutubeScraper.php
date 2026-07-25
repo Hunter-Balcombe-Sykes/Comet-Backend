@@ -78,13 +78,15 @@ class YoutubeScraper extends PlatformScraper
     {
         $headers = array_merge(['User-Agent' => self::USER_AGENT], $cond?->headers() ?? []);
 
-        // Use the channel's uploads-playlist feed (UU…) rather than the channel
-        // feed (UC…). On a fresh upload the channel_id feed can lag hours — or
-        // never populate at all for new / low-volume channels — whereas the
-        // uploads-playlist feed updates within minutes. The uploads playlist id
-        // is the channel id with its "UC" prefix swapped to "UU".
-        $uploadsPlaylistId = 'UU'.substr($channelId, 2);
-        $rss = $this->fetcher->tryFetch('https://www.youtube.com/feeds/videos.xml?playlist_id='.$uploadsPlaylistId, $headers);
+        // The channel feed (?channel_id=UC…) is the only uploads feed YouTube
+        // still serves. This used to request the uploads-PLAYLIST feed
+        // (?playlist_id=UU…, the channel id with "UC" swapped to "UU") because
+        // it updates within minutes where the channel feed can lag hours on a
+        // fresh upload; as of 2026-07 that feed 404s/500s for every channel, so
+        // the freshness win no longer exists to trade for. Every connect
+        // attempt failed with a resolved-but-unfetchable channel until this
+        // swapped back. Do not "restore" the UU feed without re-checking it live.
+        $rss = $this->fetcher->tryFetch('https://www.youtube.com/feeds/videos.xml?channel_id='.$channelId, $headers);
         if ($rss === null) {
             // LIFE-26: transport-level failure (SSRF/timeout/DNS) reaching the feed.
             Log::warning('youtube.uploads_feed_failed', ['channelId' => $channelId, 'reason' => 'fetch_null']);
@@ -105,9 +107,9 @@ class YoutubeScraper extends PlatformScraper
         }
 
         // Channel display name from the feed head (before any <entry>): the
-        // feed-level <author><name> carries it verbatim; the playlist feed's
-        // own <title> is "Uploads from <channel>", kept only as a stripped
-        // fallback.
+        // feed-level <author><name> carries it verbatim; the feed's own <title>
+        // is the fallback, stripped of the "Uploads from " prefix the retired
+        // playlist feed used to carry.
         $head = explode('<entry>', $rss['body'], 2)[0];
         preg_match('~<author>\s*<name>([^<]*)</name>~', $head, $an);
         preg_match('~<title>([^<]*)</title>~', $head, $ft);
