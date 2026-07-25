@@ -365,7 +365,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // for every other platform; fresha is the one override. The
             // projector dependency is CA-W7's: the storewide branch runs
             // FreshaServiceProjector::sync() itself (team mode never touches it).
-            $r->get('fresha')->connectFetch(fn () => new FreshaConnectFetch(app(FreshaScraper::class), app(FreshaServiceProjector::class)));
+            // app() rather than `new` so a constructor gaining a dependency (as
+            // it did on 2026-07-25 with FreshaStaffMatcher) can't leave this
+            // call site silently short an argument.
+            $r->get('fresha')->connectFetch(fn () => app(FreshaConnectFetch::class));
             // The message ConnectFetchJob stores when the deferred team-mode
             // menu fetch fails — verbatim from connect()'s own synchronous 502
             // ('Could not reach Fresha — please try again.' was the old abort()

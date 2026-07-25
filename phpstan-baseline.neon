@@ -1771,12 +1771,6 @@ parameters:
 			path: app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Jobs/Platforms/LinkInBioScanJob.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\MenuPlatformLink\:\:\$status\.$#'
 			identifier: property.notFound
 			count: 1
@@ -2519,12 +2513,6 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: app/Services/Platforms/MenuScanApplier.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>discount_code" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Services/Platforms/ShopBrandSeeder.php
 
 		-
 			message: '#^Using nullsafe property access "\?\-\>position" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'

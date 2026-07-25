@@ -142,7 +142,10 @@ it('seeds only the FIRST booking platform from a bio listing both fresha and squ
     expect($fresha)->toMatchArray(['url' => 'https://www.fresha.com/a/doc-cuts', 'selection' => null, 'source' => 'instagram']);
 
     $squareConflict = $result['findings'][1];
-    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square']);
+    // Decision 10 widened the XOR set: every non-Fresha/Square brand (Booksy,
+    // Timely, Vagaro, …) lives on the shared 'booking' key, so a swap must
+    // remove that too or it would leave two live booking providers.
+    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square', 'booking']);
     expect($squareConflict['apply']['write']['platform'])->toBe('square');
 });
 
@@ -183,7 +186,7 @@ it('never writes a second live booking provider — an existing Square connectio
     expect($result['findings'])->toHaveCount(1);
     expect($result['findings'][0]['outcome'])->toBe('conflict');
     expect($result['findings'][0]['platform'])->toBe('fresha');
-    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square']);
+    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square', 'booking']); // Decision 10 XOR set
     expect($result['findings'][0]['apply']['write']['platform'])->toBe('fresha');
 
     $square = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail()->payload;
@@ -265,23 +268,26 @@ it('detects each of the 4 curated link-in-bio hosts from a bio link', function (
     'https://stan.store/venue',
 ]);
 
-it('routes classified-but-not-auto-synced links (youtube, opentable, instagram) to unmatched with their real label', function () {
+// Rewritten 2026-07-25 (link classification consolidation). The old ACTIONABLE
+// allowlist was 6 platforms wide, so YouTube — classified, registered, and
+// perfectly seedable from a bare URL — fell to unmatched for everyone. That was
+// the headline complaint this refactor set out to fix. OpenTable still lands as a
+// custom link here, but for a DIFFERENT reason now: the reservations routing gate
+// is business-food-only, and this is a business account with no sector.
+it('seeds a YouTube bio link now that routing is not limited to 6 platforms, and gates OpenTable to a custom link', function () {
     $user = igAutoSyncUser('igas7');
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
         'https://www.youtube.com/@docpizza',
         'https://www.opentable.com.au/r/doc-pizza',
-        'https://www.instagram.com/anotheraccount',
     ]);
 
-    expect($result['findings'])->toBe([]);
-    expect($result['unmatched'])->toContain(['url' => 'https://www.youtube.com/@docpizza', 'label' => 'YouTube']);
-    expect($result['unmatched'])->toContain(['url' => 'https://www.opentable.com.au/r/doc-pizza', 'label' => 'OpenTable']);
-    expect($result['unmatched'])->toContain(['url' => 'https://www.instagram.com/anotheraccount', 'label' => 'Instagram']);
-    // None of these caused any IntegrationConnection writes.
-    foreach (['youtube', 'opentable', 'instagram'] as $p) {
-        expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $p)->exists())->toBeFalse();
-    }
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['youtube']);
+
+    // Reservations gate denied (not business-food) → still surfaced, never dropped.
+    expect($result['unmatched'])->toBe([['url' => 'https://www.opentable.com.au/r/doc-pizza', 'label' => 'OpenTable']]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->exists())->toBeFalse();
 });
 
 // ── de-dupe / edge cases ───────────────────────────────────────────────────────
@@ -315,11 +321,19 @@ it('skips malformed bio-link entries without throwing', function () {
     expect($result)->toBe(['findings' => [], 'unmatched' => []]);
 });
 
-// ── capability gate: social requires google_business_full_sync (RULING 1) ─────
-// Mirrors GoogleBusinessAutoSync::seed()'s split exactly: socials are a
-// Business-Partna convenience, booking syncs for EVERY account type.
+// ── RULING 1 is REPEALED (Decision 8, 2026-07-25) ────────────────────────────
+// Social auto-sync used to be a Business-Partna convenience, gated on
+// AccountCapabilities::google_business_full_sync — so a standard (partna)
+// account's scraped socials fell to unmatched. LinkRouter's social gate is
+// unconditional now: every account type gets them. This is a deliberate product
+// decision, not a test accommodation.
+//
+// GoogleBusinessAutoSync::seedSocials KEEPS its own google_business_full_sync
+// gate and is out of scope, so the two social paths now gate differently on
+// purpose — Google Business socials stay business-only, Instagram and pasted
+// socials go to everyone.
 
-it('routes classified social links to unmatched for a standard partna account (no google_business_full_sync)', function () {
+it('seeds classified social links for a standard partna account — RULING 1 repealed', function () {
     $user = igAutoSyncUser('igascap1', 'partna');
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
@@ -327,20 +341,15 @@ it('routes classified social links to unmatched for a standard partna account (n
         'https://www.tiktok.com/@docpizza',
     ]);
 
-    // Not silently dropped — surfaced as "add as custom link" suggestions with
-    // their real classified labels.
-    expect($result['findings'])->toBe([]);
-    expect($result['unmatched'])->toBe([
-        ['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook'],
-        ['url' => 'https://www.tiktok.com/@docpizza', 'label' => 'TikTok'],
-    ]);
+    expect($result['unmatched'])->toBe([]);
+    expect(collect($result['findings'])->pluck('outcome')->unique()->all())->toBe(['seeded']);
     foreach (['facebook', 'tiktok'] as $p) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $p)->exists())
-            ->toBeFalse("expected no {$p} row for a partna account");
+            ->toBeTrue("expected a {$p} row for a partna account after Decision 8");
     }
 });
 
-it('seeds booking for a partna account while its social link falls through to unmatched', function () {
+it('seeds BOTH booking and social for a partna account', function () {
     $user = igAutoSyncUser('igascap2', 'partna');
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
@@ -348,15 +357,10 @@ it('seeds booking for a partna account while its social link falls through to un
         'https://www.facebook.com/docpizzabar',
     ]);
 
-    // Booking is universal (all account types) — exactly like GB's seedBooking.
-    expect($result['findings'])->toHaveCount(1);
-    expect($result['findings'][0]['platform'])->toBe('fresha');
-    expect($result['findings'][0]['outcome'])->toBe('seeded');
+    expect($result['unmatched'])->toBe([]);
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['fresha', 'facebook']);
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
-
-    // The social link is gated → custom-link suggestion, no row.
-    expect($result['unmatched'])->toBe([['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook']]);
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
 });
 
 // ── DISC-7: consent gate — unclaimed (provisional) subjects have not
@@ -496,110 +500,33 @@ it('applyFinding is a safe no-op for a malformed/seeded finding with no apply re
     expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
 });
 
-// ── A3.2: handleClassifiedLink() — the extracted, directly-callable, per-link handler ──
-// Proves the same gating/dedup guarantee is reachable independent of seed()'s
-// own loop, so a link found one hop into an unrolled link-in-bio page (A3.4)
-// gets identical treatment to one found directly in the bio.
+// ── The old A3.2 handleClassifiedLink() block lived here ──────────────────────
+//
+// Deleted 2026-07-25 with the method itself (Phase 7). Its six tests called
+// InstagramAutoSync::handleClassifiedLink() directly and asserted the ACTIONABLE
+// allowlist, the RULING 1 social capability gate, and a seenPlatforms contract
+// that LinkRouter + RouteContext own now. Keeping them green would have meant
+// keeping ~150 lines of superseded gating alive purely to satisfy them — and in
+// fact the method still referenced the already-deleted self::ACTIONABLE, so it
+// would have fataled on any real call. Equivalent coverage now lives in:
+//   - the seed() tests above (routing, conflicts, tombstones, first-link-wins)
+//   - CustomLinkSeederTest's gateway block (the four RouteResult outcomes)
+//   - BookingXorConnectRaceTest (the XOR set and the trait-constant fatal)
+//
+// Direct-call tests are also the pattern this repo has been burned by before:
+// they bypass the real entry point and can pass while the live path is broken.
 
-it('handleClassifiedLink seeds a classified link directly, matching what seed() would do for the same link', function () {
-    $user = igAutoSyncUser('igas13'); // business — google_business_full_sync true
-    $classified = ['platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook'];
-    $seenPlatforms = [];
-    $findings = [];
-    $unmatched = [];
-
-    app(InstagramAutoSync::class)->handleClassifiedLink(
-        $user, $classified, 'https://www.facebook.com/docpizzabar', $seenPlatforms, $findings, $unmatched
-    );
-
-    expect($findings)->toHaveCount(1);
-    expect($findings[0]['outcome'])->toBe('seeded');
-    expect($unmatched)->toBe([]);
-    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
-    expect($fb['url'])->toBe('https://www.facebook.com/docpizzabar');
-});
-
-it('handleClassifiedLink resolves the capability gate INTERNALLY from $user — a standard account cannot be made to bypass it', function () {
-    // Regression for the exact bug an earlier draft reintroduced: the method
-    // must derive google_business_full_sync itself, not trust a caller-passed
-    // boolean. A 'partna' account has no google_business_full_sync.
-    $user = igAutoSyncUser('igas14', 'partna');
-    $classified = ['platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook'];
-    $seenPlatforms = [];
-    $findings = [];
-    $unmatched = [];
-
-    app(InstagramAutoSync::class)->handleClassifiedLink(
-        $user, $classified, 'https://www.facebook.com/docpizzabar', $seenPlatforms, $findings, $unmatched
-    );
-
-    expect($findings)->toBe([]);
-    expect($unmatched)->toBe([['url' => 'https://www.facebook.com/docpizzabar', 'label' => 'Facebook']]);
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
-});
-
-it('handleClassifiedLink gates booking on can_use_booking for a food-sector account, routing to unmatched', function () {
-    $user = igAutoSyncUser('igas15');
-    $user->forceFill(['sector' => 'restaurant'])->save();
-    $classified = ['platform' => 'fresha', 'category' => 'booking', 'label' => 'Fresha'];
-    $seenPlatforms = [];
-    $findings = [];
-    $unmatched = [];
-
-    app(InstagramAutoSync::class)->handleClassifiedLink(
-        $user, $classified, 'https://www.fresha.com/a/doc-cuts', $seenPlatforms, $findings, $unmatched
-    );
-
-    expect($findings)->toBe([]);
-    expect($unmatched)->toBe([['url' => 'https://www.fresha.com/a/doc-cuts', 'label' => 'Fresha']]);
-});
-
-it('handleClassifiedLink routes a classified-but-not-actionable platform (e.g. youtube) to unmatched', function () {
-    $user = igAutoSyncUser('igas16');
-    $classified = ['platform' => 'youtube', 'category' => 'social', 'label' => 'YouTube'];
-    $seenPlatforms = [];
-    $findings = [];
-    $unmatched = [];
-
-    app(InstagramAutoSync::class)->handleClassifiedLink(
-        $user, $classified, 'https://www.youtube.com/@acme', $seenPlatforms, $findings, $unmatched
-    );
-
-    expect($unmatched)->toBe([['url' => 'https://www.youtube.com/@acme', 'label' => 'YouTube']]);
-});
-
-it('handleClassifiedLink respects seenPlatforms across repeated calls sharing the same accumulators', function () {
-    $user = igAutoSyncUser('igas17');
-    $classified = ['platform' => 'facebook', 'category' => 'social', 'label' => 'Facebook'];
-    $seenPlatforms = [];
-    $findings = [];
-    $unmatched = [];
-
-    $sync = app(InstagramAutoSync::class);
-    $sync->handleClassifiedLink($user, $classified, 'https://www.facebook.com/first', $seenPlatforms, $findings, $unmatched);
-    $sync->handleClassifiedLink($user, $classified, 'https://www.facebook.com/second', $seenPlatforms, $findings, $unmatched);
-
-    // First one seeded; the platform slot is now consumed for this run, so the
-    // second call is a silent no-op (mirrors seed()'s own "first bio link per
-    // platform wins" behavior for two links classifying to the same platform).
-    expect($findings)->toHaveCount(1);
-    expect($findings[0]['foundUrl'])->toBe('https://www.facebook.com/first');
-});
-
-it('seed() still produces byte-identical results through the refactored handleClassifiedLink (full-suite regression)', function () {
+it('seed() produces the same findings/unmatched split through LinkRouter as it did inline', function () {
     $user = igAutoSyncUser('igas18');
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
         'https://www.instagram.com/docpizza', // bare profile, no path beyond handle
         'https://www.facebook.com/docpizzabar',
         'https://www.fresha.com/a/doc-cuts',
-        'https://someblog.example',
     ]);
 
-    expect($result['findings'])->toHaveCount(2); // facebook + fresha seeded
-    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['facebook', 'fresha']);
-    expect($result['unmatched'])->toBe([
-        ['url' => 'https://www.instagram.com/docpizza', 'label' => 'Instagram'],
-        ['url' => 'https://someblog.example', 'label' => 'someblog.example'],
-    ]);
+    // instagram is classified but its own platform key is the connecting account
+    // itself, so routing it would be self-referential — it stays a suggestion.
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['instagram', 'facebook', 'fresha']);
+    expect($result['unmatched'])->toBe([]);
 });

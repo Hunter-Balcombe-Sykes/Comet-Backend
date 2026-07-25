@@ -24,6 +24,13 @@ it('registers exactly the platforms the app accepts today', function () {
         'square', 'skool', 'strava', 'google-business', 'custom', 'opentable',
         'booking', 'reservations', 'online-ordering', 'resdiary', 'nowbookit',
         'events-custom',
+        // Link classification consolidation, Phase 2 (2026-07-25). Each is its
+        // own identity on the sitepage, so each earns a key. The ~55 new
+        // booking/reservation/ordering BRANDS deliberately do NOT appear here —
+        // under Decision 10 they ride as a `provider` string on the shared
+        // 'booking' / 'reservations' / 'online-ordering' keys above.
+        'whatsapp', 'substack', 'patreon', 'ko-fi', 'buymeacoffee', 'github',
+        'gitlab', 'codepen', 'dribbble', 'behance', 'gumroad',
     ];
 
     sort($expected);

@@ -1,12 +1,12 @@
 <?php
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
-use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\CustomLinkSeeder;
-use App\Services\Platforms\InstagramAutoSync;
+use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -43,7 +43,7 @@ it('unrolls a link-in-bio page into a seeded integration and a commerce probe, w
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 
@@ -51,7 +51,7 @@ it('unrolls a link-in-bio page into a seeded integration and a commerce probe, w
     // The unclassified blog link goes to a commerce probe (signup-v2 C4) — the
     // probe job owns the custom-link fallback on a miss.
     Queue::assertPushed(
-        ProbeCommerceLinksJob::class,
+        CommerceProbeJob::class,
         fn ($job) => $job->url === 'https://someblog.example' && $job->category === null,
     );
     expect(IntegrationConnection::where('payload->url', 'https://linktr.ee/venue')->exists())->toBeFalse();
@@ -62,8 +62,8 @@ it('falls back to CustomLinkSeeder for a classified-but-gated link instead of dr
     // A food-sector BUSINESS account: can_use_booking is sector-gated only for
     // Business accounts (AccountCapabilities::individualCapabilities() — a
     // partna account's can_use_booking is always true, food sector or not).
-    // fresha is gated here, so handleClassifiedLink() routes it to $unmatched
-    // — this job must still turn that into a custom link, not silently drop it.
+    // fresha is gated here, so LinkRouter returns outcome 'custom' — this job
+    // must still turn that into a custom link, not silently drop it.
     $user = User::factory()->create(['account_type' => 'business', 'sector' => 'restaurant']);
     Http::fake([
         'linktr.ee/*' => Http::response('<a href="https://www.fresha.com/a/venue-1">Book</a>', 200),
@@ -72,7 +72,7 @@ it('falls back to CustomLinkSeeder for a classified-but-gated link instead of dr
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 
@@ -104,7 +104,7 @@ it("excludes links back to the bio page's own host — platform chrome, not the 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 
@@ -119,7 +119,7 @@ it('does nothing when the fetch fails', function () {
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 
@@ -147,7 +147,7 @@ it('merges a conflict finding into the IG payload syncFindings and notifies the 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 
@@ -181,7 +181,7 @@ it('does not duplicate a finding for a platform the direct bio scan already reco
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 
@@ -197,7 +197,7 @@ it('does nothing when the user no longer exists', function () {
     (new LinkInBioScanJob((string) Str::uuid(), 'https://linktr.ee/venue'))->handle(
         app(SafeUrlFetcher::class),
         app(WebsiteLinkHarvester::class),
-        app(InstagramAutoSync::class),
+        app(LinkRouter::class),
         app(CustomLinkSeeder::class),
     );
 

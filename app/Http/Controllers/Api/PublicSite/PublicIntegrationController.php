@@ -70,14 +70,16 @@ class PublicIntegrationController extends ApiController
         $connections = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
-            // Booking/reservations are still dashboard-only categories (the
-            // Resource also strips their payload to {} — empty allowlist —
-            // but excluding them here keeps the rows off the wire entirely).
-            // online-ordering was in this list too until the 2026-07-23 actions
-            // rebuild — its entries now feed the public ordering:<id> actions
-            // (SiteActionsService::pool()), so they must reach the wire; the
-            // Resource's allowlist for it is the actual exposure gate now.
-            ->whereNotIn('platform', [Platform::Booking->value, Platform::Reservations->value])
+            // Booking/reservations LEFT this exclusion list on 2026-07-25 (link
+            // classification consolidation). Under Decision 10 every non-Fresha/
+            // Square booking brand and every non-OpenTable/ResDiary/NowBookit
+            // reservation brand lands on these two SHARED keys, so a Booksy or
+            // Resy link is a real public "Book with {provider}" card now. Their
+            // PublicIntegrationConnectionResource allowlists were widened to
+            // ['url','provider'] in the same change and are the actual exposure
+            // gate — excluding the rows here would have made that widening
+            // silently inert. Exactly the move online-ordering made in the
+            // 2026-07-23 actions rebuild, for the same reason.
             ->orderBy('platform')
             ->orderBy('sort_order')
             ->orderBy('created_at')

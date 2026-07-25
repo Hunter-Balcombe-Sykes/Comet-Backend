@@ -412,7 +412,17 @@ it('fails closed to an empty payload when a stored payload is a scalar, not an a
     expect($payload)->toBe([]);
 });
 
-it('never exposes booking/reservations on the public endpoint', function () {
+// Inverted 2026-07-25 (link classification consolidation, Decision 10). Booking
+// and reservations used to be dashboard-only, excluded from the public query and
+// given an empty allowlist. Now every non-Fresha/Square booking brand and every
+// non-OpenTable/ResDiary/NowBookit reservation brand lands on these two SHARED
+// keys, so a Booksy or Resy link IS a public "Book with {provider}" card. Both
+// halves had to change together: the original change widened the Resource
+// allowlist to ['url','provider'] but left PublicIntegrationController's
+// whereNotIn in place, so the widening was silently inert and a Booksy row still
+// rendered as nothing. This test now pins that exactly url + provider reach the
+// wire — name/source/id stay private, so the allowlist is still the gate.
+it('exposes shared-key booking/reservations publicly with ONLY url + provider', function () {
     $user = allowlistUser('allow10');
 
     IntegrationConnection::create([
@@ -445,9 +455,16 @@ it('never exposes booking/reservations on the public endpoint', function () {
         ->assertOk()
         ->json('data.platforms');
 
-    // Still dashboard-only categories — never reach the wire (whereNotIn guard).
-    expect($platforms)->not->toHaveKey('reservations');
-    expect($platforms)->not->toHaveKey('booking');
+    // Both now reach the wire — the sitepage renders a card per provider.
+    // Key order follows the stored payload, which lists provider first.
+    expect($platforms['reservations'][0]['payload'])
+        ->toBe(['provider' => 'custom', 'url' => 'https://example.com/book']);
+    expect($platforms['booking'][0]['payload'])
+        ->toBe(['provider' => 'custom', 'url' => 'https://example.com/appt']);
+    // `name` and `source` were in both stored payloads and must NOT ship — the
+    // allowlist, not the query, is the exposure gate now.
+    expect($platforms['booking'][0]['payload'])->not->toHaveKey('name');
+    expect($platforms['booking'][0]['payload'])->not->toHaveKey('source');
     // The public platform still ships untouched.
     expect($platforms['facebook'][0]['payload']['url'])->toBe('https://facebook.com/me');
 });
@@ -479,7 +496,11 @@ it('exposes online-ordering entries publicly (2026-07-23 actions rebuild) with o
         ->assertOk()
         ->json('data.platforms.online-ordering.0.payload');
 
+    // `provider` joined this allowlist on 2026-07-25 so the sitepage can label a
+    // shared-key ordering card ("Order with {provider}") — same widening booking
+    // and reservations got. id/source/data still stay private.
     expect($payload)->toBe([
+        'provider' => 'custom',
         'url' => 'https://www.ubereats.com/store/maha-restaurant',
         'name' => 'Uber Eats',
         'favicon' => 'https://www.google.com/s2/favicons?domain=ubereats.com&sz=64',

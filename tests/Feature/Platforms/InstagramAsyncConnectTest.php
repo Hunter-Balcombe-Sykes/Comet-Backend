@@ -1,8 +1,8 @@
 <?php
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
-use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
@@ -811,8 +811,10 @@ it('does not overwrite already-set identity fields as part of the connect job', 
 
 // ── A2.2 → signup-v2 C4: unmatched bio links get a commerce probe first ──────
 // An unclassified bio link used to become a custom link immediately; it now
-// dispatches ProbeCommerceLinksJob (could be the business's store or a product
-// page), and THAT job owns the custom-link fallback on a miss.
+// dispatches CommerceProbeJob (could be the business's store or a product page),
+// and THAT job owns the custom-link fallback on a miss. Renamed from
+// ProbeCommerceLinksJob on 2026-07-25 — the replacement calls seedCustom() rather
+// than seed(), which is what breaks the router↔seeder recursion (Issue H / B1).
 
 it('dispatches a commerce probe for an unmatched (unclassified) instagram bio link', function () {
     Storage::fake('media');
@@ -838,7 +840,7 @@ it('dispatches a commerce probe for an unmatched (unclassified) instagram bio li
         ['url' => 'https://someblog.example/post', 'label' => 'someblog.example'],
     ]);
     Queue::assertPushed(
-        ProbeCommerceLinksJob::class,
+        CommerceProbeJob::class,
         fn ($job) => $job->url === 'https://someblog.example/post'
             && $job->userId === (string) $user->id
             && $job->category === null,

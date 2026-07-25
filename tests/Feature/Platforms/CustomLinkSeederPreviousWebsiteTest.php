@@ -30,7 +30,7 @@ it("skips an auto-grabbed link that is the user's previous website (exact match)
     $user = createTenant('cls-exact');
     seedPreviousWebsite($user, 'https://thebrokenovenpizzabar.com.au/');
 
-    $result = app(CustomLinkSeeder::class)->seed($user->fresh(), 'https://thebrokenovenpizzabar.com.au/');
+    $result = app(CustomLinkSeeder::class)->seedCustom($user->fresh(), 'https://thebrokenovenpizzabar.com.au/');
 
     expect($result)->toBeNull();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'custom')->count())->toBe(0);
@@ -40,7 +40,7 @@ it("skips a subpage of the user's previous website", function () {
     $user = createTenant('cls-subpage');
     seedPreviousWebsite($user, 'https://thebrokenovenpizzabar.com.au/');
 
-    $result = app(CustomLinkSeeder::class)->seed($user->fresh(), 'https://thebrokenovenpizzabar.com.au/menu');
+    $result = app(CustomLinkSeeder::class)->seedCustom($user->fresh(), 'https://thebrokenovenpizzabar.com.au/menu');
 
     expect($result)->toBeNull();
 });
@@ -49,7 +49,7 @@ it('skips a www. variant of the previous website host', function () {
     $user = createTenant('cls-www');
     seedPreviousWebsite($user, 'https://thebrokenovenpizzabar.com.au/');
 
-    $result = app(CustomLinkSeeder::class)->seed($user->fresh(), 'https://www.thebrokenovenpizzabar.com.au/contact');
+    $result = app(CustomLinkSeeder::class)->seedCustom($user->fresh(), 'https://www.thebrokenovenpizzabar.com.au/contact');
 
     expect($result)->toBeNull();
 });
@@ -58,7 +58,7 @@ it('still seeds an auto-grabbed link to a genuinely different host', function ()
     $user = createTenant('cls-different');
     seedPreviousWebsite($user, 'https://thebrokenovenpizzabar.com.au/');
 
-    $result = app(CustomLinkSeeder::class)->seed($user->fresh(), 'https://www.instagram.com/brokenovenpizzabar');
+    $result = app(CustomLinkSeeder::class)->seedCustom($user->fresh(), 'https://www.instagram.com/brokenovenpizzabar');
 
     expect($result)->not->toBeNull();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'custom')->count())->toBe(1);
@@ -68,7 +68,7 @@ it('seeds normally when the user has no previous_website set at all', function (
     $user = createTenant('cls-none');
     // No workplace row at all.
 
-    $result = app(CustomLinkSeeder::class)->seed($user->fresh(), 'https://www.instagram.com/somebusiness');
+    $result = app(CustomLinkSeeder::class)->seedCustom($user->fresh(), 'https://www.instagram.com/somebusiness');
 
     expect($result)->not->toBeNull();
 });
@@ -80,7 +80,7 @@ it("does not confuse a host that merely CONTAINS the previous website's host as 
     // notoven.com.au contains "oven.com.au" as a raw substring but is a
     // genuinely different host — a naive str_contains() match would wrongly
     // skip this.
-    $result = app(CustomLinkSeeder::class)->seed($user->fresh(), 'https://notoven.com.au/');
+    $result = app(CustomLinkSeeder::class)->seedCustom($user->fresh(), 'https://notoven.com.au/');
 
     expect($result)->not->toBeNull();
 });

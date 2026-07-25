@@ -321,7 +321,10 @@ it('does not notify when a seeded custom link completes enrichment', function ()
     // Without this the seeder's own EnrichLinkCardJob::dispatch()->afterCommit()
     // runs inline on the sync driver with the REAL scraper (outbound HTTP).
     Queue::fake();
-    $row = app(CustomLinkSeeder::class)->seed($user, 'https://example.com');
+    // seedCustom(), not seed(): seed() is the routing gateway now and an
+    // unclassified URL there becomes a commerce probe returning null, no row.
+    // This test is about the enrichment notification on a custom-link row.
+    $row = app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com');
     expect($row)->not->toBeNull();
     expect($row->resource_kind)->toBe('link');
 

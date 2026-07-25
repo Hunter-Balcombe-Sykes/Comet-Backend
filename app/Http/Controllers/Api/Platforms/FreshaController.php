@@ -19,6 +19,7 @@ use App\Services\Http\FetchBudget;
 use App\Services\Http\SafeUrlException;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
+use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
@@ -42,6 +43,7 @@ class FreshaController extends ApiController
         private readonly FreshaScraper $scraper,
         private readonly FreshaServiceProjector $projector,
         private readonly FetchBudget $budget,
+        private readonly FreshaStaffMatcher $staffMatcher,
     ) {}
 
     protected function platform(): string
@@ -331,7 +333,9 @@ class FreshaController extends ApiController
     // GET /api/platforms/fresha/team — team + services for the saved URL.
     public function team(Request $request): JsonResponse
     {
-        $url = $this->freshaUrl($this->currentUser($request));
+        $user = $this->currentUser($request);
+
+        $url = $this->freshaUrl($user);
         if (! $url) {
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
         }
@@ -342,6 +346,14 @@ class FreshaController extends ApiController
         } catch (SafeUrlException|ConnectionException) {
             abort(502, 'Could not reach Fresha — please try again.');
         }
+
+        // Phase 11 (Decision 1): which team member is probably "you", so the
+        // picker opens pre-highlighted instead of blank. Null when the name is
+        // blank or the match is ambiguous — the user then picks manually, which
+        // is the documented fallback. Advisory only: saveSelection() re-resolves
+        // the employeeId server-side against a fresh scrape, so a wrong
+        // suggestion can never become a wrong saved selection on its own.
+        $menu['suggestedEmployeeId'] = $this->staffMatcher->match($user, $menu['team']);
 
         return $this->success(['url' => $url, ...$menu]);
     }

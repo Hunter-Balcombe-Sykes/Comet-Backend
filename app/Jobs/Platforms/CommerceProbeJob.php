@@ -3,7 +3,6 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\GenericShopScraper;
@@ -39,8 +38,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 2;
+
     public array $backoff = [30];
+
     public int $timeout = 90;
+
     public int $uniqueFor = 300;
 
     public function __construct(

@@ -66,7 +66,14 @@ class WebsiteLinkHarvester
         'Tablein' => '~(^|\.)tablein\.com$~',
         'Eat App' => '~(^|\.)eatapp\.co$~',
         'TableCheck' => '~(^|\.)tablecheck\.com$~',
-        'Yelp Reservations' => '~(^|\.)yelp\.com/reservations~',
+        // NB Yelp Reservations is deliberately absent. Every pattern in this
+        // constant is matched against the HOST alone (classify() and harvest()
+        // both pass $host), so a path-bearing pattern like
+        // `~yelp\.com/reservations~` can never match — it was added on
+        // 2026-07-25 and was dead on arrival. Widening it to bare `yelp.com`
+        // is NOT the fix: that would classify every Yelp business-profile link
+        // as a reservation. It needs path-aware matching, which this table
+        // does not do.
     ];
 
     /** Label => platform slug for RESERVATION_HOSTS, used only by classify(). */
@@ -75,7 +82,6 @@ class WebsiteLinkHarvester
         'SevenRooms' => 'reservations', 'Tock' => 'reservations', 'TheFork' => 'reservations',
         'Quandoo' => 'reservations', 'Resy' => 'reservations', 'Chope' => 'reservations',
         'Tablein' => 'reservations', 'Eat App' => 'reservations', 'TableCheck' => 'reservations',
-        'Yelp Reservations' => 'reservations',
     ];
 
     /** Online-ordering provider hosts (AU market set + expanded 2026-07-25). */
@@ -377,12 +383,14 @@ class WebsiteLinkHarvester
             if (preg_match('~^https?://lu\.ma/user/[a-z0-9-]+~i', $url)) {
                 return ['platform' => 'events-custom', 'category' => 'event-organiser', 'label' => 'Luma'];
             }
+
             return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Luma'];
         }
         if (preg_match('~(^|\.)partiful\.com$~', $host)) {
             if (preg_match('~^https?://partiful\.com/u/[a-zA-Z0-9-]+~i', $url)) {
                 return ['platform' => 'events-custom', 'category' => 'event-organiser', 'label' => 'Partiful'];
             }
+
             return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Partiful'];
         }
         if (preg_match('~(^|\.)ticketmaster\.[a-z.]+$~', $host)) {

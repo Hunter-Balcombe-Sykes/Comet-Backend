@@ -2,9 +2,14 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\LinkRouter;
+use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\RouteContext;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -16,19 +21,30 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Unrolls a curated link-in-bio page (Linktree/Milkshake/Beacons/Stan Store)
-// found in an Instagram bio: one plain fetch, every outbound link routed
-// through CustomLinkSeeder::seed() → LinkRouter. Classification, capability
-// gating, and commerce probes all live in the router now (2026-07-25).
+// found in an Instagram bio: one plain fetch, then every outbound link goes
+// through LinkRouter — the SAME gateway a direct bio link and a manual paste use,
+// so a link found one hop in gets identical classification, gating and fallback
+// (2026-07-25 link classification consolidation). Nothing about the bio-link URL
+// itself is persisted; this is a one-time inline scan.
 //
-// Dispatched off InstagramAutoSync's main loop rather than run inline there
-// because a slow fetch could blow InstagramConnectJob's timeout.
+// Dispatched off InstagramAutoSync's main loop rather than run inline there: a
+// slow or JS-heavy link-in-bio fetch could otherwise blow InstagramConnectJob's
+// own timeout and lose already-completed work in the same run (mirrors why PDF
+// menu OCR is its own job too).
 class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 2;
+
     public array $backoff = [30];
+
     public int $timeout = 60;
+
+    // Matches EnrichLinkCardJob (same directory, same 60s timeout): 300s comfortably
+    // exceeds the run itself, leaving queue-wait budget. No default means UniqueLock
+    // falls back to `?? 0` and RedisLock treats 0 as "no expiry" (plain SETNX) — a
+    // worker killed mid-job (OOM, deploy, timeout) would strand that lock forever.
     public int $uniqueFor = 300;
 
     public function __construct(public readonly string $userId, public readonly string $bioPageUrl)
@@ -41,8 +57,12 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         return $this->userId.':'.sha1($this->bioPageUrl);
     }
 
-    public function handle(SafeUrlFetcher $fetcher, WebsiteLinkHarvester $harvester, CustomLinkSeeder $seeder): void
-    {
+    public function handle(
+        SafeUrlFetcher $fetcher,
+        WebsiteLinkHarvester $harvester,
+        LinkRouter $router,
+        CustomLinkSeeder $seeder,
+    ): void {
         $user = User::find($this->userId);
         if ($user === null) {
             return;
@@ -56,21 +76,129 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         $baseUrl = $response['finalUrl'] ?? $this->bioPageUrl;
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
+        // ONE context for the whole page — it carries the commerce probe budget
+        // (RouteContext::DEFAULT_MAX_PROBES, formerly this class's own
+        // MAX_COMMERCE_PROBES counter, signup-v2 C4) and the
+        // first-link-per-platform dedupe. A fresh context per link would give
+        // every one of a Linktree page's outbound links its own probe budget,
+        // turning one page into an unbounded fan-out on the scraping queue.
+        $ctx = new RouteContext;
+        $findings = [];
+
         foreach ($harvester->allOutboundLinks($html, $baseUrl) as $url) {
+            // A curated bio-link page (Linktree et al) is itself a platform with
+            // its own site-wide chrome — pricing, blog, help centre — mixed into
+            // the same anchor soup as the 2-3 links the account owner actually
+            // put there. Confirmed live 2026-07-20: of 58 anchors on one real
+            // page, 55 were Linktree's own chrome, every one on linktr.ee itself.
+            // Without this, the "nothing vanishes" fallback below would seed
+            // every one of them as a custom link on the connecting user's site.
             if ($ownHost !== '' && strtolower((string) parse_url($url, PHP_URL_HOST)) === $ownHost) {
                 continue;
             }
 
-            // LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
-            // routing, commerce probes, and custom-link fallback.
-            $seeder->seed($user, $url);
+            try {
+                // route() + seedCustom() rather than CustomLinkSeeder::seed():
+                // identical composition, but it hands back the RouteResult so the
+                // findings can be merged into the synced modal below. Calling
+                // seed() would swallow them.
+                $result = $router->route($user, $url, $ctx);
+
+                foreach ($result->findings as $finding) {
+                    $findings[] = $finding;
+                }
+
+                // Gate-denied, seeder failure, tombstoned, or probe budget spent —
+                // becomes a custom link. There is no "unmatched suggestions"
+                // surface in this async context, so seeding directly is what stops
+                // the link vanishing. seedCustom(), never seed(): seed() re-enters
+                // the router (Issue H / B1).
+                if ($result->outcome === 'custom') {
+                    $seeder->seedCustom($user, $url);
+                }
+            } catch (Throwable $e) {
+                // Per-link fault isolation — one bad link never abandons the rest
+                // of the page (mirrors InstagramAutoSync::seed()'s own loop).
+                report($e);
+            }
         }
+
+        $this->mergeFindingsBack($findings);
     }
 
-    // mergeFindingsBack removed 2026-07-25 — findings are now real
-    // IntegrationConnection rows created by LinkRouter, not payload-level
-    // metadata needing merge-back. The Instagram synced modal reads from
-    // IntegrationConnection directly.
+    /**
+     * Fold this scan's findings into the Instagram connection payload's
+     * syncFindings — the SAME list GET /platforms/instagram/synced serves — so a
+     * conflict found one hop into the bio page gets the identical Swap surface as
+     * one found directly in the bio, instead of vanishing when this job returns.
+     * Deduped by platform (the direct bio scan ran first and its finding for a
+     * platform stands). New findings also raise a notification: this job races the
+     * connect modal's lifetime, so by the time it lands the user has usually
+     * navigated away.
+     *
+     * Phase 8 of the consolidation plan says this method STAYS. It was deleted in
+     * the first cut on the reasoning that "findings are now real
+     * IntegrationConnection rows" — but a CONFLICT finding writes no row by
+     * definition, so that deletion silently threw away every conflict discovered
+     * inside a link-in-bio page, along with its notification.
+     *
+     * @param  list<array<string,mixed>>  $findings
+     */
+    private function mergeFindingsBack(array $findings): void
+    {
+        if ($findings === []) {
+            return;
+        }
+
+        $ig = IntegrationConnection::query()
+            ->where('user_id', $this->userId)
+            ->where('platform', Platform::Instagram->value)
+            ->first();
+        if ($ig === null) {
+            return;
+        }
+
+        // `?? []` not is_array(): payload is annotated non-nullable (NOT NULL in
+        // Postgres, default '{}') so is_array() reads as always-true to PHPStan,
+        // but the SQLite test mirror IS nullable — see the @property note on
+        // IntegrationConnection::$payload.
+        $payload = $ig->payload ?? [];
+        $existing = array_values(array_filter((array) ($payload['syncFindings'] ?? []), 'is_array'));
+        $seenPlatforms = array_flip(array_filter(array_map(
+            static fn (array $f) => $f['platform'] ?? null,
+            $existing,
+        ), 'is_string'));
+
+        $fresh = [];
+        foreach ($findings as $finding) {
+            $platform = $finding['platform'] ?? null;
+            if (is_string($platform) && ! isset($seenPlatforms[$platform])) {
+                $seenPlatforms[$platform] = true;
+                $fresh[] = $finding;
+            }
+        }
+        if ($fresh === []) {
+            return;
+        }
+
+        // Quiet write, matching InstagramController::applySync's findings-only
+        // update: syncFindings are internal (never in the public resource), so
+        // no cache purge or observer churn is warranted.
+        $ig->forceFill(['payload' => [...$payload, 'syncFindings' => [...$existing, ...$fresh]]])->saveQuietly();
+
+        // Bell only for conflicts — a decision the user doesn't know they have.
+        // Seeded findings are already visible as real connections in
+        // Integrations; pinging for those would just be noise.
+        $hasConflict = array_filter($fresh, static fn (array $f) => ($f['outcome'] ?? null) === 'conflict') !== [];
+        if ($hasConflict) {
+            app(FindingsNotifier::class)->notify(
+                $this->userId,
+                'link-in-bio-findings:'.$this->userId.':'.sha1($this->bioPageUrl),
+                'We found more in your bio link',
+                'Your link-in-bio page mentions an integration that clashes with one you have connected — review it in Integrations.',
+            );
+        }
+    }
 
     public function failed(Throwable $e): void
     {

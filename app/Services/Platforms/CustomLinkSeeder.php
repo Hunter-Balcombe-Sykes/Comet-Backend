@@ -37,14 +37,22 @@ class CustomLinkSeeder
      * Gateway — route first, fall through to seedCustom() only when the router
      * says 'custom'. Entry points call this. Everything downstream calls
      * seedCustom() instead.
+     *
+     * A caller looping over many URLs MUST create one RouteContext and pass it
+     * to every call — that is what carries the per-run commerce probe budget
+     * and the first-link-per-platform dedupe. Letting it default inside a loop
+     * gives every URL a fresh budget of RouteContext::DEFAULT_MAX_PROBES, i.e.
+     * no cap at all, which is how one link-in-bio page can fan out an unbounded
+     * number of probes onto the scraping queue. The default exists only for
+     * genuine single-URL entry points.
      */
-    public function seed(User $user, string $url): ?IntegrationConnection
+    public function seed(User $user, string $url, ?RouteContext $ctx = null): ?IntegrationConnection
     {
         if ($user->isPendingDeletion()) {
             return null;
         }
 
-        $result = $this->router->route($user, $url, new RouteContext(maxProbes: 6));
+        $result = $this->router->route($user, $url, $ctx ?? new RouteContext);
 
         if ($result->outcome === 'custom') {
             return $this->seedCustom($user, $url);

@@ -2,7 +2,6 @@
 
 namespace App\Services\Platforms;
 
-use App\Jobs\Platforms\ProbeCommerceLinksJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -63,7 +62,8 @@ class InstagramConnectionSeeder
         private readonly InstagramAutoSync $autoSync,
         private readonly InstagramIdentitySync $identitySync,
         private readonly CustomLinkSeeder $linkSeeder,
-        private readonly WebsiteLinkHarvester $harvester,
+        // WebsiteLinkHarvester dropped 2026-07-25: autoSaveUnmatchedLinks() no
+        // longer re-classifies to decide probe-vs-custom — LinkRouter does that.
     ) {}
 
     /**
@@ -244,25 +244,25 @@ class InstagramConnectionSeeder
         return $selection;
     }
 
-    /**
-     * Cap on commerce probes dispatched per connect run (signup-v2 C4) —
-     * mirrors LinkInBioScanJob::MAX_COMMERCE_PROBES; keep in lockstep.
-     */
-    private const MAX_COMMERCE_PROBES = 6;
-
     /** @param  list<array<string,mixed>>  $unmatched */
     private function autoSaveUnmatchedLinks(User $user, array $unmatched): void
     {
         // LinkRouter (inside CustomLinkSeeder::seed()) handles classification,
         // routing, commerce probes, and custom-link fallback. The re-classify
-        // + ProbeCommerceLinksJob dispatch is now inside LinkRouter::route().
+        // + probe dispatch this method used to do is now inside the router.
+        //
+        // ONE context for the whole list — it carries the per-run commerce probe
+        // budget that replaced this class's own MAX_COMMERCE_PROBES counter
+        // (signup-v2 C4). Per-link contexts would uncap it.
+        $ctx = new RouteContext;
+
         foreach ($unmatched as $entry) {
             $url = is_array($entry) ? ($entry['url'] ?? null) : null;
             if (! is_string($url)) {
                 continue;
             }
 
-            $this->linkSeeder->seed($user, $url);
+            $this->linkSeeder->seed($user, $url, $ctx);
         }
     }
 

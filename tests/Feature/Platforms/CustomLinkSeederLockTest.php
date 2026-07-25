@@ -54,7 +54,7 @@ it('a concurrent holder of the custom-link lock makes seed() skip (not double-wr
     try {
         // Blocks up to 5s (Cache::lock(...)->block(5, ...)) before giving up —
         // this test is slow by design, not flaky; do not shorten the wait.
-        $result = app(CustomLinkSeeder::class)->seed($user, 'https://example.com/thing');
+        $result = app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com/thing');
     } finally {
         $held->release();
     }
@@ -76,7 +76,7 @@ it('an uncontended call creates the row and dispatches EnrichLinkCardJob', funct
     Queue::fake();
     $user = User::factory()->create(['account_type' => 'business']);
 
-    $row = app(CustomLinkSeeder::class)->seed($user, 'https://example.com/thing');
+    $row = app(CustomLinkSeeder::class)->seedCustom($user, 'https://example.com/thing');
 
     expect($row)->not->toBeNull();
     expect($row->platform)->toBe('custom');

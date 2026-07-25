@@ -2,8 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
@@ -90,13 +90,17 @@ class LinkRouter
                 'social' => $this->seedSocial($user, $platform, $url, $classified),
                 'booking' => $this->seedBooking($user, $platform, $url, $classified),
                 'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $category),
-                'shop' => $this->seedShop($user, $url),
+                'shop' => $this->seedShop($user, $url, $ctx),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
                 'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified),
                 default => RouteResult::custom(),
             };
 
-            if ($result->outcome === 'seeded') {
+            // Consume the platform slot only when the route actually HANDLED the
+            // link. A gate denial or a thrown seeder must leave it open so a
+            // later same-platform link in this run still gets its attempt —
+            // the rule the deleted handleClassifiedLink() followed.
+            if ($result->handled) {
                 $ctx->seenPlatforms[$platform] = true;
             }
 
@@ -110,10 +114,9 @@ class LinkRouter
 
     private function routeUnclassified(User $user, string $url, RouteContext $ctx): RouteResult
     {
-        if ($ctx->probeCount >= $ctx->maxProbes) {
+        if (! $ctx->consumeProbe()) {
             return RouteResult::custom();
         }
-        $ctx->probeCount++;
 
         CommerceProbeJob::dispatch((string) $user->id, $url);
 
@@ -125,7 +128,18 @@ class LinkRouter
     /**
      * True when this account type + sector combination is allowed to auto-route
      * links of the given category. These are LinkRouter-internal gates —
-     * deliberately separate from AccountCapabilities (Decision 6).
+     * deliberately separate from AccountCapabilities (Decision 6): the
+     * capability formulas govern dashboard visibility and API access and are
+     * intentionally looser here (can_use_reservations is `true` for every
+     * partna account, which must NOT mean partna gets reservations auto-routed).
+     *
+     * Reading account_type via isBusiness() here is a DELIBERATE exception to
+     * the "only AccountCapabilities touches account_type" rule — this gate has
+     * to diverge from the capability, so deriving it from one would defeat the
+     * point. The booking arm mirrors the capability's own shape
+     * (`$isBusiness ? ! $isFood : true`) rather than `! $isFood` alone, because
+     * sector is irrelevant for partna and a partna account CAN carry a food
+     * sector — see AccountCapabilities' own note on that.
      */
     private function gateAllows(User $user, string $category): bool
     {
@@ -150,10 +164,14 @@ class LinkRouter
      */
     private function seedSocial(User $user, string $platform, string $url, array $classified): RouteResult
     {
+        $userId = (string) $user->id;
         $write = $this->resolveWrite($platform, $url);
-        $this->write((string) $user->id, $write['platform'], $write['resourceId'], $write['payload']);
 
-        return RouteResult::seeded($write['platform'], $write['resourceId'], $classified['category']);
+        return $this->outcomeFrom(
+            $this->resolveSocialLink($userId, $platform, $url, $write, $classified),
+            $write,
+            $classified,
+        );
     }
 
     /**
@@ -175,17 +193,18 @@ class LinkRouter
             $write = $this->resolveWrite($platform, $url);
         }
 
+        // LIFE-106: booking's XOR invariant spans THREE platforms
+        // (fresha/square/booking), so the WHOLE check-then-write span —
+        // conflicting-provider query, existing-row lookup, tombstone check, write
+        // — runs under ONE lock shared with GoogleBusinessAutoSync::seedBooking.
+        // On contention the link routes to custom rather than being dropped.
         $result = $this->withBookingXorLock(
             $userId,
             fn () => $this->resolveBookingLink($userId, $platform, $url, $write, $classified),
-            ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true],
+            ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => false],
         );
 
-        if ($result['consumed'] && $result['findings'] !== []) {
-            return RouteResult::seeded($write['platform'], $write['resourceId'], $classified['category']);
-        }
-
-        return RouteResult::custom();
+        return $this->outcomeFrom($result, $write, $classified);
     }
 
     private function seedEvent(User $user, string $platform, string $url, string $category): RouteResult
@@ -203,10 +222,17 @@ class LinkRouter
         return RouteResult::custom();
     }
 
-    private function seedShop(User $user, string $url): RouteResult
+    private function seedShop(User $user, string $url, RouteContext $ctx): RouteResult
     {
         // Commerce probe — async, dispatched as a job. The probe resolves
-        // whether this is a storefront, product page, or neither.
+        // whether this is a storefront, product page, or neither. Counted
+        // against the SAME per-run budget as an unclassified probe: both are
+        // ~5 HTTP round-trips on the scraping queue, so one link-in-bio page
+        // must not fan out unbounded just because its links classify as shop.
+        if (! $ctx->consumeProbe()) {
+            return RouteResult::custom();
+        }
+
         CommerceProbeJob::dispatch((string) $user->id, $url, 'shop');
 
         return RouteResult::pending('shop', 'shop', 'shop');
@@ -225,7 +251,9 @@ class LinkRouter
 
         $this->write((string) $user->id, Platform::Reservations->value, Platform::Reservations->value, $payload);
 
-        return RouteResult::seeded(Platform::Reservations->value, Platform::Reservations->value, $classified['category']);
+        return RouteResult::seeded(Platform::Reservations->value, Platform::Reservations->value, $classified['category'], [
+            $this->seededFinding(Platform::Reservations->value, Platform::Reservations->value, $classified['category'], $classified['label'], $url),
+        ]);
     }
 
     /**
@@ -242,10 +270,49 @@ class LinkRouter
 
         $this->write((string) $user->id, Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $payload);
 
-        return RouteResult::seeded(Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $classified['category']);
+        return RouteResult::seeded(Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $classified['category'], [
+            $this->seededFinding(Platform::OnlineOrdering->value, Platform::OnlineOrdering->value, $classified['category'], $classified['label'], $url),
+        ]);
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
+
+    /**
+     * Translate a resolve*Link() result into a RouteResult, preserving the
+     * seeded/conflict distinction the synced modal depends on.
+     *
+     * `consumed: false` is lock contention (or a thrown seeder) — the caller must
+     * fall through to a custom link, and the platform slot must stay open.
+     *
+     * @param  array{findings:list<array<string,mixed>>,unmatched:list<array<string,mixed>>,consumed:bool}  $result
+     * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
+     * @param  array{platform:string,category:string,label:string}  $classified
+     */
+    private function outcomeFrom(array $result, array $write, array $classified): RouteResult
+    {
+        if (! $result['consumed']) {
+            return RouteResult::custom($result['unmatched']);
+        }
+
+        // Tombstoned: the user disconnected this platform before. Handled (so the
+        // slot IS consumed — a second link to the same tombstoned platform must
+        // not retry), but nothing written: offer it as a custom link rather than
+        // resurrecting a connection the user chose to remove.
+        if ($result['unmatched'] !== []) {
+            return RouteResult::custom($result['unmatched'], handled: true);
+        }
+
+        // Already synced to the same url — a true no-op, no finding to surface.
+        if ($result['findings'] === []) {
+            return RouteResult::skipped();
+        }
+
+        $isConflict = ($result['findings'][0]['outcome'] ?? null) === 'conflict';
+
+        return $isConflict
+            ? RouteResult::conflict($write['platform'], $write['resourceId'], $classified['category'], $result['findings'])
+            : RouteResult::seeded($write['platform'], $write['resourceId'], $classified['category'], $result['findings']);
+    }
 
     private function reentrancyKey(User $user, string $url): string
     {

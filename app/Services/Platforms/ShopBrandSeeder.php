@@ -98,6 +98,16 @@ class ShopBrandSeeder
                 $maxPosition = ShopBrand::where('connection_id', $connection->id)->max('position');
                 $position = $existing?->position ?? (($maxPosition === null ? -1 : $maxPosition) + 1);
 
+                // Phase 12 (2026-07-25): a store link shared with a discount or
+                // referral param keeps it. Read from sourceUrl — the URL as
+                // scanned, before detect() normalised it to an origin.
+                // `?:` not `??` on the existing values: both columns default to
+                // '' rather than NULL, so `??` would treat an empty string as
+                // "already set" and never apply the scanned code. Applying only
+                // when empty is what "never overwrite an existing code" means —
+                // a discount the user typed by hand survives every re-scrape.
+                $scanned = UrlParamExtractor::extract($detected['sourceUrl']);
+
                 return ShopBrand::updateOrCreate(
                     ['connection_id' => $connection->id, 'brand_id' => $id],
                     [
@@ -108,8 +118,8 @@ class ShopBrandSeeder
                         'currency' => $brand['currency'] ?? null,
                         'favicon' => $brand['favicon'] ?? null,
                         'logo' => $brand['logo'] ?? null,
-                        // Never clobber a discount the user already typed.
-                        'discount_code' => $existing?->discount_code ?? '',
+                        'discount_code' => $existing?->discount_code ?: ($scanned['discountCode'] ?? ''),
+                        'referral_query' => $existing?->referral_query ?: ($scanned['referralQuery'] ?? ''),
                         'is_individual' => false,
                         'position' => $position,
                     ],

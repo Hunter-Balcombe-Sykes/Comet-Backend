@@ -113,6 +113,24 @@ class PublicIntegrationConnectionResource extends ApiResource
         'telegram' => ['username', 'url'],
         'kick' => ['username', 'url'],
         'medium' => ['username', 'url'],
+        // 2026-07-25 link classification consolidation, Phase 2. Same
+        // {username, url} contract as every other PD::linkOnly social above —
+        // LinkRouter seeds them with exactly that shape via resolveWrite(). These
+        // were registered in the registry WITHOUT an allowlist entry, which this
+        // map fails closed on: each would have rendered as {} on every public
+        // sitepage AND reported MissingPublicAllowlistException to Nightwatch on
+        // every request. PublicAllowlistCoverageTest is the guard that caught it.
+        'whatsapp' => ['username', 'url'],
+        'substack' => ['username', 'url'],
+        'patreon' => ['username', 'url'],
+        'ko-fi' => ['username', 'url'],
+        'buymeacoffee' => ['username', 'url'],
+        'github' => ['username', 'url'],
+        'gitlab' => ['username', 'url'],
+        'codepen' => ['username', 'url'],
+        'dribbble' => ['username', 'url'],
+        'behance' => ['username', 'url'],
+        'gumroad' => ['username', 'url'],
         'fresha' => ['url', 'selection'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],

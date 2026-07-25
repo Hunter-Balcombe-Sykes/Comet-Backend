@@ -48,9 +48,20 @@ class CustomLinksController extends ApiController
     }
 
     // POST /api/platforms/custom/links — attach a URL. Routes through LinkRouter
-    // first: if the URL is a known platform, it becomes the right connection type
-    // instead of a custom link. Returns 202 with the routed result or falls
-    // through to the custom-link write.
+    // first: if the URL is a known platform it becomes the right connection type
+    // (booking / reservations / social / …) instead of a custom link; otherwise
+    // it falls through to the custom-link write below, unchanged.
+    //
+    // Response contract (the plan's option (a) — additive, frontend untouched):
+    // the routed branches keep the same 202-shaped envelope and ADD an optional
+    // `routedTo`. Verified against the dashboard: custom-links-section.tsx's
+    // handleAdd() reads ONLY `body.links` (guarded by Array.isArray) and then
+    // calls resetPlatformStatuses() — it never reads `status`, `link` or
+    // `statusUrl` from this endpoint. So a routed connection returns the
+    // refreshed `links` list (unchanged, since no custom link was written) and
+    // the dashboard re-renders correctly without knowing about `routedTo` yet.
+    // Do NOT switch to a shape that omits `links`: a routed add would then
+    // silently leave the list stale until the next GET.
     public function addLink(AddCustomLinkRequest $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -60,21 +71,27 @@ class CustomLinksController extends ApiController
             return $this->error('Enter a valid link (https://...).', 422);
         }
 
-        // Route FIRST, outside the connection lock, so LinkRouter's own
-        // locks (booking XOR, platform seed) can't deadlock with this one.
-        $result = $this->router->route($user, $url, new RouteContext(maxProbes: 1));
+        // Route FIRST, outside withConnectionLock(), so LinkRouter's own locks
+        // (booking XOR, per-platform seed) are never nested inside the
+        // custom-platform connection lock — nesting them invites a deadlock,
+        // the same rule CustomLinkSeeder's dispatch comment already states.
+        // maxProbes: 0 — a MANUAL add deliberately never commerce-probes. The
+        // probe exists for SCANNED links, where an unclassified URL might be the
+        // business's own store nobody told us about (signup-v2 C4). Here the user
+        // has explicitly said "add this as a link", and probing first would mean
+        // an ordinary unclassified URL (a personal blog, a news article) returns
+        // 'pending' with no card in the list until the probe misses and the job's
+        // seedCustom() fallback runs — the card used to appear instantly. So an
+        // unclassified manual URL falls straight through to the custom-link write
+        // below, exactly as before, while a CLASSIFIED one (Fresha, Booksy,
+        // OpenTable) still routes. Flip this to 1 if manual adds should probe.
+        $result = $this->router->route($user, $url, new RouteContext(maxProbes: 0));
 
-        if ($result->outcome === 'seeded') {
+        if ($result->outcome === 'seeded' || $result->outcome === 'pending') {
             return $this->success([
-                'status' => 'ok',
+                'status' => $result->outcome === 'seeded' ? 'ok' : 'pending',
                 'routedTo' => ['platform' => $result->platform, 'category' => $result->category],
-            ], 200);
-        }
-
-        if ($result->outcome === 'pending') {
-            return $this->success([
-                'status' => 'pending',
-                'routedTo' => ['platform' => $result->platform, 'category' => $result->category],
+                'links' => $this->linksData($user),
             ], 202);
         }
 

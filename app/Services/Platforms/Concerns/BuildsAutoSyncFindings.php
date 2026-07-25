@@ -4,6 +4,7 @@ namespace App\Services\Platforms\Concerns;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Closure;
@@ -454,24 +455,14 @@ trait BuildsAutoSyncFindings
         }
     }
 
-    /**
-     * Booking platforms InstagramAutoSync seeds — Fresha and Square.
-     * Moved here from InstagramAutoSync (2026-07-25, Phase 2.5) so LinkRouter
-     * can reach them. Deliberately narrower than BOOKING_SLOT_PLATFORMS above.
-     *
-     * @var list<string>
-     */
-    /**
-     * Booking platforms in the XOR set — fresha, square, and the shared
-     * 'booking' key (for non-Fresha/Square providers like Booksy, Timely).
-     * Must match BOOKING_SLOT_PLATFORMS above for the XOR lock to cover
-     * all conflict checks. Expanded 2026-07-25 for shared-key booking.
-     */
-    protected const BOOKING_PLATFORMS = [
-        Platform::Fresha->value,
-        Platform::Square->value,
-        Platform::Booking->value,
-    ];
+    // NB there is deliberately NO BOOKING_PLATFORMS constant on this trait.
+    // Phase 2.5 originally added one (protected, [fresha, square, booking]) and
+    // it made GoogleBusinessAutoSync unloadable: that class already declares
+    // `private const BOOKING_PLATFORMS` with the SAME values, and PHP compares
+    // a trait/class constant clash by DEFINITION — visibility included — not by
+    // value, so private-vs-protected alone is "incompatible" and fatals at class
+    // composition. resolveBookingLink() below uses BOOKING_SLOT_PLATFORMS, which
+    // is already exactly the XOR set {fresha, square, booking} it needs.
 
     /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */
     protected function resolveWrite(string $platform, string $url): array
@@ -495,6 +486,11 @@ trait BuildsAutoSyncFindings
     /**
      * LIFE-106: booking-category span under withBookingXorLock().
      *
+     * The conflict set is BOOKING_SLOT_PLATFORMS — the full XOR set
+     * {fresha, square, booking}. Under Decision 10 every non-Fresha/Square
+     * brand (Booksy, Timely, Vagaro, …) lands on the shared 'booking' key, so
+     * a user with Booksy live must still conflict with an incoming Fresha link.
+     *
      * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
      * @param  array{platform:string,category:string,label:string}  $classified
      * @return array{findings:list<array<string,mixed>>,unmatched:list<array<string,mixed>>,consumed:bool}
@@ -503,14 +499,14 @@ trait BuildsAutoSyncFindings
     {
         $conflictingBooking = IntegrationConnection::query()
             ->where('user_id', $userId)
-            ->whereIn('platform', self::BOOKING_PLATFORMS)
+            ->whereIn('platform', self::BOOKING_SLOT_PLATFORMS)
             ->where('platform', '!=', $platform)
             ->first();
 
         if ($conflictingBooking !== null) {
             return [
                 'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
-                    'remove' => self::BOOKING_PLATFORMS,
+                    'remove' => self::BOOKING_SLOT_PLATFORMS,
                     'write' => $write,
                 ])],
                 'unmatched' => [],
@@ -555,8 +551,27 @@ trait BuildsAutoSyncFindings
         ];
     }
 
+    /**
+     * Best-effort handle from a canonical social profile URL ('' when none).
+     *
+     * Facebook is delegated to FacebookNormalizer — the same parser the manual
+     * connect form uses (G4-4). It is resolved from the container rather than
+     * injected because this trait is shared by three classes with unrelated
+     * constructors; InstagramAutoSync used to own a facebook-aware OVERRIDE of
+     * this method, which meant LinkRouter — using the same trait but with no
+     * override — silently wrote `username: ''` for every routed Facebook link.
+     * Handling it here is what makes the two paths agree.
+     */
     protected function socialUsername(string $platform, string $url): string
     {
+        if ($platform === 'facebook') {
+            // A standalone regex here would share the blind spot for reserved
+            // path segments (pages/people/…) that G4-4 fixed.
+            $parsed = app(FacebookNormalizer::class)($url);
+
+            return $parsed['username'] ?? '';
+        }
+
         $patterns = [
             'tiktok' => '~tiktok\.com/@?([A-Za-z0-9._]+)~i',
             'x' => '~(?:twitter|x)\.com/([A-Za-z0-9_]+)~i',
@@ -567,6 +582,70 @@ trait BuildsAutoSyncFindings
         }
 
         return '';
+    }
+
+    /**
+     * The social-category equivalent of resolveBookingLink() — existing-row
+     * lookup, soft-delete tombstone guard, same-url no-op, conflict finding.
+     *
+     * Extracted from InstagramAutoSync::handleClassifiedLink()'s social branch
+     * when that method was deleted (Phase 7). LinkRouter's first cut replaced all
+     * of it with a bare write(), which OVERWROTE a social connection the user had
+     * set by hand and never produced a conflict finding — the Swap surface the
+     * synced modal is built around.
+     *
+     * No lock, deliberately: each social platform is its own row, already
+     * serialized by idx_platform_connections_unique_active. Booking is the
+     * exception because its XOR invariant spans three platforms — see
+     * withBookingXorLock()'s docblock for the contrast.
+     *
+     * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
+     * @param  array{platform:string,category:string,label:string}  $classified
+     * @return array{findings:list<array<string,mixed>>,unmatched:list<array<string,mixed>>,consumed:bool}
+     */
+    protected function resolveSocialLink(string $userId, string $platform, string $url, array $write, array $classified): array
+    {
+        $existing = IntegrationConnection::query()
+            ->where('user_id', $userId)->where('platform', $platform)
+            ->first();
+
+        if ($existing === null) {
+            // A soft-deleted row means the user explicitly disconnected this
+            // platform before (ManagesIntegrationConnection::forgetConnection()
+            // soft-deletes on disconnect) — a tombstone, not "never connected".
+            // The default Eloquent scope hides it, so treating "no live row" as a
+            // blank slate would silently resurrect a connection the user chose to
+            // remove. Route the link to unmatched instead (still addable by hand).
+            $wasDisconnected = IntegrationConnection::onlyTrashed()
+                ->where('user_id', $userId)->where('platform', $platform)
+                ->exists();
+
+            if ($wasDisconnected) {
+                return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
+            }
+
+            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+
+            return [
+                'findings' => [$this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url)],
+                'unmatched' => [],
+                'consumed' => true,
+            ];
+        }
+
+        $existingUrl = CardPayload::fromArray($existing->payload)->url();
+        if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {
+            return ['findings' => [], 'unmatched' => [], 'consumed' => true]; // already synced with the same link
+        }
+
+        return [
+            'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
+                'remove' => [$write['platform']],
+                'write' => $write,
+            ])],
+            'unmatched' => [],
+            'consumed' => true,
+        ];
     }
 
     protected function sameUrl(string $a, string $b): bool

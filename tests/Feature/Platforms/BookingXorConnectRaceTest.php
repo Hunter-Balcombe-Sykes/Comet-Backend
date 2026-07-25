@@ -466,20 +466,40 @@ it('applyFinding never holds the XOR lock across an Instagram dispatch — a hyb
 
 // ── 12: Trap 2 — the third booking-platform list must not drift ──
 
-it('BOOKING_SLOT_PLATFORMS is exactly the union of GoogleBusinessAutoSync and InstagramAutoSync\'s BOOKING_PLATFORMS', function () {
+// Reshaped 2026-07-25 (link classification consolidation). There used to be
+// THREE booking lists to keep in union: GoogleBusinessAutoSync's,
+// InstagramAutoSync's, and the trait's slot list. InstagramAutoSync no longer
+// has one — its seed path routes through LinkRouter, and the shared
+// BuildsAutoSyncFindings::resolveBookingLink() both of them now use reads
+// BOOKING_SLOT_PLATFORMS directly. So the only pair that can still drift is
+// GB's const vs the slot list.
+it('BOOKING_SLOT_PLATFORMS still covers GoogleBusinessAutoSync\'s own BOOKING_PLATFORMS', function () {
     $traitConst = (new ReflectionClass(BuildsAutoSyncFindings::class))->getConstant('BOOKING_SLOT_PLATFORMS');
     $gbConst = (new ReflectionClass(GoogleBusinessAutoSync::class))->getConstant('BOOKING_PLATFORMS');
-    $igConst = (new ReflectionClass(InstagramAutoSync::class))->getConstant('BOOKING_PLATFORMS');
 
-    $expectedUnion = array_values(array_unique([...$gbConst, ...$igConst]));
-    sort($expectedUnion);
-    $actual = $traitConst;
-    sort($actual);
+    sort($traitConst);
+    sort($gbConst);
 
-    expect($actual)->toBe($expectedUnion);
-    // The two seed-side consts are pinned as DIFFERENT here on purpose — this
-    // guard would be vacuous if they happened to already be equal.
-    expect($gbConst)->not->toBe($igConst);
+    expect($traitConst)->toBe($gbConst);
+});
+
+it('the trait declares NO BOOKING_PLATFORMS constant — one there fatals every class that declares its own', function () {
+    // Regression pin for a real outage: Phase 2.5 briefly added
+    // `protected const BOOKING_PLATFORMS` to BuildsAutoSyncFindings while
+    // GoogleBusinessAutoSync already declared `private const BOOKING_PLATFORMS`
+    // with the SAME values. PHP compares a trait-vs-class constant clash by
+    // DEFINITION — visibility included — not by value, so private-vs-protected
+    // alone is "incompatible" and fatals at class composition. That made
+    // GoogleBusinessAutoSync unloadable: every Google Business enrichment path
+    // died, and three test files crashed with no output at all.
+    expect((new ReflectionClass(BuildsAutoSyncFindings::class))->hasConstant('BOOKING_PLATFORMS'))->toBeFalse();
+
+    // The proof it stays fixed: the class actually composes.
+    expect(new ReflectionClass(GoogleBusinessAutoSync::class))->toBeInstanceOf(ReflectionClass::class);
+});
+
+it('InstagramAutoSync no longer declares a booking list of its own — LinkRouter owns that path now', function () {
+    expect((new ReflectionClass(InstagramAutoSync::class))->hasConstant('BOOKING_PLATFORMS'))->toBeFalse();
 });
 
 // ── Trap 3: both arms of the predicate are load-bearing, not just the primary one ──
