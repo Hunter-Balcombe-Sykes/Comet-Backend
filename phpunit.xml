@@ -21,6 +21,12 @@
         <ini name="memory_limit" value="512M"/>
         <env name="APIFY_TOKEN" value=""/>
         <env name="APP_ENV" value="testing"/>
+        <!-- Pinned like every other env below: without it APP_DEBUG falls through
+             to the developer's own .env, so exception-body assertions pass locally
+             (debug=true leaks the real message) and fail in CI, which copies
+             .env.example (debug=false). false is the deployed-env value — tests
+             must assert the contract real users get. See #P2-30 in bootstrap/app.php. -->
+        <env name="APP_DEBUG" value="false"/>
         <env name="APP_KEY" value="base64:QEdDiuqdtYmnzFhIZQIIvBjGq6q0H8rMPBn2BEQ7Qss="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

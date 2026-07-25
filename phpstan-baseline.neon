@@ -145,18 +145,6 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/ReservationsController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$discount_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$position\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/Platforms/ShopController.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1147,12 +1135,6 @@ parameters:
 			path: app/Http/Resources/NotificationListingResource.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php
-
-		-
 			message: '#^Access to an undefined property App\\Http\\Resources\\PublicSite\\IndividualProfileResource\:\:\$account_type\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1897,66 +1879,6 @@ parameters:
 			path: app/Models/Core/Site/IntegrationConnection.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$brand_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$currency\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$favicon\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$fetch_mode\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$is_individual\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$logo\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$provider\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$source_url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Models/Core/Site/ShopBrand.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
 			identifier: property.notFound
 			count: 1
@@ -2605,18 +2527,6 @@ parameters:
 			path: app/Services/Platforms/MenuScanApplier.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$discount_code\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/ShopBrandSeeder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$position\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/ShopBrandSeeder.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>discount_code" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -2627,12 +2537,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Services/Platforms/ShopBrandSeeder.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopBrand\:\:\$url\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Platforms/ShopCatalog.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'

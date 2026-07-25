@@ -15,6 +15,7 @@ use App\Services\Platforms\HighlightsPicker;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\StrandedPendingWindow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -149,8 +150,8 @@ class GenericPlatformController extends ApiController
     // the lock closure returns (lock released): the job blocks on the
     // identical platform+user lock key, so dispatching it from inside would
     // self-deadlock under a sync queue connection (phpunit.xml's test
-    // default, and the current deployed dev env — see ConnectFetchJob's own
-    // lock-timeout handling). $row is captured by reference since
+    // default — see ConnectFetchJob's own lock-timeout handling). $row is
+    // captured by reference since
     // withConnectionLock's return type is JsonResponse only; the closure's
     // own return value is a throwaway success once $row is set, or the real
     // error response (422 / lock-timeout 423) when it isn't.
@@ -236,8 +237,8 @@ class GenericPlatformController extends ApiController
         // Stale-pending escape hatch: a worker that dies between dispatch and
         // failed() (or the process is killed outright) leaves the row 'pending'
         // forever with nothing to flip it — without this, the client polls
-        // indefinitely. No new column, no reaper cron; five minutes comfortably
-        // exceeds ConnectFetchJob's timeout (45s) + its two backoff retries.
+        // indefinitely. No new column, no reaper cron. Window and its
+        // justification: StrandedPendingWindow.
         //
         // The error string is deliberately NOT connectFetchErrorMessage(): that
         // wording ("Could not find that Spotify link") would misattribute OUR
@@ -245,7 +246,7 @@ class GenericPlatformController extends ApiController
         // determined — same reasoning ConnectFetchJob's own lock-timeout catch
         // uses this exact sentence for (see that file).
         if ($row->last_refresh_status === 'pending') {
-            if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(5))) {
+            if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
                 return $this->success(['status' => 'failed', 'error' => "We couldn't save your connection just then — please try again."]);
             }
 

@@ -3,8 +3,9 @@
 use App\Models\Core\Site\MenuItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\TestCase;
 
-uses(Tests\TestCase::class)->in(__FILE__);
+uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     setupSitesTable();      // sites + menus + menu_items mirror

@@ -11,6 +11,7 @@ use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\StrandedPendingWindow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -37,9 +38,6 @@ class RefreshController extends ApiController
 
     /** Instagram re-pulls are paid Apify runs — hours, not seconds. */
     private const INSTAGRAM_COOLDOWN_SECONDS = 6 * 3600;
-
-    /** Stale-pending escape hatch: a worker that died or a swallowed lock timeout never writes a terminal status. */
-    private const STALE_PENDING_MINUTES = 5;
 
     public function __construct(
         private readonly PlatformRegistry $registry,
@@ -82,16 +80,14 @@ class RefreshController extends ApiController
         // silently steal the row out from under the connect (see
         // FreshaConnectFetch's docblock for what that wipes). Must be filtered
         // at selection, before the stamp — RefreshConnectionJob itself cannot
-        // tell the two meanings of 'pending' apart. NULL-safe, matching
-        // IntegrationConnection::scopeDueForRefresh()'s identical construct.
+        // tell the two meanings of 'pending' apart. R1: same NULL-safe
+        // predicate as IntegrationConnection::scopeDueForRefresh(), via the
+        // shared scopeExcludingPending() (see that scope's docblock).
         $rows = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->active()
-            ->where(function ($q) {
-                $q->whereNull('last_refresh_status')
-                    ->orWhere('last_refresh_status', '!=', 'pending');
-            })
+            ->excludingPending()
             ->get();
 
         if ($rows->isEmpty()) {
@@ -136,14 +132,15 @@ class RefreshController extends ApiController
         }
 
         // Stale-pending escape hatch, copied from connectStatus(): a row still
-        // 'pending' whose updated_at is older than 5 minutes means the worker
-        // died or ScheduledRefresh swallowed a LockTimeoutException without
-        // writing a terminal status (see PlatformRefresher/ScheduledRefresh) —
-        // treat it as no-longer-blocking rather than poll forever. A null
-        // updated_at can't be proven stale, so it stays 'pending'.
+        // 'pending' whose updated_at is older than StrandedPendingWindow means
+        // the worker died or ScheduledRefresh swallowed a
+        // LockTimeoutException without writing a terminal status (see
+        // PlatformRefresher/ScheduledRefresh) — treat it as no-longer-blocking
+        // rather than poll forever. A null updated_at can't be proven stale,
+        // so it stays 'pending'.
         $stillPending = $rows->contains(
             fn (IntegrationConnection $row) => $row->last_refresh_status === 'pending'
-                && ($row->updated_at === null || $row->updated_at->gt(now()->subMinutes(self::STALE_PENDING_MINUTES)))
+                && ($row->updated_at === null || $row->updated_at->gt(now()->subMinutes(StrandedPendingWindow::MINUTES)))
         );
 
         if ($stillPending) {

@@ -18,8 +18,8 @@ use App\Http\Controllers\Api\User\Notifications\ConfirmationPreferenceController
 use App\Http\Controllers\Api\User\Notifications\NotificationController;
 use App\Http\Controllers\Api\User\Notifications\NotificationEmailPreferenceController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
-use App\Http\Controllers\Api\User\Profile\SectorController;
 use App\Http\Controllers\Api\User\Onboarding\OnboardingController;
+use App\Http\Controllers\Api\User\Profile\SectorController;
 use App\Http\Controllers\Api\User\Profile\SectorOptionsController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;

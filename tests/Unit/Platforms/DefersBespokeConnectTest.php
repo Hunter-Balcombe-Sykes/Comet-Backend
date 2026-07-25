@@ -62,9 +62,9 @@ function dbcController(string $platform): object
             return $this->deferredConnectResponse($row, $partial, $statusPath, $perAccount);
         }
 
-        public function callBespokeConnectStatus(User $user, ?string $accountId, callable $shape, bool $perAccount = false): JsonResponse
+        public function callBespokeConnectStatus(User $user, ?string $accountId, callable $shape, bool $perAccount = false, string $notFoundMessage = 'Account not found.'): JsonResponse
         {
-            return $this->bespokeConnectStatus($user, $accountId, $shape, $perAccount);
+            return $this->bespokeConnectStatus($user, $accountId, $shape, $perAccount, $notFoundMessage);
         }
 
         public function callWriteConnection(User $user, array $payload, bool $pending): IntegrationConnection
@@ -250,6 +250,16 @@ it('poll 404s (never 403) for another user\'s row', function () {
 
     expect($response->getStatusCode())->toBe(404);
     expect($response->getData(true)['message'])->toBe('Account not found.');
+});
+
+it('R7: a caller-supplied notFoundMessage replaces the default 404 sentence', function () {
+    $user = dbcUser('poll3');
+    $controller = dbcController('instagram');
+
+    $response = $controller->callBespokeConnectStatus($user, null, fn (array $p) => $p, false, 'No Instagram connection found.');
+
+    expect($response->getStatusCode())->toBe(404);
+    expect($response->getData(true)['message'])->toBe('No Instagram connection found.');
 });
 
 it('a freshly-written pending row reports exactly {status: pending}', function () {

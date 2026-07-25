@@ -6,7 +6,32 @@ use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $id
+ * @property string $connection_id
+ * @property string $brand_id Provider-scoped store key (the Shopify shop domain, etc.) — NOT the uuid PK; unique per connection.
+ * @property string $provider
+ * @property string|null $url
+ * @property string|null $source_url
+ * @property string|null $name
+ * @property string|null $currency
+ * @property string|null $favicon
+ * @property string|null $logo
+ * @property string|null $discount_code
+ * @property string|null $fetch_mode
+ * @property string|null $connect_status One of 'pending'|'failed', or NULL once settled (shop_brands_connect_status_check).
+ * @property string|null $connect_error
+ * @property bool $is_individual
+ * @property int $position
+ * @property array<string, mixed>|null $style_analysis Internal design-preset input (OutsideWebsitesFactor) — never surfaced by toBrandArray().
+ * @property string|null $selection_mode NOT NULL in Postgres (default 'manual'), but pre-migration rows and the SQLite test mirror read NULL — toBrandArray() coalesces.
+ * @property string|null $link_mode Same NOT-NULL-in-Postgres/nullable-in-tests story as $selection_mode (default 'product').
+ * @property string|null $referral_query Same story as $selection_mode (default '').
+ * @property Carbon|null $created_at Nullable in Postgres (DEFAULT now(), no NOT NULL) — same as IntegrationConnection.
+ * @property Carbon|null $updated_at Nullable in Postgres, same as created_at above.
+ */
 // FOUND-25: one connected store under a user's 'shop' IntegrationConnection.
 // Replaces the brand-keyed JSONB map that used to live in
 // site.platform_connections.payload — each brand is now its own row, with its
@@ -62,6 +87,7 @@ class ShopBrand extends BaseModel
         'updated_at' => 'datetime',
     ];
 
+    /** @return BelongsTo<IntegrationConnection, $this> */
     public function connection(): BelongsTo
     {
         return $this->belongsTo(IntegrationConnection::class, 'connection_id');

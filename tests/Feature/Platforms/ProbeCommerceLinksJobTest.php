@@ -10,6 +10,7 @@ use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\HumanitixScraper;
+use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandSeeder;
 use App\Services\Platforms\ShopifyScraper;
@@ -17,6 +18,8 @@ use App\Services\Platforms\ShopProductSeeder;
 use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\WooCommerceScraper;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -123,7 +126,7 @@ it('does nothing when the user no longer exists', function () {
     $m['generic']->shouldReceive('readProductPage')->never();
     $m['links']->shouldReceive('seed')->never();
 
-    runProbeJob((string) \Illuminate\Support\Str::uuid(), 'https://acme.example', $m);
+    runProbeJob((string) Str::uuid(), 'https://acme.example', $m);
 });
 
 // ── EventsSeeder (real DB writes) ────────────────────────────────────────────
@@ -250,20 +253,20 @@ it('adds an individual product newest-first with dedup by productId', function (
 // ── InstagramAutoSync commerce routing (signup-v2 C3) ────────────────────────
 
 it('dispatches a probe for a classified shop link and consumes the platform slot', function () {
-    \Illuminate\Support\Facades\Queue::fake();
+    Queue::fake();
     $user = User::factory()->create();
     $seen = [];
     $findings = [];
     $unmatched = [];
 
-    app(\App\Services\Platforms\InstagramAutoSync::class)->handleClassifiedLink(
+    app(InstagramAutoSync::class)->handleClassifiedLink(
         $user,
         ['platform' => 'shop', 'category' => 'shop', 'label' => 'Shopify'],
         'https://acme.myshopify.com/',
         $seen, $findings, $unmatched,
     );
 
-    \Illuminate\Support\Facades\Queue::assertPushed(
+    Queue::assertPushed(
         ProbeCommerceLinksJob::class,
         fn ($job) => $job->category === 'shop' && $job->platform === 'shop',
     );
@@ -272,19 +275,19 @@ it('dispatches a probe for a classified shop link and consumes the platform slot
 });
 
 it('routes a commerce link to unmatched for a non-consenting (unclaimed) subject', function () {
-    \Illuminate\Support\Facades\Queue::fake();
+    Queue::fake();
     $user = User::factory()->create(['status' => 'unclaimed']);
     $seen = [];
     $findings = [];
     $unmatched = [];
 
-    app(\App\Services\Platforms\InstagramAutoSync::class)->handleClassifiedLink(
+    app(InstagramAutoSync::class)->handleClassifiedLink(
         $user,
         ['platform' => 'eventbrite', 'category' => 'event-organiser', 'label' => 'Eventbrite'],
         'https://www.eventbrite.com.au/o/org-1',
         $seen, $findings, $unmatched,
     );
 
-    \Illuminate\Support\Facades\Queue::assertNotPushed(ProbeCommerceLinksJob::class);
+    Queue::assertNotPushed(ProbeCommerceLinksJob::class);
     expect($unmatched)->toBe([['url' => 'https://www.eventbrite.com.au/o/org-1', 'label' => 'Eventbrite']]);
 });

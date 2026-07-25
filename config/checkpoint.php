@@ -165,8 +165,13 @@ return [
         '25644227c885', // AnalyticsQueryService — driver-conditional dow expr
         'b480d73a6c7d', // AnalyticsQueryService — code-built CASE expr
         'cc081b49615e', // AnalyticsQueryService — code-built CASE expr
-        'd083073b9ee7', // RankedActionsComputer:290 — driver-conditional day expr
-        'f7a8168770d9', // RankedActionsComputer:291 — driver-conditional day expr
+        // Re-vetted 2026-07-25: the demand-rate rewrite (07d5d515) changed the SQL
+        // TEXT of both queries ("platform, … COUNT(*)" → "action_id, event, …
+        // COUNT(DISTINCT COALESCE(…))"), so the old :290/:291 hashes went dead.
+        // $day is still dayBucketExpr() — two hardcoded literals chosen on driver
+        // name, never request input.
+        'a70c32075dec', // RankedActionsComputer:132 — driver-conditional day expr
+        '4e294d3c9300', // RankedActionsComputer:133 — driver-conditional day expr
         '73b44016b226', // ComputeContentPopularityScores — driver-conditional day expr
         '82d53234faf4', // ComputeContentPopularityScores — driver-conditional day expr
         'e1a9fc731742', // ComputeContentPopularityScores — driver-conditional day expr

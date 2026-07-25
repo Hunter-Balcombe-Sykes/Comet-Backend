@@ -30,6 +30,7 @@ use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
+use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\WooCommerceScraper;
 use Illuminate\Http\JsonResponse;
@@ -303,9 +304,9 @@ class ShopController extends ApiController
                 // connect_status/connect_error all unchanged), so nothing is
                 // dirty — updateOrCreate()'s fill($values)->save() would then
                 // skip the UPDATE entirely and leave updated_at at its
-                // original timestamp. The poll's 5-minute stale-pending
-                // backstop (connectStatus() below) would then report a
-                // freshly-retried connect as 'failed'. touch() sets
+                // original timestamp. The poll's stale-pending backstop
+                // (connectStatus() below) would then report a freshly-retried
+                // connect as 'failed'. touch() sets
                 // updated_at directly (it isn't in $fillable, so it can't
                 // ride along in $values above) and always issues the UPDATE,
                 // dirty or not. The synchronous branch below settles
@@ -389,12 +390,11 @@ class ShopController extends ApiController
             // Stale-pending backstop, ported from GenericPlatformController::
             // connectStatus() (NOT Instagram's connectStatus(), which has no
             // staleness check) — a worker that dies leaves the row 'pending'
-            // forever with nothing to flip it. Five minutes comfortably exceeds
-            // ShopBrandConnectJob's 45s timeout plus its two backoffs (5s, 20s).
-            // SYNTHETIC — never writes the row, so a merely-slow (not dead)
-            // worker can still land its real settle afterwards and the next
-            // poll reports 'ready'.
-            if ($brand->updated_at !== null && $brand->updated_at->lt(now()->subMinutes(5))) {
+            // forever with nothing to flip it. Window and its justification:
+            // StrandedPendingWindow. SYNTHETIC — never writes the row, so a
+            // merely-slow (not dead) worker can still land its real settle
+            // afterwards and the next poll reports 'ready'.
+            if ($brand->updated_at !== null && $brand->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
                 return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
             }
 

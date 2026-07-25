@@ -111,27 +111,31 @@ class SkoolController extends ApiController
     // GET /api/platforms/skool/selection
     public function selection(Request $request): JsonResponse
     {
-        $row = $this->connectionFor($this->currentUser($request));
+        $connection = $this->connectionFor($this->currentUser($request));
+        $payload = $connection === null ? [] : $connection->payload;
 
-        // CA-W4/SM review fix: only 'pending' (and the terminal-failure states)
-        // withhold the row — NULL is a legal, unset status (no NOT NULL/DEFAULT
-        // on last_refresh_status; see the migration) carried by legacy rows, and
-        // treating it like 'pending' would render an already-connected, fully-
-        // populated community as if it had never been connected at all. A
-        // pending row's payload is {url} only — no name/image/description —
-        // which SkoolConnectionResource would render as {url, name: null,
-        // image: null, description: null}. That shape was IMPOSSIBLE before this
-        // unit: SkoolScraper::fetchCommunity() never returns without a real
-        // og:title, so a stored row's `name` was always non-null. Withholding
-        // pending/unavailable/error preserves that invariant and avoids
-        // rendering a half-formed card indistinguishable from "a community with
-        // no metadata" — the dashboard already has /connect/status for the
-        // in-flight state.
-        if ($row === null || in_array($row->last_refresh_status, ['pending', 'unavailable', 'error'], true)) {
+        // R4: withheld on payload RENDERABILITY, never on last_refresh_status.
+        // The only unrenderable state is a payload with no community name — the
+        // {url}-only row a first deferred connect writes, which
+        // SkoolConnectionResource would emit as {url, name: null, image: null,
+        // description: null}. SkoolScraper::fetchCommunity() cannot return
+        // without a real og:title, so "has a name" and "was fetched" are the
+        // same fact, and NULL stays legal (no NOT NULL/DEFAULT on the column).
+        //
+        // Gating on status instead was a trap with two live edges. A RECONNECT's
+        // pending/failed row keeps the previous name via upsertConnection()'s
+        // payload merge — kept expressly so the card does NOT blank mid-fetch —
+        // so a status gate blanked a good card on any transient scrape failure,
+        // permanently. And the public wire never reads this column at all
+        // (PublicIntegrationController selects on is_active only), so the owner
+        // lost a card the sitepage was still serving. /connect/status remains
+        // the in-flight and failure channel, as on every other platform.
+        $name = $payload['name'] ?? null;
+        if (! is_string($name) || trim($name) === '') {
             return $this->success(['selection' => null]);
         }
 
-        return $this->success(['selection' => (new SkoolConnectionResource($row->payload))->resolve()]);
+        return $this->success(['selection' => (new SkoolConnectionResource($payload))->resolve()]);
     }
 
     // DELETE /api/platforms/skool

@@ -325,6 +325,121 @@ it('selection: no connection at all still reports null (unaffected by the reconc
         ->assertExactJson(['selection' => null]);
 });
 
+// ── R4: selection() is gated on payload renderability, never status ────────
+
+it('selection: a reconnect whose deferred fetch fails keeps rendering the last-known card (status is not a renderability signal)', function () {
+    // R4: the pending write MERGES over the stored payload
+    // (ManagesIntegrationConnection::upsertConnection) expressly so the card does
+    // not blank mid-fetch. Gating selection() on last_refresh_status defeated
+    // that and, on a terminal failure, hid the card for good — while the public
+    // wire (is_active only) kept serving it. /connect/status stays the failure
+    // channel; /selection stays the card.
+    config(['partna.connect.deferred' => ['skool']]);
+    $user = skoolAsyncUser('reconnfail1');
+
+    $full = [
+        'url' => 'https://www.skool.com/some-community',
+        'name' => 'Some Community',
+        'image' => 'https://img.example/avatar.jpg',
+        'description' => 'A great community',
+    ];
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'skool',
+        'resource_id' => 'skool',
+        'payload' => $full,
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $this->mock(SkoolScraper::class, fn ($m) => $m->shouldReceive('normalizeUrl')->once()->andReturn('https://www.skool.com/renamed-community'));
+    Queue::fake();
+
+    actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/renamed-community'])
+        ->assertStatus(202);
+
+    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'skool')->firstOrFail();
+    expect($row->last_refresh_status)->toBe('pending');
+    // The merge is what makes the row renderable — assert it, don't assume it.
+    expect($row->payload)->toBe([...$full, 'url' => 'https://www.skool.com/renamed-community']);
+
+    // In flight: the card is still there (this is the pending-reconnect change).
+    actingAsUser($user)->getJson('/api/platforms/skool/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.name', 'Some Community');
+
+    $this->mock(SkoolScraper::class, fn ($m) => $m->shouldReceive('fetchCommunity')->once()->andReturn(null));
+    app()->call([new ConnectFetchJob($row->id, 'skool'), 'handle']);
+
+    expect($row->fresh()->last_refresh_status)->toBe('unavailable');
+
+    // Terminally failed: STILL there. This is the assertion that fails against
+    // pre-R4 code (it returned {"selection":null} and never recovered).
+    actingAsUser($user)->getJson('/api/platforms/skool/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => [...$full, 'url' => 'https://www.skool.com/renamed-community']]);
+
+    // And the failure is still reported — on the poll, where it belongs.
+    actingAsUser($user)->getJson('/api/platforms/skool/connect/status')
+        ->assertOk()
+        ->assertExactJson(['status' => 'failed', 'error' => 'Could not read that Skool community — check the URL.']);
+});
+
+it('selection: NO last_refresh_status value withholds a renderable payload — the withhold is payload-based, never status-based', function (?string $status) {
+    // R4 guard. If this fails, someone reintroduced a status check in
+    // SkoolController::selection(). Do not "fix" it by adding the status back to
+    // an allowed list: a status list cannot stay correct, which is why this
+    // endpoint asks whether the payload has a name instead. A pending/failed
+    // reconnect legitimately holds the PREVIOUS complete payload
+    // (upsertConnection's merge) and must keep rendering; the unrenderable case
+    // is a {url}-only payload, covered by the sibling test below.
+    $user = skoolAsyncUser('selstatus'.substr(md5((string) $status), 0, 6));
+    $full = [
+        'url' => 'https://www.skool.com/some-community',
+        'name' => 'Some Community',
+        'image' => 'https://img.example/avatar.jpg',
+        'description' => 'A great community',
+    ];
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'skool',
+        'resource_id' => 'skool',
+        'payload' => $full,
+        'is_active' => true,
+        'last_refresh_status' => $status,
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/skool/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => $full]);
+})->with([
+    // Every value the CHECK constraint permits
+    // (20260616000000_allow_pending_refresh_status.sql), plus the legal NULL.
+    'ok' => ['ok'],
+    'pending' => ['pending'],
+    'unavailable' => ['unavailable'],
+    'error' => ['error'],
+    'null' => [null],
+]);
+
+it('selection: a {url}-only payload is withheld whatever its status — a card with no community name is the one unrenderable state', function (?string $status) {
+    $user = skoolAsyncUser('selstub'.substr(md5((string) $status), 0, 6));
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'skool',
+        'resource_id' => 'skool',
+        'payload' => ['url' => 'https://www.skool.com/some-community'],
+        'is_active' => true,
+        'last_refresh_status' => $status,
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/skool/selection')
+        ->assertOk()
+        ->assertExactJson(['selection' => null]);
+})->with(['pending' => ['pending'], 'unavailable' => ['unavailable'], 'error' => ['error'], 'ok' => ['ok'], 'null' => [null]]);
+
 // ── The job's completion write takes the connection lock (PWL-16 update) ───
 
 it('the job\'s completion write uses the SAME per-user platform lock key as every other deferred platform', function () {

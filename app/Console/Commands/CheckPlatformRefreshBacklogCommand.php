@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Exceptions\Platforms\PlatformRefreshBacklogException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\StrandedPendingWindow;
 use Illuminate\Console\Command;
 
 // Staleness alarm: counts connections overdue by more than (TTL × grace) and reports
@@ -15,15 +16,6 @@ class CheckPlatformRefreshBacklogCommand extends Command
     protected $signature = 'integrations:refresh-backlog';
 
     protected $description = 'Alert when too many platform connections are overdue for refresh.';
-
-    /**
-     * CA-SM review fix: matches the "worker likely died" threshold RefreshController,
-     * GenericPlatformController and DefersBespokeConnect already use for the SAME
-     * judgement call on the poll side (deliberately duplicated there rather than
-     * shared — see DefersBespokeConnect's docblock); reused here rather than a fresh
-     * config knob so "stranded" means the same thing everywhere it's decided.
-     */
-    private const STRANDED_PENDING_MINUTES = 5;
 
     public function handle(PlatformRegistry $registry): int
     {
@@ -56,7 +48,7 @@ class CheckPlatformRefreshBacklogCommand extends Command
         // refreshable set — connect writes 'pending' on non-refreshable
         // platforms too, and a dead worker there is just as real a fault. Never
         // fed back into dueForRefresh()/the cron itself (see scopeStrandedPending).
-        $strandedCutoff = now()->subMinutes(self::STRANDED_PENDING_MINUTES);
+        $strandedCutoff = now()->subMinutes(StrandedPendingWindow::MINUTES);
         $overdue += IntegrationConnection::query()->strandedPending($strandedCutoff)->count();
 
         if ($overdue > $threshold) {

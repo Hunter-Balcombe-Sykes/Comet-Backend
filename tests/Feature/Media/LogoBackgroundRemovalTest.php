@@ -4,13 +4,17 @@ use App\Http\Controllers\Api\User\Uploads\UserDesignMediaController;
 use App\Http\Requests\Api\User\Uploads\UploadDesignMediaRequest;
 use App\Jobs\ProcessImageVariantsJob;
 use App\Jobs\ProcessLogoVariantsJob;
+use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\ImageVariantService;
+use App\Services\Media\MediaUploadService;
+use App\Services\Media\UnprocessableImageException;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -94,7 +98,7 @@ function svgLogoUploadedFile(): UploadedFile
 
 it('stores an svg logo original directly and routes it to the logo pipeline', function () {
     Bus::fake([ProcessLogoVariantsJob::class, ProcessImageVariantsJob::class]);
-    \Illuminate\Support\Facades\Storage::fake('test_disk');
+    Storage::fake('test_disk');
     config(['partna.logo_removal.enabled' => true]);
 
     // storeOriginal must NEVER run for the SVG branch — it's the raster-only
@@ -108,13 +112,13 @@ it('stores an svg logo original directly and routes it to the logo pipeline', fu
     $pro = createTenant('svglogo');
     $pro->loadMissing('site');
 
-    $media = app(\App\Services\Media\MediaUploadService::class)->uploadSingleton(
+    $media = app(MediaUploadService::class)->uploadSingleton(
         pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'logo_full',
     );
 
     expect($media->path)->toEndWith('.svg');
     expect($media->original_mime)->toBe('image/svg+xml');
-    \Illuminate\Support\Facades\Storage::disk('test_disk')->assertExists($media->path);
+    Storage::disk('test_disk')->assertExists($media->path);
     Bus::assertDispatchedSync(ProcessLogoVariantsJob::class);
     Bus::assertNotDispatchedSync(ProcessImageVariantsJob::class);
 });
@@ -126,7 +130,7 @@ it('sends an svg logo to the raster gate (which rejects) when the removal pipeli
     // raster-only MIME gate exactly as before this feature existed.
     $svc = Mockery::mock(ImageVariantService::class);
     $svc->shouldReceive('storeOriginal')->once()->andThrow(
-        new \App\Services\Media\UnprocessableImageException("Rejected: MIME type 'image/svg+xml' is not an accepted image format.")
+        new UnprocessableImageException("Rejected: MIME type 'image/svg+xml' is not an accepted image format.")
     );
     $svc->shouldReceive('deleteVariants')->andReturnNull();
     $svc->shouldReceive('resolvedDiskName')->andReturn('test_disk');
@@ -135,9 +139,9 @@ it('sends an svg logo to the raster gate (which rejects) when the removal pipeli
     $pro = createTenant('svgoff');
     $pro->loadMissing('site');
 
-    expect(fn () => app(\App\Services\Media\MediaUploadService::class)->uploadSingleton(
+    expect(fn () => app(MediaUploadService::class)->uploadSingleton(
         pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'logo_full',
-    ))->toThrow(\App\Services\Media\Exceptions\OriginalStoreFailedException::class);
+    ))->toThrow(OriginalStoreFailedException::class);
 });
 
 it('sends an svg to the raster gate for non-logo singletons even with the pipeline on', function () {
@@ -145,7 +149,7 @@ it('sends an svg to the raster gate for non-logo singletons even with the pipeli
 
     $svc = Mockery::mock(ImageVariantService::class);
     $svc->shouldReceive('storeOriginal')->once()->andThrow(
-        new \App\Services\Media\UnprocessableImageException("Rejected: MIME type 'image/svg+xml' is not an accepted image format.")
+        new UnprocessableImageException("Rejected: MIME type 'image/svg+xml' is not an accepted image format.")
     );
     $svc->shouldReceive('deleteVariants')->andReturnNull();
     $svc->shouldReceive('resolvedDiskName')->andReturn('test_disk');
@@ -154,9 +158,9 @@ it('sends an svg to the raster gate for non-logo singletons even with the pipeli
     $pro = createTenant('svgcover');
     $pro->loadMissing('site');
 
-    expect(fn () => app(\App\Services\Media\MediaUploadService::class)->uploadSingleton(
+    expect(fn () => app(MediaUploadService::class)->uploadSingleton(
         pro: $pro, site: $pro->site, file: svgLogoUploadedFile(), purpose: 'cover_youtube',
-    ))->toThrow(\App\Services\Media\Exceptions\OriginalStoreFailedException::class);
+    ))->toThrow(OriginalStoreFailedException::class);
 });
 
 // ── Dispatch routing (the feature flag + purpose decide the pipeline) ─────────

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\JsonResponse;
 
@@ -15,7 +16,9 @@ use Illuminate\Http\JsonResponse;
  * flag, the pending write, ConnectFetchJob, and its failure-message
  * convention — without moving them onto GenericPlatformController's registry
  * router (design doc §2, route (c)). Currently used by Apple, Skool, Fresha,
- * and the Eventbrite/Humanitix pair (via EventsPlatformController).
+ * and the Eventbrite/Humanitix pair (via EventsPlatformController). Instagram
+ * uses bespokeConnectStatus() ALONE — its connect is driven by
+ * InstagramConnectJob, not ConnectFetchJob, and it is not flag-gated (R7).
  * EventsController's own events/add facade deliberately does NOT use this
  * trait — see its own docblock for why.
  *
@@ -35,14 +38,17 @@ use Illuminate\Http\JsonResponse;
  */
 trait DefersBespokeConnect
 {
-    // Also present as its own separate copy in GenericPlatformController::
-    // connectStatus() — kept duplicated there rather than hoisted out of the
-    // generic controller's file, since deduplicating would mean editing the
-    // eight already-armed registry platforms' code path for a cosmetic win
-    // (design doc §7 Risk R3). Lives on FetchUnavailableException, not here,
-    // so ConnectFetchJob's own lock-timeout catch can reference the SAME
+    // The failure SENTENCE is also present as its own separate copy in
+    // GenericPlatformController::connectStatus() — kept duplicated there
+    // rather than hoisted out of the generic controller's file, since
+    // deduplicating would mean editing the eight already-armed registry
+    // platforms' code path for a cosmetic win (design doc §7 Risk R3). The
+    // sentence lives on FetchUnavailableException, not here, so
+    // ConnectFetchJob's own lock-timeout catch can reference the SAME
     // constant without a Job depending on a Controller trait for a string —
-    // PHP has no way to reference a trait constant externally otherwise.
+    // PHP has no way to reference a trait constant externally otherwise. The
+    // stale-pending WINDOW itself is shared via StrandedPendingWindow, not
+    // duplicated — see the staleness check below.
 
     private const UNKNOWN_CONNECT_ERROR = 'We could not load that account. Please try again.';
 
@@ -117,12 +123,20 @@ trait DefersBespokeConnect
      * always reads the platform's own default resource row via
      * connectionFor() and IGNORES $accountId entirely — a single-selection
      * platform must never let a stray query param select a different row.
+     *
+     * $notFoundMessage defaults to the async-connect contract's sentence, which
+     * all six deferred platforms take unchanged — do not vary it for them, six
+     * Feature tests and the contract doc pin it. It is a parameter only because
+     * Instagram's poll predates that contract with its own published 404
+     * sentence, and aligning that string is a separate frontend-visible
+     * decision from sharing this method's staleness check.
      */
     protected function bespokeConnectStatus(
         User $user,
         ?string $accountId,
         callable $shape,
         bool $perAccount = false,
+        string $notFoundMessage = 'Account not found.',
     ): JsonResponse {
         $row = $perAccount
             ? $this->requestedAccountRow($user, $accountId)
@@ -132,18 +146,18 @@ trait DefersBespokeConnect
         // connections, so another user's row is never visible to look up in
         // the first place — no existence leak, no separate policy check.
         if ($row === null) {
-            return $this->error('Account not found.', 404);
+            return $this->error($notFoundMessage, 404);
         }
 
         if ($row->last_refresh_status === 'pending') {
             // Ported from GenericPlatformController::connectStatus(): a
             // worker that dies between dispatch and a terminal write leaves
-            // the row 'pending' forever with nothing to flip it; five minutes
-            // comfortably exceeds ConnectFetchJob's 45s timeout plus its two
-            // backoff retries. Synthetic — this does NOT write the row, so a
-            // merely-slow (not dead) worker can still land its real 'ok'
-            // write afterwards and the next poll reports 'ready'.
-            if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(5))) {
+            // the row 'pending' forever with nothing to flip it. Window and
+            // its justification: StrandedPendingWindow. Synthetic — this does
+            // NOT write the row, so a merely-slow (not dead) worker can still
+            // land its real 'ok' write afterwards and the next poll reports
+            // 'ready'.
+            if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
                 return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
             }
 

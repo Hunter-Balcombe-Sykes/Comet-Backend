@@ -169,10 +169,11 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
                     ]) > 0;
             });
         } catch (LockTimeoutException $e) {
-            // Never $this->release(): on the sync driver (deployed dev) that
-            // only flips an internal flag SyncQueue::executeJob() never checks
-            // — a silent no-op that would strand this row 'pending' forever.
-            // Verbatim the reasoning at ConnectFetchJob:179-214.
+            // Never $this->release(): on the sync driver (tests' driver —
+            // phpunit.xml pins QUEUE_CONNECTION=sync) that only flips an
+            // internal flag SyncQueue::executeJob() never checks — a silent
+            // no-op that would strand this row 'pending' forever. Verbatim
+            // the reasoning at ConnectFetchJob:179-214.
             report($e);
             Log::warning('shop.brand_connect_job.lock_timeout', [
                 'brand_row_id' => $brand->id,

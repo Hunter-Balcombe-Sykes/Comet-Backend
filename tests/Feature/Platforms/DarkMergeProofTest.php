@@ -421,6 +421,64 @@ it('DELIBERATELY VACUOUS — flag off: the events/add ORGANISER branch is a 200 
     expect(array_keys($row->payload))->toBe(['url', 'organiser', 'next', 'upcoming', 'hiddenEventIds']);
 });
 
+it('DELIBERATELY VACUOUS — flag off: the events/add ORGANISER branch pins Humanitix keyed on its RESOLVED host url and pushes nothing', function () {
+    // Humanitix's counterpart to the Eventbrite case above, and the more
+    // load-bearing of the two: its accountUrl resolver (resolveHostUrl) is a
+    // live network fetch AND the row's identity, so the posted url and the
+    // stored/returned url differ here — same distinction the humanitix
+    // connect case (4/7 section) pins, but this is the ONLY test anywhere
+    // that pins it for the events/add facade's organiser branch.
+    config(['partna.connect.deferred' => []]);
+    $user = darkMergeUser('dmeventsaddhx');
+    $postedUrl = 'https://events.humanitix.com/darkmerge-host-page';
+    $hostUrl = 'https://events.humanitix.com/host/darkmerge-host';
+    $event = darkMergeEvent('https://events.humanitix.com/darkmerge-gig');
+    $stamped = EventsPayload::withIds([$event])[0];
+    $rid = darkMergeAcctId($hostUrl);
+
+    // The scraper is mocked outright — see the file-level "network fetch"
+    // note in the class docblock area above the humanitix connect case (4/7)
+    // for why: resolveHostUrl's own HTTP behaviour is HumanitixScraper's unit
+    // tests' job, not this proof's.
+    $this->mock(HumanitixScraper::class, function ($m) use ($postedUrl, $hostUrl, $event) {
+        $m->shouldReceive('normalizeEventUrl')->with($postedUrl)->andReturn(null);
+        $m->shouldReceive('resolveHostUrl')->with($postedUrl)->andReturn($hostUrl);
+        $m->shouldReceive('fetchEvents')->with($hostUrl)->andReturn(['organiser' => 'Acme', 'events' => [$event]]);
+    });
+
+    Queue::fake();
+
+    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $postedUrl])
+        ->assertStatus(200)
+        ->assertExactJson([
+            'selection' => [
+                'accounts' => [[
+                    'id' => $rid,
+                    'platform' => 'humanitix',
+                    'url' => $hostUrl,
+                    'organiser' => 'Acme',
+                    'next' => $stamped,
+                    'upcoming' => [$stamped],
+                    'removePath' => "/platforms/humanitix/accounts/{$rid}",
+                ]],
+                'events' => [[
+                    ...$stamped,
+                    'platform' => 'humanitix',
+                    'source' => 'account',
+                    'accountId' => $rid,
+                    'removePath' => "/platforms/humanitix/events/{$stamped['id']}",
+                ]],
+            ],
+        ]);
+
+    Queue::assertNothingPushed();
+
+    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'humanitix')->firstOrFail();
+    expect($row->resource_id)->toBe($rid);
+    expect($row->last_refresh_status)->toBe('ok');
+    expect(array_keys($row->payload))->toBe(['url', 'organiser', 'next', 'upcoming', 'hiddenEventIds']);
+});
+
 // ── The pending row's PUBLIC render ─────────────────────────────────────────
 
 it('a pending row renders publicly with allowlisted keys ONLY — none of the deferred path\'s private bookkeeping leaks', function () {

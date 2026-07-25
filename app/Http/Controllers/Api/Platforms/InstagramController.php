@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Platforms;
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
@@ -33,6 +34,7 @@ use Illuminate\Support\Facades\Cache;
 // the findings InstagramConnectJob persisted via InstagramAutoSync.
 class InstagramController extends ApiController
 {
+    use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
 
@@ -117,37 +119,28 @@ class InstagramController extends ApiController
     }
 
     // GET /api/platforms/instagram/connect/status — poll endpoint for the connect
-    // flow. Returns pending / ready (with payload) / failed. 404 when no connection
-    // exists for the caller.
+    // flow. Returns pending / ready (with payload) / failed, through the SAME
+    // shared poll the six deferred-connect platforms use, so Instagram now has
+    // the stale-pending escape hatch it was missing: a worker that dies between
+    // dispatch and a terminal write left this row polling 'pending' forever (R7).
+    //
+    // Only bespokeConnectStatus() is used from that trait. deferredConnectResponse()
+    // must never be called here — it hardcodes ConnectFetchJob, and Instagram's
+    // connect is InstagramConnectJob — and shouldDeferConnect() has no Instagram
+    // slug to read: Instagram is not in config('partna.connect.deferred').
+    //
+    // $notFoundMessage keeps Instagram's own published 404 sentence
+    // (docs/frontend-contracts/instagram-connect-async.md, live since 2026-06-09)
+    // rather than adopting the trait's newer default — aligning that string is a
+    // separate frontend-visible decision, deliberately not folded into this fix.
     public function connectStatus(Request $request): JsonResponse
     {
-        $user = $this->currentUser($request);
-        $connection = $this->connectionFor($user);
-
-        if (! $connection) {
-            return $this->error('No Instagram connection found.', 404);
-        }
-
-        $status = $connection->last_refresh_status;
-
-        if ($status === 'ok') {
-            return $this->success([
-                'status' => 'ready',
-                'connection' => $connection->payload
-                    ? (new InstagramConnectionResource(InstagramPayload::fromArray($connection->payload)->toArray()))->resolve()
-                    : null,
-            ]);
-        }
-
-        if ($status === 'pending') {
-            return $this->success(['status' => 'pending']);
-        }
-
-        // 'unavailable', 'error', or any other terminal failure state.
-        return $this->success([
-            'status' => 'failed',
-            'error' => $connection->last_refresh_error,
-        ]);
+        return $this->bespokeConnectStatus(
+            $this->currentUser($request),
+            null,
+            fn (array $payload) => (new InstagramConnectionResource(InstagramPayload::fromArray($payload)->toArray()))->resolve(),
+            notFoundMessage: 'No Instagram connection found.',
+        );
     }
 
     // GET /api/platforms/instagram/selection — the authenticated user's saved selection.

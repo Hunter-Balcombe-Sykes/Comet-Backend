@@ -8,7 +8,10 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
+use App\Services\Platforms\StrandedPendingWindow;
+use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -389,6 +392,88 @@ it('connectStatus returns pending when the job has not finished yet', function (
         ->assertJsonPath('status', 'pending');
 });
 
+// ── R7: a stranded pending row escapes to a terminal state ──────────────────
+
+it('R7: connectStatus reports failed for a pending row stranded past the stale-pending window', function () {
+    $user = igAsyncUser('igstale1');
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => [],
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+    // Deliberately a query-builder mass update, NOT $connection->save(): Eloquent's
+    // save() re-touches updated_at to now() whenever the model uses timestamps,
+    // silently discarding a manually forceFill()'d value.
+    IntegrationConnection::where('id', $connection->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    actingAsUser($user)
+        ->getJson('/api/platforms/instagram/connect/status')
+        ->assertOk()
+        ->assertExactJson([
+            'status' => 'failed',
+            'error' => FetchUnavailableException::STALE_CONNECT_ERROR,
+        ]);
+});
+
+it('R7: connectStatus still reports pending exactly at the stale-pending boundary (exclusive)', function () {
+    $user = igAsyncUser('igstale2');
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => [],
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    // Freeze time at whole-second precision so updated_at and the
+    // controller's now() land at the SAME instant — a microsecond-precision
+    // freeze would still drift, because Eloquent serializes datetimes as
+    // 'Y-m-d H:i:s' (driver-agnostic, not SQLite-specific), so the stored
+    // updated_at reads back truncated to the second and can land just past
+    // the window, flipping the verdict. Prod's set_updated_at() trigger
+    // stamps full precision, so the exclusive-lt boundary holds there too.
+    Carbon::setTestNow(Carbon::parse(now()->format('Y-m-d H:i:s')));
+    IntegrationConnection::where('id', $connection->id)->update(['updated_at' => now()->subMinutes(StrandedPendingWindow::MINUTES)]);
+
+    actingAsUser($user)
+        ->getJson('/api/platforms/instagram/connect/status')
+        ->assertOk()
+        ->assertExactJson(['status' => 'pending']);
+
+    Carbon::setTestNow();
+});
+
+it('R7: the stale-pending failed verdict is synthetic — the row is never written', function () {
+    $user = igAsyncUser('igstale3');
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => [],
+        'is_active' => false,
+        'last_refresh_status' => 'pending',
+    ]);
+    IntegrationConnection::where('id', $connection->id)->update(['updated_at' => now()->subMinutes(10)]);
+
+    actingAsUser($user)
+        ->getJson('/api/platforms/instagram/connect/status')
+        ->assertOk()
+        ->assertJsonPath('status', 'failed');
+
+    // A merely-slow (not dead) worker can still land its real 'ok' write —
+    // the poll never touches the row itself.
+    $connection->refresh();
+    expect($connection->last_refresh_status)->toBe('pending');
+    expect($connection->last_refresh_error)->toBeNull();
+});
+
 // ── status endpoint: ready state ─────────────────────────────────────────────
 
 it('connectStatus returns ready with the connection payload after the job completes', function () {
@@ -439,7 +524,11 @@ it('connectStatus returns 404 when no connection exists for the caller', functio
 
     actingAsUser($user)
         ->getJson('/api/platforms/instagram/connect/status')
-        ->assertStatus(404);
+        ->assertStatus(404)
+        // R7: Instagram keeps its own published 404 sentence rather than the
+        // shared trait's 'Account not found.' default — pin it here so a
+        // future well-meaning "alignment" can't drift it silently.
+        ->assertJsonPath('message', 'No Instagram connection found.');
 });
 
 it('connectStatus returns 404 when the connection belongs to another user', function () {

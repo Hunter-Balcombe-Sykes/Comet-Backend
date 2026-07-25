@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Services\Media\MediaDiskResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -76,7 +77,7 @@ class DeleteMirroredMediaJob implements ShouldBeUnique, ShouldQueue
         // Laravel Cloud the 'media' disk's config-cached creds are stale at
         // runtime and every operation returns Unauthorized — see
         // InstagramConnectionSeeder::mediaDisk() for the 2026-07-23 root cause.
-        Storage::disk(\App\Services\Media\MediaDiskResolver::resolve())->deleteDirectory($this->folder);
+        Storage::disk(MediaDiskResolver::resolve())->deleteDirectory($this->folder);
     }
 
     public function failed(Throwable $e): void
