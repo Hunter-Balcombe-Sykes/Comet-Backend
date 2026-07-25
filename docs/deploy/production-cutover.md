@@ -105,8 +105,11 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
       > byte-empty: `pg_dump` output is not a parser fixed-point, so re-applying it re-prints CHECK casts
       > (`ANY ((ARRAY[…])::text[])` → `ANY (ARRAY[…::text])`) — cosmetic, and why the fingerprint
       > comparison is the real proof. Both DBs were PostgreSQL 17.6, so this is not a version artifact.
-- [ ] **Merge the collapse branch to `development`** after Josh's review — Phase 1 applies the baseline
-      from the deployed branch's `supabase/migrations/`, so the unpushed prep branch must land first.
+- [x] **Merge the collapse branch to `development`** — **DONE 2026-07-26.** `chore/collapse-baseline-cutover`
+      merged (`--no-ff`); worktree and branch cleaned up. Suite green on the merged result. Phase 1 applies
+      the baseline from the deployed branch's `supabase/migrations/`, which now holds exactly one file,
+      `20260726000000_baseline_pilot.sql`. **Not yet pushed to `origin/development`** — pushing redeploys
+      both API domains, so that is Josh's call.
 - [ ] **Env-var parity audit.** Diff the dev Laravel Cloud env's keys against `.env.example` and build the
       complete prod secret set (see Phase 2). Every key dev has, prod needs — with prod values.
 - [x] **Decide reference/seed data** a fresh prod needs: platform config, feature flags, any bootstrap rows.
