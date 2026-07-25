@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\FetchBudget;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\HighlightsPicker;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
@@ -92,7 +93,7 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         return [];
     }
 
-    public function handle(PlatformRegistry $registry, HighlightsPicker $picker, FetchBudget $budget): void
+    public function handle(PlatformRegistry $registry, HighlightsPicker $picker, FetchBudget $budget, IntegrationNotifier $notifier): void
     {
         // ::find() respects the soft-delete scope — a null result already
         // covers both "never existed" and "user disconnected while queued"
@@ -137,6 +138,11 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
             // payload, so there is nothing to overwrite. Mirrors
             // PlatformRefresher::recordNotModified's quiet bump exactly.
             $this->markOk($connection);
+            // A 304 is a SUCCESSFUL connect — the vendor confirmed the stored
+            // payload is current. Skipping it here would silently drop the notice
+            // for exactly the reconnect case. markOk() saves quietly but mutates
+            // the in-memory row first, so the notifier's 'ok' guard passes.
+            $notifier->connected($connection);
 
             return;
         } catch (FetchShapeException $e) {
@@ -222,6 +228,11 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
                     'refresh_last_modified' => $connection->refresh_last_modified,
                 ]);
             });
+
+            // Reached only when the locked write succeeded — a thrown
+            // LockTimeoutException skips straight to the catch, where
+            // markTerminal() lands 'unavailable' and no notice is owed.
+            $notifier->connected($connection);
         } catch (LockTimeoutException $e) {
             // MUST NOT swallow like ScheduledRefresh::run() does — correct for
             // an hourly cron (the next tick retries), catastrophically wrong

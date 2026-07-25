@@ -5,9 +5,11 @@
 // End-to-end wiring of the integration-connected bell notice at both emit points:
 // the controller trait (synchronous connects) and ConnectFetchJob (deferred ones).
 
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\OEmbedService;
+use App\Services\Platforms\SkoolScraper;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -89,5 +91,77 @@ it('DELIBERATELY VACUOUS — a connection created outside the dashboard trait do
         'last_refresh_status' => 'ok',
     ]);
 
+    expect(icwRows($user))->toHaveCount(0);
+});
+
+it('does not notify while a deferred connect is still pending', function () {
+    $user = icwUser('icw4');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'skool',
+        'resource_id' => 'skool',
+        'payload' => ['url' => 'https://www.skool.com/example'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    expect(icwRows($user))->toHaveCount(0);
+});
+
+it('notifies once ConnectFetchJob completes a deferred connect', function () {
+    $user = icwUser('icw5');
+
+    $row = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'skool',
+        'resource_id' => 'skool',
+        'payload' => ['url' => 'https://www.skool.com/example'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    // Copied from SkoolAsyncConnectTest.php's poll-to-ready test: handle()
+    // resolves SkoolScraper fresh from the container, and SkoolFetch::fetch()
+    // only ever calls fetchCommunity() (normalizeUrl() is connect-time only).
+    $this->mock(SkoolScraper::class, fn ($m) => $m->shouldReceive('fetchCommunity')->once()->andReturn([
+        'url' => 'https://www.skool.com/example',
+        'name' => 'Some Community',
+        'image' => 'https://img.example/avatar.jpg',
+        'description' => 'A great community',
+    ]));
+
+    app()->call([new ConnectFetchJob($row->id, 'skool'), 'handle']);
+
+    expect($row->fresh()->last_refresh_status)->toBe('ok');
+
+    $rows = icwRows($user);
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->title)->toContain('Skool');
+});
+
+it('does not notify when ConnectFetchJob fails terminally', function () {
+    $user = icwUser('icw6');
+
+    // An unregistered platform takes markTerminal('error', 'unsupported_platform')
+    // — the earliest terminal branch in the job, and the one that needs no vendor
+    // stubbing to reach. IntegrationConnection's own write guard (booted() in the
+    // model) rejects an unregistered platform at create() time, so the row must
+    // be created with a real registered platform — same pattern as
+    // ConnectFetchJobTest.php's 'marks unsupported_platform...' test. The job
+    // resolves ITS OWN platform from the constructor arg, not the row's stored
+    // column, so passing 'not-a-real-platform' there still reaches the branch.
+    $row = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'bandcamp',
+        'resource_id' => 'icw6',
+        'payload' => [],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+    ]);
+
+    app()->call([new ConnectFetchJob($row->id, 'not-a-real-platform'), 'handle']);
+
+    expect($row->fresh()->last_refresh_status)->toBe('error');
     expect(icwRows($user))->toHaveCount(0);
 });
