@@ -1090,6 +1090,12 @@ return [
         // Short-TTL resolve-map window (handle → IDs). Bounded staleness without
         // mutation-driven invalidation; low enough to keep rename lag imperceptible.
         'resolve_cache_ttl' => (int) env('SIDEST_PUBLIC_PROFILE_RESOLVE_CACHE_TTL', 30),
+        // Monotonic floor for the resolve timestamp (see
+        // CacheKeyGenerator::handleResolveFloor). Must outlive any stale resolve
+        // entry that could carry an older stamp: resolve primary is 30s with ±20%
+        // jitter (≤36s) and its :stale twin is 10× that (≤360s). 600 clears both
+        // with margin. Lower it and the race it closes reopens for the gap.
+        'resolve_floor_ttl' => (int) env('PARTNA_PUBLIC_PROFILE_RESOLVE_FLOOR_TTL', 600),
         // Slow-request threshold for the Nightwatch P95 warning. Tune up if
         // builder is legitimately slow on cold paths; tune down to tighten alerting.
         'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),

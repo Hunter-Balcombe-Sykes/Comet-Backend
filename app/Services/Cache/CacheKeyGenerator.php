@@ -267,6 +267,25 @@ class CacheKeyGenerator
     }
 
     /**
+     * Monotonic floor for the handle-resolve timestamp.
+     *
+     * The public.profile:{handle}:{ts} key is deliberately timestamp-keyed so
+     * mutations roll it forward — but {ts} is read out of handle.resolve, a 30s
+     * cache. A request that read the DB before a write committed can re-put the
+     * pre-write timestamp AFTER invalidation deleted it, re-leasing stale data
+     * for another 30s. This key is the escape hatch: the invalidation path owns
+     * it, the read path max()es against it, so a stale resolve entry can no
+     * longer hold the payload key back.
+     *
+     * Writer: SiteCacheService::invalidateSitePayload.
+     * Reader: IndividualProfileController::show.
+     */
+    public static function handleResolveFloor(string $handle): string
+    {
+        return 'handle.resolve.floor:'.strtolower($handle);
+    }
+
+    /**
      * Full individual profile payload, keyed by handle + updated_at timestamp
      * so the key naturally rolls forward on any site/user mutation without
      * explicit Cache::forget.

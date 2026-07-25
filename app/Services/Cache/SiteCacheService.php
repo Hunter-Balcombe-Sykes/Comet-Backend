@@ -629,6 +629,49 @@ class SiteCacheService
         }
 
         Cache::deleteMultiple(array_values(array_unique($keys)));
+
+        // Deleting handle.resolve is not sufficient — an in-flight reader that
+        // queried the DB pre-commit can re-put the old timestamp after the
+        // delete. The floor is the authoritative lower bound the reader can't
+        // regress below.
+        if ($handle !== '') {
+            $this->raiseResolveFloor($handle, $site->updated_at?->timestamp);
+        }
+    }
+
+    /**
+     * Raise the handle-resolve timestamp floor, only-ever-upward.
+     *
+     * INVARIANT — this may only be called POST-COMMIT. A floor written inside an
+     * open transaction publishes the post-write cache key before the data is
+     * visible, so a racing reader caches PRE-commit data under the authoritative
+     * new key — and public.profile:* keys are never explicitly busted (rotation
+     * by key is the design), so that entry survives the full payload TTL plus
+     * its stale window. Every current caller of invalidateSitePayload() already
+     * satisfies this (SiteObserver and ServiceCategoryObserver are
+     * $afterCommit = true; UserSiteController::update busts after the save;
+     * ClaimSiteService invalidates outside its transaction closure). Nothing
+     * enforces it — any new caller inside a transaction MUST defer.
+     *
+     * Only-raise, not a blind put: several callers can hold a Site instance
+     * whose updated_at predates a concurrent save, and lowering the floor
+     * reopens the very race this closes. The read-modify-write is not atomic,
+     * but it narrows exposure from "any invalidation within the floor TTL" to
+     * microseconds, and its worst case degrades to the pre-floor behaviour.
+     *
+     * A null/0 timestamp (malformed row) skips the write entirely — 0 is a no-op
+     * under max() but writing it would clobber a valid higher floor.
+     */
+    private function raiseResolveFloor(string $handle, ?int $timestamp): void
+    {
+        if ($timestamp === null || $timestamp <= 0) {
+            return;
+        }
+
+        $key = CacheKeyGenerator::handleResolveFloor($handle);
+        $floor = max((int) Cache::get($key, 0), $timestamp);
+
+        Cache::put($key, $floor, (int) config('partna.public_profile.resolve_floor_ttl', 600));
     }
 
     /**

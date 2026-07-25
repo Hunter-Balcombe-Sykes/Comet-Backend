@@ -4,6 +4,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Facades\Cache;
@@ -198,4 +199,144 @@ it('busts handle.resolve cache keys via the full invalidateSite call', function 
 
     expect(Cache::has($resolveKey))->toBeFalse();
     expect(Cache::has($staleKey))->toBeFalse();
+});
+
+// ── Timestamp floor: key format ──────────────────────────────────────────────
+
+it('builds the handle resolve floor key from the lowercased handle', function () {
+    expect(CacheKeyGenerator::handleResolveFloor('FloorCase'))
+        ->toBe('handle.resolve.floor:floorcase');
+});
+
+// ── Timestamp floor: invalidateSitePayload writes it ─────────────────────────
+// The floor is what makes a stale handle.resolve entry harmless: the controller
+// takes max(resolved ts, floor), so a re-installed pre-write timestamp can no
+// longer hold the public.profile:* key back.
+
+it('writes the site updated_at timestamp to the resolve floor on invalidation', function () {
+    $userId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
+        'handle' => 'floorwrite',
+        'handle_lc' => 'floorwrite',
+        'display_name' => 'Floorwrite',
+        'first_name' => 'Floorwrite',
+        'primary_email' => 'floorwrite@example.test',
+        'account_type' => 'partna',
+        'status' => 'active',
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $userId,
+        'subdomain' => 'floorwrite',
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    $site = Site::query()->findOrFail($siteId);
+
+    app(SiteCacheService::class)->invalidateSitePayload($site);
+
+    expect((int) Cache::get('handle.resolve.floor:floorwrite'))
+        ->toBe($site->updated_at->timestamp);
+});
+
+// ── Timestamp floor: monotonicity ────────────────────────────────────────────
+// invalidateSitePayload() has callers that can hold a Site instance whose
+// updated_at predates a concurrent save (ServiceCategoryObserver, UserCacheService's
+// catch-all via the memoized $professional->site relation, ClaimSiteService,
+// deletion paths). A blind Cache::put from one of those would regress a higher
+// floor written moments earlier and re-open the exact race this fixes.
+
+it('never regresses an existing higher resolve floor', function () {
+    $userId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $past = now()->subMinutes(5)->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
+        'handle' => 'floormono',
+        'handle_lc' => 'floormono',
+        'display_name' => 'Floormono',
+        'first_name' => 'Floormono',
+        'primary_email' => 'floormono@example.test',
+        'account_type' => 'partna',
+        'status' => 'active',
+        'created_at' => $past,
+        'updated_at' => $past,
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $userId,
+        'subdomain' => 'floormono',
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => $past,
+        'updated_at' => $past,
+    ]);
+
+    // A newer save already raised the floor.
+    $higher = now()->addMinutes(10)->timestamp;
+    Cache::put('handle.resolve.floor:floormono', $higher, now()->addSeconds(600));
+
+    // A caller holding the 5-minutes-stale Site instance invalidates.
+    $staleSite = Site::query()->findOrFail($siteId);
+    app(SiteCacheService::class)->invalidateSitePayload($staleSite);
+
+    expect((int) Cache::get('handle.resolve.floor:floormono'))->toBe($higher);
+});
+
+// ── Timestamp floor: TTL comes from config, not a literal ────────────────────
+
+it('takes the resolve floor TTL from config', function () {
+    config()->set('partna.public_profile.resolve_floor_ttl', 1234);
+
+    $userId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
+        'handle' => 'floorttl',
+        'handle_lc' => 'floorttl',
+        'display_name' => 'Floorttl',
+        'first_name' => 'Floorttl',
+        'primary_email' => 'floorttl@example.test',
+        'account_type' => 'partna',
+        'status' => 'active',
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $userId,
+        'subdomain' => 'floorttl',
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    // Hydrate the model BEFORE spying — a query can touch the cache, and a spy
+    // installed around it would record puts this assertion doesn't care about.
+    $site = Site::query()->findOrFail($siteId);
+
+    Cache::spy();
+
+    app(SiteCacheService::class)->invalidateSitePayload($site);
+
+    // The TTL must be the config value, not a literal 600 in the service.
+    Cache::shouldHaveReceived('put')
+        ->withArgs(fn ($key, $value, $ttl) => $key === 'handle.resolve.floor:floorttl' && $ttl === 1234)
+        ->once();
 });
