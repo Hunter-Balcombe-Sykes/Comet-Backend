@@ -93,7 +93,7 @@ fix (source item 2) would **break working endpoints** if applied as written.
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 1 of 3 complete
+- P3 Low: 2 of 3 complete
 
 **Bundle 1 (#FFLAG-1 + #TESTFX-1) shipped 2026-07-27** on `audit-fix/dead-code-backend-bugs-2026-07-27`.
 Verified against **real Postgres 16**, not just SQLite: the new
@@ -235,7 +235,30 @@ Two corrections to this audit's own claims were recorded inline above (#FFLAG-1'
 
 ## P3 — Nice to have
 
-- [ ] **#NOTIF-1** · P3 — `markReadForProfessional()`/`dismissForProfessional()` skip the `staffManage` defence-in-depth check that their sibling `store()` applies
+- [x] **#NOTIF-1** · P3 — `markReadForProfessional()`/`dismissForProfessional()` skip the `staffManage` defence-in-depth check that their sibling `store()` applies
+
+    > **Shipped 2026-07-27.** Premise verified: `NotificationPolicy::staffManage` (`:67`) is already correctly
+    > `PartnaStaff`-typed — this was NOT the #FFLAG-2 type-mismatch problem, so the seam just needed wiring.
+    > The actor check is placed **before** `assertVisibleTo()` so a non-admin cannot distinguish 404 from 403 and
+    > enumerate notification ids. `assertVisibleTo()` itself is byte-identical — it does the row-level job, which is
+    > orthogonal to the actor check.
+    >
+    > **This finding's "XS, 2 lines" estimate was wrong.** Adding the check turns four existing assertions red:
+    > `StaffNotificationOnBehalfTest.php` called both methods directly with a bare `Request::create('/', 'POST')`
+    > carrying no `partna_staff` attribute (`:137`, `:153`, `:170`, `:181`) — including a 404 test that would have
+    > failed for an entirely unrelated reason. All four now use the file's existing admin-request helper. Third
+    > appearance of this same anti-pattern in one audit.
+    >
+    > 11 passed / 23 assertions (from a 9/19 baseline); `--filter=Notification` → 204 passed.
+    >
+    > ⚠️ **New production bug found while doing this — filed separately, NOT fixed here.** The optional HTTP smoke
+    > test could not be written because both routes are broken: `Route::withoutScopedBindings()`
+    > (`routes/api/staff.php:254`) does not take effect inside the parent group's `->scopeBindings()` (`:186`) —
+    > the live routes report `enforcesScopedBindings=true`, `preventsScopedBindings=false`. Scoped binding resolves
+    > `{notification}` via `$professional->notifications()`, which is Laravel's `HasDatabaseNotifications` relation
+    > to `Illuminate\Notifications\DatabaseNotification` (table `notifications`) rather than
+    > `App\Models\Core\Notifications\Notification` (table `notifications.notifications`). Affects Postgres as well
+    > as SQLite. See the note at the foot of `tests/Feature/Staff/StaffNotificationOnBehalfTest.php`.
     - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationController.php:204, :217 (sibling that does it correctly: :39)
     - **Affects:** Nothing today — **zero privilege change**. `NotificationPolicy::staffManage` is `return $actor->isAdmin()` and both routes already sit in the `staff.admin` middleware group, so the policy call would be pure redundancy. It matters only as the defence-in-depth seam the codebase deliberately built: if support staff are ever granted access to the admin route group, these two writes are the ones that won't stop them.
     - **Effort:** XS (~10 min — 2 lines)

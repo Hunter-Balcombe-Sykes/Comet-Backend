@@ -8,6 +8,7 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Notifications\NotificationListingService;
 use App\Services\Segments\SegmentResolver;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -19,10 +20,21 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 function staffNotifOnBehalf_request(string $method): Request
 {
+    return staffNotifOnBehalf_requestAs($method, PartnaStaff::ROLE_ADMIN);
+}
+
+/**
+ * Same as staffNotifOnBehalf_request() but with a caller-chosen role — used to
+ * prove the #NOTIF-1 staffManage policy gate denies a non-admin on its own,
+ * independent of the staff.admin route middleware (which this direct
+ * controller call bypasses entirely).
+ */
+function staffNotifOnBehalf_requestAs(string $method, string $role): Request
+{
     $request = Request::create('/', $method);
     $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
-    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $staff->role = $role;
     $request->attributes->set('partna_staff', $staff);
 
     return $request;
@@ -31,8 +43,28 @@ function staffNotifOnBehalf_request(string $method): Request
 beforeEach(function () {
     attachTestSchemas();
     setupUsersTable();
+    setupPartnaStaffTable();
 
     $conn = DB::connection('pgsql');
+
+    // staff.audit middleware writes here on every write request (see
+    // StaffNotificationEmailPolicyControllerAuthTest.php for the same setup).
+    $conn->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
+        id TEXT PRIMARY KEY,
+        staff_id TEXT,
+        staff_email_snapshot TEXT,
+        impersonator_staff_id TEXT,
+        impersonator_email_snapshot TEXT,
+        user_id TEXT,
+        professional_handle_snapshot TEXT,
+        route TEXT NOT NULL DEFAULT \'\',
+        http_method TEXT NOT NULL DEFAULT \'\',
+        status_code INTEGER NOT NULL DEFAULT 0,
+        payload_summary TEXT NOT NULL DEFAULT \'{}\',
+        ip_hash TEXT,
+        user_agent TEXT,
+        created_at TEXT
+    )');
 
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id TEXT PRIMARY KEY,
@@ -133,8 +165,8 @@ it('markReadForProfessional writes a receipt and the next index call no longer f
     $before = json_decode($controller->indexForProfessional(staffNotifOnBehalf_request('GET'), $pro)->getContent(), true);
     expect($before['unread_count'])->toBe(1);
 
-    // staff marks read on the pro's behalf
-    $markResponse = $controller->markReadForProfessional(Request::create('/', 'POST'), $pro, $notification);
+    // staff marks read on the pro's behalf (admin — the seam should allow it)
+    $markResponse = $controller->markReadForProfessional(staffNotifOnBehalf_request('POST'), $pro, $notification);
     expect($markResponse->status())->toBe(200);
 
     // after: still in list, but no longer counted as unread (no cache assertion —
@@ -150,7 +182,7 @@ it('dismissForProfessional hides the notification from the default index variant
 
     $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
 
-    $controller->dismissForProfessional(Request::create('/', 'POST'), $pro, $notification);
+    $controller->dismissForProfessional(staffNotifOnBehalf_request('POST'), $pro, $notification);
 
     $after = json_decode(
         $controller->indexForProfessional(staffNotifOnBehalf_request('GET'), $pro)->getContent(),
@@ -167,7 +199,7 @@ it('markReadForProfessional returns 404 when the notification belongs to a diffe
 
     $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
 
-    expect(fn () => $controller->markReadForProfessional(Request::create('/', 'POST'), $pro, $notification))
+    expect(fn () => $controller->markReadForProfessional(staffNotifOnBehalf_request('POST'), $pro, $notification))
         ->toThrow(NotFoundHttpException::class);
 });
 
@@ -178,6 +210,56 @@ it('global broadcasts are visible to staff acting on behalf of any pro', functio
     $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
 
     // mark-read on a global broadcast should succeed (a global is "visible to" anyone)
-    $response = $controller->markReadForProfessional(Request::create('/', 'POST'), $pro, $broadcast);
+    $response = $controller->markReadForProfessional(staffNotifOnBehalf_request('POST'), $pro, $broadcast);
     expect($response->status())->toBe(200);
+});
+
+// #NOTIF-1: the seam denies a non-admin at the policy layer, standing on its
+// own regardless of the staff.admin middleware (which a direct controller
+// call like this bypasses entirely — see StaffNotificationAudienceTest.php).
+it('markReadForProfessional denies a non-admin staff member at the policy layer', function () {
+    $pro = staffNotif_makeBrand();
+    $notification = staffNotif_seedNotificationForPro($pro->id);
+
+    $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
+
+    expect(fn () => $controller->markReadForProfessional(
+        staffNotifOnBehalf_requestAs('POST', PartnaStaff::ROLE_SUPPORT), $pro, $notification
+    ))->toThrow(AuthorizationException::class);
+
+    // Denied before the write — no receipt row was created.
+    expect(DB::connection('pgsql')->table('notifications.notification_receipts')->count())->toBe(0);
+});
+
+// #NOTIF-1's optional HTTP smoke test was attempted here and dropped — NOT
+// because of a test-fixture gap, but because these two routes are genuinely
+// broken and a passing HTTP test cannot be written until that is fixed.
+//
+// routes/api/staff.php:254 wraps them in Route::withoutScopedBindings(), but
+// that does not take effect inside the parent group's ->scopeBindings() at
+// :186 — the live routes report enforcesScopedBindings=true and
+// preventsScopedBindings=false. Scoped binding therefore resolves
+// {notification} through $professional->notifications(), which is Laravel's
+// HasDatabaseNotifications trait relation to Illuminate\Notifications\
+// DatabaseNotification (table `notifications`), NOT
+// App\Models\Core\Notifications\Notification (table `notifications.notifications`).
+// So the real request 500s on a notifiable_type/notifiable_id query. This
+// affects Postgres too, not just SQLite — it is a production bug, filed
+// separately; fixing it is out of scope for #NOTIF-1.
+//
+// The direct-controller tests above prove the authorization seam (admin
+// allowed, non-admin denied with no write) without depending on the binding.
+
+it('dismissForProfessional denies a non-admin staff member at the policy layer', function () {
+    $pro = staffNotif_makeBrand();
+    $notification = staffNotif_seedNotificationForPro($pro->id);
+
+    $controller = new StaffNotificationController(app(NotificationListingService::class), app(SegmentResolver::class));
+
+    expect(fn () => $controller->dismissForProfessional(
+        staffNotifOnBehalf_requestAs('POST', PartnaStaff::ROLE_SUPPORT), $pro, $notification
+    ))->toThrow(AuthorizationException::class);
+
+    // Denied before the write — no receipt row was created.
+    expect(DB::connection('pgsql')->table('notifications.notification_receipts')->count())->toBe(0);
 });

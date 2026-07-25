@@ -203,6 +203,13 @@ class StaffNotificationController extends ApiController
      */
     public function markReadForProfessional(Request $request, User $professional, Notification $notification): JsonResponse
     {
+        // Defence-in-depth (#NOTIF-1): mirrors store() at the top of this file —
+        // the route already sits in the staff.admin group, but gate the
+        // act-on-behalf write at the policy layer too (admin only). Separate
+        // from assertVisibleTo() below, which is the row-level 404 check.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', Notification::class);
+
         $this->assertVisibleTo($notification, $professional);
         $this->listing->assertActive($notification);
 
@@ -216,6 +223,13 @@ class StaffNotificationController extends ApiController
      */
     public function dismissForProfessional(Request $request, User $professional, Notification $notification): JsonResponse
     {
+        // Defence-in-depth (#NOTIF-1): mirrors store() at the top of this file —
+        // the route already sits in the staff.admin group, but gate the
+        // act-on-behalf write at the policy layer too (admin only). Separate
+        // from assertVisibleTo() below, which is the row-level 404 check.
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffManage', Notification::class);
+
         $this->assertVisibleTo($notification, $professional);
         $this->listing->assertActive($notification);
 
