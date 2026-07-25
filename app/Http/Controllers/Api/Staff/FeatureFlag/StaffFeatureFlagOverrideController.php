@@ -25,7 +25,9 @@ class StaffFeatureFlagOverrideController extends ApiController
     /** GET /staff/feature-flags/{key}/overrides — list overrides for a flag (paginated, newest first). */
     public function index(Request $request, string $key): JsonResponse
     {
-        abort_if($request->attributes->get('partna_staff') === null, 401, 'Unauthenticated');
+        $staff = $request->attributes->get('partna_staff');
+        abort_if($staff === null, 401, 'Unauthenticated');
+        $this->authorizeForUser($staff, 'staffView', FeatureFlagOverride::class);
 
         $flag = FeatureFlag::findOrFail($key);
         $overrides = $flag->overrides()->orderBy('created_at', 'desc')->paginate(50);
@@ -39,6 +41,7 @@ class StaffFeatureFlagOverrideController extends ApiController
     {
         $staff = $request->attributes->get('partna_staff');
         abort_if($staff === null, 401, 'Unauthenticated');
+        $this->authorizeForUser($staff, 'staffManage', FeatureFlagOverride::class);
 
         $flag = FeatureFlag::findOrFail($key);
         $data = $request->validated();
@@ -66,9 +69,11 @@ class StaffFeatureFlagOverrideController extends ApiController
     /** DELETE /staff/feature-flags/overrides/{id} — remove an override by its UUID. */
     public function destroy(Request $request, string $id): JsonResponse
     {
-        abort_if($request->attributes->get('partna_staff') === null, 401, 'Unauthenticated');
+        $staff = $request->attributes->get('partna_staff');
+        abort_if($staff === null, 401, 'Unauthenticated');
 
         $override = FeatureFlagOverride::findOrFail($id);
+        $this->authorizeForUser($staff, 'staffManage', $override);
 
         // Delete by PK (unambiguous), then push-invalidate the scope's cache key.
         $override->delete();

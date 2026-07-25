@@ -93,7 +93,7 @@ fix (source item 2) would **break working endpoints** if applied as written.
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 2 of 3 complete
+- P3 Low: 3 of 3 complete
 
 **Bundle 1 (#FFLAG-1 + #TESTFX-1) shipped 2026-07-27** on `audit-fix/dead-code-backend-bugs-2026-07-27`.
 Verified against **real Postgres 16**, not just SQLite: the new
@@ -295,7 +295,37 @@ Two corrections to this audit's own claims were recorded inline above (#FFLAG-1'
     - **Technical:** The source doc claims the staff-facing Requests "were not updated" after `20260721180000_service_multi_category.sql` dropped the column. The column drop is real — `:313` `ALTER TABLE site.services DROP COLUMN IF EXISTS category_id;` (and `:314` drops `category`), after backfilling `site.service_category_assignments` at `:47-50` and rebuilding `site.public_site_payload` first so the drop isn't blocked by the view dependency. But the staff **write path was migrated**: `StaffServiceManagementController::store()` (`:102`) never passes `category_id` to `create()`, attaching via the pivot at `:130` (`$service->categories()->attach($data['category_id'])`); `::update()` (`:161`) carries an explicit comment — *"Multi-category: the legacy single `category_id` REPLACES the membership set (`[]` for null)"* — syncs the pivot at `:181` and calls `unset($data['category_id'])` at `:190` before `fill()`/`save()`. `Service::$fillable` (`app/Models/Core/User/Service.php:52-63`) omits the dropped column too, so even a missed `unset` would be silently discarded rather than throwing. So `category_id` in these Requests is a deliberately retained legacy input alias — the same pattern the professional-facing Request uses. Authorization here is exemplary and contradicts the source doc's other items: `store`/`update`/`show`/`destroy` all call `authorizeForUser($staff, 'staffManage'|'staffView', $professional)` with `#SEC-2` comments. **Separately checked and NOT a bug:** these two Requests hold the only unqualified `exists:` rules in the entire `app/Http/Requests/` tree (`exists:service_categories,id`, no schema prefix) — it resolves because `config/database.php:98` sets `search_path` to `public,core,site,notifications,analytics`. Stylistic outlier, functionally correct.
     - **Plain English:** A recent database change let a service belong to several categories at once instead of just one. The audit says the staff side of this was never updated and is still writing to the deleted column. That isn't right — the staff code *was* updated: it saves categories through the new join table and explicitly strips the old field before saving, with a comment saying exactly that. Nothing crashes and nothing is lost. What's actually left is much smaller: a staff member can only attach one category at a time, while a user can send a whole list, and there's no staff version of the "reassign categories" action. That's a convenience gap, not a bug.
 
-- [ ] **#FFLAG-2** · P3 — Feature-flag staff controllers have no in-controller authorization seam, because `FeatureFlagPolicy` never grew the staff abilities its sibling policies did
+- [x] **#FFLAG-2** · P3 — Feature-flag staff controllers have no in-controller authorization seam, because `FeatureFlagPolicy` never grew the staff abilities its sibling policies did
+
+    > **Shipped 2026-07-27 — option (b), signed off by Josh.**
+    >
+    > **This finding's framing was too generous to the status quo.** It defends `FeatureFlagPolicy` as a
+    > "documented deliberate deny-all shield," and its docblock did say so — but `FeatureAvailabilityPolicy`
+    > is the same kind of model (staff-only platform config), behind the same all-admin route group, and it
+    > carries **both** the `User`-typed shield *and* the `PartnaStaff`-typed seam (`:16-38`). The codebase had
+    > already answered this question next door, the other way. `FeatureFlagPolicy` was the file that predates
+    > the convention, not a considered exception. That twin, unnamed by this finding, is what made option (b)
+    > the clear choice.
+    >
+    > **This finding's warning was also understated, and it was right to give it.** The source doc's
+    > prescription (call the existing `manage`/`view` abilities) does not merely 403 — proved by execution, it
+    > raises an uncaught `TypeError` and would have returned **HTTP 500 on all 7 working endpoints**:
+    > `FeatureFlagPolicy::manage(): Argument #1 ($pro) must be of type …\User\User, …\Staff\PartnaStaff given`.
+    >
+    > Delivered: `staffView` (SUPPORT|ADMIN) and `staffManage` (admin) added as `PartnaStaff`-typed abilities;
+    > the three `User`-typed deny-all methods left **byte-identical** (verified against HEAD by the reviewer) —
+    > they are the shield. All 7 controller methods wired, with `abort_if(401)` strictly before
+    > `authorizeForUser`, and the ability call after `findOrFail` on `update`/`destroy` so a missing row is 404
+    > not 403.
+    >
+    > **The real defect underneath, which this finding did not name:** `StaffFeatureFlagController` had **no
+    > null-actor guard on any of its 4 methods** and never resolved `partna_staff` at all — flag
+    > create/update/delete was entirely unattributed. Its sibling had guards on all 3. Now fixed.
+    >
+    > Landmine defused: `StaffFeatureFlagsControllerTest` built a **roleless** `PartnaStaff`, so `isAdmin()` was
+    > false and ~9 tests would have 403'd on wiring day. 66 passed / 168 assertions (from 54). Postgres lane
+    > executed (not skipped): 6 passed / 25 assertions, unchanged — confirming no regression on the real
+    > HTTP + middleware path. Independent review: PASS, no defects.
     - **Where:** app/Policies/FeatureFlagPolicy.php (whole file); app/Http/Controllers/Api/Staff/FeatureFlag/StaffFeatureFlagController.php (all 4 methods), StaffFeatureFlagOverrideController.php (all 3 methods). Sibling policies that did grow the seam: app/Policies/NotificationPolicy.php:67,:81 and app/Policies/UserSelfPolicy.php:102,:116
     - **Affects:** Nothing exploitable — both controllers sit behind the `staff.admin` middleware group. Consistency/auditability only. ⚠️ **The source doc's prescribed fix would break both endpoints if applied as written** — read Technical before planning.
     - **Effort:** S (~2–3h) · **touches authorization → plan first and get sign-off regardless of size**

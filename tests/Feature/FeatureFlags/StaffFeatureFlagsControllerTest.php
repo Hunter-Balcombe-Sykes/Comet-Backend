@@ -9,6 +9,7 @@ use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\FeatureFlags\FeatureFlagService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -23,7 +24,7 @@ beforeEach(function () {
     Cache::flush();
     FeatureFlagTestCase::boot();
 
-    $this->staff = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid()]);
+    $this->staff = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_ADMIN]);
     $this->service = app(FeatureFlagService::class);
     $this->flagController = new StaffFeatureFlagController($this->service);
     $this->overrideController = new StaffFeatureFlagOverrideController($this->service);
@@ -60,7 +61,50 @@ function mockFormRequest(string $class, array $validatedData, PartnaStaff $staff
     return $mock;
 }
 
+// ── StaffFeatureFlagController::index ────────────────────────────────────────
+
+it('index returns 401 when staff not on request', function () {
+    $request = Request::create('/', 'GET');
+
+    $this->expectException(HttpException::class);
+    $this->flagController->index($request);
+});
+
+it('index returns 403 for a support-role staff actor', function () {
+    $request = Request::create('/', 'GET');
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $request->attributes->set('partna_staff', $support);
+
+    $response = $this->flagController->index($request);
+
+    expect($response->status())->toBe(200);
+});
+
 // ── StaffFeatureFlagController::store ────────────────────────────────────────
+
+it('store returns 401 when staff not on request', function () {
+    $formRequest = CreateFeatureFlagRequest::create('/', 'POST', [
+        'key' => 'no_staff_flag',
+        'default_enabled' => false,
+        'rollout_percent' => 0,
+    ]);
+
+    $this->expectException(HttpException::class);
+    $this->flagController->store($formRequest);
+});
+
+it('store returns 403 for a support-role staff actor', function () {
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $formRequest = mockFormRequest(CreateFeatureFlagRequest::class, [
+        'key' => 'support_denied_flag',
+        'description' => null,
+        'default_enabled' => false,
+        'rollout_percent' => 0,
+    ], $support);
+
+    $this->expectException(AuthorizationException::class);
+    $this->flagController->store($formRequest);
+});
 
 it('store creates a flag with valid data', function () {
     $formRequest = mockFormRequest(CreateFeatureFlagRequest::class, [
@@ -108,6 +152,23 @@ it('store validation accepts valid lowercase_underscore key', function () {
 
 // ── StaffFeatureFlagController::update ───────────────────────────────────────
 
+it('update returns 401 when staff not on request', function () {
+    FeatureFlag::create(['key' => 'no_staff_update_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
+    $formRequest = UpdateFeatureFlagRequest::create('/', 'PATCH', ['rollout_percent' => 10]);
+
+    $this->expectException(HttpException::class);
+    $this->flagController->update($formRequest, 'no_staff_update_flag');
+});
+
+it('update returns 403 for a support-role staff actor', function () {
+    FeatureFlag::create(['key' => 'support_denied_update_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $formRequest = mockFormRequest(UpdateFeatureFlagRequest::class, ['rollout_percent' => 10], $support);
+
+    $this->expectException(AuthorizationException::class);
+    $this->flagController->update($formRequest, 'support_denied_update_flag');
+});
+
 it('update changes rollout_percent on an existing flag', function () {
     FeatureFlag::create(['key' => 'update_flag', 'default_enabled' => true, 'rollout_percent' => 10]);
 
@@ -148,6 +209,24 @@ it('update changes description on an existing flag', function () {
 
 // ── StaffFeatureFlagController::destroy ──────────────────────────────────────
 
+it('destroy returns 401 when staff not on request', function () {
+    FeatureFlag::create(['key' => 'no_staff_destroy_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
+    $request = Request::create('/', 'DELETE');
+
+    $this->expectException(HttpException::class);
+    $this->flagController->destroy($request, 'no_staff_destroy_flag');
+});
+
+it('destroy returns 403 for a support-role staff actor', function () {
+    FeatureFlag::create(['key' => 'support_denied_destroy_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $request = Request::create('/', 'DELETE');
+    $request->attributes->set('partna_staff', $support);
+
+    $this->expectException(AuthorizationException::class);
+    $this->flagController->destroy($request, 'support_denied_destroy_flag');
+});
+
 it('destroy soft-deletes a flag', function () {
     FeatureFlag::create(['key' => 'delete_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
 
@@ -178,6 +257,17 @@ it('override index returns 401 when staff not on request', function () {
     $this->overrideController->index($request, 'any_flag');
 });
 
+it('override index allows a support-role staff actor', function () {
+    FeatureFlag::create(['key' => 'support_view_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $request = Request::create('/', 'GET');
+    $request->attributes->set('partna_staff', $support);
+
+    $response = $this->overrideController->index($request, 'support_view_flag');
+
+    expect($response->status())->toBe(200);
+});
+
 // ── StaffFeatureFlagOverrideController::store ─────────────────────────────────
 
 it('override store returns 401 when staff not on request', function () {
@@ -188,6 +278,18 @@ it('override store returns 401 when staff not on request', function () {
 
     $this->expectException(HttpException::class);
     $this->overrideController->store($request, 'any_flag');
+});
+
+it('override store returns 403 for a support-role staff actor', function () {
+    FeatureFlag::create(['key' => 'support_denied_override_flag', 'default_enabled' => false, 'rollout_percent' => 0]);
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $formRequest = mockFormRequest(CreateOverrideRequest::class, [
+        'user_id' => (string) Str::uuid(),
+        'enabled' => true,
+    ], $support);
+
+    $this->expectException(AuthorizationException::class);
+    $this->overrideController->store($formRequest, 'support_denied_override_flag');
 });
 
 it('store override creates a professional override', function () {
@@ -223,6 +325,38 @@ it('override destroy returns 401 when staff not on request', function () {
 
     $this->expectException(HttpException::class);
     $this->overrideController->destroy($request, (string) Str::uuid());
+});
+
+it('override destroy returns 403 for a support-role staff actor', function () {
+    FeatureFlag::create(['key' => 'destroy_ov_flag_support', 'default_enabled' => false, 'rollout_percent' => 0]);
+
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => 'support-denied-pro',
+        'display_name' => 'Support Denied Pro',
+        'primary_email' => 'support-denied@example.com',
+        'status' => 'active',
+    ]);
+
+    $overrideId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.feature_flag_overrides')->insert([
+        'id' => $overrideId,
+        'flag_key' => 'destroy_ov_flag_support',
+        'user_id' => $proId,
+        'enabled' => 1,
+        'reason' => 'support denied',
+        'created_by' => (string) Str::uuid(),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $support = (new PartnaStaff)->forceFill(['id' => (string) Str::uuid(), 'role' => PartnaStaff::ROLE_SUPPORT]);
+    $request = Request::create('/', 'DELETE');
+    $request->attributes->set('partna_staff', $support);
+
+    $this->expectException(AuthorizationException::class);
+    $this->overrideController->destroy($request, $overrideId);
 });
 
 it('destroy override removes the override', function () {

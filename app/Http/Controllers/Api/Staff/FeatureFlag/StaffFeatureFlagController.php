@@ -23,6 +23,10 @@ class StaffFeatureFlagController extends ApiController
     /** GET /staff/feature-flags — list all flags with override counts. */
     public function index(Request $request): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        abort_if($staff === null, 401, 'Unauthenticated');
+        $this->authorizeForUser($staff, 'staffView', FeatureFlag::class);
+
         $flags = FeatureFlag::withCount('overrides')->orderBy('key')->paginate((int) config('partna.staff.pagination.per_page', 25));
         $flags->through(fn (FeatureFlag $flag) => FeatureFlagResource::make($flag)->resolve());
 
@@ -32,6 +36,10 @@ class StaffFeatureFlagController extends ApiController
     /** POST /staff/feature-flags — create a new flag. */
     public function store(CreateFeatureFlagRequest $request): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        abort_if($staff === null, 401, 'Unauthenticated');
+        $this->authorizeForUser($staff, 'staffManage', FeatureFlag::class);
+
         $flag = FeatureFlag::create($request->validated());
         $this->service->flushRegistry();
         $flag->loadCount('overrides');
@@ -42,7 +50,12 @@ class StaffFeatureFlagController extends ApiController
     /** PATCH /staff/feature-flags/{key} — update default_enabled or description. */
     public function update(UpdateFeatureFlagRequest $request, string $key): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        abort_if($staff === null, 401, 'Unauthenticated');
+
         $flag = FeatureFlag::findOrFail($key);
+        $this->authorizeForUser($staff, 'staffManage', $flag);
+
         $flag->update($request->validated());
         $this->service->flushRegistry();
         $flag->loadCount('overrides');
@@ -53,7 +66,12 @@ class StaffFeatureFlagController extends ApiController
     /** DELETE /staff/feature-flags/{key} — remove a flag and all its overrides. */
     public function destroy(Request $request, string $key): JsonResponse
     {
+        $staff = $request->attributes->get('partna_staff');
+        abort_if($staff === null, 401, 'Unauthenticated');
+
         $flag = FeatureFlag::findOrFail($key);
+        $this->authorizeForUser($staff, 'staffManage', $flag);
+
         $flag->delete();
         $this->service->flushRegistry();
 
