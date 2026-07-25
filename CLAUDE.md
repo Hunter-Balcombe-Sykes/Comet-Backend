@@ -21,7 +21,7 @@ Feature branches off `development`. PR → merge → promote to `production` to 
 
 **Push to Supabase:** `supabase link --project-ref <ref>` → `db push --dry-run` → `db push`. Dev freely; prod confirm first. `DB_USERNAME` = `app_backend.<project_ref>` (Supavisor), port 5432.
 
-**⚠ From-zero apply — `db reset`/`db push` cannot provision an empty DB here.** The CLI sends each migration file's statements to Postgres as one libpq **pipeline** whenever the file has >1 statement of any kind, and `CREATE/DROP INDEX CONCURRENTLY` can't run in a pipeline (`SQLSTATE 25001`), so any file that pairs a `CONCURRENTLY` statement with anything else aborts a from-scratch apply (11 grandfathered files do; see `supabase/migrations/CONVENTIONS.md` §1). Ordinary **incremental** `db push` of compliant (each `CONCURRENTLY` alone in its file) migrations is unaffected.
+**From-zero apply.** Since the 2026-07-26 collapse, `supabase/migrations/` holds a single `CONCURRENTLY`-free baseline, so a from-zero apply is one file and the old pipeline hazard no longer bites. (Historical: the CLI sends each migration file's statements as one libpq **pipeline** whenever the file has >1 statement, and `CREATE/DROP INDEX CONCURRENTLY` can't run in a pipeline — `SQLSTATE 25001`. Eleven pre-collapse files paired a `CONCURRENTLY` statement with something else and so could not be applied from scratch; all are now in `supabase/migrations-archive/`. See `supabase/migrations/CONVENTIONS.md` §1.) Keep the one-`CONCURRENTLY`-per-file rule for NEW migrations.
 - **Local fresh DB:** `scripts/db/fresh-reset.sh` (provisions the base, then applies every migration via a `psql` simple-query loop — no pipeline, so `CONCURRENTLY` succeeds).
 - **Fresh prod cutover:** apply `supabase/migrations/*.sql` in filename order via `psql -f` (simple protocol; **not** `--single-transaction`) against the prod DB URL, recording each in `supabase_migrations.schema_migrations`; then `ALTER ROLE app_backend WITH LOGIN PASSWORD '<secret>'` (NOLOGIN by default). Verify a from-zero apply with `fresh-reset.sh` locally first.
 
@@ -66,7 +66,7 @@ App = `partna`. Environments: `development` (default), `production` (gated).
 
 ### Database — Supabase Only
 - **Never create Laravel migration files.** Composer guard rejects them.
-- All schema changes in `supabase/migrations/` as raw SQL. Baseline: `20260526000000_baseline_standalone_user.sql`. Historical in `supabase/migrations-archive/`.
+- All schema changes in `supabase/migrations/` as raw SQL. Baseline: `20260726000000_baseline_pilot.sql` (snapshot of the verified dev schema, 2026-07-26). Historical in `supabase/migrations-archive/`.
 - Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, services, design_kits, media, customers, enquiries, aliases), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only). No `brand`, `commerce`, `billing`.
 
 ### Code Organization

@@ -1536,7 +1536,7 @@ function createDocumentFor(User $pro, array $overrides = []): SiteMedia
  *
  * CANONICAL definition — Tests\Feature\FeatureFlags\FeatureFlagTestCase::boot()
  * calls this rather than keeping its own copy. Columns must match
- * supabase/migrations/20260526000000_baseline_standalone_user.sql:575-590
+ * supabase/migrations-archive/20260526000000_baseline_standalone_user.sql:575-590
  * exactly (nine, after the professional_id -> user_id rename in 20260527030000).
  * Never add a column that has no migration backing: a phantom `brand_id` in the
  * old duplicate masked a live Postgres 42703 for two months (#FFLAG-1).

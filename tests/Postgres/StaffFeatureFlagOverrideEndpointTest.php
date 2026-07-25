@@ -4,7 +4,7 @@
 // StaffFeatureFlagOverrideController::store() used to re-read the row it had
 // just upserted via a query that included ->whereNull('brand_id') — a column
 // dropped from core.feature_flag_overrides by that same standalone
-// strip-down commit (supabase/migrations/20260526000000_baseline_standalone_user.sql:575-590
+// strip-down commit (supabase/migrations-archive/20260526000000_baseline_standalone_user.sql:575-590
 // defines the real nine columns; no brand_id anywhere after it). Every real
 // POST to this endpoint has 500'd on Postgres (SQLSTATE 42703, "column
 // brand_id does not exist") since that commit landed.
@@ -27,7 +27,7 @@
 // real Resource — against an actual Postgres database.
 //
 // DDL below is transcribed from
-// supabase/migrations/20260526000000_baseline_standalone_user.sql:575-601,
+// supabase/migrations-archive/20260526000000_baseline_standalone_user.sql:575-601,
 // with the professional_id -> user_id rename (20260527030000:35) and its FK
 // rename (20260527050000:46) applied. feature_flag_overrides_pro_unique and
 // feature_flag_overrides_scope_set were NOT renamed by that migration and are

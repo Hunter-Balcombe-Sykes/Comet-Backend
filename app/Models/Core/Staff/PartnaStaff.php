@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
  * @property string $id
  * @property string $auth_user_id
  * @property string $role One of ROLE_SUPPORT|ROLE_ADMIN — DB-enforced by the
- *                        partna_staff_role_check CHECK constraint (@see supabase/migrations/20260526000000_baseline_standalone_user.sql).
+ *                        partna_staff_role_check CHECK constraint (@see supabase/migrations/20260726000000_baseline_pilot.sql).
  * @property string|null $primary_email
  * @property string|null $name
  * @property string|null $phone
@@ -33,7 +33,7 @@ use Illuminate\Support\Carbon;
 //   needs these fields must expose them via a dedicated StaffResource.
 //
 // ROLE_* constants are enforced at the DB level by partna_staff_role_check.
-// @see supabase/migrations/20260526000000_baseline_standalone_user.sql
+// @see supabase/migrations/20260726000000_baseline_pilot.sql
 class PartnaStaff extends BaseModel
 {
     use HasFactory, HasUuids;

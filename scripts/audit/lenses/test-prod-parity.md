@@ -35,7 +35,7 @@ Number them `PARITY-1`, `PARITY-2`, … sequentially. Tier by whether it ships a
 
 SQLite does **not enforce `CHECK` constraints at all**, and has no `ENUM`/`DOMAIN` types — so a bad literal sails through every test.
 
-- A write of a literal or variable to a column whose migration carries `CHECK (col IN (...))` (or a Postgres `ENUM`/`DOMAIN`) where the value isn't in the allowed set. Canonical in-repo examples: `site.sites.architecture_id CHECK (architecture_id = 'one')` (constraint `sites_architecture_id_check`, renamed in `supabase/migrations/20260710230000_rename_skeleton_id_to_architecture_id.sql`); `site.site_media.pool` CHECK.
+- A write of a literal or variable to a column whose migration carries `CHECK (col IN (...))` (or a Postgres `ENUM`/`DOMAIN`) where the value isn't in the allowed set. Canonical in-repo examples: `site.sites.architecture_id CHECK (architecture_id = 'one')` (constraint `sites_architecture_id_check`, renamed in `supabase/migrations-archive/20260710230000_rename_skeleton_id_to_architecture_id.sql`; the live definition now sits in the collapsed baseline `supabase/migrations/20260726000000_baseline_pilot.sql`); `site.site_media.pool` CHECK.
 - **App enum ↔ DB CHECK drift, both directions.** An `app/Enums/*` case that the DB CHECK doesn't allow (write 500s), OR a DB-allowed value the app enum can't represent (read/cast breaks). Cross-reference the enum cases against the CHECK set verbatim.
 - A `status` / `type` / `kind` column written from a string built at runtime (concatenation, interpolation, external payload) rather than an enum — the value can drift outside the CHECK set with no compiler or SQLite guard.
 

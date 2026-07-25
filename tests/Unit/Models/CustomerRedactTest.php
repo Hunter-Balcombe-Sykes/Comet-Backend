@@ -20,7 +20,7 @@ beforeEach(function () {
 
 /**
  * analytics.lead_submissions — built from the REAL DDL (baseline
- * supabase/migrations/20260526000000_baseline_standalone_user.sql:1189-1205),
+ * supabase/migrations-archive/20260526000000_baseline_standalone_user.sql:1189-1205),
  * not copied from DataExportTestCase.php's stub, which has a spurious
  * created_at column production does not have. NOT NULL matches prod:
  * occurred_at and outcome only; everything else — including customer_id — is

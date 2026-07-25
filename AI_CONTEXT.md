@@ -123,8 +123,8 @@ Visitor analytics + lead capture → analytics.* tables
 │   ├── api/user.php           — User dashboard routes
 │   ├── api/publicSite.php     — Public mini-site routes (subdomain-scoped)
 │   └── api/staff.php          — Staff/admin routes
-├── supabase/migrations/       — Single baseline SQL migration (20260526000000_baseline_standalone_user.sql)
-├── supabase/migrations-archive/ — 147 historical migrations (reference only; already applied)
+├── supabase/migrations/       — Single baseline SQL migration (20260726000000_baseline_pilot.sql)
+├── supabase/migrations-archive/ — 379 historical migrations (reference only; already applied)
 ├── config/sidest.php           — Feature flags and limits
 ├── tests/                     — Pest framework tests
 └── docs/api.md                — API reference

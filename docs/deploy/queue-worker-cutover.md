@@ -310,7 +310,7 @@ Ranked by impact:
   `onQueue()`. `retry_after` 3600s covers long ffmpeg encodes; dedicated `supervisor-videos`
   present in every block.
 - **Failed jobs:** `public.failed_jobs` **and** `public.job_batches` both exist in
-  `supabase/migrations/20260526000000_baseline_standalone_user.sql`, match `config/queue.php`
+  `supabase/migrations/20260726000000_baseline_pilot.sql`, match `config/queue.php`
   (`database-uuids`), and are RLS-restricted to `core.partna_staff`. `DB_SEARCH_PATH` puts
   `public` first so unqualified names resolve. `queue:prune-failed --hours=72` already runs
   daily. **No silent-failure risk.**

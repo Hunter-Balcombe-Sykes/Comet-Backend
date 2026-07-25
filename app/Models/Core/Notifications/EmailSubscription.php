@@ -33,7 +33,7 @@ use Illuminate\Support\Str;
 
 // V2: Marketing email opt-in/out record per professional+email. Source of truth for consent; caches status on Customer for performance.
 // status ('subscribed'/'unsubscribed') is enforced at the DB level by email_subscriptions_status_check.
-// @see supabase/migrations/20260526000000_baseline_standalone_user.sql
+// @see supabase/migrations/20260726000000_baseline_pilot.sql
 class EmailSubscription extends BaseModel
 {
     use HasUuids;

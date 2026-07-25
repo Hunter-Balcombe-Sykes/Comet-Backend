@@ -55,7 +55,22 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
         identical objects, sidesteps the `CONCURRENTLY`-in-transaction 25001), recorded in the ledger under
         the **exact repo versions** (aligned — no cutover reconciliation needed). Already in the schema to
         be snapshotted — nothing to do at cutover.
-- [ ] **Reconcile dev migration drift** — the **non-negotiable prerequisite** for a trustworthy prod DB
+- [x] **Reconcile dev migration drift** — **DONE 2026-07-26.** At execution the ledger was already
+      aligned: **228 repo files ↔ 228 dev ledger rows, 0 remote-only, 0 local-only** (confirmed by both
+      `supabase migration list` and a direct `schema_migrations` query) — the renumbered-dupe drift
+      catalogued earlier had been repaired by intervening work, so **no `migration repair` was needed**.
+      Schema-level reconciliation found and fixed one real defect: **two INVALID indexes on dev**
+      (`moderation.cases_open_queue_idx`, `site.idx_enquiries_user_status_created` — failed
+      `CREATE INDEX CONCURRENTLY`, `indisvalid=false`). `pg_dump` **omits invalid indexes**, so the
+      baseline would have silently shipped prod without them; both were rebuilt on dev and verified
+      `indisvalid=true` (zero invalid indexes remain). Two accepted, documented deviations: dev grants
+      `app_backend` `GRANT ALL` on `public.failed_jobs`/`job_batches`/sequence + default privileges where
+      the old baseline granted `SELECT,INSERT,DELETE,UPDATE` (**baked in as-is** — decision: prod == dev);
+      and `site.design_kits` differs from repo history (dev has `space_desktop_xl`, which app code
+      validates, and lacks two dead `sizing_*_header_height` columns) — **further proof that snapshotting
+      dev, not replaying repo history, is the correct strategy**.
+      <details><summary>superseded original plan</summary>
+      The **non-negotiable prerequisite** for a trustworthy prod DB
       (you chose to **snapshot dev into a fresh baseline**, so dev must be a known, reproducible state).
       The dev DB has changes applied out-of-band that aren't in the repo (and repo files not applied to
       dev). **A 2026-07-21 audit already catalogued this drift**: 73 repo-only + 55 dev-only versions, of
@@ -65,14 +80,31 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
       recorded under its exact repo versions** (2026-07-22, checkbox above) — so it needs no reconciliation
       here; it's already part of the verified dev schema. **Full step-by-step below → see "Drift
       reconciliation (detailed steps)".**
-- [ ] **Collapse the migration history into a fresh baseline** (see "Migration collapse" below). Snapshot
-      the *verified dev schema*, archive the incrementals, verify parity with a schema diff **plus the
-      grant/role-posture assertions** (a schema diff cannot see grants or role attributes) — **and prove
-      the baseline applies from an empty DB via `scripts/db/fresh-reset.sh`** (the CONCURRENTLY-safe psql
-      applier; see Phase 1 for why `db push` can't do a from-zero apply). **Execute via the plan**
-      `docs/superpowers/plans/2026-07-22-reconcile-and-collapse-baseline.md` (Tasks 0–10; bootstrap:
-      `PROMPT-execute-reconcile-and-collapse-baseline.md`) — it carries the 2026-07-22 review corrections
-      (BYPASSRLS stitch, `db diff --from/--to` fallback, grant-matrix parity, `pg_trgm` stitch).
+      </details>
+- [x] **Collapse the migration history into a fresh baseline** — **DONE 2026-07-26.** Baseline
+      `supabase/migrations/20260726000000_baseline_pilot.sql` (5,610 lines): a `db dump` of the verified
+      dev schema across all 7 app schemas, plus the stitched header (guard disable-file marker with the
+      accurate Checks-2/5 justification; `CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public`;
+      `app_backend` created **NOLOGIN** **and** `ALTER ROLE … BYPASSRLS`). All 228 incrementals `git mv`-ed
+      to `supabase/migrations-archive/` (now 379). Proofs: `fresh-reset.sh` from-zero apply clean
+      (**"Applied 1 migrations"**, zero errors, `gin_trgm_ops` resolved); baseline-built local DB vs dev
+      **semantically identical** — 698 constraints/indexes/policies, fingerprint
+      `19acfb76735ee59a3a0eb7c3c910ba72` on both sides; posture (grants + default ACLs + RLS flags)
+      identical — 158 rows, `d83829b27419863dbd9873292eede360`; `rolcanlogin=f`, `rolbypassrls=t`;
+      both views resolve; all 19 functions carry a pinned `search_path`; guard passes; suite green.
+      Baseline greps: exactly one `CREATE ROLE`, `BYPASSRLS` present, `pg_trgm` present, **zero
+      `CONCURRENTLY`**.
+
+      > ⚠️ **`supabase db diff --from/--to` IS BROKEN — do not trust it (CLI 2.101.0).** It returns
+      > **empty output regardless of actual differences**. Verified by injecting a real extra column into
+      > the local DB: the diff stayed empty in *both* directions under all four engines (`--use-migra`,
+      > `--use-pg-schema`, `--use-pg-delta`, default). The plan's Task-2/Task-7 parity proof rests on this
+      > command, so **an empty result there proves nothing**. Use instead: `supabase db dump` both sides
+      > and `diff` the files (this correctly surfaced the canary and all real drift), and the normalized
+      > fingerprint queries above for semantics. Note a raw dump diff is **not** expected to be
+      > byte-empty: `pg_dump` output is not a parser fixed-point, so re-applying it re-prints CHECK casts
+      > (`ANY ((ARRAY[…])::text[])` → `ANY (ARRAY[…::text])`) — cosmetic, and why the fingerprint
+      > comparison is the real proof. Both DBs were PostgreSQL 17.6, so this is not a version artifact.
 - [ ] **Merge the collapse branch to `development`** after Josh's review — Phase 1 applies the baseline
       from the deployed branch's `supabase/migrations/`, so the unpushed prep branch must land first.
 - [ ] **Env-var parity audit.** Diff the dev Laravel Cloud env's keys against `.env.example` and build the
@@ -151,9 +183,10 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
       Then confirm `supabase_migrations.schema_migrations` is empty before applying the baseline.
 - [ ] **Apply the collapsed baseline via `psql`, gated — NOT `db push`.** `supabase db reset`/`db push`
       pipeline any multi-statement file and **abort on `CREATE/DROP INDEX CONCURRENTLY`** (`SQLSTATE
-      25001`); a from-zero apply of the raw migrations hits the 11 grandfathered CONCURRENTLY bundles and
-      fails. (A single `db dump` baseline is CONCURRENTLY-free so it *might* push, but the sanctioned prod
-      mechanism — CLAUDE.md → "Push to Supabase / Fresh prod DB"; `CONVENTIONS.md §1` — is psql either way.)
+      25001`); that is why the raw pre-collapse migrations could not be applied from zero. The collapsed
+      baseline `20260726000000_baseline_pilot.sql` is CONCURRENTLY-free so it *might* push, but the
+      sanctioned prod mechanism — CLAUDE.md → "Push to Supabase / Fresh prod DB"; `CONVENTIONS.md §1` —
+      is psql either way.
       ```bash
       # Review first: read the baseline in full, or apply to a scratch DB via fresh-reset.sh + `db diff`.
       # Then, against the prod DB URL (simple protocol — NOT --single-transaction), in filename order:
@@ -170,7 +203,7 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
       state the baseline's stitched bootstrap must set (a `db dump` never emits role attributes).
 - [ ] **Verify grants**: `app_backend` has the intended per-schema grants (esp. `audit` = SELECT/INSERT
       only, `moderation` grants present). RLS policies applied. Functions have pinned `search_path`.
-      Diff the full grant matrix against dev using the collapse plan's Task-8 queries
+      Diff the full grant matrix against dev using the Task-8 queries recorded in the Phase-0 collapse checkbox
       (`role_table_grants` + `pg_default_acl`) — the parity schema diff does NOT cover grants.
 - [ ] **Seed** reference/bootstrap data from Phase 0.
 - [ ] **Re-register the Supabase Auth hooks on the prod project** (Dashboard → Authentication → Hooks). A
@@ -438,22 +471,22 @@ and reliability on a fresh prod DB.
   **Snapshotting the verified dev schema is the only way to guarantee prod == dev** — which is exactly why
   the drift reconciliation above must come first.
 
-**Method** (executable version: `docs/superpowers/plans/2026-07-22-reconcile-and-collapse-baseline.md`
-Tasks 0–10 + its bootstrap `PROMPT-execute-reconcile-and-collapse-baseline.md`; the plan carries the
-2026-07-22 review corrections and wins on conflict):
+**Method** — executed 2026-07-26; the implementation plan and its paste-in prompts were deleted on ship
+(per the plans-are-transient convention), so this section plus the Phase-0 collapse checkbox are the
+record. Recover the originals from git history if ever needed. The steps that were followed:
 1. Complete "Drift reconciliation" above so dev is a known, reproducible state.
 2. `supabase db dump` the dev schema — **all** app schemas (`public`, `core`, `site`, `notifications`,
    `analytics`, `audit`, `moderation`), RLS policies, functions (pinned search_path), triggers, views
    (`all_site_data`, `public_site_payload`, …), CHECK constraints, object grants + per-schema default
    privileges. **Exclude** Supabase-managed schemas (`auth`, `storage`, …). A dump can NOT emit
    cluster-level state — the `app_backend` role, its `NOLOGIN`/**`BYPASSRLS`** attributes, or
-   `CREATE EXTENSION` (`pg_trgm`) — the stitch step adds those (collapse plan, Task 5).
+   `CREATE EXTENSION` (`pg_trgm`) — the stitch step adds those.
 3. Make it the new baseline (e.g. `2026NNNN000000_baseline_pilot.sql`); move the incrementals to
    `supabase/migrations-archive/`.
 4. **Verify parity:** apply the new baseline to a scratch DB **via `scripts/db/fresh-reset.sh`** (the psql
    simple-query loop — a from-zero `db reset`/`db push` can't, per the CONCURRENTLY note in Phase 1), then
    `supabase db diff --from local --to linked` against dev — expect **empty**. A clean diff proves schema
-   objects only: also run the collapse plan's Task-8 grant-matrix + `pg_roles` assertions (NOLOGIN,
+   objects only: also run the grant-matrix + `pg_roles` assertions (NOLOGIN,
    BYPASSRLS). Don't trust it for prod until both are clean.
 5. Update `CLAUDE.md`'s baseline-filename reference and any audit-pipeline path references.
 
