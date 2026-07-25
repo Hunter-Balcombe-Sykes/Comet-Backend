@@ -1,6 +1,6 @@
 # Link classification consolidation
 
-**Status:** Ready to execute. B1–B5 resolved; one open decision remains (platform key granularity, blocks Phase 2 only)
+**Status:** Ready to execute. B1–B5 resolved, all decisions closed (1–10)
 **Date:** 2026-07-25
 **Verified against:** working tree at `5a524c27`
 
@@ -85,9 +85,39 @@ Consequences to carry through:
 
 **Where:** Decision 8, Issue L, routing gate matrix, Phase 3 step 2, Phase 7.
 
-### Open decision — platform key granularity
+## Platform key granularity — Decision 10, and the promotion rule
 
-**Platform key granularity (Issue A).** Do the ~55 new booking/reservation/ordering brands get their own platform key each (rich per-brand cards, ~55 descriptors + icons) or ride as a `provider` string on the already-registered shared keys (generic card, near-zero registry work)? Roughly a week of difference. **This plan assumes the shared key** — stated here because the original never said so out loud. Blocks Phase 2, not Phase 1.
+The ~55 new booking/reservation/ordering brands ride as a **`provider` string on the already-registered shared keys** (`booking`, `reservations`, `online-ordering`). They do NOT get a registry key each.
+
+### The promotion rule (the durable part — this is what stops the question recurring)
+
+> **A brand gets its own platform key when it needs *behaviour*** — a scraper, a rich card, a refresh cadence, a connect flow beyond pasting a URL, or its own Resource shape.
+> **Until then it is a `provider` string.**
+
+Fresha and Square are promoted because they have real flows. Booksy is a URL. Icons do not count as behaviour — those come from a `provider → icon_key` map, which `config('partna.social_platforms')` already does.
+
+### Why — this is not a cost compromise
+
+**This codebase already converged on the shared-key pattern twice, independently.**
+
+| Subsystem | Shared key | Providers under it | Promoted to own key |
+|---|---|---|---|
+| Shop | `shop` | shopify, bigcartel, woocommerce, squarespace, generic (`ShopProviderDetector`) | — |
+| Booking | `booking` | (currently unused, about to hold ~18) | `fresha` (rich: `['url','selection']`), `square` (`['url']`) |
+
+`SHOP_BRAND_ALLOWLIST` already carries `'provider'` as a first-class field. The hybrid being proposed here is the one already running in production.
+
+**Three things break under per-brand keys:**
+
+1. **The booking XOR set is hand-enumerated and has already drifted.** "At most one booking provider per user" is a hand-maintained `whereIn` in three places — and `BuildsAutoSyncFindings.php:36-37` documents that the two constants *already disagree* (`GoogleBusinessAutoSync::BOOKING_PLATFORMS` includes `'booking'`, `InstagramAutoSync`'s does not). At 3 elements this is already a commented-on bug source. Per-brand keys make it **58 elements across three hand-maintained lists**, plus an XOR lock spanning all of them. Under Decision 10 the XOR set never changes: `{fresha, square, booking}`, forever, no matter how many brands are added.
+2. **`PublicIntegrationConnectionResource::ALLOWLIST` is per-platform and fail-closed.** A key with no entry renders nothing publicly. 55 keys = 55 allowlist entries, each a chance to silently break a sitepage. The shared key needs one (`'booking' => []` already exists — it will need a `provider`/`url` widening, once).
+3. **Half the researched list won't exist in a year.** Genbook is shut, 10to8 rebranded, Brown Paper Tickets collapsed. Under a provider string a dead brand is a regex that stops matching. Under a registry key it is a descriptor, an icon, an allowlist entry and a test fixture maintained forever.
+
+**Asymmetry of regret:** shared-key-wrong is fixed by promoting one brand — an UPDATE of `platform` + `resource_id` on that brand's rows, incremental and per-brand. Per-brand-wrong is fixed by deleting 55 descriptors, which never happens.
+
+### One thing to confirm before Phase 2
+
+Whether the sitepage needs genuinely **per-brand rendering** — distinct card layouts per booking provider, not just name + icon. Check with the design system. Expected answer is one "Book with {provider}" card, which Decision 10 assumes. If that expectation is wrong, revisit this decision, not the promotion rule.
 
 ## Goal
 
@@ -106,6 +136,7 @@ Every link entering the system — pasted manually, scraped from an Instagram bi
 | 7 | Pre-account: remove `isUnclaimed()` gate. No re-trigger on claim needed |
 | 8 | **Social auto-sync is no longer a Business-Partna convenience.** All account types get scraped socials auto-connected — RULING 1's `google_business_full_sync` gate is repealed for `LinkRouter`. `GoogleBusinessAutoSync::seedSocials` keeps its own gate and is out of scope, so the asymmetry is deliberate. (Resolves B5) |
 | 9 | **No new seeder classes.** `LinkRouter` uses `BuildsAutoSyncFindings` and the existing helpers; `resolveWrite()`/`resolveBookingLink()` move onto the trait in Phase 2.5 first. (Resolves B3, and B4 by inheritance) |
+| 10 | **Shared platform key + `provider` string** for new booking/reservation/ordering brands — NOT a registry key each. A brand earns its own key only when it needs *behaviour* (see the promotion rule below). Continues the pattern `shop` and `booking` already use |
 
 ## Current architecture (problems)
 
@@ -212,7 +243,7 @@ Already registered — **no change needed**: instagram, facebook, tiktok, x, lin
 
 Note the plan listed Twitch, Bandcamp, Apple Music and Apple Podcasts as "not yet registered" — **all four are already registered** (`PlatformRegistryServiceProvider.php:256, 282, 296, 315`).
 
-**Decision needed before Phase 2:** do the ~55 new booking/reservation/ordering brands get their own platform key (rich per-brand cards, 55 descriptors, 55 icons) or a `provider` field on a shared key (cheap, generic card)? This plan assumes the shared key. Say so once, explicitly — the two readings differ by roughly a week of work.
+**Resolved by Decision 10:** the ~55 new booking/reservation/ordering brands ride as a `provider` string on the already-registered shared keys. No per-brand descriptors. See "Platform key granularity" above for the reasoning and the promotion rule.
 
 ### Issue B: ~~CustomLinkSeeder hardcodes `platform = 'custom'`~~ — NOT A BUG
 
@@ -397,7 +428,9 @@ Consequences to handle in the same commit:
 
 **File:** `app/Providers/PlatformRegistryServiceProvider.php`
 
-Register the **~15 genuinely new platform keys** from the corrected Issue A — not ~70.
+Register the **~15 genuinely new platform keys** from the corrected Issue A — not ~70. Per Decision 10 these are all **socials** (each is its own identity on the sitepage). Booking, reservation and ordering brands get **zero** registry work — they are a `provider` string on the existing shared keys.
+
+**One widening needed, not 55:** `PublicIntegrationConnectionResource::ALLOWLIST` currently has `'booking' => []` and `'reservations' => []` (lines 149-150). Both need `provider` and `url` added so a shared-key row renders publicly. `'online-ordering'` (line 155) already carries `['url','name','favicon','logo']` — add `provider`. Miss this and the connections save fine but render as nothing on the sitepage; the allowlist is fail-closed.
 
 **⚠ The API in the original plan was invented.** Verified against `PlatformDescriptor.php` and the provider:
 
@@ -630,7 +663,8 @@ Line 91: `Arr::except($payload, ['syncFindings', 'unmatched'])` strips these key
 **Modified:**
 - `app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php` — receives `resolveWrite()` + `resolveBookingLink()` (Phase 2.5)
 - `app/Services/Accounts/AccountCapabilities.php` — remove `isUnclaimed()` from `can_autosync_scraped_connections`
-- `app/Providers/PlatformRegistryServiceProvider.php` — register ~70 new platforms
+- `app/Providers/PlatformRegistryServiceProvider.php` — register ~15 new social platform keys (Decision 10: no per-brand booking/reservation/ordering keys)
+- `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php` — widen the `booking` / `reservations` / `online-ordering` allowlist entries to carry `provider` (fail-closed; miss it and rows save but render as nothing)
 - `app/Services/Platforms/WebsiteLinkHarvester.php` — expand all platform host lists (~70 new entries)
 - `app/Services/Platforms/CustomLinkSeeder.php` — call `LinkRouter::route()` before writing; thread platform to EnrichLinkCardJob
 - `app/Services/Platforms/InstagramAutoSync.php` — remove ACTIONABLE, simplify seed(), reduce handleClassifiedLink
@@ -676,6 +710,8 @@ Line 91: `Arr::except($payload, ['syncFindings', 'unmatched'])` strips these key
 - Manual: a user already at 20 custom links pastes a Fresha URL → still routes to booking (Issue I)
 - Manual: a bio with two Fresha links → exactly one booking connection, the **first** (Issue M)
 - Regression: an unresolvable link routes to a custom link exactly once, with no repeat probe dispatch (Issue H)
+- Manual: paste a Booksy URL, then check the **public** sitepage payload — the row must render, not vanish. Proves the shared-key allowlist widening landed (Decision 10 / Phase 2)
+- Regression: after adding ~18 booking providers, the booking XOR set is still exactly `{fresha, square, booking}` in all three enumerations — a user with Booksy + Fresha must still be impossible
 
 ## Appendix — verification verdicts
 
