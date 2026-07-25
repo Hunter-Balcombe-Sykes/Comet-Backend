@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 // V2: Launch-time feature gate. Resolves via FeatureFlagService (DB overrides +
 // rollout % + config fallback) and short-circuits with 503 when the flag is off.
 // Fails closed: an unknown flag key = off.
-// Apply via route middleware: `->middleware('feature:smart_booking')`.
+// Apply via route middleware: `->middleware('feature:<flag_key>')`.
 //
 // NOTE: No professional/brand context is passed to enabled() — per-tenant overrides
 // are NOT evaluated here. This middleware is intentionally a global launch gate only.

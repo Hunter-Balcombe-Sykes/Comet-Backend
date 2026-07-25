@@ -1738,26 +1738,11 @@ return [
     |----------------------------------------------------------------------
     | Launch feature flags
     |----------------------------------------------------------------------
-    | Master switches for functionality that's coded but not yet live.
-    | All default to false; flip in .env once the feature is ready.
-    |
-    | smart_booking  — gates all /booking/* routes (professional, public,
-    |                  analytics) and forbids selecting booking_mode='smart'.
-    |                  When off, only manual booking (redirect link) works.
-    | square_sync    — gates Square integration (/square/* routes, webhook,
-    |                  observer dispatch, sync jobs).
-    | fresha_sync    — gates Fresha integration (/fresha/* routes, webhook,
-    |                  observer dispatch, sync jobs).
-    |
-    | Square/Fresha ONLY power smart booking — if smart_booking is off, their
-    | flags are largely redundant but kept separate so we can enable one
-    | provider before the other post-launch.
+    | Tier-5 config fallback read by FeatureFlagService::enabled() — must stay
+    | an array. Intentionally empty; add entries here only for launch gates
+    | consumed via the `feature:` middleware alias.
     */
-    'features' => [
-        'smart_booking' => (bool) env('PARTNA_SMART_BOOKING_ENABLED', env('SIDEST_SMART_BOOKING_ENABLED', false)),
-        'square_sync' => (bool) env('PARTNA_SQUARE_SYNC_ENABLED', env('SIDEST_SQUARE_SYNC_ENABLED', false)),
-        'fresha_sync' => (bool) env('PARTNA_FRESHA_SYNC_ENABLED', env('SIDEST_FRESHA_SYNC_ENABLED', false)),
-    ],
+    'features' => [],
 
     /*
     |--------------------------------------------------------------------------

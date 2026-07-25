@@ -118,7 +118,7 @@ also lives at `SendStaffBroadcastEmailsJob.php:51`).
 ## Standalone — do NOT bundle (pause for sign-off before implementing)
 
 ### DC-C2 — Remove dead `features` config block (P2) — DECISION-BLOCKED
-- [ ] **DC-C2** — Remove `['smart_booking','square_sync','fresha_sync']` from `config/partna.php`
+- [x] **DC-C2** — Remove `['smart_booking','square_sync','fresha_sync']` from `config/partna.php`
   (≈ lines 1727-1750) AND update the coupled tests: `tests/Feature/FeatureFlags/FeatureGateMiddlewareTest.php:13`
   asserts these three keys exist; `tests/Feature/FeatureFlags/SectionVisibilityLinkOnlyTest.php` toggles
   `partna.features.smart_booking`. *Evidence:* no route applies `feature:smart_booking` (etc.); a test
