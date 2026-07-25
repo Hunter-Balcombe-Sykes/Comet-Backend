@@ -344,7 +344,7 @@ class FreshaController extends ApiController
     {
         $user = $this->currentUser($request);
         $row = $this->connectionFor($user);
-        $payload = $row?->payload ?? [];
+        $payload = $row->payload ?? [];
         $url = SelectionPayload::fromArray($payload)->url;
         if (! $url) {
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);

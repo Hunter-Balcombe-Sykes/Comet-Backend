@@ -51,7 +51,7 @@ class ReconcileIncompleteBookingCommand extends Command
         foreach ($incomplete as $connection) {
             $this->line(sprintf(
                 '  %s  seeded=%s  url=%s',
-                $connection->user?->handle ?? $connection->user_id,
+                $connection->user->handle ?? $connection->user_id,
                 $connection->payload['source'] ?? 'user',
                 $connection->payload['url'] ?? '(none)',
             ));
@@ -83,10 +83,20 @@ class ReconcileIncompleteBookingCommand extends Command
      * Same path IntegrationConnectionObserver::saved() takes on a payload change,
      * called directly because this command changes no payload — only the
      * page_order these rows produce changed, under its feet, when the
-     * completeness gate shipped.
+     * completeness gate shipped. Both halves of that path are needed here too:
+     * the CDN purge below, AND rolling site.updated_at so the
+     * public.profile:{handle}:{ts} Redis cache key (IndividualProfileController)
+     * rotates — without it the sitepage keeps serving the stale page_order
+     * until something unrelated touches the site. The observer scopes its
+     * touch() to hasCompletenessPredicate() platforms; that check is skipped
+     * here because every row this command reaches already failed
+     * $descriptor->isComplete($c) using fresha's own descriptor — a platform
+     * with no completeness predicate can never fail that check, so every row
+     * in $incomplete is provably on a hasCompletenessPredicate() platform.
      */
     private function invalidate(IntegrationConnection $connection): void
     {
         $this->refresher->refresh($connection);
+        $connection->user?->site?->touch();
     }
 }
