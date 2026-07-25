@@ -248,6 +248,76 @@ it('deletes a manual category and its items', function () {
     expect(MenuItemPlatform::query()->where('menu_item_id', $itemId)->exists())->toBeFalse();
 });
 
+// SLUG-RESIDUAL-1: deleteCategory's orphan cleanup is a query-builder mass
+// delete (MenuItem::query()->whereIn(...)->delete()), which hydrates no
+// models and fires no MenuItemObserver events — so without the explicit
+// forgetMany() call, an orphaned dish's item_slugs row survives the dish
+// itself and squats its (user_id, slug) pair forever (the unique index is
+// NOT partial). Same defect class as 271-DINT-1's MenuFetchJob fix.
+it('frees an orphaned dish\'s item_slugs row when its only category is deleted', function () {
+    $user = mmcUser('mm5c');
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Solo Cat'])->assertOk();
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $catId = MenuCategory::query()->where('menu_id', $menu->id)->value('id');
+    actingAsUser($user)->postJson('/api/platforms/menu/items', ['name' => 'Orphan Dish', 'category_id' => $catId])->assertOk();
+    $itemId = (string) MenuItem::query()->where('name', 'Orphan Dish')->value('id');
+
+    // MenuItemObserver::created() minted a current slug row on create.
+    expect(DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_type', 'menu_item')->where('item_key', $itemId)->where('is_current', true)->exists())
+        ->toBeTrue();
+
+    actingAsUser($user)->deleteJson("/api/platforms/menu/categories/{$catId}")->assertOk();
+
+    expect(MenuItem::query()->whereKey($itemId)->exists())->toBeFalse();
+    expect(DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_type', 'menu_item')->where('item_key', $itemId)->exists())
+        ->toBeFalse();
+});
+
+// Control: a dish that also belongs to a category NOT being deleted is not an
+// orphan — it survives deleteCategory's cleanup, and so must its slug row.
+it('keeps a surviving dish\'s item_slugs row when only one of its categories is deleted', function () {
+    $user = mmcUser('mm5d');
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Cat A'])->assertOk();
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Cat B'])->assertOk();
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $ids = MenuCategory::query()->where('menu_id', $menu->id)->pluck('id', 'name');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/items', [
+        'name' => 'Shared Dish', 'category_ids' => [(string) $ids['Cat A'], (string) $ids['Cat B']],
+    ])->assertOk();
+    $itemId = (string) MenuItem::query()->where('name', 'Shared Dish')->value('id');
+
+    actingAsUser($user)->deleteJson("/api/platforms/menu/categories/{$ids['Cat A']}")->assertOk();
+
+    expect(MenuItem::query()->whereKey($itemId)->exists())->toBeTrue();
+    expect(DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_type', 'menu_item')->where('item_key', $itemId)->where('is_current', true)->exists())
+        ->toBeTrue();
+});
+
+// A manual dish orphaned by the same delete is not suppressed but is still
+// hard-deleted — its slug must free up too.
+it('frees a manual orphaned dish\'s item_slugs row when its only category is deleted', function () {
+    $user = mmcUser('mm5e');
+    actingAsUser($user)->postJson('/api/platforms/menu/categories', ['name' => 'Manual Cat'])->assertOk();
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $catId = MenuCategory::query()->where('menu_id', $menu->id)->value('id');
+    actingAsUser($user)->postJson('/api/platforms/menu/items', ['name' => 'Manual Orphan', 'category_id' => $catId])->assertOk();
+    $itemId = (string) MenuItem::query()->where('name', 'Manual Orphan')->value('id');
+
+    actingAsUser($user)->deleteJson("/api/platforms/menu/categories/{$catId}")->assertOk();
+
+    expect(MenuItem::query()->whereKey($itemId)->exists())->toBeFalse();
+    expect(DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_type', 'menu_item')->where('item_key', $itemId)->exists())
+        ->toBeFalse();
+    // Manual dish → not suppressed (only non-manual orphans get suppressed).
+    $menu->refresh();
+    expect($menu->suppressed_items)->toBeNull();
+});
+
 it('422s deleting a synced (scraped) category', function () {
     $user = mmcUser('mm5b');
     $menu = mmcSeedScraped($user, ['Mains' => [['name' => 'Burger']]]);
