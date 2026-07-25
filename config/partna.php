@@ -1636,6 +1636,7 @@ return [
         'achievement' => 60,       // celebratory — keep visible a while
         'content_scrape' => 14,    // transient; self-heals, don't linger
         'analytics_weekly' => 14,  // superseded by next week's summary
+        'integration_connected' => 30, // connect confirmation — no reason to linger
     ],
 
     'notifications' => [
@@ -1691,6 +1692,7 @@ return [
             'platform_connection' => CriticalNotificationMail::class, // critical: connection needs reconnecting → email
             'content_scrape' => null,                             // in-app only (transient scrape/menu warnings)
             'analytics_weekly' => null,                           // in-app only (weekly summary stub)
+            'integration_connected' => null,                      // in-app only (user connected an integration)
         ],
 
         /*
