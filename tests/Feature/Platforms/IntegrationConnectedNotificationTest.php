@@ -69,9 +69,15 @@ it('does not notify when a custom link is added', function () {
     expect(icwRows($user))->toHaveCount(0);
 });
 
-it('does not notify for a connection created outside the dashboard trait', function () {
-    // Seeders (pre-account builds, auto-sync) write the model directly and never
-    // reach upsertConnection() — the user did not connect these.
+it('DELIBERATELY VACUOUS — a connection created outside the dashboard trait does not notify (boundary guard)', function () {
+    // Passes regardless of this task's implementation: IntegrationConnection::create()
+    // never routes through upsertConnection(), so wasRecentlyCreated is never checked
+    // and the notifier is never called — true whether the guard in the trait is
+    // correct, backwards, or deleted entirely. It exists to fail if the notify hook
+    // is ever moved to a model-level observer (the obvious-looking refactor, rejected
+    // during design because saveQuietly() on the 304 path would make it invisible),
+    // which would make pre-account and auto-sync seeder rows notify a user who never
+    // connected anything.
     $user = icwUser('icw3');
 
     IntegrationConnection::create([
