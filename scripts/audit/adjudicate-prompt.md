@@ -19,12 +19,12 @@ You have `Read`, `Grep`, and `Glob` available — they are not optional. Use the
 
 You CANNOT modify files (no `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, etc.). Your only output is the final audit markdown.
 
-You are running in the project root. Use paths relative to the root for `Read` (e.g. `app/Policies/SitePolicy.php`, `supabase/migrations/20260526000000_baseline_standalone_user.sql`) and patterns relative to the root for `Grep` / `Glob` (e.g. `app/Policies/*.php`).
+You are running in the project root. Use paths relative to the root for `Read` (e.g. `app/Policies/SitePolicy.php`, `supabase/migrations/20260726000000_baseline_pilot.sql`) and patterns relative to the root for `Grep` / `Glob` (e.g. `app/Policies/*.php`).
 
 When to verify with tools:
 - DeepSeek claims a Policy is missing → Glob `app/Policies/*.php` + Grep for the class name; also check the `POLICY_EXEMPT` allowlist in `tests/Feature/Security/PolicyCoverageTest.php`.
 - DeepSeek proposes a fix that calls `Service::method()` → Grep for `function method` in the relevant service.
-- DeepSeek claims a column is missing → Read the relevant migration (start at `supabase/migrations/20260526000000_baseline_standalone_user.sql`) to confirm.
+- DeepSeek claims a column is missing → Read the relevant migration (start at `supabase/migrations/20260726000000_baseline_pilot.sql`) to confirm.
 - DeepSeek cites recent behavior that contradicts the source files provided → check git log against the actual file.
 - DeepSeek claims dead/unused code → Grep the whole repo (`app/`, `routes/`, `config/`, `tests/`) before accepting.
 
@@ -206,7 +206,7 @@ Use the prefix DeepSeek used (e.g., SEC-1) or invent a 3–5 letter prefix match
 # Partna Architecture Reminders
 
 - **Individual users only.** `App\Models\Core\User\User` (`core.users`, FKs `user_id`); `account_type` always `'individual'`. No brand/affiliate roles, no commerce.
-- **Database:** Supabase PostgreSQL, schemas `public`, `core`, `site`, `notifications`, `analytics`, `moderation`, `audit` (append-only). Schema changes are raw SQL in `supabase/migrations/`, never Laravel migrations. Baseline: `20260526000000_baseline_standalone_user.sql`.
+- **Database:** Supabase PostgreSQL, schemas `public`, `core`, `site`, `notifications`, `analytics`, `moderation`, `audit` (append-only). Schema changes are raw SQL in `supabase/migrations/`, never Laravel migrations. Baseline: `20260726000000_baseline_pilot.sql`.
 - Models extend `BaseModel` (forces pgsql connection). All UUIDs. Resource classes for all API responses. Form Request classes for validation. Soft deletes with 30-day retention.
 - **Capabilities:** `AccountCapabilities::for($user)` gates features; dispatchers/guards/responses must consult it.
 - **Cache/queue:** `CacheLockService::rememberLocked` gold standard; Horizon queues `default`, `moderation_high`, `notifications`, `mail`, `streaming`, `analytics`, `cloudflare`, `cache-warm`, `images`, `gdpr`; every `ShouldQueue` job must define `$backoff` (`JobHygienePolicyTest`).

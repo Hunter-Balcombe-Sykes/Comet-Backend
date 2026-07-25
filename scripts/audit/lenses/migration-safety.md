@@ -4,7 +4,7 @@ Hunt **migrations that lock hot tables during deploy**, **backfills with broken 
 
 Partna runs on **PostgreSQL** (Supabase-hosted, single primary, no read replicas). Migrations are raw SQL files in `supabase/migrations/` and deploy via `supabase db push` (see CLAUDE.md "push semantics"). There is no Laravel migration table — Supabase's `supabase_migrations.schema_migrations` is the source of truth; a half-applied file leaves prod in an inconsistent state.
 
-**Repo reality (2026-06-11):** The 147 historical migrations have been archived in `supabase/migrations-archive/`. The codebase now has a single consolidated baseline (`20260526000000_baseline_standalone_user.sql`) plus ~70 post-baseline migrations. Schemas: `public`, `core`, `site`, `notifications`, `analytics`, `audit`, `moderation`. NO `brand`, `commerce`, `billing`, or `retail` schemas.
+**Repo reality (2026-07-26):** All 379 historical migrations are archived in `supabase/migrations-archive/`. `supabase/migrations/` contains a single consolidated baseline (`20260726000000_baseline_pilot.sql`) — a snapshot of the verified dev schema taken for the prod cutover — and nothing else; new migrations stack on top of it. Schemas: `public`, `core`, `site`, `notifications`, `analytics`, `audit`, `moderation`. NO `brand`, `commerce`, `billing`, or `retail` schemas.
 
 **Fresh-prod caveat:** the v2 baseline creates `app_backend` as `NOLOGIN` (fail-closed by design). After pushing migrations to a new Supabase project, `ALTER ROLE app_backend WITH LOGIN PASSWORD '...'` must be run in the SQL editor before the app can connect — `supabase db push` does not set LOGIN or the password. Document this in migration comments where relevant.
 

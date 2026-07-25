@@ -51,7 +51,7 @@ class StaffSiteResource extends ApiResource
      * Allowlist a single block from the all_site_data JSONB aggregate.
      *
      * Keys here mirror the jsonb_build_object in the all_site_data view definition
-     * (supabase/migrations/20260526000000_baseline_standalone_user.sql). Any new
+     * (supabase/migrations/20260726000000_baseline_pilot.sql). Any new
      * block column added to the view must also be added here before it reaches the
      * staff API.
      *

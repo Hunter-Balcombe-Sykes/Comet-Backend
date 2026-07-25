@@ -37,9 +37,10 @@ kind — and `CONCURRENTLY` cannot run inside a pipeline/transaction (`SQLSTATE 
 Split multi-index changes into consecutive one-statement files sharing the timestamp prefix with
 sequential suffixes (`…000001`, `…000002`, …); put any accompanying non-index DDL in its own
 `BEGIN`/`COMMIT` file. Enforced by `scripts/guard-no-unsafe-migrations.php` **Check 6** for files
-timestamped after `20260721000000`; eleven pre-convention files are grandfathered (nine bundling
+timestamped after `20260721000000`. Eleven pre-convention files *were* grandfathered (nine bundling
 several `CONCURRENTLY` statements, two pairing a single `CONCURRENTLY` with other DDL — equally
-fatal to a pipelined from-zero apply).
+fatal to a pipelined from-zero apply); all of them moved to `supabase/migrations-archive/` in the
+2026-07-26 baseline collapse, so no file in `supabase/migrations/` bundles `CONCURRENTLY` today.
 
 **Dropping an index on a hot table** follows the same rule: use `DROP INDEX CONCURRENTLY IF EXISTS`
 in its own one-statement file, never inside a `BEGIN`/`COMMIT`. A bare `DROP INDEX` takes
@@ -50,8 +51,8 @@ completes — the same downtime class as a non-concurrent `CREATE INDEX`. Enforc
 are grandfathered, and any file that must deviate carries the
 `-- guard:no-unsafe-migrations:disable-file` marker with a written justification.
 
-Because those grandfathered bundles cannot be applied from zero by the CLI, **local fresh
-provisioning uses `scripts/db/fresh-reset.sh`** (a `psql` simple-query loop — each statement runs as
+The collapsed baseline is `CONCURRENTLY`-free, so a from-zero apply of `supabase/migrations/` is now
+a single file the CLI can handle. **Local fresh provisioning still uses `scripts/db/fresh-reset.sh`** (a `psql` simple-query loop — each statement runs as
 its own top-level command, so `CONCURRENTLY` succeeds). The fresh-**prod** cutover uses the psql
 procedure documented in `CLAUDE.md` → "Push to Supabase / Fresh prod DB". `supabase db reset`/`db
 push` are **not** usable from an empty database here.

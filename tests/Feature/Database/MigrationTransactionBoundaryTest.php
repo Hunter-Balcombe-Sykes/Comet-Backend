@@ -13,14 +13,23 @@
 // A test that only runs against Postgres verifies nothing in this repo's CI.
 
 /**
- * Read a migration file's contents by basename (relative to supabase/migrations/).
+ * Read a migration file's contents by basename, from supabase/migrations/ or the
+ * archive. The 2026-07-26 baseline collapse moved every incremental into
+ * supabase/migrations-archive/; these boundary assertions still guard those files
+ * (now frozen history) against edits that would break a replay.
  */
 function migrationBoundaryReadSql(string $basename): string
 {
-    $path = base_path('supabase/migrations/'.$basename);
-    expect(file_exists($path))->toBeTrue("Expected migration file [$basename] to exist at $path.");
+    foreach (['supabase/migrations/', 'supabase/migrations-archive/'] as $dir) {
+        $path = base_path($dir.$basename);
+        if (file_exists($path)) {
+            return (string) file_get_contents($path);
+        }
+    }
 
-    return (string) file_get_contents($path);
+    expect(false)->toBeTrue("Expected migration file [$basename] in supabase/migrations/ or supabase/migrations-archive/.");
+
+    return '';
 }
 
 /**

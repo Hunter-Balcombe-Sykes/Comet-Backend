@@ -140,7 +140,7 @@ class Enquiry extends BaseModel
      * subject is '[redacted]', not null (models-data/PRIV-4) — two reasons:
      * it's free text that can carry the submitter's name ("Hi, it's Sarah"),
      * so it must be scrubbed like the other fields; and site.enquiries.subject
-     * is NOT NULL in Postgres (supabase/migrations/20260526000000_baseline_standalone_user.sql:974),
+     * is NOT NULL in Postgres (supabase/migrations-archive/20260526000000_baseline_standalone_user.sql:974),
      * so `'subject' => null` would pass on SQLite and throw 23502 in production.
      * Mirrors the Notification title/body idiom below.
      */

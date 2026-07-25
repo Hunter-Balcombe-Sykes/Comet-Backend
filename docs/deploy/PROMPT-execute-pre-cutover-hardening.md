@@ -1,10 +1,15 @@
 # Pre-cutover hardening — execute prompt: the review fixes that are WORK, not words
 
 Executes the four execution-level findings of the 2026-07-22 adversarial review of
-`docs/deploy/production-cutover.md` + `PROMPT-execute-reconcile-and-collapse-baseline.md`. The doc-text
-corrections from that review are already applied (BYPASSRLS, `db diff --from/--to` fallback, wipe SQL,
+`docs/deploy/production-cutover.md` (and the reconcile/collapse prompt that accompanied it, since deleted
+on ship). The doc-text corrections from that review are already applied (BYPASSRLS, wipe SQL,
 grant-matrix parity, the 11-bundle count); what remains is work that has to be *done* before cutover day,
-independent of the reconcile/collapse task (which has its own plan + prompt).
+independent of the reconcile/collapse task — which was **completed 2026-07-26** (see the Phase-0
+checkboxes in `production-cutover.md`).
+
+> Note: that review's `db diff --from/--to` fallback turned out to be unusable — the command silently
+> returns empty output regardless of real differences on CLI 2.101.0. See the warning under the Phase-0
+> collapse checkbox for the dump-diff + fingerprint method that replaced it.
 
 **What this produces:** (1) dev rehearsing `QUEUE_CONNECTION=redis` + Horizon so go-live is not prod's
 first-ever async boot; (2) a counted inventory + decision brief for the live dev-served sitepages that

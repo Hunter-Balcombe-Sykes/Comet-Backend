@@ -109,7 +109,7 @@ it('throws EMAIL_ALREADY_REGISTERED via the pre-check when the email is already 
 
 it('DISC-6: classifies a concurrent handle_lc collision as HANDLE_ALREADY_TAKEN (re-query, not driver-message), never as email or a raw 500', function () {
     // Real unique indexes on the SQLite stub, mirroring the constraints defined in
-    // supabase/migrations/20260526000000_baseline_standalone_user.sql
+    // supabase/migrations/20260726000000_baseline_pilot.sql
     // (core_users_handle_lc_unique) and 20260711170000_users_email_unique_case_insensitive.sql
     // (users_email_unique, now case-insensitive on lower(primary_email)).
     DB::connection('pgsql')->statement(
