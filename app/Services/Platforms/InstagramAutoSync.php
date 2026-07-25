@@ -53,8 +53,8 @@ class InstagramAutoSync
         'fresha' => 'booking', 'square' => 'booking',
     ];
 
-    /** Mutually-exclusive booking providers — mirrors FreshaController/SquareController::hasConflictingConnection()'s XOR and GoogleBusinessAutoSync::BOOKING_PLATFORMS. */
-    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value];
+    /** Mutually-exclusive booking providers — mirrors FreshaController/SquareController::hasConflictingConnection()'s XOR and now lives on BuildsAutoSyncFindings. */
+    // BOOKING_PLATFORMS moved to BuildsAutoSyncFindings (Phase 2.5, 2026-07-25).
 
     public function __construct(
         private readonly WebsiteLinkHarvester $harvester,
@@ -317,137 +317,20 @@ class InstagramAutoSync
         }
     }
 
-    // applyFinding() / seededFinding() / conflictFinding() / write() moved to
-    // BuildsAutoSyncFindings (SLOP-101) — was byte-identical with GoogleBusinessAutoSync.
+    // resolveWrite(), resolveBookingLink(), sameUrl() moved to
+    // BuildsAutoSyncFindings (Phase 2.5, 2026-07-25). socialUsername()
+    // stays as an override adding Facebook normalizer support.
 
-    /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */
-    private function resolveWrite(string $platform, string $url): array
-    {
-        if ($platform === Platform::Fresha->value) {
-            return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
-                'url' => $url, 'selection' => null, 'source' => 'instagram',
-            ]];
-        }
-        if ($platform === Platform::Square->value) {
-            return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
-                'url' => $url, 'source' => 'instagram',
-            ]];
-        }
-
-        // Social (facebook / tiktok / x / linkedin) — same {username, url, source} shape as GoogleBusinessAutoSync::seedSocials.
-        return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
-            'username' => $this->socialUsername($platform, $url), 'url' => $url, 'source' => 'instagram',
-        ]];
-    }
-
-    /**
-     * LIFE-106: the booking-category span run under BuildsAutoSyncFindings::
-     * withBookingXorLock() — conflicting-provider check, existing-connection
-     * lookup (incl. the soft-delete tombstone guard), and the write, all
-     * behind the one lock. See the call site in handleClassifiedLink() for why
-     * this can't be split (only the write locked) — the has-then-write shape is
-     * exactly the race the lock exists to close.
-     *
-     * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
-     * @param  array{platform:string,category:string,label:string}  $classified
-     * @return array{findings:list<array<string,mixed>>,unmatched:list<array<string,mixed>>,consumed:bool}
-     */
-    private function resolveBookingLink(string $userId, string $platform, string $url, array $write, array $classified): array
-    {
-        // XOR invariant (FreshaController/SquareController::
-        // hasConflictingConnection() both 409 the other way): only one booking
-        // provider may be live at a time. Mirrors GoogleBusinessAutoSync::
-        // seedBooking's group-level check — unlike the same-platform branch
-        // below, GB's own group check never compares urls (there's no
-        // meaningful "same link" across two different providers), so neither
-        // do we here: any OTHER live booking connection always conflicts,
-        // never a silent write of a second live provider.
-        $conflictingBooking = IntegrationConnection::query()
-            ->where('user_id', $userId)
-            ->whereIn('platform', self::BOOKING_PLATFORMS)
-            ->where('platform', '!=', $platform)
-            ->first();
-
-        if ($conflictingBooking !== null) {
-            return [
-                'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
-                    'remove' => self::BOOKING_PLATFORMS,
-                    'write' => $write,
-                ])],
-                'unmatched' => [],
-                'consumed' => true,
-            ];
-        }
-
-        $existing = IntegrationConnection::query()
-            ->where('user_id', $userId)->where('platform', $platform)
-            ->first();
-
-        if ($existing === null) {
-            // A soft-deleted row means the user explicitly disconnected this
-            // platform before (ManagesIntegrationConnection::forgetConnection()
-            // soft-deletes on disconnect) — a tombstone, not "never connected".
-            // Respect it: route the link to unmatched instead of resurrecting it.
-            $wasDisconnected = IntegrationConnection::onlyTrashed()
-                ->where('user_id', $userId)->where('platform', $platform)
-                ->exists();
-
-            if ($wasDisconnected) {
-                return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
-            }
-
-            $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
-
-            return [
-                'findings' => [$this->seededFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url)],
-                'unmatched' => [],
-                'consumed' => true,
-            ];
-        }
-
-        $existingUrl = CardPayload::fromArray($existing->payload)->url();
-        if ($existingUrl !== null && $this->sameUrl($existingUrl, $url)) {
-            return ['findings' => [], 'unmatched' => [], 'consumed' => true]; // already synced with the same link — nothing to surface
-        }
-
-        return [
-            'findings' => [$this->conflictFinding($write['platform'], $write['resourceId'], $classified['category'], $classified['label'], $url, [
-                'remove' => [$write['platform']],
-                'write' => $write,
-            ])],
-            'unmatched' => [],
-            'consumed' => true,
-        ];
-    }
-
-    /** Best-effort handle from a canonical social profile URL ('' when none) — mirrors GoogleBusinessAutoSync::socialUsername. */
-    private function socialUsername(string $platform, string $url): string
+    /** Override — adds Facebook normalizer to the trait's base implementation. */
+    protected function socialUsername(string $platform, string $url): string
     {
         if ($platform === 'facebook') {
-            // Delegate to the same parser the manual connect form uses (G4-4) —
-            // see GoogleBusinessAutoSync::socialUsername()'s identical fix; this
-            // was a byte-for-byte copy of that same standalone regex, sharing
-            // its blind spot for reserved path segments (pages/people/etc.).
             $parsed = ($this->facebookNormalizer)($url);
 
             return $parsed['username'] ?? '';
         }
 
-        $patterns = [
-            'tiktok' => '~tiktok\.com/@?([A-Za-z0-9._]+)~i',
-            'x' => '~(?:twitter|x)\.com/([A-Za-z0-9_]+)~i',
-            'linkedin' => '~linkedin\.com/(?:in|company)/([A-Za-z0-9-]+)~i',
-        ];
-        if (isset($patterns[$platform]) && preg_match($patterns[$platform], $url, $m)) {
-            return strtolower($m[1]) === 'profile.php' ? '' : $m[1];
-        }
-
-        return '';
-    }
-
-    private function sameUrl(string $a, string $b): bool
-    {
-        return strtolower(rtrim(trim($a), '/')) === strtolower(rtrim(trim($b), '/'));
+        return \App\Services\Platforms\Concerns\BuildsAutoSyncFindings::socialUsername($platform, $url);
     }
 
     /** Domain-derived fallback label for a genuinely unclassified link ("linktr.ee", not the full URL). */
