@@ -76,9 +76,13 @@ function makeProfessional(): User
 {
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
+    $handle = 'pro-'.Str::random(6);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
-        'handle' => 'pro-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'status' => 'active',
         'created_at' => $now,
         'updated_at' => $now,

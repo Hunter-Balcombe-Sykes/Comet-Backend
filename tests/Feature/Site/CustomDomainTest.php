@@ -28,6 +28,7 @@ function domainUserWithSite(string $h): array
 {
     $user = User::create([
         'handle' => $h, 'handle_lc' => strtolower($h), 'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
@@ -297,6 +298,7 @@ it('sets and unsets the primary domain via the dedicated endpoint', function () 
 it('404s show/store/verify/setPrimary/destroy for a user with no site', function () {
     $user = User::create([
         'handle' => 'nosite', 'handle_lc' => 'nosite', 'display_name' => 'Nosite',
+        'first_name' => 'Nosite',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'nosite@example.com',
     ]);

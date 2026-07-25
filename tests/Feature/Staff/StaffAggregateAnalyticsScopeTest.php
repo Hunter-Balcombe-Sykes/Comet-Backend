@@ -60,9 +60,13 @@ function ovaScopeStaff(): PartnaStaff
 function ovaScopeUser(): string
 {
     $id = (string) Str::uuid();
+    $handle = 'sc-'.Str::random(8);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
-        'handle' => 'sc-'.Str::random(8),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

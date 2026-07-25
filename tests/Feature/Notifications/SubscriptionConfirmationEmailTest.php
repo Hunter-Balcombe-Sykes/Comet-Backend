@@ -26,6 +26,7 @@ function seedConfirmableSubscription(array $subOverrides = [], ?array $newslette
         'handle' => $handle,
         'handle_lc' => $handle,
         'display_name' => 'Test Pro',
+        'first_name' => 'Test Pro',
         'primary_email' => $handle.'@example.com',
         'status' => 'active',
     ]);

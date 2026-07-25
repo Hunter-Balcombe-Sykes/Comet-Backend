@@ -21,6 +21,8 @@ function makePrunePro(string $handle): string
         'id' => $proId,
         'handle' => $handle,
         'handle_lc' => $handle,
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'status' => 'active',
         'primary_email' => $handle.'@example.test',
 

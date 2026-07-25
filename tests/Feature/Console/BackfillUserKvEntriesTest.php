@@ -17,7 +17,9 @@ function backfillSeedUser(string $handle, string $type): string
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
         'handle' => $handle,
-        'handle_lc' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => $type,
         'status' => 'active',
         'primary_email' => $handle.'@x.test',
@@ -62,10 +64,16 @@ it('skips users with no handle', function () {
 
     backfillSeedUser('solo3', 'partna');
 
+    // handle/handle_lc are NOT NULL (mirroring prod, where handle has been
+    // NOT NULL since the baseline schema) — an empty string is the closest
+    // in-schema stand-in for "no handle" and the command's
+    // ->where('handle', '!=', '') filter excludes it identically to NULL.
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => (string) Str::uuid(),
-        'handle' => null,
-        'handle_lc' => null,
+        'handle' => '',
+        'handle_lc' => '',
+        'display_name' => 'No Handle',
+        'first_name' => 'No Handle',
         'account_type' => 'partna',
         'status' => 'active',
         'primary_email' => 'nohandle@x.test',

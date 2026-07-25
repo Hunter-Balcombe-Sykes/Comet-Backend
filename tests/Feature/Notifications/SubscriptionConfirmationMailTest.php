@@ -10,6 +10,8 @@ it('renders the subscription confirmation with unsubscribe + one-click headers',
         proName: 'Jane Doe',
         siteUrl: 'https://jane.partna.au',
         logoUrl: null,
+        logoUrlLight: null,
+        logoUrlDark: null,
         replyToEmail: 'jane@example.com',
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000', 'button_primary_bg' => '#aa0000']),
     );

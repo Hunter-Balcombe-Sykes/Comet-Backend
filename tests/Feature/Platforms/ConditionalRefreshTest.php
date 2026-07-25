@@ -24,7 +24,7 @@ beforeEach(function () {
 function condUser(): User
 {
     return User::create([
-        'handle' => 'cond', 'handle_lc' => 'cond', 'display_name' => 'Cond',
+        'handle' => 'cond', 'handle_lc' => 'cond', 'display_name' => 'Cond', 'first_name' => 'Cond',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'cond@example.com',
     ]);

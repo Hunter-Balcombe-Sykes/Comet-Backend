@@ -63,9 +63,7 @@ beforeEach(function () {
         'CREATE UNIQUE INDEX IF NOT EXISTS notifications.notifications_dedupe_key_per_pro_uq
          ON notifications (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL'
     );
-    $conn->statement(
-        "CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT NULL)"
-    );
+    setupUsersTable();
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, user_id TEXT, category_key TEXT, mode TEXT)');
     $conn->statement('CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, user_id TEXT, category_key TEXT, enabled INTEGER)');
 
@@ -118,7 +116,14 @@ it('non-critical: stores an in-app row, queues NO email, and gets an expiry', fu
 it('critical email is sent via CriticalNotificationMail for a mapped critical category', function () {
     Mail::fake();
 
-    DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
+    DB::table('core.users')->insert([
+        'id' => 'pro-1',
+        'handle' => 'pro-1',
+        'handle_lc' => 'pro-1',
+        'display_name' => 'Pro-1',
+        'first_name' => 'Pro-1',
+        'primary_email' => 'pro@example.com',
+    ]);
     DB::table('notifications.notifications')->insert([
         'id' => 'n-crit', 'user_id' => 'pro-1', 'type' => 'Warning', 'category' => 'platform_connection',
         'title' => 'Reconnect your Instagram', 'body' => 'x', 'severity' => 'warning', 'critical' => 1,
@@ -133,7 +138,14 @@ it('critical email is sent via CriticalNotificationMail for a mapped critical ca
 it('critical email falls back to CriticalNotificationMail when the category has no mailable', function () {
     Mail::fake();
 
-    DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
+    DB::table('core.users')->insert([
+        'id' => 'pro-1',
+        'handle' => 'pro-1',
+        'handle_lc' => 'pro-1',
+        'display_name' => 'Pro-1',
+        'first_name' => 'Pro-1',
+        'primary_email' => 'pro@example.com',
+    ]);
     DB::table('notifications.notifications')->insert([
         'id' => 'n-crit2', 'user_id' => 'pro-1', 'type' => 'Critical', 'category' => 'some_unmapped_category',
         'title' => 'Important', 'body' => 'x', 'severity' => 'critical', 'critical' => 1,
@@ -148,7 +160,14 @@ it('critical email falls back to CriticalNotificationMail when the category has 
 it('non-critical, unmapped category sends nothing (in-app only)', function () {
     Mail::fake();
 
-    DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
+    DB::table('core.users')->insert([
+        'id' => 'pro-1',
+        'handle' => 'pro-1',
+        'handle_lc' => 'pro-1',
+        'display_name' => 'Pro-1',
+        'first_name' => 'Pro-1',
+        'primary_email' => 'pro@example.com',
+    ]);
     DB::table('notifications.notifications')->insert([
         'id' => 'n-info', 'user_id' => 'pro-1', 'type' => 'Info', 'category' => 'achievement',
         'title' => 'Milestone', 'body' => 'x', 'severity' => 'info', 'critical' => 0,

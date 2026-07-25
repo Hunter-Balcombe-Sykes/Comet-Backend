@@ -32,6 +32,7 @@ function igAsyncUser(string $h, string $accountType = 'partna'): User
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => $accountType,
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
@@ -771,6 +772,7 @@ it('applies instagram identity fields (sector/display_name) as part of the conne
 
     $user = User::create([
         'handle' => 'igidentity1', 'handle_lc' => 'igidentity1', 'display_name' => '',
+        'first_name' => 'Igidentity1',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'igidentity1@example.com', 'sector' => null, 'sector_source' => null,
     ]);

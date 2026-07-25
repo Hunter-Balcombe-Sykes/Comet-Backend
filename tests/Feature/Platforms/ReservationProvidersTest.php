@@ -34,6 +34,7 @@ function resUser(string $h, string $accountType = 'business', ?string $sector = 
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => $accountType,
         'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),

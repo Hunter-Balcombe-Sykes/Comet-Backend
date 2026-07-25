@@ -41,6 +41,7 @@ it('still refreshes an existing user end-to-end (update path untouched)', functi
         'handle' => 'existinghandle',
         'handle_lc' => 'existinghandle',
         'display_name' => 'Existing User',
+        'first_name' => 'Existinghandle',
         'status' => 'active',
         'account_type' => 'partna',
     ]);
@@ -128,6 +129,7 @@ it('refreshes an existing user normally even with a garbage invite param (invite
         'handle' => 'existinginvitehandle',
         'handle_lc' => 'existinginvitehandle',
         'display_name' => 'Existing Invite User',
+        'first_name' => 'Existinginvitehandle',
         'status' => 'active',
         'account_type' => 'partna',
     ]);
@@ -176,6 +178,7 @@ it('still requires BootstrapRequest validation before the 410 (handle_lc uniquen
         'handle' => 'takenhandle',
         'handle_lc' => 'takenhandle',
         'display_name' => 'Someone Else',
+        'first_name' => 'Takenhandle',
         'status' => 'active',
         'account_type' => 'partna',
     ]);

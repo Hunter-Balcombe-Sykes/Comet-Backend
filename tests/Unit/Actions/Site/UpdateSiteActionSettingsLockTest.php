@@ -57,6 +57,7 @@ it('merges settings against a locked re-read of the on-disk value, not the stale
         'handle' => 'stale-owner',
         'handle_lc' => 'stale-owner',
         'display_name' => 'Stale Owner',
+        'first_name' => 'Stale',
         'primary_email' => 'stale@example.test',
         'status' => 'active',
         'created_at' => $now,

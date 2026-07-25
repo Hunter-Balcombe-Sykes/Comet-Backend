@@ -20,7 +20,8 @@ function seedOwnerWithSite(string $subdomain = 'ownerpro'): User
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId, 'handle' => $subdomain, 'handle_lc' => $subdomain,
-        'display_name' => 'Owner Pro', 'primary_email' => $subdomain.'@example.com', 'status' => 'active',
+        'display_name' => 'Owner Pro', 'first_name' => 'Owner Pro',
+        'primary_email' => $subdomain.'@example.com', 'status' => 'active',
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $userId, 'subdomain' => $subdomain, 'is_published' => 1,

@@ -61,6 +61,7 @@ function freshaStorewideUser(string $h, string $sector = 'barber'): User
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => 'business',
         'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),
@@ -238,6 +239,7 @@ it('flag on: mode is read from the capability, not the vendor — a partna accou
     config(['partna.connect.deferred' => ['fresha']]);
     $user = User::create([
         'handle' => 'swon5', 'handle_lc' => 'swon5', 'display_name' => 'Swon5',
+        'first_name' => 'Swon5',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(), 'primary_email' => 'swon5@example.com',
     ]);
     Http::fake();

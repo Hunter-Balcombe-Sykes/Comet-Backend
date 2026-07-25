@@ -78,6 +78,28 @@ class FetchBudget
     }
 
     /**
+     * Like open(), but re-entrant: if a budget is ALREADY open on this instance,
+     * run $work() inside it untouched (the OUTERMOST deadline governs) rather than
+     * starting — and, on return, clearing — a second one. This is what lets a
+     * shared chokepoint (e.g. PlatformRefresher) guarantee "bounded" without
+     * caring whether an outer caller already opened a budget. When none is open,
+     * behaves exactly like open().
+     *
+     * @template TReturn
+     *
+     * @param  callable(): TReturn  $work
+     * @return TReturn
+     */
+    public function ensureOpen(float $seconds, callable $work): mixed
+    {
+        if ($this->deadlineAt !== null) {
+            return $work();          // inside an open budget — outermost wins, do not touch the deadline
+        }
+
+        return $this->open($seconds, $work);
+    }
+
+    /**
      * Seconds remaining on the open deadline, or null when no budget is set
      * (the default — see $deadlineAt). May be negative once the deadline has
      * passed; callers check `<= 0`, not falsiness.

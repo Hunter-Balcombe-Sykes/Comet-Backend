@@ -33,6 +33,7 @@ it('attributes a staff rename to the acting staff with reason, ip and user agent
         'handle' => 'old',
         'handle_lc' => 'old',
         'display_name' => 'Pro',
+        'first_name' => 'Pro',
         'primary_email' => 'pro@example.test',
         'status' => 'active',
         'account_type' => 'partna',

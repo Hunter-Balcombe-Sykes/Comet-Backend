@@ -29,6 +29,7 @@ function gateUser(string $h, string $accountType, ?string $sector = null): User
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => $accountType,
         'sector' => $sector,
         'auth_user_id' => (string) Str::uuid(),

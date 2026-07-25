@@ -29,10 +29,22 @@ use Illuminate\Support\Facades\Log;
  *                                  Skipping it would cost two DB queries on
  *                                  every cache hit; with it the hot path is
  *                                  two Redis lookups (resolve + payload).
- *                                  Staleness is bounded by the TTL — short
- *                                  enough that no mutation-driven invalidation
- *                                  is required; long enough to absorb traffic
- *                                  spikes.
+ *                                  Staleness is bounded by the TTL, but the TTL
+ *                                  alone is NOT sufficient: the payload key's
+ *                                  rotation signal (updated_at_ts) lives inside
+ *                                  this cached value, so a stale entry gates the
+ *                                  rotation. handle.resolve.floor:{handle} (below)
+ *                                  is the fix — do not rely on the TTL alone.
+ *   1b. handle.resolve.floor:{handle}
+ *                                  Monotonic post-commit timestamp floor written
+ *                                  by SiteCacheService::invalidateSitePayload.
+ *                                  max()'d against updated_at_ts so a stale
+ *                                  resolve entry can't hold the payload key back.
+ *                                  NOT covered: the ['not_found' => true] variant
+ *                                  — a stale-set can re-install that too and this
+ *                                  method 404s before reaching the max(). Matters
+ *                                  for first publish/claim, not design edits; the
+ *                                  follow-up purge chain is the rescue there.
  *   2. public.profile:{handle}:{updated_at_ts}
  *                                  Full payload, single-flight via
  *                                  CacheLockService::rememberLocked (jittered,
@@ -96,7 +108,18 @@ class IndividualProfileController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $key = CacheKeyGenerator::publicProfile($handleLc, (int) $resolved['updated_at_ts']);
+        // handle.resolve can hand back a pre-write timestamp: its delete-then-set
+        // window lets an in-flight reader re-install the old stamp with a fresh
+        // lease. The floor is written post-commit by invalidateSitePayload and
+        // only ever rises, so max() pins the key to the post-write value.
+        // Costs a third Redis round-trip on the hot path — a per-request cost
+        // paid to close a per-save race.
+        $ts = max(
+            (int) $resolved['updated_at_ts'],
+            (int) Cache::get(CacheKeyGenerator::handleResolveFloor($handleLc), 0),
+        );
+
+        $key = CacheKeyGenerator::publicProfile($handleLc, $ts);
 
         $payload = $this->cache->rememberLocked(
             $key,

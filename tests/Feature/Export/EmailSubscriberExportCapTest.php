@@ -33,6 +33,7 @@ function makeExportPro(): User
         'handle' => 'exp-'.substr($id, 0, 8),
         'handle_lc' => 'exp-'.substr($id, 0, 8),
         'display_name' => 'Export Pro',
+        'first_name' => 'Export',
         'primary_email' => 'exp-'.substr($id, 0, 8).'@example.com',
         'status' => 'active',
     ]);

@@ -50,11 +50,14 @@ function bulkStatusTest_seedProfessional(): User
 {
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
+    $handle = 'pro-'.Str::random(6);
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
-        'handle' => 'pro-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Bulk Pro',
+        'first_name' => 'Bulk Pro',
         'primary_email' => 'bulk-'.Str::random(6).'@example.test',
         'account_type' => 'partna',
         'status' => 'active',

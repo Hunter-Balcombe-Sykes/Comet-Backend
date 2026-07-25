@@ -181,17 +181,21 @@ it('dispatches the mailable class resolved from config for the category', functi
         'updated_at' => now(),
     ]);
 
-    DB::connection('pgsql')->statement("ATTACH DATABASE ':memory:' AS core");
-    DB::connection('pgsql')->statement(
-        "CREATE TABLE IF NOT EXISTS core.users (id TEXT PRIMARY KEY, primary_email TEXT, status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT NULL)"
-    );
+    setupUsersTable();
     DB::connection('pgsql')->statement(
         'CREATE TABLE IF NOT EXISTS notifications.notification_email_policies (id TEXT, user_id TEXT, category_key TEXT, mode TEXT)'
     );
     DB::connection('pgsql')->statement(
         'CREATE TABLE IF NOT EXISTS notifications.notification_email_preferences (id TEXT, user_id TEXT, category_key TEXT, enabled INTEGER)'
     );
-    DB::table('core.users')->insert(['id' => 'pro-1', 'primary_email' => 'pro@example.com']);
+    DB::table('core.users')->insert([
+        'id' => 'pro-1',
+        'handle' => 'pro-1',
+        'handle_lc' => 'pro-1',
+        'display_name' => 'Pro-1',
+        'first_name' => 'Pro-1',
+        'primary_email' => 'pro@example.com',
+    ]);
 
     (new SendTransactionalNotificationEmailJob('notif-1', 'policy_update', 'pro-1'))->handle();
 

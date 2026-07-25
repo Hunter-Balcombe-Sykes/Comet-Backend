@@ -1090,6 +1090,12 @@ return [
         // Short-TTL resolve-map window (handle → IDs). Bounded staleness without
         // mutation-driven invalidation; low enough to keep rename lag imperceptible.
         'resolve_cache_ttl' => (int) env('SIDEST_PUBLIC_PROFILE_RESOLVE_CACHE_TTL', 30),
+        // Monotonic floor for the resolve timestamp (see
+        // CacheKeyGenerator::handleResolveFloor). Must outlive any stale resolve
+        // entry that could carry an older stamp: resolve primary is 30s with ±20%
+        // jitter (≤36s) and its :stale twin is 10× that (≤360s). 600 clears both
+        // with margin. Lower it and the race it closes reopens for the gap.
+        'resolve_floor_ttl' => (int) env('PARTNA_PUBLIC_PROFILE_RESOLVE_FLOOR_TTL', 600),
         // Slow-request threshold for the Nightwatch P95 warning. Tune up if
         // builder is legitimately slow on cold paths; tune down to tighten alerting.
         'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),
@@ -1305,6 +1311,16 @@ return [
         // FetchBudget's docblock). Opt-in per call site: callers that never open
         // a budget — the overwhelming majority — are unaffected.
         'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 20),
+
+        // Wall-clock budget (seconds) for one PlatformRefresher::refresh() call —
+        // the cron/manual-refresh mirror of connect_budget_seconds above. Must stay
+        // meaningfully below RefreshConnectionJob's 120s $timeout, leaving headroom
+        // (~30s) for the non-fetch work a refresh still does after the fetch closes:
+        // ScheduledRefresh's Cache::lock($key,10)->block(5,…) acquisition, the
+        // projector sync() upserts, the model write + observer purge, the health
+        // notifier. If the budget ever meets/exceeds 120s the job's SIGKILL wins
+        // and the budget is moot — see RefreshBudgetInvariantTest.
+        'refresh_budget_seconds' => (int) env('PARTNA_REFRESH_BUDGET_SECONDS', 90),
 
         // CFG-2: browser-ish UA — some providers 403 obvious bots / empty UAs.
         // Was a SafeUrlFetcher class constant; kept as a plain literal default
@@ -1919,11 +1935,15 @@ return [
         // later-reclaimed subdomain — this bounds the redirect to a re-check window.
         'alias_redirect_max_age' => (int) env('PARTNA_CACHE_ALIAS_REDIRECT_MAX_AGE', 300), // 5 min
 
-        // Delay before CloudflareCachePurgeJob's follow-up purge. Must exceed the
-        // sum of the payload staleness windows (Laravel Cloud edge s-maxage +
-        // Worker subrequest cacheTtl) so the follow-up is guaranteed to evict any
-        // stale HTML re-pinned by a visitor who raced the primary purge.
-        'purge_followup_seconds' => (int) env('PARTNA_CACHE_PURGE_FOLLOWUP_SECONDS', 120),
+        // Absolute offsets, in seconds FROM THE PRIMARY PURGE, at which follow-up
+        // purges land. Not per-hop delays: the primary dispatches all of them
+        // up-front, each with its own delay and depth. Each must clear the sum of
+        // the payload staleness windows (Laravel Cloud edge s-maxage + the Worker
+        // subrequest cacheTtl) for a visitor who raced the primary purge; the
+        // later entries exist for a degraded-Cloudflare window where the earlier
+        // ones fail. Every entry MUST exceed CloudflareCachePurgeJob's follow-up
+        // $uniqueFor (30) or a follow-up would coalesce into its own predecessor.
+        'purge_followup_schedule' => [120, 300, 900],
 
         // cache-edge-reconcile/LIFE-1 residual: purgeHandle() enumerated URL count
         // above which CloudflarePurgeService logs a warning — makes a catalog

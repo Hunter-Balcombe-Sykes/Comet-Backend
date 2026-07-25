@@ -30,26 +30,7 @@ beforeEach(function () {
     )');
 
     // Schema-prefixed table used by the Professional Eloquent model.
-    $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
-        id TEXT PRIMARY KEY,
-        auth_user_id TEXT NULL,
-        handle TEXT NULL,
-        handle_lc TEXT NULL,
-        display_name TEXT NULL,
-        first_name TEXT NULL,
-        last_name TEXT NULL,
-        primary_email TEXT NULL,
-        phone TEXT NULL,
-        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
-        status TEXT NULL,
-        onboarding_step INTEGER NULL,
-        country_code TEXT NULL,
-        timezone TEXT NULL,
-        stripe_connect_account_id TEXT NULL,
-        deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
+    setupUsersTable();
 
     // Alias table — the new uniqueness check queries this. Includes the
     // lifecycle columns (expires_at etc.) so the active-alias predicate resolves.
@@ -122,6 +103,8 @@ it('rejects a handle_lc that already exists in the core.users table', function (
         'id' => '00000000-0000-0000-0000-000000000001',
         'handle' => 'taken',
         'handle_lc' => 'taken',
+        'display_name' => 'Taken',
+        'first_name' => 'Taken',
         'primary_email' => 'other@example.com',
     ]);
 

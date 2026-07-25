@@ -17,6 +17,8 @@ function testBrand(?string $replyToEmail): EmailBrand
         proName: 'Test Pro',
         siteUrl: 'https://testpro.partna.au',
         logoUrl: null,
+        logoUrlLight: null,
+        logoUrlDark: null,
         replyToEmail: $replyToEmail,
         palette: EmailBrandDefaults::defaults(),
     );

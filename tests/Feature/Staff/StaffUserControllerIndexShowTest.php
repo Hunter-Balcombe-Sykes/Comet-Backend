@@ -42,11 +42,14 @@ function seedProfessionalWithSite(string $architectureId = 'staple'): User
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
+    $handle = 'pro-'.Str::random(6);
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
-        'handle' => 'pro-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Test Pro',
+        'first_name' => 'Test',
         'primary_email' => 'pro-'.Str::random(6).'@example.test',
         'account_type' => 'partna',
         'status' => 'active',
@@ -104,10 +107,13 @@ it('index includes architecture_id in the site payload and omits theme', functio
 it('index site payload is null when the professional has no site', function () {
     // Insert a user with no site row.
     $userId = (string) Str::uuid();
+    $handle = 'no-site-'.Str::random(4);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
-        'handle' => 'no-site-'.Str::random(4),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'No Site Pro',
+        'first_name' => 'No',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
@@ -154,10 +160,13 @@ it('show includes architecture_id in the site payload and omits theme', function
 
 it('show site payload is null when the professional has no site', function () {
     $userId = (string) Str::uuid();
+    $handle = 'no-site-show-'.Str::random(4);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
-        'handle' => 'no-site-show-'.Str::random(4),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'No Site Show Pro',
+        'first_name' => 'No',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),

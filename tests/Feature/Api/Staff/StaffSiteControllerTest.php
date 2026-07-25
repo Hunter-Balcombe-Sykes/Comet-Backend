@@ -143,6 +143,7 @@ function makeStaffSiteProfessional(): User
         'handle' => 'pro-'.substr($id, 0, 8),
         'handle_lc' => 'pro-'.substr($id, 0, 8),
         'display_name' => 'Staff-Viewed Pro',
+        'first_name' => 'Staff-Viewed Pro',
         'primary_email' => 'pro-'.substr($id, 0, 8).'@example.test',
         'account_type' => 'partna',
         'status' => 'active',

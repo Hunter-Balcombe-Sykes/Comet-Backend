@@ -39,6 +39,7 @@ function seedWelcomeDedupUser(string $id): User
         'handle' => 'welcomededuper',
         'handle_lc' => 'welcomededuper',
         'display_name' => 'Welcome Deduper',
+        'first_name' => 'Welcomededuper',
         'primary_email' => 'welcomededuper@example.com',
         'account_type' => 'partna',
         'status' => 'active',

@@ -102,10 +102,13 @@ it('accepts a null user_id (global notification)', function () {
 it('accepts an existing user_id (targeted notification)', function () {
     $userId = (string) Str::uuid();
     $now = now()->toDateTimeString();
+    $handle = 'notif-target-'.Str::random(4);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
-        'handle' => 'notif-target-'.Str::random(4),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Target User',
+        'first_name' => 'Target',
         'primary_email' => 'target-'.Str::random(4).'@example.test',
         'account_type' => 'partna',
         'status' => 'active',
