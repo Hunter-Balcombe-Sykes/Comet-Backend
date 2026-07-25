@@ -106,7 +106,13 @@ class StaffServiceManagementController extends ApiController
         $this->authorizeForUser($staff, 'staffManage', $professional);
         $data = $request->validated();
 
-        $this->assertCategoryBelongsToProfessional($professional->id, $data['category_id'] ?? null);
+        // #SVC-1: category_ids (multi) or the legacy single category_id — mirrors
+        // UserServiceController::store(). Ownership of EVERY supplied id is
+        // asserted, not just the first.
+        $categoryIds = $this->requestedCategoryIds($data);
+        foreach ($categoryIds as $categoryId) {
+            $this->assertCategoryBelongsToProfessional($professional->id, $categoryId);
+        }
 
         try {
             $service = InsertWithSortOrder::run(
@@ -114,7 +120,7 @@ class StaffServiceManagementController extends ApiController
                     ->where('user_id', $professional->id)
                     ->whereNull('deleted_at'),
                 "services:{$professional->id}",
-                function (int $next) use ($professional, $data) {
+                function (int $next) use ($professional, $data, $categoryIds) {
                     // SEC-1: relation ->create() sets user_id via the FK, not mass-assignment.
                     $service = $professional->services()->create([
                         'title' => $data['title'],
@@ -126,8 +132,8 @@ class StaffServiceManagementController extends ApiController
                         'sort_order' => $data['sort_order'] ?? $next,
                     ]);
 
-                    if (($data['category_id'] ?? null) !== null) {
-                        $service->categories()->attach($data['category_id']);
+                    if ($categoryIds !== []) {
+                        $service->categories()->attach($categoryIds);
                     }
 
                     return $service->fresh();
@@ -169,16 +175,26 @@ class StaffServiceManagementController extends ApiController
 
         $data = $request->validated();
 
-        if (array_key_exists('category_id', $data)) {
-            $this->assertCategoryBelongsToProfessional($professional->id, $data['category_id']);
+        // #SVC-1: category_ids (multi) REPLACES the membership set; the legacy
+        // single category_id maps to [id] (or [] for explicit null). Mirrors
+        // UserServiceController::updateCategory() folded into this general
+        // update() (staff has no separate re-assignment endpoint). Ownership of
+        // EVERY supplied id is asserted, not just the first.
+        if (array_key_exists('category_id', $data) || array_key_exists('category_ids', $data)) {
+            $categoryIds = array_key_exists('category_ids', $data) && is_array($data['category_ids'])
+                ? array_values(array_unique(array_map('strval', $data['category_ids'])))
+                : (($data['category_id'] ?? null) !== null ? [(string) $data['category_id']] : []);
 
-            // Multi-category: the legacy single category_id REPLACES the
-            // membership set ([] for null). Appends at global end when moving
-            // without an explicit sort_order, mirroring the old per-bucket move.
-            $target = $data['category_id'] !== null ? [(string) $data['category_id']] : [];
-            $current = $service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->all();
-            if ($target != $current) {
-                $service->categories()->sync($target);
+            foreach ($categoryIds as $categoryId) {
+                $this->assertCategoryBelongsToProfessional($professional->id, $categoryId);
+            }
+
+            // Appends at global end when moving without an explicit sort_order,
+            // mirroring the old per-bucket move.
+            $target = collect($categoryIds)->sort()->values()->all();
+            $current = $service->categories()->pluck('site.service_categories.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
+            if ($target !== $current) {
+                $service->categories()->sync($categoryIds);
                 if (! array_key_exists('sort_order', $data)) {
                     $max = Service::query()
                         ->where('user_id', $professional->id)
@@ -187,7 +203,7 @@ class StaffServiceManagementController extends ApiController
                     $data['sort_order'] = is_null($max) ? 0 : ((int) $max + 1);
                 }
             }
-            unset($data['category_id']);
+            unset($data['category_id'], $data['category_ids']);
         }
 
         $service->fill($data);
@@ -409,6 +425,24 @@ class StaffServiceManagementController extends ApiController
         }
 
         return $this->success(['restored' => true, 'service' => new ServiceResource($service->fresh())]);
+    }
+
+    /**
+     * The membership ids a write addressed — category_ids (multi) or the
+     * legacy single category_id; [] when neither was supplied. Mirrors
+     * UserServiceController::requestedCategoryIds().
+     *
+     * @param  array<string, mixed>  $data
+     * @return list<string>
+     */
+    private function requestedCategoryIds(array $data): array
+    {
+        $ids = $data['category_ids'] ?? null;
+        if (! is_array($ids) || $ids === []) {
+            $ids = ($data['category_id'] ?? null) !== null ? [$data['category_id']] : [];
+        }
+
+        return array_values(array_unique(array_map('strval', $ids)));
     }
 
     private function assertCategoryBelongsToProfessional(string $userId, ?string $categoryId): void

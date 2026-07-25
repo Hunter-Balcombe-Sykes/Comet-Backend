@@ -93,7 +93,7 @@ fix (source item 2) would **break working endpoints** if applied as written.
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 1 of 3 complete
 
 **Bundle 1 (#FFLAG-1 + #TESTFX-1) shipped 2026-07-27** on `audit-fix/dead-code-backend-bugs-2026-07-27`.
 Verified against **real Postgres 16**, not just SQLite: the new
@@ -243,7 +243,24 @@ Two corrections to this audit's own claims were recorded inline above (#FFLAG-1'
     - **Technical:** Both methods are already guarded by `assertVisibleTo()` (`:232-237`), which 404s unless the notification is global or targeted at that professional, and the method carries an explicit docblock explaining why the policy can't be used for the *row* check: *"Staff context can't use NotificationPolicy (the policy's actor is the resource owner, not the staff member acting on their behalf). Replicate the ownership check inline: 404 if the notification is neither global nor targeted at this professional."* That reasoning is sound and should stand. What's missing is the separate **actor** check. `NotificationPolicy:60-66` describes `staffManage` as *"admin only, mirroring the `staff.admin` route middleware for **defence-in-depth parity** with the other staff write controllers"* — parity these two writes don't have. Routes: `routes/api/staff.php:255,257`, inside the admin group at `:184-188`.
     - **Plain English:** Two staff actions — marking a user's notification read, and dismissing it — don't re-check that the staff member is an admin. In practice it makes no difference right now, because the route itself already requires an admin to get that far. But the codebase deliberately double-checks these things one layer deeper, on the reasoning that if support staff are ever let into the admin area, the second check is what stops them. These two actions are the ones missing that second check while the near-identical action next to them has it.
 
-- [ ] **#SVC-1** · P3 — Staff can attach only one service category per call; professionals can pass a list and have a dedicated re-assignment endpoint
+- [x] **#SVC-1** · P3 — Staff can attach only one service category per call; professionals can pass a list and have a dedicated re-assignment endpoint
+
+    > **Shipped 2026-07-27.** Premise re-verified before implementing — this finding's own correction of the source
+    > doc holds: the staff write path *was* already migrated (pivot `attach`/`sync`, `unset($data['category_id'])`),
+    > so there was no dropped-column write and nothing to repair. Only the narrow ergonomics residual was real.
+    >
+    > `category_ids` added to both staff Requests with rules byte-identical to `StoreServiceRequest.php:22-23`;
+    > `store()`/`update()` accept the array form via a `requestedCategoryIds()` helper copied verbatim from
+    > `UserServiceController::requestedCategoryIds()` (`:636-644`) so staff and professional precedence rules cannot
+    > drift. Ownership is asserted over **every** supplied id before any DB write — the two negative tests place the
+    > foreign id **second** in the array specifically so a first-only check would fail them.
+    >
+    > The optional staff re-assignment route was **deliberately not added** — array support folded into the existing
+    > `update()` covers the parity gap without new routes. The unqualified `exists:service_categories,id` rules were
+    > left untouched as this finding instructs (no dot → default connection → resolved by `search_path`).
+    >
+    > 6 new **route-level** tests (real FormRequests through the real routes, not the controller-mocking pattern that
+    > hid #FFLAG-1). `--filter=Service` → 569 passed. Independent review: PASS, no defects.
     - **Where:** app/Http/Requests/Api/Staff/UserSite/Services/StaffStoreServiceRequest.php:14, StaffUpdateServiceRequest.php:14 (professional-facing equivalent: app/Http/Requests/Api/User/Services/StoreServiceRequest.php:21-24)
     - **Affects:** Staff service management ergonomics only. **No crash, no dropped-column write, no data loss** — see Technical; the source doc's central claim on this item is factually wrong. Practical impact: staff assisting a user cannot reproduce a multi-category service the user could create themselves, and there is no staff equivalent of the re-assignment endpoint.
     - **Effort:** S (~2–3h)
@@ -271,6 +288,21 @@ Two corrections to this audit's own claims were recorded inline above (#FFLAG-1'
 ## Needs a decision — not a mechanical fix
 
 **#PRIV-D1 — Any staff tier can page and search every subscriber's email + full name; only admins can export the same list.**
+
+> ### ✅ DECIDED 2026-07-27 — option (a): any-staff read is INTENDED. Recorded; do not re-raise.
+>
+> The asymmetry below (any staff tier may *read* subscriber email + full name at 200 rows/page with free-text
+> search; only admins may *export*) is **deliberate and accepted**. Support staff need subscriber visibility to
+> answer customer questions without elevated privileges — the same rationale already documented for
+> `StaffAccountDeletionController::show()` (see Rejected #1).
+>
+> **No code change.** Specifically, do **not** "implement" this by adding
+> `authorizeForUser($staff, 'staffView', $professional)` to `index()`: `UserSelfPolicy::staffView` (`:116`) returns
+> `true` for every staff role, so it would grant exactly what is granted today while creating the *appearance* of a
+> control. That is strictly worse than the honest absence — which is why this was never a code unit.
+>
+> Not adopted: option (c)'s `UserStaffResource`-style PII masking for non-admins. Revisit only if the staff tiers
+> themselves are re-scoped, or if a privacy review before pilot launch reaches a different conclusion.
 *(This is the substantive part of the source doc's item 3, which buried it under a "missing `authorizeForUser`" framing that is itself a false positive — see the Rejected section.)*
 
 - **Where:** app/Http/Controllers/Api/Staff/StaffSite/StaffEmailSubscriberController.php — `index()` at `:29` vs `export()` at `:86-91`
