@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Launch-check runner — "is the RUNNING system right" (counterpart to
 # scripts/audit/ which answers "is the code right").
-# Usage: launch-check.sh [--only schema,smoke,supabase,supply,security,drills] [--base-url URL] [--rate-limit]
+# Usage: launch-check.sh [--only schema,smoke,supabase,supply,security,drills,env] [--base-url URL] [--rate-limit]
+#
+# NOTE: "env" (group G, deployed-env config check) is opt-in only — it needs the
+# `cloud` CLI and a deployed Laravel Cloud env, neither of which a plain local
+# run can assume. It is deliberately NOT in the default ONLY list; run it via
+# `--only env` (or include it explicitly alongside other groups).
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../.." && pwd)"
-KNOWN_GROUPS="schema smoke supabase supply security drills"
+KNOWN_GROUPS="schema smoke supabase supply security drills env"
 ONLY="schema,smoke,supabase,supply,security,drills"
 BASE_URL="https://dev-api.partna.au"
 SMOKE_ARGS=()
@@ -77,9 +82,11 @@ run_group() { # $1 name, $2 command string
     "cd '$ROOT' && APP_DEBUG=false php artisan vigil:audit --fail-on=critical"
 [[ ",$ONLY," == *",drills,"* ]] && run_group "F · Drill-log freshness" \
     "'$DIR/drill-freshness.sh'"
+[[ ",$ONLY," == *",env,"* ]] && run_group "G · Deployed env config" \
+    "'$DIR/env-check.sh'"
 
 {
-    echo "## G · Manual residue (no script can verify these)"
+    echo "## H · Manual residue (no script can verify these)"
     echo
     cat "$DIR/MANUAL-CHECKLIST.md"
 } >> "$REPORT"
