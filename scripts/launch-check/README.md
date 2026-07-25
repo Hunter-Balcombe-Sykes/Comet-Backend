@@ -21,24 +21,43 @@ default group set; run it explicitly with `scripts/launch-check/launch-check.sh 
 (or `scripts/launch-check/env-check.sh` directly). Defaults to `--env development --target
 pilot`; `--env production` requires `LAUNCH_CHECK_CONFIRM_PROD=1` and is otherwise refused.
 
-**`env-check.sh` internals — do not "simplify" the fallback parser.** `cloud command:run
---json` has a confirmed, live, INTERMITTENT bug: the `output` field's newlines are
-sometimes serialized as a literal raw byte instead of the `\n` escape JSON requires, which
-breaks strict JSON parsing on almost any multi-line remote output (i.e. most real output,
-including `launch-check:env`'s own). The script therefore tries strict `jq` parsing first
-(`PARSE_MODE=json`) and only falls back to raw-text matching (`PARSE_MODE=raw-fallback`)
-when `jq` rejects the payload — it is not a plain substring grep over the whole blob. An
-earlier version of the fallback WAS a plain substring grep, and that let text anywhere in
-the command's own output (a stray log line, a nested subprocess dump) forge a false PASS
-by embedding `"exitCode":0` and the PASS sentinel string. The fallback now (a) takes the
-exit code only from bytes anchored to the true end of the payload — the `cloud` CLI always
-appends this field after the command's own output content, so nothing in that content can
-ever land later than it — and (b) requires the PASS/FAIL sentinel to appear as an entire
-physical line on its own, not a substring anywhere, so quoting the sentinel inside a longer
-line of unrelated text cannot satisfy it. Regression coverage for this class of bug lives
-in `scripts/launch-check/env-check-parser.test.sh` (plain executable bash — no `bats`
-dependency; run it directly) — extend it, don't remove the anchoring/exact-line-match
-logic it pins.
+**`env-check.sh` internals — never reintroduce a line-scanning parser.** `cloud
+command:run --json` has a confirmed, live, INTERMITTENT bug: raw `0x0A` bytes are emitted
+inside the `output` string value instead of the `\n` escape JSON requires, which breaks
+strict JSON parsing on almost any multi-line remote output (i.e. most real output,
+including `launch-check:env`'s own). The observed real shape is `{"output":"…","exitCode":N}`
+— output FIRST, exitCode LAST — optionally preceded by progress objects.
+
+The script handles this **structurally**, in three steps:
+
+1. `PARSE_MODE=json` — strict `jq` parse, used whenever the payload is already well-formed.
+2. `PARSE_MODE=repaired` — an `awk` state machine walks the payload tracking whether it is
+   inside a JSON string and escapes the raw control bytes that occur inside string values
+   (`0x0A` → `\n`, everything else `0x01`–`0x1F` → `\uXXXX`). Backslash escapes are passed
+   through untouched, which is what keeps the string tracking honest. The repaired text is
+   then parsed with `jq`.
+3. If the repaired text still does not parse, the script **fails closed** — "could not be
+   repaired", exit 1. There is no third fallback and there must never be one.
+
+`exitCode` and `output` are then read as **structured fields** of the LAST top-level object
+in the stream, with a type check on each (a non-numeric `exitCode` or non-string `output`
+fails closed). PASS requires BOTH a genuine numeric `exitCode` of 0 AND the PASS sentinel
+as an exact whole line; a FAIL sentinel always wins; absence of a FAIL marker is never
+treated as success.
+
+Why this shape and not text scanning: **two earlier versions shipped a FALSE PASS.** Round 1
+grepped `"exitCode":` and the sentinels over the whole blob, so an embedded `"exitCode":0`
+plus PASS text in the remote command's own output reported `passed` on a genuine remote
+exit 1. Round 2 anchored the exit code to the payload tail (correct) but picked the record
+start by "last physical line beginning with `{"output":"`", so a DECOY line inside the
+output content faked a second record and passed again. Content that mimics structure beats
+every textual landmark you can pick; once a real parser reads the structure, bytes *inside*
+a string value can never become a sibling record or field.
+
+Regression coverage lives in `scripts/launch-check/env-check-parser.test.sh` (plain
+executable bash — no `bats` dependency; run it directly). It includes both shipped
+false-PASS PoCs verbatim and decoy record boundaries at the start, middle and end of the
+output content, plus multiple decoys in one payload. Extend it; never weaken an assertion.
 
 **After any schema change:** `supabase db push`, then `php scripts/launch-check/refresh-schema-snapshot.php`, commit the snapshot. If the drift gate then fails, mirror the constraint in `tests/Pest.php` (preferred) or regenerate the baseline (`SCHEMA_DRIFT_BASELINE=1 php artisan test --filter=SchemaDriftGuardTest`).
 

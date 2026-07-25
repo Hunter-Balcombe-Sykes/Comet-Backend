@@ -3,24 +3,34 @@
 # and reports whether every required var/config value is set correctly. Reads
 # the env's OWN resolved config (via the app), which no external probe can see.
 #
-# PARSE_MODE design (see the two long comments below before "simplifying" this):
-# `cloud command:run --json` has a confirmed, live, INTERMITTENT serializer bug
-# — the `output` field's newlines are sometimes emitted as a literal raw 0x0A
-# byte instead of the `\n` escape JSON requires, which breaks strict JSON
-# parsing on essentially any multi-line remote output (i.e. most real output,
-# including this probe's own launch-check:env). We can't fix the CLI, so this
-# script tries strict `jq` parsing first (PARSE_MODE=json) and only falls back
-# to raw-text matching (PARSE_MODE=raw-fallback) when `jq` rejects the payload.
-# The fallback is NOT a plain substring grep over the whole blob — an earlier
-# version was and that let attacker/log-controlled text anywhere in the
-# command's own output (a stray audit-log line, a nested subprocess dump, an
-# embedded example JSON snippet) forge a PASS. It now (a) takes the exit code
-# ONLY from bytes anchored to the true end of the payload — which the `cloud`
-# CLI itself appends AFTER the command's own output content, so nothing in
-# that content can ever be positioned later — and (b) requires the PASS/FAIL
-# sentinel to appear as an entire physical line on its own (exact match), not
-# a substring anywhere, so quoting the sentinel inside a longer line of
-# unrelated text cannot satisfy it.
+# PARSE_MODE design — READ THIS BEFORE "SIMPLIFYING" THE PARSER.
+#
+# `cloud command:run --json` has a confirmed, live, INTERMITTENT serializer bug:
+# the `output` field's newlines are sometimes emitted as a literal raw 0x0A byte
+# instead of the `\n` escape JSON requires, which breaks strict JSON parsing on
+# essentially any multi-line remote output (i.e. most real output, including
+# this probe's own `launch-check:env`). Observed real shape is
+# `{"output":"…","exitCode":N}` — output FIRST, exitCode LAST — optionally
+# preceded by progress objects on their own lines. Quotes inside the content ARE
+# escaped correctly; unescaped control bytes are the CLI's one and only defect.
+#
+# We cannot fix the CLI, so this script:
+#   1. tries strict `jq` parsing first (PARSE_MODE=json);
+#   2. if that fails, REPAIRS the payload — a state machine walks the bytes
+#      tracking whether it is inside a JSON string and escapes the raw control
+#      bytes that appear inside string values — then parses the repaired text
+#      with `jq` (PARSE_MODE=repaired);
+#   3. if the repaired text still does not parse, FAILS CLOSED. There is no
+#      line-scanning fallback and there must never be one again.
+#
+# Why no line scanning: two previous versions shipped a raw-text fallback and
+# both produced a FALSE PASS. Text inside the remote command's own output can
+# mimic any textual landmark you pick — an embedded `"exitCode":0`, a quoted
+# PASS sentinel, even a whole decoy line starting with the literal `{"output":"`
+# token that fakes a second record boundary. Heuristics over untrusted content
+# keep losing. Repair-then-parse kills that entire class BY CONSTRUCTION: once a
+# real JSON parser reads the structure, no bytes *inside* a string value can
+# become a sibling record, a sibling field, or a sibling line.
 set -uo pipefail
 
 CLOUD_ENV="development"   # dev-api; prod is gated
@@ -56,11 +66,52 @@ if [[ -z "$JQ" ]]; then
     exit 1   # fail closed — same rule as the missing-cloud-CLI case above
 fi
 
+AWK="$(command -v awk || true)"
+if [[ -z "$AWK" ]]; then
+    echo "FAIL  awk not found — required to repair cloud CLI output"
+    exit 1   # fail closed — without the repairer a malformed payload is unverifiable
+fi
+
+# JSON-string-aware repairer. Walks the payload one record (physical line) at a
+# time, carrying the in-string / in-escape state ACROSS records, and escapes
+# every raw control byte that occurs inside a string value:
+#   - a record boundary while inside a string  → `\n`  (the CLI's actual bug)
+#   - a record boundary while outside a string → a real newline (legal JSON
+#     whitespace / separator between concatenated top-level values)
+#   - CR, TAB and any other 0x01–0x1F byte inside a string → `\uXXXX`
+# Backslash escapes (`\"`, `\\`, …) are passed through untouched, which is what
+# keeps the in-string state honest: the CLI escapes quotes correctly, so a `"`
+# in the content can never be mistaken for a string terminator.
+AWK_REPAIR_JSON='
+BEGIN {
+    instr = 0; esc = 0
+    for (i = 1; i < 32; i++) ctl[sprintf("%c", i)] = sprintf("\\u%04x", i)
+}
+{
+    if (NR > 1) { if (instr) printf "\\n"; else printf "\n" }
+    n = length($0)
+    for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (instr) {
+            if (esc)          { printf "%s", c; esc = 0; continue }
+            if (c == "\\")    { printf "\\"; esc = 1; continue }
+            if (c == "\"")    { instr = 0; printf "\""; continue }
+            if (c in ctl)     { printf "%s", ctl[c]; continue }
+            printf "%s", c
+        } else {
+            if (c == "\"") { instr = 1 }
+            printf "%s", c
+        }
+    }
+}
+'
+
 # is_sentinel_line "$multiline_text" "LAUNCH-CHECK-ENV: PASS" — true iff some
 # ENTIRE physical line of the text equals the sentinel exactly. Deliberately
-# NOT a substring grep: a line like `audit tail: ...LAUNCH-CHECK-ENV: PASS...`
+# NOT a substring grep and deliberately NOT whitespace-tolerant: a line like
+# `audit tail: ...LAUNCH-CHECK-ENV: PASS...` or `  LAUNCH-CHECK-ENV: PASS  `
 # must NOT count, only a line that IS the sentinel and nothing else, which is
-# how the command actually emits it (`$this->line('LAUNCH-CHECK-ENV: ...')`).
+# exactly how the command emits it (`$this->line('LAUNCH-CHECK-ENV: ...')`).
 is_sentinel_line() {
     local text="$1" sentinel="$2" ln
     while IFS= read -r ln; do
@@ -86,66 +137,54 @@ if [[ -z "$RAW" ]]; then
     exit 1
 fi
 
-REMOTE_EXIT=""
-OUT=""
-PARSE_MODE="raw-fallback"
+# ---- Step 1/2: obtain a payload `jq` can parse, or fail closed. ----
+PAYLOAD=""
+PARSE_MODE=""
 
-if echo "$RAW" | "$JQ" -e . >/dev/null 2>&1; then
+if printf '%s' "$RAW" | "$JQ" -e . >/dev/null 2>&1; then
     PARSE_MODE="json"
-    if echo "$RAW" | "$JQ" -e '.error == true' >/dev/null 2>&1; then
-        echo "FAIL  cloud command:run reported an error:"
-        echo "$RAW" | "$JQ" -r '.message // .errors // .'
+    PAYLOAD="$RAW"
+else
+    REPAIRED="$(printf '%s' "$RAW" | "$AWK" "$AWK_REPAIR_JSON" 2>/dev/null)"
+    if [[ -n "$REPAIRED" ]] && printf '%s' "$REPAIRED" | "$JQ" -e . >/dev/null 2>&1; then
+        PARSE_MODE="repaired"
+        PAYLOAD="$REPAIRED"
+    else
+        # No line-scanning fallback, by design. Losing the ability to pass on a
+        # payload we cannot structurally understand is the correct trade.
+        echo "FAIL  cloud CLI output is not valid JSON and could not be repaired — cannot verify deployed env config"
+        echo "$RAW"
         exit 1
     fi
-    REMOTE_EXIT="$(echo "$RAW" | "$JQ" -r '.exitCode // empty')"
-    OUT="$(echo "$RAW" | "$JQ" -r '.output // empty')"
-else
-    # Malformed JSON (the known bug above). Recover the two facts we need
-    # WITHOUT trusting a naive "search the whole blob" match, since the blob
-    # now contains attacker/log-controlled bytes we cannot fully parse:
-    #
-    # 1. exitCode: the `cloud` CLI always appends `,"exitCode":<digits>}` as
-    #    the literal final bytes of the whole payload — it serializes this
-    #    AFTER the command's own output content, so nothing inside that
-    #    content (however it's formatted) can ever land after it. Anchor the
-    #    match to the true end of $RAW via bash's own `$` (end-of-string),
-    #    not grep's per-line `$` — $RAW may contain real embedded newlines,
-    #    and grep's `$` would match end-of-EACH-line, not end of the buffer.
-    RAW_LEN=${#RAW}
-    TAIL_LEN=4096
-    # bash's `${var: -N}` returns EMPTY (not the whole string) when N >= the
-    # string's length, instead of clamping to offset 0 — so cap it explicitly.
-    [[ $TAIL_LEN -gt $RAW_LEN ]] && TAIL_LEN=$RAW_LEN
-    TAIL="${RAW: -$TAIL_LEN}"
-    if [[ "$TAIL" =~ ,\"exitCode\":([0-9]+)\}[[:space:]]*$ ]]; then
-        REMOTE_EXIT="${BASH_REMATCH[1]}"
-        MATCHED_SUFFIX="${BASH_REMATCH[0]}"
-        # 2. output: strip that exact trailing suffix, then find the LAST
-        #    physical line that STARTS WITH the literal `{"output":"` token
-        #    — the genuine record always begins its own line with this exact
-        #    prefix (immediately after a real newline, or at buffer start).
-        #    A forged occurrence embedded mid-line (e.g. "...tail: {"output":"...")
-        #    does not start a line and is skipped, so it cannot be mistaken
-        #    for the real record boundary.
-        PREFIX="${RAW%"$MATCHED_SUFFIX"}"
-        FOUND_LINE=0
-        LINE_NO=0
-        while IFS= read -r ln; do
-            LINE_NO=$((LINE_NO + 1))
-            case "$ln" in
-                '{"output":"'*) FOUND_LINE=$LINE_NO ;;
-            esac
-        done <<< "$PREFIX"
-        if [[ $FOUND_LINE -gt 0 ]]; then
-            REGION="$(printf '%s\n' "$PREFIX" | tail -n "+$FOUND_LINE")"
-            # Strip the literal `{"output":"` from the first line of the region,
-            # and the closing `"` of the JSON string value from the very end
-            # (the stripped MATCHED_SUFFIX started at the comma AFTER that quote).
-            OUT="$(printf '%s\n' "$REGION" | sed '1s/^{"output":"//')"
-            OUT="${OUT%\"}"
-        fi
-    fi
 fi
+
+# ---- Step 3: structural extraction. ----
+# The payload is a stream of concatenated top-level JSON values (progress
+# objects, then the result record). Prefer the LAST object carrying an
+# `exitCode` key — that is the result record — and fall back to the last object
+# of any shape so the CLI's own `{"error":true,…}` responses are still reported.
+# `jq -s` reads the STRUCTURE, so a `{"output":"…` sequence living INSIDE a
+# string value is content, not a record, and can never be selected here.
+RECORD="$(printf '%s' "$PAYLOAD" | "$JQ" -s -c '
+    ([.[] | select(type == "object" and has("exitCode"))] | last)
+    // ([.[] | select(type == "object")] | last)
+    // empty' 2>/dev/null)"
+if [[ -z "$RECORD" ]]; then
+    echo "FAIL  cloud CLI output contained no result object (parse mode: $PARSE_MODE) — cannot verify deployed env config"
+    echo "$RAW"
+    exit 1
+fi
+
+if printf '%s' "$RECORD" | "$JQ" -e '.error == true' >/dev/null 2>&1; then
+    echo "FAIL  cloud command:run reported an error:"
+    printf '%s' "$RECORD" | "$JQ" -r '.message // .errors // .'
+    exit 1
+fi
+
+# Both fields must be present AND of the right JSON type. A missing, null,
+# string-typed or otherwise non-numeric exitCode yields empty → fail closed.
+REMOTE_EXIT="$(printf '%s' "$RECORD" | "$JQ" -r 'if (.exitCode | type) == "number" then (.exitCode | tostring) else empty end' 2>/dev/null)"
+OUT="$(printf '%s' "$RECORD" | "$JQ" -r 'if (.output | type) == "string" then .output else empty end' 2>/dev/null)"
 
 if [[ -z "$REMOTE_EXIT" ]]; then
     echo "FAIL  could not determine the remote command's exit code (parse mode: $PARSE_MODE) — cannot verify deployed env config"
@@ -153,7 +192,7 @@ if [[ -z "$REMOTE_EXIT" ]]; then
     exit 1
 fi
 
-if [[ -z "$(echo "$OUT" | tr -d '[:space:]')" ]]; then
+if [[ -z "$(printf '%s' "$OUT" | tr -d '[:space:]')" ]]; then
     echo "FAIL  could not locate or parse the command output (parse mode: $PARSE_MODE, exitCode=$REMOTE_EXIT) — cannot verify deployed env config"
     echo "$RAW"
     exit 1
