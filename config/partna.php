@@ -1623,6 +1623,16 @@ return [
         ],
     ],
 
+    'platforms' => [
+        'fresha' => [
+            // How long a scraped team roster stays servable without re-scraping.
+            // The dashboard prompt for an unfinished connection can open once per
+            // session; a live scrape per open would hammer fresha.com for a list
+            // that changes when someone joins or leaves a salon.
+            'team_cache_seconds' => (int) env('PARTNA_FRESHA_TEAM_CACHE_SECONDS', 86400),
+        ],
+    ],
+
     'video_variants' => [
         'optimized' => [
             'resolution' => env('PARTNA_VIDEO_OPTIMIZED_RESOLUTION', env('SIDEST_VIDEO_OPTIMIZED_RESOLUTION', '1280x720')),

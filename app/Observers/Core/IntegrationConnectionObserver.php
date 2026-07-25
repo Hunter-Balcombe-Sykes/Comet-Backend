@@ -12,6 +12,7 @@ use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Support\Facades\Log;
 
@@ -22,11 +23,11 @@ use Illuminate\Support\Facades\Log;
 // edge TTL to lapse. This is the proper fix for the sitepage staleness (replaces
 // the temporary low-TTL band-aid in partna-pages).
 //
-// Surgical direct purge (like ServiceCategoryObserver) rather than touch()ing the
-// site: platform selections are NOT part of the public-profile payload — they're
-// served by the dedicated public platforms endpoint — so there's no reason to
-// roll the profile cache key. CloudflareCachePurgeJob is ShouldBeUnique, so the
-// burst of writes from a multi-row save coalesces to one purge per handle.
+// Also touches the site so the public.profile:{handle}:{ts} Redis cache key
+// rolls forward (page presence can depend on a connection's own payload via
+// PlatformDescriptor::isComplete — see below). CloudflareCachePurgeJob is
+// ShouldBeUnique, so the burst of writes from a multi-row save coalesces to
+// one purge per handle.
 class IntegrationConnectionObserver
 {
     public bool $afterCommit = true;
@@ -51,6 +52,30 @@ class IntegrationConnectionObserver
             || $connection->wasChanged('display_settings')
             || $connection->wasChanged('is_active')) {
             $this->refresher->refresh($connection);
+
+            // Roll site.updated_at so the public.profile:{handle}:{ts} cache key
+            // (IndividualProfileController) rotates too — the CDN purge above
+            // only covers the edge cache. Needed since page presence can now
+            // depend on a connection's own payload (PlatformDescriptor::
+            // isComplete — fresha's saved selection today; shop is NOT covered
+            // here, see below). Without this, completing a booking selection
+            // wouldn't surface the Services page until something unrelated
+            // happened to touch the site.
+            //
+            // Scoped to hasCompletenessPredicate() platforms ONLY — this
+            // "meaningful change" gate above also fires for every platform's
+            // routine scheduled refresh (RefreshConnectionJob/PlatformRefresher:
+            // youtube, instagram, GBP, ...), and SiteObserver::saved() reacts
+            // to touch() with its own CloudflareCachePurgeJob + cache
+            // invalidation + conditional warm job, on top of the CDN purge
+            // this observer already dispatches above. Touching for every
+            // platform would multiply that cost platform-wide for content that
+            // was never presence-gated in the first place. A descriptor-driven
+            // check (rather than a hardcoded platform list) means a future
+            // platform that opts into complete() is covered automatically.
+            if (app(PlatformRegistry::class)->get($connection->platform)?->hasCompletenessPredicate()) {
+                $connection->user?->site?->touch();
+            }
         }
 
         // Central-identity fold: a google-business connect OR a refresh that

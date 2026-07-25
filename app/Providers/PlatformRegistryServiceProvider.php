@@ -26,6 +26,8 @@ use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
@@ -380,6 +382,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (RegistryConnectCoverageTest pins flag<=>instanceof for every
             // descriptor). Mirrors skool/apple-music/eventbrite's identical notes.
             $r->get('fresha')->connectFetchError("We couldn't read that Fresha page just then — please try again.");
+            // An auto-harvested fresha row (Instagram bio / Google Business) is
+            // {url, selection: null} — connected, but with no service menu to
+            // render. FreshaFetch 304s it forever (:36-39), so it can never
+            // self-heal; only the owner picking a team member completes it.
+            // is_array (not !== null) mirrors FreshaFetch's own guard exactly so
+            // the two predicates cannot drift.
+            $r->get('fresha')->complete(fn (IntegrationConnection $c): bool => is_array($c->payload['selection'] ?? null));
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
@@ -424,6 +433,22 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 app(IntegrationConnectionCacheRefresher::class),
             ));
             $r->get('shop')->refreshEvery((int) config('partna.refresh.intervals.shop', 6 * 3600));
+            // FOUND-25 + W9: a shop connection's payload is a static lifecycle
+            // marker — brands/products live relationally and are decoupled from
+            // connect (addBrand stores a brand with zero products). An active
+            // connection alone isn't real content.
+            //
+            // MUST stay in lockstep with PublicIntegrationConnectionResource::
+            // filterPayload(), which rejects a connect_status='pending' brand:
+            // without the exclusion, page-presence says shop is present while the
+            // payload ships empty. `!= 'pending'` alone is WRONG — NULL !=
+            // 'pending' is NULL (falsy) in SQL, which would exclude every settled
+            // (NULL) brand too; the whereNull()->orWhere() is required.
+            $r->get('shop')->complete(fn (IntegrationConnection $c): bool => ShopProduct::query()
+                ->whereHas('brand', fn ($q) => $q
+                    ->where(fn ($q3) => $q3->whereNull('connect_status')->orWhere('connect_status', '<>', 'pending'))
+                    ->whereHas('connection', fn ($q2) => $q2->where('user_id', $c->user_id)))
+                ->exists());
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
             $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));
