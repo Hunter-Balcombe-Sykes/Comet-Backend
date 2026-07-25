@@ -340,3 +340,82 @@ it('takes the resolve floor TTL from config', function () {
         ->withArgs(fn ($key, $value, $ttl) => $key === 'handle.resolve.floor:floorttl' && $ttl === 1234)
         ->once();
 });
+
+// ── The race, end to end ─────────────────────────────────────────────────────
+// Reproduces the actual production sequence: a reader queries the DB pre-commit,
+// the write commits and invalidates, THEN the in-flight reader's Cache::put lands
+// and re-installs the pre-write timestamp with a fresh 30s lease. Without the
+// floor the controller builds the OLD payload key and serves the pre-change
+// render for up to 30s — long enough for the edge purge to land and re-pin it
+// for the full 24h edge TTL.
+
+it('resolves the post-write payload key even when a stale resolve entry is re-installed', function () {
+    // This test goes through the full HTTP controller path, which reaches into
+    // blocks/media/services/content-selection beyond this file's beforeEach —
+    // see IndividualProfileControllerTest's beforeEach for the same set.
+    setupBlocksTable();
+    setupMediaTables();
+    setupServiceCategoriesTable();
+    setupServicesTable();
+    setupContentSelectionTable();
+
+    $userId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $past = now()->subMinutes(5)->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
+        'auth_user_id' => (string) Str::uuid(),
+        'handle' => 'racecase',
+        'handle_lc' => 'racecase',
+        'display_name' => 'Race Case',
+        'first_name' => 'Race Case',
+        'primary_email' => 'racecase@example.test',
+        'account_type' => 'partna',
+        'status' => 'active',
+        'created_at' => $past,
+        'updated_at' => $past,
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $userId,
+        'subdomain' => 'racecase',
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => $past,
+        'updated_at' => $past,
+    ]);
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'created_at' => $past,
+        'updated_at' => $past,
+    ]);
+
+    $staleTs = Site::query()->findOrFail($siteId)->updated_at->timestamp;
+
+    // The write commits and rotates updated_at.
+    $site = Site::query()->findOrFail($siteId);
+    $site->touch();
+    $freshTs = $site->fresh()->updated_at->timestamp;
+    expect($freshTs)->toBeGreaterThan($staleTs);
+
+    // Invalidation runs (SiteObserver::saved, afterCommit).
+    app(SiteCacheService::class)->invalidateSitePayload($site->fresh());
+
+    // The in-flight reader's Cache::put lands AFTER the delete — the race.
+    Cache::put(
+        CacheKeyGenerator::handleResolve('racecase'),
+        ['pro_id' => $userId, 'site_id' => $siteId, 'updated_at_ts' => $staleTs],
+        now()->addSeconds(30),
+    );
+
+    $response = $this->getJson('/api/public/profiles/racecase');
+    $response->assertOk();
+
+    // The post-write key must be the one that got populated; the pre-write key
+    // must never have been built.
+    expect(Cache::has(CacheKeyGenerator::publicProfile('racecase', $freshTs)))->toBeTrue()
+        ->and(Cache::has(CacheKeyGenerator::publicProfile('racecase', $staleTs)))->toBeFalse();
+});
