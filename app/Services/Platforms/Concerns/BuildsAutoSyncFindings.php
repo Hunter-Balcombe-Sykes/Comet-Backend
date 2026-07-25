@@ -461,9 +461,16 @@ trait BuildsAutoSyncFindings
      *
      * @var list<string>
      */
+    /**
+     * Booking platforms in the XOR set — fresha, square, and the shared
+     * 'booking' key (for non-Fresha/Square providers like Booksy, Timely).
+     * Must match BOOKING_SLOT_PLATFORMS above for the XOR lock to cover
+     * all conflict checks. Expanded 2026-07-25 for shared-key booking.
+     */
     protected const BOOKING_PLATFORMS = [
         Platform::Fresha->value,
         Platform::Square->value,
+        Platform::Booking->value,
     ];
 
     /** @return array{platform:string, resourceId:string, payload:array<string,mixed>} */

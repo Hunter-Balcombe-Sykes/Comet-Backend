@@ -161,13 +161,20 @@ class LinkRouter
      */
     private function seedBooking(User $user, string $platform, string $url, array $classified): RouteResult
     {
-        $write = $this->resolveWrite($platform, $url);
         $userId = (string) $user->id;
 
-        /**
-         * LIFE-106: run under the booking XOR lock shared with GoogleBusinessAutoSync
-         * and the controller-side connect paths. Contention → custom link.
-         */
+        // Shared-key booking platforms (Booksy, Timely, etc.) — write directly
+        // with provider string. Fresha/Square use the rich flow below.
+        if ($platform === Platform::Booking->value) {
+            $write = [
+                'platform' => Platform::Booking->value,
+                'resourceId' => Platform::Booking->value,
+                'payload' => ['url' => $url, 'provider' => $classified['label'], 'source' => 'auto'],
+            ];
+        } else {
+            $write = $this->resolveWrite($platform, $url);
+        }
+
         $result = $this->withBookingXorLock(
             $userId,
             fn () => $this->resolveBookingLink($userId, $platform, $url, $write, $classified),
