@@ -205,8 +205,13 @@ class LaunchCheckRuntimeCommand extends Command
         $patterns = [
             // user:secret@host in any URI/DSN
             '#(://[^:/@\s]+):[^@\s]+@#i' => '$1:***@',
-            // key=value / key: value / "key":"value" for credential-ish keys
-            '#\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|authorization)\b(["\']?\s*[:=]\s*["\']?)[^\s"\',;)]+#i' => '$1$2***',
+            // key=value / key: value / "key":"value" for credential-ish keys — the
+            // keyword may be embedded in a larger SCREAMING_SNAKE identifier
+            // (AWS_SECRET_ACCESS_KEY, REDIS_PASSWORD, _TOKEN_…), so surrounding
+            // [A-Za-z_]* stands in for \b, which underscores defeat. An optional
+            // Bearer/Basic/Token scheme prefix is absorbed into the separator so
+            // the credential itself gets redacted, not just the scheme keyword.
+            '#\b((?:[A-Za-z_]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|authorization)[A-Za-z_]*))\b(["\']?\s*[:=]\s*["\']?(?:Bearer\s+|Basic\s+|Token\s+)?)[^\s"\',;)]+#i' => '$1$2***',
         ];
 
         $clean = (string) preg_replace(array_keys($patterns), array_values($patterns), $message);
