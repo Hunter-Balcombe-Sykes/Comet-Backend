@@ -4,6 +4,7 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
@@ -125,6 +126,19 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         // seeder — the same pipeline PreAccount\InstagramSourceGenerator reuses
         // for pre-account (site-first) builds.
         $seeder->seed($connection, $this->username, $this->userId, $profile);
+
+        // Bell notice on the DASHBOARD connect only. Hooked here and not in the
+        // seeder precisely because the seeder is the shared half: InstagramSourceGenerator
+        // calls seed() directly for an unclaimed pre-account build, which must never
+        // notify. seed() writes through this same instance ('ok' on success,
+        // 'unavailable' on a lock timeout), so the notifier's own status guard decides
+        // — no status check belongs here.
+        //
+        // Resolved from the container rather than injected into handle(): unlike
+        // ConnectFetchJob, a dozen existing tests invoke this handle() directly with
+        // explicit arguments, so a fourth parameter would fatal them. Same call shape
+        // as the trait's emit point (ManagesIntegrationConnection::upsertConnection).
+        app(IntegrationNotifier::class)->connected($connection);
     }
 
     public function failed(Throwable $e): void

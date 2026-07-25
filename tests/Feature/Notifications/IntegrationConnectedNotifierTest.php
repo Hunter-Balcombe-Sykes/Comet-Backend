@@ -9,6 +9,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -79,6 +80,11 @@ it('publishes a non-critical in-app notification naming the platform', function 
 });
 
 it('never queues a transactional email', function () {
+    // Email delivery is off in the test env, and NotificationPublisher checks that
+    // flag BEFORE $critical — so without this the assertion below would pass just as
+    // happily with critical: true, proving nothing about the gate it exists to prove.
+    Config::set('partna.notifications.email_enabled', true);
+
     Queue::fake();
     $user = icnUser('icn2');
 

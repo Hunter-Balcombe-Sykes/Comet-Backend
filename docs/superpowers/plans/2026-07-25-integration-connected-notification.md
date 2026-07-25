@@ -725,3 +725,130 @@ Report the actual command output for both. Do not claim completion without it.
 **Placeholder scan:** none. Task 3 Step 1 contains a documented instruction to copy existing stubbing rather than invent it — a pointer to a real file, not a "figure it out".
 
 **Type consistency:** `connected(IntegrationConnection): void` is used identically in Tasks 1, 2, and 3. Category string, retention key, and dedupe prefix are `integration_connected` throughout. `$notifier` is the parameter name in both job emit points.
+
+---
+
+## Task 5: Close the coverage gap found by the final review
+
+The final whole-branch review found that this plan's load-bearing property #1 —
+"the trait is already the 'user did this' boundary" — was a **subset claim stated
+as a partition**. Seeders do bypass the trait, but so do several *user-initiated*
+paths, which therefore never notify. Verified: connecting Instagram produces zero
+notifications today, while connecting Spotify produces one.
+
+This task closes that gap and fixes two defects the same review found.
+
+**Files:**
+- Modify: `app/Jobs/Platforms/InstagramConnectJob.php` (after the `seed()` call, ~line 127)
+- Modify: `app/Jobs/Platforms/EnrichLinkCardJob.php` (after the `'ok'` update, ~line 100-103)
+- Modify: `app/Services/Platforms/EventsCatalog.php` (`writeRow`, line 368-385)
+- Modify: `app/Http/Controllers/Api/Platforms/ShopController.php:534`
+- Modify: `tests/Feature/Notifications/IntegrationConnectedNotifierTest.php` (the email test, ~line 81-88)
+- Test: `tests/Feature/Platforms/IntegrationConnectedNotificationTest.php` (append)
+
+**Interfaces:**
+- Consumes: `IntegrationNotifier::connected(IntegrationConnection $connection): void` — unchanged from Task 1. Its two internal guards (`last_refresh_status === 'ok'`, `resource_kind` not `event`/`link`) still apply and must NOT be duplicated at any new call site.
+- Produces: nothing new.
+
+### Why each hook is safe — verify these hold before relying on them
+
+Two of the three hooks sit near a pre-account path. Both are already safe, for
+different reasons, and neither should be "defended" with an extra condition:
+
+- **Instagram** — `InstagramSourceGenerator.php:75` (pre-account) calls
+  `$this->seeder->seed(...)` **directly** and never dispatches
+  `InstagramConnectJob`. Hooking the *job* therefore captures only the dashboard
+  connect. Do not hook `InstagramConnectionSeeder` itself — that is the shared
+  code, and hooking it would notify unclaimed pre-account builds.
+- **Link cards** — `CustomLinkSeeder.php:77` writes `'resource_kind' => 'link'`,
+  which the notifier's existing guard drops. So hooking `EnrichLinkCardJob`
+  cannot notify pre-account custom links, while Booking / Reservations /
+  Online Ordering (which write `resource_kind` NULL) will notify correctly.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/Feature/Platforms/IntegrationConnectedNotificationTest.php` a test
+per newly-wired path. Follow the file's existing idiom (real HTTP or real job
+invocation, assert persisted rows via `icwRows($user)`, never a notifier mock):
+
+1. A dashboard Instagram connect notifies once, titled with "Instagram".
+   Drive `InstagramConnectJob::handle()` via `app()->call([...])` and stub the
+   scraper at the vendor boundary — copy the stubbing idiom from an existing
+   Instagram job test rather than inventing one.
+2. A pre-account Instagram seed (call `InstagramConnectionSeeder::seed()`
+   directly, as `InstagramSourceGenerator` does) notifies **zero** times. This is
+   the regression guard for the trap above and must genuinely discriminate.
+3. An `EnrichLinkCardJob` success for a `resource_kind`-NULL row (Booking,
+   Reservations, or Online Ordering) notifies once.
+4. A `CustomLinkSeeder`-created link completing through `EnrichLinkCardJob`
+   notifies **zero** times.
+5. A synchronous events-organiser connect through `EventsCatalog` notifies once.
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `php artisan test --filter=IntegrationConnectedNotificationTest`
+Expected: the three positive tests FAIL (0 notifications); the two negative
+guards pass.
+
+- [ ] **Step 3: Hook InstagramConnectJob**
+
+In `app/Jobs/Platforms/InstagramConnectJob.php`, add `IntegrationNotifier` to the
+`handle()` signature (container-resolved — verify every caller uses
+`app()->call([...])` before relying on this, exactly as `ConnectFetchJob` did),
+and after the `$seeder->seed(...)` call at ~line 127 reload/refresh the connection
+and call `$notifier->connected($connection)`. The seeder writes
+`last_refresh_status => 'ok'` on success and `'unavailable'` on failure, so the
+notifier's own status guard decides — do not add a status check here.
+
+- [ ] **Step 4: Hook EnrichLinkCardJob**
+
+After the `$row->update([... 'last_refresh_status' => 'ok' ...])` at ~line 100,
+call `$notifier->connected($row)`. Add the parameter to `handle()` the same way.
+
+- [ ] **Step 5: Hook EventsCatalog::writeRow**
+
+`writeRow` currently discards the `updateOrCreate` result. Capture it and call the
+notifier when `wasRecentlyCreated`, mirroring the trait's emit point. Note
+`writeRow` is called twice: line 265 (organiser account row, `resourceKind` null →
+notifies) and line 322 (standalone event, `resourceKind: 'event'` → dropped by the
+notifier's guard). Both are correct; do not special-case either.
+
+- [ ] **Step 6: Fix the vacuous "not an email" test**
+
+`tests/Feature/Notifications/IntegrationConnectedNotifierTest.php` ~line 81: the
+test passes only because `config('partna.notifications.email_enabled')` is false in
+tests, which short-circuits `NotificationPublisher.php:139` **before** `$critical`
+is read — so it would pass identically with `critical: true`. Set
+`Config::set('partna.notifications.email_enabled', true);` inside that test only
+(not `beforeEach`), so it actually exercises the `critical` gate. Neighbouring
+tests that do this correctly: `NotificationPublisherTest.php:162`,
+`AddingNewCategoryTest.php:60`, `OvhCriticalSeverityTest.php:72`.
+
+- [ ] **Step 7: Fix the ShopController false positive**
+
+`app/Http/Controllers/Api/Platforms/ShopController.php:534` calls
+`writeConnection($user, self::MARKER)` **unconditionally**, outside the
+`if ($connection)` guard. With no shop connected, a stale
+`DELETE /api/platforms/shop/brands/{id}` creates the marker row at status `'ok'`,
+so `wasRecentlyCreated` fires and the user gets a **"Shop connected" bell on a
+delete**. Sibling methods guard correctly: `removeProduct` (~:831) 404s first,
+`updateBrand` (~:477) and `setSelection` (~:679) require a `$brand` that requires
+the connection. Make `removeBrand` consistent — return 404 when there is no
+connection rather than resurrecting the row. Add a test asserting a
+`removeBrand` call with no connection produces no notification.
+
+- [ ] **Step 8: Run the tests**
+
+Run: `php artisan test --filter=IntegrationConnectedNotificationTest`
+Run: `php artisan test --filter=IntegrationConnectedNotifierTest`
+Then the suites that cover the files you touched:
+Run: `php artisan test tests/Feature/Platforms`
+Expected: 0 failures. Run in the FOREGROUND and read the result.
+
+- [ ] **Step 9: Format and commit**
+
+```bash
+php artisan pint <each changed file>
+git add <the changed files>
+git commit -m "feat(notifications): notify on Instagram, link-card and events connects"
+```

@@ -4,6 +4,7 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\LinkCardScraper;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -102,6 +103,14 @@ class EnrichLinkCardJob implements ShouldBeUnique, ShouldQueue
                         'last_refreshed_at' => now(),
                         'last_refresh_status' => 'ok',
                     ]);
+
+                    // Bell notice for booking / reservations / online ordering, whose
+                    // rows carry resource_kind NULL. Custom links (controller-added and
+                    // CustomLinkSeeder-added alike) stamp 'link' and are dropped by the
+                    // notifier's own guard — which is why no kind check belongs here.
+                    // Container-resolved, matching the trait's emit point: this handle()
+                    // has tests that invoke it directly with explicit arguments.
+                    app(IntegrationNotifier::class)->connected($row);
                 });
         } catch (LockTimeoutException $e) {
             report($e);

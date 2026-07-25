@@ -519,18 +519,26 @@ class ShopController extends ApiController
         $user = $this->currentUser($request);
 
         return $this->withConnectionLock($user, function () use ($user, $id) {
+            // No shop connected → nothing to remove. Previously this fell through to
+            // writeConnection() below, which RECREATED the marker row at status 'ok'
+            // — a delete that resurrected the connection (and, since the trait's
+            // emit point fires on wasRecentlyCreated, rang "Shop connected" on it).
+            // removeProduct (below) already 404s on the same condition.
             $connection = $this->connectionFor($user);
-            if ($connection) {
-                $brand = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
-                if ($brand) {
-                    // Explicit child delete (not just relying on the DB's ON DELETE
-                    // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
-                    // codebase, and keeps this deterministic on SQLite in tests,
-                    // which doesn't enforce FK cascade.
-                    ShopProduct::where('brand_id', $brand->id)->delete();
-                    $brand->delete();
-                }
+            if (! $connection) {
+                return $this->error('Brand not found.', 404);
             }
+
+            $brand = ShopBrand::where('connection_id', $connection->id)->where('brand_id', $id)->first();
+            if ($brand) {
+                // Explicit child delete (not just relying on the DB's ON DELETE
+                // CASCADE) — mirrors MenuFetchJob's pattern elsewhere in this
+                // codebase, and keeps this deterministic on SQLite in tests,
+                // which doesn't enforce FK cascade.
+                ShopProduct::where('brand_id', $brand->id)->delete();
+                $brand->delete();
+            }
+
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
 
