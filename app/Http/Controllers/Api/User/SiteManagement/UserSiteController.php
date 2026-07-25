@@ -8,10 +8,8 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpdateBookingSettingsRequest;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use App\Http\Resources\SiteResource;
-use App\Models\Core\Site\Site;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Site\UpdateSiteAction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -63,31 +61,37 @@ class UserSiteController extends ApiController
         $designKit = $data['design_kit'] ?? null;
         unset($data['design_kit']);
 
-        // CACHE-1: on a design-kit-only request ($data empty after stripping the
-        // kit), execute() does a non-dirty save whose afterCommit observer fires
-        // invalidateSite BEFORE writeDesignKit() runs — busting the cache on
-        // pre-write state. withoutEvents installs a NullDispatcher for the call
-        // so that premature bust is suppressed; the explicit invalidateSite()
-        // after the kit write below is the authoritative post-write invalidation.
-        // NB: withoutEvents() suppresses model events GLOBALLY for the closure
-        // (not just Site) — safe only because the $data === [] path performs no
-        // other model writes inside execute(). Preserve that if execute() grows.
-        $site = $data === []
-            ? Site::withoutEvents(fn () => $action->execute($professional, $data))
-            : $action->execute($professional, $data);
-
+        // EDGE ORDERING: the design kit is written FIRST, before execute(), so
+        // that every downstream invalidation observes post-write state. The kit
+        // used to be written AFTER execute(), which broke on any request
+        // carrying site fields alongside design_kit: execute()'s save fires
+        // SiteObserver, which dispatches CloudflareCachePurgeJob on PRE-write
+        // state, and nothing purged the edge again afterwards — the trailing
+        // invalidateSite() is Redis-only. The router pins sitepage HTML for 24 h
+        // (cloudflare-worker/wrangler.toml PRIMARY_CACHE_TTL_S), so that left the
+        // old design served until a later unrelated mutation purged it.
+        // Ordering the kit write first also retires the CACHE-1 withoutEvents
+        // workaround: the observer now legitimately runs after the kit is on disk.
         if (is_array($designKit)) {
             $this->writeDesignKit($site->id, $designKit);
-            // When $data was empty (design-kit-only request), UpdateSiteAction::execute()
-            // is a no-op — sites.updated_at is unchanged, SiteObserver never fires.
-            // Touch explicitly so the timestamp rotates and the public.profile:* cache key orphans.
+        }
+
+        $site = $action->execute($professional, $data);
+
+        if (is_array($designKit)) {
+            // A design-kit-only request ($data empty after stripping the kit)
+            // leaves the sites row clean, so execute()'s save is non-dirty and
+            // sites.updated_at never moves. Touch explicitly so the timestamp
+            // rotates and the timestamp-keyed public.profile:* entry orphans;
+            // the touch also re-fires SiteObserver, whose afterCommit purge is
+            // coalesced with execute()'s by CloudflareCachePurgeJob's
+            // ShouldBeUnique lock. Both now run after the kit write.
             if (! $site->wasChanged()) {
                 $site->touch();
             }
-            // execute() already fired invalidateSite via $site->save(), but that
-            // ran BEFORE the raw design_kits write above — bust again so the new
-            // kit (and the email-brand bundle that reads it) is reflected.
-            app(SiteCacheService::class)->invalidateSite($site);
+            // No explicit invalidateSite() here any more: with the kit written
+            // first, SiteObserver's own bust already observes post-write state,
+            // so a third redundant bust would just be extra Redis round-trips.
         }
 
         // A design-editor save round-trips the fresh site — include the updated

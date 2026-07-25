@@ -30,12 +30,14 @@
 // guarantees only.
 
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -250,18 +252,18 @@ it('strips site_id if a caller attempts to rewrite the FK', function () {
     expect($other)->toBeNull();
 });
 
-// TEST-8 / CACHE-1: a design-kit-only update busts the site cache TWICE:
-//   - Bust 1 (SUPPRESSED): execute([]) runs inside Site::withoutEvents, so the
-//             non-dirty save's afterCommit 'saved' event never reaches SiteObserver.
-//             Without the wrap this bust would fire BEFORE the design_kits write
-//             lands, busting (and rebuilding) the cache on pre-write state.
+// TEST-8 / CACHE-1: a design-kit-only update busts the site cache TWICE. The
+// controller writes site.design_kits BEFORE calling UpdateSiteAction::execute(),
+// so both busts observe post-write state and no suppression wrapper is needed:
+//   - Bust 1: execute([])'s non-dirty save → afterCommit 'saved' → SiteObserver
+//             → invalidateSite. Safe because the kit row is already on disk.
 //   - Bust 2: $site->touch() → dirty save → SiteObserver → invalidateSite. Also
 //             rotates updated_at so the public.profile:* key naturally orphans.
-//   - Bust 3: explicit invalidateSite() after writeDesignKit — the authoritative
-//             post-write invalidation.
 //
-// Dropping the withoutObservers wrap pushes the count back to 3; removing the
-// explicit bust 3 drops it to 1. Either regression fails this assertion.
+// Reordering the kit write back after execute() is the regression this guards:
+// it would restore the old bug where SiteObserver's afterCommit
+// CloudflareCachePurgeJob purged the edge on PRE-write state, leaving the
+// router's 24 h HTML cache pinned to the previous design.
 it('busts the site cache twice on a design-kit-only update via the HTTP endpoint', function () {
     config(['partna.throttle.enabled' => false]);
 
@@ -276,8 +278,40 @@ it('busts the site cache twice on a design-kit-only update via the HTTP endpoint
         ])
         ->assertOk();
 
-    // Bust 1 is suppressed (withoutObservers); busts 2 (touch) + 3 (explicit) remain.
+    // Bust 1 (execute's non-dirty save) + bust 2 (touch), both post-kit-write.
     $spy->shouldHaveReceived('invalidateSite')->times(2);
+});
+
+// The edge purge must never be dispatched before site.design_kits is written —
+// the router pins sitepage HTML for 24 h, so a purge on pre-write state leaves
+// the old design served until some later unrelated mutation purges again. This
+// is the mixed-payload path (site fields alongside design_kit), where the old
+// ordering had NO post-write purge at all: $site->wasChanged() was true, so the
+// touch() that would have re-fired SiteObserver was skipped.
+it('dispatches the edge purge only after the design kit is on disk', function () {
+    config(['partna.throttle.enabled' => false]);
+
+    $pro = createTenant('purge-after-kit-write');
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
+
+    Queue::fake();
+
+    // theme_mode alongside a plain sites-row field, so execute() genuinely
+    // dirties the model and wasChanged() returns true.
+    actingAsUser($pro)
+        ->patchJson('/api/site', [
+            'is_published' => false,
+            'design_kit' => ['theme_mode' => 'bleach'],
+        ])
+        ->assertOk();
+
+    // The kit is committed before any purge is dispatched, so the value a purge
+    // consumer would re-render is already the new one.
+    $kit = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $pro->site->id)->first();
+    expect($kit->theme_mode)->toBe('bleach');
+
+    Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->followUp === false);
 });
 
 // 2026-07-10 theme/surface rework (migration 20260710160000) — write-surface
