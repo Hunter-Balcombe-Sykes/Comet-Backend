@@ -17,6 +17,7 @@ function reservationsUser(string $handle): User
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$handle}@example.com",

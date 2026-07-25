@@ -35,6 +35,7 @@ function idsyncConcUser(string $handle, string $accountType): User
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => $accountType,
         'status' => 'active',
         'auth_user_id' => (string) Str::uuid(),

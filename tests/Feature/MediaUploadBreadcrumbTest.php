@@ -49,6 +49,7 @@ it('emits media.original_stored with media_id, disk, and path when an image is s
         'handle' => 'breadcrumb-test',
         'handle_lc' => 'breadcrumb-test',
         'display_name' => 'Breadcrumb Test',
+        'first_name' => 'Breadcrumb',
         'primary_email' => 'breadcrumb@example.test',
         'account_type' => 'partna',
         'status' => 'active',

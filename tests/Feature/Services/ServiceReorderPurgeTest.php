@@ -38,6 +38,7 @@ function seedServiceReorderFixture(): array
         'handle' => 'service-purge',
         'handle_lc' => 'service-purge',
         'display_name' => 'Service Purge',
+        'first_name' => 'Service-purge',
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),

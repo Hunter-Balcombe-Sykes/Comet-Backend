@@ -50,6 +50,7 @@ function makeStaffEnquiryUser(): User
         'handle' => 'enq-'.substr($id, 0, 8),
         'handle_lc' => 'enq-'.substr($id, 0, 8),
         'display_name' => 'Enq Pro',
+        'first_name' => 'Enq Pro',
         'primary_email' => 'enq-'.substr($id, 0, 8).'@example.com',
         'status' => 'active',
     ]);

@@ -27,6 +27,7 @@ function makeStaffWorkplaceUser(?array $workplace = null): User
         'handle' => 'wp-'.substr($id, 0, 8),
         'handle_lc' => 'wp-'.substr($id, 0, 8),
         'display_name' => 'Workplace Pro',
+        'first_name' => 'Workplace',
         'primary_email' => 'wp-'.substr($id, 0, 8).'@example.com',
         'status' => 'active',
     ]);
@@ -140,6 +141,7 @@ it('returns 404 when the professional has no site', function () {
         'handle' => 'sole-'.substr($id, 0, 8),
         'handle_lc' => 'sole-'.substr($id, 0, 8),
         'display_name' => 'Sole',
+        'first_name' => 'Sole',
         'primary_email' => 'sole-'.substr($id, 0, 8).'@example.com',
         'status' => 'active',
     ]);

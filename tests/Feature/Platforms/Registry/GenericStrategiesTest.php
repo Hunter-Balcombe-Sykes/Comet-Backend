@@ -22,6 +22,7 @@ it('NoRefresh is not refreshable and returns the row untouched', function () {
 it('ScheduledRefresh calls fetch and persists the new payload', function () {
     $user = User::create([
         'handle' => 'sch', 'handle_lc' => 'sch', 'display_name' => 'Sch',
+        'first_name' => 'Sch',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'sch@example.com',
     ]);

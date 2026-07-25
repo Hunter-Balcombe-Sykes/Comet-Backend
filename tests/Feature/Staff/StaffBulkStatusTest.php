@@ -58,10 +58,13 @@ function bulkStatus_seedUsers(int $n, string $status = 'active'): array
 
     for ($i = 0; $i < $n; $i++) {
         $id = (string) Str::uuid();
+        $handle = 'bulk-beh-'.$i.'-'.Str::random(4);
         DB::connection('pgsql')->table('core.users')->insert([
             'id' => $id,
-            'handle' => 'bulk-beh-'.$i.'-'.Str::random(4),
+            'handle' => $handle,
+            'handle_lc' => strtolower($handle),
             'display_name' => "Bulk Pro {$i}",
+            'first_name' => "Bulk Pro {$i}",
             'primary_email' => 'bulk-beh-'.$i.'@example.test',
             'account_type' => 'partna',
             'status' => $status,

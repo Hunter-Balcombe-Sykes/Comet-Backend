@@ -19,7 +19,7 @@ beforeEach(function () {
 function enrichUser(): User
 {
     return User::create([
-        'handle' => 'en', 'handle_lc' => 'en', 'display_name' => 'En',
+        'handle' => 'en', 'handle_lc' => 'en', 'display_name' => 'En', 'first_name' => 'En',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'en@example.com',
     ]);

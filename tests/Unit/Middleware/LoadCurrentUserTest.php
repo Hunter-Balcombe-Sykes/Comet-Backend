@@ -117,6 +117,10 @@ it('syncs primary_email when claim differs and is verified', function () {
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'auth_user_id' => $uid,
+        'handle' => 'lcuemailsync',
+        'handle_lc' => 'lcuemailsync',
+        'display_name' => 'Lcuemailsync',
+        'first_name' => 'Lcuemailsync',
         'primary_email' => 'old@example.com',
         'status' => 'active',
     ]);
@@ -155,6 +159,10 @@ it('returns 200 and keeps the saved email when invalidateUser() throws after sav
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'auth_user_id' => $uid,
+        'handle' => 'lcuredisblip',
+        'handle_lc' => 'lcuredisblip',
+        'display_name' => 'Lcuredisblip',
+        'first_name' => 'Lcuredisblip',
         'primary_email' => 'old@example.com',
         'status' => 'active',
     ]);
@@ -204,6 +212,10 @@ it('swallows a UniqueConstraintViolationException on email collision, leaves the
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proAId,
         'auth_user_id' => '11111111-1111-1111-1111-111111111111',
+        'handle' => 'lcucollidea',
+        'handle_lc' => 'lcucollidea',
+        'display_name' => 'Lcucollidea',
+        'first_name' => 'Lcucollidea',
         'primary_email' => $collidingEmail,
         'status' => 'active',
     ]);
@@ -211,6 +223,10 @@ it('swallows a UniqueConstraintViolationException on email collision, leaves the
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proBId,
         'auth_user_id' => $uid,
+        'handle' => 'lcucollideb',
+        'handle_lc' => 'lcucollideb',
+        'display_name' => 'Lcucollideb',
+        'first_name' => 'Lcucollideb',
         'primary_email' => 'b-old@example.com',
         'status' => 'active',
     ]);

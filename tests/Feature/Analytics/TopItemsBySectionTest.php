@@ -17,9 +17,14 @@ beforeEach(function () {
 
     $this->userId = (string) Str::uuid();
 
+    $handle = 'top-items-test-pro';
+
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $this->userId,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Top Items Test Pro',
+        'first_name' => 'Top Items Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

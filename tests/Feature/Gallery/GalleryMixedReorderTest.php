@@ -75,10 +75,14 @@ function seedUserAndSite(): array
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
+    $handle = 'mixed-reorder-'.Str::random(8);
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Test Pro',
+        'first_name' => 'Test',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
@@ -86,7 +90,7 @@ function seedUserAndSite(): array
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $userId,
-        'subdomain' => 'mixed-reorder-test',
+        'subdomain' => $handle,
         'is_published' => 1,
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),

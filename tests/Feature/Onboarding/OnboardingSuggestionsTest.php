@@ -23,6 +23,7 @@ function onboardingUser(string $handle, string $type = 'partna', ?string $sector
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'account_type' => $type,
         'status' => 'active',
         'sector' => $sector,

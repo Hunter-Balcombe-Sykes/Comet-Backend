@@ -29,6 +29,9 @@ it('prevents professionals from changing subdomain within 30 days', function () 
     DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
+        'handle' => 'testpro',
+        'handle_lc' => 'testpro',
+        'first_name' => 'Test',
     ]);
 
     DB::table('site.sites')->insert([
@@ -55,6 +58,9 @@ it('stores old subdomain as alias after a valid change', function () {
     DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
+        'handle' => 'testpro',
+        'handle_lc' => 'testpro',
+        'first_name' => 'Test',
     ]);
 
     DB::table('site.sites')->insert([
@@ -92,6 +98,7 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
         'display_name' => 'Test Pro',
         'handle' => 'old',
         'handle_lc' => 'old',
+        'first_name' => 'Test',
     ]);
 
     DB::table('site.sites')->insert([
@@ -131,6 +138,9 @@ it('redirects old subdomain to new site host', function () {
     DB::table('core.users')->insert([
         'id' => $proId,
         'display_name' => 'Test Pro',
+        'handle' => 'testpro',
+        'handle_lc' => 'testpro',
+        'first_name' => 'Test',
     ]);
 
     DB::table('site.sites')->insert([
@@ -161,64 +171,21 @@ it('redirects old subdomain to new site host', function () {
 
 function setupCoreSchema(): void
 {
-    // Run all schema setup on the 'pgsql' connection explicitly. Models in
-    // this project extend BaseModel which forces $connection = 'pgsql', so
-    // any tables we create on a different connection are invisible to them
-    // — even though both connections may resolve to the same SQLite driver.
+    // core.users / site.sites now come from the shared, prod-mirrored stubs
+    // (also attaches the core/site/audit/... SQLite schema shims via
+    // attachTestSchemas() — a no-op against real Postgres).
+    setupUsersTable();
+    setupSitesTable();
+
+    // Run the rest of the schema setup on the 'pgsql' connection explicitly.
+    // Models in this project extend BaseModel which forces $connection =
+    // 'pgsql', so any tables we create on a different connection are
+    // invisible to them — even though both connections may resolve to the
+    // same SQLite driver.
     $conn = DB::connection('pgsql');
     $driver = $conn->getDriverName();
 
     if ($driver === 'sqlite') {
-        // SQLite doesn't have schemas; fake them via ATTACH DATABASE so
-        // models that reference 'core.users' / 'site.public_site_payload'
-        // resolve correctly.
-        try {
-            $conn->statement("ATTACH DATABASE ':memory:' AS core");
-        } catch (Throwable $e) {
-            // Ignore if already attached.
-        }
-
-        try {
-            $conn->statement("ATTACH DATABASE ':memory:' AS site");
-        } catch (Throwable $e) {
-            // Ignore if already attached.
-        }
-
-        try {
-            $conn->statement("ATTACH DATABASE ':memory:' AS audit");
-        } catch (Throwable $e) {
-            // Ignore if already attached.
-        }
-
-        // Permissive professionals table — only the columns this test (and
-        // soft-delete scopes added by Eloquent) need. Everything nullable
-        // because we don't care about prod constraints in tests.
-        $conn->statement('CREATE TABLE IF NOT EXISTS core.users (
-            id TEXT PRIMARY KEY,
-            display_name TEXT NULL,
-            handle TEXT NULL,
-            handle_lc TEXT NULL,
-            account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
-            status TEXT NULL,
-            deleted_at TEXT NULL,
-            created_at TEXT NULL,
-            updated_at TEXT NULL
-        )');
-
-        // Sites live under site.sites in production (Site model: $table = 'site.sites').
-        // Add deleted_at for soft-delete scope compatibility.
-        $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NULL,
-            subdomain TEXT NULL,
-            subdomain_changed_at TEXT NULL,
-            is_published INTEGER NULL,
-            settings TEXT NULL,
-            deleted_at TEXT NULL,
-            created_at TEXT NULL,
-            updated_at TEXT NULL
-        )');
-
         // site_subdomain_aliases lives under the 'site' schema in production.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.site_subdomain_aliases (
             id TEXT PRIMARY KEY,
@@ -270,22 +237,10 @@ function setupCoreSchema(): void
         return;
     }
 
+    // core.users / site.sites (formerly a quirky local core.sites) are already
+    // provisioned above by setupUsersTable()/setupSitesTable() — a no-op here
+    // since real Postgres already has both via supabase/migrations.
     DB::statement('CREATE SCHEMA IF NOT EXISTS core');
-
-    DB::statement('CREATE TABLE IF NOT EXISTS core.users (
-        id uuid PRIMARY KEY,
-        display_name varchar(255) NULL
-    )');
-
-    DB::statement('CREATE TABLE IF NOT EXISTS core.sites (
-        id uuid PRIMARY KEY,
-        user_id uuid NULL,
-        subdomain varchar(63) NULL,
-        subdomain_changed_at timestamptz NULL,
-        is_published boolean NULL,
-        created_at timestamptz NULL,
-        updated_at timestamptz NULL
-    )');
 
     DB::statement('CREATE TABLE IF NOT EXISTS core.site_subdomain_aliases (
         id uuid PRIMARY KEY,

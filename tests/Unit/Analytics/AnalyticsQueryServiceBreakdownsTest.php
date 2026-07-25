@@ -31,9 +31,13 @@ beforeEach(function () {
     setupSiteVisitsTable();
 
     $this->userId = (string) Str::uuid();
+    $handle = 'breakdown-'.substr($this->userId, 0, 8);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $this->userId,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Breakdown Test Pro',
+        'first_name' => 'Breakdown',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

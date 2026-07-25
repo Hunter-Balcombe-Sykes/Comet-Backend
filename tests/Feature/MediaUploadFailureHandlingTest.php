@@ -279,7 +279,10 @@ function createUserAndSiteForMediaUploadTests(): array
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => 'test-pro',
+        'handle_lc' => 'test-pro',
         'display_name' => 'Test Professional',
+        'first_name' => 'Test',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

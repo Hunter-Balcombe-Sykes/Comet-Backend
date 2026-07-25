@@ -30,6 +30,7 @@ function fbActingUser(): User
         'handle' => 'fbtester',
         'handle_lc' => 'fbtester',
         'display_name' => 'FB Tester',
+        'first_name' => 'FB Tester',
         'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'fb@example.com',

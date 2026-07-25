@@ -273,6 +273,7 @@ it('reports (but swallows) a cache invalidation failure on update, and the write
 
     $pro = User::create([
         'handle' => 'cchupdatepro', 'handle_lc' => 'cchupdatepro', 'display_name' => 'Cch Update',
+        'first_name' => 'Cch',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(), 'phone' => '+61400000000',
     ]);
 
@@ -298,6 +299,7 @@ it('reports (but swallows) a cache invalidation failure on delete, and the soft-
 
     $pro = User::create([
         'handle' => 'cchdeletepro', 'handle_lc' => 'cchdeletepro', 'display_name' => 'Cch Delete',
+        'first_name' => 'Cch',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
     ]);
 
@@ -319,6 +321,8 @@ it('reports (but swallows) a cache invalidation failure on restore, and the rest
         'id' => $proId,
         'handle' => 'cchrestorepro',
         'handle_lc' => 'cchrestorepro',
+        'display_name' => 'Cch Restore',
+        'first_name' => 'Cch',
         'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'deleted_at' => now()->toDateTimeString(),

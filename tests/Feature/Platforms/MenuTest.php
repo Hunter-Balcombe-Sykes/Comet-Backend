@@ -41,6 +41,7 @@ function menuUser(string $h): User
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
         'account_type' => 'business',
         'sector' => 'restaurant',
         'auth_user_id' => (string) Str::uuid(),

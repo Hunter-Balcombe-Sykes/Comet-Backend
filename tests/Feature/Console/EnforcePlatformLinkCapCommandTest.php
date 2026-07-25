@@ -16,9 +16,14 @@ if (! function_exists('createBackfillFixtureIds')) {
     {
         $userId = (string) Str::uuid();
         $siteId = (string) Str::uuid();
+        $handle = 'cap-'.substr($userId, 0, 8);
 
         DB::connection('pgsql')->table('core.users')->insert([
             'id' => $userId,
+            'handle' => $handle,
+            'handle_lc' => strtolower($handle),
+            'display_name' => ucfirst($handle),
+            'first_name' => ucfirst($handle),
             'created_at' => now(),
             'updated_at' => now(),
         ]);

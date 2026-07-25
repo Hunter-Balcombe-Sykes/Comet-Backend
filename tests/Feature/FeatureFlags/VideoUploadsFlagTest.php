@@ -32,7 +32,10 @@ it('returns 403 when video_uploads flag is off for the professional', function (
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => 'flag-test-pro',
+        'handle_lc' => 'flag-test-pro',
         'display_name' => 'Flag Test Pro',
+        'first_name' => 'Flag',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
@@ -89,7 +92,10 @@ it('allows image uploads regardless of video_uploads flag state', function () {
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => 'flag-test-pro-2',
+        'handle_lc' => 'flag-test-pro-2',
         'display_name' => 'Flag Test Pro 2',
+        'first_name' => 'Flag',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

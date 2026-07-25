@@ -305,14 +305,13 @@ function setupUsersTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY NOT NULL,
         auth_user_id TEXT NULL,
-        -- handle / handle_lc / display_name / first_name are NOT NULL in prod but
-        -- stay nullable here and remain grandfathered in schema-drift-baseline.json:
-        -- tightening them fails 215 test files that seed users without a name, which
-        -- is a suite-wide sweep, not part of this 5-table pass. Tracked as follow-up.
-        handle TEXT NULL,
-        handle_lc TEXT NULL,
-        display_name TEXT NULL,
-        first_name TEXT NULL,
+        -- handle / handle_lc / display_name / first_name are NOT NULL in prod with NO
+        -- DEFAULT, so every seed must supply them. Mirroring that here means a fixture
+        -- can never again pass CI green while seeding a row prod would reject.
+        handle TEXT NOT NULL,
+        handle_lc TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        first_name TEXT NOT NULL,
         last_name TEXT NULL,
         primary_email TEXT NULL,
         phone TEXT NULL,

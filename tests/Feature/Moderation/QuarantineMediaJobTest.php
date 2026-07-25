@@ -10,60 +10,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    // Attach schema namespaces for SQLite test isolation
-    $conn = DB::connection('pgsql');
-    foreach (['core', 'site', 'audit', 'moderation', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
-        try {
-            $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
-        } catch (Throwable $e) {
-            // already attached
-        }
-    }
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
-        id TEXT PRIMARY KEY,
-        auth_user_id TEXT NULL,
-        handle TEXT NULL,
-        handle_lc TEXT NULL,
-        display_name TEXT NULL,
-        first_name TEXT NULL,
-        last_name TEXT NULL,
-        primary_email TEXT NULL,
-        phone TEXT NULL,
-        account_type TEXT NULL CHECK (account_type IN (\'partna\',\'business\')),
-        status TEXT NULL,
-        bio TEXT NULL,
-        country_code TEXT NULL,
-        timezone TEXT NULL,
-        onboarding_step INTEGER NULL,
-        public_contact_number TEXT NULL,
-        public_contact_email TEXT NULL,
-        icon_bucket TEXT NULL,
-        icon_path TEXT NULL,
-        headshot_bucket TEXT NULL,
-        headshot_path TEXT NULL,
-        location_street_address TEXT NULL,
-        location_postcode TEXT NULL,
-        location_city TEXT NULL,
-        location_state TEXT NULL,
-        location_country TEXT NULL,
-        deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.sites (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        subdomain TEXT NULL,
-        architecture_id TEXT NULL,
-        subdomain_changed_at TEXT NULL,
-        is_published INTEGER NULL,
-        unpublished_at TEXT NULL,
-        settings TEXT NULL,
-        moderation_state TEXT NOT NULL DEFAULT \'active\',
-        deleted_at TEXT NULL,
-        created_at TEXT NULL,
-        updated_at TEXT NULL
-    )');
+    setupUsersTable();
+    setupSitesTable();
+
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.site_media (
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,

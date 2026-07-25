@@ -46,13 +46,17 @@ it('blocks a pending-deletion professional at the controller policy even when th
     // write is the controller's own authorizeForUser() → SitePolicy::update.
     $this->withoutMiddleware(EnforcePendingDeletionReadOnly::class);
 
+    // Send an UNPINNED column (is_published, seeded true by createTenant) alongside
+    // architecture_id so a landed write would leave an observable trace.
     actingAsUser($pro)
-        ->patchJson('/api/site', ['architecture_id' => 'staple'])
+        ->patchJson('/api/site', ['architecture_id' => 'staple', 'is_published' => false])
         ->assertStatus(423);
 
-    // The write must not have landed — the row still holds the seeded default.
-    // NOTE: sites_architecture_id_check pins this column to 'staple', so a landed
-    // write looks identical here — the 423 above is the operative assertion.
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+    // The write must not have landed. sites_architecture_id_check pins architecture_id
+    // to 'staple', so that column is indistinguishable whether or not a write landed.
+    // is_published is NOT pinned — the same PATCH would have flipped it to false — so its
+    // staying at the seeded published value is what proves the policy gate blocked the write.
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+    expect((int) $row->is_published)->toBe(1);
+    expect($row->architecture_id)->toBe('staple');
 });

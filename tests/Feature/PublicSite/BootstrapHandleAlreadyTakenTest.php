@@ -36,6 +36,7 @@ it('translates a HANDLE_ALREADY_TAKEN service exception into a 409 with the HAND
         'handle' => 'targetuser',
         'handle_lc' => 'targetuser',
         'display_name' => 'Target User',
+        'first_name' => 'Targetuser',
         'primary_email' => 'target@example.com',
         'account_type' => 'partna',
         'status' => 'active',

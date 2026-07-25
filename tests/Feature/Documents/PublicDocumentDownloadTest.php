@@ -38,8 +38,8 @@ function seedPublishedSite(bool $isPublished = true): string
     $proId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $proId, 'handle' => 'p', 'display_name' => 'P',
-        'primary_email' => 'p@example.com', 'status' => 'active',
+        'id' => $proId, 'handle' => 'p', 'handle_lc' => 'p', 'display_name' => 'P',
+        'first_name' => 'P', 'primary_email' => 'p@example.com', 'status' => 'active',
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'p',
