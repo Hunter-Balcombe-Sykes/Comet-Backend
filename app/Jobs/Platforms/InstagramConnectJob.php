@@ -4,6 +4,7 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
@@ -61,11 +62,19 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
     // on completion/failure, so this is the worst-case backstop, not the common path.
     public int $uniqueFor = 900;
 
+    // Declared, not promoted (and so not readonly): a promoted default is not a
+    // DECLARED default, so a job enqueued before this property existed would restore
+    // with it uninitialized — SerializesModels skips properties absent from the
+    // payload — and fatal on read in handle(). Defaults false: see handle().
+    public bool $notifyOnConnect = false;
+
     public function __construct(
         public readonly string $userId,
         public readonly string $username,
         public readonly string $connectionId,
+        bool $notifyOnConnect = false,
     ) {
+        $this->notifyOnConnect = $notifyOnConnect;
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
@@ -125,6 +134,15 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         // seeder — the same pipeline PreAccount\InstagramSourceGenerator reuses
         // for pre-account (site-first) builds.
         $seeder->seed($connection, $this->username, $this->userId, $profile);
+
+        // Bell only for a dispatcher that means "the user just added this" — never
+        // GoogleBusinessAutoSync (runs for an UNCLAIMED pre-account build, whose
+        // google_business_full_sync gate has no claimed-status term) nor
+        // RefreshController (a re-pull of an already-connected account). seed() wrote
+        // through this instance, so the notifier's status guard does the rest.
+        if ($this->notifyOnConnect) {
+            app(IntegrationNotifier::class)->connected($connection);
+        }
     }
 
     public function failed(Throwable $e): void
