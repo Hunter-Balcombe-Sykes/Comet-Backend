@@ -35,6 +35,9 @@ function icnUser(string $handle): User
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => ucfirst($handle),
+        // NOT NULL in prod (core.users.first_name) — supplying it here keeps the
+        // helper's rows insertable against the real schema, not just SQLite's.
+        'first_name' => ucfirst($handle),
         'account_type' => 'partna',
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$handle}@example.com",
