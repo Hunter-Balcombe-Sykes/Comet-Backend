@@ -747,7 +747,7 @@ if $FULL; then
                 "$SCRIPT_DIR/lenses/code-quality-slop.md"
                 "$SCRIPT_DIR/lenses/semantic-correctness.md"
             )
-            META_PREFIXES="every audit theme the pipeline knows: SEC, LIFE, CACHE, SCALE, SCHEMA, CCH, WHK, TXN, DINT, JOB, OBS, CCG, PRIV, EDGE, CFG, MIG, API, TEST, SLOP, and SEM — the exhaustive nothing-left-unturned sweep"
+            META_PREFIXES="every audit theme the pipeline knows: SEC, LIFE, CACHE, SCALE, SCHEMA, CCH, WHK, TXN, DINT, JOB, OBS, CCG, PRIV, EDGE, CFG, MIG, API, TEST, SLOP, SEM, and PARITY — the exhaustive nothing-left-unturned sweep"
             ADJ_BUDGET="12.00"
             ;;
         foundational)

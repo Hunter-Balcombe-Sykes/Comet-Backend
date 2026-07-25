@@ -164,12 +164,17 @@ START=$(date +%s)
 # --system-prompt fully replaces Claude Code's default — no CLAUDE.md, no auto-memory,
 # no dynamic sections. Pure adjudication context.
 # --disallowed-tools blocks mutation/external tools so the model just writes markdown.
+# --setting-sources project,local drops the USER settings source so operator-enabled
+# output-style plugins (explanatory/learning) — which inject "★ Insight" narration via a
+# SessionStart hook that fires for `claude -p` too — can't pollute the adjudicated audit
+# files. Read/Grep/Glob still work headless; OAuth is unaffected (auth isn't a setting source).
 SYSTEM_PROMPT="$(<"$ADJ_PROMPT")"
 
 claude -p \
     --model "$MODEL" \
     --system-prompt "$SYSTEM_PROMPT" \
     --disallowed-tools "Bash Edit Write NotebookEdit WebFetch WebSearch Skill Agent TaskCreate TaskUpdate TaskGet TaskList TaskOutput TaskStop" \
+    --setting-sources project,local \
     --max-budget-usd "$MAX_BUDGET" \
     --output-format text \
     --no-session-persistence \
