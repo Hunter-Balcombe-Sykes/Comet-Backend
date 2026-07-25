@@ -12,23 +12,53 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Job-triggered custom-link creation — new callers only (Instagram bio-link
- * auto-save, link-in-bio scan, previous-website link harvest). Deliberately
- * NOT wired into CustomLinksController::addLink(), which stays untouched: its
- * MAX_LINKS/resource_id/EnrichLinkCardJob logic is lock-guarded, tested,
- * working code, and refactoring it here for a ~2-line DRY gain would need to
- * duplicate its "is this row new" check anyway. This class owns the same
- * contract for callers that never go through that controller, so it enforces
- * its own capability gate (integration.custom) that route-level middleware
- * would otherwise provide for free.
+ * Universal link gateway (2026-07-25, Phase 5).
+ *
+ * seed() — the gateway. Calls LinkRouter::route(), delegates, and only falls
+ * through to seedCustom() when the router says outcome === 'custom'.
+ *
+ * seedCustom() — the raw custom-link write. Today's body verbatim (previous-
+ * website skip, integration.custom gate, MAX_LINKS, lock, EnrichLinkCardJob).
+ * Never routes. This is what every fallback path calls.
+ *
+ * Rule: only an entry point may call seed(). Everything downstream calls
+ * seedCustom(). This avoids mutual recursion with LinkRouter.
  */
 class CustomLinkSeeder
 {
     private const MAX_LINKS = 20;
 
-    public function __construct(private LinkCardScraper $scraper) {}
+    public function __construct(
+        private readonly LinkCardScraper $scraper,
+        private readonly LinkRouter $router,
+    ) {}
 
+    /**
+     * Gateway — route first, fall through to seedCustom() only when the router
+     * says 'custom'. Entry points call this. Everything downstream calls
+     * seedCustom() instead.
+     */
     public function seed(User $user, string $url): ?IntegrationConnection
+    {
+        if ($user->isPendingDeletion()) {
+            return null;
+        }
+
+        $result = $this->router->route($user, $url, new RouteContext(maxProbes: 6));
+
+        if ($result->outcome === 'custom') {
+            return $this->seedCustom($user, $url);
+        }
+
+        // 'seeded', 'pending', 'skipped' — not a custom link.
+        return null;
+    }
+
+    /**
+     * Raw custom-link write — today's body verbatim. Never routes.
+     * Every fallback path calls this, not seed().
+     */
+    public function seedCustom(User $user, string $url): ?IntegrationConnection
     {
         if ($user->isPendingDeletion()) {
             return null;
@@ -50,15 +80,8 @@ class CustomLinkSeeder
         }
 
         $rid = 'link-'.substr(sha1(strtolower($normalized)), 0, 16);
-        // Built outside the lock — pure/local (no HTTP fetch; see LinkCardScraper).
         $payload = ['kind' => 'link', ...$this->scraper->minimalCard($normalized)];
 
-        // Races CustomLinksController::addLink(), which takes the same
-        // per-user/platform lock (ManagesIntegrationConnection::withConnectionLock)
-        // around its own existing-row check + MAX_LINKS count + write. Only the
-        // authoritative read + write go inside the lock — the pre-checks above
-        // and the payload build stay outside, and the job dispatch below stays
-        // outside too (never hold a lock across an inline dispatch).
         $key = CacheKeyGenerator::platformConnectionLock('custom', (string) $user->id);
         try {
             [$row, $isNew] = Cache::lock($key, 10)->block(5, function () use ($user, $rid, $payload) {
@@ -80,8 +103,6 @@ class CustomLinkSeeder
                 return [$row, $existing === null];
             });
         } catch (LockTimeoutException) {
-            // Best-effort job-triggered seed — the ?IntegrationConnection contract
-            // already returns null on "couldn't seed".
             Log::warning('platforms.custom_link_seeder.lock_timeout', ['user_id' => (string) $user->id, 'resource_id' => $rid]);
 
             return null;
