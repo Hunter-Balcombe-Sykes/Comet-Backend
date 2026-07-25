@@ -1306,6 +1306,16 @@ return [
         // a budget — the overwhelming majority — are unaffected.
         'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 20),
 
+        // Wall-clock budget (seconds) for one PlatformRefresher::refresh() call —
+        // the cron/manual-refresh mirror of connect_budget_seconds above. Must stay
+        // meaningfully below RefreshConnectionJob's 120s $timeout, leaving headroom
+        // (~30s) for the non-fetch work a refresh still does after the fetch closes:
+        // ScheduledRefresh's Cache::lock($key,10)->block(5,…) acquisition, the
+        // projector sync() upserts, the model write + observer purge, the health
+        // notifier. If the budget ever meets/exceeds 120s the job's SIGKILL wins
+        // and the budget is moot — see RefreshBudgetInvariantTest.
+        'refresh_budget_seconds' => (int) env('PARTNA_REFRESH_BUDGET_SECONDS', 90),
+
         // CFG-2: browser-ish UA — some providers 403 obvious bots / empty UAs.
         // Was a SafeUrlFetcher class constant; kept as a plain literal default
         // (not derived from partna.public_domain) since that key is env-specific
