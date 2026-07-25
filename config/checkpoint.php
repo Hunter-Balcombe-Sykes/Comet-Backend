@@ -183,6 +183,8 @@ return [
         '731db7a5ac32', // SiteProvisioningSavepointTest — local const table name
         '55939d4857c2', // PreAccountBuildHandleRaceTest — CREATE TEMP TABLE, local const table name
         '2d77dfcb34d9', // PreAccountBuildHandleRaceTest — DROP TABLE, local const table name
+        'bd0226c951ba', // ItemSlugAllocatorSavepointTest — CREATE TEMP TABLE, Str::random() local table name
+        '28488bff79f2', // ItemSlugAllocatorSavepointTest — DROP TABLE, Str::random() local table name
 
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
         // All are `Authorization: Bearer ` headers concatenating a VARIABLE
