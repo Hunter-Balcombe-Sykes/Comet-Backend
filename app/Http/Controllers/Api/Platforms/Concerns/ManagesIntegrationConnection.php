@@ -413,8 +413,6 @@ trait ManagesIntegrationConnection
     //   • ConnectFetchJob::markTerminal/markOk + PlatformRefresher bookkeeping:
     //     touch only status columns (last_refresh_*) through a single logical
     //     writer — deliberately narrow, never a content write.
-    //   • OnDemandRefresh: dead code (no constructor references anywhere) —
-    //     flagged, not wired, so nothing to lock.
     //   • Menu* / workplaces / design_kits writers (MenuContentController,
     //     GoogleBusinessAutoSync::seedWorkplace, the website-scan appliers):
     //     write NON-connection tables — out of scope for platform_connections

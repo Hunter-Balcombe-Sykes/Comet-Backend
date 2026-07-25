@@ -1564,12 +1564,6 @@ parameters:
 			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
-			path: app/Http/Resources/UserPublicResource.php
-
-		-
-			message: '#^Using nullsafe property access on non\-nullable type App\\Enums\\AccountType\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
 			path: app/Http/Resources/UserStaffResource.php
 
 		-

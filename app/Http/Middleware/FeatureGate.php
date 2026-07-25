@@ -14,7 +14,8 @@ use Illuminate\Http\Request;
 // NOTE: No professional/brand context is passed to enabled() — per-tenant overrides
 // are NOT evaluated here. This middleware is intentionally a global launch gate only.
 // Per-tenant override semantics require resolving a Professional model first; use
-// feature($key, $pro) inside controller/service code for tenant-aware checks.
+// FeatureFlagService::enabled($key, $user) directly in controller/service code
+// for tenant-aware checks.
 class FeatureGate
 {
     public function handle(Request $request, Closure $next, string $flag): mixed

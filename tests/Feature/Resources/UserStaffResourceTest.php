@@ -3,10 +3,9 @@
 // TEST-3: UserStaffResource (staff admin view of a professional) had zero
 // test coverage — SEC-101's $showPii gate (auth_user_id, phone, primary_email,
 // public_contact_number, location_*, admin_notes) was never exercised either
-// way. Unlike IndividualProfileResource, this class IS entirely
-// $this->-attribute-driven, so the UserPublicResourceTest.php style (assert
-// specific keys/values against a raw-attribute model) transfers directly —
-// no vacuousness risk here since every field genuinely reads off the model.
+// way. This class is entirely $this->-attribute-driven, so we assert specific
+// keys/values against a raw-attribute model — no vacuousness risk here since
+// every field genuinely reads off the model.
 
 use App\Http\Resources\UserStaffResource;
 use App\Models\Core\User\User;

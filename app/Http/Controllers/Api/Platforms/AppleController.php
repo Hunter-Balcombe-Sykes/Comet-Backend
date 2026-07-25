@@ -82,28 +82,10 @@ class AppleController extends ApiController
         );
     }
 
-    // GET /api/platforms/apple/music/selection
-    public function musicSelection(Request $request): JsonResponse
-    {
-        return $this->selectionFor($request, self::MUSIC);
-    }
-
     // GET /api/platforms/apple/music/recent — last 15 albums for the picker.
     public function musicRecent(Request $request): JsonResponse
     {
         return $this->recentFor($request, $this->musicConfig());
-    }
-
-    // GET /api/platforms/apple/music/accounts — every connected artist.
-    public function musicAccounts(Request $request): JsonResponse
-    {
-        return $this->accountsFor($request, self::MUSIC);
-    }
-
-    // DELETE /api/platforms/apple/music/accounts/{id} — remove one artist.
-    public function removeMusicAccount(Request $request, string $id): JsonResponse
-    {
-        return $this->removeAccountFor($request, self::MUSIC, $id);
     }
 
     // POST /api/platforms/apple/music/highlights — snapshot up to 5 chosen albums.
@@ -134,28 +116,10 @@ class AppleController extends ApiController
         );
     }
 
-    // GET /api/platforms/apple/podcast/selection
-    public function podcastSelection(Request $request): JsonResponse
-    {
-        return $this->selectionFor($request, self::PODCAST);
-    }
-
     // GET /api/platforms/apple/podcast/recent — last 15 episodes for the picker.
     public function podcastRecent(Request $request): JsonResponse
     {
         return $this->recentFor($request, $this->podcastConfig());
-    }
-
-    // GET /api/platforms/apple/podcast/accounts — every connected show.
-    public function podcastAccounts(Request $request): JsonResponse
-    {
-        return $this->accountsFor($request, self::PODCAST);
-    }
-
-    // DELETE /api/platforms/apple/podcast/accounts/{id} — remove one show.
-    public function removePodcastAccount(Request $request, string $id): JsonResponse
-    {
-        return $this->removeAccountFor($request, self::PODCAST, $id);
     }
 
     // POST /api/platforms/apple/podcast/highlights — snapshot up to 5 chosen episodes.
@@ -355,43 +319,6 @@ class AppleController extends ApiController
         );
     }
 
-    private function selectionFor(Request $request, string $platform): JsonResponse
-    {
-        $this->activePlatform = $platform;
-        $payload = $this->accountRows($this->currentUser($request))->first()?->payload;
-
-        return $this->success(['selection' => $payload ? $this->wrapAppleSelection($platform, $payload) : null]);
-    }
-
-    private function accountsFor(Request $request, string $platform): JsonResponse
-    {
-        $this->activePlatform = $platform;
-
-        return $this->success(['accounts' => $this->accountsListData(
-            $this->currentUser($request),
-            fn (array $payload) => $this->wrapAppleSelection($platform, $payload),
-        )]);
-    }
-
-    private function removeAccountFor(Request $request, string $platform, string $id): JsonResponse
-    {
-        $this->activePlatform = $platform;
-        $user = $this->currentUser($request);
-
-        // PWL-3: races connectFor()/highlightsFor() (both locked) + ScheduledRefresh.
-        return $this->withConnectionLock($user, function () use ($user, $platform, $id): JsonResponse {
-            if (! $this->accountRows($user)->firstWhere('resource_id', $id)) {
-                return $this->error('Account not found.', 404);
-            }
-            $this->forgetConnection($user, $id);
-
-            return $this->success(['accounts' => $this->accountsListData(
-                $user,
-                fn (array $payload) => $this->wrapAppleSelection($platform, $payload),
-            )]);
-        });
-    }
-
     private function recentFor(Request $request, array $cfg): JsonResponse
     {
         $this->activePlatform = $cfg['platform'];
@@ -462,8 +389,8 @@ class AppleController extends ApiController
         $this->activePlatform = $platform;
         $user = $this->currentUser($request);
 
-        // PWL-3: races connectFor()/highlightsFor()/removeAccountFor() (all
-        // locked) + ScheduledRefresh, all on this same platform+user key.
+        // PWL-3: races connectFor()/highlightsFor() (both locked) +
+        // ScheduledRefresh, all on this same platform+user key.
         return $this->withConnectionLock($user, function () use ($user, $responseKey): JsonResponse {
             $this->forgetAllConnections($user);
 

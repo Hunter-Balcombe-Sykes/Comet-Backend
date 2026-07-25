@@ -3,7 +3,6 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
-use App\Services\Platforms\Strategies\Fetch\NoFetch;
 use App\Services\Platforms\Strategies\Refresh\NoRefresh;
 use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 use Illuminate\Support\Str;
@@ -11,11 +10,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-});
-
-it('NoFetch returns the existing payload unchanged', function () {
-    $conn = new IntegrationConnection(['platform' => 'linkedin', 'payload' => ['url' => 'u']]);
-    expect((new NoFetch)->fetch($conn))->toBe(['url' => 'u']);
 });
 
 it('NoRefresh is not refreshable and returns the row untouched', function () {
