@@ -909,8 +909,8 @@ return [
     'section_block_types' => $blockTypes['sections'],
 
     // Platform-default subject dropdown options for the contact section block.
-    // Merged with the affiliate's settings.subject_options at render and
-    // submission-validation time. Affiliates can extend but not remove in v1.
+    // Merged with the professional's settings.subject_options at render and
+    // submission-validation time. Professionals can extend but not remove in v1.
     'contact_subject_defaults' => [
         'General enquiry',
         'Booking',
@@ -1671,9 +1671,9 @@ return [
         'prune_batch_size' => (int) env('PARTNA_NOTIFICATIONS_PRUNE_BATCH_SIZE', 1000),
 
         // Max jobs per Bus::batch() sub-chunk for fan-out paths. Bounds the
-        // size of a single Redis pipeline write so a large affiliate / staff
+        // size of a single Redis pipeline write so a large notification
         // broadcast list can't spike Redis memory. Shared between
-        // FanOutBrandStatusNotificationJob and SendStaffBroadcastEmailsJob.
+        // NotificationPublisher and SendStaffBroadcastEmailsJob.
         'batch_chunk_size' => (int) env('PARTNA_NOTIFICATIONS_BATCH_CHUNK_SIZE', 200),
 
         // TTL (seconds) for the cached /me/notifications index payload.
@@ -1746,35 +1746,20 @@ return [
     |----------------------------------------------------------------------
     | Launch feature flags
     |----------------------------------------------------------------------
-    | Master switches for functionality that's coded but not yet live.
-    | All default to false; flip in .env once the feature is ready.
-    |
-    | smart_booking  — gates all /booking/* routes (professional, public,
-    |                  analytics) and forbids selecting booking_mode='smart'.
-    |                  When off, only manual booking (redirect link) works.
-    | square_sync    — gates Square integration (/square/* routes, webhook,
-    |                  observer dispatch, sync jobs).
-    | fresha_sync    — gates Fresha integration (/fresha/* routes, webhook,
-    |                  observer dispatch, sync jobs).
-    |
-    | Square/Fresha ONLY power smart booking — if smart_booking is off, their
-    | flags are largely redundant but kept separate so we can enable one
-    | provider before the other post-launch.
+    | Tier-5 config fallback read by FeatureFlagService::enabled() — must stay
+    | an array. Intentionally empty; add entries here only for launch gates
+    | consumed via the `feature:` middleware alias.
     */
-    'features' => [
-        'smart_booking' => (bool) env('PARTNA_SMART_BOOKING_ENABLED', env('SIDEST_SMART_BOOKING_ENABLED', false)),
-        'square_sync' => (bool) env('PARTNA_SQUARE_SYNC_ENABLED', env('SIDEST_SQUARE_SYNC_ENABLED', false)),
-        'fresha_sync' => (bool) env('PARTNA_FRESHA_SYNC_ENABLED', env('SIDEST_FRESHA_SYNC_ENABLED', false)),
-    ],
+    'features' => [],
 
     /*
     |--------------------------------------------------------------------------
     | GDPR
     |--------------------------------------------------------------------------
     |
-    | Config for Shopify GDPR webhook handlers. Jobs dispatch onto a dedicated
-    | queue so they don't contend with the default worker on a mature shop
-    | (RedactShopJob can take several minutes). The placeholder domain is used
+    | Config for the GDPR data-export flow (ExportUserDataJob). Jobs dispatch onto a
+    | dedicated queue so they don't contend with the default worker (a large
+    | export can take several minutes). The placeholder domain is used
     | when anonymising customer email addresses — pick a domain you own so
     | bounces don't confuse third-party mail providers.
     |

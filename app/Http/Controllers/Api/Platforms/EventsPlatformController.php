@@ -166,10 +166,9 @@ abstract class EventsPlatformController extends ApiController
 
     // GET /api/platforms/{platform}/connect/status?account={id} — poll target
     // for the 202 above (CA-W5). Multi-account, so ?account= selects the row.
-    // $shape is accountData() rather than the platform's Resource class:
-    // EventbriteConnectionResource/HumanitixConnectionResource skip withIds()/
-    // dropElapsed(), so the poll's `ready` body must NOT use them — it would
-    // diverge from the connect 200's own shape.
+    // $shape is accountData(), not a Resource class — a Resource here would
+    // skip withIds()/dropElapsed(), so the poll's `ready` body must NOT use
+    // one; it would diverge from the connect 200's own shape.
     public function connectStatus(Request $request): JsonResponse
     {
         return $this->bespokeConnectStatus(

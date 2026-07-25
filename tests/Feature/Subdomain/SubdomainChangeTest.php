@@ -198,7 +198,7 @@ function setupCoreSchema(): void
 
         // user_handle_aliases — historical handle row written when a
         // professional's subdomain changes (the canonical handle changes too,
-        // so the old handle becomes an alias for HydrogenAffiliateController
+        // so the old handle becomes an alias for the public site resolver
         // lookups to keep resolving).
         $conn->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
             id TEXT PRIMARY KEY,

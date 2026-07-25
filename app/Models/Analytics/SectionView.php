@@ -10,9 +10,9 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-// Phase 5 analytics — per-session per-section visibility events fired by Partna-Hydrogen's
-// IntersectionObserver. Each session+section pair is deduped at write time (5min sliding
-// window) so scroll-back doesn't inflate counts.
+// Phase 5 analytics — per-session per-section visibility events fired by the public
+// sitepage frontend's IntersectionObserver. Each session+section pair is deduped at
+// write time (5min sliding window) so scroll-back doesn't inflate counts.
 //
 // Mirrors analytics.link_clicks shape — same UTM/identity fields plus an optional FK to
 // site.blocks (for sections that correspond to a Block) AND a required section_key (for

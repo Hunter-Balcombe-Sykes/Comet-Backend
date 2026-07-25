@@ -33,7 +33,6 @@ use Illuminate\Support\Facades\Storage;
  * @property int|null $duration_ms
  * @property string|null $poster_path
  * @property string|null $purpose Design-pool slot discriminator — see designSingletonPurposes(). NULL for non-design rows.
- * @property string|null $product_gid Legacy Shopify product-link column from before the standalone strip-down; not referenced by any current application code.
  * @property string|null $scanned_at CSAM-scan completion marker (NULL = pre-scanning-era media or not yet scanned). NOT in $casts, so unlike every other timestamp column here this returns a raw driver string, not a Carbon instance.
  * @property string|null $dominant_color #RRGGBB mirror of palette['dominant'].
  * @property array{dominant?: string, colors?: list<string>, saturation?: float, warm?: bool}|null $palette Extracted colour metadata, read by SiteAccentResolver as an accent-colour candidate; NULL until extraction runs or on failure.

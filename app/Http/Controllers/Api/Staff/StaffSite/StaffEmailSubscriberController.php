@@ -13,8 +13,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-// Staff inspector for a brand's marketing-list subscribers (#GDPR-1).
-// Mirrors the brand-side UserEmailSubscriptionController so support
+// Staff inspector for a professional's marketing-list subscribers (#GDPR-1).
+// Mirrors the user-side UserEmailSubscriptionController so support
 // can answer Article 15/20 requests routed via the platform inbox.
 class StaffEmailSubscriberController extends ApiController
 {
@@ -24,7 +24,7 @@ class StaffEmailSubscriberController extends ApiController
 
     /**
      * GET /staff/professionals/{professional}/email-subscribers
-     * Any-staff. Same query + paging shape as the brand sees on /api/email-subscribers.
+     * Any-staff. Same query + paging shape as the professional sees on /api/email-subscribers.
      */
     public function index(Request $request, User $professional): JsonResponse
     {
@@ -63,7 +63,7 @@ class StaffEmailSubscriberController extends ApiController
 
         $page = $query->paginate($perPage)->appends($request->query());
         // Audience-specific Resource so future staff-only fields (admin_notes,
-        // suppression source, etc.) land cleanly without leaking to brands (#API-3).
+        // suppression source, etc.) land cleanly without leaking to professionals (#API-3).
         $page->through(fn (EmailSubscription $sub) => StaffEmailSubscriptionResource::make($sub)->resolve());
 
         return $this->success($this->paginatedResponse($page, 'subscriptions', [

@@ -107,7 +107,7 @@ it('apple forgetMusic (forgetAllConnections write in forgetFor) is blocked by a 
     expect($fresh->deleted_at)->toBeNull();
 });
 
-it('apple removeMusicAccount (forgetConnection write in removeAccountFor) is blocked by a held platform lock and the account survives', function () {
+it('apple music account removal (GenericPlatformController::removeAccount) is blocked by a held platform lock and the account survives', function () {
     $user = sessionA2User('aplock3');
     $rid = 'acct-'.substr(sha1('artist'), 0, 16);
     $row = IntegrationConnection::create([

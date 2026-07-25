@@ -8,9 +8,10 @@ use Illuminate\Validation\Rule;
 /**
  * Validates a new feedback submission. Field caps mirror DB CHECK constraints
  * in 20260526210001_create_feedback_table.sql so a validation pass guarantees
- * the insert won't violate a constraint (`type`/`area`/`target` have no DB
- * CHECK — see 20260711153000_feedback_type_area_target.sql header for why —
- * so this FormRequest is their sole enforcement point).
+ * the insert won't violate a constraint. `type` now also has a DB CHECK
+ * (feedback_type_check, added in 20260722030000_feedback_type_check.sql);
+ * `area`/`target` stay unconstrained by design, so this FormRequest is their
+ * sole enforcement point.
  *
  * OV-D: `type` (error/good/bad_ui/idea) is the taxonomy the dashboard
  * feedback picker submits and is now REQUIRED; `area` (free-form

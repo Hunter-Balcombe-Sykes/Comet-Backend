@@ -72,10 +72,9 @@ class SiteMediaObserver
     /**
      * Bump `sites.updated_at` so `SiteObserver::saved` fires and dispatches
      * `CloudflareCachePurgeJob`. Without this, the Cloudflare edge cache for
-     * `<handle>.partna.au` (Astro Worker path for individuals + Hydrogen
-     * affiliate path for partners) would hold the pre-upload HTML for the
-     * full `s-maxage` window (~5 min) before refreshing — content image
-     * uploads then took 5–15 min to appear publicly.
+     * `<handle>.partna.au` would hold the pre-upload HTML for the full
+     * `s-maxage` window (~5 min) before refreshing — content image uploads
+     * then took 5–15 min to appear publicly.
      *
      * `touch()` only changes `updated_at`. SiteObserver's other dispatches
      * (SyncSubdomainToKvJob) gate on `wasChanged('subdomain')` and stay

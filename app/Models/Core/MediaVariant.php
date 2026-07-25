@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * A single processed variant or artifact row in core.media_variants.
+ * A single processed variant or artifact row in site.media_variants.
  *
  * Images (artifact_type='webp'):
  *   - variant_key='optimized'  + artifact_type='webp'         → optimised WebP

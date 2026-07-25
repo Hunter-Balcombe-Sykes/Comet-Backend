@@ -5,8 +5,8 @@ namespace App\Http\Requests\Api\User\Services;
 use App\Http\Requests\BaseFormRequest;
 
 // Validates partial service updates — title/price/description/duration etc.
-// Categories were removed from the affiliate UX; no rule for category_id
-// here, so a stray value in the payload is silently dropped.
+// Category (re-)assignment is handled by UpdateServiceCategoryAssignmentRequest,
+// not here, so a stray category_id/category_ids in the payload is silently dropped.
 class UpdateServiceRequest extends BaseFormRequest
 {
     public function rules(): array

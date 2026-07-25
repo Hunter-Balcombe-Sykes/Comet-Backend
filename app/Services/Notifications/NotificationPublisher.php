@@ -19,9 +19,9 @@ use Illuminate\Support\Str;
 class NotificationPublisher
 {
     /**
-     * Valid category keys — derived from the single source of truth in
-     * config/sidest.php. FormRequests and controllers should prefer calling
-     * this method directly over importing a constant.
+     * Valid category keys — derived from the single source of truth,
+     * config('partna.notifications.mailables'). FormRequests and controllers
+     * should prefer calling this method directly over importing a constant.
      *
      * @return array<int, string>
      */

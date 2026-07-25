@@ -26,16 +26,12 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-// Test-mode endpoints for the Fresha integration. Saves a Fresha store URL
-// globally (single-tenant test cache, no auth) and returns the staff list
-// extracted from the page's __NEXT_DATA__ blob.
+// Endpoints for the Fresha integration (fully authenticated — 'user.api' middleware
+// on the route group, routes/api/platforms.php). Saves a per-user Fresha store URL
+// and returns the staff list extracted from the page's __NEXT_DATA__ blob.
 //
 // Approach proven and documented in:
 //   ~/Developer/platform link capabilites/fresha.md
-//
-// Promotion plan: when the test is done, extract scrape logic to
-// App\Services\Platforms\FreshaScraper, persist via a platform_connections
-// table per user, and wire to /account/platforms in Partna-Frontend.
 class FreshaController extends ApiController
 {
     use DefersBespokeConnect;

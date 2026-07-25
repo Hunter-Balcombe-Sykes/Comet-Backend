@@ -150,38 +150,6 @@ abstract class BaseFormRequest extends FormRequest
     }
 
     /**
-     * Closure rule that rejects redirect URLs pointing outside the app's own
-     * origin allow-list (frontend, backend, localhost). Use on any `success_url`,
-     * `cancel_url`, `return_url`, or `refresh_url` field whose value is later
-     * forwarded to a third-party hosted flow (Stripe Checkout, Connect Express,
-     * SetupIntent return). Open redirects via a freshly completed Stripe page
-     * are unusually convincing social-engineering targets — the user is in a
-     * high-trust visual state and a bounce to attacker.example.com looks
-     * indistinguishable from the real return.
-     *
-     * Empty / null values short-circuit so callers can stack this after
-     * `nullable` / `required_unless` without forcing presence.
-     */
-    protected function allowedRedirectRule(): \Closure
-    {
-        return function (string $attribute, mixed $value, \Closure $fail) {
-            if (! $value) {
-                return;
-            }
-
-            $host = parse_url($value, PHP_URL_HOST);
-            $frontendHost = parse_url(config('app.frontend_url', ''), PHP_URL_HOST);
-            $appHost = parse_url(config('app.url', ''), PHP_URL_HOST);
-
-            $allowed = array_filter([$frontendHost, $appHost, 'localhost', '127.0.0.1']);
-
-            if (! $host || ! in_array($host, $allowed, true)) {
-                $fail('The redirect URL domain is not allowed.');
-            }
-        };
-    }
-
-    /**
      * Lowercase email-like inputs and coerce empty strings to null. Use this
      * for fields backed by a unique index where the difference between '' and
      * null matters (e.g. professionals.primary_email). For looser semantics

@@ -171,7 +171,7 @@ it('apple music + podcast connect return their per-platform flat fields', functi
         ]);
 });
 
-// ── Eventbrite (EventbriteConnectionResource) ────────────────────────────────
+// ── Eventbrite (EventsPlatformController::accountData — bespoke, no Resource) ─
 
 it('eventbrite connect returns the account shape with ids stamped on events', function () {
     $user = platformContractUser('eb1');
@@ -234,7 +234,7 @@ it('eventbrite selection filters past events, strips unknown keys, and exposes a
         ]]);
 });
 
-// ── Humanitix (HumanitixConnectionResource) ───────────────────────────────────
+// ── Humanitix (EventsPlatformController::accountData — bespoke, no Resource) ──
 //
 // TEST-2: Humanitix is key-identical to Eventbrite at the resource level but
 // routes through the HumanitixController + HumanitixScraper subclass. Pinning

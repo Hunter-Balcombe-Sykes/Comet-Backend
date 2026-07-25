@@ -40,8 +40,8 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            // Must exceed the longest job $timeout. RebuildProfessionalHourlyAggregatesJob
-            // has $timeout = 300; use 360 to give a 60-second safety margin.
+            // Must exceed the longest job $timeout on this connection (ProcessLogoVariantsJob
+            // has $timeout = 280); use 360 to give a safety margin.
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 360),
             'after_commit' => false,
         ],
@@ -71,9 +71,9 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            // Must exceed the longest job $timeout. RebuildProfessionalHourlyAggregatesJob
-            // and RebuildBrandHourlyAggregatesJob have $timeout = 300; use 360 for a
-            // 60-second safety margin so a slow job is never re-queued while still running.
+            // Must exceed the longest job $timeout on this connection (ProcessLogoVariantsJob
+            // has $timeout = 280); use 360 for a safety margin so a slow job is never
+            // re-queued while still running.
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 360),
             // BLPOP for ~5s beats null (userland polling latency+Redis round trips) without
             // risking 0, which per the Laravel docs stalls SIGTERM handling and breaks deploys.
@@ -95,7 +95,7 @@ return [
             'after_commit' => false,
         ],
 
-        // Dedicated connection for GDPR jobs. retry_after must exceed RedactShopJob::$timeout
+        // Dedicated connection for GDPR jobs. retry_after must exceed ExportUserDataJob::$timeout
         // (600s) so Redis does not re-queue the job while it is still chunking through customers.
         // Run workers with: php artisan queue:work redis_gdpr --queue=gdpr --timeout=660
         'redis_gdpr' => [

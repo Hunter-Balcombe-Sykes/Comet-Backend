@@ -7,22 +7,12 @@ use function Pest\Laravel\get;
 
 beforeEach(fn () => FeatureFlagTestCase::boot());
 
-it('exposes three launch feature flags via config', function () {
-    expect(config('partna.features'))
-        ->toBeArray()
-        ->toHaveKeys(['smart_booking', 'square_sync', 'fresha_sync']);
-});
-
-it('defaults all three launch feature flags to false', function () {
-    expect(config('partna.features.smart_booking'))->toBeFalse();
-    expect(config('partna.features.square_sync'))->toBeFalse();
-    expect(config('partna.features.fresha_sync'))->toBeFalse();
-});
-
 it('returns 503 when the named feature flag is off', function () {
-    config()->set('partna.features.smart_booking', false);
+    // Ad-hoc key — real launch flags no longer live in config; this proves
+    // the middleware's own gating logic, not any specific flag.
+    config()->set('partna.features.__test_gate', false);
 
-    Route::middleware('feature:smart_booking')
+    Route::middleware('feature:__test_gate')
         ->get('/__test/feature-gate', fn () => response()->json(['ok' => true]));
 
     get('/__test/feature-gate')
@@ -31,9 +21,9 @@ it('returns 503 when the named feature flag is off', function () {
 });
 
 it('passes through when the named feature flag is on', function () {
-    config()->set('partna.features.smart_booking', true);
+    config()->set('partna.features.__test_gate', true);
 
-    Route::middleware('feature:smart_booking')
+    Route::middleware('feature:__test_gate')
         ->get('/__test/feature-gate-on', fn () => response()->json(['ok' => true]));
 
     get('/__test/feature-gate-on')
