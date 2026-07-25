@@ -77,6 +77,10 @@ it('email job exits without sending when professional is soft-deleted', function
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
+        'handle' => 'deleted',
+        'handle_lc' => 'deleted',
+        'display_name' => 'Deleted',
+        'first_name' => 'Deleted',
         'primary_email' => 'deleted@example.test',
         'status' => 'active',
         'deleted_at' => $now,
@@ -112,6 +116,10 @@ it('email job does not block active professionals from receiving email', functio
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
+        'handle' => 'active',
+        'handle_lc' => 'active',
+        'display_name' => 'Active',
+        'first_name' => 'Active',
         'primary_email' => 'active@example.test',
         'status' => 'active',
         'deleted_at' => null,
@@ -137,6 +145,10 @@ it('analytics soft-delete guard does not block non-deleted professional', functi
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
+        'handle' => 'existsguard',
+        'handle_lc' => 'existsguard',
+        'display_name' => 'Existsguard',
+        'first_name' => 'Existsguard',
         'status' => 'active',
         'deleted_at' => null,
         'created_at' => $now,
@@ -158,10 +170,10 @@ it('whereNull deleted_at query excludes soft-deleted users from account_type cou
     $now = now()->toDateTimeString();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
-        ['id' => (string) Str::uuid(), 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'handle' => 'countuser1', 'handle_lc' => 'countuser1', 'display_name' => 'Countuser1', 'first_name' => 'Countuser1', 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'handle' => 'countuser2', 'handle_lc' => 'countuser2', 'display_name' => 'Countuser2', 'first_name' => 'Countuser2', 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'handle' => 'countuser3', 'handle_lc' => 'countuser3', 'display_name' => 'Countuser3', 'first_name' => 'Countuser3', 'account_type' => 'partna', 'deleted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => (string) Str::uuid(), 'handle' => 'countuser4', 'handle_lc' => 'countuser4', 'display_name' => 'Countuser4', 'first_name' => 'Countuser4', 'account_type' => 'partna', 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
     ]);
 
     $typeCounts = DB::connection('pgsql')

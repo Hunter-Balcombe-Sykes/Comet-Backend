@@ -27,6 +27,7 @@ function cbUser(): User
 {
     return User::create([
         'handle' => 'cb', 'handle_lc' => 'cb', 'display_name' => 'CB',
+        'first_name' => 'Cb',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'cb@example.com',
     ]);

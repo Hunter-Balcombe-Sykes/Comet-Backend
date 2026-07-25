@@ -43,9 +43,13 @@ beforeEach(function () {
 function ovaSeedUser(array $overrides = []): string
 {
     $id = (string) Str::uuid();
+    $handle = 'u-'.Str::random(8);
     DB::connection('pgsql')->table('core.users')->insert(array_merge([
         'id' => $id,
-        'handle' => 'u-'.Str::random(8),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'primary_email' => 'u-'.Str::random(8).'@example.test',
         'account_type' => 'partna',
         'status' => 'active',

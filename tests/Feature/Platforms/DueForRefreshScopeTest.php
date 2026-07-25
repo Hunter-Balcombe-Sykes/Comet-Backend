@@ -15,6 +15,7 @@ function scopeUser(): User
 {
     return User::create([
         'handle' => 'scope', 'handle_lc' => 'scope', 'display_name' => 'Scope',
+        'first_name' => 'Scope',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'scope@example.com',
     ]);

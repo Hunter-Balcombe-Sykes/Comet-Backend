@@ -19,9 +19,13 @@ beforeEach(function () {
     setupSectionViewsTable();
 
     $this->userId = (string) Str::uuid();
+    $handle = 'page-views-test-pro';
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $this->userId,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Page Views Test Pro',
+        'first_name' => 'Page Views Test Pro',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

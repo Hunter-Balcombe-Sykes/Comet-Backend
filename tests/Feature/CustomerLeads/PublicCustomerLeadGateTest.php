@@ -34,8 +34,9 @@ function seedPublishedLeadSite(string $subdomain = 'leadpro'): string
     $userId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $userId, 'handle' => $subdomain, 'handle_lc' => $subdomain,
-        'display_name' => 'Lead Pro', 'primary_email' => $subdomain.'@example.com', 'status' => 'active',
+        'id' => $userId, 'handle' => $subdomain, 'handle_lc' => strtolower($subdomain),
+        'display_name' => 'Lead Pro', 'first_name' => ucfirst($subdomain),
+        'primary_email' => $subdomain.'@example.com', 'status' => 'active',
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $userId, 'subdomain' => $subdomain, 'is_published' => 1,

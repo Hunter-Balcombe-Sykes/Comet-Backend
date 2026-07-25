@@ -91,8 +91,9 @@ function seedPublishedContactSite(string $subdomain = 'testpro'): array
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $proId,
         'handle' => $subdomain,
-        'handle_lc' => $subdomain,
+        'handle_lc' => strtolower($subdomain),
         'display_name' => 'Test Pro',
+        'first_name' => 'Test Pro',
         'primary_email' => 'test@example.com',
         'status' => 'active',
     ]);

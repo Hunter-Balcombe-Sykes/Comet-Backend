@@ -68,6 +68,7 @@ function seedIndividualProfile(string $handle, ?string $architectureId = null, s
         'handle' => $handle,
         'handle_lc' => strtolower($handle),
         'display_name' => 'Solo Pro',
+        'first_name' => 'Solo Pro',
         'bio' => 'Hello world',
         'account_type' => 'partna',
         'location_city' => 'Sydney',

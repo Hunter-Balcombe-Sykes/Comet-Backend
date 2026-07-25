@@ -19,8 +19,8 @@ function seedSectorOwner(string $subdomain, ?string $sector): User
     $userId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('core.users')->insert([
-        'id' => $userId, 'handle' => $subdomain, 'handle_lc' => $subdomain,
-        'display_name' => 'Sector Pro', 'primary_email' => $subdomain.'@example.com',
+        'id' => $userId, 'handle' => $subdomain, 'handle_lc' => strtolower($subdomain),
+        'display_name' => 'Sector Pro', 'first_name' => 'Sector Pro', 'primary_email' => $subdomain.'@example.com',
         'status' => 'active', 'sector' => $sector, 'sector_source' => $sector ? 'manual' : null,
     ]);
     DB::connection('pgsql')->table('site.sites')->insert([

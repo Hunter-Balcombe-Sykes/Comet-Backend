@@ -33,6 +33,7 @@ function makeStaffSubscriberUser(): User
         'handle' => 'sub-'.substr($id, 0, 8),
         'handle_lc' => 'sub-'.substr($id, 0, 8),
         'display_name' => 'Subs Pro',
+        'first_name' => 'Subs Pro',
         'primary_email' => 'sub-'.substr($id, 0, 8).'@example.com',
         'status' => 'active',
     ]);

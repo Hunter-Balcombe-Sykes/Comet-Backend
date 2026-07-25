@@ -44,6 +44,7 @@ it('does not leak other professionals enquiries', function () {
         'handle' => 'other',
         'handle_lc' => 'other',
         'display_name' => 'Other',
+        'first_name' => 'Other',
         'primary_email' => 'other@e.com',
         'status' => 'active',
     ]);
@@ -100,6 +101,7 @@ it('returns 404 when acting on another professionals enquiry', function () {
         'handle' => 'other2',
         'handle_lc' => 'other2',
         'display_name' => 'Other 2',
+        'first_name' => 'Other 2',
         'primary_email' => 'other2@e.com',
         'status' => 'active',
     ]);

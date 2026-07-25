@@ -40,6 +40,7 @@ function seedServiceObserverTouchFixture(): array
         'handle' => 'servicetouch',
         'handle_lc' => 'servicetouch',
         'display_name' => 'Service Touch',
+        'first_name' => 'Service',
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => $now,

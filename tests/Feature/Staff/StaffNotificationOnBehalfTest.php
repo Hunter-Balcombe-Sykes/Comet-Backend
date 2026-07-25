@@ -70,8 +70,13 @@ beforeEach(function () {
 function staffNotif_makeBrand(): User
 {
     $id = (string) Str::uuid();
+    $handle = 'brand-'.substr($id, 0, 8);
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'primary_email' => 'brand@example.test',
         'status' => 'active',
         'created_at' => now()->toIso8601String(),

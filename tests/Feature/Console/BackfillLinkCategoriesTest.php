@@ -24,10 +24,15 @@ function createBackfillFixtureIds(): array
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
+    $handle = 'blc-'.substr($userId, 0, 8);
 
     // Minimal Professional row — all columns nullable in the SQLite test schema.
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
         'created_at' => now(),
         'updated_at' => now(),
     ]);

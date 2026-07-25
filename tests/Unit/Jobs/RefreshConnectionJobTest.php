@@ -21,7 +21,7 @@ beforeEach(function () {
 function jobUser(): User
 {
     return User::create([
-        'handle' => 'job', 'handle_lc' => 'job', 'display_name' => 'Job',
+        'handle' => 'job', 'handle_lc' => 'job', 'display_name' => 'Job', 'first_name' => 'Job',
         'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => 'job@example.com',
     ]);

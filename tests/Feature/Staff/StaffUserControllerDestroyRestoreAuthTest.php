@@ -46,11 +46,14 @@ function destroyRestoreTest_seedProfessional(): User
 {
     $id = (string) Str::uuid();
     $now = now()->toDateTimeString();
+    $handle = 'pro-'.Str::random(6);
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $id,
-        'handle' => 'pro-'.Str::random(6),
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
         'display_name' => 'Test Pro',
+        'first_name' => 'Test',
         'primary_email' => 'pro-'.Str::random(6).'@example.test',
         'account_type' => 'partna',
         'status' => 'active',

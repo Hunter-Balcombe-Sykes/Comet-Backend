@@ -153,7 +153,10 @@ function createUserAndSiteForVideoProbeRealChainTest(): array
 
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => $userId,
+        'handle' => 'probe-chain-pro',
+        'handle_lc' => 'probe-chain-pro',
         'display_name' => 'Probe Chain Pro',
+        'first_name' => 'Probe',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);

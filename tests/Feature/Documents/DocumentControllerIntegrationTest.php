@@ -44,6 +44,7 @@ function seedUser(): User
         'handle' => 'p-'.substr($proId, 0, 8),
         'handle_lc' => 'p-'.substr($proId, 0, 8),
         'display_name' => 'Test Pro',
+        'first_name' => 'Test',
         'primary_email' => 'p-'.substr($proId, 0, 8).'@example.com',
         'status' => 'active',
         'account_type' => 'partna',
