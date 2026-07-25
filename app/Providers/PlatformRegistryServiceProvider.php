@@ -26,6 +26,7 @@ use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
@@ -377,6 +378,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (RegistryConnectCoverageTest pins flag<=>instanceof for every
             // descriptor). Mirrors skool/apple-music/eventbrite's identical notes.
             $r->get('fresha')->connectFetchError("We couldn't read that Fresha page just then — please try again.");
+            // An auto-harvested fresha row (Instagram bio / Google Business) is
+            // {url, selection: null} — connected, but with no service menu to
+            // render. FreshaFetch 304s it forever (:36-39), so it can never
+            // self-heal; only the owner picking a team member completes it.
+            // is_array (not !== null) mirrors FreshaFetch's own guard exactly so
+            // the two predicates cannot drift.
+            $r->get('fresha')->complete(fn (IntegrationConnection $c): bool => is_array($c->payload['selection'] ?? null));
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));

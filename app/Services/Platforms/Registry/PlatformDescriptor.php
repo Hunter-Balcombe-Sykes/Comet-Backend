@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms\Registry;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
@@ -89,6 +90,9 @@ class PlatformDescriptor
 
     /** @var (Closure(User): bool)|null Optional capability predicate consulted by availableFor(). Null = always available (every platform's default). */
     private ?Closure $capabilityGate = null;
+
+    /** @var (Closure(IntegrationConnection): bool)|null Optional content predicate consulted by isComplete(). Null = an active row is always complete (every platform's default). */
+    private ?Closure $completenessGate = null;
 
     private function __construct(private readonly string $key)
     {
@@ -547,5 +551,46 @@ class PlatformDescriptor
     public function availableFor(User $user): bool
     {
         return $this->capabilityGate === null || ($this->capabilityGate)($user);
+    }
+
+    /**
+     * Declare when a connection of this platform carries real, publishable
+     * content. Default (no call) = an active row is always complete, which is
+     * true for every url-only platform (square, the reservations family) and
+     * every platform whose connect writes its payload in full.
+     *
+     * Opt in only where connect can legitimately leave a row half-built: fresha
+     * (auto-harvest from an Instagram bio or Google Business saves a url with no
+     * selection — InstagramAutoSync::resolveWrite, GoogleBusinessAutoSync::
+     * resolveBookingWrite) and shop (a brand can exist with zero chosen
+     * products, FOUND-25).
+     *
+     * @param  Closure(IntegrationConnection): bool  $predicate
+     */
+    public function complete(Closure $predicate): self
+    {
+        $this->completenessGate = $predicate;
+
+        return $this;
+    }
+
+    /**
+     * Whether this connection has publishable content. Read by the public
+     * page-presence gate (SitepageDataResolverService::presentPageIds), the
+     * Book-now fallback (SiteActionsService::pool), the dashboard status
+     * endpoint (BookingController::statusFor) and the reconcile command.
+     *
+     * A predicate MAY query — shop's does — so callers on the public render
+     * path wrap it in safeQuery() and fail CLOSED (hide the page), matching the
+     * posture the inline shop gate had before this seam existed.
+     *
+     * NOT consulted by PublicIntegrationController: an incomplete fresha row's
+     * url is the Book-now destination, so the row must keep reaching the
+     * sitepage renderer. See the spec's "Decided" section before wiring this
+     * into filterPayload().
+     */
+    public function isComplete(IntegrationConnection $connection): bool
+    {
+        return $this->completenessGate === null || ($this->completenessGate)($connection);
     }
 }
