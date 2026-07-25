@@ -110,7 +110,9 @@ class InstagramController extends ApiController
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
 
-        InstagramConnectJob::dispatch($user->id, $username, $connection->id);
+        // The one genuine "user added Instagram" dispatch, so the only one that
+        // asks for the bell (GoogleBusinessAutoSync + RefreshController stay silent).
+        InstagramConnectJob::dispatch($user->id, $username, $connection->id, notifyOnConnect: true);
 
         return $this->success([
             'status' => 'pending',

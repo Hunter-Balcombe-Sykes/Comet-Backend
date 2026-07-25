@@ -5,6 +5,7 @@ namespace App\Services\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -379,10 +380,20 @@ class EventsCatalog
             $values['resource_kind'] = $resourceKind;
         }
 
-        IntegrationConnection::updateOrCreate(
+        $connection = IntegrationConnection::updateOrCreate(
             ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $resourceId],
             $values,
         );
+
+        // Bell notice on a genuine connect, gated on wasRecentlyCreated exactly as
+        // ManagesIntegrationConnection::upsertConnection does (a per-instance flag,
+        // true only on the object that inserted). Both callers route through here:
+        // storeAccount()'s organiser row notifies, storeStandalone()'s per-event row
+        // is dropped by the notifier's resource_kind guard. Both are correct, so
+        // neither is special-cased.
+        if ($connection->wasRecentlyCreated) {
+            app(IntegrationNotifier::class)->connected($connection);
+        }
     }
 
     /**

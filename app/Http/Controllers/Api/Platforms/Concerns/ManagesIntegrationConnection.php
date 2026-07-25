@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
+use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
@@ -151,7 +152,7 @@ trait ManagesIntegrationConnection
             $values['resource_kind'] = $resourceKind;
         }
 
-        return IntegrationConnection::updateOrCreate(
+        $connection = IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $user->id,
                 'platform' => $this->platform(),
@@ -159,6 +160,18 @@ trait ManagesIntegrationConnection
             ],
             $values,
         );
+
+        // Bell notice on a genuine connect. wasRecentlyCreated is checked HERE and
+        // not inside the notifier because it is a per-INSTANCE flag, true only on
+        // the object that performed the insert — ConnectFetchJob's freshly-loaded
+        // row always reports false, which is why that path calls the notifier
+        // itself. The status and resource-kind guards live in the notifier, so a
+        // 'pending' deferred write falls through silently here.
+        if ($connection->wasRecentlyCreated) {
+            app(IntegrationNotifier::class)->connected($connection);
+        }
+
+        return $connection;
     }
 
     /**
