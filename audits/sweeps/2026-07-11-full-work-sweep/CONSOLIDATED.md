@@ -25,6 +25,28 @@
 | **Total** | **109** | **81** | **190** |
 
 > **ID namespaces:** Part A findings keep their original 07-11 IDs; Part B findings use fresh 07-17 IDs. The same ID (e.g. `SEC-1`) may appear once in each part — disambiguate by part/date.
+>
+> **⚠ Cross-file ID mapping (load-bearing):** the `TRIAGE-*.md` files disambiguate the two parts by
+> **adding 100** to every Part B id — Part B `SEC-1` is `SEC-101` in TRIAGE. All 81 Part B findings map
+> this way with no exceptions. Any script that syncs state between this file and the TRIAGE files **must**
+> be part-aware; a naive id match silently ticks the wrong findings.
+
+## Checkbox state — reconciled 2026-07-25
+
+Checkboxes here were synced from the `TRIAGE-*.md` files, which are the **execution source of truth**
+(this file's boxes had never been ticked, despite 131 findings being fixed and merged).
+
+| Tier | Total | Done | Open |
+|------|-------|------|------|
+| P0+P1 | 22 | 22 | 0 |
+| P2 | 101 | 101 | 0 |
+| P3 | 67 | 8 | **59** |
+| **Total** | **190** | **131** | **59** |
+
+The 59 open are all P3 and all tracked in `TRIAGE-3-P3.md` — that file is the one to run. This folder
+therefore does **not** auto-archive, which is correct. Spot-verified against live code at sync time:
+`SEC-1` (byte-sniff via `SniffsFileMimeType`), `LIFE-3` (`lockForUpdate()` in `UpdateSiteAction`),
+`SEM-1`/`TXN-1` (single wrapping transaction in `ContentSelectionService`).
 
 ## Execution policy  (how `execute audit` runs this file)
 
@@ -83,15 +105,15 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Content-library image upload trusts client-declared MIME instead of byte-sniffing
+- [x] **#SEC-1** · P1 — Content-library image upload trusts client-declared MIME instead of byte-sniffing
     - **Where:** app/Http/Requests/Api/User/Content/UploadContentImageRequest.php:16-23
     - **Affects:** Content library image uploads (`POST` to the content-image endpoint) — a disguised file (e.g. a script renamed `.png`) can pass validation.
     - **Effort:** S (~0.5–1h)
@@ -122,7 +144,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-2** · P2 — JWT revocation gate skipped when a token carries no `session_id` claim
+- [x] **#SEC-2** · P2 — JWT revocation gate skipped when a token carries no `session_id` claim
     - **Where:** app/Http/Middleware/Auth/VerifySupabaseJwt.php:86-96 (and the mirrored fallback path at :180-189)
     - **Affects:** "Sign out everywhere" / admin-forced-logout correctness — a cryptographically valid but un-revocable token, if one were ever issued without `session_id`, would keep working until natural expiry.
     - **Effort:** S (~0.5–1h)
@@ -146,7 +168,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P2 — Applicant email logged unhashed on the bootstrap account-conflict path
+- [x] **#SEC-5** · P2 — Applicant email logged unhashed on the bootstrap account-conflict path
     - **Where:** app/Http/Controllers/Api/PublicSite/BootstrapController.php:160-164
     - **Affects:** Users whose email is already registered — their raw email address persists in Nightwatch / the log aggregator beyond the request lifecycle.
     - **Effort:** S (~0.5–1h)
@@ -233,15 +255,15 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
-- P2 Medium: 0 of 25 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 3 of 3 complete
+- P2 Medium: 20 of 20 complete
+- P3 Low: 0 of 0 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **LIFE-1** · P1 — Waitlist signup races on read-then-create; the DB's own UNIQUE constraint 500s instead of degrading gracefully
+- [x] **LIFE-1** · P1 — Waitlist signup races on read-then-create; the DB's own UNIQUE constraint 500s instead of degrading gracefully
     - **Where:** app/Services/EarlyAccess/EarlyAccessService.php:32-49
     - **Affects:** Public marketing waitlist form — any double-click, form re-submit, or client retry for the same email crashes the request instead of returning the existing signup.
     - **Effort:** S (~0.5–1h)
@@ -262,7 +284,7 @@
                 ...
         ```
 
-- [ ] **LIFE-2** · P1 — Enquiry-notification idempotency guard is set AFTER the side-effect, not before — a job retry can double-send
+- [x] **LIFE-2** · P1 — Enquiry-notification idempotency guard is set AFTER the side-effect, not before — a job retry can double-send
     - **Where:** app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php:64-77
     - **Affects:** Site owners receiving enquiry notifications — a retry after a mid-flight crash (worker OOM-kill, deploy restart) re-sends the enquiry email/in-app notification.
     - **Effort:** S (~0.5–1h)
@@ -282,7 +304,7 @@
         Cache::put('enquiry:notified:'.$this->enquiryId, true, now()->addDay());
         ```
 
-- [ ] **LIFE-3** · P1 — Site-settings PATCH merges the JSONB blob outside any lock — two concurrent saves silently drop one set of changes
+- [x] **LIFE-3** · P1 — Site-settings PATCH merges the JSONB blob outside any lock — two concurrent saves silently drop one set of changes
     - **Where:** app/Services/Site/UpdateSiteAction.php:51-102, 121-141
     - **Affects:** Every authenticated user editing their site settings — two concurrent dashboard saves (multi-tab editing, a slow save race against a second field change) can lose one write entirely, with no error surfaced to either request.
     - **Effort:** M (~2–4h)
@@ -315,7 +337,7 @@
 
 ## P2 — Should fix
 
-- [ ] **LIFE-4** · P2 — Early-access invite mint/save races without a row lock — a fast re-invite can dead-link the first email
+- [x] **LIFE-4** · P2 — Early-access invite mint/save races without a row lock — a fast re-invite can dead-link the first email
     - **Where:** app/Services/EarlyAccess/EarlyAccessService.php:69-91
     - **Affects:** Staff-initiated invite flow — two staff members (or one staff member double-clicking) inviting the same waitlist row concurrently mint two tokens; only the last one persists.
     - **Effort:** S (~0.5–1h)
@@ -340,7 +362,7 @@
             $signup->save();
         ```
 
-- [ ] **LIFE-6** · P2 — Instagram-auto flag commits outside the content-selection transaction — a mid-operation DB failure leaves the flag on with no reserved slots
+- [x] **LIFE-6** · P2 — Instagram-auto flag commits outside the content-selection transaction — a mid-operation DB failure leaves the flag on with no reserved slots
     - **Where:** app/Services/Site/ContentSelectionService.php:222-284
     - **Affects:** Dashboard "auto-fill from Instagram" toggle — if `persist()` throws after `$site->save()` already committed, the site advertises auto-fill as enabled with no ig-reel/ig-post rows behind it.
     - **Effort:** S (~0.5–1h)
@@ -361,7 +383,7 @@
                 ->get();
         ```
 
-- [ ] **LIFE-7** · P2 — Cache invalidation sits inside a catch clause scoped to a different exception type — a Redis hiccup 500s an otherwise-successful email sync
+- [x] **LIFE-7** · P2 — Cache invalidation sits inside a catch clause scoped to a different exception type — a Redis hiccup 500s an otherwise-successful email sync
     - **Where:** app/Http/Middleware/Context/LoadCurrentUser.php:93-137
     - **Affects:** Every authenticated request where the JWT's verified email differs from the stored `primary_email` (rare per-user, but hits every affected request during any Redis blip on that path).
     - **Effort:** S (~0.5–1h)
@@ -379,7 +401,7 @@
             Log::warning('LoadCurrentUser email sync collision', [
         ```
 
-- [ ] **LIFE-8** · P2 — `markSignedUp` swallows every failure as a bare `Log::warning` — a persistent write failure is invisible to Nightwatch
+- [x] **LIFE-8** · P2 — `markSignedUp` swallows every failure as a bare `Log::warning` — a persistent write failure is invisible to Nightwatch
     - **Where:** app/Services/EarlyAccess/EarlyAccessService.php:97-114
     - **Affects:** Early-access bookkeeping — if the UPDATE fails on every invocation (bad migration state, permission error), no waitlist row ever flips to `signed_up`, and nothing alerts anyone.
     - **Effort:** S (~0.5–1h)
@@ -396,7 +418,7 @@
         }
         ```
 
-- [ ] **LIFE-9** · P2 — Platform-health critical-notification dedup key is permanent — a user who reconnects and later fails again is never warned twice
+- [x] **LIFE-9** · P2 — Platform-health critical-notification dedup key is permanent — a user who reconnects and later fails again is never warned twice
     - **Where:** app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php:26-49
     - **Affects:** Users whose platform connection trips the failure breaker, reconnects it, and later has it fail again — the second failure episode produces no notification at all.
     - **Effort:** S (~0.5–1h)
@@ -419,7 +441,7 @@
         );
         ```
 
-- [ ] **LIFE-10** · P2 — GoogleBusinessEnrichJob writes `payload` without a lock; a same-window scheduled refresh can lose the enrichment
+- [x] **LIFE-10** · P2 — GoogleBusinessEnrichJob writes `payload` without a lock; a same-window scheduled refresh can lose the enrichment
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:90-167 (vs. app/Services/Platforms/Strategies/Refresh/ScheduledRefresh.php:22-40)
     - **Affects:** Google Business connections — a connect-time Apify enrichment racing a due scheduled refresh for the same connection can have either write clobber the other's `payload`.
     - **Effort:** M (~2–4h)
@@ -439,7 +461,7 @@
         ])->saveQuietly();
         ```
 
-- [ ] **LIFE-13** · P2 — SpotifyConnect fetches the vendor oEmbed endpoint synchronously in the request cycle
+- [x] **LIFE-13** · P2 — SpotifyConnect fetches the vendor oEmbed endpoint synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/SpotifyConnect.php:17-40 (invoked from app/Http/Controllers/Api/Platforms/GenericPlatformController.php:63)
     - **Affects:** Users connecting a Spotify link — Spotify oEmbed latency/downtime directly extends or fails the `POST /api/platforms/{platform}/connect` response.
     - **Effort:** M (~2–4h)
@@ -455,7 +477,7 @@
         }
         ```
 
-- [ ] **LIFE-14** · P2 — BandcampConnect fetches the artist page + price enrichment synchronously in the request cycle
+- [x] **LIFE-14** · P2 — BandcampConnect fetches the artist page + price enrichment synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/BandcampConnect.php:23-48
     - **Affects:** Users connecting a Bandcamp page — same request-latency exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -471,7 +493,7 @@
         $latest = $this->scraper->enrichPrices([$profile['items'][0]])[0];
         ```
 
-- [ ] **LIFE-15** · P2 — PinterestConnect makes two sequential synchronous vendor fetches in the request cycle
+- [x] **LIFE-15** · P2 — PinterestConnect makes two sequential synchronous vendor fetches in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/PinterestConnect.php:16-38
     - **Affects:** Users connecting a Pinterest profile — two sequential external fetches (state JSON + RSS) both block the response.
     - **Effort:** M (~2–4h)
@@ -487,7 +509,7 @@
         $pins = $this->scraper->fetchPins($username);
         ```
 
-- [ ] **LIFE-16** · P2 — StravaConnect fetches the club page synchronously in the request cycle
+- [x] **LIFE-16** · P2 — StravaConnect fetches the club page synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/StravaConnect.php:16-30
     - **Affects:** Users connecting a Strava club — same exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -502,7 +524,7 @@
         }
         ```
 
-- [ ] **LIFE-17** · P2 — TwitchConnect fetches the channel page synchronously in the request cycle
+- [x] **LIFE-17** · P2 — TwitchConnect fetches the channel page synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/TwitchConnect.php:15-35
     - **Affects:** Users connecting a Twitch channel — same exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -517,7 +539,7 @@
         }
         ```
 
-- [ ] **LIFE-18** · P2 — VimeoConnect makes two sequential synchronous vendor API calls in the request cycle
+- [x] **LIFE-18** · P2 — VimeoConnect makes two sequential synchronous vendor API calls in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/VimeoConnect.php:18-40
     - **Affects:** Users connecting a Vimeo profile — two sequential keyless-API calls block the response.
     - **Effort:** M (~2–4h)
@@ -533,7 +555,7 @@
         }
         ```
 
-- [ ] **LIFE-19** · P2 — YoutubeConnect fetches the channel's recent videos synchronously in the request cycle
+- [x] **LIFE-19** · P2 — YoutubeConnect fetches the channel's recent videos synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/YoutubeConnect.php:21-42
     - **Affects:** Users connecting a YouTube channel — same exposure as LIFE-13.
     - **Effort:** M (~2–4h)
@@ -548,7 +570,7 @@
         }
         ```
 
-- [ ] **LIFE-20** · P2 — YoutubeMusicConnect fetches channel-id resolution + uploads feed synchronously in the request cycle
+- [x] **LIFE-20** · P2 — YoutubeMusicConnect fetches channel-id resolution + uploads feed synchronously in the request cycle
     - **Where:** app/Services/Platforms/Strategies/Connect/YoutubeMusicConnect.php:20-31
     - **Affects:** Users connecting a YouTube Music artist — two sequential external fetches block the response.
     - **Effort:** M (~2–4h)
@@ -564,7 +586,7 @@
         $feed = $this->scraper->fetchUploadsFeed($channelId, self::MAX_ITEMS);
         ```
 
-- [ ] **LIFE-21** · P2 — BandcampHighlights fetches the artist page synchronously from the picker endpoint
+- [x] **LIFE-21** · P2 — BandcampHighlights fetches the artist page synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/BandcampHighlights.php:28-36 (invoked from `GenericPlatformController::recent()`)
     - **Affects:** Users opening the "choose highlights" picker for an already-connected Bandcamp page — the modal blocks on a live fetch every time it opens.
     - **Effort:** M (~2–4h)
@@ -584,7 +606,7 @@
         }
         ```
 
-- [ ] **LIFE-22** · P2 — VimeoHighlights fetches recent videos synchronously from the picker endpoint
+- [x] **LIFE-22** · P2 — VimeoHighlights fetches recent videos synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/VimeoHighlights.php:27-33
     - **Affects:** Users opening the Vimeo highlights picker — same exposure as LIFE-21.
     - **Effort:** M (~2–4h)
@@ -600,7 +622,7 @@
         }
         ```
 
-- [ ] **LIFE-23** · P2 — YoutubeHighlights fetches recent videos synchronously from the picker endpoint
+- [x] **LIFE-23** · P2 — YoutubeHighlights fetches recent videos synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/YoutubeHighlights.php:28-31
     - **Affects:** Users opening the YouTube highlights picker — same exposure as LIFE-21.
     - **Effort:** M (~2–4h)
@@ -615,7 +637,7 @@
         }
         ```
 
-- [ ] **LIFE-24** · P2 — YoutubeMusicHighlights fetches the uploads feed synchronously from the picker endpoint
+- [x] **LIFE-24** · P2 — YoutubeMusicHighlights fetches the uploads feed synchronously from the picker endpoint
     - **Where:** app/Services/Platforms/Strategies/Highlights/YoutubeMusicHighlights.php:28-36
     - **Affects:** Users opening the YouTube Music highlights picker — same exposure as LIFE-21.
     - **Effort:** M (~2–4h)
@@ -634,7 +656,7 @@
         }
         ```
 
-- [ ] **LIFE-25** · P2 — `YoutubeScraper::resolveChannelId()` returns null on every failure path with zero logging
+- [x] **LIFE-25** · P2 — `YoutubeScraper::resolveChannelId()` returns null on every failure path with zero logging
     - **Where:** app/Services/Platforms/YoutubeScraper.php:158-172
     - **Affects:** Every YouTube connect/refresh that depends on handle-to-channel-id resolution — a sustained YouTube-side block or layout change silently degrades every affected user's YouTube integration with no operational signal.
     - **Effort:** S (~0.5–1h)
@@ -657,7 +679,7 @@
             }
         ```
 
-- [ ] **LIFE-26** · P2 — `YoutubeScraper::fetchUploadsFeed()` returns null on three distinct failure paths with zero logging
+- [x] **LIFE-26** · P2 — `YoutubeScraper::fetchUploadsFeed()` returns null on three distinct failure paths with zero logging
     - **Where:** app/Services/Platforms/YoutubeScraper.php:76-97
     - **Affects:** Periodic refresh keeping a user's YouTube/YouTube Music highlights current — a silent feed failure leaves the sitepage showing stale videos indefinitely with no operational signal.
     - **Effort:** S (~0.5–1h)
@@ -747,14 +769,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **CACHE-1** · P2 — `PostgresEventWriter::writeMany()` loops session-ping upserts one row at a time — latent because the only caller dispatches one event per job
+- [x] **CACHE-1** · P2 — `PostgresEventWriter::writeMany()` loops session-ping upserts one row at a time — latent because the only caller dispatches one event per job
     - **Where:** app/Services/Analytics/Writers/PostgresEventWriter.php:75-77
     - **Affects:** Analytics ingest throughput under burst ingest. Not active today: `QueuedIngestor::ingest()` (app/Services/Analytics/Ingestors/QueuedIngestor.php) dispatches exactly one `RecordAnalyticsEventJob` per HTTP ping, and `RecordAnalyticsEventJob::handle()` calls `$writer->write($event)`, which is `writeMany([$event])` — so `$sessionEvents` here never holds more than one item under the current architecture.
     - **Effort:** M (~2–4h)
@@ -771,7 +793,7 @@
         }
         ```
 
-- [ ] **CACHE-2** · P2 — `NotificationPublisher::publishMany()` fans out one email job per recipient with no batching — currently unreachable (zero callers)
+- [x] **CACHE-2** · P2 — `NotificationPublisher::publishMany()` fans out one email job per recipient with no batching — currently unreachable (zero callers)
     - **Where:** app/Services/Notifications/NotificationPublisher.php:273-281
     - **Affects:** Any future caller of `publishMany()` for bulk in-app + email delivery (staff broadcasts, segment-targeted announcements). As of this audit `publishMany()` has zero callers anywhere in `app/` or `tests/` (verified by repo-wide grep) — the fan-out risk described here does not manifest in production today.
     - **Effort:** M (~2–4h)
@@ -837,14 +859,14 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 2 complete
+- P2 Medium: 3 of 3 complete
+- P3 Low: 0 of 1 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCALE-1** · P2 — `PruneNotifications` issues one unbounded `DELETE` per run instead of batching like its sibling purge command
+- [x] **SCALE-1** · P2 — `PruneNotifications` issues one unbounded `DELETE` per run instead of batching like its sibling purge command
     - **Where:** app/Console/Commands/PruneNotifications.php:36
     - **Affects:** The `notifications.notifications` table (and cascaded `notification_receipts` rows) on every professional. Runs daily at 03:25 automatically — not an opt-in operator action.
     - **Effort:** S (~0.5–1h)
@@ -864,7 +886,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         $deleted = $q->delete(); // relies ON DELETE CASCADE to remove receipts
         ```
 
-- [ ] **SCALE-2** · P2 — Unbounded `->get()` in `BackfillWebsiteAnalysesCommand` when `--retry-failures` is used
+- [x] **SCALE-2** · P2 — Unbounded `->get()` in `BackfillWebsiteAnalysesCommand` when `--retry-failures` is used
     - **Where:** app/Console/Commands/BackfillWebsiteAnalysesCommand.php:78
     - **Affects:** Operators running `design:backfill-website-analyses --retry-failures`. At scale (thousands of active shop/custom connections), this loads every matching row into memory at once before looping.
     - **Effort:** S (~0.5–1h)
@@ -896,7 +918,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         }
         ```
 
-- [ ] **SCALE-3** · P2 — `analytics:compute-popularity` full-sweeps every published site every 15 minutes
+- [x] **SCALE-3** · P2 — `analytics:compute-popularity` full-sweeps every published site every 15 minutes
     - **Where:** routes/console.php:73-88, app/Console/Commands/ComputeContentPopularityScores.php:148-157
     - **Affects:** Scheduler runtime and Postgres load, automatically every 15 minutes. The command re-computes popularity for EVERY published site each tick regardless of whether it received any new analytics events.
     - **Effort:** M (~2–4h)
@@ -1000,14 +1022,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 5 complete
-- P3 Low: 0 of 8 complete
+- P2 Medium: 5 of 5 complete
+- P3 Low: 7 of 8 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SCHEMA-1** · P2 — `analytics.item_views.item_type` has a documented 7-value taxonomy but no `CHECK` constraint
+- [x] **#SCHEMA-1** · P2 — `analytics.item_views.item_type` has a documented 7-value taxonomy but no `CHECK` constraint
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql:13
     - **Affects:** Data integrity for popularity scoring — a mistyped `item_type` from the item-seen telemetry endpoint silently pollutes `analytics:compute-popularity` input.
     - **Effort:** S (~0.5–1h)
@@ -1020,7 +1042,7 @@ None.
         item_type    text NOT NULL,    -- shop_product|menu_item|menu_category|service|block|gallery_item|engine_item
         ```
 
-- [ ] **#SCHEMA-2** · P2 — `analytics.content_popularity_scores.content_type` has a documented 8-value taxonomy but no `CHECK` constraint
+- [x] **#SCHEMA-2** · P2 — `analytics.content_popularity_scores.content_type` has a documented 8-value taxonomy but no `CHECK` constraint
     - **Where:** supabase/migrations/20260709042716_create_content_popularity_scores.sql:10
     - **Affects:** The read-side popularity table the public payload builder (`IndividualProfilePayloadBuilder`) and `RankedActionsComputer` read directly — a bad `content_type` from a buggy upsert in `analytics:compute-popularity` surfaces wrong ranks in the sitepage payload.
     - **Effort:** S (~0.5–1h)
@@ -1033,7 +1055,7 @@ None.
         content_type text NOT NULL,   -- page|shop_product|menu_item|menu_category|service|block|gallery_item|engine_item
         ```
 
-- [ ] **#SCHEMA-3** · P2 — `analytics.item_views` and `analytics.content_popularity_scores` have no foreign key on `site_id` (or `user_id`), unlike their sibling `analytics.section_views` — orphan rows never clean up after site deletion
+- [x] **#SCHEMA-3** · P2 — `analytics.item_views` and `analytics.content_popularity_scores` have no foreign key on `site_id` (or `user_id`), unlike their sibling `analytics.section_views` — orphan rows never clean up after site deletion
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql:10-12; supabase/migrations/20260709042716_create_content_popularity_scores.sql:9
     - **Affects:** `AccountDeletionService::forceDelete()` relies on `ON DELETE CASCADE` FK chains to clean up user/site-linked rows (per its own comments: "user_id-linked rows are cascade-deleted by forceDelete via FK ON DELETE CASCADE"). Neither table has that FK, so a force-deleted site/user leaves permanently dangling `site_id`/`user_id` values. `analytics.item_views` self-heals via the 90-day `partna:analytics:purge-raw-events` retention purge; `analytics.content_popularity_scores` is **not** in that command's table list at all, so its orphan rows persist forever.
     - **Effort:** M (~2–4h)
@@ -1055,7 +1077,7 @@ None.
             site_id      uuid NOT NULL
         ```
 
-- [ ] **#SCHEMA-4** · P2 — `site.shop_brands.selection_mode` and `.link_mode` are two-value enum columns without a `CHECK` constraint
+- [x] **#SCHEMA-4** · P2 — `site.shop_brands.selection_mode` and `.link_mode` are two-value enum columns without a `CHECK` constraint
     - **Where:** supabase/migrations/20260707030000_shop_brand_modes.sql:19-22
     - **Affects:** Data integrity for per-brand store rendering — a raw INSERT or direct DB fix could write an invalid `selection_mode`/`link_mode`; `UpdateShopBrandRequest` is the only guard today.
     - **Effort:** S (~0.5–1h)
@@ -1072,7 +1094,7 @@ None.
             ADD COLUMN IF NOT EXISTS referral_query text NOT NULL DEFAULT '';
         ```
 
-- [ ] **#SCHEMA-5** · P2 — `site.sites.shop_link_mode` is a two-value GLOBAL enum column without a `CHECK` constraint, unlike the sibling `booking_mode` column on the same table
+- [x] **#SCHEMA-5** · P2 — `site.sites.shop_link_mode` is a two-value GLOBAL enum column without a `CHECK` constraint, unlike the sibling `booking_mode` column on the same table
     - **Where:** supabase/migrations/20260708120000_sites_shop_global_settings.sql:28
     - **Affects:** Every connected store on every site — `shop_link_mode` is the single global switch the public payload builder (`PublicIntegrationConnectionResource`) stamps onto every brand's `linkMode` at read time. An invalid value here has the largest blast radius of any finding in this audit (site-wide, not per-brand).
     - **Effort:** S (~0.5–1h)
@@ -1088,7 +1110,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SCHEMA-6** · P3 — `core.feedback.type` has a 4-value vocabulary but no `CHECK` constraint
+- [x] **#SCHEMA-6** · P3 — `core.feedback.type` has a 4-value vocabulary but no `CHECK` constraint
     - **Where:** supabase/migrations/20260711153000_feedback_type_area_target.sql:46
     - **Affects:** Internal staff feedback-triage tool only — bad `type` values would confuse the staff list but touch no end-user or public surface.
     - **Effort:** S (~0.5–1h)
@@ -1102,7 +1124,7 @@ None.
             ADD COLUMN type text NULL
         ```
 
-- [ ] **#SCHEMA-7** · P3 — `core.user_segment_members` is granted `UPDATE, DELETE` for `app_backend` despite being an insert-only table at the model layer
+- [x] **#SCHEMA-7** · P3 — `core.user_segment_members` is granted `UPDATE, DELETE` for `app_backend` despite being an insert-only table at the model layer
     - **Where:** supabase/migrations/20260711000100_user_segments.sql:55; app/Models/Core/Segments/UserSegmentMember.php:21
     - **Affects:** Defence-in-depth only — no code path issues UPDATE/DELETE against this table today.
     - **Effort:** S (~0.5–1h)
@@ -1132,7 +1154,7 @@ None.
         // 300s), not a DB column — same pattern as section-seen.
         ```
 
-- [ ] **#SCHEMA-9** · P3 — `core.user_segments` and `core.user_segment_members` have RLS enabled but not `FORCE ROW LEVEL SECURITY`
+- [x] **#SCHEMA-9** · P3 — `core.user_segments` and `core.user_segment_members` have RLS enabled but not `FORCE ROW LEVEL SECURITY`
     - **Where:** supabase/migrations/20260711000100_user_segments.sql:51-52
     - **Affects:** Forward-looking defence-in-depth only.
     - **Effort:** S (~0.5–1h)
@@ -1146,7 +1168,7 @@ None.
         ALTER TABLE core.user_segment_members ENABLE ROW LEVEL SECURITY;
         ```
 
-- [ ] **#SCHEMA-10** · P3 — `core.feature_availability` has RLS enabled but not `FORCE ROW LEVEL SECURITY`
+- [x] **#SCHEMA-10** · P3 — `core.feature_availability` has RLS enabled but not `FORCE ROW LEVEL SECURITY`
     - **Where:** supabase/migrations/20260711000200_feature_availability.sql:40
     - **Affects:** Same forward-looking defence-in-depth gap as `#SCHEMA-9`; this table controls which features/integrations are gated per segment.
     - **Effort:** S (~0.5–1h)
@@ -1159,7 +1181,7 @@ None.
         ALTER TABLE core.feature_availability ENABLE ROW LEVEL SECURITY;
         ```
 
-- [ ] **#SCHEMA-11** · P3 — `core.early_access_signups` has RLS enabled but not `FORCE ROW LEVEL SECURITY`
+- [x] **#SCHEMA-11** · P3 — `core.early_access_signups` has RLS enabled but not `FORCE ROW LEVEL SECURITY`
     - **Where:** supabase/migrations/20260711000300_early_access_signups.sql:47
     - **Affects:** Same forward-looking defence-in-depth gap as `#SCHEMA-9`/`#SCHEMA-10`; this table holds PII (email, consent IP hash, invite token hash), slightly raising the stakes of a future ownership-change scenario even though today's exposure is nil.
     - **Effort:** S (~0.5–1h)
@@ -1172,7 +1194,7 @@ None.
         ALTER TABLE core.early_access_signups ENABLE ROW LEVEL SECURITY;
         ```
 
-- [ ] **#SCHEMA-12** · P3 — `site.content_selection` has no RLS at all
+- [x] **#SCHEMA-12** · P3 — `site.content_selection` has no RLS at all
     - **Where:** supabase/migrations/20260705150200_create_content_selection.sql:13-16
     - **Affects:** Defence-in-depth against PostgREST/Supabase client leakage. `app_backend` carries `BYPASSRLS` for the app path, so exposure is limited to a misconfigured PostgREST role.
     - **Effort:** M (~2–4h)
@@ -1189,7 +1211,7 @@ None.
         -- CRUD grant.
         ```
 
-- [ ] **#SCHEMA-13** · P3 — `site.workplaces` has no RLS at all
+- [x] **#SCHEMA-13** · P3 — `site.workplaces` has no RLS at all
     - **Where:** supabase/migrations/20260701150000_create_workplaces.sql (entire `CREATE TABLE`)
     - **Affects:** Same exposure class as `#SCHEMA-12`; `site.workplaces` holds PII-adjacent identity fields (name, address, phone, opening hours, contact email) — the most sensitive of the RLS-only-gap findings in this audit.
     - **Effort:** M (~2–4h)
@@ -1280,15 +1302,15 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#CCH-1** · P1 — `FeatureAvailability::for()` uses bare `Cache::remember` without single-flight lock
+- [x] **#CCH-1** · P1 — `FeatureAvailability::for()` uses bare `Cache::remember` without single-flight lock
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:41-45
     - **Affects:** Every professional whose dashboard hits `GET /platforms/meta` (`IntegrationsMetaController`), which resolves availability for every registry platform on load. After a staff member edits a feature-availability rule (`flush()` bumps the version token), every connected user's next dashboard load is a simultaneous cold miss that independently re-queries `feature_availability_rules` + resolves segment membership.
     - **Effort:** S (~0.5–1h)
@@ -1308,7 +1330,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 
 ## P2 — Should fix
 
-- [ ] **#CCH-2** · P2 — `FeatureAvailability::for()` writes with a hardcoded, unjittered 60s TTL
+- [x] **#CCH-2** · P2 — `FeatureAvailability::for()` writes with a hardcoded, unjittered 60s TTL
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:33, 43
     - **Affects:** Every user whose feature-availability entry was written in the same second (post-flush stampede, deploy restart) — all expire on the same tick.
     - **Effort:** S (~0.5–1h)
@@ -1327,7 +1349,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
         );
         ```
 
-- [ ] **#CCH-3** · P2 — `FeatureAvailability::for()` has no stale-while-revalidate companion
+- [x] **#CCH-3** · P2 — `FeatureAvailability::for()` has no stale-while-revalidate companion
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:41-45
     - **Affects:** Any caller whose per-user entry expired — blocks on the DB query + segment resolution instead of getting last-good immediately.
     - **Effort:** S (~0.5–1h)
@@ -1345,7 +1367,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
         // No :stale companion written anywhere.
         ```
 
-- [ ] **#CCH-4** · P2 — `AnalyticsCacheService::computeInsights` swallows exceptions and caches an empty result for the full 1h TTL
+- [x] **#CCH-4** · P2 — `AnalyticsCacheService::computeInsights` swallows exceptions and caches an empty result for the full 1h TTL
     - **Where:** app/Services/Analytics/AnalyticsCacheService.php:131, 142-209 (`insights()` / `computeInsights()`)
     - **Affects:** Every professional viewing the analytics dashboard "Insights" card — a transient DB blip produces an empty insights panel that `rememberLocked` then caches fleet-wide for up to an hour, self-healing only on TTL expiry, with no Nightwatch signal.
     - **Effort:** S (~0.5–1h)
@@ -1373,7 +1395,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
         }
         ```
 
-- [ ] **#CCH-5** · P2 — `FeatureAvailability::resolveOverrides()` swallows DB exceptions and caches the empty ("all features available") sentinel for the full TTL
+- [x] **#CCH-5** · P2 — `FeatureAvailability::resolveOverrides()` swallows DB exceptions and caches the empty ("all features available") sentinel for the full TTL
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:62-70
     - **Affects:** All users for up to 60 seconds after any transient DB error — the fail-open empty map ("all features available," including gated integrations) gets cached fleet-wide via the enclosing `Cache::remember`, even after the DB recovers seconds later.
     - **Effort:** S (~0.5–1h)
@@ -1455,8 +1477,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1465,7 +1487,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#WHK-2** · P2 — `idempotent` middleware runs after `throttle:authenticated` on the account-deletion route group, so lock-contended 409s consume rate-limit budget
+- [x] **#WHK-2** · P2 — `idempotent` middleware runs after `throttle:authenticated` on the account-deletion route group, so lock-contended 409s consume rate-limit budget
     - **Where:** routes/api/user.php:41-65, app/Http/Middleware/IdempotencyKey.php:95-102
     - **Affects:** Authenticated users hitting `/me/deletion/*` with concurrent identical `Idempotency-Key` requests — the losing request gets a 409 but has already been counted against the per-user `authenticated` rate limit.
     - **Effort:** S (~0.5–1h)
@@ -1497,7 +1519,7 @@ None.
         }
         ```
 
-- [ ] **#WHK-3** · P2 — `VerifyBotToken`'s circuit-breaker fail-open alerting self-masks during the exact Redis outage it's meant to escalate
+- [x] **#WHK-3** · P2 — `VerifyBotToken`'s circuit-breaker fail-open alerting self-masks during the exact Redis outage it's meant to escalate
     - **Where:** app/Http/Middleware/VerifyBotToken.php:223-265 (`firstHitInWindow`, `throttledFailReport`)
     - **Affects:** Operators monitoring bot-protection health during a Redis outage; all `bot.token`-gated public write endpoints (subscribe, signup, lead, enquiry, waitlist, login-identifier) silently lose CAPTCHA enforcement with zero alert.
     - **Effort:** S (~0.5–1h)
@@ -1587,14 +1609,14 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 1 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 0 of 0 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TXN-1** · P1 — Instagram-auto flag flip and its reserved-slot rebuild commit as two separate transactions
+- [x] **#TXN-1** · P1 — Instagram-auto flag flip and its reserved-slot rebuild commit as two separate transactions
     - **Where:** app/Services/Site/ContentSelectionService.php:222-225, 347-356
     - **Affects:** Any user connecting Instagram or toggling Instagram-auto content. If `persist()` fails after the flag save already committed (constraint violation, deadlock, transient DB error), `content_instagram_auto_enabled` is `true` but no ig-reel/ig-post slots exist — the sitepage silently shows nothing in the reserved positions with no error surfaced to the user.
     - **Effort:** S (~0.5–1h)
@@ -1667,9 +1689,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 0 of 0 complete
+- P2 Medium: 0 of 0 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -1679,7 +1701,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#DINT-3** · P3 — `site.shop_brands` TEXT enum columns (`provider`, `selection_mode`, `link_mode`) have no DB CHECK constraint
+- [x] **#DINT-3** · P3 — `site.shop_brands` TEXT enum columns (`provider`, `selection_mode`, `link_mode`) have no DB CHECK constraint
     - **Where:** supabase/migrations/20260704160000_shop_brands_products.sql:13,21; supabase/migrations/20260707030000_shop_brand_modes.sql:19-22
     - **Affects:** Shop brand data — a direct DB write, buggy job, or migration error can insert an invalid `provider`, `selection_mode`, or `link_mode` value that the app's `toBrandArray()` coalesce logic wasn't written to expect.
     - **Effort:** M (~2–4h)
@@ -1739,15 +1761,15 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 3 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#JOB-1** · P1 — CloudflareCachePurgeJob silently succeeds on an empty handle instead of failing loudly
+- [x] **#JOB-1** · P1 — CloudflareCachePurgeJob silently succeeds on an empty handle instead of failing loudly
     - **Where:** app/Jobs/Cloudflare/CloudflareCachePurgeJob.php:76-79
     - **Affects:** Edge cache coherence for every professional's public sitepage — `CloudflareCachePurgeJob` is the only job responsible for busting the router's cache after a visible site mutation
     - **Effort:** S (~0.5–1h)
@@ -1766,7 +1788,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#JOB-2** · P2 — GoogleBusinessEnrichJob can re-run the paid Apify scrape on a retry after a partial success
+- [x] **#JOB-2** · P2 — GoogleBusinessEnrichJob can re-run the paid Apify scrape on a retry after a partial success
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:106-166
     - **Affects:** Google Business enrichment flow; duplicate Apify actor billing and duplicate scrape traffic against the same place on a DB-write failure
     - **Effort:** M (~2–4h)
@@ -1865,15 +1887,15 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
-- P2 Medium: 0 of 5 complete
+- P1 High: 2 of 2 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **OBS-1** · P1 — FreshaScraper's per-employee menu falls back to whole-location and reports 'ok' forever; the code's own comment promises Nightwatch visibility it never delivers
+- [x] **OBS-1** · P1 — FreshaScraper's per-employee menu falls back to whole-location and reports 'ok' forever; the code's own comment promises Nightwatch visibility it never delivers
     - **Where:** app/Services/Platforms/FreshaScraper.php:203-224
     - **Affects:** Every Fresha connection in per-employee booking mode. A rotated `BOOKING_INIT_HASH`/client version silently and *permanently* downgrades the per-stylist menu to the whole-location menu with zero operator signal.
     - **Effort:** S (~0.5–1h)
@@ -1905,7 +1927,7 @@ None.
         ```
     - `[Adjudicated: elevated from vendor-services-1 DeepSeek draft OBS-1 (P1, confidence 0.9); tier confirmed after tracing FreshaFetch/PlatformRefresher interaction]`
 
-- [ ] **OBS-2** · P1 — ShopCatalog::syncLatest swallows fetch failures as "nothing changed," resetting the failure counter and defeating the platform's own circuit breaker
+- [x] **OBS-2** · P1 — ShopCatalog::syncLatest swallows fetch failures as "nothing changed," resetting the failure counter and defeating the platform's own circuit breaker
     - **Where:** app/Services/Platforms/ShopCatalog.php:77-83
     - **Affects:** Every shop brand with "auto-latest" enabled. A persistently-blocking store (bot detection, dead URL) never surfaces as a failure — the scheduled sync silently no-ops forever, and the "the scheduled refresh retries" promise made to the user in `ShopController` is never honoured with a retry that actually succeeds or an alert that it can't.
     - **Effort:** M (~2–4h)
@@ -1936,7 +1958,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **OBS-3** · P2 — Ranked-actions computation failure in the popularity-score command is caught and only logged, never reported to Nightwatch
+- [x] **OBS-3** · P2 — Ranked-actions computation failure in the popularity-score command is caught and only logged, never reported to Nightwatch
     - **Where:** app/Console/Commands/ComputeContentPopularityScores.php:275-286
     - **Affects:** The derived "ranked actions" ordering layer used by the dashboard — a broken computation goes stale with no alert, though core page/item scores are unaffected (the fail-open is intentional and correct there).
     - **Effort:** S (~0.5–1h)
@@ -1962,7 +1984,7 @@ None.
         ```
     - `[Adjudicated: jobs-hooks DeepSeek draft OBS-1 (P1, confidence 0.9); re-tiered P2 — fail-open is intentional/documented and scoped to a secondary derived layer, not routing/auth/irreversible-work]`
 
-- [ ] **OBS-4** · P2 — ImageVariantService::deleteVariants logs storage-delete failures with good structured context but never escalates to Nightwatch
+- [x] **OBS-4** · P2 — ImageVariantService::deleteVariants logs storage-delete failures with good structured context but never escalates to Nightwatch
     - **Where:** app/Services/Media/ImageVariantService.php:345-386
     - **Affects:** Media cleanup on delete/reprocess — a sustained R2/S3 delete failure accumulates orphaned storage objects indefinitely with no operator alert (DB rows are correctly cleared regardless).
     - **Effort:** S (~0.5–1h)
@@ -1982,7 +2004,7 @@ None.
         ```
     - `[Adjudicated: vendor-services-1 DeepSeek draft OBS-4 (P2, confidence 0.7); confirmed verbatim, tier retained]`
 
-- [ ] **OBS-5** · P2 — Multiple long-running artisan commands lack a `$timeout` property, so a hung run is invisible to Nightwatch's slow-command detection
+- [x] **OBS-5** · P2 — Multiple long-running artisan commands lack a `$timeout` property, so a hung run is invisible to Nightwatch's slow-command detection
     - **Where:** app/Console/Commands/ComputeContentPopularityScores.php, app/Console/Commands/BackfillMediaPaletteCommand.php, app/Console/Commands/ResolveAllDesignPresetsCommand.php
     - **Affects:** Nightwatch operators — none of these commands declare a `$timeout`, so Nightwatch's auto-slow-detection has no baseline to compare against; a hung DB query or stuck GD palette extraction blocks a scheduler slot silently.
     - **Effort:** S (~1h)
@@ -2003,7 +2025,7 @@ None.
         ```
     - `[Adjudicated: jobs-hooks DeepSeek draft OBS-4 (P2, confidence 0.8); scope narrowed — BackfillWebsiteAnalysesCommand dropped after confirming it only dispatches jobs and does no heavy synchronous work]`
 
-- [ ] **OBS-6** · P2 — GoogleBusinessEnrichJob's soft-failure branch marks the connection 'unavailable' with zero logging
+- [x] **OBS-6** · P2 — GoogleBusinessEnrichJob's soft-failure branch marks the connection 'unavailable' with zero logging
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:111-118
     - **Affects:** Users whose Google Business enrichment fails without an exception (Apify returned nothing AND the website harvest found nothing) — the core Place Details card still renders, but repeated soft failures are invisible to operators.
     - **Effort:** S (~0.5–1h)
@@ -2133,15 +2155,15 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 4 complete
-- P2 Medium: 0 of 5 complete
+- P1 High: 3 of 3 complete
+- P2 Medium: 5 of 5 complete
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **PRIV-2** · P1 — 7-year handle-audit retention is declared in config but no job enforces it
+- [x] **PRIV-2** · P1 — 7-year handle-audit retention is declared in config but no job enforces it
     - **Where:** `config/partna.php:56` (`handle.audit_retention_years`) and `routes/console.php` (no matching `Schedule::command()`)
     - **Affects:** Every row in `audit.handle_change_log` — every historical handle a professional has ever held, tied to their identity, retained forever with no expiry mechanism.
     - **Effort:** S (~0.5–1h)
@@ -2162,7 +2184,7 @@ None.
         Schedule::command('handles:notify-expiry')->dailyAt('09:00')...
         ```
 
-- [ ] **PRIV-3** · P1 — Platform integration connections entirely absent from GDPR export
+- [x] **PRIV-3** · P1 — Platform integration connections entirely absent from GDPR export
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:245-249` (`streamIntegrations`)
     - **Affects:** Any professional with connected platforms (Instagram, YouTube, Spotify, shop, etc.) — their stored platform usernames, profile data, and connection metadata never appear in a DSAR.
     - **Effort:** M (~2–4h)
@@ -2180,7 +2202,7 @@ None.
         }
         ```
 
-- [ ] **PRIV-4** · P1 — Site analytics (visits, clicks, section views, item views) entirely absent from GDPR export
+- [x] **PRIV-4** · P1 — Site analytics (visits, clicks, section views, item views) entirely absent from GDPR export
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:123-169` (`sectionDescriptors` — no analytics entries)
     - **Affects:** Every professional requesting a DSAR — their business traffic analytics (visit counts, referrers, UTM data, geo breakdowns, device splits, link-click destinations) is invisible to the export, despite it being the professional's own business data collected from their sitepage.
     - **Effort:** M (~2–4h)
@@ -2206,7 +2228,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **PRIV-5** · P2 — Internal brand-analysis data excluded from the dashboard but exported wholesale in the GDPR export
+- [x] **PRIV-5** · P2 — Internal brand-analysis data excluded from the dashboard but exported wholesale in the GDPR export
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:222-233` (`site()`) and `app/Http/Resources/WorkplaceResource.php:11-13`
     - **Affects:** Professionals requesting a DSAR — they receive machine-generated `previous_website_analysis` data the platform deliberately never shows them on the dashboard.
     - **Effort:** S (~0.5–1h)
@@ -2226,7 +2248,7 @@ None.
         return ['site' => (array) $site, 'blocks' => $blocks, 'workplace' => $workplaceRow ? (array) $workplaceRow : null];
         ```
 
-- [ ] **PRIV-6** · P2 — New `core.feedback` columns (`type`, `area`, `target`) excluded from the GDPR export's explicit column allow-list
+- [x] **PRIV-6** · P2 — New `core.feedback` columns (`type`, `area`, `target`) excluded from the GDPR export's explicit column allow-list
     - **Where:** `app/Services/User/DataExport/DataExportPayloadBuilder.php:298-306` (`streamFeedback`) and `supabase/migrations/20260711153000_feedback_type_area_target.sql`
     - **Affects:** Professionals who submit feedback through the OV-D feedback tool — their reaction category, feature-area context, and structured target metadata are silently omitted from their export.
     - **Effort:** S (~0.5–1h)
@@ -2252,7 +2274,7 @@ None.
             ADD COLUMN target jsonb NULL;
         ```
 
-- [ ] **PRIV-7** · P2 — Staff audit log duplicates staff/user email and handle into the append-only audit schema
+- [x] **PRIV-7** · P2 — Staff audit log duplicates staff/user email and handle into the append-only audit schema
     - **Where:** `app/Services/Audit/StaffAuditService.php:33-38`
     - **Affects:** Every staff member whose action is logged, every impersonation event, and every professional whose data staff access — their emails/handle become permanently undeletable once written into `audit.staff_audit_log`.
     - **Effort:** M (~2–4h)
@@ -2275,7 +2297,7 @@ None.
         ]);
         ```
 
-- [ ] **PRIV-8** · P2 — `core.feedback` has no declared retention rule and no scheduled purge
+- [x] **PRIV-8** · P2 — `core.feedback` has no declared retention rule and no scheduled purge
     - **Where:** `config/partna.php:1552-1577` (`feedback` section — no `retention_days` key) and `routes/console.php` (no feedback prune command)
     - **Affects:** Every feedback submission ever filed — free-text messages routinely embed the submitter's name/email/context and accumulate with no expiry, unlike the structurally similar `moderation.case_signals` (which has `signal_pii_retention_days` + a weekly prune job).
     - **Effort:** S (~0.5–1h)
@@ -2297,7 +2319,7 @@ None.
         // no retention_days key; routes/console.php has no feedback-related Schedule::command entry
         ```
 
-- [ ] **PRIV-9** · P2 — Analytics visitor coordinates stored as raw, untruncated `double precision` with no minimisation
+- [x] **PRIV-9** · P2 — Analytics visitor coordinates stored as raw, untruncated `double precision` with no minimisation
     - **Where:** `supabase/migrations/20260707020000_site_visits_lat_lon.sql:12-14`, `app/Services/Analytics/Writers/PostgresEventWriter.php:126-127`, `app/Http/Controllers/Concerns/DetectsClientInfo.php:165-187`
     - **Affects:** Every visitor to any Partna sitepage — edge-resolved lat/lon is persisted at full floating-point precision alongside the already-sufficient `city`/`region_code`/`country_code`.
     - **Effort:** S (~0.5–1h)
@@ -2453,15 +2475,15 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 3 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **EDGE-1** · P1 — `hide_content` moderation decisions have no KV-level redundancy; a failed edge purge leaves the reported content live for up to 7 days (Category 3)
+- [x] **EDGE-1** · P1 — `hide_content` moderation decisions have no KV-level redundancy; a failed edge purge leaves the reported content live for up to 7 days (Category 3)
     - **Where:** `app/Services/Moderation/ModerationActionDispatcher.php:31` (`ACTIONS_BY_DECISION`), `app/Jobs/Moderation/PurgeModerationCacheJob.php:45-66`, `app/Jobs/Cloudflare/CloudflareCachePurgeJob.php:29-35`
     - **Affects:** Any case resolved with `decision_type = hide_content` (the standard "take this specific content down" outcome) — visitors to the professional's page, and the reporter/staff who believe the content is gone.
     - **Effort:** M (~2–4h)
@@ -2491,7 +2513,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **EDGE-2** · P2 — No automated check keeps the Worker's `RESERVED` set in sync with `reserved_subdomains` (Category 1)
+- [x] **EDGE-2** · P2 — No automated check keeps the Worker's `RESERVED` set in sync with `reserved_subdomains` (Category 1)
     - **Where:** `cloudflare-worker/src/index.js:44-110` (`RESERVED`) vs `config/partna.php:71-143` (`reserved_subdomains`)
     - **Affects:** Public routing — a future edit that adds/removes an entry on only one side goes undetected until a real handle collision or 404 surfaces in production.
     - **Effort:** S (~0.5–1h)
@@ -2517,7 +2539,7 @@ None.
         ]
         ```
 
-- [ ] **EDGE-3** · P2 — Hardcoded `PARTNA_DOMAIN` / cache TTLs carry no `@sync` comment pointing at the backend config that assumes them (Category 7)
+- [x] **EDGE-3** · P2 — Hardcoded `PARTNA_DOMAIN` / cache TTLs carry no `@sync` comment pointing at the backend config that assumes them (Category 7)
     - **Where:** `cloudflare-worker/src/index.js:42,112-118` vs `config/partna.php` (`public_domain`, `cache.purge_followup_seconds`)
     - **Affects:** Deploy correctness — a backend-side change to `PARTNA_PUBLIC_DOMAIN` or to the purge follow-up delay silently stops matching the Worker's hardcoded assumptions.
     - **Effort:** S (~0.5–1h)
@@ -2541,7 +2563,7 @@ None.
         )
         ```
 
-- [ ] **EDGE-4** · P2 — KV lookup failure for a `<handle>.partna.au` host falls through to `passThrough(request)`, an unconfirmed origin destination (Category 1/6)
+- [x] **EDGE-4** · P2 — KV lookup failure for a `<handle>.partna.au` host falls through to `passThrough(request)`, an unconfirmed origin destination (Category 1/6)
     - **Where:** `cloudflare-worker/src/index.js` — `catch (err)` block in the subdomain KV lookup, inside the default `fetch` handler
     - **Affects:** Every visitor to any `<handle>.partna.au` page during a transient KV outage.
     - **Effort:** S (~0.5–1h)
@@ -2646,14 +2668,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 5 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 0 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CFG-1** · P2 — Auth-adjacent secrets have no rotation runbook or dual-secret window
+- [x] **#CFG-1** · P2 — Auth-adjacent secrets have no rotation runbook or dual-secret window
     - **Where:** config/services.php:44,48,74,79 (`supabase.email_hook_secret`, `supabase.auth_hook_secret`, `cloudflare.api_token`, `cloudflare.cache_purge_token`); config/partna.php:1102 (`logo_removal.token`)
     - **Affects:** Ops — rotating `SUPABASE_AUTH_HOOK_SECRET`, `SUPABASE_EMAIL_HOOK_SECRET`, `CLOUDFLARE_API_TOKEN`, or `CLOUDFLARE_CACHE_PURGE_TOKEN` requires an atomic env+dashboard swap with no grace window; a deploy race between the two 503s every hook delivery until they line up.
     - **Effort:** M (~2–4h) — docs + optional dual-secret support in `VerifySupabaseHookSignature`
@@ -2794,16 +2816,16 @@ None.
 
 ## Progress
 
-- P0 Blockers: 0 of 1 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P0 Blockers: 1 of 1 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P0 — Must fix before any real user touches the system
 
-- [ ] **#MIG-1** · P0 — One transaction holds `ACCESS EXCLUSIVE` on `site.blocks`/`site.public_site_payload` across a DELETE, two view rebuilds, a CHECK swap+validate, and seven column/table drops
+- [x] **#MIG-1** · P0 — One transaction holds `ACCESS EXCLUSIVE` on `site.blocks`/`site.public_site_payload` across a DELETE, two view rebuilds, a CHECK swap+validate, and seven column/table drops
     - **Where:** `supabase/migrations/20260705120000_drop_dead_profile_features.sql:22-360`
     - **Affects:** Every public sitepage read during deploy — `site.public_site_payload` and `site.all_site_data` are the views every sitepage GET resolves through; `site.blocks` backs both.
     - **Effort:** M (~2–4h)
@@ -2839,7 +2861,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#MIG-2** · P1 — Non-atomic numeric cast in a design-kit vocabulary backfill can abort mid-file, leaving prior DDL committed
+- [x] **#MIG-2** · P1 — Non-atomic numeric cast in a design-kit vocabulary backfill can abort mid-file, leaving prior DDL committed
     - **Where:** `supabase/migrations/20260710190000_semantic_text_scale_and_vocab_remap.sql:143-152`
     - **Affects:** `site.design_kits` / `site.design_kit_contributions` reads during a future apply — a cast failure here leaves the earlier 7 `DROP COLUMN`s and prior `UPDATE`s in this same file committed while this final scrub fails, since the file has no `BEGIN`/`COMMIT` wrapper.
     - **Effort:** S (~0.5–1h)
@@ -2864,7 +2886,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#MIG-3** · P2 — Table creation, JSONB CTE backfill, and a live-table `UPDATE` coalesced into one transaction with no lock/statement timeout
+- [x] **#MIG-3** · P2 — Table creation, JSONB CTE backfill, and a live-table `UPDATE` coalesced into one transaction with no lock/statement timeout
     - **Where:** `supabase/migrations/20260704160000_shop_brands_products.sql:7-105`
     - **Affects:** `site.platform_connections` writes (shop connect/disconnect) during this migration's apply window.
     - **Effort:** S (~0.5–1h)
@@ -2882,7 +2904,7 @@ None.
           AND (payload->>'storage') IS DISTINCT FROM 'relational';
         ```
 
-- [ ] **#MIG-4** · P2 — No CI check enforces `SET LOCAL lock_timeout`/`statement_timeout` on DDL against live-traffic tables
+- [x] **#MIG-4** · P2 — No CI check enforces `SET LOCAL lock_timeout`/`statement_timeout` on DDL against live-traffic tables
     - **Where:** `scripts/guard-no-unsafe-migrations.php` (existing guard, no timeout check); representative gap example at `supabase/migrations/20260711000000_staff_account_type.sql:13-18`
     - **Affects:** Any future migration touching `site.design_kits`, `site.sites`, `site.blocks`, or `core.users` — a stuck lock-wait on deploy queues instead of failing fast with a clear error.
     - **Effort:** M (~2–4h)
@@ -2967,7 +2989,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 9 complete
+- P3 Low: 0 of 7 complete
 
 ---
 
@@ -3168,14 +3190,14 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 4 complete
+- P2 Medium: 2 of 2 complete
+- P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **TEST-2** · P2 — Two observer tests mock the Eloquent `Site` model instead of using a real factory row
+- [x] **TEST-2** · P2 — Two observer tests mock the Eloquent `Site` model instead of using a real factory row
     - **Where:** `tests/Feature/User/UserObserverHandleChangeTest.php:121,199`, `tests/Feature/Core/ServiceObserverTouchSiteTest.php:26,63`
     - **Affects:** Confidence that `UserObserver`/`ServiceObserver` actually bump `site.sites.updated_at` — a real cache-busting dependency for `SiteCacheService`.
     - **Effort:** S (~0.5–1h)
@@ -3195,7 +3217,7 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
         $site->shouldReceive('touch')->once();
         ```
 
-- [ ] **TEST-3** · P2 — No full key-set snapshot test for `IndividualProfileResource` or `UserStaffResource`
+- [x] **TEST-3** · P2 — No full key-set snapshot test for `IndividualProfileResource` or `UserStaffResource`
     - **Where:** `app/Http/Resources/IndividualProfileResource.php`, `app/Http/Resources/UserStaffResource.php` — only `tests/Feature/Resources/UserPublicResourceTest.php` exists; `tests/Feature/Staff/StaffAdminNotesTest.php` spot-checks a single field (`admin_notes`), not the full shape
     - **Affects:** PII exposure on the public sitepage / audience confusion between the public and staff API surfaces — the highest-risk resource split in the platform.
     - **Effort:** M (~2–4h)
@@ -3283,8 +3305,8 @@ None — no P0, auth/money/migration-touching, or L/XL-effort findings survived 
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 5 complete
+- P2 Medium: 0 of 0 complete
+- P3 Low: 0 of 3 complete
 
 ---
 
@@ -3404,7 +3426,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 1 complete
 
@@ -3412,7 +3434,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEM-1** · P1 — `ContentSelectionService::setInstagramAuto` commits the auto-flag and the reserved-slot rebuild as two separate transactions
+- [x] **#SEM-1** · P1 — `ContentSelectionService::setInstagramAuto` commits the auto-flag and the reserved-slot rebuild as two separate transactions
     - **Where:** app/Services/Site/ContentSelectionService.php:222-241 (flag write), 347-356 (`persist()`)
     - **Affects:** Any user connecting Instagram or toggling Instagram-auto content. A transient DB error inside `persist()` (constraint violation, deadlock, timeout) leaves `content_instagram_auto_enabled = true` already committed while the ig-reel/ig-post slots at positions 1–2 were never written — the sitepage silently renders without the reserved Instagram content, with no error surfaced to the user or caller.
     - **Effort:** S (~0.5–1h)
@@ -3511,15 +3533,15 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 7 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 7 of 7 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — `StaffUserController::show()` leaks full PII + admin notes to non-admin staff, bypassing the file's own documented PII gate
+- [x] **#SEC-1** · P1 — `StaffUserController::show()` leaks full PII + admin notes to non-admin staff, bypassing the file's own documented PII gate
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:96-138 (`show()`), contrasted with `index()`:76-89; leaked fields in app/Http/Resources/UserStaffResource.php:13-42
     - **Affects:** Every professional's `primary_email`, `phone`, `public_contact_number`, full location, `auth_user_id`, and `admin_notes` — exposed to any authenticated staff account (support-tier included), not just admins.
     - **Effort:** M (~2–4h)
@@ -3561,7 +3583,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
 
 ## P2 — Should fix
 
-- [ ] **#SEC-2** · P2 — `InstagramScraper` logs Instagram usernames alongside internal `user_id` in warning/info breadcrumbs
+- [x] **#SEC-2** · P2 — `InstagramScraper` logs Instagram usernames alongside internal `user_id` in warning/info breadcrumbs
     - **Where:** app/Services/Platforms/InstagramScraper.php:45, 57-61, 68-73, 210-216
     - **Affects:** Nightwatch/log-aggregator storage builds a persistent, plaintext join between a public Instagram handle and an internal Partna user UUID.
     - **Effort:** S (~0.5–1h)
@@ -3588,7 +3610,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             'posts' => count($posts),
         ```
 
-- [ ] **#SEC-3** · P2 — `GoogleBusinessAutoSync::seed()` / `InstagramAutoSync::seed()` accept a bare `$userId` string with no internal tenant guard
+- [x] **#SEC-3** · P2 — `GoogleBusinessAutoSync::seed()` / `InstagramAutoSync::seed()` accept a bare `$userId` string with no internal tenant guard
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:57 (`seed()`), app/Services/Platforms/InstagramAutoSync.php:63 (`seed()`)
     - **Affects:** Currently safe — both call sites (`GoogleBusinessEnrichJob.php:137`, `InstagramConnectJob.php:250`) derive `$userId` from the queued job's own stored state, never from request input. No confirmed exploit path exists today.
     - **Effort:** S (~0.5–1h)
@@ -3613,7 +3635,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             $user = User::find($userId);
         ```
 
-- [ ] **#SEC-4** · P2 — `StaffUserController::index()` queries and returns every professional with no `authorizeForUser` call
+- [x] **#SEC-4** · P2 — `StaffUserController::index()` queries and returns every professional with no `authorizeForUser` call
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:35-89
     - **Affects:** Structural doctrine gap only — the list endpoint already gates raw PII behind `isAdmin()` inline (see #SEC-1); this finding is the missing formal Policy seam underneath that inline check.
     - **Effort:** S (~0.5–1h)
@@ -3635,7 +3657,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
                 ->orderByDesc('created_at');
         ```
 
-- [ ] **#SEC-5** · P2 — `SectorController::update()` mutates the User model without an `authorizeForUser` gate
+- [x] **#SEC-5** · P2 — `SectorController::update()` mutates the User model without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/User/Profile/SectorController.php:22-38
     - **Affects:** Authenticated user updating their own sector — tenant-safe today (actor resolved via `currentUser`), but bypasses `UserSelfPolicy`'s pending-deletion block and (if `partna.mfa.require_fresh_aal2_for_profile_update` is ever enabled) its fresh-AAL2 requirement.
     - **Effort:** S (~0.5–1h)
@@ -3657,7 +3679,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             $user->save();
         ```
 
-- [ ] **#SEC-6** · P2 — `MenuController::refresh()` and `applyScan()` mutate the Menu model without an `authorizeForUser` gate
+- [x] **#SEC-6** · P2 — `MenuController::refresh()` and `applyScan()` mutate the Menu model without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/Platforms/MenuController.php:93-115 (`refresh()`), :121-133 (`applyScan()`); write path app/Services/Platforms/MenuScanApplier.php:166-182 (`resolveMenu()`)
     - **Affects:** Authenticated user re-triggering a menu scrape or applying an AI-scanned menu — tenant-safe today via inline `where('user_id', $user->id)`, but bypasses `SitePolicy`'s pending-deletion block on the `Menu` model.
     - **Effort:** S (~0.5–1h)
@@ -3685,7 +3707,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
             }
         ```
 
-- [ ] **#SEC-7** · P2 — `DisplaySettingsController::update()` mutates `IntegrationConnection` and `Site` rows without an `authorizeForUser` gate
+- [x] **#SEC-7** · P2 — `DisplaySettingsController::update()` mutates `IntegrationConnection` and `Site` rows without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/Platforms/DisplaySettingsController.php:64-143
     - **Affects:** Authenticated user toggling public-display switches for their own platform connections — tenant-safe today via inline `where('user_id', $user->id)`, but bypasses both `IntegrationConnectionPolicy` and `SitePolicy`'s pending-deletion blocks.
     - **Evidence:**
@@ -3711,7 +3733,7 @@ None — the two surviving findings touch unrelated subsystems (content-selectio
     - **Technical:** `update()` fetches `IntegrationConnection` rows and (conditionally) a `Site` row scoped by `where('user_id', $user->id)`, then saves both directly — neither path routes through the registered Policy for either model. This is the one platform controller that bypasses `ManagesIntegrationConnection`'s built-in authorization (verified by reading the trait: every `writeConnection`/`writePendingLinkCard`/`forgetConnection`/`forgetAllConnections` call already resolves create-vs-update and calls `authorizeForUser` before touching the row), because it manages toggle state across multiple connections at once rather than one row via the trait's helpers.
     - **Plain English:** Flipping a "show this on my public page" switch updates the database directly, protected only by a filter baked into the query ("only rows that belong to me") rather than the platform's standard permission check. Every sibling integration controller in this same folder DOES go through that standard check via a shared helper — this is the one exception, likely missed because it works with several connections at once instead of the usual "one connection" pattern the helper was built for.
 
-- [ ] **#SEC-8** · P2 — `CustomDomainController` mutates the `Site` model on all four write paths without an `authorizeForUser` gate
+- [x] **#SEC-8** · P2 — `CustomDomainController` mutates the `Site` model on all four write paths without an `authorizeForUser` gate
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/CustomDomainController.php:38-104 (`store()`), :106-144 (`verify()`), :150-163 (`setPrimary()`), :165-190 (`destroy()`); shared resolver :192-198 (`siteOrFail()`)
     - **Affects:** Authenticated user configuring their own custom domain (Cloudflare for SaaS) — tenant-safe today (site resolved via the `$user->site` Eloquent relationship), but bypasses `SitePolicy`'s pending-deletion block on every domain-configuration write, including CNAME/hostname creation and destruction.
     - **Effort:** S (~0.5–1h)
@@ -3786,15 +3808,15 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
-- P2 Medium: 0 of 9 complete
+- P1 High: 1 of 1 complete
+- P2 Medium: 9 of 9 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#LIFE-1** · P1 — Signup email-conflict handling discriminates constraints by string-matching the Postgres driver message
+- [x] **#LIFE-1** · P1 — Signup email-conflict handling discriminates constraints by string-matching the Postgres driver message
     - **Where:** app/Services/User/UserBootstrapService.php:100-116
     - **Affects:** Every new-user and existing-user bootstrap call (`POST` signup/profile-bootstrap) — the hottest identity-creation path in the app.
     - **Effort:** M (~2–4h, needs a real-Postgres regression test since SQLite doesn't abort transactions on constraint violation the same way)
@@ -3820,7 +3842,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-2** · P2 — `purgeWaitlistSignup` error log carries no user identifier
+- [x] **#LIFE-2** · P2 — `purgeWaitlistSignup` error log carries no user identifier
     - **Where:** app/Services/User/AccountDeletionService.php:717-733
     - **Affects:** GDPR-erasure audit trail during the daily `purge()` sweep — support can't correlate a failed waitlist-row erasure back to the account that triggered it.
     - **Effort:** S (~0.5h)
@@ -3849,7 +3871,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-3** · P2 — `purgeGlobalEmailSubscriptions` error log carries no user identifier
+- [x] **#LIFE-3** · P2 — `purgeGlobalEmailSubscriptions` error log carries no user identifier
     - **Where:** app/Services/User/AccountDeletionService.php:846-863
     - **Affects:** Same GDPR-erasure audit trail as #LIFE-2 — global (platform-marketing) subscription rows keyed only by email have no user_id trail on failure.
     - **Effort:** S (~0.5h)
@@ -3879,7 +3901,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-4** · P2 — `safeQuery` presence-probe failures log with no correlation context or per-probe discriminator
+- [x] **#LIFE-4** · P2 — `safeQuery` presence-probe failures log with no correlation context or per-probe discriminator
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:355-364
     - **Affects:** Public sitepage resolution — `presentPageIds()` calls `safeQuery` 8 times per resolve; every failure (transient DB blip, partial-env missing table) logs the identical string with no `user_id`/`site_id` and no indication which of the 8 probes failed.
     - **Effort:** S (~0.5–1h)
@@ -3902,7 +3924,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-5** · P2 — `GoogleBusinessAutoSync::seedBooking` XOR invariant (one active booking provider) is check-then-write, not atomic
+- [x] **#LIFE-5** · P2 — `GoogleBusinessAutoSync::seedBooking` XOR invariant (one active booking provider) is check-then-write, not atomic
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:250-257
     - **Affects:** Business Partna accounts with Google Business connected — two near-simultaneous auto-sync sources (e.g. connecting Google Business and Instagram back-to-back during onboarding, or a scheduled Google Business refresh landing mid-connect) can both observe "no booking connection yet" and each write a different provider (Fresha vs Square vs custom Booking), leaving two live booking cards.
     - **Effort:** S (~0.5–1h)
@@ -3923,7 +3945,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
         ```
 
-- [ ] **#LIFE-6** · P2 — `InstagramAutoSync` booking XOR check has the same non-atomic race as `GoogleBusinessAutoSync::seedBooking`
+- [x] **#LIFE-6** · P2 — `InstagramAutoSync` booking XOR check has the same non-atomic race as `GoogleBusinessAutoSync::seedBooking`
     - **Where:** app/Services/Platforms/InstagramAutoSync.php:137-151
     - **Affects:** Same invariant as #LIFE-5 — a Google Business auto-sync racing an Instagram bio-link auto-sync (both can run around the same "connect a platform" moment) can each install a different booking provider.
     - **Effort:** S (~0.5–1h)
@@ -3942,7 +3964,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         if ($conflictingBooking !== null) {
         ```
 
-- [ ] **#LIFE-7** · P2 — `IdentitySync::applySector` reads-then-writes the user's sector with no row lock
+- [x] **#LIFE-7** · P2 — `IdentitySync::applySector` reads-then-writes the user's sector with no row lock
     - **Where:** app/Services/Platforms/IdentitySync.php:140-148
     - **Affects:** Business Partna users with Google Business connected — a scheduled Google Business refresh (dispatched hourly by `integrations:refresh`, confirmed in `routes/console.php:93-98`) landing in the same instant as a user manually picking their sector via `SectorController` can silently revert the manual pick.
     - **Effort:** S (~0.5–1h)
@@ -3963,7 +3985,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-8** · P2 — `IdentitySync::applyFromGooglePayload` reads-then-writes the workplace row with no row lock
+- [x] **#LIFE-8** · P2 — `IdentitySync::applyFromGooglePayload` reads-then-writes the workplace row with no row lock
     - **Where:** app/Services/Platforms/IdentitySync.php:71-95
     - **Affects:** Same recurring-refresh scenario as #LIFE-7, but for the workplace card fields (name, address, phone, website, category, hours) — a concurrent user edit to the same field a Google refresh is also touching can be silently clobbered.
     - **Effort:** S (~0.5–1h)
@@ -3979,7 +4001,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         $changed = false;
         ```
 
-- [ ] **#LIFE-9** · P2 — Alias KV entries with 1–59s of remaining TTL are written without Cloudflare's 60s minimum enforced
+- [x] **#LIFE-9** · P2 — Alias KV entries with 1–59s of remaining TTL are written without Cloudflare's 60s minimum enforced
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:211-251
     - **Affects:** Users with a handle alias expiring in under a minute at the moment any KV resync fires — the whole `bulkPut` batch for that user's aliases can be rejected by Cloudflare, temporarily dropping alias-redirect entries for handles that still have plenty of TTL left, not just the near-expiry one.
     - **Effort:** S (~0.5–1h)
@@ -4004,7 +4026,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
         }
         ```
 
-- [ ] **#LIFE-10** · P2 — `SyncSubdomainToKvJob`'s `ShouldBeUnique` window can drop a rapid second handle-routing sync while the first is still in flight
+- [x] **#LIFE-10** · P2 — `SyncSubdomainToKvJob`'s `ShouldBeUnique` window can drop a rapid second handle-routing sync while the first is still in flight
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:38-71
     - **Affects:** Any user whose routing state changes twice (e.g. two rapid handle corrections, or a handle change immediately followed by a custom-domain change) while the prior sync job for that same `uniqueId()` is still queued or actively processing (including through its up-to-3 Cloudflare-API retries).
     - **Effort:** M (~2–4h, needs care around Horizon lock semantics + a concurrency test)
@@ -4132,14 +4154,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SCALE-1** · P2 — `CloudflarePurgeService::purgeUrls` fires unbounded sequential Cloudflare API calls with no inter-chunk delay
+- [x] **#SCALE-1** · P2 — `CloudflarePurgeService::purgeUrls` fires unbounded sequential Cloudflare API calls with no inter-chunk delay
     - **Where:** app/Services/Cloudflare/CloudflarePurgeService.php:66-73
     - **Affects:** Every profile-edit / image-upload / design-kit-change cache purge (`CloudflareCachePurgeJob` → `purgeHandle`). The method's own docblock documents that a full sitepage purge (root + 15 deep-link sub-pages + their SWR shadows + API subrequest, per host, plus up to 100 shop product handles) routinely exceeds the 30-URL-per-request limit, so most real purges already fire multiple sequential POSTs — this isn't a rare bulk-admin edge case, it's the common path.
     - **Effort:** S (~0.5–1h)
@@ -4163,7 +4185,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-2** · P2 — `InstagramConnectJob::mirrorOne` buffers the full image body in memory instead of streaming, unlike the sibling `mirrorVideo` path in the same file
+- [x] **#SCALE-2** · P2 — `InstagramConnectJob::mirrorOne` buffers the full image body in memory instead of streaming, unlike the sibling `mirrorVideo` path in the same file
     - **Where:** app/Jobs/Platforms/InstagramConnectJob.php:330-338
     - **Affects:** The `scraping` Horizon queue worker (`supervisor-scraping`, `memory: 256`, `maxProcesses: 2`) during Instagram auto-connect. Each connect can mirror up to three images (photo, reel poster, profile pic) at up to 15MB each.
     - **Effort:** S (~0.5–1h)
@@ -4279,14 +4301,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCHEMA-1** · P2 — Inline data backfill (`UPDATE` over matching rows) inside `20260713120000_reconcile_instagram_gallery_unification.sql`
+- [x] **SCHEMA-1** · P2 — Inline data backfill (`UPDATE` over matching rows) inside `20260713120000_reconcile_instagram_gallery_unification.sql`
     - **Where:** supabase/migrations/20260713120000_reconcile_instagram_gallery_unification.sql:16-41
     - **Affects:** `site.sites` and `site.platform_connections` — both statements require a full sequential scan to evaluate their `WHERE`/join predicates (no index backs `platform_connections.platform`+`display_settings ? 'gallery'`, nor the `site.sites` join key for this purpose), and both are data mutations executed inside a schema-migration transaction rather than a post-deploy path.
     - **Effort:** M (~2–4h)
@@ -4319,7 +4341,7 @@ None.
           AND display_settings ? 'gallery';
         ```
 
-- [ ] **SCHEMA-2** · P2 — `site.sites.shop_link_mode` is an enum-like `text` column with no `CHECK` constraint (recurring, previously flagged)
+- [x] **SCHEMA-2** · P2 — `site.sites.shop_link_mode` is an enum-like `text` column with no `CHECK` constraint (recurring, previously flagged)
     - **Where:** app/Models/Core/Site/Site.php:34-42
     - **Affects:** Any write path setting `shop_link_mode` — the column accepts any string, not just `'checkout'`/`'product'`; a bad value would silently corrupt the public shop-link behavior for every connected store on that site.
     - **Effort:** S (~0.5–1h)
@@ -4435,14 +4457,14 @@ None — every finding in this audit is a direct DB migration/schema change, whi
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCH-1** · P2 — Cache-invalidation failures on all UserObserver lifecycle hooks are swallowed into an invisible `Log::warning`
+- [x] **#CCH-1** · P2 — Cache-invalidation failures on all UserObserver lifecycle hooks are swallowed into an invisible `Log::warning`
     - **Where:** app/Observers/User/UserObserver.php:59-66 (`updated`), 160-167 (`deleted`), 190-197 (`restored`)
     - **Affects:** Every profile edit, soft-delete, and restore. If `UserCacheService::invalidateUser()` throws (e.g. a transient Redis blip), the DB mutation still commits but the ~10-key push-invalidation fan-out (primary + `:stale` SWR companions for the professional payload, services, dashboard services, customer count, plus the id/handle/auth-id lookup keys) silently doesn't happen — no alert fires, no compensating action runs, and the stale set survives until natural TTL/SWR expiry.
     - **Effort:** S (~0.5–1h)
@@ -4526,14 +4548,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#WHK-1** · P2 — MFA auth-hook idempotency anchor is Redis-only; no DB-level uniqueness backstop on the audit trail
+- [x] **#WHK-1** · P2 — MFA auth-hook idempotency anchor is Redis-only; no DB-level uniqueness backstop on the audit trail
     - **Where:** `app/Services/Auth/AuthFactorEventRepository.php:30-56`, `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:53-59`
     - **Affects:** `audit.auth_factor_events` rows and the MFA brute-force counter (`countRecentFailures`) for any user going through TOTP/phone/webauthn verification during a Redis blip.
     - **Effort:** M (~2-4h) — new nullable `webhook_id` column + unique index migration, thread the id through `record()`, switch the insert to `INSERT … ON CONFLICT (webhook_id) DO NOTHING`.
@@ -4583,7 +4605,7 @@ None.
         }
         ```
 
-- [ ] **#WHK-2** · P2 — `IdempotencyKey` is opt-in on `/me/deletion/*`; the double-submit race it's meant to close has no server-side enforcement and no test for the header-omitted path
+- [x] **#WHK-2** · P2 — `IdempotencyKey` is opt-in on `/me/deletion/*`; the double-submit race it's meant to close has no server-side enforcement and no test for the header-omitted path
     - **Where:** `app/Http/Middleware/IdempotencyKey.php:44-47`, `routes/api/user.php:54-59`, `app/Services/User/AccountDeletionService.php:48-113` (`request()`)
     - **Affects:** `POST /api/me/deletion/request` — a browser double-tap, refresh, or client retry without the `Idempotency-Key` header sends two deletion-confirmation emails and writes two `UserDeletionAuditEntry` rows for one user action.
     - **Effort:** M (~2-4h) — add a `lockForUpdate`-style guard to `AccountDeletionService::request()` matching the pattern already used in `confirm()`, plus a test for the missing-header path.
@@ -4678,14 +4700,14 @@ None — the two surviving findings touch unrelated files and subsystems (auth-h
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#TXN-1** · P2 — `MenuFetchJob` writes platform sync-status metadata ("ok"/"unavailable" + `synced_at`) before the content-rebuild transaction, so a rolled-back rebuild leaves a false "synced" marker
+- [x] **#TXN-1** · P2 — `MenuFetchJob` writes platform sync-status metadata ("ok"/"unavailable" + `synced_at`) before the content-rebuild transaction, so a rolled-back rebuild leaves a false "synced" marker
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:163-173 (store-URL upsert), 188-193 (sync-status upsert), 216 (call into `persist()`), 265-364 (`persist()`'s `DB::transaction`)
     - **Affects:** The per-platform `MenuPlatformLink` rows a user's dashboard reads to show "synced" status. A `persist()` failure (constraint violation, deadlock) between two menu-content rebuilds leaves `status='ok'`/`'unavailable'` and `synced_at` pointing at content that was never actually written, until the next scheduled/forced re-fetch corrects it.
     - **Effort:** S (~0.5–1h)
@@ -4720,7 +4742,7 @@ None — the two surviving findings touch unrelated files and subsystems (auth-h
         $this->persist($menu, $contentSource, $merged, $now);
         ```
 
-- [ ] **#TXN-2** · P2 — `AccountDeletionService::request()`'s docblock claims the deletion-token write "rolls back automatically" on dispatch failure — it does not, because the job's `afterCommit` flag defers the Redis push past the point of no return
+- [x] **#TXN-2** · P2 — `AccountDeletionService::request()`'s docblock claims the deletion-token write "rolls back automatically" on dispatch failure — it does not, because the job's `afterCommit` flag defers the Redis push past the point of no return
     - **Where:** app/Services/User/AccountDeletionService.php:36-40, 78-98; app/Jobs/Account/SendAccountDeletionRequestMailJob.php:53-58
     - **Affects:** Users initiating self-service account deletion during a Redis outage. The DB commit (token hash + `EVENT_REQUESTED` audit row) already succeeds before the deferred queue push is attempted, so a push failure at that point cannot roll anything back — the request-handling code nonetheless returns the same 503 "please try again" it uses for genuine DB failures, telling the user nothing happened when in fact a live, unconfirmed deletion token now sits on their row with no email ever sent.
     - **Effort:** S (~0.5–1h)
@@ -4813,14 +4835,14 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#DINT-1** · P2 — `typography_tracking` / `theme_contrast` design-kit columns have no DB CHECK backing their fixed vocabulary
+- [x] **#DINT-1** · P2 — `typography_tracking` / `theme_contrast` design-kit columns have no DB CHECK backing their fixed vocabulary
     - **Where:** supabase/migrations/20260714220000_add_aesthetic_axes.sql:15-18
     - **Affects:** `site.design_kits` rows written by any path that bypasses `UpdateSiteRequest`/`DesignKitValidationRules` — direct DB fixes, restore/import tooling, seeders, or a future admin script. A bad value renders as broken/missing CSS on the public sitepage since `@partnaau/design-system` trusts the DB to hold only valid selections.
     - **Effort:** S (~0.5–1h)
@@ -4840,7 +4862,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
             ADD COLUMN IF NOT EXISTS weight_heading TEXT NULL;
         ```
 
-- [ ] **#DINT-2** · P2 — `Menu`'s only soft-delete is safe today, but nothing in the schema or model layer stops a future call site from soft-deleting it without first clearing `MenuItem`/`MenuCategory` children
+- [x] **#DINT-2** · P2 — `Menu`'s only soft-delete is safe today, but nothing in the schema or model layer stops a future call site from soft-deleting it without first clearing `MenuItem`/`MenuCategory` children
     - **Where:** app/Models/Core/Site/MenuItem.php (class body), app/Models/Core/Site/MenuCategory.php (class body), app/Jobs/Platforms/MenuFetchJob.php:400-421
     - **Affects:** Any future code path that calls `$menu->delete()`. Today there is exactly one such call site (`MenuFetchJob::clearScrapedContent()`), and it explicitly hard-deletes every `MenuItemPlatform`/`MenuItem`/`MenuCategory` row before soft-deleting the parent `Menu` — so no orphans exist in production today. But `site.menu_items` and `site.menu_categories` reference `site.menus` with `ON DELETE CASCADE`, which only fires on a hard `DELETE`, never on the `UPDATE ... SET deleted_at` that `SoftDeletes` performs. If a second soft-delete path is ever added (admin tooling, a new lifecycle hook) without replicating `clearScrapedContent()`'s manual cleanup, `MenuItem`/`MenuCategory` rows will silently orphan under a `deleted_at`-stamped `Menu`, since neither child model has a `deleted_at` column to mark itself as belonging to a trashed parent.
     - **Effort:** M (~2–4h)
@@ -4967,7 +4989,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -4975,7 +4997,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 ## P1 — Fix before pilot launch
 
-- [ ] **JOB-1** · P1 — Swallowed exception in `SyncSubdomainToKvJob::handle()` bypasses the moderation-hide gate on a transient DB error
+- [x] **JOB-1** · P1 — Swallowed exception in `SyncSubdomainToKvJob::handle()` bypasses the moderation-hide gate on a transient DB error
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:105-118
     - **Affects:** Any site whose owner is active but whose SITE has just been hidden by moderation (`site.sites.moderation_state = 'hidden'`) — including CSAM-triggered hides (`SuspendSiteJob::resolveSiteId` resolves both `Site` and `SiteMedia` reportable types to the same hide). This job is the exact job `PurgeModerationCacheJob` dispatches right after a hide to retire the route (`app/Jobs/Moderation/PurgeModerationCacheJob.php:51`), so a transient failure reading the just-hidden site's relationship (deadlock, connection blip, replica lag) causes this same sync to silently re-publish the handle instead.
     - **Effort:** S (~0.5–1h)
@@ -5003,7 +5025,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
         }
         ```
 
-- [ ] **JOB-2** · P1 — Swallowed exception in `SyncSubdomainToKvJob::retire()` can leave a taken-down user's custom domain fully serving their page
+- [x] **JOB-2** · P1 — Swallowed exception in `SyncSubdomainToKvJob::retire()` can leave a taken-down user's custom domain fully serving their page
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:173-185
     - **Affects:** Users who are soft-deleted, suspended, or moderation-hidden AND have an active custom domain (`custom_domain_status = 'active'`). Per the Cloudflare Worker's own routing contract (`cloudflare-worker/src/index.js:427-441`), a `domain:<host>` KV entry carries `{type:'individual', handle:<handle>}` and is resolved **independently** of whether the plain `<handle>` KV entry exists — the Worker forwards straight to `partna-pages` using the handle embedded in the domain entry. This means if `retire()`'s custom-domain delete is skipped, the takedown/hide is INCOMPLETE for anyone visiting via their custom domain: the page stays fully live, even though the handle-based `<handle>.partna.au` route was correctly retired.
     - **Effort:** S (~0.5–1h)
@@ -5030,7 +5052,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
         }
         ```
 
-- [ ] **JOB-3** · P1 — `MenuFetchJob`'s 600s `$timeout` exceeds the `redis` connection's 360s `retry_after`, risking a duplicate concurrent scrape/rebuild
+- [x] **JOB-3** · P1 — `MenuFetchJob`'s 600s `$timeout` exceeds the `redis` connection's 360s `retry_after`, risking a duplicate concurrent scrape/rebuild
     - **Where:** app/Jobs/Platforms/MenuFetchJob.php:48 (cross-referenced against config/queue.php:70-79)
     - **Affects:** Any user whose menu fetch genuinely runs long — the exact scenario the job's own 600s timeout exists to cover ("Up to two real store scrapes (UE + DD), each retried on empty"). `MenuFetchJob` is dispatched on `config('partna.queues.scraping', 'scraping')`, which runs on Horizon's `supervisor-scraping` using `'connection' => 'redis'` (config/horizon.php:219-231) — the default `redis` queue connection, whose `retry_after` is 360s. Laravel's worker uses the JOB's own `$timeout` (600s) to decide when to `pcntl_alarm`-kill the process, which is correctly *longer* than Horizon's per-supervisor `timeout: 180`, but that same 600s figure is what the job is actually allowed to run for — well past the 360s point at which Redis considers the job's reservation abandoned and hands the identical queued entry to a second free worker (2 processes configured on `supervisor-scraping`). Two workers then run `handle()` concurrently for the same user: two Apify scrapes are billed, and `persist()`'s delete-then-reinsert transaction (app/Jobs/Platforms/MenuFetchJob.php:263-363) is not safe against a second concurrent execution — each worker computes its own `rebuildableCategoryIds()` snapshot before either commits, so both transactions insert their own full set of categories/items, leaving duplicate menu content live on the user's sitepage.
     - **Effort:** M (~2–4h)
@@ -5106,14 +5128,14 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **OBS-1** · P2 — `CloudflarePurgeService` logs a product-purge degradation at `debug`, a level Nightwatch's own log filter drops by default
+- [x] **OBS-1** · P2 — `CloudflarePurgeService` logs a product-purge degradation at `debug`, a level Nightwatch's own log filter drops by default
     - **Where:** app/Services/Cloudflare/CloudflarePurgeService.php:129-146 (`purgeHandle`'s product-handle lookup)
     - **Affects:** Shop product-detail edge-cache invalidation for every Partna storefront — a sustained DB/schema failure on the product-handle join silently degrades every purge to "pages only," and product pages never get busted again until their natural edge TTL, with nothing surfacing to on-call.
     - **Effort:** S (~0.5–1h)
@@ -5211,14 +5233,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCG-2** · P2 — Popularity-rank read is cached on the profile payload path but hits Postgres uncached on two sibling public endpoints
+- [x] **#CCG-2** · P2 — Popularity-rank read is cached on the profile payload path but hits Postgres uncached on two sibling public endpoints
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:105, app/Http/Controllers/Api/PublicSite/PublicMenuController.php:70-73, app/Services/Analytics/ContentPopularityReader.php:33-46
     - **Affects:** Every unauthenticated viewer of a professional's `/platforms` (shop-product ranks) and `/menu` (menu-item/category ranks) subpages — a Postgres round-trip on every single request, with no TTL or memoisation, for a value that only changes every ~15 minutes.
     - **Effort:** M (~2–4h)
@@ -5345,14 +5367,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **PRIV-1** · P2 — New-signup marketing subscription is created with no genuine consent signal
+- [x] **PRIV-1** · P2 — New-signup marketing subscription is created with no genuine consent signal
     - **Where:** app/Services/User/UserBootstrapService.php:118 (`bootstrap()`), `ensureSidestUpdatesSubscription()` at lines 165-187
     - **Affects:** Every new professional who signs up via `POST` bootstrap — their email is enrolled in the `sidest_updates` marketing list as an automatic side effect of account creation, not a separate opt-in.
     - **Effort:** M (~2–4h)
@@ -5394,7 +5416,7 @@ None.
         }
         ```
 
-- [ ] **PRIV-2** · P2 — Staff `admin_notes` freetext survives pseudonymisation for the full 30-day deletion grace period
+- [x] **PRIV-2** · P2 — Staff `admin_notes` freetext survives pseudonymisation for the full 30-day deletion grace period
     - **Where:** app/Services/User/AccountDeletionService.php:299-314 (`pseudonymiseAccountPii()`)
     - **Affects:** Any individual whose account enters `pending_deletion` — freetext support/identity-verification notes staff previously wrote about them remain live and staff-readable in cleartext for up to 30 days after the user pseudonymised their own account.
     - **Effort:** S (~0.5–1h)
@@ -5488,7 +5510,7 @@ None — no finding in this audit is P0, touches auth/authorization or money, in
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -5507,7 +5529,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
 
 ## P2 — Should fix
 
-- [ ] **#EDGE-1** · P2 — `CloudflareCustomHostnameService::delete()` silently swallows Cloudflare API failures its own caller already expects it to throw
+- [x] **#EDGE-1** · P2 — `CloudflareCustomHostnameService::delete()` silently swallows Cloudflare API failures its own caller already expects it to throw
     - **Where:** app/Services/Cloudflare/CloudflareCustomHostnameService.php:91-98
     - **Affects:** Cloudflare for SaaS zone hygiene — users disconnecting or replacing a custom domain during a token expiry, rate limit, or transient 5xx.
     - **Effort:** S (~0.5–1h)
@@ -5538,7 +5560,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
         }
         ```
 
-- [ ] **#EDGE-2** · P2 — Cloudflare Worker `staging` environment KV namespace is an unresolved placeholder
+- [x] **#EDGE-2** · P2 — Cloudflare Worker `staging` environment KV namespace is an unresolved placeholder
     - **Where:** cloudflare-worker/wrangler.toml:42-53
     - **Affects:** Any future `wrangler deploy --env staging`; the prod-poisoning failure mode the file's own comment describes, if this override is ever removed or misapplied without the placeholder being noticed.
     - **Effort:** S (~0.5–1h)
@@ -5563,7 +5585,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
         preview_id = "REPLACE_WITH_STAGING_KV_PREVIEW_ID"
         ```
 
-- [ ] **#EDGE-3** · P2 — No structural guard ties `suspend_site` to a KV/cache-retirement action in `ModerationActionDispatcher`
+- [x] **#EDGE-3** · P2 — No structural guard ties `suspend_site` to a KV/cache-retirement action in `ModerationActionDispatcher`
     - **Where:** app/Services/Moderation/ModerationActionDispatcher.php:26-44 (`ACTIONS_BY_DECISION`) + app/Jobs/Moderation/SuspendSiteJob.php:52-57
     - **Affects:** Any future moderation decision type added to `ACTIONS_BY_DECISION` that hides a site — the highest-stakes category of this lens (takedown correctness).
     - **Effort:** S (~0.5–1h)
@@ -5757,14 +5779,14 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **MIG-1** · P2 — Instagram/gallery unification backfill rewrites every matching row on re-run instead of skipping already-corrected ones
+- [x] **MIG-1** · P2 — Instagram/gallery unification backfill rewrites every matching row on re-run instead of skipping already-corrected ones
     - **Where:** supabase/migrations/20260713120000_reconcile_instagram_gallery_unification.sql:23-34
     - **Affects:** `site.sites` rows for every user with an active Instagram connection — a re-run (partial-apply retry, or a future fresh-apply replay against a partially-seeded DB) touches every one of those rows again even when already correct.
     - **Effort:** S (~0.5–1h)
@@ -5789,7 +5811,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         WHERE s.user_id = ig.user_id;
         ```
 
-- [ ] **MIG-2** · P2 — Six migrations touching hot tables omit the `SET LOCAL lock_timeout` / `statement_timeout` guard, right before the prod gated re-baseline replays all of them for the first time
+- [x] **MIG-2** · P2 — Six migrations touching hot tables omit the `SET LOCAL lock_timeout` / `statement_timeout` guard, right before the prod gated re-baseline replays all of them for the first time
     - **Where:** supabase/migrations/20260712000000_retire_staff_account_type.sql (touches `core.users`), 20260713120000_reconcile_instagram_gallery_unification.sql (`site.sites`), 20260714200000_architecture_one_to_staple.sql (`site.sites`), 20260714210000_drop_effect_surface.sql (`site.design_kits`), 20260714220000_add_aesthetic_axes.sql (`site.design_kits`), 20260714230000_drop_glass_satellites.sql (`site.design_kits`)
     - **Affects:** Deploy-pipeline safety for the next `supabase db push` — none of these six have run against production yet (prod-is-behind: latest applied prod migration is `20260512145025`), so this is the first opportunity for any of them to hang against real traffic.
     - **Effort:** S (~0.5–1h for all six)
@@ -5806,7 +5828,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
         SET LOCAL statement_timeout = '10s';
         ```
 
-- [ ] **MIG-3** · P2 — `NOT VALID` + `VALIDATE CONSTRAINT` run in the same implicit transaction on `core.users`, defeating the two-step lock-weakening pattern
+- [x] **MIG-3** · P2 — `NOT VALID` + `VALIDATE CONSTRAINT` run in the same implicit transaction on `core.users`, defeating the two-step lock-weakening pattern
     - **Where:** supabase/migrations/20260712000000_retire_staff_account_type.sql:17-25
     - **Affects:** `core.users` — the primary user table read/written on every authenticated request (login, registration, profile resolution). This is the hottest table in the schema.
     - **Effort:** S (~0.5–1h)
@@ -5917,7 +5939,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 3 complete
 
@@ -5925,7 +5947,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#API-1** · P1 — `UserSelfController::update()` returns a Resource that unconditionally reads two relations neither `fresh()` nor the controller preloads
+- [x] **#API-1** · P1 — `UserSelfController::update()` returns a Resource that unconditionally reads two relations neither `fresh()` nor the controller preloads
     - **Where:** app/Http/Controllers/Api/User/Account/UserSelfController.php:73-88, app/Http/Resources/UserDashboardResource.php:41,47-49
     - **Affects:** Every authenticated user calling `PATCH /api/user/me` (the profile-settings save flow — display name, contact info, account type, sector) — the single most common self-service dashboard write.
     - **Effort:** S (~0.5–1h)
@@ -6122,14 +6144,14 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 7 complete
+- P2 Medium: 7 of 7 complete
 - P3 Low: 0 of 3 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#TEST-1** · P2 — `ContentSelectionPolicy` has zero test coverage
+- [x] **#TEST-1** · P2 — `ContentSelectionPolicy` has zero test coverage
     - **Where:** `app/Policies/ContentSelectionPolicy.php` — no test file anywhere under `tests/` references this class.
     - **Affects:** The sitepage background-content-picker mutation surface (`replace`/`toggle`/`upload`/`delete` all authorize through `manage`). A regression that drops the `denyIfPendingDeletion` guard or the owner check would go undetected.
     - **Effort:** S (~0.5–1h)
@@ -6153,7 +6175,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **#TEST-2** · P2 — `FeatureAvailabilityPolicy` and `UserSegmentPolicy` staff abilities have no dedicated ability tests
+- [x] **#TEST-2** · P2 — `FeatureAvailabilityPolicy` and `UserSegmentPolicy` staff abilities have no dedicated ability tests
     - **Where:** `app/Policies/FeatureAvailabilityPolicy.php`, `app/Policies/UserSegmentPolicy.php` — no test file references either class name anywhere in `tests/`.
     - **Affects:** Staff tooling for feature-availability rule management and user-segment management. `staffManage` (admin-only, create/update/delete rules or segments) and `staffView` (support+admin read) have no regression test proving the role split is enforced.
     - **Effort:** M (~2–4h)
@@ -6176,7 +6198,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **#TEST-3** · P2 — Singleton design-media replace has no concurrent-request test
+- [x] **#TEST-3** · P2 — Singleton design-media replace has no concurrent-request test
     - **Where:** `tests/Feature/Media/DesignSingletonMediaTest.php:151-189` (`it('replaces the existing singleton of the same purpose on re-upload')`)
     - **Affects:** Users uploading logos/cover images back-to-back or from two tabs/devices at once — a race between the soft-delete-old and insert-new steps could leave two "active" singleton rows for the same purpose.
     - **Effort:** M (~2–4h)
@@ -6196,7 +6218,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         expect($active)->toHaveCount(1);
         ```
 
-- [ ] **#TEST-4** · P2 — Staff user search `q` parameter path has zero automated test coverage
+- [x] **#TEST-4** · P2 — Staff user search `q` parameter path has zero automated test coverage
     - **Where:** `tests/Feature/Staff/StaffUserSearchFiltersTest.php:63-65` (explicit code comment acknowledging the gap)
     - **Affects:** Staff dashboard user search — every operator searching by handle, email, display name, or sector text via the `q` parameter.
     - **Effort:** M (~2–4h)
@@ -6212,7 +6234,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         // handle/email ILIKE branches, so it stays covered by prod behaviour only.
         ```
 
-- [ ] **#TEST-5** · P2 — Staff search filter tests bypass the HTTP stack entirely
+- [x] **#TEST-5** · P2 — Staff search filter tests bypass the HTTP stack entirely
     - **Where:** `tests/Feature/Staff/StaffUserSearchFiltersTest.php:35-41` (`ovaSearchIds()` helper)
     - **Affects:** Staff-only search endpoint — authorization enforcement, `staff`/`require.aal2` middleware, and response formatting are never exercised by these tests.
     - **Effort:** M (~2–4h)
@@ -6233,7 +6255,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **#TEST-6** · P2 — `CustomDomainTest` never exercises a Cloudflare API failure response
+- [x] **#TEST-6** · P2 — `CustomDomainTest` never exercises a Cloudflare API failure response
     - **Where:** `tests/Feature/Site/CustomDomainTest.php` — all 7 tests fake either a `200 success` Cloudflare response or a missing-config `503`; none fakes a Cloudflare error/outage response.
     - **Affects:** Users connecting a custom domain when Cloudflare is degraded or rejects the request — the failure path from the vendor HTTP client into the controller is completely unverified.
     - **Effort:** S (~0.5–1h)
@@ -6257,7 +6279,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         });
         ```
 
-- [ ] **#TEST-7** · P2 — `LifestyleConnectionCleanup` observer test only covers the positive path; no test proves unrelated field updates don't trigger it
+- [x] **#TEST-7** · P2 — `LifestyleConnectionCleanup` observer test only covers the positive path; no test proves unrelated field updates don't trigger it
     - **Where:** `tests/Feature/Accounts/LifestyleConnectionCleanupTest.php:97-109`; guard lives in `app/Observers/User/UserObserver.php:99` (`if ($professional->wasChanged('account_type'))`)
     - **Affects:** Every user profile update — a regression that widens or drops the `wasChanged('account_type')` guard would silently soft-delete a user's active platform connections on an unrelated edit (e.g. changing their display name).
     - **Effort:** S (~0.5–1h)
@@ -6400,14 +6422,14 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SLOP-1** · P2 — `seededFinding`/`conflictFinding`/`write`/`applyFinding` duplicated byte-for-byte between `GoogleBusinessAutoSync` and `InstagramAutoSync`
+- [x] **SLOP-1** · P2 — `seededFinding`/`conflictFinding`/`write`/`applyFinding` duplicated byte-for-byte between `GoogleBusinessAutoSync` and `InstagramAutoSync`
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php:627-663, 683-698` and `app/Services/Platforms/InstagramAutoSync.php:219-239, 262-290, 293-308`
     - **Affects:** Maintainers — the connect-modal finding contract and the `IntegrationConnection` write shape live in two places; a schema change (new finding field, new write column) must be made twice or silently diverges.
     - **Effort:** M (~2–4h)

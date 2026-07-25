@@ -1,3 +1,0 @@
-No findings in the provided files. All files are under `app/Jobs/` — asynchronous queue workers, scheduled cron handlers, or one-shot install jobs. None sit on the hot paths defined by this lens (dashboard controllers, resolution middleware, capability lookups, public-site payload builders, or services called synchronously from those paths).
-
-The scope groups listed in the lens (Groups A–C) point to `app/Services/`, `app/Http/Controllers/Api/`, `app/Http/Middleware/`, and `app/Http/Resources/` — none of which were included in the audit file list. Without files from those directories, the three-part bar (hot path + expensive + multi-caller) cannot be satisfied by any read in the supplied material.

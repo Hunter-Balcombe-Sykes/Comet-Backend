@@ -17,6 +17,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Platforms\MenuPayloadComposer;
+use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -142,6 +143,17 @@ class MenuContentController extends ApiController
             }
             MenuItemPlatform::query()->whereIn('menu_item_id', $orphans->pluck('id'))->delete();
             MenuItem::query()->whereIn('id', $orphans->pluck('id'))->delete();
+
+            // The builder mass delete above bypasses MenuItemObserver (no models
+            // hydrated, no events fired), so it never frees the orphans' item_slugs
+            // rows — free them explicitly (SLUG-RESIDUAL-1, the 271-DINT-1 class).
+            // Safe inside this transaction: forgetMany() is a plain delete with no
+            // insert-and-catch, so it can't raise or abort it.
+            app(ItemSlugAllocator::class)->forgetMany(
+                (string) $menu->user_id,
+                ItemSlugAllocator::TYPE_MENU_ITEM,
+                $orphans->pluck('id')->map(fn ($id) => (string) $id)->all(),
+            );
 
             $model->delete();
         });

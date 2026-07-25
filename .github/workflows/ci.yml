@@ -251,6 +251,61 @@ jobs:
         # Checkpoint caught 2 critical CVEs here 2026-07-19.
         run: npm audit --audit-level=high
 
+  # Real-Postgres regression lane (tests/Postgres/, see tests/PostgresTestCase.php).
+  # `composer test` never reaches these — the Postgres-gated sentinels there
+  # (e.g. ItemSlugAllocatorRegressionTest, guarding the SQLSTATE 25P02
+  # transaction-abort fix in 3cd4ff63) need real Postgres transaction-abort
+  # semantics that SQLite cannot reproduce. This job runs them against an
+  # actual postgres:16 service container instead. Independent of Supabase —
+  # the tests self-provision (and drop) their own tables, no migrations run.
+  postgres-tests:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: partna_test
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      # The service container below has no SSL configured — config/database.php
+      # defaults DB_SSLMODE to 'require', which would refuse to connect.
+      DB_SSLMODE: disable
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: partna_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_pgsql, pgsql, redis
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy env
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Run Postgres regression lane
+        run: composer test:pg
+
   # The schema-drift gate lives in the Feature suite, which `composer test` runs
   # AFTER the Unit suite. A single unrelated Unit-suite fatal would abort the run
   # before the gate ever executes — silently disabling the guardrail. Running it

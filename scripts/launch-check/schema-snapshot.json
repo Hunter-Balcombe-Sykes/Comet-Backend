@@ -1,8 +1,92 @@
 {
-    "generated_at": "2026-07-18T13:13:15+00:00",
+    "generated_at": "2026-07-25T02:25:05+00:00",
     "project_ref": "glncumufgaqcmqhzwrxm",
-    "latest_migration": "20260718131130",
+    "latest_migration": "20260724150957",
     "columns": [
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "site_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "action_id",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "event",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "occurred_at",
+            "not_null": true
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "session_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "visitor_id",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "ip_hash",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "user_agent",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "referrer",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "country_code",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "device_type",
+            "not_null": false
+        },
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "column": "created_at",
+            "not_null": true
+        },
         {
             "schema": "analytics",
             "table": "content_popularity_scores",
@@ -809,6 +893,12 @@
         },
         {
             "schema": "audit",
+            "table": "auth_factor_events",
+            "column": "webhook_id",
+            "not_null": false
+        },
+        {
+            "schema": "audit",
             "table": "data_export_audit",
             "column": "id",
             "not_null": true
@@ -1283,6 +1373,72 @@
         },
         {
             "schema": "core",
+            "table": "early_access_signups",
+            "column": "source_type",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "source_ref",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
+            "column": "user_id",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "email_hash",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "reason",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "source",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "detail",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "first_seen_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "created_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
             "table": "feature_availability",
             "column": "id",
             "not_null": true
@@ -1663,7 +1819,7 @@
             "schema": "core",
             "table": "pre_account_builds",
             "column": "expires_at",
-            "not_null": true
+            "not_null": false
         },
         {
             "schema": "core",
@@ -1681,6 +1837,24 @@
             "schema": "core",
             "table": "pre_account_builds",
             "column": "updated_at",
+            "not_null": true
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "contact_email",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "invited_at",
+            "not_null": false
+        },
+        {
+            "schema": "core",
+            "table": "pre_account_builds",
+            "column": "auto_invite",
             "not_null": true
         },
         {
@@ -2114,108 +2288,6 @@
             "table": "users",
             "column": "sector_source",
             "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "id",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "name",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "email",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "email_lc",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "phone",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "applicant_type",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "applicant_type_other",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "industry",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "industry_other",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "pilot_program_opt_in",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "number_of_team_members",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "consent_source",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "consent_ip_hash",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "consent_user_agent",
-            "not_null": false
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "last_submitted_at",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "created_at",
-            "not_null": true
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "column": "updated_at",
-            "not_null": true
         },
         {
             "schema": "moderation",
@@ -3245,78 +3317,6 @@
         },
         {
             "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "id",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "site_id",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "source",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "integration",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "priority",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "mode",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "target_var",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "value",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "created_at",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions",
-            "column": "updated_at",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions_font_backup_20260709",
-            "column": "id",
-            "not_null": false
-        },
-        {
-            "schema": "site",
-            "table": "design_kit_contributions_font_backup_20260709",
-            "column": "value",
-            "not_null": false
-        },
-        {
-            "schema": "site",
             "table": "design_kits",
             "column": "site_id",
             "not_null": true
@@ -3713,18 +3713,6 @@
         },
         {
             "schema": "site",
-            "table": "design_kits_font_backup_20260709",
-            "column": "site_id",
-            "not_null": false
-        },
-        {
-            "schema": "site",
-            "table": "design_kits_font_backup_20260709",
-            "column": "typography_font_family",
-            "not_null": false
-        },
-        {
-            "schema": "site",
             "table": "enquiries",
             "column": "id",
             "not_null": true
@@ -3860,6 +3848,48 @@
             "table": "enquiries",
             "column": "confirmation_sent_at",
             "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "user_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "item_type",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "item_key",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "slug",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "is_current",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "column": "created_at",
+            "not_null": true
         },
         {
             "schema": "site",
@@ -4001,6 +4031,36 @@
         },
         {
             "schema": "site",
+            "table": "menu_item_categories",
+            "column": "menu_item_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_categories",
+            "column": "menu_category_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_categories",
+            "column": "position",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_categories",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_item_categories",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
             "table": "menu_item_platforms",
             "column": "id",
             "not_null": true
@@ -4063,18 +4123,6 @@
             "schema": "site",
             "table": "menu_items",
             "column": "menu_id",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "menu_items",
-            "column": "category_id",
-            "not_null": true
-        },
-        {
-            "schema": "site",
-            "table": "menu_items",
-            "column": "position",
             "not_null": true
         },
         {
@@ -4166,6 +4214,18 @@
             "table": "menu_items",
             "column": "currency",
             "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "images",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menu_items",
+            "column": "is_manual",
+            "not_null": true
         },
         {
             "schema": "site",
@@ -4309,6 +4369,18 @@
             "schema": "site",
             "table": "menus",
             "column": "dining_modes",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "scan_items",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "menus",
+            "column": "suppressed_items",
             "not_null": false
         },
         {
@@ -4511,6 +4583,36 @@
         },
         {
             "schema": "site",
+            "table": "service_categories",
+            "column": "source",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "service_category_assignments",
+            "column": "service_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_category_assignments",
+            "column": "service_category_id",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "service_category_assignments",
+            "column": "created_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "service_category_assignments",
+            "column": "updated_at",
+            "not_null": false
+        },
+        {
+            "schema": "site",
             "table": "services",
             "column": "id",
             "not_null": true
@@ -4531,12 +4633,6 @@
             "schema": "site",
             "table": "services",
             "column": "description",
-            "not_null": false
-        },
-        {
-            "schema": "site",
-            "table": "services",
-            "column": "category",
             "not_null": false
         },
         {
@@ -4590,13 +4686,25 @@
         {
             "schema": "site",
             "table": "services",
-            "column": "category_id",
+            "column": "deleted_origin",
             "not_null": false
         },
         {
             "schema": "site",
             "table": "services",
-            "column": "deleted_origin",
+            "column": "source",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "is_manual",
+            "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "column": "external_id",
             "not_null": false
         },
         {
@@ -4718,6 +4826,18 @@
             "table": "shop_brands",
             "column": "referral_query",
             "not_null": true
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "connect_status",
+            "not_null": false
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "column": "connect_error",
+            "not_null": false
         },
         {
             "schema": "site",
@@ -5124,12 +5244,6 @@
         {
             "schema": "site",
             "table": "workplaces",
-            "column": "address",
-            "not_null": false
-        },
-        {
-            "schema": "site",
-            "table": "workplaces",
             "column": "address_line1",
             "not_null": false
         },
@@ -5214,12 +5328,6 @@
         {
             "schema": "site",
             "table": "workplaces",
-            "column": "previous_website_analysis",
-            "not_null": false
-        },
-        {
-            "schema": "site",
-            "table": "workplaces",
             "column": "opening_hours",
             "not_null": false
         },
@@ -5237,6 +5345,24 @@
         }
     ],
     "checks": [
+        {
+            "schema": "analytics",
+            "table": "action_events",
+            "name": "action_events_event_check",
+            "definition": "CHECK ((event = ANY (ARRAY['seen'::text, 'tap'::text])))"
+        },
+        {
+            "schema": "analytics",
+            "table": "content_popularity_scores",
+            "name": "content_popularity_scores_content_type_check",
+            "definition": "CHECK ((content_type = ANY (ARRAY['page'::text, 'action'::text, 'shop_product'::text, 'menu_item'::text, 'menu_category'::text, 'service'::text, 'block'::text, 'gallery_item'::text, 'engine_item'::text, 'listen_item'::text, 'watch_item'::text, 'link_item'::text])))"
+        },
+        {
+            "schema": "analytics",
+            "table": "item_views",
+            "name": "item_views_item_type_check",
+            "definition": "CHECK ((item_type = ANY (ARRAY['shop_product'::text, 'menu_item'::text, 'menu_category'::text, 'service'::text, 'block'::text, 'gallery_item'::text, 'engine_item'::text, 'listen_item'::text, 'watch_item'::text, 'link_item'::text])))"
+        },
         {
             "schema": "analytics",
             "table": "site_sessions",
@@ -5336,6 +5462,12 @@
         {
             "schema": "core",
             "table": "early_access_signups",
+            "name": "early_access_signups_source_type_check",
+            "definition": "CHECK (((source_type IS NULL) OR (source_type = ANY (ARRAY['instagram'::text, 'google_business'::text]))))"
+        },
+        {
+            "schema": "core",
+            "table": "early_access_signups",
             "name": "early_access_signups_status_check",
             "definition": "CHECK ((status = ANY (ARRAY['waitlist'::text, 'invited'::text, 'signed_up'::text])))"
         },
@@ -5344,6 +5476,12 @@
             "table": "early_access_signups",
             "name": "early_access_signups_type_check",
             "definition": "CHECK ((type = ANY (ARRAY['partna'::text, 'business'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "email_suppressions",
+            "name": "email_suppressions_reason_check",
+            "definition": "CHECK ((reason = ANY (ARRAY['hard_bounce'::text, 'complaint'::text, 'manual'::text])))"
         },
         {
             "schema": "core",
@@ -5413,6 +5551,12 @@
         },
         {
             "schema": "core",
+            "table": "feedback",
+            "name": "feedback_type_check",
+            "definition": "CHECK (((type IS NULL) OR (type = ANY (ARRAY['error'::text, 'good'::text, 'bad_ui'::text, 'idea'::text]))))"
+        },
+        {
+            "schema": "core",
             "table": "partna_staff",
             "name": "partna_staff_role_check",
             "definition": "CHECK ((role = ANY (ARRAY['admin'::text, 'support'::text])))"
@@ -5427,7 +5571,7 @@
             "schema": "core",
             "table": "pre_account_builds",
             "name": "pre_account_builds_built_via_check",
-            "definition": "CHECK ((built_via = ANY (ARRAY['signup'::text, 'staff'::text])))"
+            "definition": "CHECK ((built_via = ANY (ARRAY['signup'::text, 'staff'::text, 'early_access'::text])))"
         },
         {
             "schema": "core",
@@ -5451,43 +5595,25 @@
             "schema": "core",
             "table": "users",
             "name": "users_account_type_check",
-            "definition": "CHECK ((account_type = ANY (ARRAY['partna'::text, 'business'::text, 'staff'::text])))"
+            "definition": "CHECK ((account_type = ANY (ARRAY['partna'::text, 'business'::text])))"
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "name": "users_sector_check",
+            "definition": "CHECK (((sector IS NULL) OR (sector = ANY (ARRAY['restaurant'::text, 'cafe'::text, 'bakery'::text, 'bar'::text, 'food-truck'::text, 'caterer'::text, 'personal-chef'::text, 'hair-salon'::text, 'barber'::text, 'nail-technician'::text, 'makeup-artist'::text, 'esthetician'::text, 'spa'::text, 'tattoo-artist'::text, 'brows-lashes'::text, 'personal-trainer'::text, 'gym'::text, 'yoga-instructor'::text, 'nutritionist'::text, 'physiotherapist'::text, 'chiropractor'::text, 'therapist'::text, 'dentist'::text, 'accountant'::text, 'lawyer'::text, 'financial-advisor'::text, 'consultant'::text, 'real-estate-agent'::text, 'insurance-broker'::text, 'mortgage-broker'::text, 'marketing-agency'::text, 'it-services'::text, 'virtual-assistant'::text, 'clothing-boutique'::text, 'jewellery'::text, 'florist'::text, 'gift-shop'::text, 'homewares'::text, 'artisan-maker'::text, 'plumber'::text, 'electrician'::text, 'builder'::text, 'painter'::text, 'cleaner'::text, 'landscaper'::text, 'handyman'::text, 'removalist'::text, 'pest-control'::text, 'accommodation'::text, 'event-venue'::text, 'event-planner'::text, 'wedding-planner'::text, 'bartender'::text, 'mechanic'::text, 'car-detailer'::text, 'auto-electrician'::text, 'tyre-service'::text, 'photographer'::text, 'videographer'::text, 'graphic-designer'::text, 'artist'::text, 'musician'::text, 'content-creator'::text, 'writer'::text, 'tutor'::text, 'life-coach'::text, 'music-teacher'::text, 'driving-instructor'::text, 'dance-instructor'::text, 'course-creator'::text, 'other'::text]))))"
+        },
+        {
+            "schema": "core",
+            "table": "users",
+            "name": "users_sector_source_check",
+            "definition": "CHECK (((sector_source IS NULL) OR (sector_source = ANY (ARRAY['manual'::text, 'google-business'::text, 'instagram'::text]))))"
         },
         {
             "schema": "core",
             "table": "users",
             "name": "users_status_check",
             "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'disabled'::text, 'pending_deletion'::text, 'unclaimed'::text])))"
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "name": "waitlist_signups_industry_check",
-            "definition": "CHECK (((industry IS NULL) OR (industry = ANY (ARRAY['mens_grooming'::text, 'womens_haircare'::text, 'beauty_products'::text, 'vitamins_and_supplements'::text, 'services_and_software'::text, 'other'::text]))))"
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "name": "waitlist_signups_industry_other_required",
-            "definition": "CHECK ((((industry IS NULL) AND (industry_other IS NULL)) OR ((industry = 'other'::text) AND (industry_other IS NOT NULL) AND (btrim(industry_other) <> ''::text)) OR ((industry <> 'other'::text) AND (industry_other IS NULL))))"
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "name": "waitlist_signups_team_members_non_negative",
-            "definition": "CHECK (((number_of_team_members IS NULL) OR (number_of_team_members >= 0)))"
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "name": "waitlist_signups_type_check",
-            "definition": "CHECK (((applicant_type IS NULL) OR (applicant_type = ANY (ARRAY['influencer'::text, 'professional'::text, 'other'::text, 'individual'::text]))))"
-        },
-        {
-            "schema": "core",
-            "table": "waitlist_signups",
-            "name": "waitlist_signups_type_other_required",
-            "definition": "CHECK ((((applicant_type IS NULL) AND (applicant_type_other IS NULL)) OR ((applicant_type = 'other'::text) AND (applicant_type_other IS NOT NULL) AND (btrim(applicant_type_other) <> ''::text)) OR ((applicant_type <> 'other'::text) AND (applicant_type_other IS NULL))))"
         },
         {
             "schema": "moderation",
@@ -5635,9 +5761,21 @@
         },
         {
             "schema": "site",
-            "table": "design_kit_contributions",
-            "name": "design_kit_contributions_mode_check",
-            "definition": "CHECK ((mode = ANY (ARRAY['one_shot'::text, 'auto'::text])))"
+            "table": "design_kits",
+            "name": "design_kits_theme_contrast_check",
+            "definition": "CHECK (((theme_contrast IS NULL) OR (theme_contrast = ANY (ARRAY['soft'::text, 'normal'::text, 'stark'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "design_kits",
+            "name": "design_kits_typography_tracking_check",
+            "definition": "CHECK (((typography_tracking IS NULL) OR (typography_tracking = ANY (ARRAY['tight'::text, 'normal'::text, 'wide'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "item_slugs",
+            "name": "item_slugs_type_check",
+            "definition": "CHECK ((item_type = ANY (ARRAY['event'::text, 'menu_item'::text])))"
         },
         {
             "schema": "site",
@@ -5677,6 +5815,12 @@
         },
         {
             "schema": "site",
+            "table": "service_categories",
+            "name": "service_categories_source_check",
+            "definition": "CHECK ((source = 'fresha'::text))"
+        },
+        {
+            "schema": "site",
             "table": "services",
             "name": "services_duration_minutes_check",
             "definition": "CHECK (((duration_minutes IS NULL) OR (duration_minutes > 0)))"
@@ -5686,6 +5830,30 @@
             "table": "services",
             "name": "services_price_cents_check",
             "definition": "CHECK ((price_cents >= 0))"
+        },
+        {
+            "schema": "site",
+            "table": "services",
+            "name": "services_source_check",
+            "definition": "CHECK ((source = 'fresha'::text))"
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "name": "shop_brands_connect_status_check",
+            "definition": "CHECK (((connect_status IS NULL) OR (connect_status = ANY (ARRAY['pending'::text, 'failed'::text]))))"
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "name": "shop_brands_link_mode_check",
+            "definition": "CHECK ((link_mode = ANY (ARRAY['product'::text, 'checkout'::text])))"
+        },
+        {
+            "schema": "site",
+            "table": "shop_brands",
+            "name": "shop_brands_selection_mode_check",
+            "definition": "CHECK ((selection_mode = ANY (ARRAY['manual'::text, 'latest'::text])))"
         },
         {
             "schema": "site",
@@ -5728,6 +5896,12 @@
             "table": "sites",
             "name": "sites_moderation_state_check",
             "definition": "CHECK (((moderation_state)::text = ANY ((ARRAY['active'::character varying, 'warned'::character varying, 'hidden'::character varying])::text[])))"
+        },
+        {
+            "schema": "site",
+            "table": "sites",
+            "name": "sites_shop_link_mode_check",
+            "definition": "CHECK ((shop_link_mode = ANY (ARRAY['checkout'::text, 'product'::text])))"
         }
     ]
 }

@@ -27,7 +27,8 @@ not re-implement.
 | 1 | `…phase1-fetchbudget…` | W1 (independent of this phase) |
 | **2 — you are here** | this file | **RV-4 + RV-8** |
 | 3 | `…phase3-implementation…` | W2–W8 (dark) |
-| 4/5 | `…phase4-5-rollout-shop…` | activation + Shop |
+| 4 | `…phase4-activation…` | activation (ops) |
+| W9 | `…w9-shop…` | Shop — independent, any time |
 
 **Why this gates Phase 3:** W2–W8 dispatch onto the `platform_connect` queue, adding
 worker load to a box that is **already 25% over-committed** and OOM-killed on

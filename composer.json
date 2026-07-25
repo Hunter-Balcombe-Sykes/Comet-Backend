@@ -76,6 +76,10 @@
             "@php artisan config:clear --ansi",
             "@php artisan test"
         ],
+        "test:pg": [
+            "@php artisan config:clear --ansi",
+            "@php artisan test -c phpunit.pg.xml"
+        ],
         "analyse": [
             "@php vendor/bin/phpstan analyse --memory-limit=2G"
         ],
