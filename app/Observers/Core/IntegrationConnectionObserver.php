@@ -22,11 +22,11 @@ use Illuminate\Support\Facades\Log;
 // edge TTL to lapse. This is the proper fix for the sitepage staleness (replaces
 // the temporary low-TTL band-aid in partna-pages).
 //
-// Surgical direct purge (like ServiceCategoryObserver) rather than touch()ing the
-// site: platform selections are NOT part of the public-profile payload — they're
-// served by the dedicated public platforms endpoint — so there's no reason to
-// roll the profile cache key. CloudflareCachePurgeJob is ShouldBeUnique, so the
-// burst of writes from a multi-row save coalesces to one purge per handle.
+// Also touches the site so the public.profile:{handle}:{ts} Redis cache key
+// rolls forward (page presence can depend on a connection's own payload via
+// PlatformDescriptor::isComplete — see below). CloudflareCachePurgeJob is
+// ShouldBeUnique, so the burst of writes from a multi-row save coalesces to
+// one purge per handle.
 class IntegrationConnectionObserver
 {
     public bool $afterCommit = true;
@@ -51,6 +51,15 @@ class IntegrationConnectionObserver
             || $connection->wasChanged('display_settings')
             || $connection->wasChanged('is_active')) {
             $this->refresher->refresh($connection);
+
+            // Roll site.updated_at so the public.profile:{handle}:{ts} cache key
+            // (IndividualProfileController) rotates too — the CDN purge above
+            // only covers the edge cache. Needed since page presence can now
+            // depend on a connection's own payload (PlatformDescriptor::
+            // isComplete — shop's chosen product, fresha's saved selection):
+            // without this, completing a booking selection wouldn't surface the
+            // Services page until something unrelated happened to touch the site.
+            $connection->user?->site?->touch();
         }
 
         // Central-identity fold: a google-business connect OR a refresh that

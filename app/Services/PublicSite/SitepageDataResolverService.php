@@ -6,12 +6,12 @@ use App\Enums\SitepageId;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
-use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilitySet;
+use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
@@ -160,9 +160,10 @@ class SitepageDataResolverService
      * Presence signals (any positive hit includes the page):
      *   home     — always (every published profile has one)
      *   sections — live section blocks (SECTION_BLOCK_TO_PAGE)
-     *   platforms— active integration connections + link blocks (PLATFORM_TO_PAGE);
-     *              'shop' additionally requires a chosen ShopProduct (FOUND-25 —
-     *              connecting a brand alone stores zero products)
+     *   platforms— active integration connections + link blocks (PLATFORM_TO_PAGE),
+     *              each filtered by its descriptor's completeness predicate
+     *              (PlatformDescriptor::isComplete — shop needs a chosen product,
+     *              fresha a saved selection)
      *   book     — active services
      *   gallery  — ready gallery media
      *   menu     — a fetched Menu (Business)
@@ -187,65 +188,49 @@ class SitepageDataResolverService
 
             $userId = $site->user_id;
             if ($userId !== null) {
-                // Active integration connections → platform pages. Each optional
-                // signal is read defensively (safeQuery) so a missing table in a
-                // partial test env / a DB blip degrades to "signal absent" rather
-                // than a 500 — same resilience posture as AnalyticsQueryService.
-                $platforms = $this->safeQuery(
+                // Active integration connections → platform pages. Read
+                // defensively (safeQuery) so a missing table in a partial test env
+                // or a DB blip degrades to "signal absent" rather than a 500 —
+                // same resilience posture as AnalyticsQueryService.
+                //
+                // Full rows, not distinct platform strings: the completeness
+                // predicate below takes the connection.
+                $connections = $this->safeQuery(
                     fn () => IntegrationConnection::query()
                         ->where('user_id', $userId)
                         ->where('is_active', true)
-                        ->distinct()
-                        ->pluck('platform')
+                        ->get(['id', 'user_id', 'platform', 'payload'])
                         ->all(),
                     [],
                     'active_integration_connections',
                     $site,
                 );
-                foreach ($platforms as $platform) {
-                    $platform = strtolower((string) $platform);
+
+                $registry = app(PlatformRegistry::class);
+
+                foreach ($connections as $conn) {
+                    $platform = strtolower((string) $conn->platform);
                     $page = self::PLATFORM_TO_PAGE[$platform] ?? null;
-                    if ($page === null) {
+                    if ($page === null || isset($present[$page])) {
                         continue;
                     }
-                    // FOUND-25: a 'shop' connection's payload is a static
-                    // lifecycle marker — brands/products live relationally
-                    // (ShopBrand/ShopProduct) and are decoupled from connect
-                    // (ShopController::addBrand stores a brand with zero
-                    // products; the picker runs any time after). An active
-                    // connection alone isn't real content, so gate 'shop'
-                    // specifically on a chosen product existing. Bandcamp
-                    // also maps to the Shop page but isn't FOUND-25 —its
-                    // connection payload carries real scraped content
-                    // directly — so it keeps the blanket is_active signal.
-                    // W9 P1 review fix: a brand mid deferred-connect (connect_
-                    // status='pending') can already have a saved product
-                    // selection (GET /brands/{id}/products + PUT …/selection
-                    // both work during the pending window BY DESIGN, plan
-                    // §3e) — without this exclusion, page-presence says "shop"
-                    // is present while PublicIntegrationConnectionResource::
-                    // filterPayload() rejects the same pending brand from the
-                    // payload, shipping an empty Shop page to the CDN. The two
-                    // predicates MUST stay in lockstep — do not change one
-                    // without the other. `!= 'pending'` alone is wrong here:
-                    // NULL != 'pending' is NULL (falsy) in SQL, which would
-                    // exclude every settled (NULL) brand too — the explicit
-                    // whereNull()->orWhere() below is required.
-                    if ($platform === 'shop' && ! $this->safeQuery(
-                        fn () => ShopProduct::query()
-                            ->whereHas('brand', fn ($q) => $q
-                                ->where(fn ($q3) => $q3->whereNull('connect_status')->orWhere('connect_status', '<>', 'pending'))
-                                ->whereHas(
-                                    'connection',
-                                    fn ($q2) => $q2->where('user_id', $userId),
-                                ))
-                            ->exists(),
+
+                    // An active connection is not automatically real content —
+                    // shop needs a chosen product, fresha needs a saved selection.
+                    // Declared per-platform on the descriptor (PlatformDescriptor::
+                    // complete()); every other platform returns true without
+                    // touching the DB. Fails CLOSED on a query error, matching the
+                    // posture the inline shop gate had before this seam existed.
+                    $descriptor = $registry->get($platform);
+                    if ($descriptor !== null && ! $this->safeQuery(
+                        fn () => $descriptor->isComplete($conn),
                         false,
-                        'shop_active_product_exists',
+                        "platform_complete_{$platform}",
                         $site,
                     )) {
                         continue;
                     }
+
                     $present[$page] = true;
                 }
 
