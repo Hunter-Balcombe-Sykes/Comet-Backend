@@ -92,6 +92,7 @@ launch_check_parse_cloud_result() {
     LAUNCH_CHECK_REMOTE_EXIT=""
     LAUNCH_CHECK_OUT=""
     LAUNCH_CHECK_PARSE_FAIL_REASON=""
+    LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT=0
 
     local jq_bin awk_bin
     jq_bin="$(command -v jq || true)"
@@ -145,6 +146,10 @@ launch_check_parse_cloud_result() {
         local msg
         msg="$(printf '%s' "$record" | "$jq_bin" -r '.message // .errors // .' 2>/dev/null)"
         LAUNCH_CHECK_PARSE_FAIL_REASON="cloud command:run reported an error: $msg"
+        # Callers should NOT also dump the raw payload for this case — the
+        # extracted message above is already the narrowest useful summary,
+        # and the raw record adds nothing but surface area.
+        LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT=1
         return 1
     fi
 

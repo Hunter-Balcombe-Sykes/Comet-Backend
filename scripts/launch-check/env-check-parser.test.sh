@@ -31,7 +31,10 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_CHECK="$DIR/env-check.sh"
+# Overridable so this historical-regression check is repeatable against an
+# arbitrary revision (e.g. `ENV_CHECK=<(git show <ref>:scripts/launch-check/env-check.sh) ...`
+# or a checked-out copy) without cloning the whole tree.
+ENV_CHECK="${ENV_CHECK:-$DIR/env-check.sh}"
 # Guard: an empty/absent script exits 0 silently, which would turn every
 # expected-FAIL case into a "pass". Refuse to run against one.
 if [[ ! -s "$ENV_CHECK" ]]; then

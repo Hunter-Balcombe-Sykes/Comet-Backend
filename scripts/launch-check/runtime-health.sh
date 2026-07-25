@@ -16,14 +16,23 @@ source "$DIR/lib/cloud-json-parse.sh"
 HANDLE="${LAUNCH_CHECK_HANDLE:-}"
 CLOUD_ENV="development"
 TARGET="pilot"
+ALIAS=""
+DOMAIN=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --handle) HANDLE="$2"; shift 2 ;;
         --env)    CLOUD_ENV="$2"; shift 2 ;;
         --target) TARGET="$2"; shift 2 ;;
+        --alias)  ALIAS="$2";  shift 2 ;;
+        --domain) DOMAIN="$2"; shift 2 ;;
         *) echo "unknown arg: $1"; exit 2 ;;
     esac
 done
+
+case "$TARGET" in
+    pilot|launch) ;;
+    *) echo "error: unknown --target '$TARGET' (must be pilot or launch)"; exit 2 ;;
+esac
 
 # production is gated: same rule as env-check.sh — prod probing must never
 # fire from a plain `--env production`, and the prod Supabase ref must stay
@@ -36,8 +45,16 @@ fi
 FAIL=0
 
 echo "── Edge / sitepage ──────────────────────────"
-EDGE_ARGS=(); [[ -n "$HANDLE" ]] && EDGE_ARGS=(--handle "$HANDLE")
-"$DIR/edge-check.sh" "${EDGE_ARGS[@]}" || FAIL=1
+# edge-check.sh reads $LAUNCH_CHECK_HANDLE itself, so the handle is passed via
+# env rather than an argv array — avoids a bash-3.2 `set -u` unbound-variable
+# abort on an empty positional array (`"${EDGE_ARGS[@]}"` with zero elements),
+# which previously killed this script (and the runtime-liveness leg below it
+# along with it) whenever no handle/alias/domain was given.
+export LAUNCH_CHECK_HANDLE="$HANDLE"
+EDGE_ARGS=()
+[[ -n "$ALIAS" ]] && EDGE_ARGS+=(--alias "$ALIAS")
+[[ -n "$DOMAIN" ]] && EDGE_ARGS+=(--domain "$DOMAIN")
+"$DIR/edge-check.sh" "${EDGE_ARGS[@]+"${EDGE_ARGS[@]}"}" || FAIL=1
 
 echo
 echo "── Deployed runtime liveness ────────────────"
@@ -56,7 +73,13 @@ else
         FAIL=1
     elif ! launch_check_parse_cloud_result "$RAW"; then
         echo "FAIL  $LAUNCH_CHECK_PARSE_FAIL_REASON — cannot verify deployed runtime health"
-        [[ -n "$RAW" ]] && echo "$RAW"
+        # Only dump the raw payload for genuine parse failures. A well-formed
+        # `{"error":true,...}` record was already extracted into the reason
+        # above — echoing $RAW too would needlessly widen what a probe failure
+        # can put on screen.
+        if [[ "$LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT" != "1" && -n "$RAW" ]]; then
+            echo "$RAW"
+        fi
         FAIL=1
     else
         PARSE_MODE="$LAUNCH_CHECK_PARSE_MODE"

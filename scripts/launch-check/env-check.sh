@@ -82,7 +82,11 @@ fi
 
 if ! launch_check_parse_cloud_result "$RAW"; then
     echo "FAIL  $LAUNCH_CHECK_PARSE_FAIL_REASON — cannot verify deployed env config"
-    [[ -n "$RAW" ]] && echo "$RAW"
+    # Only dump the raw payload for genuine parse failures. A well-formed
+    # `{"error":true,...}` record was already extracted into the reason above.
+    if [[ "$LAUNCH_CHECK_PARSE_IS_ERROR_OBJECT" != "1" && -n "$RAW" ]]; then
+        echo "$RAW"
+    fi
     exit 1
 fi
 PARSE_MODE="$LAUNCH_CHECK_PARSE_MODE"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch-check runner — "is the RUNNING system right" (counterpart to
 # scripts/audit/ which answers "is the code right").
-# Usage: launch-check.sh [--only schema,smoke,supabase,supply,security,drills,env,runtime] [--base-url URL] [--rate-limit]
+# Usage: launch-check.sh [--only schema,smoke,supabase,supply,security,drills,env,runtime] [--base-url URL] [--rate-limit] [--runtime-target pilot|launch]
 #
 # NOTE: "env" (group G, deployed-env config check) and "runtime" (group H,
 # deployed runtime health) are opt-in only — both need the `cloud` CLI and a
@@ -15,12 +15,14 @@ ROOT="$(cd "$DIR/../.." && pwd)"
 KNOWN_GROUPS="schema smoke supabase supply security drills env runtime"
 ONLY="schema,smoke,supabase,supply,security,drills"
 BASE_URL="https://dev-api.partna.au"
+RUNTIME_TARGET=""   # empty ⇒ runtime-health.sh's own default (pilot); pass --runtime-target to override
 SMOKE_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --only) ONLY="$2"; shift 2 ;;
         --base-url) SMOKE_ARGS+=(--base-url "$2"); BASE_URL="$2"; shift 2 ;;
         --rate-limit) SMOKE_ARGS+=(--rate-limit); shift ;;
+        --runtime-target) RUNTIME_TARGET="$2"; shift 2 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
@@ -85,8 +87,14 @@ run_group() { # $1 name, $2 command string
     "'$DIR/drill-freshness.sh'"
 [[ ",$ONLY," == *",env,"* ]] && run_group "G · Deployed env config" \
     "'$DIR/env-check.sh'"
-[[ ",$ONLY," == *",runtime,"* ]] && run_group "H · Deployed runtime health" \
-    "'$DIR/runtime-health.sh' ${LAUNCH_CHECK_HANDLE:+--handle $LAUNCH_CHECK_HANDLE}"
+# runtime-health.sh already reads $LAUNCH_CHECK_HANDLE itself (it's inherited by
+# the eval'd subshell below), so no --handle is interpolated here — an earlier
+# version did `${LAUNCH_CHECK_HANDLE:+--handle $LAUNCH_CHECK_HANDLE}` unquoted
+# inside an eval'd string, which both word-splits/injects on a handle containing
+# whitespace or `;` and was redundant with the env var it duplicates.
+RUNTIME_CMD="'$DIR/runtime-health.sh'"
+[[ -n "$RUNTIME_TARGET" ]] && RUNTIME_CMD="$RUNTIME_CMD --target '$RUNTIME_TARGET'"
+[[ ",$ONLY," == *",runtime,"* ]] && run_group "H · Deployed runtime health" "$RUNTIME_CMD"
 
 {
     echo "## I · Manual residue (no script can verify these)"

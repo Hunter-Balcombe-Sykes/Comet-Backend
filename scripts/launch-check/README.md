@@ -28,7 +28,22 @@ directly). Both default to `--env development --target pilot`; `--env production
 target to hit. Without it, `edge-check.sh` WARNs and skips the edge probe cleanly rather
 than failing or silently passing — it never infers "edge works" from "nothing was checked."
 The runtime-liveness half (Horizon/Redis/storage/scheduler, run via `cloud command:run`)
-is unaffected by `LAUNCH_CHECK_HANDLE` and always runs when the `cloud` CLI is available.
+is unaffected by `LAUNCH_CHECK_HANDLE` and always runs when the `cloud` CLI is available —
+`runtime-health.sh` passes the handle to `edge-check.sh` via the env var it already reads,
+never via an argv array, specifically so an unset handle can never abort the script under
+bash 3.2's `set -u` (an empty `"${arr[@]}"` expansion is an unbound-variable error there).
+The alias-301 assertion the table row above mentions is reachable through group H via
+`runtime-health.sh --alias <name> [--domain partna.au]`, which forwards both straight to
+`edge-check.sh`.
+
+**Group H severity** — `launch-check:runtime`'s pilot/launch downgrade is scoped to exactly
+two checks that legitimately deviate on dev: `horizon-masters` and `queue-backlog` (dev runs
+`QUEUE_CONNECTION=sync` with 0 Horizon workers by design). Every other check — `failed-jobs`,
+`redis`, `storage`, `scheduler` — FAILs on an unhealthy result AND on a thrown/unverifiable
+probe (e.g. an unreachable DB) **at both `pilot` and `launch`**; a probe throwing is "could
+not check", never "within threshold", so it is never silently downgraded to WARN. Default
+target through the runner is `runtime-health.sh`'s own default (`pilot`); pass
+`launch-check.sh --only runtime --runtime-target launch` for the stricter pre-launch gate.
 
 **`env-check.sh` / `runtime-health.sh` internals — never reintroduce a line-scanning
 parser.** Both scripts shell out through `cloud command:run --json` and both source the
