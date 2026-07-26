@@ -246,16 +246,64 @@ abstract class BaseScraper
         return $text;
     }
 
-    protected function formatPrice(float $price, string $currency = 'AUD'): string
+    /**
+     * Format a display price string from a JSON-LD Offer or AggregateOffer array.
+     * Returns "Free", "AUD 20.00", "AUD 20.00 – 50.00", or null when unparseable.
+     * Shared by EventbriteScraper and HumanitixScraper.
+     */
+    protected function formatPrice(array $offers): ?string
     {
-        return number_format($price, 2);
+        $low = data_get($offers, 'lowPrice') ?? data_get($offers, 'price');
+        if ($low === null) {
+            return null;
+        }
+        $high = data_get($offers, 'highPrice');
+        $cur = data_get($offers, 'priceCurrency');
+        $prefix = $cur ? $cur.' ' : '';
+
+        if ((float) $low === 0.0 && ($high === null || (float) $high === 0.0)) {
+            return 'Free';
+        }
+        if ($high !== null && (float) $high !== (float) $low) {
+            return "{$prefix}{$low} – {$high}";
+        }
+
+        return "{$prefix}{$low}";
     }
 
-    protected function lowestOffer(array $offers): ?array
+    /**
+     * Scan a JSON-LD `offers` value (single object, list, or mixed) for the
+     * lowest numeric ticket price and its currency. Tolerates AggregateOffer
+     * (lowPrice), Offer lists (price), and Humanitix's mixed shape.
+     *
+     * @return array{priceMin: ?float, currency: ?string}
+     */
+    protected function lowestOffer(mixed $offers): array
     {
-        if (empty($offers)) return null;
-        usort($offers, fn ($a, $b) => ($a['price'] ?? 0) <=> ($b['price'] ?? 0));
-        return $offers[0];
+        $list = is_array($offers) ? (array_is_list($offers) ? $offers : [$offers]) : [];
+
+        $min = null;
+        $currency = null;
+        foreach ($list as $offer) {
+            if (! is_array($offer)) {
+                continue;
+            }
+            $cur = $offer['priceCurrency'] ?? null;
+            if ($currency === null && is_string($cur) && $cur !== '') {
+                $currency = strtoupper($cur);
+            }
+            foreach ([$offer['lowPrice'] ?? null, $offer['price'] ?? null] as $candidate) {
+                if (is_numeric($candidate)) {
+                    $price = (float) $candidate;
+                    if ($min === null || $price < $min) {
+                        $min = $price;
+                    }
+                    break; // lowPrice already IS this entry's low — don't also read price.
+                }
+            }
+        }
+
+        return ['priceMin' => $min, 'currency' => $currency];
     }
 
     protected function sortByStartDate(array $items, string $key = 'startDate'): array
