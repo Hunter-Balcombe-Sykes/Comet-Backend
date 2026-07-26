@@ -1,0 +1,39 @@
+# Active lane: ZAP automation-framework context + replacer definitions for
+# the three passes — context A (token A), context B (token B), and unauth
+# (no Authorization header). This is a TEMPLATE, not a runnable plan on its
+# own: __TARGET_URL__, __TOKEN_A__, __TOKEN_B__ are substituted by
+# active/zap-active.sh (Phase 4) with the live bring-up.sh base URL and
+# freshly-minted tokens before being merged with the actual scan jobs
+# (import/spider/activeScan/report) into one automation plan.
+#
+# The cross-identity IDOR pass (Phase 4) reuses context A's replacer
+# (token A) against context B's seeded resource ids — a 200 where 404 is
+# expected on a foreign resource is the finding. Verified manually
+# 2026-07-26 (see plan Phase 3 done-when) that token A correctly gets 200
+# on its own customer resource and 404 (not 403 — matches the app's public
+# 404-not-403 convention) on identity B's, both via ZAP's own proxy with
+# this exact replacer mechanism, not just direct curl.
+
+env:
+  contexts:
+    - name: "identity-a"
+      urls: ["__TARGET_URL__.*"]
+    - name: "identity-b"
+      urls: ["__TARGET_URL__.*"]
+    - name: "unauth"
+      urls: ["__TARGET_URL__.*"]
+
+replacer:
+  parameters:
+    deleteAllRules: false
+  rules:
+    - description: "auth-identity-a"
+      enabled: true
+      matchType: req_header
+      matchString: "Authorization"
+      replacement: "Bearer __TOKEN_A__"
+    - description: "auth-identity-b"
+      enabled: false
+      matchType: req_header
+      matchString: "Authorization"
+      replacement: "Bearer __TOKEN_B__"

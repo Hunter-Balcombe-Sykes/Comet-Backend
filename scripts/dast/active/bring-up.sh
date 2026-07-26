@@ -40,11 +40,24 @@ APP_PORT="${ZAP_TARGET_LOCAL##*:}"
 # 2026-07-26. Using a bash read-loop with BASH_REMATCH + arithmetic instead.
 SCRATCH="$(mktemp -d)/dast-supabase"
 mkdir -p "$SCRATCH/supabase"
+in_captcha_section=0
 while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^\[.*\]$ ]]; then
+        [[ "$line" == "[auth.captcha]" ]] && in_captcha_section=1 || in_captcha_section=0
+    fi
     if [[ "$line" =~ ^port\ =\ (543[0-9]{2})$ ]]; then
         echo "port = $(( ${BASH_REMATCH[1]} + OFFSET ))"
     elif [[ "$line" =~ ^project_id\ = ]]; then
         echo 'project_id = "partna-dast"'
+    elif [[ "$in_captcha_section" -eq 1 && "$line" =~ ^enabled\ = ]]; then
+        # Turnstile captcha needs a real Cloudflare secret to verify against
+        # (SUPABASE_AUTH_CAPTCHA_SECRET is unset here) — without it, GoTrue's
+        # password grant 500s with "captcha verification process failed"
+        # (verified 2026-07-26). This is a headless testing tool with no
+        # browser to supply a captcha token; disable it in the scratch copy
+        # only — the committed config.toml (real dev/prod local stacks) is
+        # never touched.
+        echo "enabled = false"
     else
         echo "$line"
     fi
@@ -147,7 +160,26 @@ apply_env MAIL_MAILER log
 apply_env NIGHTWATCH_ENABLED false
 
 # --- Step 5: serve the app against the local stack.
-php artisan serve --env=dast --port="$APP_PORT" >"$OUTDIR/serve.log" 2>&1 &
+#
+# --no-reload is load-bearing, not an optimization. Laravel's ServeCommand
+# spawns a SEPARATE child process (`php -S host:port server.php`) to
+# actually handle HTTP requests — verified 2026-07-26 by reading
+# ServeCommand::startProcess(): by default (no --no-reload) it filters
+# $_ENV down to a small passthrough allowlist before starting that child,
+# so the child never receives --env=dast or .env.dast's values and
+# bootstraps against the real repo .env instead — meaning the served app
+# was silently NOT using the isolated scratch stack (DB_HOST, JWKS_URL,
+# etc. all pointed at whatever the real .env has). This is the exact
+# failure mode "NEVER point the active lane at real dev/prod" exists to
+# prevent — caught via JWKS fetch errors referencing an unrecognized
+# Supabase host, not a DB connection failure, so a naive health check
+# alone would NOT have caught it. --no-reload makes startProcess() pass
+# the FULL $_ENV through unfiltered instead — since THIS process already
+# correctly loaded .env.dast via --env=dast, the child inherits it via
+# real process environment variables (which Dotenv's already-set check
+# then leaves alone). No live-reload-on-.env-change behavior is lost that
+# this one-shot bring-up ever needed anyway.
+php artisan serve --env=dast --no-reload --port="$APP_PORT" >"$OUTDIR/serve.log" 2>&1 &
 SERVE_PID=$!
 
 # --- Step 6: health-check gate — poll the app's /up and the Supabase

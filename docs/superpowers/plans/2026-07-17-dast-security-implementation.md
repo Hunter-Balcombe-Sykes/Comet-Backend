@@ -264,50 +264,20 @@ ln -s "$REPO_ROOT/supabase/migrations" "$SCRATCH/supabase/migrations"
 
 **Depends on:** Phases 1–2. **Files:** `active/seed-identities.php`, `active/mint-jwt.php`, `active/zap-context.yaml`.
 
-- [ ] **Step 1: Seed two identities that own distinct resources.** `seed-identities.php` (run via `php artisan tinker --execute` or a standalone boot against the served app's DB) inserts, deterministically:
+- [x] **Step 1: Seed two identities that own distinct resources.** `seed-identities.php` — a standalone bootstrapped script (`--env=dast`, not `tinker --execute`) inserts, deterministically:
   - **User A** (`core.users`, known `id` + `auth_user_id`) owning a site, a gallery media row, a customer, and an enquiry.
   - **User B** — same shape, different ids.
-  Emit both users' `{id, auth_user_id, site_id, media_id, enquiry_id}` as JSON to `$OUTDIR/identities.json`. These known ids are the cross-identity IDOR targets.
+  Emits `{id, auth_user_id, email, password, handle, site_id, media_id, customer_id, enquiry_id}` per identity to `$OUTDIR/identities.json` (`email`/`password` are new fields, not in the plan's original list — needed by Step 3, see below). **Deviation found the hard way:** `core.users.auth_user_id` carries a real FK to `auth.users` — an arbitrary generated UUID 23503-violates it. The row must exist via Supabase Auth itself: created through the local GoTrue admin API (`POST /auth/v1/admin/users`, service-role key) rather than invented, which is also what a real signup flow's Auth-first step does.
 
-- [ ] **Step 2: Confirm the local stack's signing mode (spike).** `supabase status` — read the JWT secret. New CLI versions publish JWKS at `.../auth/v1/.well-known/jwks.json` AND still accept the legacy HS256 shared secret. **Prefer direct-sign HS256** with `SUPABASE_LOCAL_JWT_SECRET`; configure the served app (in `.env.dast`) so the shared-secret fallback path in `VerifySupabaseJwt` accepts it (`SUPABASE_JWKS_FAIL_CLOSED=false`, `SUPABASE_JWT_ISSUER` = local issuer). If the local stack is JWKS-only, switch to minting with the stack's private key — the spike decides.
+- [x] **Step 2: Confirm the local stack's signing mode (spike) — RESOLVED, plan's direct-sign approach does NOT work.** `supabase status` confirms HS256-shared-secret mode as the plan expected (`JWT_SECRET` present). But direct-signing an HS256 token with a forged `session_id` and hitting the app: `VerifySupabaseJwt` correctly rejects HS256 on its JWKS path (alg-confusion guard) and falls through to the Auth-Server path as designed — which forwards the token to GoTrue's `/auth/v1/user`. **GoTrue itself validates that the `session_id` claim corresponds to a real row in `auth.sessions`** — a forged one is rejected with `403 session_not_found` regardless of how correctly everything else is shaped. There is no way to forge a valid session_id; direct-signing is a dead end against this Supabase CLI version (2.101.0). Resolved via the plan's own named fallback: **create+exchange** — sign in for real via GoTrue's password grant, which issues a genuine RS256/ES256 token carrying a real session. A second, unrelated blocker surfaced en route: the committed `supabase/config.toml` has Turnstile captcha **enabled** by default (`[auth.captcha] enabled = true`), which 500s any password-grant sign-in with "captcha verification process failed" when no real Cloudflare secret is configured (`SUPABASE_AUTH_CAPTCHA_SECRET` is intentionally unset for local dev). Fixed by having `bring-up.sh`'s config transform also force `enabled = false` under `[auth.captcha]` in the **scratch** copy only — the committed config.toml is never touched.
 
-- [ ] **Step 3: `mint-jwt.php`** — direct-sign a Supabase-shaped token. **Claims must reproduce prod shape** or auth scans hit false 401/403:
+- [x] **Step 3: `mint-jwt.php` — REWRITTEN to sign in via GoTrue's password grant, not direct-sign.** Per Step 2's finding, direct HS256 signing cannot produce a token GoTrue's session check will accept. `mint-jwt.php`'s interface changed from `<sub> <aal>` to `<email> <password>` (both emitted per identity by `seed-identities.php`); it POSTs to `/auth/v1/token?grant_type=password` and echoes the real `access_token`. Claim shape (`sub`/`aal`/`amr`/`iss`/`aud`/`session_id`) comes from GoTrue itself — matches prod naturally, no hand-crafting needed, and a bonus: since the token is genuinely RS256/ES256-signed, `VerifySupabaseJwt`'s **primary JWKS path** accepts it directly at runtime — `SUPABASE_JWKS_FAIL_CLOSED=false` stays in `.env.dast` as a defensive fallback but isn't load-bearing in practice.
 
-```php
-// php scripts/dast/active/mint-jwt.php <sub> <aal> > tokenA.jwt
-$claims = [
-  'sub'        => $argv[1],
-  'aud'        => 'authenticated',
-  'role'       => 'authenticated',
-  'aal'        => $argv[2] ?? 'aal1',
-  'amr'        => [['method' => 'password', 'timestamp' => time()]],
-  'iss'        => getenv('SUPABASE_LOCAL_ISSUER'),
-  'iat'        => time(),
-  'exp'        => time() + 3600,
-  'session_id' => bin2hex(random_bytes(16)),
-];
-echo \Firebase\JWT\JWT::encode($claims, getenv('SUPABASE_LOCAL_JWT_SECRET'), 'HS256');
-```
+- [x] **Step 4: `zap-context.yaml`** — three passes via ZAP's automation framework (context A / context B / unauth), each a `replacer` rule injecting `Authorization: Bearer <token>`, templated by Phase 4's `zap-active.sh` (`__TARGET_URL__`/`__TOKEN_A__`/`__TOKEN_B__` placeholders). Verified the YAML is valid and functional: ZAP's automation framework parsed and executed real requests through this exact replacer file with zero errors ("Automation plan succeeded!").
 
-Mint one token per identity (`aal1` is fine for the API surface; the app's staff routes need `aal2` but staff isn't the IDOR target here — mint an `aal2` token too if any in-scope route requires it).
+**Done when:** a manual authenticated request through ZAP's proxy with token A returns 200 on one of A's own resources (proving claim shape is accepted), and the same token returns 404/403 on one of B's resources (proving isolation is testable, i.e. the target for Phase 4's IDOR pass exists). ✅ Verified 2026-07-26, two complementary ways: (1) direct curl with token A's exact `Authorization` header — `GET /api/customers/{A's customer}` → **200** with A's own customer JSON; `GET /api/customers/{B's customer}` → **404** `{"message":"Resource not found"}` (404, not 403 — matches CLAUDE.md's public-endpoint convention); (2) the same token + same two URLs run through ZAP's own automation-framework `requestor` job using this exact `zap-context.yaml` replacer mechanism completed cleanly with zero plan errors, confirming the injection mechanism itself works end-to-end (ZAP's own per-request status-code test type wasn't identified in time to also get a machine-checked assertion from inside ZAP itself — the curl-based proof carries the authorization-logic claim).
 
-- [ ] **Step 4: `zap-context.yaml`** — three passes via ZAP's automation framework:
-  - **context A** — replacer rule sets `Authorization: Bearer <tokenA>`, scope = the served base URL.
-  - **context B** — same with `<tokenB>`.
-  - **unauth** — no Authorization header, scope = public surface only.
-  The cross-identity pass (Phase 4) reuses context A's token but seeds **B's** resource ids.
-
-```yaml
-# zap-context.yaml (excerpt) — JWT injected via a replacer rule, not login flow
-replacer:
-  rules:
-    - description: "auth-A"
-      matchType: req_header
-      matchString: "Authorization"
-      replacement: "Bearer __TOKEN_A__"   # run.sh templates the real token in
-```
-
-**Done when:** a manual authenticated request through ZAP's proxy with token A returns 200 on one of A's own resources (proving claim shape is accepted), and the same token returns 404/403 on one of B's resources (proving isolation is testable, i.e. the target for Phase 4's IDOR pass exists).
+**Second deviation, found investigating an unrelated symptom:** while chasing this Phase 3 auth flow, discovered `active/bring-up.sh`'s `php artisan serve --env=dast` was **not actually serving against the scratch stack** — Laravel's `ServeCommand` spawns a *separate* child process (`php -S host:port server.php`) to handle real HTTP requests, and by default (no `--no-reload`) filters `$_ENV` down to a small passthrough allowlist before starting that child, so it never receives `.env.dast`'s values and boots against the real repo `.env` instead (verified via `ServeCommand::startProcess()` source — see `bring-up.sh` comment). This corrects Phase 1's done-when claim: the tinker-based DB-connectivity proof there was real, but never actually exercised the *served* app, which — until this fix — was silently not isolated. Caught here via a JWKS-fetch error naming an unrecognized third-party Supabase host, not a DB error. Fixed with `--no-reload`, which makes `ServeCommand` pass the full (already-correct) `$_ENV` through unfiltered; no functionality lost since this one-shot bring-up never needed live-reload-on-`.env`-change. Re-verified Phase 1's health-check + DB-query proof against the fixed served app (see this phase's commit).
 
 ---
 
