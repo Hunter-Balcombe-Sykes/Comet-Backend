@@ -39,7 +39,11 @@ audits/**/.drafts/
 .junie/
 .mcp.json
 boost.json
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/dast-maintenance-check.sh
 .claire/
 claude-overnight.log
 
