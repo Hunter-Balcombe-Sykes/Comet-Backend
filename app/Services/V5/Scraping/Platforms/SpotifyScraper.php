@@ -8,9 +8,9 @@ use App\Services\V5\Scraping\Contracts\FetchContract;
 // V5 Spotify scraper — resolves any open.spotify.com URL (track, album, artist,
 // playlist) to embed info via the public oEmbed endpoint. No auth needed.
 //
-// Normalizes the oEmbed response into V5 items, extracting the embed iframe URL
-// from either the iframe_url field (Spotify) or the html snippet (fallback).
-// Replaces the oEmbed path of OEmbedService.
+// Normalizes the oEmbed response into V5 items + profile, extracting the embed
+// iframe URL from either the iframe_url field (Spotify) or the html snippet
+// (fallback). Replaces the oEmbed path of OEmbedService.
 class SpotifyScraper extends ApiBase implements FetchContract
 {
     protected string $endpoint = 'https://open.spotify.com/oembed';
@@ -19,13 +19,13 @@ class SpotifyScraper extends ApiBase implements FetchContract
     /**
      * Fetch oEmbed data for a Spotify URL.
      *
-     * @return list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>
+     * @return array{items: list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>, profile: array{display_name:?string, profile_pic_url:?string}}
      */
     public function fetch(string $identifier): array
     {
         $data = $this->apiGet('', ['url' => $identifier]);
         if (! $data) {
-            return [];
+            return ['items' => [], 'profile' => []];
         }
 
         $embedUrl = $data['iframe_url'] ?? null;
@@ -45,14 +45,20 @@ class SpotifyScraper extends ApiBase implements FetchContract
             $values[] = ['field_name' => 'embed_url', 'value' => $embedUrl, 'format' => 'url'];
         }
 
-        return [[
-            'identifier' => $data['id'] ?? md5($identifier),
-            'name' => $data['title'] ?? null,
-            'item_type' => match ($data['type'] ?? '') {
-                'playlist' => 'track',
-                default => 'track',
-            },
-            'values' => $values,
-        ]];
+        return [
+            'items' => [[
+                'identifier' => $data['id'] ?? md5($identifier),
+                'name' => $data['title'] ?? null,
+                'item_type' => match ($data['type'] ?? '') {
+                    'playlist' => 'track',
+                    default => 'track',
+                },
+                'values' => $values,
+            ]],
+            'profile' => [
+                'display_name' => $data['author_name'] ?? null,
+                'profile_pic_url' => $data['thumbnail_url'] ?? null,
+            ],
+        ];
     }
 }

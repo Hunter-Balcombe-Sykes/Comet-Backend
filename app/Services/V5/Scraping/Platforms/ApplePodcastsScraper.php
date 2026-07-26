@@ -21,13 +21,13 @@ class ApplePodcastsScraper extends ApiBase implements FetchContract
     /**
      * Fetch recent episodes for an Apple Podcasts show.
      *
-     * @return list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>
+     * @return array{items: list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>, profile: array{display_name:?string, profile_pic_url:?string}}
      */
     public function fetch(string $identifier): array
     {
         $podcastId = $this->resolvePodcastId($identifier);
         if ($podcastId === null) {
-            return [];
+            return ['items' => [], 'profile' => []];
         }
 
         // Fetch limit+1 because the lookup also returns the podcast collection itself
@@ -38,10 +38,20 @@ class ApplePodcastsScraper extends ApiBase implements FetchContract
             'limit' => $limit + 1,
         ]);
         if (! $data) {
-            return [];
+            return ['items' => [], 'profile' => []];
         }
 
-        return $this->mapEpisodes($data, $limit);
+        $results = data_get($data, 'results', []);
+        $items = $this->mapEpisodes($data, $limit);
+
+        // Extract podcast collection info for profile
+        $collectionResult = collect($results)->first(fn ($r) => ($r['wrapperType'] ?? null) === 'collection');
+        $profile = [
+            'display_name' => $collectionResult['collectionName'] ?? ($items[0]['values'][5]['value'] ?? null),
+            'profile_pic_url' => $collectionResult['artworkUrl600'] ?? $collectionResult['artworkUrl160'] ?? null,
+        ];
+
+        return ['items' => $items, 'profile' => $profile];
     }
 
     /**

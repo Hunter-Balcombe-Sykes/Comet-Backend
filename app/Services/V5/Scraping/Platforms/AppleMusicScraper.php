@@ -22,13 +22,13 @@ class AppleMusicScraper extends ApiBase implements FetchContract
     /**
      * Fetch recent albums/releases for an Apple Music artist.
      *
-     * @return list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>
+     * @return array{items: list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>, profile: array{display_name:?string, profile_pic_url:?string}}
      */
     public function fetch(string $identifier): array
     {
         $artistId = $this->resolveArtistId($identifier);
         if ($artistId === null) {
-            return [];
+            return ['items' => [], 'profile' => []];
         }
 
         $data = $this->apiGet('/lookup', [
@@ -37,10 +37,20 @@ class AppleMusicScraper extends ApiBase implements FetchContract
             'limit' => 25,
         ]);
         if (! $data) {
-            return [];
+            return ['items' => [], 'profile' => []];
         }
 
-        return $this->mapAlbums($data);
+        $results = data_get($data, 'results', []);
+        $items = $this->mapAlbums($data);
+
+        // Extract artist info from the first non-collection result for profile
+        $artistResult = collect($results)->first(fn ($r) => ($r['wrapperType'] ?? null) === 'artist');
+        $profile = [
+            'display_name' => $artistResult['artistName'] ?? ($items[0]['values'][4]['value'] ?? null),
+            'profile_pic_url' => $items[0]['values'][1]['value'] ?? null,
+        ];
+
+        return ['items' => $items, 'profile' => $profile];
     }
 
     /**

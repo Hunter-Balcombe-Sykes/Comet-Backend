@@ -12,7 +12,7 @@ class BandcampScraper extends HtmlScrapeBase
     /**
      * Main entry: fetch artist profile + releases as V5 items.
      *
-     * @return array{display_name:?string, profile_pic_url:?string, origin:?string, items:list<array>}|null
+     * @return array{items:list<array>, profile:array{display_name:?string, profile_pic_url:?string, bio:?string, follower_count:?int}}|null
      */
     public function fetch(string $input, int $limit = 24): ?array
     {
@@ -21,25 +21,22 @@ class BandcampScraper extends HtmlScrapeBase
             return null;
         }
 
-        $profile = $this->fetchProfile($origin.'/music');
-        if ($profile === null) {
+        $html = $this->fetchHtml($origin.'/music');
+        if ($html === null) {
             return null;
         }
 
-        return array_merge($profile, ['origin' => $origin, 'items' => $profile['items'] ?? []]);
+        return $this->parseProfileWithOrigin($html, $origin, $limit);
     }
 
     /**
-     * Parse profile + releases from the /music page HTML.
+     * Parse profile + releases from the /music page HTML with origin for URL
+     * resolution. Returns the V5 {@see fetch()} shape.
      *
-     * Scrapes the server-side album grid (<li class="music-grid-item"
-     * data-item-id="album-…">) for album link, art, and title. og:title on
-     * /music reads "Music | <Artist>". Preserved from the old
-     * BandcampScraper::fetchProfile logic.
+     * @return array{items:list<array>, profile:array{display_name:?string, profile_pic_url:?string, bio:?string, follower_count:?int}}
      */
-    protected function parseProfile(string $html): ?array
+    private function parseProfileWithOrigin(string $html, string $origin, int $limit): array
     {
-        // Profile name from og:title ("Music | <Artist>") or og:site_name.
         $name = $this->metaContent($html, 'og:title');
         if (is_string($name)) {
             $name = trim(preg_replace('~^Music\s*\|\s*~i', '', $name)) ?: null;
@@ -48,14 +45,24 @@ class BandcampScraper extends HtmlScrapeBase
 
         $avatar = $this->metaContent($html, 'og:image');
 
-        // Parse music grid items
-        $items = $this->parseGridItems($html, 24);
+        $items = $this->parseGridItems($html, $origin, $limit);
 
         return [
-            'display_name' => $name,
-            'profile_pic_url' => $avatar,
             'items' => $items,
+            'profile' => [
+                'display_name' => $name,
+                'profile_pic_url' => $avatar,
+                'bio' => null,
+                'follower_count' => null,
+            ],
         ];
+    }
+
+    // Required by HtmlScrapeBase but not used directly — profile is built via
+    // parseProfileWithOrigin which also handles URL resolution.
+    protected function parseProfile(string $html): ?array
+    {
+        return null;
     }
 
     // -----------------------------------------------------------------------
@@ -98,10 +105,11 @@ class BandcampScraper extends HtmlScrapeBase
     /**
      * Parse the album/track grid from the /music page HTML.
      * Preserved from the old BandcampScraper grid parsing logic.
+     * Uses the artist origin to resolve relative URLs.
      *
      * @return list<array{identifier:string, name:string, item_type:string, values:list<array{field_name:string, value:string, format:string}>}>
      */
-    private function parseGridItems(string $html, int $limit): array
+    private function parseGridItems(string $html, string $origin, int $limit): array
     {
         $items = [];
 
@@ -135,7 +143,7 @@ class BandcampScraper extends HtmlScrapeBase
                 : null;
 
             $name = html_entity_decode(trim($title[1]), ENT_QUOTES | ENT_HTML5);
-            $link = $this->resolveUrl($href[1]);
+            $link = $this->resolveItemUrl($href[1], $origin);
 
             $values = [
                 ['field_name' => 'title', 'value' => $name, 'format' => 'text'],
@@ -158,15 +166,17 @@ class BandcampScraper extends HtmlScrapeBase
     }
 
     /**
-     * Resolve a potentially-relative URL to an absolute bandcamp.com URL.
+     * Resolve a potentially-relative URL to an absolute URL using the artist
+     * origin (e.g. /album/name → https://artist.bandcamp.com/album/name).
      */
-    private function resolveUrl(string $url): string
+    private function resolveItemUrl(string $url, string $origin): string
     {
+        $url = html_entity_decode($url, ENT_QUOTES | ENT_HTML5);
+
         if (str_starts_with($url, 'http')) {
-            return html_entity_decode($url, ENT_QUOTES | ENT_HTML5);
+            return $url;
         }
 
-        // Relative URL — prepend bandcamp.com
-        return 'https://bandcamp.com'.ltrim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5), '/');
+        return $origin.rtrim('/'.ltrim($url, '/'), '/');
     }
 }
