@@ -1,0 +1,2 @@
+# k6 run output — local diagnostic artefacts, never a deliverable.
+results/*.json
