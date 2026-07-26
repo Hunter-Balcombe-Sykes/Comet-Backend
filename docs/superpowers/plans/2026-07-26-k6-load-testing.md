@@ -54,13 +54,13 @@ Fixed test identifiers used across `seed.sql`, `teardown.sql`, `config.js`, and 
 **Interfaces:**
 - Produces (consumed by every later script): `ORIGIN`, `TEST_HANDLE`, `TEST_SITE_ID`, `EDGE_HOST`, `TARGET_CONCURRENT`, `SPIKE_VUS`, `PUBLIC_PROFILE_RL_PER_MIN`, `LOAD_HEADERS`, `THRESHOLDS` (object with keys `baseline`, `edge`, `origin`, `jobs`).
 
-- [ ] **Step 1: Confirm k6 is installed**
+- [x] **Step 1: Confirm k6 is installed**
 
 Run: `k6 version`
 Expected: prints `k6 v0.5x.x`. If "command not found":
 Run: `brew install k6` then re-run `k6 version`.
 
-- [ ] **Step 2: Create the results dir and its .gitignore**
+- [x] **Step 2: Create the results dir and its .gitignore**
 
 Create `scripts/launch-check/k6/results/.gitkeep` (empty file).
 Create `scripts/launch-check/k6/.gitignore`:
@@ -70,7 +70,7 @@ Create `scripts/launch-check/k6/.gitignore`:
 results/*.json
 ```
 
-- [ ] **Step 3: Write config.js**
+- [x] **Step 3: Write config.js**
 
 Create `scripts/launch-check/k6/config.js`:
 
@@ -128,7 +128,7 @@ export const THRESHOLDS = {
 };
 ```
 
-- [ ] **Step 4: Verify config.js is valid k6 module syntax**
+- [x] **Step 4: Verify config.js is valid k6 module syntax**
 
 Run: `cd scripts/launch-check/k6 && k6 run --quiet -e SMOKE=1 - <<'EOF'
 import { TARGET_CONCURRENT, ORIGIN, THRESHOLDS } from './config.js';
@@ -139,7 +139,7 @@ export default function () {
 EOF`
 Expected: run completes; log line prints `config OK: origin=https://dev-api.partna.au target=50 ...`; no import error.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/launch-check/k6/config.js scripts/launch-check/k6/.gitignore scripts/launch-check/k6/results/.gitkeep
@@ -157,7 +157,7 @@ git commit -m "feat(k6): scaffold load-test harness config + results dir"
 - Consumes: fixed IDs from the File Structure section.
 - Produces: a resolvable `loadtest` handle on dev — `GET https://dev-api.partna.au/api/public/profiles/loadtest` → 200, and `https://loadtest.partna.au/` routes through the Worker.
 
-- [ ] **Step 1: Insert the minimal user + published site on DEV**
+- [x] **Step 1: Insert the minimal user + published site on DEV**
 
 Run this SQL against the **dev** Supabase (`glncumufgaqcmqhzwrxm`) — via the Supabase MCP `execute_sql` (project_id = dev ref) or `psql "$DEV_DB_URL" -c '...'`. **Confirm the target is dev before running.**
 
@@ -180,12 +180,12 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 2: Verify the origin resolves the handle**
+- [x] **Step 2: Verify the origin resolves the handle**
 
 Run: `curl -s -o /dev/null -w "%{http_code}\n" https://dev-api.partna.au/api/public/profiles/loadtest`
 Expected: `200`.
 
-- [ ] **Step 3: Push the subdomain into KV (raw SQL does NOT fire the observer)**
+- [x] **Step 3: Push the subdomain into KV (raw SQL does NOT fire the observer)**
 
 `SyncSubdomainToKvJob` is the ONLY KV writer and takes the user id. Raw SQL inserts do not trigger it, so dispatch it explicitly on the deployed dev env:
 
@@ -199,13 +199,13 @@ Then in the tinker shell:
 Type `exit` to leave tinker.
 _Note: `SUBDOMAIN_KV` is shared between prod and dev (known gap). `loadtest` is a throwaway unlikely to collide; if a real `loadtest` handle ever exists this would clash — pick another handle in `config.js` if so._
 
-- [ ] **Step 4: Verify the edge host routes through the Worker**
+- [x] **Step 4: Verify the edge host routes through the Worker**
 
 Run: `curl -s -o /dev/null -w "%{http_code} cf=%{header_json}\n" -I https://loadtest.partna.au/ | head -c 200; echo`
 (Simpler:) Run: `curl -sI https://loadtest.partna.au/ | grep -i "cf-cache-status\|^HTTP"`
 Expected: an `HTTP/2 200` (or a Worker-served status), proving `<handle>.partna.au` resolves. A `522`/`1016`/DNS error means KV didn't populate — re-check Step 3.
 
-- [ ] **Step 5: No commit** — this task only mutates dev DB/KV state, no repo files. Proceed to Task 3.
+- [x] **Step 5: No commit** — this task only mutates dev DB/KV state, no repo files. Proceed to Task 3.
 
 ---
 
@@ -219,7 +219,7 @@ Expected: an `HTTP/2 200` (or a Worker-served status), proving `<handle>.partna.
 - Consumes: fixed IDs; the user+site rows from Task 2 (seed re-creates them idempotently, so `seed.sql` is the single source of truth and supersedes Task 2's minimal insert).
 - Produces: a `loadtest` site whose `/profiles/loadtest` payload has non-empty `links`, `gallery`, `services` arrays and populated popularity ranks — so hot-path queries do real work.
 
-- [ ] **Step 1: Write seed.sql**
+- [x] **Step 1: Write seed.sql**
 
 Create `scripts/launch-check/k6/seed.sql`. One `DO` block = one atomic statement (rolls back wholesale on any error; safe for both `psql -f` and Supabase MCP `execute_sql`). Idempotent: deletes the fixed IDs first, then re-seeds. **DEV ONLY.**
 
@@ -313,7 +313,7 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 2: Write teardown.sql**
+- [x] **Step 2: Write teardown.sql**
 
 Create `scripts/launch-check/k6/teardown.sql`. Reverses everything the seed and any write scenario created, scoped to the fixed IDs. **DEV ONLY.**
 
@@ -338,12 +338,12 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 3: Apply the seed to DEV**
+- [x] **Step 3: Apply the seed to DEV**
 
 Run against dev (Supabase MCP `execute_sql` with dev project_id, or `psql "$DEV_DB_URL" -f scripts/launch-check/k6/seed.sql`). **Confirm dev before running.**
 Expected: no error; the `DO` block completes.
 
-- [ ] **Step 4: Re-sync KV (the seed re-created the site row)**
+- [x] **Step 4: Re-sync KV (the seed re-created the site row)**
 
 Run: `~/.composer/vendor/bin/cloud tinker development` then:
 
@@ -351,12 +351,12 @@ Run: `~/.composer/vendor/bin/cloud tinker development` then:
 \App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatchSync('00000000-0000-4000-a000-000000000001');
 ```
 
-- [ ] **Step 5: Verify the payload now carries representative data**
+- [x] **Step 5: Verify the payload now carries representative data**
 
 Run: `curl -s "https://dev-api.partna.au/api/public/profiles/loadtest" | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; print('links',len(d['links']),'gallery',len(d['gallery']),'services',len(d['services']))"`
 Expected: `links 10 gallery 40 services 15` (non-zero on all three). Zeros mean a seed constraint/column mismatch — the `DO` block would have errored, so re-check Step 3's output.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/launch-check/k6/seed.sql scripts/launch-check/k6/teardown.sql
@@ -373,7 +373,7 @@ git commit -m "feat(k6): phase-0 representative-data seed + teardown (dev-scoped
 **Interfaces:**
 - Consumes: `ORIGIN`, `TEST_HANDLE`, `LOAD_HEADERS`, `THRESHOLDS.baseline` from `config.js`.
 
-- [ ] **Step 1: Write baseline.js**
+- [x] **Step 1: Write baseline.js**
 
 Create `scripts/launch-check/k6/baseline.js`. Uses `constant-arrival-rate` at 45/min so the profile endpoint stays safely under the 60/min single-IP limiter — this measures latency, not throttling. Duration/rate are env-overridable for smoke runs.
 
@@ -417,12 +417,12 @@ export default function () {
 }
 ```
 
-- [ ] **Step 2: Smoke-run baseline.js (safe, 15s)**
+- [x] **Step 2: Smoke-run baseline.js (safe, 15s)**
 
 Run: `cd scripts/launch-check/k6 && k6 run -e DURATION=15s -e RATE=20 baseline.js`
 Expected: run completes; `checks` ~100% passing; thresholds section shows `http_req_duration` and `http_req_failed` PASS. Any `profile 200` failures → the handle/seed is missing (re-run Task 3).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/launch-check/k6/baseline.js
@@ -448,7 +448,7 @@ Record reference p50/p95/p99 + error rate in README (Task 7). This is the number
 - Consumes: `EDGE_HOST`, `SPIKE_VUS`, `LOAD_HEADERS`, `THRESHOLDS.edge` from `config.js`.
 - Produces: a custom `Rate` metric `edge_cache_hit` (fraction of post-warmup responses with `Cf-Cache-Status: HIT`).
 
-- [ ] **Step 1: Write spike-edge.js**
+- [x] **Step 1: Write spike-edge.js**
 
 Create `scripts/launch-check/k6/spike-edge.js`. A short warmup scenario primes the edge cache; the measured scenario (starting after warmup) records the HIT rate. k6 canonicalises the header to `Cf-Cache-Status`.
 
@@ -502,12 +502,12 @@ export function measure() {
 }
 ```
 
-- [ ] **Step 2: Smoke-run spike-edge.js (safe, tiny)**
+- [x] **Step 2: Smoke-run spike-edge.js (safe, tiny)**
 
 Run: `cd scripts/launch-check/k6 && k6 run -e SPIKE_VUS=2 -e DURATION=15s spike-edge.js`
 Expected: run completes; the `edge_cache_hit` metric appears; after the 15s warmup most `measure` responses are HIT. If `edge_cache_hit` is ~0, the Worker isn't populating `caches.default` for this route — capture and flag before escalating (a real cost/scale bug per §7), do not "fix" the threshold.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/launch-check/k6/spike-edge.js
@@ -533,7 +533,7 @@ Pass = `edge_cache_hit` rate > 0.9 and near-zero origin hits during the sustaine
 - Consumes: `ORIGIN`, `TEST_HANDLE`, `SPIKE_VUS`, `LOAD_HEADERS`, `THRESHOLDS.origin` from `config.js`.
 - Produces: custom `Counter` metrics `origin_5xx` and `origin_429`.
 
-- [ ] **Step 1: Confirm the limiter is ON on dev (pre-flight for a meaningful run)**
+- [x] **Step 1: Confirm the limiter is ON on dev (pre-flight for a meaningful run)**
 
 Run: `~/.composer/vendor/bin/cloud tinker development` then:
 
@@ -543,7 +543,7 @@ config('partna.public_profile.rate_limit_per_minute');
 
 Expected: `60` (or the configured value), not `0`/disabled. If limiters are globally disabled (`$throttleEnabled` false), this scenario measures nothing — resolve before running. Type `exit`.
 
-- [ ] **Step 2: Write spike-origin.js**
+- [x] **Step 2: Write spike-origin.js**
 
 Create `scripts/launch-check/k6/spike-origin.js`. `?rand=` per request defeats the edge cache so every request reaches origin. 200 **and** 429 are expected (the limiter returning 429 is the pass); only 5xx is a real failure.
 
@@ -586,12 +586,12 @@ export default function () {
 }
 ```
 
-- [ ] **Step 3: Smoke-run spike-origin.js (safe, tiny)**
+- [x] **Step 3: Smoke-run spike-origin.js (safe, tiny)**
 
 Run: `cd scripts/launch-check/k6 && k6 run -e SPIKE_VUS=3 -e DURATION=15s spike-origin.js`
 Expected: run completes; `origin_429` > 0 (limiter engaged from one IP), `origin_5xx` == 0. `http_req_failed` stays low because 429 is an expected status.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/launch-check/k6/spike-origin.js
@@ -618,7 +618,7 @@ Pass = `origin_5xx` == 0, `origin_429` > 0, Supabase connections flat. Optional 
 - Consumes: `ORIGIN`, `TEST_SITE_ID`, `LOAD_HEADERS`, `THRESHOLDS.jobs` from `config.js`.
 - Produces: custom `Counter` metrics `jobs_5xx`, `jobs_accepted`.
 
-- [ ] **Step 1: Write jobs.js**
+- [x] **Step 1: Write jobs.js**
 
 Create `scripts/launch-check/k6/jobs.js`. POSTs pageview beacons (`site_id` from config). On dev `QUEUE_CONNECTION=redis`, so the **QueuedIngestor** is active and each accepted write enqueues a Horizon job — this is what saturates the pipeline. **Held until Phases 1–2 pass** (§5).
 
@@ -668,7 +668,7 @@ export default function () {
 }
 ```
 
-- [ ] **Step 2: Smoke-run jobs.js (safe, tiny) — then TEAR DOWN**
+- [x] **Step 2: Smoke-run jobs.js (safe, tiny) — then TEAR DOWN**
 
 Run: `cd scripts/launch-check/k6 && k6 run -e JOB_VUS=2 -e DURATION=10s jobs.js`
 Expected: run completes; `jobs_accepted` > 0, `jobs_5xx` == 0.
@@ -676,7 +676,7 @@ Then immediately clean the write rows the smoke run created:
 Run the teardown (dev): `psql "$DEV_DB_URL" -f teardown.sql` (or Supabase MCP `execute_sql` with `teardown.sql`).
 _The smoke run is a write scenario — §6 requires teardown after it. (Re-seed via `seed.sql` before any further read-path runs.)_
 
-- [ ] **Step 3: Write README.md**
+- [x] **Step 3: Write README.md**
 
 Create `scripts/launch-check/k6/README.md`:
 
@@ -740,7 +740,7 @@ Claude drives k6 + `cloud env:logs partna development --live`. Josh watches Hori
 Run one phase, stop, review both sides, decide escalate/move-on/abort together.
 ````
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/launch-check/k6/jobs.js scripts/launch-check/k6/README.md
