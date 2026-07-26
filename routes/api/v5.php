@@ -5,7 +5,7 @@ use App\Http\Controllers\Api\V5\ItemController;
 use App\Http\Controllers\Api\V5\PlatformController;
 use App\Http\Controllers\Api\V5\PlatformDefinitionController;
 use App\Http\Controllers\Api\V5\RouterController;
-use App\Http\Middleware\Site\EnforcePendingDeletionReadOnly;
+use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'])
