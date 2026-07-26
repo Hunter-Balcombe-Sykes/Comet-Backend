@@ -187,12 +187,6 @@ parameters:
 			path: app/Http/Controllers/Api/Platforms/SquareController.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/AnalyticsController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>timestamp" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 2
@@ -257,12 +251,6 @@ parameters:
 			identifier: argument.unresolvableType
 			count: 1
 			path: app/Http/Controllers/Api/PublicSite/PublicMenuController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Http/Controllers/Api/PublicSite/PublicSiteController.php
 
 		-
 			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
@@ -2617,12 +2605,6 @@ parameters:
 			path: app/Services/PublicSite/IndividualProfilePayloadBuilder.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\SiteSubdomainAlias\:\:\$site_id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/PublicSite/PublicSiteResolver.php
-
-		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 2
@@ -2753,12 +2735,6 @@ parameters:
 			identifier: identical.alwaysFalse
 			count: 1
 			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\UserHandleAlias\:\:\$reclaim_until\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Site/ReclaimHandleAction.php
 
 		-
 			message: '#^Offset ''handle_location'' on array\{display_name\: string, icon_key\: string, placeholder\: string, handle_pattern\: string, url_template\: string, host_allowlist\: array\<int, string\>, url_path_extractor\: string, default_category\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'

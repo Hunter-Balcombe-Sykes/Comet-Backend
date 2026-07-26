@@ -6,9 +6,21 @@ use App\Models\BaseModel;
 use App\Models\Core\User\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 // Historical handle alias that serves 301 redirects after a professional renames.
 // Lifecycle: GRACE (0–14d, owner-reclaimable) → REDIRECT (14–90d) → RELEASED (prune deletes row).
+/**
+ * @property string $id
+ * @property string $user_id
+ * @property string $handle
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ * @property Carbon|null $reclaim_until
+ * @property Carbon|null $expires_at
+ * @property Carbon|null $notified_t3_at
+ * @property Carbon|null $notified_t1_at
+ */
 class UserHandleAlias extends BaseModel
 {
     use HasUuids;

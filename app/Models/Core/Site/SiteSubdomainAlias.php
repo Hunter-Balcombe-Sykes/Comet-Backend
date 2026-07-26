@@ -5,10 +5,22 @@ namespace App\Models\Core\Site;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 // Historical subdomain alias that serves 301 redirects after a site changes its subdomain.
 // Lifecycle: GRACE (0–14d, owner-reclaimable) → REDIRECT (14–90d) → RELEASED (prune deletes row).
 // Mirrors core.user_handle_aliases (UserHandleAlias) on the handle side.
+/**
+ * @property string $id
+ * @property string $site_id
+ * @property string $subdomain
+ * @property Carbon $created_at
+ * @property string $updated_at DB-maintained (set_timestamp trigger); NOT in $casts, so it reads back as a string
+ * @property Carbon|null $reclaim_until
+ * @property Carbon|null $expires_at
+ * @property Carbon|null $notified_t3_at
+ * @property Carbon|null $notified_t1_at
+ */
 class SiteSubdomainAlias extends BaseModel
 {
     use HasUuids;
