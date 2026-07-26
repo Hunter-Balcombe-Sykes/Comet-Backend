@@ -76,13 +76,16 @@ class TwitchScraper extends HtmlScrapeBase
      */
     private function parseLogin(string $input): ?string
     {
+        // Handle bare @handle or handle before URL normalization
+        if (preg_match('~^@?([A-Za-z0-9_]{3,25})$~', trim($input), $m)) {
+            $login = strtolower($m[1]);
+            return in_array($login, self::RESERVED, true) ? null : $login;
+        }
+
         $input = $this->normalizeToUrl($input);
 
         // twitch.tv URL
         if (preg_match('~^https?://(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{3,25})/?~i', $input, $m)) {
-            $candidate = $m[1];
-        } elseif (preg_match('~^@?([A-Za-z0-9_]{3,25})$~', $input, $m)) {
-            // Bare handle
             $candidate = $m[1];
         } else {
             return null;
