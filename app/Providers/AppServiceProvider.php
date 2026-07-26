@@ -6,8 +6,8 @@ use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
-use App\Models\Core\EarlyAccess\EarlyAccessSignup;
-use App\Models\Core\FeatureAvailabilityRule;
+// V5: EarlyAccessSignup deleted
+// V5: FeatureAvailabilityRule deleted
 use App\Models\Core\FeatureFlag;
 use App\Models\Core\FeatureFlagOverride;
 use App\Models\Core\Feedback;
@@ -42,9 +42,9 @@ use App\Policies\CasePolicy;
 use App\Policies\ContentSelectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\DecisionPolicy;
-use App\Policies\EarlyAccessSignupPolicy;
+// V5: EarlyAccessSignupPolicy deleted
 use App\Policies\EnquiryPolicy;
-use App\Policies\FeatureAvailabilityPolicy;
+// V5: FeatureAvailabilityPolicy deleted
 use App\Policies\FeatureFlagPolicy;
 use App\Policies\FeedbackPolicy;
 use App\Policies\GdprPolicy;
@@ -182,8 +182,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(FeatureFlagOverride::class, FeatureFlagPolicy::class);
         Gate::policy(UserSegment::class, UserSegmentPolicy::class);
         Gate::policy(UserSegmentMember::class, UserSegmentPolicy::class);
-        Gate::policy(FeatureAvailabilityRule::class, FeatureAvailabilityPolicy::class);
-        Gate::policy(EarlyAccessSignup::class, EarlyAccessSignupPolicy::class);
+        // V5: FeatureAvailabilityRule + EarlyAccessSignup deleted during cleanup
         Gate::policy(Feedback::class, FeedbackPolicy::class);
         Gate::policy(ModerationCase::class, CasePolicy::class);
         Gate::policy(Decision::class, DecisionPolicy::class);

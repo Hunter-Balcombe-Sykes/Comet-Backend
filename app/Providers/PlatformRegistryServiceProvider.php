@@ -16,7 +16,7 @@ use App\Http\Resources\Platforms\NowBookitConnectionResource;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Http\Resources\Platforms\PinterestConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
-use App\Http\Resources\Platforms\ShopBrandResource;
+// V5: ShopBrandResource deleted
 use App\Http\Resources\Platforms\SkoolConnectionResource;
 use App\Http\Resources\Platforms\StravaConnectionResource;
 use App\Http\Resources\Platforms\TileConnectionResource;
@@ -27,7 +27,7 @@ use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Models\Core\Site\ShopProduct;
+// V5: ShopProduct deleted
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
@@ -58,7 +58,7 @@ use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
-use App\Services\Platforms\Payloads\ShopPayload;
+// V5: ShopPayload deleted
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
@@ -479,8 +479,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 $r->get($slug)->detect(new HostMatch($pattern));
             }
 
-            // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
-            $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
+            // V5: Shop deleted — no commerce, brand affiliation, or Shopify
             // Latest-mode product sync — auto-tracks the store's newest products
             // for brands with selection_mode='latest'; manual brands 304 inside.
             $r->get('shop')->fetch(fn () => new ShopFetch(
