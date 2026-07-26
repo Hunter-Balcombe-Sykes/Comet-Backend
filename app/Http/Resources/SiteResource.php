@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Design\DesignRationaleService;
 use App\Services\Design\ProfileDesignPresets;
+// V5: FeatureAvailability deleted during cleanup — guarded with class_exists
 use App\Services\FeatureAvailability\FeatureAvailability;
 use Illuminate\Http\Request;
 
@@ -73,6 +74,10 @@ class SiteResource extends ApiResource
      */
     private function featureAvailabilityMap(User $owner): array
     {
+        // V5: FeatureAvailability deleted, return empty map
+        if (! class_exists('App\Services\FeatureAvailability\FeatureAvailability')) {
+            return [];
+        }
         $availability = FeatureAvailability::for($owner);
 
         return collect(PublicFeature::cases())
