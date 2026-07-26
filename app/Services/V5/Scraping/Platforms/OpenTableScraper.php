@@ -137,7 +137,7 @@ class OpenTableScraper extends ApiBase implements FetchContract
     /**
      * Normalize an input URL to https:// form.
      */
-    private function normalizeUrl(string $input): string
+    protected function normalizeUrl(string $input): string
     {
         if (! str_starts_with($input, 'http')) {
             return 'https://'.$input;
