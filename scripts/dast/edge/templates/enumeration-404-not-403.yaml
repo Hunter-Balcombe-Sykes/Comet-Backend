@@ -1,0 +1,21 @@
+id: enumeration-404-not-403
+
+info:
+  name: "Public profile lookup leaks existence via 403 instead of 404"
+  author: partna
+  severity: medium
+  tags: misconfiguration,partna
+  description: >
+    CLAUDE.md's authorization convention: public read paths answer an
+    unknown/foreign resource with 404, never 403 — a 403 confirms
+    "exists but forbidden" and enables handle enumeration. A guaranteed-
+    nonexistent handle returning 403 is the finding.
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/public/profiles/dast-canary-nonexistent-handle-000"
+    matchers:
+      - type: status
+        status:
+          - 403

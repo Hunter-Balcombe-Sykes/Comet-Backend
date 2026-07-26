@@ -364,21 +364,24 @@ docker run --rm --network host \
 
 **Depends on:** Phase 0. **Files:** `edge/nuclei-edge.sh`, `edge/templates/*.yaml`.
 
-- [ ] **Step 1: `nuclei-edge.sh`** — curated, tag-pinned, rate-limited (never "run everything"):
+- [x] **Step 1: `nuclei-edge.sh`** — curated, tag-pinned, rate-limited (never "run everything"). **Deviation from the plan's snippet, verified empirically 2026-07-26 against nuclei v3.11.0:** `-t /templates/` alone (as a single custom dir with no default `-t`) mounts ONLY the custom templates, dropping the curated official set entirely; and `-t <default> -it /templates/` (include-templates) silently drops all 5 custom templates when combined with `-tags`/`-severity` (0 of 5 loaded — confirmed via a local test target). The working mechanism is **two repeated `-t` flags** — `-t /root/nuclei-templates -t /templates/` — both filtered by the same `-tags`/`-severity`; this loads 31 templates (26 official + all 5 custom) in one pass. Actual script:
 
 ```bash
-docker run --rm projectdiscovery/nuclei \
-  -u "${TARGET:-$EDGE_TARGET}" \
+docker run --rm \
+  -v dast-nuclei-templates:/root/nuclei-templates \
+  -v "$HERE/edge/templates:/templates:ro" \
+  -v "$OUTDIR:/out" \
+  projectdiscovery/nuclei \
+  -u "$TARGET" \
+  -t /root/nuclei-templates -t /templates/ \
   -tags exposures,misconfiguration,http,ssl,cache \
   -severity low,medium,high,critical \
-  -rate-limit "${DAST_EDGE_RATE_LIMIT:-20}" \
-  -t /templates/ \                    # custom assert templates mounted in
-  -jsonl -o "$OUTDIR/nuclei.jsonl" -stats
+  -rate-limit "$RATE_LIMIT" \
+  -var "alias_host=${ALIAS_HOST}" \
+  -jsonl -o /out/nuclei.jsonl -stats
 ```
 
-Mount `edge/templates/` into the container so the built-in curated tags AND the custom asserts run in one pass.
-
-- [ ] **Step 2: Author the five custom assert templates** (this is their **one home** — launch-check will call the lane, not re-author). One YAML each under `edge/templates/`:
+- [x] **Step 2: Author the five custom assert templates** (this is their **one home** — launch-check will call the lane, not re-author). One YAML each under `edge/templates/`:
   - `env-git-not-exposed.yaml` — `GET /.env` → 404, `/.git/config` → 404/403.
   - `debug-tools-gated.yaml` — `/telescope`, `/horizon` → not 200 (redirect/401/404).
   - `enumeration-404-not-403.yaml` — a missing/foreign resource on a public endpoint → **404**, never 403 (matches the 403-vs-404 standard in CLAUDE.md).
@@ -400,9 +403,11 @@ http:
         negative: true        # a 200 here is the finding
 ```
 
-- [ ] **Step 3: Rate-limit + WAF note.** Keep `-rate-limit` low; `EDGE_TARGET` also serves live `api.partna.au` and sits behind Cloudflare — an unthrottled sweep trips the WAF and reads challenge pages as "clean" (false negatives). Document this in the script header.
+**Deviation, verified empirically 2026-07-26:** the `negative: true` in this snippet is backwards. Tested directly against a controlled local target (a Python http.server exposing a fake `.env`) — a plain `status: [200]` matcher with **no** `negative` correctly fires when the response IS 200 (the bad state). `negative: true` on `status: [200]` inverts to "fire when status is anything BUT 200," which is not what any of these templates want. All 5 custom templates use plain positive matchers on the bad-state condition instead. `alias-301-canonical.yaml` is the one legitimate use of `negative: true` in this set (fire when status is NOT 301 — a genuine "flag the absence of the good state" case) and its severity is `low` (not `high`) because it depends on a currently-live alias host (`EDGE_ALIAS_HOST`, transient data) — a stale/unset one must not noisily fail the gate. `cache-control-correct.yaml` only implements the deterministic no-store-on-tokenized-path half (see file) — the mirror-image "cacheable profile" assertion needs a live seeded handle and is deferred to Phase-10 manual triage per the plan's own "not-yet-built launch-check probe suite" deferral note.
 
-**Done when:** `run.sh --only edge --target https://dev-api.partna.au` produces `nuclei.jsonl`, all five custom templates execute (visible in `-stats`), and none of the asserts false-positive against the known-good dev host on a first eyeball.
+- [x] **Step 3: Rate-limit + WAF note.** Keep `-rate-limit` low; `EDGE_TARGET` also serves live `api.partna.au` and sits behind Cloudflare — an unthrottled sweep trips the WAF and reads challenge pages as "clean" (false negatives). Documented in the script header.
+
+**Done when:** `run.sh --only edge --target https://dev-api.partna.au` produces `nuclei.jsonl`, all five custom templates execute (visible in `-stats`), and none of the asserts false-positive against the known-good dev host on a first eyeball. ✅ Verified 2026-07-26 — `nuclei-edge.sh audits/dast/2026-07-26 https://dev-api.partna.au`: "Templates loaded for current scan: 31" (26 official + 5 custom), "Scan completed in 16.9s. No results found." — clean, zero false positives against dev.
 
 ---
 

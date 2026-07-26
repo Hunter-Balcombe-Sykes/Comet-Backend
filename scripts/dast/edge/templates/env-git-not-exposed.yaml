@@ -1,0 +1,22 @@
+id: env-git-not-exposed
+
+info:
+  name: ".env / .git config exposed over HTTP"
+  author: partna
+  severity: high
+  tags: exposures,partna
+  description: >
+    Laravel's .env holds DB/JWT/API secrets; .git/config can leak repo
+    remotes/tokens. Neither should ever be reachable through the public
+    webroot (both live outside public/). 404/403 is healthy — this
+    template's positive status match on 200 IS the finding.
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/.env"
+      - "{{BaseURL}}/.git/config"
+    matchers:
+      - type: status
+        status:
+          - 200

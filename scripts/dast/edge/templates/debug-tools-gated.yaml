@@ -1,0 +1,22 @@
+id: debug-tools-gated
+
+info:
+  name: "Debug/ops tools (Telescope, Horizon) not publicly reachable"
+  author: partna
+  severity: high
+  tags: exposures,misconfiguration,partna
+  description: >
+    /telescope and /horizon are debug/ops dashboards. This app registers
+    Horizon behind Horizon::auth (AppServiceProvider) and does not ship
+    Telescope at all, so 401/403/404/redirect are all healthy. An
+    unauthenticated 200 means the gate is off — that's the finding.
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/telescope"
+      - "{{BaseURL}}/horizon"
+    matchers:
+      - type: status
+        status:
+          - 200

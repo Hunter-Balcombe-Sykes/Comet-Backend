@@ -1,0 +1,32 @@
+id: cache-control-correct
+
+info:
+  name: "Tokenized public endpoint carries Cache-Control: no-store"
+  author: partna
+  severity: high
+  tags: cache,misconfiguration,partna
+  description: >
+    AddPublicCacheHeaders forces `private, no-store, max-age=0` on every
+    path under NO_STORE_PATH_PREFIXES (api/public/unsubscribe/*) regardless
+    of whether the token resolves — deterministic, no fixture data needed.
+    A missing "no-store" is the finding: it means that middleware rule
+    regressed and a shared/CDN cache could retain a response tied to a
+    real subscriber's token.
+
+    The mirror-image positive check (a real profile handle correctly
+    getting `public, max-age=...`) needs a live, currently-published
+    handle to test against and isn't safely automatable here without
+    risking noisy false positives on environments with no seeded data
+    (see plan's "not-yet-built launch-check probe suite" deferral) —
+    left to Phase-10 manual triage against EDGE_SITEPAGE_TARGET.
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/public/unsubscribe/dast-canary-token"
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "no-store"
+        negative: true

@@ -1,0 +1,29 @@
+id: alias-301-canonical
+
+info:
+  name: "Retired subdomain alias 301s to its canonical host"
+  author: partna
+  severity: low
+  tags: http,partna
+  description: >
+    A renamed handle's old subdomain must 301 to the canonical one (see
+    docs/handle-redirects.md), never silently 404. Aliases are transient
+    (reclaim_until +14d, hard-deleted at expires_at +90d), so this needs
+    a currently-live alias host supplied via `-var alias_host=<old-sub>`
+    (nuclei-edge.sh reads EDGE_ALIAS_HOST). With no var set, alias_host
+    is blank, the request targets an empty host, gets no response, and
+    the matcher never evaluates — a safe no-op, not a false finding.
+    Severity is low (not high) because a stale/expired configured alias
+    would otherwise noisily fail a stricter --fail-on gate for reasons
+    that have nothing to do with the redirect logic itself; low still
+    clears the curated severity floor (low,medium,high,critical) below.
+
+http:
+  - method: GET
+    path:
+      - "https://{{alias_host}}/"
+    matchers:
+      - type: status
+        status:
+          - 301
+        negative: true
