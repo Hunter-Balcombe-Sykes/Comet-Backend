@@ -13,7 +13,7 @@ Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`.
 
 Feature branches off `development`. PR → merge → promote to `production` to deploy prod.
 
-**Current reality (2026-06-16):** Production env stopped, prod Supabase inactive. **Development** env serves BOTH domains, backed by dev Supabase (`glncumufgaqcmqhzwrxm`) — the live DB. Push `development` updates both APIs (do NOT promote). Apply migrations via `supabase db push` or Supabase MCP against dev ref.
+**Current reality (2026-07-26, post-cutover):** Each env now stands on its own. **Production** serves `api.partna.au` from the prod Laravel Cloud env backed by prod Supabase (`edplucmvkcnokyygxqsb`); **development** serves `dev-api.partna.au` from dev Supabase (`glncumufgaqcmqhzwrxm`). They deploy independently — pushing `development` no longer updates prod. To deploy prod: fast-forward `development` → `production` and promote. Apply migrations against the ref you mean; prod schema == dev schema (both on the 2026-07-26 baseline, verified identical 2026-07-26). Prod carries no customer data yet (`core.users` = 0). Supabase org is on the **Free** plan — no PITR, no managed backups, and projects can auto-pause; the `partna-db-backup` R2 dump is the only backup.
 
 **Cloud CLI** (`~/.composer/vendor/bin/cloud`, arg = env name): `cloud deployment:list development` / `tinker` / `command:run`. Read an env's configured vars: `cloud environment:get <env> --json --fields=environmentVariables` (masked; `--show-sensitive` to reveal).
 
