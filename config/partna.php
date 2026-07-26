@@ -840,7 +840,11 @@ return [
             // Square first — top priority for pricing/images over Uber Eats/DoorDash.
             'square' => [
                 'actor' => 'menus-r-us~restaurant-menu-scraper',
-                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com/~|^order\.~',
+                // Matched against a bare host (MenuSource::platformOf passes
+                // parse_url PHP_URL_HOST), so anchor on $ -- a trailing slash
+                // both closed the ~ delimiter early, making the rest of the
+                // pattern parse as modifiers, and could never match a host.
+                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$|^order\.~',
                 'driver' => SquareMenuDriver::class,
             ],
             'uber-eats' => [
