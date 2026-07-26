@@ -12,6 +12,8 @@ it('renders the enquiry confirmation with pro name, accent button and reply-to',
         logoUrl: null,
         logoUrlLight: null,
         logoUrlDark: null,
+        iconUrlLight: null,
+        iconUrlDark: null,
         replyToEmail: 'jane@example.com',
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000', 'button_primary_bg' => '#aa0000']),
     );

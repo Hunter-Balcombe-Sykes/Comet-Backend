@@ -11,6 +11,8 @@ it('renders pro logo + accent button in white-label mode', function () {
         logoUrl: 'https://media.partna.au/logo.webp',
         logoUrlLight: null,
         logoUrlDark: null,
+        iconUrlLight: null,
+        iconUrlDark: null,
         replyToEmail: null,
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000', 'button_primary_bg' => '#aa0000']),
     );

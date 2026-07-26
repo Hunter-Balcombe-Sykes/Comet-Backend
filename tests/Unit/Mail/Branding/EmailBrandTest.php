@@ -44,6 +44,8 @@ it('round-trips through toArray/fromArray (cache payload)', function () {
         logoUrl: 'https://media.example/logo.webp',
         logoUrlLight: null,
         logoUrlDark: null,
+        iconUrlLight: null,
+        iconUrlDark: null,
         replyToEmail: 'jane@example.com',
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000']),
     );

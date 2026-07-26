@@ -19,6 +19,8 @@ function testBrand(?string $replyToEmail): EmailBrand
         logoUrl: null,
         logoUrlLight: null,
         logoUrlDark: null,
+        iconUrlLight: null,
+        iconUrlDark: null,
         replyToEmail: $replyToEmail,
         palette: EmailBrandDefaults::defaults(),
     );

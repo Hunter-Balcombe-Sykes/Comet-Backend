@@ -12,6 +12,8 @@ it('renders the subscription confirmation with unsubscribe + one-click headers',
         logoUrl: null,
         logoUrlLight: null,
         logoUrlDark: null,
+        iconUrlLight: null,
+        iconUrlDark: null,
         replyToEmail: 'jane@example.com',
         palette: EmailBrandDefaults::palette(['color_accent' => '#aa0000', 'button_primary_bg' => '#aa0000']),
     );

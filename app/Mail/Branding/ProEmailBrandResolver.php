@@ -83,10 +83,14 @@ class ProEmailBrandResolver
             proName: $proName,
             siteUrl: $siteUrl,
             logoUrl: $this->resolveLogoUrl($siteId),
-            // Pro emails render logoUrl; the light/dark pair is the Partna
-            // first-party wordmark only (partna.blade.php isPartna branch).
+            // Pro emails render logoUrl; the light/dark wordmark pair and the
+            // icon pair are the Partna first-party marks only (partna.blade.php
+            // isPartna branch). All four are required constructor params with no
+            // defaults — omitting them is an ArgumentCountError, not a fallback.
             logoUrlLight: null,
             logoUrlDark: null,
+            iconUrlLight: null,
+            iconUrlDark: null,
             replyToEmail: $this->resolveReplyTo($siteId),
             palette: EmailBrandDefaults::palette($kit),
         );
