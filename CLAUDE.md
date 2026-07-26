@@ -29,7 +29,7 @@ Feature branches off `development`. PR → merge → promote to `production` to 
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | PHP 8.2, Laravel 12 |
+| Backend | PHP 8.4 (`composer.json` `^8.4`; CI + both Cloud envs on 8.4), Laravel 12 |
 | Database | PostgreSQL (Supabase-hosted), schemas: `public`, `core`, `site`, `notifications`, `analytics`, `audit` |
 | Auth | Supabase Auth (JWT) — no backend login; frontend forwards token |
 | Cache/Queue | Redis (DB 0 = **queue + Horizon**, 1 = cache, 2 = sessions, 4 = cache locks; DB 3 is a dormant queue-override slot). Queue and Horizon both resolve the connection named `default` (`config/queue.php` `REDIS_QUEUE_CONNECTION`, `config/horizon.php` `use`) — **not** the connection named `queue`. Cache is kept off DB 0 because `Cache::flush()` issues a raw `FLUSHDB` that would wipe Horizon job state. |

@@ -416,9 +416,10 @@ commit since this doc's 07-20 compile.
 4. **Dev env has `usesHibernation: true`.** A hibernated env cannot drain queues; confirm Cloud's
    worker/hibernation interplay when provisioning (expect to disable hibernation, or verify Cloud
    blocks it once a worker exists).
-5. **The dev deploy command runs `partna:backfill-subdomain-kv --all --queue` on every deploy.**
-   Inline (slow deploys) today; post-flip it enqueues a full KV backfill burst onto `cloudflare`
-   per deploy. Harmless but noisy — decide keep vs remove.
+5. ~~**The dev deploy command runs `partna:backfill-subdomain-kv --all --queue` on every deploy.**~~
+   **No longer true — re-checked 2026-07-26.** Both envs' `deployCommand` is a single commented-out
+   `# php artisan migrate --force`; neither runs the backfill. No per-deploy KV burst to worry about
+   post-flip, and nothing to decide.
 
 ### Post-07-20 code delta — verified clean
 
@@ -477,9 +478,9 @@ events: the DB re-baseline/go-live, and the first-ever prod Horizon boot.
       This is sharper on prod than dev: prod's documented rollback is *hibernate the env*
       (`production-cutover.md` Rollback), so the worker/hibernation interplay is load-bearing —
       expect to disable hibernation, or verify Cloud blocks it once a worker exists.
-- [ ] **Decide keep-vs-remove the KV-backfill deploy step** (§9 finding 5). If the prod deploy
-      command runs `partna:backfill-subdomain-kv --all --queue`, post-flip it enqueues a full KV
-      backfill burst onto `cloudflare` on every deploy. Harmless but noisy — decide before the flip.
+- [x] ~~**Decide keep-vs-remove the KV-backfill deploy step**~~ (§9 finding 5) — **moot, verified
+      2026-07-26.** Neither env's `deployCommand` runs `partna:backfill-subdomain-kv`; both are just
+      a commented-out `# php artisan migrate --force`. No per-deploy KV burst exists to decide about.
 
 ### Self-fixing on the prod flip — confirm, don't fix
 

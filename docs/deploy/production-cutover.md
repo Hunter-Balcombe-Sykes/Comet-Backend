@@ -170,10 +170,12 @@ domain (there is **no** separate DNS valve to stage behind). Everything else is 
         **that later flip**, along with its open blockers **B1** (provision + run a Horizon worker — env var
         alone without a running worker is strictly worse: silent backlog) and **B2** (lock down `/horizon`
         with dashboard creds; it exposes live job payloads). See the Phase-2 queue checkbox note below.
-- [ ] **Confirm the prod Laravel deploy command** is current. The last prod build (`fa69c2b1`) **already**
-      uses `ffmpeg.sh` + `composer install --no-dev` + `php artisan optimize` (no npm) — just confirm it's
-      unchanged and still **without** an auto `migrate --force` (schema is Supabase-side). Check the PHP
-      version matches intended (the last prod build ran 8.4; the project targets 8.2).
+- [x] **Confirm the prod Laravel deploy command** is current. **Verified 2026-07-26** (`cloud environment:get
+      production --json`): build command is `ffmpeg.sh` + `composer install --no-dev --no-interaction
+      --prefer-dist --optimize-autoloader` + `php artisan optimize` (no npm), and `deployCommand` is the
+      single commented-out `# php artisan migrate --force` — so no auto-migrate (schema is Supabase-side).
+      `phpMajorVersion: 8.4`, `nodeVersion: 24`, `usesOctane: false`; development matches byte-for-byte.
+      8.4 is the intended version (`composer.json` `^8.4`, CI on 8.4) — earlier "targets 8.2" wording was stale.
 
 ---
 

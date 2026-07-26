@@ -163,8 +163,13 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
       before the domain goes live.
 - [ ] **Fast-forward `development → production` and push** → triggers the prod build + wakes the env.
       **This push IS go-live** (api.partna.au flips 404 → live prod). Verify build: `cloud deployment:list production`.
-- [ ] Confirm the prod deploy command is unchanged (`ffmpeg.sh` + `composer install --no-dev` + `optimize`,
-      no npm, no auto `migrate --force`) and PHP version is intended (last prod build ran 8.4; project targets 8.2).
+- [x] Confirm the prod deploy command is unchanged (`ffmpeg.sh` + `composer install --no-dev` + `optimize`,
+      no npm, no auto `migrate --force`) and PHP version is intended. **Verified 2026-07-26** via
+      `cloud environment:get production --json`: build command is exactly those three lines, `deployCommand`
+      is the single commented-out `# php artisan migrate --force`, `phpMajorVersion: 8.4`, `nodeVersion: 24`,
+      `usesOctane: false`. Development is byte-identical on all five, so go-live introduces no build delta.
+      8.4 **is** the intended version (`composer.json` requires `^8.4`; CI runs 8.4) — the older "project
+      targets 8.2" note in these docs was stale and has been corrected.
 - [ ] **Deploy the prod Cloudflare Worker** bound to the prod `SUBDOMAIN_KV`, in lock-step with go-live.
 - [ ] **Point the Vercel dashboard** (`app.partna.au`) production build's API base at `https://api.partna.au`
       and confirm its origin is in `PARTNA_FRONTEND_ORIGINS`. (Frontend/Vercel-env change, not DNS.)

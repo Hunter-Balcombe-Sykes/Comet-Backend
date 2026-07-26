@@ -78,7 +78,7 @@ Visitor analytics + lead capture → analytics.* tables
 
 ## Codebase Summary
 
-**Stack:** Laravel 12 · PHP 8.2+ · PostgreSQL (Supabase) · Redis · Cloudflare R2 · Supabase Auth (JWT)
+**Stack:** Laravel 12 · PHP 8.4 · PostgreSQL (Supabase) · Redis · Cloudflare R2 · Supabase Auth (JWT)
 
 ### Directory Map
 
