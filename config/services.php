@@ -127,7 +127,15 @@ return [
         // source of truth so the two callers can't drift on the actor id.
         'actors' => [
             'google_places' => 'compass~crawler-google-places',
+            'booksy' => 'crawlerbros~booksy-scraper',
+            'opentable_resy' => 'crawlerbros~opentable-resy-scraper',
+            'ra_events' => 'crawlerbros~resident-advisor-scraper',
         ],
+    ],
+
+    'ticketmaster' => [
+        'consumer_key' => env('TICKETMASTER_CONSUMER_KEY'),
+        'consumer_secret' => env('TICKETMASTER_CONSUMER_SECRET'),
     ],
 
     // Mistral — hosted OCR (menu photo → markdown text). Same account/key as

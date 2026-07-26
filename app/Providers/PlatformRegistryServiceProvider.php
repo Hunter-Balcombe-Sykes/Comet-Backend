@@ -424,6 +424,61 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('eventbrite')->detect(new HostMatch('~(^|\.)eventbrite\.[a-z.]+$~'));
             $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
 
+            // ── 2026-07-26 Platform expansion: Booking detect-only ──
+            $r->register(PD::make('booksy')->label('Booksy')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('booksy')->detect(new HostMatch('~(^|\.)booksy\.com$~'));
+            $r->register(PD::make('vagaro')->label('Vagaro')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('vagaro')->detect(new HostMatch('~(^|\.)vagaro\.com$~'));
+            $r->register(PD::make('timely')->label('Timely')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('timely')->detect(new HostMatch('~(^|\.)gettimely\.com$~'));
+            $r->register(PD::make('kitomba')->label('Kitomba')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('kitomba')->detect(new HostMatch('~(^|\.)kitomba\.com$~'));
+            $r->register(PD::make('phorest')->label('Phorest')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('phorest')->detect(new HostMatch('~(^|\.)phorest\.com$~'));
+            $r->register(PD::make('shortcuts')->label('Shortcuts')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('shortcuts')->detect(new HostMatch('~(^|\.)shortcuts\.(com\.au|net)$~'));
+            $r->register(PD::make('bella-booking')->label('Bella Booking')->category(Cat::Booking)->payload(CardPayload::class));
+            $r->get('bella-booking')->detect(new HostMatch('~(^|\.)bellabooking\.com$~'));
+
+            // ── 2026-07-26 Platform expansion: Reservations detect-only ──
+            $r->register(PD::make('resy')->label('Resy')->category(Cat::Reservations)->payload(CardPayload::class));
+            $r->get('resy')->detect(new HostMatch('~(^|\.)resy\.com$~'));
+            $r->register(PD::make('quandoo')->label('Quandoo')->category(Cat::Reservations)->payload(CardPayload::class));
+            $r->get('quandoo')->detect(new HostMatch('~(^|\.)quandoo\.[a-z.]+$~'));
+
+            // ── 2026-07-26 Platform expansion: Events detect-only ──
+            $r->register(PD::make('ticketek')->label('Ticketek')->category(Cat::Events)->payload(CardPayload::class));
+            $r->get('ticketek')->detect(new HostMatch('~(^|\.)ticketek\.[a-z.]+$~'));
+            $r->register(PD::make('oztix')->label('Oztix')->category(Cat::Events)->payload(CardPayload::class));
+            $r->get('oztix')->detect(new HostMatch('~(^|\.)oztix\.com\.au$~'));
+            $r->register(PD::make('trybooking')->label('TryBooking')->category(Cat::Events)->payload(CardPayload::class));
+            $r->get('trybooking')->detect(new HostMatch('~(^|\.)trybooking\.com$~'));
+            $r->register(PD::make('resident-advisor')->label('Resident Advisor')->category(Cat::Events)->payload(CardPayload::class));
+            $r->get('resident-advisor')->detect(new HostMatch('~(^|\.)ra\.co$~'));
+
+            // ── 2026-07-26 Platform expansion: Logo-only ──
+            $r->register(PD::make('ticketmaster')->label('Ticketmaster')->category(Cat::Events)->payload(CardPayload::class));
+            $r->get('ticketmaster')->detect(new HostMatch('~(^|\.)ticketmaster\.[a-z.]+$~'));
+            $r->register(PD::make('bopple')->label('Bopple')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
+            $r->get('bopple')->detect(new HostMatch('~(^|\.)bopple\.(com|me)$~'));
+            $r->register(PD::make('square-ordering')->label('Square Online')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
+            $r->get('square-ordering')->detect(new HostMatch('~(^|\.)square\.site$~'));
+            // Logo-only: booking platforms
+            foreach (['boulevard' => '~(^|\.)boulevard\.io$~', 'glossgenius' => '~(^|\.)glossgenius\.com$~', 'mangomint' => '~(^|\.)mangomint\.com$~', 'zenoti' => '~(^|\.)zenoti\.com$~', 'mindbody' => '~(^|\.)mindbodyonline\.com$~', 'ovatu' => '~(^|\.)ovatu\.com$~'] as $slug => $pattern) {
+                $r->register(PD::make($slug)->label(ucfirst($slug))->category(Cat::Booking)->payload(CardPayload::class));
+                $r->get($slug)->detect(new HostMatch($pattern));
+            }
+            // Logo-only: reservation platforms
+            foreach (['sevenrooms' => '~(^|\.)sevenrooms\.com$~', 'tock' => '~(^|\.)(exploretock\.com|tock\.com)$~', 'tablecheck' => '~(^|\.)tablecheck\.com$~'] as $slug => $pattern) {
+                $r->register(PD::make($slug)->label(ucfirst($slug))->category(Cat::Reservations)->payload(CardPayload::class));
+                $r->get($slug)->detect(new HostMatch($pattern));
+            }
+            // Logo-only: online ordering
+            foreach (['hungrypanda' => '~(^|\.)hungrypanda\.co$~', 'easi' => '~(^|\.)easi(global)?\.com(\.au)?$~'] as $slug => $pattern) {
+                $r->register(PD::make($slug)->label($slug === 'easi' ? 'EASI' : 'HungryPanda')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
+                $r->get($slug)->detect(new HostMatch($pattern));
+            }
+
             // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
             // Latest-mode product sync — auto-tracks the store's newest products
