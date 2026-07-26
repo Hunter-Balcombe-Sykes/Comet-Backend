@@ -35,7 +35,7 @@ class VimeoScraper extends ApiBase implements FetchContract
     {
         $parsed = $this->parseUrl($identifier);
         if (! $parsed) {
-            return [];
+            return ['items' => [], 'profile' => []];
         }
 
         $apiPath = $parsed['apiPath'];

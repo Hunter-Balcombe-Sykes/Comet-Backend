@@ -54,10 +54,37 @@ class HumanitixScraper extends HtmlScrapeBase
         $items = $this->mapEventsToItems(array_slice($upcoming ?: $events, 0, $limit));
 
         return [
-            'display_name' => $organiser,
-            'organiser' => $organiser,
             'items' => $items,
+            'profile' => [
+                'display_name' => $organiser,
+                'profile_pic_url' => null,
+            ],
         ];
+    }
+
+    /**
+     * Build a price display string from a JSON-LD offers value.
+     * Replicates the old PlatformScraper::formatPrice logic (accepts array,
+     * not a float) since V5 BaseScraper::formatPrice expects a float.
+     */
+    private function formatPriceFromOffers(array $offers): ?string
+    {
+        $low = $offers['lowPrice'] ?? $offers['price'] ?? null;
+        if ($low === null) {
+            return null;
+        }
+        $high = $offers['highPrice'] ?? null;
+        $cur = $offers['priceCurrency'] ?? null;
+        $prefix = $cur ? $cur.' ' : '';
+
+        if ((float) $low === 0.0 && ($high === null || (float) $high === 0.0)) {
+            return 'Free';
+        }
+        if ($high !== null && (float) $high !== (float) $low) {
+            return "{$prefix}{$low} – {$high}";
+        }
+
+        return "{$prefix}{$low}";
     }
 
     /**
@@ -197,7 +224,6 @@ class HumanitixScraper extends HtmlScrapeBase
         }
 
         $availability = $this->normalizeAvailability(data_get($offers, 'availability'));
-        $lowest = $this->lowestOffer($offersRaw);
 
         return [
             'name' => $event['name'] ?? null,
@@ -206,9 +232,9 @@ class HumanitixScraper extends HtmlScrapeBase
             'startDate' => $event['startDate'] ?? null,
             'endDate' => $event['endDate'] ?? null,
             'description' => $this->sanitizeDescription($event['description'] ?? null),
-            'price' => $this->formatPrice($offers),
-            'priceMin' => $lowest['priceMin'] ?? null,
-            'currency' => $lowest['currency'] ?? null,
+            'price' => $this->formatPriceFromOffers(is_array($offers) ? $offers : []),
+            'priceMin' => $offers['lowPrice'] ?? $offers['price'] ?? null,
+            'currency' => $offers['priceCurrency'] ?? null,
             'availability' => $availability,
             'soldOut' => $availability === 'sold_out',
             'image' => is_string($image) ? $image : null,

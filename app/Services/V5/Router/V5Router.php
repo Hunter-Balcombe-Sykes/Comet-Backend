@@ -170,12 +170,33 @@ class V5Router
 
     private function templateToRegex(string $template): string
     {
-        $escaped = preg_quote($template, '#');
-        $escaped = str_replace(
-            ['<handle>', '<accounthandle>', '<itemidentifier>', '<username>', '<channel>', '<slug>', '<id>'],
-            ['([\w.\-@]+)', '([\w.\-@]+)', '([\w.\-]+)', '([\w.]+)', '([\w\-]+)', '([\w\-]+)', '([\w\-]+)'],
-            $escaped
-        );
+        // FIRST replace placeholders with safe markers, THEN escape —
+        // this avoids preg_quote mangling the < > brackets in placeholders.
+        $replacementMap = [
+            // Order matters: longer placeholders first to prevent partial matches
+            '<accounthandle>' => '(?P<accounthandle>[\w.\-@]+)',
+            '<itemidentifier>' => '(?P<itemidentifier>[\w.\-]+)',
+            '<username>' => '(?P<username>[\w.]+)',
+            '<channel>' => '(?P<channel>[\w\-]+)',
+            '<handle>' => '(?P<handle>[\w.\-@]+)',
+            '<slug>' => '(?P<slug>[\w\-]+)',
+            '<id>' => '(?P<id>[\w\-]+)',
+        ];
+
+        // Markers use only characters preg_quote never touches (A-Z, 0-9, _)
+        $markers = [];
+        $marked  = $template;
+        $idx = 0;
+        foreach ($replacementMap as $placeholder => $regex) {
+            $marker = '__PH' . $idx . '__';
+            $markers[$marker] = $regex;
+            $marked = str_replace($placeholder, $marker, $marked);
+            $idx++;
+        }
+
+        $escaped = preg_quote($marked, '#');
+        $escaped = str_replace(array_keys($markers), array_values($markers), $escaped);
+
         return '#'.$escaped.'#i';
     }
 }
