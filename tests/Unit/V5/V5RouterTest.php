@@ -1,29 +1,17 @@
 <?php
 
-use App\Models\V5\ContentPool;
-use App\Models\V5\Item;
-use App\Models\V5\ItemSource;
-use App\Models\V5\ItemValue;
-use App\Models\V5\ItemUrlTemplate;
-use App\Models\V5\PlatformDefinition;
-use App\Models\V5\UserPlatform;
-use App\Services\V5\ItemService;
 use App\Services\V5\Registry\V5PlatformRegistry;
 use App\Services\V5\Router\RouterResult;
 use App\Services\V5\Router\V5Router;
 use App\Services\V5\Scraping\Normalization\PlatformUrlNormalizer;
-use Illuminate\Support\Str;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
 
 // =========================================================================
-// V5Router — URL matching tests
+// Helpers
 // =========================================================================
 
-/**
- * Build a mock platform entry for use in the registry.
- */
 function makeMockPlatform(string $id, string $name, string $urlFormat, array $categories = ['music'], bool $isSource = true): array
 {
     return [
@@ -53,6 +41,19 @@ function makeMockPlatform(string $id, string $name, string $urlFormat, array $ca
     ];
 }
 
+function registryReflectionMethod(string $methodName): ReflectionMethod
+{
+    $normalizer = Mockery::mock(PlatformUrlNormalizer::class);
+    $registry = new V5PlatformRegistry($normalizer);
+    $method = new ReflectionMethod($registry, $methodName);
+    $method->setAccessible(true);
+    return $method;
+}
+
+// =========================================================================
+// V5Router — URL matching tests
+// =========================================================================
+
 it('matches a Spotify artist URL and returns connect_platform', function () {
     $spotify = makeMockPlatform(
         'b6ab559c-fbc0-4381-846e-44e23bb792ef',
@@ -73,7 +74,6 @@ it('matches a Spotify artist URL and returns connect_platform', function () {
         ]);
     $registry->shouldReceive('matchItemUrl')->never();
 
-    $normalizer = Mockery::mock(PlatformUrlNormalizer::class);
     $router = new V5Router($registry);
 
     $result = $router->determine('https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb');
@@ -82,7 +82,8 @@ it('matches a Spotify artist URL and returns connect_platform', function () {
     expect($result->isSuccess())->toBeTrue();
     expect($result->action)->toBe('connect_platform');
     expect($result->platform['name'])->toBe('Spotify');
-    expect($result->inputUrl)->toBe('https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb');
+    // inputUrl stores matched_value from the registry match
+    expect($result->inputUrl)->toBe('4Z8W4fKeB5YxbusRsdQVPb');
 });
 
 it('matches a YouTube channel URL and returns connect_platform', function () {
@@ -114,7 +115,7 @@ it('matches a YouTube channel URL and returns connect_platform', function () {
     expect($result->platform['name'])->toBe('YouTube');
 });
 
-it('matches a YouTube video item URL and returns add_item / connect_platform_and_add_item', function () {
+it('matches a YouTube video item URL and returns connect_platform_and_add_item (syncable)', function () {
     $youtube = makeMockPlatform(
         'e11354ff-614a-4b9f-a92c-95dd56dd08ed',
         'YouTube',
@@ -127,14 +128,13 @@ it('matches a YouTube video item URL and returns add_item / connect_platform_and
     $registry->shouldReceive('matchUrl')
         ->once()
         ->with('https://youtube.com/watch?v=dQw4w9WgXcQ')
-        ->andReturn(null); // no platform match
+        ->andReturn(null);
 
-    $template = new ItemUrlTemplate();
     $registry->shouldReceive('matchItemUrl')
         ->once()
         ->with('https://youtube.com/watch?v=dQw4w9WgXcQ')
         ->andReturn([
-            'template' => $template,
+            'template' => new stdClass(),
             'platform' => $youtube,
             'matched_value' => 'dQw4w9WgXcQ',
             'match_type' => 'item_url',
@@ -148,7 +148,6 @@ it('matches a YouTube video item URL and returns add_item / connect_platform_and
     $result = $router->determine('https://youtube.com/watch?v=dQw4w9WgXcQ');
 
     expect($result->isSuccess())->toBeTrue();
-    // is_platform_syncable = true → connect_platform_and_add_item
     expect($result->action)->toBe('connect_platform_and_add_item');
     expect($result->item)->not->toBeNull();
     expect($result->item['item_type'])->toBe('video');
@@ -172,7 +171,7 @@ it('matches a Spotify track item URL as syncable', function () {
     $registry->shouldReceive('matchItemUrl')
         ->once()
         ->andReturn([
-            'template' => new ItemUrlTemplate(),
+            'template' => new stdClass(),
             'platform' => $spotify,
             'matched_value' => '4Z8W4fKeB5YxbusRsdQVPb',
             'match_type' => 'item_url',
@@ -224,7 +223,6 @@ it('normalizes URLs without scheme', function () {
 
     $router = new V5Router($registry);
 
-    // Should have https:// prepended
     $result = $router->determine('example.com/page');
 
     expect($result->inputUrl)->toBe('https://example.com/page');
@@ -240,7 +238,7 @@ it('routes within a category scope', function () {
     );
 
     $registry = Mockery::mock(V5PlatformRegistry::class);
-    // Category scoped: video
+    // Category-scoped match succeeds immediately (no global call needed)
     $registry->shouldReceive('matchUrl')
         ->once()
         ->with('https://youtube.com/@somechannel', 'video')
@@ -249,11 +247,6 @@ it('routes within a category scope', function () {
             'matched_value' => 'somechannel',
             'match_type' => 'platform_url',
         ]);
-    $registry->shouldReceive('matchUrl')
-        ->once()
-        ->with('https://youtube.com/@somechannel')
-        ->andReturnNull();
-    $registry->shouldReceive('matchItemUrl')->never();
 
     $router = new V5Router($registry);
 
@@ -263,7 +256,7 @@ it('routes within a category scope', function () {
     expect($result->platform['name'])->toBe('YouTube');
 });
 
-it('routes within a platform scope', function () {
+it('routes within a platform scope by matching url_format', function () {
     $spotify = makeMockPlatform(
         'b6ab559c-fbc0-4381-846e-44e23bb792ef',
         'Spotify',
@@ -286,7 +279,7 @@ it('routes within a platform scope', function () {
     );
 
     // When scoped to a platform whose url_format matches, should be connect_platform
-    // The platform was found, now check the URL against its url_format
+    // (determineForPlatform uses V5Router's own templateToRegex, not the registry's)
     expect($result->action)->toBe('connect_platform');
     expect($result->platform['name'])->toBe('Spotify');
 });
@@ -306,7 +299,7 @@ it('returns platformInOtherCategory when URL matches a different category', func
         ->once()
         ->with('https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb', 'video')
         ->andReturnNull();
-    // Second call: global — matches Spotify in 'music'
+    // Second call: global — matches Spotify in 'music' category
     $registry->shouldReceive('matchUrl')
         ->once()
         ->with('https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb')
@@ -327,70 +320,99 @@ it('returns platformInOtherCategory when URL matches a different category', func
 });
 
 // =========================================================================
-// V5PlatformRegistry — templateToRegex logic (testing the private method
-// via reflection, since it's reused by matchUrl and matchItemUrl)
+// V5PlatformRegistry — templateToRegex logic (via reflection)
 // =========================================================================
 
 it('converts URL templates to correct regex patterns', function () {
-    $normalizer = Mockery::mock(PlatformUrlNormalizer::class);
-    $registry = new V5PlatformRegistry($normalizer);
+    $method = registryReflectionMethod('templateToRegex');
 
-    $reflection = new ReflectionClass($registry);
-    $method = $reflection->getMethod('templateToRegex');
-    $method->setAccessible(true);
-
-    // Test various template patterns
-    $patterns = [
-        'https://open.spotify.com/artist/<handle>' => '/^https\:\/\/open\.spotify\.com\/artist\/([\w.\-@]+)/i',
-        'https://youtube.com/@<handle>' => '/^https\:\/\/youtube\.com\/@([\w.\-@]+)/i',
-        'https://youtube.com/watch?v=<itemidentifier>' => '/^https\:\/\/youtube\.com\/watch\?v\=([\w.\-]+)/i',
-        'https://youtu.be/<itemidentifier>' => '/^https\:\/\/youtu\.be\/([\w.\-]+)/i',
-        'https://instagram.com/<handle>' => '/^https\:\/\/instagram\.com\/([\w.\-@]+)/i',
-        'https://<handle>.bandcamp.com' => '/^https\:\/\/([\w.\-@]+)\.bandcamp\.com/i',
-        'https://music.apple.com/artist/<handle>' => '/^https\:\/\/music\.apple\.com\/artist\/([\w.\-@]+)/i',
-        'https://soundcloud.com/<handle>/<itemidentifier>' => '/^https\:\/\/soundcloud\.com\/([\w.\-@]+)\/([\w.\-]+)/i',
+    $testCases = [
+        'https://open.spotify.com/artist/<handle>'
+            => '#^https\://open\.spotify\.com/artist/(?P<handle>[\w.\-@]+)#i',
+        'https://youtube.com/@<handle>'
+            => '#^https\://youtube\.com/@(?P<handle>[\w.\-@]+)#i',
+        'https://youtube.com/watch?v=<itemidentifier>'
+            => '#^https\://youtube\.com/watch\?v\=(?P<itemidentifier>[\w.\-]+)#i',
+        'https://youtu.be/<itemidentifier>'
+            => '#^https\://youtu\.be/(?P<itemidentifier>[\w.\-]+)#i',
+        'https://instagram.com/<handle>'
+            => '#^https\://instagram\.com/(?P<handle>[\w.\-@]+)#i',
+        'https://<handle>.bandcamp.com'
+            => '#^https\://(?P<handle>[\w.\-@]+)\.bandcamp\.com#i',
+        'https://music.apple.com/artist/<handle>'
+            => '#^https\://music\.apple\.com/artist/(?P<handle>[\w.\-@]+)#i',
+        'https://soundcloud.com/<handle>/<itemidentifier>'
+            => '#^https\://soundcloud\.com/(?P<handle>[\w.\-@]+)/(?P<itemidentifier>[\w.\-]+)#i',
+        'https://<handle>.substack.com'
+            => '#^https\://(?P<handle>[\w.\-@]+)\.substack\.com#i',
+        'https://eventbrite.com/o/<handle>'
+            => '#^https\://eventbrite\.com/o/(?P<handle>[\w.\-@]+)#i',
     ];
 
-    foreach ($patterns as $template => $expectedPattern) {
-        $actual = $method->invoke($registry, $template);
+    foreach ($testCases as $template => $expectedPattern) {
+        $actual = $method->invoke(
+            (new ReflectionClass(V5PlatformRegistry::class))->newInstanceWithoutConstructor(),
+            $template,
+        );
         expect($actual)->toBe($expectedPattern, "Failed for template: {$template}");
     }
 });
 
-it('matches real URLs against platform URL patterns (via templateToRegex)', function () {
-    $normalizer = Mockery::mock(PlatformUrlNormalizer::class);
-    $registry = new V5PlatformRegistry($normalizer);
-
-    $reflection = new ReflectionClass($registry);
-    $method = $reflection->getMethod('templateToRegex');
-    $method->setAccessible(true);
+it('matches real URLs against platform URL patterns', function () {
+    $method = registryReflectionMethod('templateToRegex');
 
     $testCases = [
         // [template, url, shouldMatch]
-        'Spotify artist' => ['https://open.spotify.com/artist/<handle>', 'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb', true],
-        'Spotify artist with dots' => ['https://open.spotify.com/artist/<handle>', 'https://open.spotify.com/artist/artist.name_test', true],
-        'YouTube channel' => ['https://youtube.com/@<handle>', 'https://youtube.com/@testchannel', true],
-        'YouTube channel with dots' => ['https://youtube.com/@<handle>', 'https://youtube.com/@user.name_123', true],
-        'YouTube video' => ['https://youtube.com/watch?v=<itemidentifier>', 'https://youtube.com/watch?v=dQw4w9WgXcQ', true],
-        'YouTube short' => ['https://youtu.be/<itemidentifier>', 'https://youtu.be/dQw4w9WgXcQ', true],
-        'Instagram' => ['https://instagram.com/<handle>', 'https://instagram.com/username', true],
-        'Bandcamp' => ['https://<handle>.bandcamp.com', 'https://myband.bandcamp.com', true],
-        'Apple Music' => ['https://music.apple.com/artist/<handle>', 'https://music.apple.com/artist/123456789', true],
-        'Twitch' => ['https://twitch.tv/<handle>', 'https://twitch.tv/streamer_name', true],
-        'Vimeo' => ['https://vimeo.com/<handle>', 'https://vimeo.com/12345678', true],
-        'Substack' => ['https://<handle>.substack.com', 'https://newsletter.substack.com', true],
-        'Eventbrite' => ['https://eventbrite.com/o/<handle>', 'https://eventbrite.com/o/my-org-123', true],
-        // Should NOT match (wrong host)
-        'Spotify track should not match artist template' => ['https://open.spotify.com/artist/<handle>', 'https://open.spotify.com/track/4Z8W4fKeB5YxbusRsdQVPb', false],
-        'YouTube channel should not match video template' => ['https://youtube.com/watch?v=<itemidentifier>', 'https://youtube.com/@testchannel', false],
-        'Different domain should not match' => ['https://open.spotify.com/artist/<handle>', 'https://music.apple.com/artist/12345', false],
+        'Spotify artist'                       => ['https://open.spotify.com/artist/<handle>',             'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb', true],
+        'Spotify artist with dots'             => ['https://open.spotify.com/artist/<handle>',             'https://open.spotify.com/artist/artist.name_test',        true],
+        'YouTube channel'                      => ['https://youtube.com/@<handle>',                       'https://youtube.com/@testchannel',                        true],
+        'YouTube channel with dots'            => ['https://youtube.com/@<handle>',                       'https://youtube.com/@user.name_123',                      true],
+        'YouTube video'                        => ['https://youtube.com/watch?v=<itemidentifier>',        'https://youtube.com/watch?v=dQw4w9WgXcQ',                 true],
+        'YouTube short'                        => ['https://youtu.be/<itemidentifier>',                   'https://youtu.be/dQw4w9WgXcQ',                            true],
+        'Instagram'                            => ['https://instagram.com/<handle>',                      'https://instagram.com/username',                          true],
+        'Bandcamp'                             => ['https://<handle>.bandcamp.com',                       'https://myband.bandcamp.com',                             true],
+        'Apple Music'                          => ['https://music.apple.com/artist/<handle>',             'https://music.apple.com/artist/123456789',                 true],
+        'Twitch'                               => ['https://twitch.tv/<handle>',                         'https://twitch.tv/streamer_name',                         true],
+        'Vimeo'                                => ['https://vimeo.com/<handle>',                         'https://vimeo.com/12345678',                              true],
+        'Substack'                             => ['https://<handle>.substack.com',                      'https://newsletter.substack.com',                         true],
+        'Eventbrite'                           => ['https://eventbrite.com/o/<handle>',                  'https://eventbrite.com/o/my-org-123',                     true],
+        'Facebook'                             => ['https://facebook.com/<handle>',                      'https://facebook.com/my.page.name',                       true],
+        'SoundCloud with handle and id'        => ['https://soundcloud.com/<handle>/<itemidentifier>',   'https://soundcloud.com/user.name/track-123',              true],
+        // Should NOT match
+        'Spotify track should not match artist' => ['https://open.spotify.com/artist/<handle>',           'https://open.spotify.com/track/4Z8W4fKeB5YxbusRsdQVPb',   false],
+        'YouTube channel should not match video'=> ['https://youtube.com/watch?v=<itemidentifier>',      'https://youtube.com/@testchannel',                        false],
+        'Different domain should not match'    => ['https://open.spotify.com/artist/<handle>',           'https://music.apple.com/artist/12345',                    false],
+        'Instagram should not match Facebook'  => ['https://instagram.com/<handle>',                     'https://facebook.com/username',                           false],
     ];
 
     foreach ($testCases as $label => [$template, $url, $shouldMatch]) {
-        $pattern = $method->invoke($registry, $template);
+        $method2 = registryReflectionMethod('templateToRegex');
+        $pattern = $method2->invoke(
+            (new ReflectionClass(V5PlatformRegistry::class))->newInstanceWithoutConstructor(),
+            $template,
+        );
         $matched = (bool) preg_match($pattern, $url);
         expect($matched)->toBe($shouldMatch, "Failed: {$label}");
     }
+});
+
+// =========================================================================
+// V5Router templateToRegex (via reflection — unanchored variant)
+// =========================================================================
+
+it('V5Router templateToRegex produces unanchored patterns', function () {
+    $method = new ReflectionMethod(V5Router::class, 'templateToRegex');
+    $method->setAccessible(true);
+
+    $router = new V5Router(Mockery::mock(V5PlatformRegistry::class));
+
+    $pattern = $method->invoke($router, 'https://open.spotify.com/artist/<handle>');
+    // V5Router does NOT anchor with ^, unlike V5PlatformRegistry which does
+    expect($pattern)->toMatch('/^#https/');
+    expect($pattern)->not->toMatch('/#\^https/');
+
+    // But it still matches correctly
+    expect(preg_match($pattern, 'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb'))->toBe(1);
 });
 
 // =========================================================================
@@ -398,7 +420,6 @@ it('matches real URLs against platform URL patterns (via templateToRegex)', func
 // =========================================================================
 
 it('RouterResult factory methods produce correct outputs', function () {
-    // toArray serialization
     $platform = makeMockPlatform('test-id', 'Spotify', 'https://open.spotify.com/artist/<handle>');
 
     $result = RouterResult::platformMatch([
@@ -411,11 +432,8 @@ it('RouterResult factory methods produce correct outputs', function () {
     expect($array['action'])->toBe('connect_platform');
     expect($array['platform']['name'])->toBe('Spotify');
     expect($array['input_url'])->toBe('testhandle');
-
-    // Check isSuccess
     expect($result->isSuccess())->toBeTrue();
 
-    // Unrecognized
     $unrec = RouterResult::unrecognized('https://random.com');
     expect($unrec->isSuccess())->toBeFalse();
     expect($unrec->needsUserChoice())->toBeTrue();
@@ -423,21 +441,15 @@ it('RouterResult factory methods produce correct outputs', function () {
 });
 
 // =========================================================================
-// ItemService — multi-source item merge flow
+// ItemService — multi-source item merge conflict resolution logic
 // =========================================================================
 
-// Note: These tests require a real database connection (PostgresTestCase)
-// They are marked as "todo" via skip for now, since unit tests run on SQLite
-// and the v5 tables don't exist in the test DB.
-// We test the logic of Item::firstOrCreate by identifier to verify merge behavior.
-
-it('resolves correct conflict from multiple sources (logic test)', function () {
-    // Test the conflict resolution logic:
-    // manual > most recently updated > non-null
+it('resolves manual value over auto-synced values', function () {
+    // Conflict logic: manual > most recently updated > non-null
     $values = collect([
-        (object) ['id' => 1, 'field_name' => 'title', 'value' => 'Song A', 'is_manually_set' => false, 'updated_at' => '2025-01-02'],
-        (object) ['id' => 2, 'field_name' => 'title', 'value' => 'Song B', 'is_manually_set' => false, 'updated_at' => '2025-01-01'],
-        (object) ['id' => 3, 'field_name' => 'title', 'value' => 'Song C', 'is_manually_set' => true, 'updated_at' => '2025-01-03'],
+        (object) ['id' => 1, 'field_name' => 'title', 'value' => 'Auto Song B', 'is_manually_set' => false, 'updated_at' => '2025-01-02'],
+        (object) ['id' => 2, 'field_name' => 'title', 'value' => 'Auto Song A', 'is_manually_set' => false, 'updated_at' => '2025-01-01'],
+        (object) ['id' => 3, 'field_name' => 'title', 'value' => 'Manual Song', 'is_manually_set' => true,  'updated_at' => '2025-01-03'],
     ]);
 
     $resolved = [];
@@ -451,11 +463,11 @@ it('resolves correct conflict from multiple sources (logic test)', function () {
         }
     }
 
-    // Manual should win
+    // Manual value should win over auto values (even more recent ones)
     expect($resolved['title'])->toBe(3);
 });
 
-it('picks most recent when no manual value exists (logic test)', function () {
+it('picks most recently updated when no manual value exists', function () {
     $values = collect([
         (object) ['id' => 1, 'field_name' => 'title', 'value' => 'Old Title', 'is_manually_set' => false, 'updated_at' => '2025-01-01'],
         (object) ['id' => 2, 'field_name' => 'title', 'value' => 'New Title', 'is_manually_set' => false, 'updated_at' => '2025-01-02'],
@@ -475,9 +487,9 @@ it('picks most recent when no manual value exists (logic test)', function () {
     expect($resolved['title'])->toBe(2);
 });
 
-it('skips null values in conflict resolution (logic test)', function () {
+it('skips null values in conflict resolution', function () {
     $values = collect([
-        (object) ['id' => 1, 'field_name' => 'title', 'value' => null, 'is_manually_set' => false, 'updated_at' => '2025-01-01'],
+        (object) ['id' => 1, 'field_name' => 'title', 'value' => null,        'is_manually_set' => false, 'updated_at' => '2025-01-01'],
         (object) ['id' => 2, 'field_name' => 'title', 'value' => 'Valid Title', 'is_manually_set' => false, 'updated_at' => '2025-01-02'],
     ]);
 
@@ -495,12 +507,11 @@ it('skips null values in conflict resolution (logic test)', function () {
     expect($resolved['title'])->toBe(2);
 });
 
-it('picks longest name when merging items (logic test)', function () {
-    // When ItemService merges, it picks the longer name
+it('prefers longer name when merging items', function () {
+    // ItemService picks the longer name when merging by identifier
     $existingName = 'Short';
     $newName = 'Much Longer Song Name';
-
-    expect(strlen($newName) > strlen($existingName))->toBeTrue();
+    expect(strlen($newName))->toBeGreaterThan(strlen($existingName));
 });
 
 // =========================================================================
@@ -568,7 +579,37 @@ it('does not crash on empty or unusual URLs', function () {
 
     $router = new V5Router($registry);
 
-    // Empty-ish URL — should still handle gracefully
     $result = $router->determine('   ');
     expect($result->action)->toBe('unrecognized');
+});
+
+it('handles suggestionGate when URL matches a different platform', function () {
+    $spotify = makeMockPlatform('spotify-id', 'Spotify', 'https://open.spotify.com/artist/<handle>', ['music'], true);
+
+    $registry = Mockery::mock(V5PlatformRegistry::class);
+    $registry->shouldReceive('find')
+        ->once()
+        ->andReturn($spotify);
+    // Return a match for a different platform (Apple Music)
+    $apple = makeMockPlatform('apple-id', 'Apple Music', 'https://music.apple.com/artist/<handle>', ['music'], true);
+    $registry->shouldReceive('matchUrl')
+        ->once()
+        ->andReturn([
+            'platform' => $apple,
+            'matched_value' => '123',
+            'match_type' => 'platform_url',
+        ]);
+
+    $router = new V5Router($registry);
+
+    // Scoped to Spotify, but URL matches Apple Music
+    $result = $router->determine(
+        'https://music.apple.com/artist/123',
+        'spotify-id',
+    );
+
+    expect($result->action)->toBe('suggestion_gate');
+    expect($result->suggestions[0]['action'])->toBe('connect_matched_platform');
+    expect($result->suggestions[0]['platform']['name'])->toBe('Apple Music');
+    expect($result->suggestions[1]['action'])->toBe('add_as_other');
 });

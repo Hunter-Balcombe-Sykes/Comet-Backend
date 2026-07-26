@@ -75,15 +75,17 @@ class BandcampScraper extends HtmlScrapeBase
      */
     private function normalizeOrigin(string $input): ?string
     {
+        $original = trim($input);
         $input = $this->normalizeToUrl($input);
 
         if (preg_match('~^https?://([a-z0-9][a-z0-9-]*)\.bandcamp\.com~i', $input, $m)) {
             return 'https://'.strtolower($m[1]).'.bandcamp.com';
         }
 
-        // Bare token (subdomain only)
-        if (preg_match('~^[a-z0-9][a-z0-9-]*$~i', trim($input))) {
-            return 'https://'.strtolower(trim($input)).'.bandcamp.com';
+        // Bare token (subdomain only) — check original input before normalizeToUrl
+        // prepends https:// which would break the regex.
+        if (preg_match('~^[a-z0-9][a-z0-9-]*$~i', $original)) {
+            return 'https://'.strtolower($original).'.bandcamp.com';
         }
 
         return null;
