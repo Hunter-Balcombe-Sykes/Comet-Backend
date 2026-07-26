@@ -111,7 +111,7 @@ class HumanitixScraper extends HtmlScrapeBase
         return null;
     }
 
-    private function normalizeToUrl(string $input): string
+    protected function normalizeToUrl(string $input): string
     {
         if (! str_starts_with($input, 'http')) {
             return 'https://'.$input;

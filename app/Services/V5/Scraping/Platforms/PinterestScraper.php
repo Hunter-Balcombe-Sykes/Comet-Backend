@@ -111,7 +111,7 @@ class PinterestScraper extends HtmlScrapeBase
         return in_array($username, self::RESERVED, true) ? null : $username;
     }
 
-    private function normalizeToUrl(string $input): string
+    protected function normalizeToUrl(string $input): string
     {
         if (! str_starts_with($input, 'http')) {
             return 'https://'.$input;
