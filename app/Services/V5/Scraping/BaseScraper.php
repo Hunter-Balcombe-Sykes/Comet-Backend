@@ -342,6 +342,41 @@ abstract class BaseScraper
     }
 
     // -----------------------------------------------------------------------
+    // Embed item helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Build an embed item to accompany a regular media item.
+     * Embed items carry an embed_url (iframe src) that the sitepage renders
+     * inline. Used by Spotify, SoundCloud, Twitch, YouTube, Vimeo, etc.
+     *
+     * @return array{identifier:string, name:string, item_type:'embed', values:list<array{field_name:string, value:mixed, format:string}>}
+     */
+    protected function buildEmbedItem(
+        string $embedUrl,
+        string $title,
+        ?string $thumbnail,
+        string $provider,
+        string $originalIdentifier,
+    ): array {
+        $values = [
+            ['field_name' => 'embed_url', 'value' => $embedUrl, 'format' => 'embed'],
+            ['field_name' => 'title', 'value' => $title, 'format' => 'text'],
+            ['field_name' => 'provider', 'value' => $provider, 'format' => 'text'],
+        ];
+        if ($thumbnail !== null) {
+            $values[] = ['field_name' => 'thumbnail', 'value' => $thumbnail, 'format' => 'image'];
+        }
+
+        return [
+            'identifier' => $originalIdentifier.'-embed',
+            'name' => $title.' (Embed)',
+            'item_type' => 'embed',
+            'values' => $values,
+        ];
+    }
+
+    // -----------------------------------------------------------------------
     // Logging
     // -----------------------------------------------------------------------
 

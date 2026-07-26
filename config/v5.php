@@ -100,6 +100,8 @@ return [
     | Known Platform Overrides
     |--------------------------------------------------------------------------
     | Per-platform values that differ from their category defaults.
+    | Read by V5PlatformRegistry::resolve() as part of the inheritance chain:
+    |   DB column → platform_overrides config → category config → base
     */
     'platform_overrides' => [
         'google-business' => [
@@ -115,6 +117,17 @@ return [
         ],
         'humanitix' => [
             'refresh_interval' => '6 hours',
+        ],
+
+        // Ordering platforms all use Apify actors for menu scraping
+        'uber-eats' => [
+            'source_method' => 'apify',
+        ],
+        'doordash' => [
+            'source_method' => 'apify',
+        ],
+        'square-online' => [
+            'source_method' => 'apify',
         ],
     ],
 

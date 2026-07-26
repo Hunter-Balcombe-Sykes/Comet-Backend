@@ -44,10 +44,11 @@ class ApplePodcastsScraper extends ApiBase implements FetchContract
         $results = data_get($data, 'results', []);
         $items = $this->mapEpisodes($data, $limit);
 
-        // Extract podcast collection info for profile
+        // Extract podcast collection info for profile.
+        // Guard against empty items (no episodes found) to avoid PHP 8 TypeError.
         $collectionResult = collect($results)->first(fn ($r) => ($r['wrapperType'] ?? null) === 'collection');
         $profile = [
-            'display_name' => $collectionResult['collectionName'] ?? ($items[0]['values'][5]['value'] ?? null),
+            'display_name' => $collectionResult['collectionName'] ?? (isset($items[0]) ? ($items[0]['values'][5]['value'] ?? null) : null),
             'profile_pic_url' => $collectionResult['artworkUrl600'] ?? $collectionResult['artworkUrl160'] ?? null,
         ];
 

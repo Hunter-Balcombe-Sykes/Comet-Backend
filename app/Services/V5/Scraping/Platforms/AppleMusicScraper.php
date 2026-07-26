@@ -43,11 +43,12 @@ class AppleMusicScraper extends ApiBase implements FetchContract
         $results = data_get($data, 'results', []);
         $items = $this->mapAlbums($data);
 
-        // Extract artist info from the first non-collection result for profile
+        // Extract artist info from the first non-collection result for profile.
+        // Guard against empty items (no albums found) to avoid PHP 8 TypeError.
         $artistResult = collect($results)->first(fn ($r) => ($r['wrapperType'] ?? null) === 'artist');
         $profile = [
-            'display_name' => $artistResult['artistName'] ?? ($items[0]['values'][4]['value'] ?? null),
-            'profile_pic_url' => $items[0]['values'][1]['value'] ?? null,
+            'display_name' => $artistResult['artistName'] ?? (isset($items[0]) ? ($items[0]['values'][4]['value'] ?? null) : null),
+            'profile_pic_url' => isset($items[0]) ? ($items[0]['values'][1]['value'] ?? null) : null,
         ];
 
         return ['items' => $items, 'profile' => $profile];

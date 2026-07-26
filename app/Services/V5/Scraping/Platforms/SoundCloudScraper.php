@@ -38,26 +38,46 @@ class SoundCloudScraper extends ApiBase implements FetchContract
             }
         }
 
+        // Extract track ID from the embed URL or response (SoundCloud returns
+        // the track/playlist URL as the identifier in oEmbed).
+        $itemId = $data['id'] ?? md5($identifier);
+        $title = $data['title'] ?? null;
+        $thumbnail = $data['thumbnail_url'] ?? null;
+        $authorName = $data['author_name'] ?? null;
+
         $values = [
-            ['field_name' => 'title', 'value' => $data['title'] ?? null, 'format' => 'text'],
-            ['field_name' => 'author_name', 'value' => $data['author_name'] ?? null, 'format' => 'text'],
+            ['field_name' => 'title', 'value' => $title, 'format' => 'text'],
+            ['field_name' => 'author_name', 'value' => $authorName, 'format' => 'text'],
             ['field_name' => 'author_url', 'value' => $data['author_url'] ?? null, 'format' => 'url'],
-            ['field_name' => 'thumbnail_url', 'value' => $data['thumbnail_url'] ?? null, 'format' => 'image'],
+            ['field_name' => 'thumbnail_url', 'value' => $thumbnail, 'format' => 'image'],
         ];
         if ($embedUrl) {
             $values[] = ['field_name' => 'embed_url', 'value' => $embedUrl, 'format' => 'url'];
         }
 
+        $items = [[
+            'identifier' => $itemId,
+            'name' => $title,
+            'item_type' => 'track',
+            'values' => $values,
+        ]];
+
+        // Add embed item if we have an embed URL
+        if ($embedUrl && $title) {
+            $items[] = $this->buildEmbedItem(
+                embedUrl: $embedUrl,
+                title: $title,
+                thumbnail: $thumbnail,
+                provider: 'SoundCloud',
+                originalIdentifier: $itemId,
+            );
+        }
+
         return [
-            'items' => [[
-                'identifier' => $data['id'] ?? md5($identifier),
-                'name' => $data['title'] ?? null,
-                'item_type' => 'track',
-                'values' => $values,
-            ]],
+            'items' => $items,
             'profile' => [
-                'display_name' => $data['author_name'] ?? null,
-                'profile_pic_url' => $data['thumbnail_url'] ?? null,
+                'display_name' => $authorName,
+                'profile_pic_url' => $thumbnail,
             ],
         ];
     }

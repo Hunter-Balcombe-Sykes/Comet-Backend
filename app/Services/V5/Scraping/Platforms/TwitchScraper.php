@@ -33,8 +33,19 @@ class TwitchScraper extends HtmlScrapeBase
             return null;
         }
 
+        $displayName = $profile['display_name'] ?? $login;
+
+        $items = [];
+        $items[] = $this->buildEmbedItem(
+            embedUrl: "https://player.twitch.tv/?channel={$login}&parent=partna.au",
+            title: $displayName,
+            thumbnail: $profile['profile_pic_url'] ?? null,
+            provider: 'Twitch',
+            originalIdentifier: $login,
+        );
+
         return [
-            'items' => [],
+            'items' => $items,
             'profile' => $profile,
         ];
     }
@@ -45,7 +56,7 @@ class TwitchScraper extends HtmlScrapeBase
      */
     protected function parseProfile(string $html): ?array
     {
-        $title = $this->metaContent($html, 'og:title');
+        $title = $this->metaContent($html, 'title');
         if ($title === null) {
             return null;
         }
@@ -54,8 +65,8 @@ class TwitchScraper extends HtmlScrapeBase
 
         return [
             'display_name' => $name,
-            'profile_pic_url' => $this->metaContent($html, 'og:image'),
-            'bio' => $this->metaContent($html, 'og:description'),
+            'profile_pic_url' => $this->metaContent($html, 'image'),
+            'bio' => $this->metaContent($html, 'description'),
         ];
     }
 

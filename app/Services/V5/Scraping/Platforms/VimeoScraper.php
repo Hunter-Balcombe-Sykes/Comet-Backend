@@ -65,11 +65,14 @@ class VimeoScraper extends ApiBase implements FetchContract
                 }
 
                 $vidId = (string) $video['id'];
+                $title = is_string($video['title'] ?? null) ? trim($video['title']) : null;
+                $embedUrl = "https://player.vimeo.com/video/{$vidId}";
+
                 $values = [
-                    ['field_name' => 'title', 'value' => is_string($video['title'] ?? null) ? trim($video['title']) : null, 'format' => 'text'],
+                    ['field_name' => 'title', 'value' => $title, 'format' => 'text'],
                     ['field_name' => 'thumbnail_url', 'value' => $video['thumbnail_large'] ?? $video['thumbnail_medium'] ?? null, 'format' => 'image'],
                     ['field_name' => 'page_url', 'value' => $video['url'] ?? "https://vimeo.com/{$vidId}", 'format' => 'url'],
-                    ['field_name' => 'embed_url', 'value' => "https://player.vimeo.com/video/{$vidId}", 'format' => 'url'],
+                    ['field_name' => 'embed_url', 'value' => $embedUrl, 'format' => 'url'],
                     ['field_name' => 'upload_date', 'value' => $video['upload_date'] ?? null, 'format' => 'date'],
                     ['field_name' => 'description', 'value' => $video['description'] ?? null, 'format' => 'text'],
                     ['field_name' => 'duration', 'value' => $video['duration'] ?? null, 'format' => 'number'],
@@ -81,12 +84,24 @@ class VimeoScraper extends ApiBase implements FetchContract
                     $values[] = ['field_name' => 'height', 'value' => $video['height'], 'format' => 'number'];
                 }
 
-                $items[] = [
+                $videoItem = [
                     'identifier' => $vidId,
-                    'name' => is_string($video['title'] ?? null) ? trim($video['title']) : null,
+                    'name' => $title,
                     'item_type' => 'video',
                     'values' => $values,
                 ];
+                $items[] = $videoItem;
+
+                // Add embed item alongside each video
+                if ($title) {
+                    $items[] = $this->buildEmbedItem(
+                        embedUrl: $embedUrl,
+                        title: $title,
+                        thumbnail: $video['thumbnail_large'] ?? $video['thumbnail_medium'] ?? null,
+                        provider: 'Vimeo',
+                        originalIdentifier: $vidId,
+                    );
+                }
             }
         }
 

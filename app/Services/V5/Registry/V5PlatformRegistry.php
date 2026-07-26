@@ -34,7 +34,7 @@ class V5PlatformRegistry
         $categories = $this->categories();
         $base = config('v5.base');
 
-        $this->platforms = PlatformDefinition::with(['categories', 'scrapeMethod', 'urlTemplates'])
+        $this->platforms = PlatformDefinition::with(['categories', 'scrapeMethod', 'urlTemplates', 'sourceRules'])
             ->get()
             ->map(fn (PlatformDefinition $p) => $this->resolve($p, $categories, $base));
 
@@ -145,12 +145,19 @@ class V5PlatformRegistry
         $categoryConfig = config("v5.categories.{$primaryCategory}", []);
         $categoryRules = $categoryConfig['rules'] ?? [];
 
+        // Per-platform config overrides (from config/v5.php platform_overrides).
+        // Sits between the DB column and the category default in the inheritance chain:
+        //   DB column → platform_overrides config → category config → base
+        $platformOverrides = config("v5.platform_overrides.{$platform->slug}", []);
+
         // Resolve each property through the chain
         $refreshInterval = $platform->refresh_interval
+            ?? $platformOverrides['refresh_interval']
             ?? $categoryConfig['refresh_interval']
             ?? $base['refresh_interval'];
 
         $sourceMethod = $platform->source_method
+            ?? $platformOverrides['source_method']
             ?? $categoryConfig['source_method']
             ?? $base['source_method'];
 

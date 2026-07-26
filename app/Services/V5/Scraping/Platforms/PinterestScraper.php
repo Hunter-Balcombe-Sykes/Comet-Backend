@@ -81,7 +81,7 @@ class PinterestScraper extends HtmlScrapeBase
         ];
 
         // og:title backstop for name
-        if ($profile['display_name'] === null && ($og = $this->metaContent($html, 'og:title'))) {
+        if ($profile['display_name'] === null && ($og = $this->metaContent($html, 'title'))) {
             $profile['display_name'] = trim(preg_replace('~\s*\([^)]*\)\s*-\s*Profile.*$~i', '', $og)) ?: null;
         }
 
