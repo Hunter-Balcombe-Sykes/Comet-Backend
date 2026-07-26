@@ -574,6 +574,12 @@ function setupSitesTable(): void
         }
     }
 
+    // site.site_subdomain_aliases — SiteProvisioningService now rejects candidates held
+    // by an ACTIVE alias before inserting, so every site-provisioning path reads this
+    // table. Created here (idempotent) rather than left to each test's opt-in
+    // setupSubdomainAliasesTable() call, which most signup tests never made.
+    setupSubdomainAliasesTable();
+
     // site.platform_connections — per-user platform integration selections
     // (Shopify/Apple/Instagram/...). Read by the public platforms endpoint +
     // dashboard; any test that sets up a site may touch it. Mirrors the

@@ -82,8 +82,39 @@ class SiteProvisioningService
         return substr($base, 0, $max);
     }
 
+    /**
+     * A subdomain still held as an ACTIVE redirect alias by another site is NOT free,
+     * even though `site.sites` has no row for it.
+     *
+     * `core_site_subdomain_aliases_subdomain_lower_unique` is global on lower(subdomain),
+     * so provisioning here would mint a site that can never create its own alias when it
+     * later renames — the 23505 that shipped as a 25P02 500 on PATCH /api/site — and would
+     * point the public 301 for that subdomain at a different site in the meantime. The
+     * insert in tryCreateSite() cannot catch this: it only guards site.sites uniqueness.
+     *
+     * Mirrors the active-alias predicate in RenameSubdomainAction (and the ->active()
+     * model scope): an EXPIRED alias has released the name back to the pool and must not
+     * lock anyone out, even before the pruner collects it.
+     */
+    private function subdomainHeldByActiveAlias(string $candidate): bool
+    {
+        return DB::connection('pgsql')->table('site.site_subdomain_aliases')
+            ->whereRaw('lower(subdomain) = ?', [strtolower($candidate)])
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->exists();
+    }
+
     private function tryCreateSite(string $userId, string $candidate, bool $published): ?Site
     {
+        // Advisory pre-check — a concurrent alias insert could still slip past it, but
+        // that race leaves at worst one site without a future rename alias (handled
+        // gracefully in RenameSubdomainAction), not a poisoned signup transaction.
+        if ($this->subdomainHeldByActiveAlias($candidate)) {
+            return null; // caller's retry loop advances to the next candidate
+        }
+
         try {
             // Wrap the insert in a nested transaction so Laravel emits a
             // SAVEPOINT/RELEASE pair (instead of a fresh BEGIN/COMMIT) when this

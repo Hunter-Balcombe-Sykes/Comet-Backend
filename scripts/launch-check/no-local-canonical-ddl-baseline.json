@@ -6,5 +6,6 @@
     "tests/Feature/User/AccountDeletion/AccountDeletionTestCase.php",
     "tests/Feature/User/DataExport/DataExportTestCase.php",
     "tests/Postgres/ItemSlugAllocatorRegressionTest.php",
-    "tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php"
+    "tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php",
+    "tests/Postgres/SubdomainAliasCollisionTest.php"
 ]
