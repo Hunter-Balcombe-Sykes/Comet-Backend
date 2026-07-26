@@ -104,3 +104,10 @@ awk '
     }
 ' "$tmp/local" "$tmp/dev" "$tmp/prod" "$tmp/checklist" \
     | sort | awk -F'\t' '{ if ($1!=last){printf "\n  ── bucket %s ──\n", $1; last=$1} print "    " $2 }'
+
+# Platform-injected vars never appear in the env-var list, so they land in
+# bucket 5 even when live. Assert those via config(), not this key diff.
+echo
+echo "  note: NIGHTWATCH_TOKEN is injected by the Cloud↔Nightwatch integration and is invisible"
+echo "        to this key diff — bucket 5 is expected. Verify with:"
+echo "        cloud tinker <env> --code='echo strlen((string) config(\"nightwatch.token\"));'"

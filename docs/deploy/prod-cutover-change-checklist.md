@@ -81,7 +81,9 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
 - [ ] `NEW` `SUPABASE_EMAIL_HOOK_SECRET=<prod, matches §B hook>`
 - [ ] `NEW` `SUPABASE_AUTH_HOOK_SECRET=<prod, matches §B hook>`
 - [ ] `NEW` `FEEDBACK_IP_HASH_PEPPER=<new prod random secret>`
-- [ ] `NEW` `NIGHTWATCH_TOKEN=<prod project>` (required whenever `NIGHTWATCH_ENABLED=true`)
+- [ ] `NEW` `NIGHTWATCH_TOKEN` — **do not hand-paste; enable the Laravel Cloud → Nightwatch integration on the
+      prod env** (see Monitoring below for the full procedure). Required whenever `NIGHTWATCH_ENABLED=true`
+      (defaults **true**), else `AppServiceProvider::boot` throws and prod never starts.
 
 ### Identity / Supabase (must be the PROD project's values)
 - [ ] `NEW` `SUPABASE_URL=https://edplucmvkcnokyygxqsb.supabase.co`
@@ -133,7 +135,24 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
       `FILESYSTEM_DISK` / `PARTNA_MEDIA_DISK` (disk selector, default `media`).
 
 ### Monitoring + third-party API keys
-- [ ] `NEW` `NIGHTWATCH_TOKEN` = prod project (also in boot-critical above).
+- [ ] `NEW` **`NIGHTWATCH_TOKEN` — provisioned by the Laravel Cloud ↔ Nightwatch integration, NOT by pasting a
+      value** (also in boot-critical above). In the Cloud console → `partna` → `production` → Nightwatch, connect
+      the env to the **Partna** Nightwatch app (`a1698025-90b3-426d-94ae-4b85ae5bb4c2`); its **Production**
+      environment already exists (`a1baab35-bf8a-4268-8b4c-ba72dfcc5e47`, ap-southeast-2). Cloud then runs the
+      ingest daemon **and** injects the token. Traps, all verified on dev 2026-07-26:
+      - The injected token **never appears** in `cloud environment:get <env> --json --fields=environmentVariables`,
+        so `compare-env.sh` will always list it under "named in checklist but set in NO cloud env". That bucket
+        entry is **expected, not a gap** — verify the real way instead:
+        `cloud tinker development --code='echo strlen((string) config("nightwatch.token"));'` → dev returns **44**.
+      - `env("NIGHTWATCH_TOKEN")` returns **empty at runtime even when it works** — the build command's
+        `php artisan optimize` bakes the value into cached config. Assert `config()`, never `env()`.
+      - Because it is baked at **build** time, connecting the integration requires a **redeploy** before the boot
+        guard sees it. Connect in §C, before the §D `production` push.
+      - `config('nightwatch.ingest.uri')` is `127.0.0.1:2407` — a **local** daemon Cloud provisions, not a public
+        endpoint. A hand-pasted token without the integration passes the boot guard while telemetry silently
+        black-holes; a manual token would also need `NIGHTWATCH_INGEST_URI` repointed.
+      - Emergency unblock only if go-live is otherwise ready: `NIGHTWATCH_ENABLED=false`. That is **not** the
+        shipping state — it blinds §E's "Nightwatch (prod) clean" check on the one env that matters.
 - [ ] `NEW` Bot protection: `TURNSTILE_SECRET`/`TURNSTILE_SITE_KEY` (or `HCAPTCHA_*`) — widgets are domain-bound,
       so prod needs its own pair; `SAME` `BOT_PROTECTION_*` flags.
 - [ ] `SPLIT` **`GOOGLE_MAPS_API_KEY` / `GOOGLE_MAPS_SERVER_API_KEY`** — the only uncapped paid API (Places).
@@ -183,7 +202,10 @@ keys — several live vars are **not** prefixed (see "App / notifications / inte
       the Send Email Hook is registered + secret matches.
 - [ ] Scheduler actually fired (`GET /api/health/scheduler`; `handles:prune-expired-aliases`,
       `builds:prune-expired` are load-bearing).
-- [ ] Nightwatch (prod) clean — no boot exceptions, no eager-scraper/connection errors.
+- [ ] Nightwatch (prod) clean — no boot exceptions, no eager-scraper/connection errors. **First confirm it is
+      actually reporting**, otherwise "clean" and "silent" are indistinguishable: `cloud tinker production
+      --code='echo strlen((string) config("nightwatch.token"));'` → non-zero, **and** the Partna → Production
+      environment shows events with the go-live `LARAVEL_CLOUD_COMMIT` as its deployment.
 - [ ] Custom-domain path resolves (if in pilot scope).
 
 ## F. Post-cutover
