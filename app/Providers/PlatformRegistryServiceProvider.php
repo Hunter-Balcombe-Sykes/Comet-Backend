@@ -37,7 +37,7 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\HumanitixScraper;
-use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+// V5: IntegrationConnectionCacheRefresher unused after shop deletion
 use App\Services\Platforms\Normalizers\DiscordNormalizer;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\KickNormalizer;
@@ -66,7 +66,7 @@ use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
-use App\Services\Platforms\ShopCatalog;
+// V5: ShopCatalog deleted
 use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
@@ -93,7 +93,7 @@ use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
-use App\Services\Platforms\Strategies\Fetch\ShopFetch;
+// V5: ShopFetch deleted
 use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
 use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
@@ -480,29 +480,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             }
 
             // V5: Shop deleted — no commerce, brand affiliation, or Shopify
-            // Latest-mode product sync — auto-tracks the store's newest products
-            // for brands with selection_mode='latest'; manual brands 304 inside.
-            $r->get('shop')->fetch(fn () => new ShopFetch(
-                app(ShopCatalog::class),
-                app(IntegrationConnectionCacheRefresher::class),
-            ));
-            $r->get('shop')->refreshEvery((int) config('partna.refresh.intervals.shop', 6 * 3600));
-            // FOUND-25 + W9: a shop connection's payload is a static lifecycle
-            // marker — brands/products live relationally and are decoupled from
-            // connect (addBrand stores a brand with zero products). An active
-            // connection alone isn't real content.
-            //
-            // MUST stay in lockstep with PublicIntegrationConnectionResource::
-            // filterPayload(), which rejects a connect_status='pending' brand:
-            // without the exclusion, page-presence says shop is present while the
-            // payload ships empty. `!= 'pending'` alone is WRONG — NULL !=
-            // 'pending' is NULL (falsy) in SQL, which would exclude every settled
-            // (NULL) brand too; the whereNull()->orWhere() is required.
-            $r->get('shop')->complete(fn (IntegrationConnection $c): bool => ShopProduct::query()
-                ->whereHas('brand', fn ($q) => $q
-                    ->where(fn ($q3) => $q3->whereNull('connect_status')->orWhere('connect_status', '<>', 'pending'))
-                    ->whereHas('connection', fn ($q2) => $q2->where('user_id', $c->user_id)))
-                ->exists());
             $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
             $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
             $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));
