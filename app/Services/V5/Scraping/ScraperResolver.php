@@ -4,110 +4,104 @@ namespace App\Services\V5\Scraping;
 
 use App\Services\V5\Scraping\Platforms\AppleMusicScraper;
 use App\Services\V5\Scraping\Platforms\ApplePodcastsScraper;
+use App\Services\V5\Scraping\Platforms\BandcampScraper;
+use App\Services\V5\Scraping\Platforms\DoorDashMenuScraper;
+use App\Services\V5\Scraping\Platforms\EventbriteScraper;
 use App\Services\V5\Scraping\Platforms\FreshaScraper;
 use App\Services\V5\Scraping\Platforms\GoogleBusinessScraper;
+use App\Services\V5\Scraping\Platforms\HumanitixScraper;
+use App\Services\V5\Scraping\Platforms\InstagramScraper;
 use App\Services\V5\Scraping\Platforms\OpenTableScraper;
+use App\Services\V5\Scraping\Platforms\PinterestScraper;
 use App\Services\V5\Scraping\Platforms\ShopifyScraper;
+use App\Services\V5\Scraping\Platforms\SkoolScraper;
 use App\Services\V5\Scraping\Platforms\SoundCloudScraper;
 use App\Services\V5\Scraping\Platforms\SpotifyScraper;
+use App\Services\V5\Scraping\Platforms\SquareMenuScraper;
 use App\Services\V5\Scraping\Platforms\SquareScraper;
+use App\Services\V5\Scraping\Platforms\StravaClubScraper;
+use App\Services\V5\Scraping\Platforms\TwitchScraper;
+use App\Services\V5\Scraping\Platforms\UberEatsMenuScraper;
 use App\Services\V5\Scraping\Platforms\VimeoScraper;
 use App\Services\V5\Scraping\Platforms\WooCommerceScraper;
+use App\Services\V5\Scraping\Platforms\YoutubeMusicScraper;
+use App\Services\V5\Scraping\Platforms\YoutubeScraper;
+use Illuminate\Support\Facades\Log;
 
-// V5 ScraperResolver maps a platform slug or URL to the correct scraper
-// instance. Uses Laravel's container for DI resolution so scrapers receive
-// their dependencies (SafeUrlFetcher, FetchBudget, etc.) automatically.
-//
-// Usage:
-//   $resolver = app(ScraperResolver::class);
-//   $scraper = $resolver->resolve('spotify');
-//   $items   = $scraper->fetch('https://open.spotify.com/track/...');
-//
-// Or resolve by URL (auto-detect platform from hostname):
-//   $scraper = $resolver->resolveForUrl('https://vimeo.com/channels/staffpicks');
+// V5 ScraperResolver — maps platform slug → scraper instance → fetch → items.
 class ScraperResolver
 {
-    /** Platform slug → scraper class. */
+    /** Platform slug (hyphenated) → scraper class. */
     private const SCRAPER_MAP = [
-        'apple_music' => AppleMusicScraper::class,
-        'apple_podcasts' => ApplePodcastsScraper::class,
+        'youtube' => YoutubeScraper::class,
+        'youtube-music' => YoutubeMusicScraper::class,
+        'vimeo' => VimeoScraper::class,
+        'twitch' => TwitchScraper::class,
+        'pinterest' => PinterestScraper::class,
+        'bandcamp' => BandcampScraper::class,
+        'spotify' => SpotifyScraper::class,
+        'apple-music' => AppleMusicScraper::class,
+        'apple-podcasts' => ApplePodcastsScraper::class,
+        'apple-podcast' => ApplePodcastsScraper::class,
+        'soundcloud' => SoundCloudScraper::class,
+        'eventbrite' => EventbriteScraper::class,
+        'humanitix' => HumanitixScraper::class,
+        'skool' => SkoolScraper::class,
+        'strava' => StravaClubScraper::class,
         'fresha' => FreshaScraper::class,
-        'google_business' => GoogleBusinessScraper::class,
+        'square' => SquareScraper::class,
         'opentable' => OpenTableScraper::class,
         'shopify' => ShopifyScraper::class,
-        'soundcloud' => SoundCloudScraper::class,
-        'spotify' => SpotifyScraper::class,
-        'square' => SquareScraper::class,
-        'vimeo' => VimeoScraper::class,
         'woocommerce' => WooCommerceScraper::class,
+        'instagram' => InstagramScraper::class,
+        'google-business' => GoogleBusinessScraper::class,
+        'uber-eats' => UberEatsMenuScraper::class,
+        'doordash' => DoorDashMenuScraper::class,
+        'square-online' => SquareMenuScraper::class,
     ];
 
-    /** URL host fragments → platform slug. Listed longest-first for specificity. */
-    private const HOST_MAP = [
-        'open.spotify.com' => 'spotify',
-        'soundcloud.com' => 'soundcloud',
-        'music.apple.com' => 'apple_music',
-        'podcasts.apple.com' => 'apple_podcasts',
-        'vimeo.com' => 'vimeo',
-        'opentable.com.au' => 'opentable',
-        'opentable.com' => 'opentable',
-        'myshopify.com' => 'shopify',
-        'shopify.com' => 'shopify',
-        'fresha.com' => 'fresha',
-        'goo.gl' => 'google_business',
-        'google.com' => 'google_business',
-        'google.' => 'google_business',
-    ];
+    /** Resolve a scraper by platform slug. Returns null if unknown. */
+    public function resolve(string $slug): ?BaseScraper
+    {
+        $class = self::SCRAPER_MAP[$slug] ?? null;
+        return $class ? app($class) : null;
+    }
 
     /**
-     * Resolve a scraper for the given platform slug.
+     * Scrape a platform and return items in V5 format.
      *
-     * @return BaseScraper|null The scraper instance, or null if the platform is unknown.
+     * @param string $slug Platform slug (e.g. 'spotify', 'youtube')
+     * @param string $identifier The URL or handle to scrape
+     * @return array{items: array, profile: array}|null
      */
-    public function resolve(string $platform): ?BaseScraper
+    public function scrape(string $slug, string $identifier): ?array
     {
-        $class = self::SCRAPER_MAP[$platform] ?? null;
-        if ($class === null) {
+        $scraper = $this->resolve($slug);
+        if (! $scraper) {
+            Log::warning('v5.scraper.unknown', ['slug' => $slug]);
             return null;
         }
 
-        // Use the container so DI works (SafeUrlFetcher, FetchBudget, etc.)
-        return app($class);
-    }
-
-    /**
-     * Resolve a scraper by detecting the platform from a URL.
-     *
-     * @return BaseScraper|null The scraper instance, or null if the host is unknown.
-     */
-    public function resolveForUrl(string $url): ?BaseScraper
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-
-        foreach (self::HOST_MAP as $pattern => $slug) {
-            if (str_contains($host, $pattern)) {
-                return $this->resolve($slug);
-            }
+        try {
+            $result = $scraper->fetch($identifier);
+            Log::info('v5.scraper.ok', [
+                'slug' => $slug,
+                'items' => count($result['items'] ?? []),
+            ]);
+            return $result;
+        } catch (\Throwable $e) {
+            Log::error('v5.scraper.failed', [
+                'slug' => $slug,
+                'identifier' => $identifier,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
         }
-
-        return null;
     }
 
-    /**
-     * Return all registered platform slugs.
-     *
-     * @return list<string>
-     */
-    public function available(): array
-    {
-        return array_keys(self::SCRAPER_MAP);
-    }
+    /** All registered slug → class pairs. */
+    public function all(): array { return self::SCRAPER_MAP; }
 
-    /**
-     * Check if a platform slug is registered.
-     */
-    public function has(string $platform): bool
-    {
-        return isset(self::SCRAPER_MAP[$platform]);
-    }
+    /** Check if a slug is registered. */
+    public function has(string $slug): bool { return isset(self::SCRAPER_MAP[$slug]); }
 }
