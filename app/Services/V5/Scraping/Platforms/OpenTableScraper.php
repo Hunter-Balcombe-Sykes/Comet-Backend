@@ -27,7 +27,7 @@ class OpenTableScraper extends ApiBase implements FetchContract
      */
     public function fetch(string $identifier): array
     {
-        $url = $this->normalizeUrl($identifier);
+        $url = $this->normalizeOpenTableUrl($identifier);
         $rid = $this->parseRid($url);
         $slugName = $this->nameFromSlug($url);
 
@@ -137,7 +137,7 @@ class OpenTableScraper extends ApiBase implements FetchContract
     /**
      * Normalize an input URL to https:// form.
      */
-    protected function normalizeUrl(string $input): string
+    protected function normalizeOpenTableUrl(string $input): string
     {
         if (! str_starts_with($input, 'http')) {
             return 'https://'.$input;
