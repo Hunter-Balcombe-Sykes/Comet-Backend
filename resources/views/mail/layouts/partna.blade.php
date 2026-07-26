@@ -81,6 +81,28 @@
                                 <a href="{{ $brand->siteUrl }}" style="text-decoration:none;">
                                     <span style="font-size:22px; font-weight:600; letter-spacing:-0.01em; color:{{ $brand->palette->text }};">{{ $brand->proName }}</span>
                                 </a>
+                            @elseif ($brand->iconUrlLight && $brand->iconUrlDark && $brand->logoUrlLight && $brand->logoUrlDark)
+                                <a href="https://app.partna.au" style="text-decoration:none;">
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                        <tr>
+                                            {{-- Light mode: dark icon + dark wordmark on white bg --}}
+                                            <td valign="middle" class="logo-light" style="line-height:0;">
+                                                <img src="{{ $brand->iconUrlLight }}" alt="" width="20" height="20" style="display:block; width:20px; height:20px; border:0; outline:none;">
+                                            </td>
+                                            <td valign="middle" class="logo-light" style="line-height:0; padding-left:14px;">
+                                                <img src="{{ $brand->logoUrlLight }}" alt="Partna" width="76" height="20" style="display:block; width:76px; height:20px; border:0; outline:none;">
+                                            </td>
+                                            {{-- Dark mode: light icon + light wordmark — hidden by default,
+                                                 shown via media query when client supports dark mode --}}
+                                            <td valign="middle" class="logo-dark" style="line-height:0; display:none;">
+                                                <img src="{{ $brand->iconUrlDark }}" alt="" width="20" height="20" style="display:block; width:20px; height:20px; border:0; outline:none;">
+                                            </td>
+                                            <td valign="middle" class="logo-dark" style="line-height:0; padding-left:14px; display:none;">
+                                                <img src="{{ $brand->logoUrlDark }}" alt="Partna" width="76" height="20" style="display:block; width:76px; height:20px; border:0; outline:none;">
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </a>
                             @elseif ($brand->logoUrlLight && $brand->logoUrlDark)
                                 <a href="https://app.partna.au" style="text-decoration:none;">
                                     <img class="logo-light" src="{{ $brand->logoUrlLight }}" alt="Partna" width="76" height="20" style="display:block; width:76px; height:20px; border:0; outline:none;">

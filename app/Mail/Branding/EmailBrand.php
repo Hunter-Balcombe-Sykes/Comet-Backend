@@ -21,6 +21,8 @@ final class EmailBrand
         public readonly ?string $logoUrl,
         public readonly ?string $logoUrlLight,
         public readonly ?string $logoUrlDark,
+        public readonly ?string $iconUrlLight,
+        public readonly ?string $iconUrlDark,
         public readonly ?string $replyToEmail,
         public readonly EmailPalette $palette,
     ) {}
@@ -39,6 +41,8 @@ final class EmailBrand
             logoUrl: null,
             logoUrlLight: "{$appUrl}/branding/partna-wordmark-light.png",
             logoUrlDark: "{$appUrl}/branding/partna-wordmark-dark.png",
+            iconUrlLight: "{$appUrl}/branding/partna-icon-light.png",
+            iconUrlDark: "{$appUrl}/branding/partna-icon-dark.png",
             replyToEmail: null,
             palette: EmailBrandDefaults::defaults(),
         );
@@ -54,6 +58,8 @@ final class EmailBrand
             'logoUrl' => $this->logoUrl,
             'logoUrlLight' => $this->logoUrlLight,
             'logoUrlDark' => $this->logoUrlDark,
+            'iconUrlLight' => $this->iconUrlLight,
+            'iconUrlDark' => $this->iconUrlDark,
             'replyToEmail' => $this->replyToEmail,
             'palette' => [
                 'accent' => $this->palette->accent,
@@ -80,6 +86,8 @@ final class EmailBrand
             logoUrl: $data['logoUrl'] ?? null,
             logoUrlLight: $data['logoUrlLight'] ?? null,
             logoUrlDark: $data['logoUrlDark'] ?? null,
+            iconUrlLight: $data['iconUrlLight'] ?? null,
+            iconUrlDark: $data['iconUrlDark'] ?? null,
             replyToEmail: $data['replyToEmail'] ?? null,
             palette: new EmailPalette(
                 accent: (string) ($p['accent'] ?? EmailBrandDefaults::ACCENT),
