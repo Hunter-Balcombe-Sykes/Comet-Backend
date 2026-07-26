@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Ping
@@ -204,3 +205,14 @@ Route::post('/internal/csp-report', CspReportController::class)
 
 Route::get('/ready', [HealthController::class, 'check'])->middleware('throttle:health-check');
 Route::get('/health/scheduler', [HealthController::class, 'scheduler'])->middleware('throttle:health-check');
+
+// DAST self-test canary (scripts/dast/tests/dast-selftest.sh) — a
+// deliberately-vulnerable route that reflects unsanitized input, proving
+// the active lane's whole pipeline (bring-up -> seed -> scan) actually
+// catches a real XSS, not just that ZAP itself can. Registered ONLY when
+// DAST_CANARY=1, which nothing sets outside that one script — never
+// present in a real deployed env. See docs/superpowers/plans/2026-07-17-
+// dast-security-implementation.md Phase 8.
+if (env('DAST_CANARY')) {
+    Route::get('/__dast_canary', fn (Request $request) => response('<div>'.$request->query('x').'</div>'));
+}

@@ -433,29 +433,21 @@ Run against `EDGE_TARGET` (the API host); the optional second pass against `EDGE
 
 **Depends on:** Phases 4, 7. **Files:** `tests/canary/`, `tests/dast-selftest.sh`. This is the spec's "Testing the scanner itself" — the worst failure mode is a silently-broken scanner reporting "all clear" forever.
 
-- [ ] **Step 1: Canary fixtures** in `tests/canary/`:
-  - **active canary** — a temporary route that reflects unsanitized input (`GET /__dast_canary?x=<echoed raw>`), registered *only* when a `DAST_CANARY=1` env is set, so it never ships to a real env. ZAP must flag reflected XSS on it.
-  - **edge canary** — a tiny local static server exposing `/.env` with fake contents, so the `env-not-exposed` template must fire.
+**Precondition — resolved with Josh mid-build, not a plan item originally:** this phase's active canary requires a live route, which means editing `routes/api.php` — the one genuinely unavoidable app-code touch in an otherwise app-code-free tool, flagged to Josh before writing it (the EXECUTE-PROMPT's own "STOP if a phase seems to need an app-code change" trigger). Approved: gate it behind `env('DAST_CANARY')`, never true outside `dast-selftest.sh`.
 
-- [ ] **Step 2: `dast-selftest.sh` — canary proof:**
+- [x] **Step 1: Canary fixtures:**
+  - **active canary** — `routes/api.php`: `if (env('DAST_CANARY')) { Route::get('/__dast_canary', fn (Request $r) => response('<div>'.$r->query('x').'</div>')); }`. Registers as `api/__dast_canary` (routes/api.php's implicit `api/` prefix).
+  - **edge canary** — `tests/canary/edge-fixture/.env` (a fake secret), served by a plain `python3 -m http.server`.
 
-```bash
-# active canary: bring up with DAST_CANARY=1, run the active lane, assert:
-#   (a) ZAP output contains an XSS/reflection alert on /__dast_canary
-#   (b) run.sh exit code == 2  (the runner actually FAILS the build)
-# edge canary: point nuclei-edge.sh at the local canary server, assert
-#   env-not-exposed fired AND exit code == 2.
-```
+- [x] **Step 2: `dast-selftest.sh` — canary proof.** **Deviation:** reuses `bring-up.sh` for the active canary (real isolated stack + served app — the actual production pipeline) but drives a small, FOCUSED ZAP scan against just the canary URL (context `urls: [".../api/__dast_canary"]`, one rule: 40012 reflected XSS) rather than the full 487-route/5-rule policy scan — both prove the same thing (the pipeline catches a real vuln) but the focused version runs in seconds instead of ~6-8 minutes, which matters since this is meant to be run on demand, repeatedly, as the tool's acceptance gate. Both `run.sh`'s own gating (`diff-baseline.sh` exit) and the raw scanner-output presence are asserted, per the plan's "both halves" requirement.
+  - **Real bug caught (1):** the focused canary scan's `report` job was named `canary-report`, but `diff-baseline.sh` hardcodes the lookup path `$OUTDIR/zap/zap-report.json` (matching `zap-active.sh`'s real output name) — the mismatch meant `diff-baseline.sh` silently saw no ZAP data and reported clean regardless of what ZAP actually found. First self-test run's own second assertion (`diff-baseline exits non-zero`) caught this — exactly the "scanner finds but doesn't fail" failure mode this phase exists to prevent, except it was the *test* that had the bug, not the tool. Fixed by naming it `zap-report` to match.
+  - **Real bug caught (2):** an explanatory comment inside the canary plan's YAML heredoc referenced `$OUTDIR` literally; since the heredoc was unquoted (`<<EOF`, needed for `${ZAP_TARGET_URL}` interpolation elsewhere in the same block), bash tried to expand `$OUTDIR` too — undefined (the script uses `ACTIVE_OUTDIR`/`CANARY_OUTDIR`/`CLEAN_OUTDIR`, never a bare `OUTDIR`), and `set -u` made that a fatal "unbound variable" mid-heredoc. Corrupted the generated plan file, so the subsequent scan found nothing — a second run's regression this exact test caught (assertion count dropped from 6 PASS to 2 FAIL). Fixed by rewording the comment to avoid a bare `$` before a variable name.
 
-Assert **both** the finding is present **and** the runner exits non-zero — a scanner that finds-but-doesn't-fail is as broken as one that doesn't find.
+- [x] **Step 3: Clean + baseline-suppression proof.** **Deviation, real bug caught (3):** the first version's "clean target" was a bare `python3 -m http.server` on an empty directory — but `cache-control-correct.yaml` (Phase 5) checks a Laravel-shaped path (`api/public/unsubscribe/*`) expecting a `no-store` header; a generic server has no such route, no such header, and no such app at all, so the template correctly-per-its-own-logic flagged "high" — a false positive about "this isn't my app", not a real finding. Switched the clean-target proof to the real dev host (`https://dev-api.partna.au`, already re-verified clean multiple times across this build), which actually satisfies what `EDGE_TARGET` means in practice. Baseline-suppression backs up + restores the real committed `baseline/nuclei-baseline.txt` around the test (`--update-baseline` must never leave test data in the triaged baseline) — verified via `git diff --stat` showing zero drift after the self-test run.
 
-- [ ] **Step 3: Clean + baseline-suppression proof:**
-  - run a lane against a **clean** target → assert exit 0 (green),
-  - add the canary's key to the baseline, re-run against the canary → assert the finding is **suppressed** and exit 0.
+- [x] **Step 4:** `README.md` already documents running the self-test (Phase 0's stub, still accurate — no changes needed).
 
-- [ ] **Step 4:** Document how to run the self-test in `README.md`. This is the guard that keeps the whole tool honest — call it out.
-
-**Done when:** `tests/dast-selftest.sh` passes: canary flagged + non-zero exit for both lanes, clean run green, baselined finding suppressed. This is the acceptance gate for the whole tool.
+**Done when:** `tests/dast-selftest.sh` passes: canary flagged + non-zero exit for both lanes, clean run green, baselined finding suppressed. This is the acceptance gate for the whole tool. ✅ Verified 2026-07-26 — full run, ALL 7 assertions PASS (edge: alert-present, diff-baseline-fails, clean-exits-0, suppression-exits-0; active: route-live, XSS-alert-present, diff-baseline-fails). Clean teardown confirmed after (`docker ps`, `pgrep -f 'artisan serve'` both empty, `.env.dast` removed, `baseline/` files unchanged from HEAD).
 
 ---
 
