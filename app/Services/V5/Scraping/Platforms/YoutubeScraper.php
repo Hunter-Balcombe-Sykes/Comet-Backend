@@ -56,17 +56,6 @@ class YoutubeScraper extends HtmlScrapeBase
             $videoIds = array_column($rawItems, 'videoId');
             $thumbnails = $this->resolveThumbnails($videoIds);
             $items = $this->mapItems($rawItems, $thumbnails);
-
-    /** Build thumbnail URLs directly — no external resolver needed. */
-    protected function resolveThumbnails(array $videoIds): array
-    {
-        $result = [];
-        foreach ($videoIds as $id) {
-            // Use hqdefault as fallback (always available); maxresdefault is best-effort
-            $result[$id] = "https://i.ytimg.com/vi/{$id}/hqdefault.jpg";
-        }
-        return $result;
-    }
             $this->logSuccess('youtube', 'fetch', count($items));
         }
 
@@ -292,5 +281,13 @@ class YoutubeScraper extends HtmlScrapeBase
         }
 
         return (int) str_replace([',', '.'], '', $value);
+    }
+    private function resolveThumbnails(array $videoIds): array
+    {
+        $result = [];
+        foreach ($videoIds as $id) {
+            $result[$id] = "https://i.ytimg.com/vi/{$id}/hqdefault.jpg";
+        }
+        return $result;
     }
 }
