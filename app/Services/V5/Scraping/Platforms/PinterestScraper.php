@@ -20,7 +20,7 @@ class PinterestScraper extends HtmlScrapeBase
     /**
      * Main entry: fetch profile + recent pins as V5 items.
      *
-     * @return array{display_name:?string, profile_pic_url:?string, follower_count:?int, username:?string, items:list<array>}|null
+     * @return array{profile:array{display_name:?string, profile_pic_url:?string, follower_count:?int}, items:list<array>}|null
      */
     public function fetch(string $input, int $limit = 12): ?array
     {
@@ -39,7 +39,10 @@ class PinterestScraper extends HtmlScrapeBase
         $feedXml = $this->fetchHtml("https://www.pinterest.com/{$username}/feed.rss");
         $items = $feedXml !== null ? $this->parsePinFeed($feedXml, $limit) : [];
 
-        return array_merge($profile, ['items' => $items]);
+        return [
+            'profile' => $profile,
+            'items' => $items,
+        ];
     }
 
     /**

@@ -168,7 +168,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'instagram' => [
-        'actor' => env('V5_INSTAGRAM_ACTOR', 'instagram-profile-scraper'),
+        'actor' => env('V5_INSTAGRAM_ACTOR', 'figue~instagram-profile-scraper'),
         'posts_limit' => (int) env('V5_INSTAGRAM_POSTS_LIMIT', 36),
         'extract_caption_urls' => true,
         'extract_bio_urls' => true,

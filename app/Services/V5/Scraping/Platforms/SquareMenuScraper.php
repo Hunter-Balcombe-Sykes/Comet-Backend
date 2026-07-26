@@ -23,19 +23,19 @@ class SquareMenuScraper extends ApifyBase
      * Fetch menu items from a Square store.
      *
      * @param  string  $identifier  Square store URL or merchant ID
-     * @return array{v5_items: array}
+     * @return array{items: array}
      */
     public function fetch(string $identifier): array
     {
         $raw = $this->runActor(['merchantUrl' => $identifier]);
         if ($raw === null) {
-            return ['v5_items' => []];
+            return ['items' => []];
         }
 
         $items = $this->processItems($raw);
         $this->logSuccess('square_menu', 'fetch', count($items));
 
-        return ['v5_items' => $items];
+        return ['items' => $items];
     }
 
     /** Map raw actor output to V5 menu-item format. */

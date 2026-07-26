@@ -17,7 +17,7 @@ class StravaClubScraper extends HtmlScrapeBase
      */
     public function fetch(string $input): ?array
     {
-        $canonicalUrl = $this->normalizeUrl($input);
+        $canonicalUrl = $this->normalizeClubUrl($input);
         if ($canonicalUrl === null) {
             return null;
         }
@@ -89,7 +89,7 @@ class StravaClubScraper extends HtmlScrapeBase
     /**
      * Normalize any strava.com/clubs URL or bare slug to canonical form.
      */
-    public function normalizeUrl(string $input): ?string
+    public function normalizeClubUrl(string $input): ?string
     {
         $input = $this->normalizeToUrl($input);
 
@@ -119,7 +119,7 @@ class StravaClubScraper extends HtmlScrapeBase
      */
     protected function resolveHandle(string $url): ?string
     {
-        $normalized = $this->normalizeUrl($url);
+        $normalized = $this->normalizeClubUrl($url);
         if ($normalized === null) {
             return null;
         }

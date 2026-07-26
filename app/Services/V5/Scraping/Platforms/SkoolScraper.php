@@ -24,7 +24,7 @@ class SkoolScraper extends HtmlScrapeBase
      */
     public function fetch(string $input): ?array
     {
-        $canonicalUrl = $this->normalizeUrl($input);
+        $canonicalUrl = $this->normalizeCommunityUrl($input);
         if ($canonicalUrl === null) {
             return null;
         }
@@ -87,7 +87,7 @@ class SkoolScraper extends HtmlScrapeBase
      * Normalize any skool.com community URL or bare slug to canonical form.
      * Rejects product pages (signup, login, discovery, etc.).
      */
-    public function normalizeUrl(string $input): ?string
+    public function normalizeCommunityUrl(string $input): ?string
     {
         $input = $this->normalizeToUrl($input);
 
@@ -124,7 +124,7 @@ class SkoolScraper extends HtmlScrapeBase
      */
     protected function resolveHandle(string $url): ?string
     {
-        $normalized = $this->normalizeUrl($url);
+        $normalized = $this->normalizeCommunityUrl($url);
         if ($normalized === null) {
             return null;
         }

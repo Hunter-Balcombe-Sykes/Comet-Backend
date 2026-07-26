@@ -29,7 +29,7 @@ class VimeoScraper extends ApiBase implements FetchContract
     /**
      * Fetch profile info and latest videos for a Vimeo profile/channel URL.
      *
-     * @return list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>
+     * @return array{items:list<array{identifier:string, name:?string, item_type:string, values:list<array{field_name:string, value:mixed, format:string}>}>, profile:array{display_name:?string, profile_pic_url:?string, bio:?string}}
      */
     public function fetch(string $identifier): array
     {
@@ -90,30 +90,21 @@ class VimeoScraper extends ApiBase implements FetchContract
             }
         }
 
-        // If no videos, return a profile-only item
-        if (empty($items) && $profileName) {
-            $values = [
-                ['field_name' => 'name', 'value' => $profileName, 'format' => 'text'],
-            ];
-            if ($profileThumb) {
-                $values[] = ['field_name' => 'thumbnail_url', 'value' => $profileThumb, 'format' => 'image'];
-            }
-            if ($profileLink) {
-                $values[] = ['field_name' => 'page_url', 'value' => $profileLink, 'format' => 'url'];
-            }
-            if ($profileBio) {
-                $values[] = ['field_name' => 'bio', 'value' => $profileBio, 'format' => 'text'];
-            }
-
-            $items[] = [
-                'identifier' => $apiPath,
-                'name' => $profileName,
-                'item_type' => 'video',
-                'values' => $values,
-            ];
+        $profileData = [];
+        if ($profileName !== null) {
+            $profileData['display_name'] = $profileName;
+        }
+        if ($profileThumb !== null) {
+            $profileData['profile_pic_url'] = $profileThumb;
+        }
+        if ($profileBio !== null) {
+            $profileData['bio'] = $profileBio;
         }
 
-        return $items;
+        return [
+            'items' => $items,
+            'profile' => $profileData,
+        ];
     }
 
     /**

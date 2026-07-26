@@ -8,7 +8,8 @@ use App\Services\V5\Scraping\Contracts\FetchContract;
 // V5 Google Business scraper — fetches place details from the Google Places
 // API (New). Requires a server-side API key with the Places API enabled.
 //
-// NOTE: This is currently a STUB. The full implementation will:
+// NOTE: This is currently a STUB until PlacesBudget integration is wired.
+// The full implementation will:
 // - Parse a Maps URL to extract the place name and coordinates
 // - Resolve short links (maps.app.goo.gl, goo.gl/maps, share.google)
 // - Fetch Place Details from places.googleapis.com/v1/places/{placeId}
@@ -24,17 +25,32 @@ class GoogleBusinessScraper extends ApiBase implements FetchContract
     protected string $authType = 'bearer';
     protected string $apiKey = '';
 
-    /**
-     * Fetch place details for a Google Business listing.
-     *
-     * @param string $identifier Google Maps URL or place ID
-     * @return list<array>
-     */
+    public function __construct(
+        \App\Services\Http\SafeUrlFetcher $fetcher,
+    ) {
+        parent::__construct($fetcher);
+        $this->apiKey = config('services.google_maps.server_api_key', '');
+    }
+
+    public function hasApiKey(): bool
+    {
+        return $this->apiKey !== '';
+    }
+
     public function fetch(string $identifier): array
     {
-        // Requires config('services.google_maps.server_api_key')
-        // Field mask: X-Goog-FieldMask header with details fields
-        // Endpoint: /places/{placeId}
+        if (! $this->hasApiKey()) {
+            return [
+                [
+                    'identifier' => 'google_business_missing_api_key',
+                    'name' => 'Google Business (Requires API Key)',
+                    'item_type' => 'service',
+                    'values' => [
+                        ['field_name' => 'note', 'value' => 'Google Business scraper requires a server-side Google Places API key (services.google_maps.server_api_key). No results returned.', 'format' => 'text'],
+                    ],
+                ],
+            ];
+        }
 
         return [
             [

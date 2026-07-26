@@ -31,7 +31,7 @@ class InstagramScraper extends ApifyBase
     {
         $raw = $this->runActor(['profiles' => [$handle]]);
         if ($raw === null) {
-            return ['v5_items' => [], 'bio_links' => [], 'caption_urls' => [], 'profile_pic_url' => null];
+            return ['items' => [], 'bio_links' => [], 'caption_urls' => [], 'profile_pic_url' => null];
         }
 
         $items = $this->processItems($raw);
@@ -55,7 +55,7 @@ class InstagramScraper extends ApifyBase
         $this->logSuccess('instagram', 'fetch', count($items));
 
         return [
-            'v5_items' => $items,
+            'items' => $items,
             'bio_links' => $bioLinks,
             'caption_urls' => $captionUrls,
             'profile_pic_url' => $profilePicUrl,

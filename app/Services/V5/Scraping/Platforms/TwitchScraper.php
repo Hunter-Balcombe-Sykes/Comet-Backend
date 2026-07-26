@@ -19,7 +19,7 @@ class TwitchScraper extends HtmlScrapeBase
     /**
      * Main entry: fetch channel profile info from a twitch.tv URL or handle.
      *
-     * @return array{display_name:?string, profile_pic_url:?string, bio:?string, login:?string, items:list<array>}|null
+     * @return array{items:list<array>, profile:array{display_name:?string, profile_pic_url:?string, bio:?string}}|null
      */
     public function fetch(string $input): ?array
     {
@@ -33,7 +33,10 @@ class TwitchScraper extends HtmlScrapeBase
             return null;
         }
 
-        return array_merge($profile, ['items' => []]);
+        return [
+            'items' => [],
+            'profile' => $profile,
+        ];
     }
 
     /**

@@ -32,6 +32,11 @@ abstract class ApifyBase extends BaseScraper
     /** Dispatch actor and return dataset items. */
     protected function runActor(array $inputOverrides = []): ?array
     {
+        if (empty($this->apifyToken)) {
+            $this->logFailure($this->actorName, 'dispatch', 'APIFY_TOKEN not configured');
+            return null;
+        }
+
         if ($this->apifyBudget->isExhausted($this->actorName)) {
             $this->logFailure($this->actorName, 'budget', 'Daily cap exhausted');
             return null;
@@ -39,18 +44,24 @@ abstract class ApifyBase extends BaseScraper
 
         $input = array_merge($this->actorInput, $inputOverrides);
 
-        $runId = $this->dispatch($input);
-        if (! $runId) return null;
+        $result = $this->dispatch($input);
+        if ($result === null) return null;
 
-        $items = $this->pollForResults($runId);
-        if ($items === null) return null;
+        // Sync path: dispatch returned items directly from a synchronous actor run
+        if (is_array($result)) {
+            $items = $result;
+        } else {
+            // Async path: poll for results
+            $items = $this->pollForResults($result);
+            if ($items === null) return null;
+        }
 
         $this->apifyBudget->record($this->actorName, count($items));
 
         return $items;
     }
 
-    private function dispatch(array $input): ?string
+    private function dispatch(array $input): string|array|null
     {
         $url = "https://api.apify.com/v2/acts/{$this->actorName}/run-sync-get-dataset-items";
 
@@ -59,8 +70,9 @@ abstract class ApifyBase extends BaseScraper
                 ->timeout($this->timeout)
                 ->post($url, $input);
 
+            // 201 = synchronous completion with dataset items in the response body
             if ($response->status() === 201 && is_array($response->json())) {
-                return 'sync'; // Run-sync completed inline
+                return $response->json();
             }
 
             if ($response->successful()) {
@@ -84,11 +96,6 @@ abstract class ApifyBase extends BaseScraper
 
     private function pollForResults(string $runId): ?array
     {
-        // If the run completed synchronously, items are in the response body
-        if ($runId === 'sync') {
-            return []; // Sync path handled differently — override in subclass
-        }
-
         $url = "https://api.apify.com/v2/actor-runs/{$runId}/dataset/items";
 
         for ($i = 0; $i < $this->maxPollAttempts; $i++) {
