@@ -25,7 +25,7 @@ class InstagramScraper extends ApifyBase
     /**
      * Fetch Instagram profile data for the given handle.
      *
-     * @return array{v5_items: array, bio_links: array, caption_urls: array, profile_pic_url: ?string}
+     * @return array{items: array, bio_links: array, caption_urls: array, profile_pic_url: ?string}
      */
     public function fetch(string $handle): array
     {
