@@ -175,6 +175,51 @@ class PublicIntegrationConnectionResource extends ApiResource
         // reads url + name from this exact payload). id/provider/source/data
         // stay private — internal bookkeeping the sitepage doesn't need.
         'online-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // ── Named provider cards (registered 265f9aa4, entries added 2026-07-26) ──
+        // 27 branded link cards across booking / reservations / events /
+        // online-ordering, every one on CardPayload. They shipped registered but
+        // UNLISTED, so filterPayload()'s fail-closed branch fired: each rendered
+        // as {} on every public sitepage and reported a
+        // MissingPublicAllowlistException to Nightwatch on every public request.
+        //
+        // Key set is the `online-ordering` contract above — the one existing
+        // CardPayload entry that renders a branded card publicly. `url`/`name` are
+        // what the owner pasted, `favicon`/`logo` are the derived branding these
+        // "logo-only" cards exist to show, and `provider` drives the
+        // "Book with {provider}" label. CardPayload's remaining keys stay private:
+        // `source` and `id` are internal bookkeeping and `data` is the ordering
+        // sub-map, none of which the sitepage reads.
+        //
+        // These are DELIBERATELY wider than the generic 'booking'/'reservations'
+        // fallbacks (url + provider): those are custom rows with no scraped
+        // branding, whereas each of these is a known provider whose logo renders.
+        'booksy' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'vagaro' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'timely' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'kitomba' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'phorest' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'shortcuts' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'bella-booking' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'boulevard' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'glossgenius' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'mangomint' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'zenoti' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'mindbody' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'ovatu' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'resy' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'quandoo' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'sevenrooms' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'tock' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'tablecheck' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'ticketek' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'oztix' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'trybooking' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'resident-advisor' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'ticketmaster' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'bopple' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'square-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'hungrypanda' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'easi' => ['url', 'name', 'favicon', 'logo', 'provider'],
         // shop: brands live in the site.shop_brands child table now (FOUND-25) —
         // built from $this->shopBrands below, not from this allowlist map.
     ];
