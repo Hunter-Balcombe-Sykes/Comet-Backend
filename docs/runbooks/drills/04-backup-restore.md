@@ -10,12 +10,41 @@ the only drill runnable at any time regardless of in-flight work.
 
 ## Ground rules
 
-- **Source:** dev Supabase `glncumufgaqcmqhzwrxm` — the live DB for everything right now.
-  **Read-only against it. Never restore INTO it.**
+- **Source:** **prod** Supabase `edplucmvkcnokyygxqsb` — the live DB since the 2026-07-26
+  cutover. **Read-only against it. Never restore INTO it.** (Before that date this runbook
+  named dev `glncumufgaqcmqhzwrxm`; that premise is dead.)
 - **Destination:** a throwaway scratch project, deleted at the end.
 - **Time every step.** RTO is the deliverable, not a vibe.
 - Scratch projects on a paid org may bill for their lifetime (hours) — check/confirm cost
   before creating; note it in the log.
+
+> **Fastest way to run this drill (2026-07-26):**
+> `gh workflow run restore-drill.yml --repo Hunter-Balcombe-Sykes/partna-db-backup`
+>
+> That workflow performs the whole fallback path — pull the newest R2 object, decrypt,
+> restore into a throwaway `postgres:17` service container, assert per-schema table counts
+> against the restored database, and print row counts. It runs where the four secrets
+> already live, so neither the encrypted dump nor its passphrase ever reaches a laptop.
+> Phases 1–2 below remain the manual reference and the record of what the drill checks.
+
+> **The preferred "Restore to a new project" path is UNAVAILABLE.** It is a paid-tier
+> feature and the Supabase org is on the **Free** plan, which also means no PITR and no
+> managed daily backups. The fallback logical-dump path below is currently the only path,
+> and the weekly R2 dump is the only backup that exists — worst-case RPO ≈ 7 days.
+
+> **Prime the destination before restoring, or RLS comes back silently missing.** Roles are
+> cluster-global and `pg_dump` does not carry them; extensions live outside the dumped
+> schemas. Restoring into any **non-Supabase** Postgres without these first drops every RLS
+> policy and all 14 trigram indexes while still reporting a mostly-successful restore:
+> ```sql
+> create role anon nologin; create role authenticated nologin;
+> create role service_role nologin; create role app_backend nologin;
+> create role authenticator nologin; create role supabase_auth_admin nologin;
+> create role supabase_admin nologin; create role supabase_storage_admin nologin;
+> create role dashboard_user nologin;
+> create extension if not exists pg_trgm with schema public;  -- indexes name public.gin_trgm_ops
+> ```
+> Restoring into a real Supabase project needs none of this — it already has them.
 
 ## Phase 1 — Reconnaissance (read-only, ~10 min)
 
