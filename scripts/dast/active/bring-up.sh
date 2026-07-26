@@ -202,17 +202,20 @@ log "bring-up: healthy — app=http://127.0.0.1:${APP_PORT} supabase=${SUPABASE_
 
 # --- Step 7: publish facts for later phases, then hold the stack up.
 # Written LAST (after the health check passes) so a poll loop watching for
-# this file's existence never observes a half-healthy stack.
+# this file's existence never observes a half-healthy stack. Values are
+# double-quoted — this repo's own path contains a space ("Side Street"),
+# and an unquoted `source` of this file word-splits it, breaking the
+# sourcing script entirely (verified 2026-07-26).
 cat > "$OUTDIR/bring-up.env" <<EOF
-API_PORT=${API_PORT}
-DB_PORT=${DB_PORT}
-APP_PORT=${APP_PORT}
-SUPABASE_URL=${SUPABASE_URL}
-JWT_SECRET=${JWT_SECRET}
-ANON_KEY=${ANON_KEY}
-SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
-SCRATCH=${SCRATCH}
-ENV_DAST=${ENV_DAST}
+API_PORT="${API_PORT}"
+DB_PORT="${DB_PORT}"
+APP_PORT="${APP_PORT}"
+SUPABASE_URL="${SUPABASE_URL}"
+JWT_SECRET="${JWT_SECRET}"
+ANON_KEY="${ANON_KEY}"
+SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY}"
+SCRATCH="${SCRATCH}"
+ENV_DAST="${ENV_DAST}"
 EOF
 
 wait "$SERVE_PID"

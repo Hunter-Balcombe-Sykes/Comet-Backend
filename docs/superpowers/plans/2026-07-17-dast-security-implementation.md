@@ -285,32 +285,21 @@ ln -s "$REPO_ROOT/supabase/migrations" "$SCRATCH/supabase/migrations"
 
 **Depends on:** Phase 3. **Files:** `active/zap-active.sh`, finalize `active/zap-context.yaml`.
 
-- [ ] **Step 1: Enumerate external-side-effect routes to exclude** (the spec's inversion — exclude ONLY these, not ordinary mutations). Grep the codebase for routes whose handlers dispatch jobs/services that reach past the local box:
-  - vendor API calls — the `platforms/*` surface (187 routes) that connect/refresh external providers, Instagram mirror, etc.,
-  - real email/notification sends,
-  - `SyncSubdomainToKvJob` (Cloudflare KV writes) — any site create/rename/subdomain route,
-  - webhook *dispatch* to external hosts.
-  Encode as `excludePaths` regexes in `zap-context.yaml`. Document each exclusion with a one-line why (matches the audit-file `Evidence` discipline).
+- [x] **Step 1: Enumerate external-side-effect routes to exclude** (the spec's inversion — exclude ONLY these, not ordinary mutations). Grepped the codebase for routes whose handlers dispatch jobs/services that reach past the local box:
+  - `api/platforms/.*` (227 routes now, up from the plan's 187 — codebase grown) — connect/refresh external providers (Instagram/GBP/Fresha/etc via Apify, Google Places, OAuth).
+  - `api/staff/builds.*` — `StaffPreAccountBuildController` dispatches a real claim-notification send (`PARTNA_NOTIFICATIONS_EMAIL_ENABLED=false` + `MAIL_MAILER=log` already fail this closed at the transport layer — excluded anyway for defense-in-depth).
+  - `api/site/custom-domain.*` — Cloudflare SaaS custom-domain provisioning, a real Cloudflare API call.
+  - `api/me/site/reclaim-handle`, `api/staff/sites/.*` — `SyncSubdomainToKvJob` dispatch sites (found via `grep -rn "SyncSubdomainToKvJob::dispatch"` — also fires from `SiteObserver`/`UserObserver` on any dirty subdomain/handle save, not just these controllers directly; scoped to the routes a fuzzer would realistically trigger it from, not an exhaustive observer-trigger audit).
+  Encoded as `excludePaths` regexes on each of the three `env.contexts` entries in `zap-context.yaml`, each with its one-line why in a header comment.
 
-- [ ] **Step 2: `zap-active.sh`** — drive ZAP's automation framework (docker `zaproxy/zap-stable`, `zap.sh -cmd -autorun`) to:
-  1. import the Phase-2 seed,
-  2. **spider/import** each context,
-  3. run **active scan** rules: SQLi, XSS, path traversal, command injection, + ZAP's **access-control** checks, per identity,
-  4. run the **cross-identity IDOR pass**: context A's token against B's seeded resource ids (a 200 where 404/403 is expected = finding),
-  5. run the **unauth pass** over the public surface,
-  6. export JSON + HTML to `$OUTDIR/zap/`.
+- [x] **Step 2: `zap-active.sh`** — drives ZAP's automation framework (docker `zaproxy/zap-stable`, `zap.sh -cmd -autorun`) through: openapi import (Phase-2 seed) → per-context spider + curated activeScan (identity A, then identity B) → cross-identity IDOR pass (`requestor` job, token A against B's 4 seeded resource ids) → unauth pass (spider + activeScan, no Authorization header) → JSON + HTML report export. **Deviation:** dropped `--network host` (unnecessary/less portable on Docker Desktop for Mac, same reasoning as Phase 6b) — confirmed `host.docker.internal` is the right target host (this phase's own flagged spike, incidentally resolved early by Phase 2/3 testing already using it successfully). "Access-control checks" is realized by the cross-identity IDOR pass rather than ZAP's separate Access Control Testing addon (its own per-URL access-level setup would duplicate, not add to, the already-planned IDOR mechanism — scoped out, noted in the script). Active-scan policy is curated via `policyDefinition` (5 rule IDs: 40018 SQLi, 40012/40014 XSS reflected/persistent, 6 Path Traversal, 90020 Command Injection — ZAP's long-stable standard IDs) with `defaultThreshold: OFF`, never "run everything."
+  - **Real bug caught:** a bare `OFF`/`MEDIUM` in the inline policy YAML is parsed as YAML 1.1's boolean `false` (the classic `off`/`on`/`yes`/`no` literal gotcha) — ZAP logged "Invalid threshold... false" and would have silently fallen back to scanning its FULL default rule set instead of the curated 5, defeating the whole point of the policy. Caught by watching the live run log, not by the plan parsing without error. Fixed by quoting every threshold/strength value as a string.
+  - **Real bug caught:** ZAP's automation-framework `docker run` exit code reflects whether the PLAN found anything (any alert, including passive-scan findings that run continuously and independently of the curated active-scan policy) — not whether the *curated* rules found something "fail-worthy." Without `set +e` around that specific call, a low-severity passive finding (e.g. a missing `X-Content-Type-Options` header) would abort the whole script via `set -e` before the exclusion check or diff-baseline ever ran. Fixed with the same `set +e`/`set -e` pattern already used in wcvs.sh/zap-baseline.sh — ZAP's own exit code is informational only; `diff-baseline.sh` (Phase 7) owns gating by severity.
+  - **Real bug caught:** the exclusion-verification grep was scoped to `"requesting URL..."` log lines, but `-cmd -autorun` only logs that phrase for spider/requestor jobs — activeScan's hundreds of per-URL fuzzed payloads are never individually logged, so a narrower check would have silently passed even if the active scanner itself reached an excluded path. Broadened to match the excluded-path substrings anywhere in the run log (the site tree `excludePaths` governs is the actual enforcement point; the log check is the audit trail).
 
-```bash
-docker run --rm --network host \
-  -v "$HERE/active:/zap/wrk/:rw" -v "$OUTDIR/zap:/zap/out:rw" \
-  zaproxy/zap-stable zap.sh -cmd -autorun /zap/wrk/zap-plan.yaml
-```
+- [x] **Step 3: Wire into `run.sh`** — `--only active` calls `zap-active.sh`, which itself starts `bring-up.sh` as a background child (trap-teardown one layer up, mirroring `bring-up.sh`'s own composition contract), then `seed-endpoints.sh`, `seed-identities.php`, mints both tokens, runs the scan. Teardown fires on every exit path.
 
-(`--network host` so the container reaches `127.0.0.1:$PORT`; on macOS Docker Desktop use `host.docker.internal` as the target host instead — set in the spike.)
-
-- [ ] **Step 3: Wire into `run.sh`** — `--only active` calls `bring-up.sh` (which `trap`s teardown), then `seed-endpoints.sh`, `seed-identities.php`, mints tokens, runs `zap-active.sh`. Teardown happens on exit regardless of scan result.
-
-**Done when:** a full `run.sh --only active` completes end-to-end on a clean machine (bring-up → seed → scan → teardown), produces `$OUTDIR/zap/*.json`, the exclusion regexes verifiably keep ZAP off the `platforms/*` and subdomain-write routes (grep the ZAP log for excluded URLs = 0 requests), and the stack is torn down afterward.
+**Done when:** a full `run.sh --only active` completes end-to-end on a clean machine (bring-up → seed → scan → teardown), produces `$OUTDIR/zap/*.json`, the exclusion regexes verifiably keep ZAP off the `platforms/*` and subdomain-write routes (grep the ZAP log for excluded URLs = 0 requests), and the stack is torn down afterward. ✅ Verified 2026-07-26, full `run.sh --only active` run: `zap-report.json` produced (6 findings, all `low` severity — missing `X-Powered-By`/`X-Content-Type-Options` headers, real passive findings, not curated-rule hits); zero references to any excluded path anywhere in `zap-run.log`; `docker ps`/`pgrep -f 'artisan serve'` both clean after; `diff-baseline.sh` correctly rated all 6 findings below `--fail-on high` and exited 0; `REPORT.md` generated with the run's actual findings table. (This run also doubled as Phase 7's `diff-baseline.sh`/`REPORT.md` verification — see there.)
 
 ---
 
@@ -423,26 +412,20 @@ Run against `EDGE_TARGET` (the API host); the optional second pass against `EDGE
 
 **Depends on:** Phases 4–6b (needs real scanner output to key). **Files:** `lib/diff-baseline.sh`, `baseline/zap-baseline.json`, `baseline/zap-passive-baseline.json`, `baseline/nuclei-baseline.txt`, finalize `run.sh` + REPORT.md merge.
 
-- [ ] **Step 1: Define stable keys** (spec: keys, not free text, so the diff doesn't churn):
-  - **ZAP (active *and* passive baseline):** `alertRef + url` (the `pluginId`/`alertRef` + the affected URL, param stripped of volatile query values). Active keys carry localhost URLs, passive keys carry the edge host — they never collide, but are stored in separate baseline files (`zap-baseline.json` vs `zap-passive-baseline.json`).
-  - **Nuclei/wcvs:** `template-id @ matched-at` (Nuclei JSONL already provides `template-id` + `matched-at`).
+- [x] **Step 1: Define stable keys** (spec: keys, not free text, so the diff doesn't churn):
+  - **ZAP (active *and* passive baseline):** `alertRef + url` (query string stripped via a `sub("\\?.*$";"")` in the parsing `jq`). Active keys carry localhost URLs, passive keys carry the edge host — they never collide, but are stored in separate baseline files (`zap-baseline.json` vs `zap-passive-baseline.json`).
+  - **Nuclei:** `template-id @ matched-at` (Nuclei JSONL already provides both fields directly).
+  - **wcvs (not explicitly speced — resolved here):** `technique @ url`, sharing `baseline/nuclei-baseline.txt` with Nuclei (the plan's file map lists no separate wcvs baseline file). wcvs has no per-finding severity field, so every confirmed finding (`isVulnerable == true`) is treated as fixed `high` — a confirmed cache poisoning/deception is inherently significant, not something to grade on a scale.
 
-- [ ] **Step 2: `diff-baseline.sh`** — normalize each scanner's raw output to `{key, severity}` lines, subtract the committed baseline keys, and emit `new-findings.txt` + a per-severity count. Exit-code contract:
+- [x] **Step 2: `diff-baseline.sh`** — normalize each scanner's raw output to `{key, severity}` lines, subtract the committed baseline keys, and emit `new-findings.txt` + a per-severity count, exit 0/2 per the `--fail-on` contract. **Deviation:** implemented as one script dispatching on 4 artifact types present in `$OUTDIR` (`nuclei.jsonl`, `wcvs-report.json`, `zap/zap-report.json`, `zap-baseline-passive.json`) rather than the plan's `comm`/`awk` sketch — needed real per-scanner JSON parsing (`jq`), not just text `comm`. **Real bug caught, unrelated to the plan:** the first version used `${var,,}` (lowercase expansion) and `declare -A` (associative arrays) for severity handling — both are bash-4+-only, and macOS ships bash 3.2 as `/usr/bin/env bash` (a GPLv2-licensing holdover, well-known but easy to forget). Caught immediately on first run (`bad substitution`), not by static review. Rewritten with `tr`/`sort | uniq -c` instead — fully bash-3.2-compatible, matching every other script in this tool (which happened to avoid the issue only because `BASH_REMATCH` and indexed-array `+=` are both bash-3.2-safe).
 
-```bash
-# returns 0 if no NEW finding at/above --fail-on; 2 otherwise
-new_at_or_above="$(comm -23 <(sort scanned.keys) <(sort baseline.keys) \
-  | awk -v floor="$FAIL_ON" '<severity>= floor')"
-[[ -z "$new_at_or_above" ]] && exit 0 || exit 2
-```
+- [x] **Step 3: Empty baselines to start** — `baseline/zap-baseline.json` = `[]`, `baseline/zap-passive-baseline.json` = `[]` (Phase 6b), `baseline/nuclei-baseline.txt` = header comment only (also the wcvs baseline, see Step 1). Stay empty until Phase 10.
 
-- [ ] **Step 3: Empty baselines to start** — `baseline/zap-baseline.json` = `[]`, `baseline/zap-passive-baseline.json` = `[]`, `baseline/nuclei-baseline.txt` = header comment only. They stay empty until the Phase-10 first-run triage populates them. **Never pre-seed** (that buries real bugs).
+- [x] **Step 4: REPORT.md merge in `run.sh`** — writes `$OUTDIR/REPORT.md` (Scope · fail-on · exit · a findings table from `new-findings.txt`) after the baseline diff, matching launch-check's convention. First suite to actually populate `audits/dast/<date>/REPORT.md`.
 
-- [ ] **Step 4: REPORT.md merge in `run.sh`** — write `$OUTDIR/REPORT.md`: a merged human view (Scope, per-lane finding counts, NEW-vs-baselined table) alongside the raw artifacts, matching launch-check's `audits/<suite>/<date>/REPORT.md` convention (note: `audits/launch-check/` doesn't exist yet — this is the first suite to write `audits/dast/<date>/REPORT.md`).
+- [x] **Step 5: `--update-baseline` flag** — `run.sh --update-baseline` forwards to `diff-baseline.sh ... --update-baseline`, appending new keys to the appropriate baseline file(s) per scanner (never automatic — a human passes the flag after reviewing `new-findings.txt`).
 
-- [ ] **Step 5: `--update-baseline` flag** — appends the current run's keys to the baseline files (the triage-accept action, run by a human after review, never automatically).
-
-**Done when:** two consecutive `run.sh --only edge` runs against the same target produce an identical NEW-findings set (proving key stability, no churn), and a finding added to the baseline is absent from the second run's NEW set.
+**Done when:** two consecutive `run.sh --only edge` runs against the same target produce an identical NEW-findings set (proving key stability, no churn), and a finding added to the baseline is absent from the second run's NEW set. ✅ Verified 2026-07-26 — two independent `nuclei-edge.sh` runs against `https://dev-api.partna.au`, each piped through `diff-baseline.sh`: `diff` on the two `new-findings.txt` outputs was empty (byte-identical). Baseline-suppression proven for the Nuclei/wcvs key path in Phase 8's self-test below (`--update-baseline` the edge canary's key, re-run, assert suppressed). Phase 4's full active-lane run additionally verified `diff-baseline.sh`'s severity-threshold gating end-to-end (6 real low-severity findings correctly rated below `--fail-on high`) — see there for the findings table.
 
 ---
 
@@ -480,13 +463,13 @@ Assert **both** the finding is present **and** the runner exits non-zero — a s
 
 **Depends on:** Phases 5–7 (incl. 6b). **Files:** cron/CI config (edge only; active never in cron — it needs a local stack).
 
-- [ ] **Step 1:** Add a weekly scheduled invocation of `scripts/dast/run.sh --only edge --fail-on high` against `EDGE_TARGET`. The edge lane now runs three non-destructive tools — Nuclei, wcvs, **and the OWASP ZAP passive baseline scan (Phase 6b)** — so this single weekly job *is* the weekly ZAP baseline. It also fills the assurance map's "continuous cadence: weekly CVE/secret scans" gap. Use the same non-CI scheduling mechanism the repo already uses for periodic scans (a scheduled workflow or the ops cron — mirror wherever the weekly off-platform DB backup is scheduled).
+- [x] **Step 1:** `.github/workflows/dast-edge.yml` — weekly scheduled invocation of `scripts/dast/run.sh --only edge` (`DAST_FAIL_ON: high` env, matching `--fail-on high`) against `EDGE_TARGET`. The edge lane now runs three non-destructive tools — Nuclei, wcvs, **and the OWASP ZAP passive baseline scan (Phase 6b)** — so this single weekly job *is* the weekly ZAP baseline. **Mechanism note:** the plan says "mirror wherever the weekly off-platform DB backup is scheduled" — that backup's own workflow file (`docs/superpowers/plans/2026-07-17-weekly-db-backup.md`, `cron: '0 15 * * 0'`) isn't actually present in `.github/workflows/` (only `ci.yml` exists there; the backup plan may live in a different repo or wasn't yet committed here) — mirrored its **documented mechanism** (GitHub Actions `schedule:`, not Laravel's own scheduler, matching this tool's app-code-free design) and cadence convention instead, at `0 16 * * 0` (an hour after the backup's documented slot, same quiet window). Also added `workflow_dispatch` for on-demand testing, matching `ci.yml`'s pattern of pinning scheduled runs to `development` (not the stale default branch).
 
-- [ ] **Step 2:** On non-zero exit, surface the run (Nightwatch/notification or a failing scheduled job) so a NEW edge finding is seen. Attach `$OUTDIR/REPORT.md`.
+- [x] **Step 2:** A non-zero `run.sh` exit fails the GitHub Actions job, which GitHub already notifies watchers on by default (matches `ci.yml`'s existing supply-chain job — no separate Nightwatch wiring needed for a CI-native signal). `REPORT.md` is attached via `actions/upload-artifact@v4` with `if: always()` so it uploads even on failure.
 
-- [ ] **Step 3:** Confirm the cron secret store has `EDGE_TARGET`, `EDGE_SITEPAGE_TARGET`, `DAST_EDGE_RATE_LIMIT` (no local-stack secrets needed for edge).
+- [x] **Step 3:** Workflow reads `DAST_EDGE_TARGET`, `DAST_EDGE_SITEPAGE_TARGET`, `DAST_EDGE_RATE_LIMIT` (optional, defaults `20`) from GitHub repo secrets. **Operational step outside this tool's own scope:** those secrets must actually be set in the repo's GitHub settings before the scheduled run can succeed — Josh to confirm/set.
 
-**Done when:** the scheduled edge run executes on cadence, uploads/attaches `REPORT.md`, and a seeded NEW finding causes a visible failure notification. Active lane is explicitly excluded from cron.
+**Done when:** the scheduled edge run executes on cadence, uploads/attaches `REPORT.md`, and a seeded NEW finding causes a visible failure notification. Active lane is explicitly excluded from cron. Workflow YAML written and internally consistent with `run.sh`'s actual CLI (verified by reading, not a live GitHub Actions run — that needs the secrets set and either the real Sunday cadence or a manual `workflow_dispatch`, both outside this build session's reach).
 
 ---
 

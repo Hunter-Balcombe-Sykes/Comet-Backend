@@ -46,4 +46,41 @@ case "$ONLY" in
         "$HERE/edge/zap-baseline.sh"  "$OUTDIR" "$TARGET"   # weekly OWASP ZAP passive baseline (Phase 6b)
         ;;
 esac
-# Phase 7 wires diff-baseline + REPORT.md merge + exit code here.
+
+# --- Baseline diff decides the exit code; run.sh itself never inspects
+# scanner output directly (that's diff-baseline.sh's one job — every
+# scanner fails the build the same way regardless of its own native exit
+# convention, matching the wcvs/zap-baseline scripts' own design note).
+DIFF_ARGS=("$OUTDIR" "$FAIL_ON")
+[[ "$UPDATE_BASELINE" -eq 1 ]] && DIFF_ARGS+=(--update-baseline)
+set +e
+"$HERE/lib/diff-baseline.sh" "${DIFF_ARGS[@]}"
+DIFF_EXIT=$?
+set -e
+
+# --- REPORT.md — merged human view (Scope · per-lane finding counts ·
+# NEW-vs-baselined table), matching launch-check's audits/<suite>/<date>/
+# REPORT.md convention. audits/dast/.gitignore keeps only this file
+# committable; everything else under $OUTDIR is a raw, git-ignored artifact.
+{
+    echo "# DAST run — $(date +%F) — lane: $ONLY"
+    echo
+    echo "**Target:** ${TARGET:-<lane default>}  "
+    echo "**Fail-on:** $FAIL_ON  "
+    echo "**Exit:** $DIFF_EXIT"
+    echo
+    echo "## New findings"
+    echo
+    if [[ -s "$OUTDIR/new-findings.txt" ]]; then
+        echo '| Scanner | Key | Severity |'
+        echo '|---|---|---|'
+        while IFS=$'\t' read -r scanner key sev; do
+            echo "| $scanner | $key | $sev |"
+        done < "$OUTDIR/new-findings.txt"
+    else
+        echo "None — clean run against the current baseline."
+    fi
+} > "$OUTDIR/REPORT.md"
+log "run.sh: wrote $OUTDIR/REPORT.md"
+
+exit "$DIFF_EXIT"

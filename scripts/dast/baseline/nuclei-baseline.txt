@@ -1,0 +1,4 @@
+# Triaged, accepted Nuclei + wcvs findings — one stable key per line
+# (template-id@matched-at for Nuclei, technique@url for wcvs). Populated
+# ONLY by the Phase-10 first-run triage via `--update-baseline`, never
+# pre-seeded (see scripts/dast/README.md).

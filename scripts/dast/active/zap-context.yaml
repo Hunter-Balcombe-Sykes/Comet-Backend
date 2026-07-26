@@ -14,14 +14,50 @@
 # 404-not-403 convention) on identity B's, both via ZAP's own proxy with
 # this exact replacer mechanism, not just direct curl.
 
+# External-side-effect exclusions (Phase 4 Step 1) — the served app runs
+# QUEUE_CONNECTION=sync, so any un-excluded mutating route runs its jobs
+# INLINE during the request. Exclude ONLY routes whose handlers reach past
+# the local box (plan's inversion — ordinary mutation against the
+# throwaway scratch DB is free and desired). Each entry: why.
+#   - api/platforms/.* (227 routes) — connect/refresh external providers
+#     (Instagram/GBP/Fresha/etc via Apify, Google Places, OAuth). Real
+#     third-party API calls with real (if uncapped) cost.
+#   - api/staff/builds.* — StaffPreAccountBuildController dispatches a real
+#     claim-notification send. PARTNA_NOTIFICATIONS_EMAIL_ENABLED=false and
+#     MAIL_MAILER=log (bring-up.sh) already fail this closed at the
+#     transport layer — excluded anyway for defense-in-depth per the plan.
+#   - api/site/custom-domain.* — CloudflarePurgeService's SaaS custom-domain
+#     provisioning calls Cloudflare's real API (CLOUDFLARE_SAAS_API_TOKEN).
+#   - api/me/site/reclaim-handle, api/staff/sites/.* — handle/subdomain
+#     rename triggers SyncSubdomainToKvJob (SiteObserver/UserObserver on a
+#     dirty subdomain/handle) — the ONLY KV writer (CLAUDE.md) — a real
+#     Cloudflare KV write from a "local" scan.
 env:
   contexts:
     - name: "identity-a"
-      urls: ["__TARGET_URL__.*"]
+      urls: ["__TARGET_URL__"]
+      excludePaths:
+        - ".*api/platforms/.*"
+        - ".*api/staff/builds.*"
+        - ".*api/site/custom-domain.*"
+        - ".*api/me/site/reclaim-handle.*"
+        - ".*api/staff/sites/.*"
     - name: "identity-b"
-      urls: ["__TARGET_URL__.*"]
+      urls: ["__TARGET_URL__"]
+      excludePaths:
+        - ".*api/platforms/.*"
+        - ".*api/staff/builds.*"
+        - ".*api/site/custom-domain.*"
+        - ".*api/me/site/reclaim-handle.*"
+        - ".*api/staff/sites/.*"
     - name: "unauth"
-      urls: ["__TARGET_URL__.*"]
+      urls: ["__TARGET_URL__"]
+      excludePaths:
+        - ".*api/platforms/.*"
+        - ".*api/staff/builds.*"
+        - ".*api/site/custom-domain.*"
+        - ".*api/me/site/reclaim-handle.*"
+        - ".*api/staff/sites/.*"
 
 replacer:
   parameters:

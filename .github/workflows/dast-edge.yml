@@ -1,0 +1,49 @@
+name: DAST edge scan
+
+# Weekly, non-destructive edge-lane scan (Nuclei + wcvs + the OWASP ZAP
+# passive baseline scan — see scripts/dast/README.md). Mirrors the cron
+# mechanism documented for the weekly off-platform DB backup
+# (docs/superpowers/plans/2026-07-17-weekly-db-backup.md) — GitHub Actions
+# `schedule:`, not Laravel's own scheduler, since this tool is
+# deliberately app-code-free (scripts/dast/README.md).
+#
+# The active lane is EXCLUDED from cron by design (plan Phase 9) — it
+# needs a local Supabase stack a hosted runner can't cheaply provide, and
+# is manual-only.
+on:
+  schedule:
+    # Sunday 16:00 UTC — after the weekly DB backup (15:00 UTC), same
+    # quiet window. NOTE: GitHub registers cron triggers from the DEFAULT
+    # branch's copy of this file (see ci.yml's own note) — this block must
+    # exist there to fire at all.
+    - cron: '0 16 * * 0'
+  workflow_dispatch: {}   # manual trigger for testing / on-demand runs
+
+jobs:
+  edge-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scheduled runs execute from the DEFAULT branch (production —
+          # stale); pin to development, same reasoning as ci.yml's
+          # supply-chain job.
+          ref: ${{ github.event_name == 'schedule' && 'development' || '' }}
+
+      - name: Run edge lane
+        env:
+          EDGE_TARGET: ${{ secrets.DAST_EDGE_TARGET }}
+          EDGE_SITEPAGE_TARGET: ${{ secrets.DAST_EDGE_SITEPAGE_TARGET }}
+          DAST_EDGE_RATE_LIMIT: ${{ secrets.DAST_EDGE_RATE_LIMIT || '20' }}
+          DAST_FAIL_ON: high
+        run: scripts/dast/run.sh --only edge
+
+      - name: Attach REPORT.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-edge-report
+          path: audits/dast/*/REPORT.md
+          retention-days: 90
