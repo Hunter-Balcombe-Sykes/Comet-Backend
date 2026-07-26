@@ -48,10 +48,10 @@
 | `php artisan route:list --json` | ✅ works (458 routes) | Active-lane seed source | already available |
 | **ZAP** | ⚠️ via Docker only — no host binary | Active-lane fuzzer **and** edge-lane passive baseline scan (`zap-baseline.py`, same image) | `docker pull zaproxy/zap-stable` (no `brew`/host install needed) |
 | **Nuclei** | ❌ **NOT installed** | Edge-lane matcher | `docker pull projectdiscovery/nuclei` (preferred, hermetic) or `brew install nuclei` |
-| **wcvs** | ❌ **NOT installed** | Edge-lane cache-deception | `docker pull hackmanit/web-cache-vulnerability-scanner` |
+| **wcvs** | ❌ **NOT installed** | Edge-lane cache-deception | ~~`docker pull hackmanit/web-cache-vulnerability-scanner`~~ **no such image exists on Docker Hub or GHCR (confirmed 2026-07-26)** — build locally via `require_wcvs_image()` in `lib/common.sh`, which clones upstream's repo pinned to release tag `2.0.0` and `docker build`s it, tagged `hackmanit/web-cache-vulnerability-scanner:2.0.0` so every later `docker run hackmanit/web-cache-vulnerability-scanner` call is unchanged |
 | `jq` | assume present (verify in Phase 0) | JSONL parsing / baseline diff | `brew install jq` if missing |
 
-> **Flag for the operator:** Nuclei and wcvs are **not installed**; ZAP has **no host binary**. The plan runs all three from Docker so the only prerequisite is `docker pull` of three images (Phase 0 does this). Do not assume a host `nuclei`/`zap.sh` exists.
+> **Flag for the operator:** Nuclei and wcvs are **not installed**; ZAP has **no host binary**. The plan runs all three from Docker; ZAP and Nuclei are `docker pull`, wcvs is `docker build` from a pinned upstream tag (see row above — Phase 0 does this via `require_wcvs_image()`). Do not assume a host `nuclei`/`zap.sh` exists.
 
 ### Secrets & env (the runner reads these; never commit real values)
 
@@ -126,7 +126,7 @@ DAST_FAIL_ON=high
 
 **Depends on:** nothing. **Files:** `run.sh`, `lib/common.sh`, `.env.example`, `README.md` (stub), `audits/dast/.gitignore`.
 
-- [ ] **Step 1: Branch prep**
+- [x] **Step 1: Branch prep**
 
 ```bash
 git fetch origin && git checkout development && git pull origin development
@@ -134,21 +134,22 @@ git log --oneline -5
 git checkout -b feat/dast-security
 ```
 
-- [ ] **Step 2: Create the tree**
+- [x] **Step 2: Create the tree**
 
 ```bash
 mkdir -p scripts/dast/{active,edge/templates,baseline,lib,tests/canary}
 ```
 
-- [ ] **Step 3: Write `scripts/dast/.env.example`** — the block from Prerequisites above.
+- [x] **Step 3: Write `scripts/dast/.env.example`** — the block from Prerequisites above.
 
-- [ ] **Step 4: Write `lib/common.sh`** — shared helpers:
+- [x] **Step 4: Write `lib/common.sh`** — shared helpers:
   - loads `scripts/dast/.env` (falls back to env vars; never fails if a key is unset, only when a lane needs it),
   - `log()` / `die()`,
   - `dast_outdir()` → `audits/dast/$(date +%F)/` (create + `echo` the path),
   - `require_docker_image <name>` → `docker image inspect` or `docker pull`.
+  - (added, not in original plan) `require_wcvs_image()` — wcvs has no prebuilt image; builds it from a pinned upstream tag. See Step 7 note.
 
-- [ ] **Step 5: Write `run.sh`** — arg parsing + dispatch skeleton:
+- [x] **Step 5: Write `run.sh`** — arg parsing + dispatch skeleton:
 
 ```bash
 #!/usr/bin/env bash
@@ -179,7 +180,7 @@ esac
 # Phase 7 wires diff-baseline + REPORT.md merge + exit code here.
 ```
 
-- [ ] **Step 6: `audits/dast/.gitignore`** — ignore raw artifacts, keep `REPORT.md`:
+- [x] **Step 6: `audits/dast/.gitignore`** — ignore raw artifacts, keep `REPORT.md`:
 
 ```
 *
@@ -188,19 +189,20 @@ esac
 !*/REPORT.md
 ```
 
-- [ ] **Step 7: Pull scanner images + verify tooling**
+- [x] **Step 7: Pull scanner images + verify tooling**
 
 ```bash
 docker pull zaproxy/zap-stable
 docker pull projectdiscovery/nuclei
-docker pull hackmanit/web-cache-vulnerability-scanner
+# hackmanit/web-cache-vulnerability-scanner has no prebuilt image anywhere
+# (confirmed 2026-07-26) — built locally instead, see lib/common.sh require_wcvs_image().
 which jq || brew install jq
-chmod +x scripts/dast/run.sh scripts/dast/lib/common.sh
+chmod +x scripts/dast/run.sh scripts/dast/lib/common.sh scripts/dast/active/*.sh scripts/dast/edge/*.sh
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
-**Done when:** `scripts/dast/run.sh --only edge` reaches lane dispatch (even if the lane scripts are still stubs) and `--only bogus` dies with a clear message; all three images present locally.
+**Done when:** `scripts/dast/run.sh --only edge` reaches lane dispatch (even if the lane scripts are still stubs) and `--only bogus` dies with a clear message; all three images present locally. ✅ Verified 2026-07-26 — `--only bogus` dies with usage; `--only edge` reaches dispatch and fails loud on the Phase-5 stub; `docker images` shows `zaproxy/zap-stable:latest`, `projectdiscovery/nuclei:latest`, `hackmanit/web-cache-vulnerability-scanner:2.0.0`.
 
 ---
 
