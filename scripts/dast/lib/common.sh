@@ -29,6 +29,18 @@ dast_outdir() {
     echo "$dir"
 }
 
+# Canonicalize a possibly-relative OUTDIR to an absolute path (creating it if
+# needed) — `docker run -v` bind mounts reject relative host paths outright
+# (misread as a named-volume request), so every lane script that mounts
+# OUTDIR into a container must call this before its first `docker run`.
+# dast_outdir() already returns absolute; this guards direct/manual
+# invocation with a relative path too.
+dast_abspath() {
+    local dir="$1"
+    mkdir -p "$dir"
+    (cd "$dir" && pwd)
+}
+
 # require_docker_image <image> — pulls if not already present locally.
 require_docker_image() {
     local image="$1"
@@ -44,6 +56,12 @@ require_docker_image() {
 # it locally from their repo, pinned to release tag 2.0.0, tagged under the
 # same image name so every `docker run hackmanit/web-cache-vulnerability-scanner`
 # call elsewhere in this tool needs no change.
+#
+# Upstream's own Dockerfile is also broken as of tag 2.0.0 (confirmed
+# 2026-07-26): it builds with `golang:latest` (glibc 2.34+) but runs on
+# `debian:buster` (glibc 2.28) — the binary fails at container start with
+# "version `GLIBC_2.34' not found". lib/wcvs.Dockerfile fixes this with a
+# static build (CGO_ENABLED=0); everything else matches upstream.
 WCVS_IMAGE="hackmanit/web-cache-vulnerability-scanner:2.0.0"
 WCVS_PINNED_TAG="2.0.0"
 
@@ -57,6 +75,6 @@ require_wcvs_image() {
     git clone --depth 1 --branch "$WCVS_PINNED_TAG" \
         https://github.com/Hackmanit/Web-Cache-Vulnerability-Scanner.git "$src" \
         || die "failed to clone wcvs source at tag $WCVS_PINNED_TAG"
-    docker build -t "$WCVS_IMAGE" "$src" || die "failed to build $WCVS_IMAGE"
+    docker build -t "$WCVS_IMAGE" -f "$DAST_DIR/lib/wcvs.Dockerfile" "$src" || die "failed to build $WCVS_IMAGE"
     rm -rf "$src"
 }

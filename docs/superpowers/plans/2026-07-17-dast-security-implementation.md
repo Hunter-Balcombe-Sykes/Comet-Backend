@@ -212,50 +212,35 @@ chmod +x scripts/dast/run.sh scripts/dast/lib/common.sh scripts/dast/active/*.sh
 
 This is the reversal from the spec: the runner **owns** the stack. It must come up without a human and always tear down.
 
-- [ ] **Step 1: Scratch config with a port offset.** The committed `supabase/config.toml` uses `54321–54329` (collides with Comet by design). The runner MUST NOT edit the committed file. Instead it materializes a scratch workdir:
+- [x] **Step 1: Scratch config with a port offset.** The committed `supabase/config.toml` uses `54321–54329` (collides with Comet by design). The runner MUST NOT edit the committed file. Instead it materializes a scratch workdir. **Deviation, verified 2026-07-26:** the plan's `sed` one-liner is broken — `sed`'s replacement text is not shell-evaluated, so it writes the LITERAL string `port = $((54321+100))` into the TOML file (invalid; TOML wants an integer, not an unevaluated shell expression). Replaced with a bash read-loop using `BASH_REMATCH` + real arithmetic:
 
 ```bash
 OFFSET="${DAST_SUPABASE_PORT_OFFSET:-100}"
 SCRATCH="$(mktemp -d)/dast-supabase"
 mkdir -p "$SCRATCH/supabase"
-# Rewrite every `port = 543NN` → +OFFSET, and set a unique project_id so
-# container names don't collide with Comet's supabase_* containers.
-sed -E "s/port = (543[0-9]{2})/port = \$((\1+OFFSET))/g; s/^project_id = .*/project_id = \"partna-dast\"/" \
-    supabase/config.toml > "$SCRATCH/supabase/config.toml"
-ln -s "$(pwd)/supabase/migrations" "$SCRATCH/supabase/migrations"
+while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^port\ =\ (543[0-9]{2})$ ]]; then
+        echo "port = $(( ${BASH_REMATCH[1]} + OFFSET ))"
+    elif [[ "$line" =~ ^project_id\ = ]]; then
+        echo 'project_id = "partna-dast"'
+    else
+        echo "$line"
+    fi
+done < "$REPO_ROOT/supabase/config.toml" > "$SCRATCH/supabase/config.toml"
+ln -s "$REPO_ROOT/supabase/migrations" "$SCRATCH/supabase/migrations"
 ```
 
-> **Phase-1 spike:** confirm `supabase start --workdir "$SCRATCH"` honours the scratch `config.toml` and migrations symlink. If `--workdir` semantics differ in the installed CLI version, fall back to: copy `supabase/` into `$SCRATCH`, edit its `config.toml`, and `cd` there for the run. Record the working mechanism in a comment.
+> **Phase-1 spike — RESOLVED 2026-07-26, plan's assumption confirmed:** `supabase start --workdir "$SCRATCH"` honours the scratch `config.toml` + migrations symlink exactly as-is, using CLI 2.101.0. No fallback to copy-then-cd needed. Verified end-to-end: offset ports (54421-54429), correct `project_id = "partna-dast"`, baseline migration applied automatically on the fresh scratch DB, and — critically — `supabase stop --workdir "$SCRATCH" --no-backup` cleanly removed all 12 `partna-dast` containers (confirmed via `docker ps -a`).
 
-- [ ] **Step 2: Retried `supabase start` + `trap` teardown — set the trap BEFORE start** so a mid-boot failure still tears down:
+- [x] **Step 2: Retried `supabase start` + `trap` teardown — set the trap BEFORE start** so a mid-boot failure still tears down. Implemented as written; verified both a graceful `SIGTERM` and a **forced abort ~2s into bring-up** (killed the instant the first `supabase_db_partna-dast` container appeared, well before health-check/serve) leave zero containers, zero orphaned `artisan serve`, and no stray `.env.dast` (see Step 4). One cosmetic note: `trap teardown EXIT INT TERM` fires the handler twice on a caught signal (bash re-fires the EXIT trap after the INT/TERM handler returns) — harmless since every teardown action is idempotent (`|| true`, `rm -rf`/`rm -f`), left as-is rather than adding a guard flag for a non-bug.
 
-```bash
-teardown() { supabase stop --workdir "$SCRATCH" --no-backup >/dev/null 2>&1 || true
-             [[ -n "${SERVE_PID:-}" ]] && kill "$SERVE_PID" 2>/dev/null || true
-             rm -rf "$SCRATCH"; }
-trap teardown EXIT INT TERM
+- [x] **Step 3: Apply migrations to the local stack** — `supabase db reset --workdir "$SCRATCH"`. In practice this is usually a no-op (a truly fresh scratch volume already gets every migration applied during `start`), kept as a defensive idempotent step against a stale volume surviving a prior crashed run that skipped teardown.
 
-for attempt in 1 2 3; do
-  if supabase start --workdir "$SCRATCH"; then break; fi
-  log "supabase start failed (attempt $attempt) — stopping + retrying"
-  supabase stop --workdir "$SCRATCH" --no-backup || true
-  [[ $attempt -eq 3 ]] && die "supabase start failed 3x — see fresh-DB provisioning notes"
-done
-```
+- [x] **Step 4: Serve the app against the local stack.** Generate a scratch `.env.dast`, `QUEUE_CONNECTION=sync`, `CACHE_STORE=array`, `SESSION_DRIVER=array` (avoids a Redis dependency; sync means jobs run inline — which is exactly why external-side-effect routes must be excluded in Phase 4). **Deviation — a real bug caught the hard way, 2026-07-26:** the plan says "scratch `.env.dast`" without specifying where; an earlier version of this script wrote it under `$SCRATCH` (the mktemp'd supabase workdir). `php artisan serve --env=dast` resolves `.env.dast` relative to the **application base path** (`$REPO_ROOT/.env.dast`), not `$SCRATCH` — with no file at the expected path, Laravel silently fell back to the real repo `.env`, meaning the served app was actually running against whatever `DB_HOST` the developer's real `.env` points at, **not** the isolated scratch stack. Caught via `php artisan tinker --env=dast` returning a DNS failure for an unrecognized third-party Supabase host instead of the expected `127.0.0.1` scratch DB. (No live-data exposure occurred — that real `.env`'s `DB_HOST` happens to be a dead host per existing project notes — but the failure mode is exactly what "NEVER point the active lane at real dev/prod" exists to prevent, so this had to be fixed, not shrugged off.) Fixed: `.env.dast` now written to `$REPO_ROOT/.env.dast`, added to `.gitignore`, and removed by `teardown()` on every exit path.
 
-- [ ] **Step 3: Apply migrations to the local stack** (the local `db` needs the standalone baseline): `supabase db reset --workdir "$SCRATCH"` (local reset re-runs all repo migrations against the scratch DB — safe, it's throwaway).
+- [x] **Step 5: Health-check gate** — poll `GET $ZAP_TARGET_LOCAL/up` and the Supabase API `.../auth/v1/health` until both 200 or a 60s timeout. Implemented; also independently confirmed DB connectivity through the fixed `.env.dast` via `php artisan tinker --env=dast --execute="...core.users..."` (returned `0`, the expected empty-throwaway-DB count) — a `route:list`-independent proof per the plan's own Step-5 intent.
 
-- [ ] **Step 4: Serve the app against the local stack.** Generate a scratch `.env.dast` (do **not** touch the repo `.env`): DB host/port = `127.0.0.1:$((54322+OFFSET))`, `SUPABASE_URL=http://127.0.0.1:$((54321+OFFSET))`, `QUEUE_CONNECTION=sync`, `CACHE_STORE=array`, `SESSION_DRIVER=array` (avoids a Redis dependency; sync means jobs run inline — which is exactly why external-side-effect routes must be excluded in Phase 4). Then:
-
-```bash
-PORT="${ZAP_TARGET_LOCAL##*:}"
-php artisan serve --env=dast --port="$PORT" >/"$OUTDIR"/serve.log 2>&1 &
-SERVE_PID=$!
-```
-
-- [ ] **Step 5: Health-check gate** before returning success — poll `GET $ZAP_TARGET_LOCAL/up` (Laravel health route, present) and the Supabase API `.../auth/v1/health` until both 200 or a 60s timeout (`die` on timeout). Confirm the DB responds via one `route:list`-independent query.
-
-**Done when:** invoking `active/bring-up.sh` from a clean machine (Comet running or not) brings up an offset stack + served app, health-checks green, and — critically — a forced `exit 1` mid-script leaves **no** `partna-dast` containers and no orphaned `php artisan serve` (verify `docker ps` + `pgrep -f 'artisan serve'` are clean after a deliberate abort).
+**Done when:** invoking `active/bring-up.sh` from a clean machine (Comet running or not) brings up an offset stack + served app, health-checks green, and — critically — a forced `exit 1` mid-script leaves **no** `partna-dast` containers and no orphaned `php artisan serve` (verify `docker ps` + `pgrep -f 'artisan serve'` are clean after a deliberate abort). ✅ Verified 2026-07-26, both halves: (1) normal run — healthy in 47s, `/up` → 200 "Application up", all 12 containers running, DB query succeeded through the scratch stack; (2) forced abort ~2s into bring-up — `docker ps -a` and `pgrep -f 'artisan serve'` both clean after teardown, `.env.dast` removed.
 
 ---
 
@@ -415,20 +400,20 @@ http:
 
 **Depends on:** Phase 0. **Files:** `edge/wcvs.sh`.
 
-- [ ] **Step 1: `wcvs.sh`** — target the sitepage host (the Worker + Cache API front end), the one surface where cache deception is reachable:
+- [x] **Step 1: `wcvs.sh`** — target the sitepage host (the Worker + Cache API front end), the one surface where cache deception is reachable. **Deviations, both verified 2026-07-26:**
+  1. wcvs's real CLI (built from source — see Phase 0's wcvs note) has no `scan` subcommand or `--report`/`--generate-report` long flags; it's `-u <url> -gp <dir> -gr -gl` (generate-path + generate-report + generate-log), and it writes its own timestamp+random-suffixed filename (`WCVS_<date>_<rand>_Report.json`), not a fixed `wcvs-report.json` — the script copies that file to `$OUTDIR/wcvs-report.json` after the run so the artifact name matches this plan's convention.
+  2. wcvs's default test suite includes a `dos` category, confirmed via upstream's own published references to implement "Responsible Denial of Service with Web Cache Poisoning" — a DoS-testing technique that contradicts this lane's non-destructive-only contract (gotchas block: edge lane is "GET/HEAD + passive only"). Excluded explicitly via `-skiptest dos`; every other default category (deception, cookies, css, forwarding, smuggling, headers, parameters, fatget, cloaking, splitting, pollution, encoding) runs.
 
 ```bash
-docker run --rm hackmanit/web-cache-vulnerability-scanner \
-  scan -u "$EDGE_SITEPAGE_TARGET" \
-  --report "$OUTDIR/wcvs-report.json" \
-  --generate-report
+docker run --rm -v "$WCVS_OUT:/out" hackmanit/web-cache-vulnerability-scanner:2.0.0 /wcvs \
+  -u "$TARGET" -gp /out/ -gr -gl -nc -ns -skiptest dos -rr "$RATE_LIMIT"
 ```
 
 Non-destructive by construction (crafted GETs probing whether a path-confusion / extension trick gets a private response cached for the next visitor). Rate-limit consistent with Phase 5.
 
-- [ ] **Step 2: Wire into `run.sh --only edge`** after Nuclei.
+- [x] **Step 2: Wire into `run.sh --only edge`** after Nuclei (already in the Phase-0 dispatch).
 
-**Done when:** `wcvs.sh` runs against `EDGE_SITEPAGE_TARGET`, emits `wcvs-report.json`, and its findings (if any) are captured for the Phase-7 diff. A clean run against the current Worker config reports no confirmed deception.
+**Done when:** `wcvs.sh` runs against `EDGE_SITEPAGE_TARGET`, emits `wcvs-report.json`, and its findings (if any) are captured for the Phase-7 diff. A clean run against the current Worker config reports no confirmed deception. ✅ Verified 2026-07-26 — `wcvs.sh` against `https://user-kvjm7i.partna.au` (a real published dev handle, found via Supabase MCP query): "Skipping Cache Poisoned Denial Of Service" confirms the dos exclusion took effect; full scan (15m46s — tests 2922 headers + 6454 params + all other categories) completed with `foundVulnerabilities: false, hasError: false, isVulnerable: false`. Zero false positives against a known-good dev host.
 
 ---
 
@@ -440,28 +425,28 @@ The **ZAP baseline scan** (`zap-baseline.py`) is ZAP's *passive* mode — it spi
 
 > **Terminology — two different "baselines".** A "ZAP baseline *scan*" is a scan **mode** (passive). The `baseline/` folder is the **triaged accepted-findings** store. They are unrelated concepts and this phase touches both — keep them straight. Passive findings triage into `baseline/zap-passive-baseline.json`, kept **separate** from the active lane's `baseline/zap-baseline.json` because the target hosts differ (edge vs localhost) and mixing them muddies triage review.
 
-- [ ] **Step 1: `zap-baseline.sh`** — reuse the already-pulled `zaproxy/zap-stable` image (no new tool):
+- [x] **Step 1: `zap-baseline.sh`** — reuse the already-pulled `zaproxy/zap-stable` image (no new tool). **Deviation:** dropped `--network host` — that flag matters for the active lane reaching `127.0.0.1:$PORT` (Phase 4's macOS spike), but the edge lane's target is always a real public HTTPS host, so no host networking is needed; omitting it is also more portable on Docker Desktop for Mac. Verified `zap-baseline.py` exits **2** on WARN-only findings (0 FAIL, 7 WARN) against a real target 2026-07-26 — not literally "1 on WARN / 2 on FAIL" as the plan's comment states — but the design intent (capture, don't let it decide the build) is unaffected since the script treats any nonzero exit the same way (`set +e` around the call, logged, never propagated).
 
 ```bash
-docker run --rm --network host \
-  -v "$OUTDIR/zap-passive:/zap/wrk/:rw" \
+docker run --rm \
+  -v "$ZAP_OUT:/zap/wrk/:rw" \
   zaproxy/zap-stable zap-baseline.py \
-  -t "${TARGET:-$EDGE_TARGET}" \
+  -t "$TARGET" \
   -J zap-baseline.json -r zap-baseline.html \
   -m 5 -T 60                                  # 5-min spider cap, 60s per-rule timeout
-# zap-baseline.py exits 1 on WARN / 2 on FAIL — capture but DON'T let it decide the
-# build; the unified diff-baseline.sh (Phase 7) owns gating so the model stays uniform.
+# zap-baseline.py's own exit code is informational only — diff-baseline.sh
+# (Phase 7) owns gating from the JSON so every scanner fails the same way.
 ```
 
-Run against `EDGE_TARGET` (the API host); optionally a second pass against `EDGE_SITEPAGE_TARGET` for sitepage headers. The Phase-5 rate/WAF caution applies — it sits behind Cloudflare, so confirm responses aren't challenge interstitials before trusting a clean result.
+Run against `EDGE_TARGET` (the API host); the optional second pass against `EDGE_SITEPAGE_TARGET` for sitepage headers was **not implemented** (plan marks it optional) — sitepage cache/header behavior is governed by the Cloudflare Worker + Cache API stack outside this repo, and `cache-control-correct.yaml` (Phase 5) already covers the API-side header contract. The Phase-5 rate/WAF caution applies — it sits behind Cloudflare, so confirm responses aren't challenge interstitials before trusting a clean result.
 
-- [ ] **Step 2: Normalize for the unified gate.** Take ZAP's `-J` JSON (`$OUTDIR/zap-passive/zap-baseline.json`) and hand it to `diff-baseline.sh` (Phase 7) keyed by `alertRef + url` — the **same** key scheme as the active ZAP output — subtracting `baseline/zap-passive-baseline.json`. Do **not** use ZAP's own `-c` ignore-file mechanism; one baseline model (the repo's stable-key diff) keeps triage in one place.
+- [x] **Step 2: Normalize for the unified gate.** `zap-baseline.sh` copies `$OUTDIR/zap-passive/zap-baseline.json` up to `$OUTDIR/zap-baseline-passive.json` (flat, alongside `nuclei.jsonl`/`wcvs-report.json`) for Phase 7's `diff-baseline.sh` to key by `alertRef + url` — the **same** key scheme as the active ZAP output — subtracting `baseline/zap-passive-baseline.json`. Not using ZAP's own `-c` ignore-file mechanism; one baseline model (the repo's stable-key diff) keeps triage in one place. `baseline/zap-passive-baseline.json` created as `[]` (Step 4).
 
-- [ ] **Step 3: Wire into `run.sh --only edge`** after wcvs (already in the Phase-0 dispatch). It runs as the third edge tool, so the weekly edge cron picks it up automatically — this is what delivers the "weekly OWASP ZAP baseline".
+- [x] **Step 3: Wire into `run.sh --only edge`** after wcvs (already in the Phase-0 dispatch). It runs as the third edge tool, so the weekly edge cron picks it up automatically — this is what delivers the "weekly OWASP ZAP baseline".
 
-- [ ] **Step 4: Empty baseline to start** — `baseline/zap-passive-baseline.json` = `[]`; populated only by the Phase-10 first-run triage (never pre-seeded).
+- [x] **Step 4: Empty baseline to start** — `baseline/zap-passive-baseline.json` = `[]`; populated only by the Phase-10 first-run triage (never pre-seeded).
 
-**Done when:** `run.sh --only edge --target https://dev-api.partna.au` runs the passive baseline as its third tool, emits `$OUTDIR/zap-passive/zap-baseline.{json,html}`, its alerts key as `alertRef + url` and diff against `baseline/zap-passive-baseline.json`, and a passive alert added to that baseline is suppressed on re-run.
+**Done when:** `run.sh --only edge --target https://dev-api.partna.au` runs the passive baseline as its third tool, emits `$OUTDIR/zap-passive/zap-baseline.{json,html}`, its alerts key as `alertRef + url` and diff against `baseline/zap-passive-baseline.json`, and a passive alert added to that baseline is suppressed on re-run. ✅ Partially verified 2026-07-26 — `zap-baseline.sh audits/dast/2026-07-26 https://dev-api.partna.au` emits both files, 0 FAIL / 7 WARN found (missing HSTS on /robots.txt, cookie SameSite=None, etc. — real dev-host findings, not scanner bugs), script's own exit stayed 0 despite zap-baseline.py's internal exit 2. The `alertRef + url` keying + suppression-on-baseline is Phase 7's `diff-baseline.sh`, verified there.
 
 ---
 

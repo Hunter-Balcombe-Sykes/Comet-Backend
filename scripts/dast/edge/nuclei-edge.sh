@@ -11,14 +11,12 @@ DAST_DIR="$HERE"
 # shellcheck source=../lib/common.sh
 source "$HERE/lib/common.sh"
 
-OUTDIR="${1:?usage: nuclei-edge.sh OUTDIR [TARGET]}"
+OUTDIR="$(dast_abspath "${1:?usage: nuclei-edge.sh OUTDIR [TARGET]}")"
 TARGET="${2:-${EDGE_TARGET:-}}"
 [[ -n "$TARGET" ]] || die "no target: pass one or set EDGE_TARGET"
 
 RATE_LIMIT="${DAST_EDGE_RATE_LIMIT:-20}"
 require_docker_image projectdiscovery/nuclei
-
-mkdir -p "$OUTDIR"
 
 # Optional, opt-in fixture for the alias-301-canonical template (transient
 # data — see that template's description). Unset ⇒ template no-ops.
