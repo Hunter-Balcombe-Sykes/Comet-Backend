@@ -37,13 +37,13 @@ class BandcampScraper extends HtmlScrapeBase
      */
     private function parseProfileWithOrigin(string $html, string $origin, int $limit): array
     {
-        $name = $this->metaContent($html, 'og:title');
+        $name = $this->metaContent($html, 'title');
         if (is_string($name)) {
             $name = trim(preg_replace('~^Music\s*\|\s*~i', '', $name)) ?: null;
         }
-        $name ??= $this->metaContent($html, 'og:site_name');
+        $name ??= $this->metaContent($html, 'site_name');
 
-        $avatar = $this->metaContent($html, 'og:image');
+        $avatar = $this->metaContent($html, 'image');
 
         $items = $this->parseGridItems($html, $origin, $limit);
 

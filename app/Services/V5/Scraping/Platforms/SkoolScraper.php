@@ -46,15 +46,15 @@ class SkoolScraper extends HtmlScrapeBase
      */
     protected function parseProfile(string $html): ?array
     {
-        $name = $this->metaContent($html, 'og:title');
+        $name = $this->metaContent($html, 'title');
         if (! is_string($name) || in_array(strtolower(trim($name)), self::NON_COMMUNITY_TITLES, true)) {
             return null;
         }
 
         return [
             'display_name' => trim($name),
-            'profile_pic_url' => $this->metaContent($html, 'og:image'),
-            'bio' => $this->metaContent($html, 'og:description'),
+            'profile_pic_url' => $this->metaContent($html, 'image'),
+            'bio' => $this->metaContent($html, 'description'),
         ];
     }
 

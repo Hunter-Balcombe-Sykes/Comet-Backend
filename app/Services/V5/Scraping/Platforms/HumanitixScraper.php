@@ -271,7 +271,7 @@ class HumanitixScraper extends HtmlScrapeBase
     /** og:title on the host page reads "<Host> | Humanitix". */
     private function hostName(string $html): ?string
     {
-        $title = $this->metaContent($html, 'og:title');
+        $title = $this->metaContent($html, 'title');
         if (! is_string($title)) {
             return null;
         }

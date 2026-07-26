@@ -40,7 +40,7 @@ class StravaClubScraper extends HtmlScrapeBase
      */
     protected function parseProfile(string $html): ?array
     {
-        $title = $this->metaContent($html, 'og:title');
+        $title = $this->metaContent($html, 'title');
         if ($title === null) {
             return null;
         }
@@ -61,7 +61,7 @@ class StravaClubScraper extends HtmlScrapeBase
         }
 
         // Avatar: probe for the "original" (larger) CDN rendition.
-        $image = $this->metaContent($html, 'og:image');
+        $image = $this->metaContent($html, 'image');
         if ($image !== null
             && preg_match('~^(https://dgalywyr863hv\.cloudfront\.net/pictures/clubs/.+/)large\.(jpe?g|png)$~i', $image, $m)) {
             $original = $m[1].'original.'.$m[2];
@@ -77,7 +77,7 @@ class StravaClubScraper extends HtmlScrapeBase
             'display_name' => $name,
             'location' => $location,
             'profile_pic_url' => $image,
-            'bio' => $this->metaContent($html, 'og:description'),
+            'bio' => $this->metaContent($html, 'description'),
             'member_count' => $members,
         ];
     }

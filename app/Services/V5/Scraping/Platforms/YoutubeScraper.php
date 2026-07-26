@@ -68,14 +68,14 @@ class YoutubeScraper extends HtmlScrapeBase
      */
     protected function parseProfile(string $html): ?array
     {
-        $name = $this->metaContent($html, 'og:title');
+        $name = $this->metaContent($html, 'title');
         if ($name !== null) {
             $name = trim(preg_replace('~\s*-\s*YouTube\s*$~i', '', $name)) ?: null;
         }
 
-        $avatar = $this->metaContent($html, 'og:image');
+        $avatar = $this->metaContent($html, 'image');
 
-        $bio = $this->metaContent($html, 'og:description');
+        $bio = $this->metaContent($html, 'description');
 
         // Subscriber count from JSON-LD or embedded script data.
         $followers = $this->extractSubscriberCount($html);
@@ -202,7 +202,7 @@ class YoutubeScraper extends HtmlScrapeBase
     // -----------------------------------------------------------------------
 
     /**
-     * Map raw feed items + resolved thumbnails to V5 items.
+     * Map raw feed items + resolved thumbnails to V5 items, including embed items.
      *
      * @param  list<array{videoId:string, name:string, description:string, link:string, date:?string}>  $rawItems
      * @param  array<string,string>  $thumbnails  videoId → URL
@@ -210,11 +210,25 @@ class YoutubeScraper extends HtmlScrapeBase
      */
     private function mapItems(array $rawItems, array $thumbnails): array
     {
-        return array_map(function (array $item) use ($thumbnails) {
+        $items = [];
+        foreach ($rawItems as $item) {
             $videoId = $item['videoId'];
+            $videoItem = $this->buildItem($item, $thumbnails[$videoId] ?? '');
 
-            return $this->buildItem($item, $thumbnails[$videoId] ?? '');
-        }, $rawItems);
+            $items[] = $videoItem;
+
+            // Add embed item alongside each video
+            $embedUrl = "https://www.youtube.com/embed/{$videoId}";
+            $items[] = $this->buildEmbedItem(
+                embedUrl: $embedUrl,
+                title: $item['name'],
+                thumbnail: $thumbnails[$videoId] ?? null,
+                provider: 'YouTube',
+                originalIdentifier: $videoItem['identifier'],
+            );
+        }
+
+        return $items;
     }
 
     /**
