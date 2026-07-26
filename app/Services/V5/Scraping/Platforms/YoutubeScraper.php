@@ -3,30 +3,20 @@
 namespace App\Services\V5\Scraping\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
-use App\Services\Platforms\YoutubeThumbnailResolver;
 use App\Services\V5\Scraping\BaseTemplates\HtmlScrapeBase;
 use App\Services\V5\Scraping\Budget\FetchBudget;
 
-// V5 YouTube scraper — replaces the old YoutubeScraper + YoutubeThumbnailResolver
-// pattern. Fetches a channel page (for profile info + channel ID) then the RSS
-// uploads feed for the 15 most-recent videos (YouTube's hard cap). Returns V5
-// items with item_type='video' and resolved maxres/hqdefault thumbnails.
+// V5 YouTube scraper. Fetches channel page + RSS uploads feed. Returns V5 items
+// with item_type='video'. Thumbnails use direct URL construction (i.ytimg.com).
 class YoutubeScraper extends HtmlScrapeBase
 {
-    // Paths that never address a channel. Preserved from the old scraper.
     private const NON_CHANNEL_PATH = '~youtu\.be/|youtube\.com/(?:watch|shorts/|live/|embed/|playlist|results|feed/|channel/(?!UC[A-Za-z0-9_-]{22}))~i';
-
-    private YoutubeThumbnailResolver $thumbnailResolver;
 
     public function __construct(
         SafeUrlFetcher $fetcher,
         ?FetchBudget $budget = null,
-        ?YoutubeThumbnailResolver $thumbnailResolver = null,
     ) {
         parent::__construct($fetcher, $budget);
-        $this->thumbnailResolver = $thumbnailResolver ?? new YoutubeThumbnailResolver(
-            $this->budget ?? new FetchBudget(30),
-        );
     }
 
     /**
@@ -64,8 +54,19 @@ class YoutubeScraper extends HtmlScrapeBase
         if ($feedXml !== null) {
             $rawItems = $this->parseYouTubeFeed($feedXml, $limit);
             $videoIds = array_column($rawItems, 'videoId');
-            $thumbnails = $this->thumbnailResolver->bestForMany($videoIds);
+            $thumbnails = $this->resolveThumbnails($videoIds);
             $items = $this->mapItems($rawItems, $thumbnails);
+
+    /** Build thumbnail URLs directly — no external resolver needed. */
+    protected function resolveThumbnails(array $videoIds): array
+    {
+        $result = [];
+        foreach ($videoIds as $id) {
+            // Use hqdefault as fallback (always available); maxresdefault is best-effort
+            $result[$id] = "https://i.ytimg.com/vi/{$id}/hqdefault.jpg";
+        }
+        return $result;
+    }
             $this->logSuccess('youtube', 'fetch', count($items));
         }
 
