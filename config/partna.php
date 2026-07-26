@@ -6,6 +6,7 @@ use App\Mail\Notifications\IncidentMail;
 use App\Mail\Notifications\PolicyUpdateMail;
 use App\Mail\Notifications\ProfileTaskMail;
 use App\Services\Platforms\DoorDashMenuDriver;
+use App\Services\Platforms\SquareMenuDriver;
 use App\Services\Platforms\UberEatsMenuDriver;
 use App\Services\PreAccount\Generators\GoogleBusinessSourceGenerator;
 use App\Services\PreAccount\Generators\InstagramSourceGenerator;
@@ -836,6 +837,12 @@ return [
     // dropped (20260704170000); app-layer validation via this registry replaces them.
     'menu' => [
         'platforms' => [
+            // Square first — top priority for pricing/images over Uber Eats/DoorDash.
+            'square' => [
+                'actor' => 'menus-r-us~restaurant-menu-scraper',
+                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com/~|^order\.~',
+                'driver' => SquareMenuDriver::class,
+            ],
             'uber-eats' => [
                 'actor' => 'memo23~uber-eats-scraper',
                 'host_pattern' => '~(^|\.)ubereats\.com$~',
