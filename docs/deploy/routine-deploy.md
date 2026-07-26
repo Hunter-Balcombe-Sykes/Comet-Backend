@@ -125,6 +125,29 @@ scripts/launch-check/smoke.sh --base-url https://api.partna.au
 Then Nightwatch (prod project) for new exceptions in the deploy window, and `cloud env:logs partna
 production --minutes 10` if anything looks off.
 
+> **smoke.sh false-FAILs if you run it too often — verified live 2026-07-26.** Its DB-touching probe
+> hits `/api/public/documents/<fixed-uuid>/download`, and that route carries **two** stacked throttles:
+> `throttle:public-site` (60/min) *and* `throttle:document-download`, which is
+> `Limit::perHour(10)` keyed by `IP + ':doc:' + <document uuid>`
+> (`AppServiceProvider::configureRateLimiting`, `partna.throttle.document_download_per_hour`).
+> Because smoke.sh always uses the **same** UUID from the same IP, roughly the 11th run within an hour
+> starts returning 429 and smoke.sh reports
+> `FAIL missing public resource returned 429 — must be 404, never 403`.
+>
+> That FAIL means "you are rate-limited", not "prod is broken" — the 429 is itself proof the app is up
+> and serving. Confirm the difference in one command: request a **different** random UUID. A `404`
+> there proves the app and DB are healthy and the bucket is the only problem, because the limiter key
+> includes the UUID:
+>
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' \
+>   "https://api.partna.au/api/public/documents/$(uuidgen | tr 'A-Z' 'a-z')/download"   # expect 404
+> ```
+>
+> Practical impact: this only bites when deploying more than ~10 times an hour, or after any load or
+> probe traffic against that route. Do not "fix" it by relaxing the limiter — the 10/hour cap is
+> deliberate anti-enumeration protection on a route that 302s to presigned R2 URLs.
+
 For a deploy that touched env vars, queues, caching, jobs, or the edge path, add the deployed-env groups.
 Both are gated and refuse to run against prod without an explicit opt-in:
 
