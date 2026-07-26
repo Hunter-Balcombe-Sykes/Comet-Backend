@@ -1,10 +1,17 @@
 name: CI
 
 on:
+  # `production` is the repo's DEFAULT branch, so a PR opened in the GitHub UI targets
+  # it unless retargeted — without it listed here that PR would show no checks at all.
   pull_request:
-    branches: [main, development-v2, development]
+    branches: [main, development-v2, development, production]
+  # Laravel Cloud deploys `production` on push and does not wait on Actions, so this
+  # trigger is post-hoc telemetry, not a gate. A routine deploy is a fast-forward of an
+  # already-green `development` tip, where it is redundant by construction; its value is
+  # catching the abnormal case — a commit that reached `production` without CI ever
+  # seeing it. Treat a red run here as "roll back", not "don't ship".
   push:
-    branches: [main, development]
+    branches: [main, development, production]
   schedule:
     # Weekly dependency-advisory check (Sun 20:00 UTC = Mon ~6am AEST). New CVEs
     # land against an unchanged composer.lock/package-lock.json, so push-triggered

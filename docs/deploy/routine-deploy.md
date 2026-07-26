@@ -1,0 +1,176 @@
+# Routine production deploy
+
+**Purpose:** the steady-state, repeatable way to ship backend code to `api.partna.au`. This is the
+counterpart to `production-cutover.md`, which describes the one-shot 2026-07-26 cutover event and is
+**not** a deploy guide ("a one-shot, mostly-irreversible event, not a routine deploy" — that doc, line 8).
+
+Audience: whoever is pushing. Assumes the cutover is done and prod stands on its own.
+
+---
+
+## The mechanics you are operating
+
+Read these before the first deploy; the checklist below only makes sense against them.
+
+| Fact | Consequence |
+|---|---|
+| The prod Laravel Cloud env has `usesPushToDeploy: true` and `branch: production`. | **`git push origin …:production` IS the deploy.** No promote step, no approval, no valve. |
+| `api.partna.au` CNAMEs directly at the prod env vanity (`partna-production-uovh3z.laravel.cloud`). | The build going green **is** the public change. There is no DNS staging step. |
+| The env's `deployCommand` is `# php artisan migrate --force` — commented out, deliberately. | **Code and schema deploy on two separate rails.** Nothing about the git push touches the database. Laravel migrations are banned repo-wide (Composer guard); schema ships only via `supabase db push` against `edplucmvkcnokyygxqsb`, run by hand. |
+| CI (`.github/workflows/ci.yml`) runs its real gate on `development`. | **A push to `production` is not gated by CI.** The `production` entry in `on.push.branches` is post-hoc telemetry — Cloud does not wait on Actions. Its value is catching a commit that reached prod without CI ever seeing it; on a normal fast-forward it is redundant by construction. A red run there means *roll back*, not *don't ship* — it already shipped. |
+| The `production` branch is the repo's **default branch** and has **no branch protection** (verified 2026-07-26). | Nothing mechanically prevents a direct commit or a force-push. The fast-forward discipline below is the only guard. |
+| Supabase org is on the **Free** plan: no PITR, no managed backups. The weekly R2 dump is the only backup, so RPO is ~7 days. | Code rollback is cheap. **Schema rollback does not exist.** That asymmetry drives every judgement call below. |
+
+### The one invariant
+
+`production` must always be an ancestor of `development`. Verify, always:
+
+```bash
+git fetch origin
+git rev-list --left-right --count origin/production...origin/development
+#            ^ left = commits on prod only — MUST be 0
+```
+
+A non-zero left number means something reached prod that never went through CI. Stop and reconcile
+before deploying anything else on top of it.
+
+---
+
+## The flow
+
+```
+feature branch  →  PR into development     ← the only real gate (4 CI jobs)
+                →  merge; dev auto-deploys to dev-api.partna.au
+                →  exercise it on dev; check Nightwatch dev
+                →  apply migrations to PROD Supabase   (separate, manual, FIRST)
+                →  git push origin development:production   ← the deploy
+                →  watch the build, then verify
+```
+
+**Migrations go first, and separately.** New code against an old schema throws 500s; an additive
+migration against old code is simply ignored. This is why additive / backwards-compatible migrations
+are strongly preferred — they keep the two rails decoupled so their ordering can never bite.
+
+---
+
+## Should I deploy at all?
+
+Work down this list. Any "no" is a stop.
+
+- [ ] **Does the diff touch shipped behaviour?** `git diff --stat origin/production origin/development`.
+      If it is only `docs/`, `audits/`, `scripts/audit/`, or `k6/`, there is nothing to ship. Fast-forwarding
+      those to prod is harmless (Laravel serves `/public` only) but it is noise, not a deploy.
+- [ ] **Is `development` green?** The four CI jobs on the merge commit: `test` (PHPStan L5, Pint,
+      Checkpoint, Vigil, `composer audit`, the inline-403 / raw-`Cache::` / unsafe-migration-locking greps,
+      launch-check parser regressions, Pest on SQLite), `postgres-tests` (the real-Postgres lane),
+      `schema-drift`, `supply-chain`. Green CI is necessary, not sufficient.
+- [ ] **Has it actually run?** Exercise the change on `dev-api.partna.au` and confirm Nightwatch dev is
+      clean. Tests run on SQLite; prod is Postgres. CHECK/NOT NULL drift is invisible to a green suite.
+- [ ] **Does it need a prod migration?** If yes, that is a two-step deploy with a `db push --dry-run` in
+      between — give it its own session, not a drive-by at the end of another task.
+- [ ] **Is `production` 0 ahead?** The invariant above.
+- [ ] **Is now a sane time?** Prod carries no customer data yet, so blast radius is small — but this will
+      stop being true. Once it does, avoid deploying with nobody watching.
+
+### Frequency
+
+Small and frequent beats large and rare. Cutover is the cautionary tale: `production` sat 1,518 commits
+behind `development`, and closing that gap meant one push shipping everything at once with no way to
+bisect a failure. Every week of drift makes the next deploy harder to reason about. While prod is empty,
+push whenever `development` is green and the diff touches real code.
+
+---
+
+## Deploy
+
+```bash
+# 1. Confirm the fast-forward is clean and see exactly what ships
+git fetch origin
+git rev-list --left-right --count origin/production...origin/development   # left MUST be 0
+git log --oneline origin/production..origin/development
+git diff --stat origin/production origin/development
+
+# 2. Migrations FIRST, if any (separate, deliberate, prod-confirmed)
+git diff --name-only origin/production origin/development -- supabase/migrations/
+#   if non-empty:  supabase link --project-ref edplucmvkcnokyygxqsb
+#                  supabase db push --dry-run     ← read every line
+#                  supabase db push
+
+# 3. Ship
+git push origin development:production
+
+# 4. Watch it land
+~/.composer/vendor/bin/cloud deployment:list production
+```
+
+Note step 3 pushes `development`'s tip to `production` without checking out `production` locally — that
+is intentional. It makes a non-fast-forward impossible to do by accident (git refuses it) and removes any
+chance of committing onto a local `production` branch.
+
+---
+
+## Verify — after every deploy
+
+**`/api/health` is liveness-only.** It returned green for an hour on a fully broken prod during cutover.
+It proves PHP booted; it proves nothing about the database. Never verify a deploy with it alone.
+
+Minimum, every time:
+
+```bash
+# DB-touching smoke (404-not-403, debug leakage, .env exposure, and a document-download
+# probe that requires a real DB lookup)
+scripts/launch-check/smoke.sh --base-url https://api.partna.au
+```
+
+Then Nightwatch (prod project) for new exceptions in the deploy window, and `cloud env:logs partna
+production --minutes 10` if anything looks off.
+
+For a deploy that touched env vars, queues, caching, jobs, or the edge path, add the deployed-env groups.
+Both are gated and refuse to run against prod without an explicit opt-in:
+
+```bash
+export LAUNCH_CHECK_CONFIRM_PROD=1              # required; the gate refuses production otherwise
+export LAUNCH_CHECK_HANDLE=<a published prod handle>
+
+scripts/launch-check/env-check.sh     --env production --target launch
+scripts/launch-check/runtime-health.sh --env production --target launch
+```
+
+- `env-check.sh` (group G) asserts required vars are present and `APP_DEBUG` / `APP_ENV` /
+  `QUEUE_CONNECTION` / `CACHE_STORE` are correct on the *running* env.
+- `runtime-health.sh` (group H) probes Horizon masters, Redis, media disk, scheduler, failed jobs, and
+  edge delivery of a real sitepage.
+- **Caveat while prod is empty:** `site.sites = 0`, so there is no published prod handle. Group H's edge
+  probe **FAILs** on an unset `LAUNCH_CHECK_HANDLE` by design (a probe that ran nothing must never read as
+  a pass). Until a real prod sitepage exists, expect that FAIL and run the runtime-liveness half knowing
+  the edge half is unverified — do not "fix" it by softening the check.
+- `launch-check.sh` has no `--env` flag; the two scripts above must be called directly for prod.
+
+---
+
+## Rollback
+
+**Code** — cheap, three options in order of preference:
+
+1. **Re-push the previous good SHA.** `git push --force-with-lease origin <last-good-sha>:production`.
+   Then immediately reconcile `development` so the invariant (`production` is an ancestor of
+   `development`) is restored — otherwise the next deploy silently re-ships the bad commit.
+2. **Revert forward.** Revert on `development`, let CI run, fast-forward again. Slower but keeps the
+   invariant intact and leaves an honest history. Prefer this when the bad commit is not the tip.
+3. **Stop the prod env.** `api.partna.au` returns 404 (it CNAMEs at prod, so there is no "point back to
+   dev"). Use only when serving nothing beats serving broken.
+
+**Schema** — there is no rollback. No PITR, no managed backups, weekly R2 dump only. A bad migration is
+repaired by writing a forward migration, not by restoring. This is the whole reason schema changes are a
+separate, slower, confirm-first path.
+
+---
+
+## Related
+
+- `production-cutover.md` — the historical one-shot cutover. Phases 4 and 5 record what was and was not
+  verified at go-live; read Phase 5's caveats before assuming any of it still holds.
+- `scripts/launch-check/README.md` — full group reference; read the "nothing checked is never a pass"
+  section before interpreting any WARN.
+- `queue-worker-cutover.md` — the queue/Horizon flip, if a deploy touches worker config.
+- `docs/runbooks/drills/` — failure-mode drills, including the backup/restore rehearsal.

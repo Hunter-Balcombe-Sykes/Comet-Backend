@@ -44,10 +44,19 @@ This is the **business + operational** counterpart to the audit checklists. It c
     - **Cost:** DIY (~1.5–2 weeks)
     - **Notes:** 4 architectural patterns + 13 standalone fixes; closes 26 unique findings
 
-- [ ] **TECH-3 · P0** — Backup / restore drill (External X6 from `audit-checklist.md`)
+- [x] **TECH-3 · P0** — Backup / restore drill (External X6 from `audit-checklist.md`)
     - **When:** Before first pilot customer
     - **Cost:** DIY (~half day — restore a Supabase snapshot to a fresh project, verify integrity)
     - **Notes:** A backup you've never restored isn't a backup. Document the restore steps as a runbook.
+      Drill run 2026-07-26 against prod: backup, restore, and integrity all **PASS** — see
+      `docs/runbooks/drills/logs/2026-07-26-backup-restore.md`. Verdict **PARTIAL**: RPO/object-storage
+      coverage gaps remain (see Pro-upgrade action below).
+    - **Off-platform backups:** weekly encrypted `pg_dump` → Cloudflare R2 live from
+      `Hunter-Balcombe-Sykes/partna-db-backup` (closes account-level-disaster gap).
+      Supabase Pro managed daily backups pending (see below).
+    - **[2026-07-24] Upgrade Supabase org `Partna` to Pro** — enables automatic
+      daily managed backups + dashboard "restore to new project". Complements the
+      off-platform weekly dump. Billing action, owner-only in the Supabase dashboard.
 
 - [ ] **TECH-4 · P0** — Incident response runbook
     - **When:** Before first pilot customer
@@ -511,7 +520,7 @@ The actual cost picture for a bootstrapped AU pre-pilot SaaS founder targeting S
 - [ ] **INS-1**: Get 3 cyber insurance quotes via BizCover (instant), Insurance House, Honan
 - [ ] **TECH-1**: Run Phases 2–6 audits in parallel (~6h wall time, ~$5 cost) — see `audit-checklist.md`
 - [ ] **LEGAL-5**: Confirm ABN + business structure is correct; consider Pty Ltd if not already
-- [ ] **TECH-3**: Schedule a backup drill — restore the latest Supabase snapshot to a dev project, verify data integrity
+- [x] **TECH-3**: Schedule a backup drill — restore the latest Supabase snapshot to a dev project, verify data integrity
 
 These five take ~2 hours of your time combined and unlock significant downstream value (R&DTI alone can return $20K+).
 
