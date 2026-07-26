@@ -415,15 +415,38 @@ prod IS the public go-live. Sequence accordingly:
 
 ## Phase 5 — Post-cutover (customer data now lives in prod)
 
+> **Heading caveat (2026-07-26).** Customer data does NOT yet live in prod: `core.users` = 0,
+> `site.sites` = 0, `core.partna_staff` = 1. The Phase-5 execute prompt asserts prod is "LIVE with
+> real customer data"; that premise is false as of this date. It lowers the risk of the worker flip
+> and it means drill-04 would rehearse against an empty DB.
+
 - [ ] **Re-point the off-platform backup.** The weekly R2 backup (`partna-db-backup` GitHub Action) targets
       **dev**'s `SUPABASE_DB_URL` today — move it to the prod ref (the `--schema` flags stay valid because
       prod is re-baselined with the same standalone migrations). Rename the dump prefix (`partna-dev-` →
       live). Then **re-run the drill-04 restore rehearsal** against the new target.
+      - *2026-07-26 (PROMPT-execute-cutover-phase-5-post-cutover.md): PARTIAL — left unticked deliberately.*
+        Workflow changes are in `partna-db-backup` PR #1 (prefix → `partna-prod-`, weekly cron enabled,
+        README re-pointed). **Two corrections to this checklist item:** the `--schema` flags were NOT
+        valid unchanged — `moderation` was missing, so every dump would have silently dropped all five
+        `moderation.*` tables (added in the PR); and the workflow's cron had been commented out since
+        2026-07-17, with `gh run list` showing **zero runs ever** — this backup has never executed.
+        Still outstanding: merge the PR, set `SUPABASE_DB_URL` to prod's session-pooler string as the
+        **`postgres`** role (`app_backend` is denied on `auth` + `supabase_migrations`), trigger a
+        `workflow_dispatch`, and run drill-04 with a written log.
 - [ ] **Confirm the Supabase Pro upgrade is on the prod project** (moved at Phase 2, before go-live —
       not here) and drop it from dev if it isn't needed there — the paid tier follows the live data.
-- [ ] **Rewrite CLAUDE.md's "Current reality" block** (+ the env table if needed): after cutover,
+      - *2026-07-26: NOT CONFIRMED — left unticked.* Org `Partna` (`ligsuetayyrxzojoxxbt`, which holds
+        **both** projects) reports `"plan": "free"`. So prod has no PITR and no managed backups, and
+        Free projects can auto-pause. This is the Phase-2 gap this step was meant to catch, surfacing
+        late. Josh's call on 2026-07-26 was to **proceed on Free and upgrade later** — recorded here so
+        it is a decision, not an oversight. There is no separate dev downgrade to make: one org, one plan.
+- [x] **Rewrite CLAUDE.md's "Current reality" block** (+ the env table if needed): after cutover,
       "dev serves both domains / prod inactive" is wrong — prod serves api.partna.au from the prod
       Supabase. Stale env docs misdirect every future session.
+      - *2026-07-26: DONE.* Paragraph rewritten for per-env independence (prod → `edplucmvkcnokyygxqsb`,
+        dev → `glncumufgaqcmqhzwrxm`, deploy via `development` → `production` fast-forward + promote),
+        plus the empty-prod and Free-plan facts. The env table above it was already correct and is
+        unchanged.
 
 ---
 
