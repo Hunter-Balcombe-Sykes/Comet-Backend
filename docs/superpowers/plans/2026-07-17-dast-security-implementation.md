@@ -471,17 +471,21 @@ Run against `EDGE_TARGET` (the API host); the optional second pass against `EDGE
 
 This is rollout steps 2–3 of the spec: the first real runs, triaged.
 
-- [ ] **Step 1: First active-lane run** against the runner's own isolated bring-up (two identities). Everything surfaces into `REPORT.md`.
+- [x] **Step 1: First active-lane run** — done as part of Phase 4's verification (`run.sh --only active`, full run, real findings):
+  - ZAP `10037` "Server Leaks Information via X-Powered-By" — **low**, 5 instances.
+  - ZAP `10021` "X-Content-Type-Options Header Missing" — **low**, 1 instance (`/robots.txt`).
+  No SQLi/XSS/path-traversal/command-injection/cross-identity-IDOR findings — the curated active-scan rules and the cross-identity pass came back clean against real seeded identities.
 
-- [ ] **Step 2: Triage active findings:**
-  - real bugs → hand to the **`execute audit` fix-flow** (`scripts/audit/fix-flow.md`) — write them into a `CONSOLIDATED.md`-shaped file so the plan→implement→independent-review loop works them (P0/auth/IDOR items are blocker-gated there).
-  - confirmed false-positives / accepted-risk (incl. anything that's a local-only RLS artifact per the fidelity caveat) → `--update-baseline` into `baseline/zap-baseline.json`.
+- [~] **Step 2: Triage active findings — data collected, NOT yet triaged.** Both findings above are missing-header hardening gaps, not exploitable vulnerabilities on their own, and both are **well below the default `--fail-on high` floor** — the tool is safe to ship with baselines still empty; nothing here currently fails a build. Deliberately **not** unilaterally decided here: the plan frames baseline-acceptance as a human call ("Josh decides... run by a human after review, never automatically"), and whether e.g. `X-Powered-By` leakage is worth a fix or worth accepting is a judgment call, not something to auto-triage. Recommendation for Josh: both look like reasonable `--update-baseline` candidates (standard Laravel/PHP header noise), but flagging rather than deciding.
 
-- [ ] **Step 3: First edge-lane run** against deployed dev (Nuclei + wcvs + ZAP passive baseline); same triage split — Nuclei/wcvs → `baseline/nuclei-baseline.txt`, passive ZAP alerts → `baseline/zap-passive-baseline.json`.
+- [x] **Step 3: First edge-lane run** against deployed dev — done multiple times across Phases 5/6/6b/7/8 verification (`https://dev-api.partna.au` + a real published dev handle for wcvs):
+  - **Nuclei:** 0 findings (clean, verified twice for Phase 7's key-stability check).
+  - **wcvs:** 0 findings (`foundVulnerabilities: false`, full 15m46s scan against a real dev sitepage handle).
+  - **ZAP passive baseline:** 7 WARN-level findings against `https://dev-api.partna.au` — missing `Strict-Transport-Security`, `Cross-Origin-Resource-Policy`; `Cookie SameSite=None` (×6 instances); `Non-Storable Content` / cache-control re-examine notes; a Unix timestamp disclosure; a session-management-response marker. All on `/robots.txt`, `/`, or `/sitemap.xml` — none on an authenticated or data-bearing path.
 
-- [ ] **Step 4:** Commit the triaged baselines with a message documenting *why* each accepted entry is accepted (the baseline is a reviewed artifact, not a dumping ground).
+- [ ] **Step 4: Commit the triaged baselines — NOT done, pending Step 2/3's human triage.** `baseline/*` stays empty (its correct, safe default per the plan's "never pre-seed" rule) until Josh reviews the findings above and either accepts them (`--update-baseline`) or routes any of them to the `execute audit` fix-flow.
 
-**Done when:** both baselines reflect a completed human triage, a re-run of each lane is green (exit 0) against the triaged baseline, real findings are filed into the fix-flow, and `README.md` documents the triage→baseline loop for future runs.
+**Done when:** both baselines reflect a completed human triage, a re-run of each lane is green (exit 0) against the triaged baseline, real findings are filed into the fix-flow, and `README.md` documents the triage→baseline loop for future runs. **Partially done** — first-run data collected for both lanes (see Steps 1/3), all findings low/WARN severity and already green against `--fail-on high` with empty baselines, but the actual accept-vs-fix triage is Josh's call and is reported to him rather than resolved here.
 
 ---
 
