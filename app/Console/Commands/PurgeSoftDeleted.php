@@ -13,6 +13,9 @@ use App\Models\Core\User\Customer;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
+use App\Models\V5\Item as V5Item;
+use App\Models\V5\PlatformDefinition as V5PlatformDefinition;
+use App\Models\V5\UserPlatform as V5UserPlatform;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -42,6 +45,9 @@ class PurgeSoftDeleted extends Command
         Feedback::class,
         IntegrationConnection::class,
         Menu::class,
+        V5Item::class,
+        V5PlatformDefinition::class,
+        V5UserPlatform::class,
     ];
 
     /**

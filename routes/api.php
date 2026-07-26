@@ -63,9 +63,21 @@ Route::middleware(['supabase.jwt', 'throttle:claim'])->post('/claim', [ClaimCont
 
 // Split route files (keeps api.php tidy)
 require __DIR__.'/api/user.php';
-require __DIR__.'/api/staff.php';
 require __DIR__.'/api/publicSite.php';
-require __DIR__.'/api/platforms.php';
+
+// Staff + Platforms routes — deleted for V5. Guarded with file_exists so
+// a missing file cannot prevent app boot.
+$staffRoutes = __DIR__.'/api/staff.php';
+if (file_exists($staffRoutes)) { require $staffRoutes; }
+$platformRoutes = __DIR__.'/api/platforms.php';
+if (file_exists($platformRoutes)) { require $platformRoutes; }
+
+// V5 Platform System — scaffold. Guarded with file_exists so a missing
+// or broken route file cannot prevent app boot (kill-switch safety).
+$v5Routes = __DIR__.'/api/v5.php';
+if (file_exists($v5Routes)) {
+    require $v5Routes;
+}
 
 // GET preserves the existing email-footer link behavior; POST satisfies
 // RFC 8058 one-click unsubscribe (List-Unsubscribe-Post: List-Unsubscribe=One-Click),

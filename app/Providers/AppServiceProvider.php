@@ -96,6 +96,11 @@ class AppServiceProvider extends ServiceProvider
         // a fresh instance on every helper call and the memo is always empty.
         $this->app->singleton(FeatureFlagService::class);
 
+        // V5 Platform System — singleton registry and router
+        $this->app->singleton(\App\Services\V5\Registry\V5PlatformRegistry::class);
+        $this->app->singleton(\App\Services\V5\Router\V5Router::class);
+        $this->app->singleton(\App\Services\V5\Scraping\Normalization\PlatformUrlNormalizer::class);
+
         // scoped (not singleton): FetchBudget::open() stores the open deadline
         // on $this, so every collaborator that might fetch during one open
         // budget — SafeUrlFetcher AND YoutubeThumbnailResolver, which

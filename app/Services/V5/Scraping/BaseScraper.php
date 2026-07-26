@@ -1,0 +1,314 @@
+<?php
+
+namespace App\Services\V5\Scraping;
+
+use App\Services\Http\SafeUrlFetcher;
+use App\Services\V5\Scraping\Budget\FetchBudget;
+use Illuminate\Support\Facades\Log;
+
+// V5 BaseScraper — shared foundation for all platform scrapers.
+// Eliminates the duplicated fetch-then-check-then-parse pattern that existed
+// across 9+ scrapers in the old system.
+abstract class BaseScraper
+{
+    protected const USER_AGENT = 'Mozilla/5.0 (compatible; Partna/1.0)';
+
+    public function __construct(
+        protected readonly SafeUrlFetcher $fetcher,
+        protected readonly ?FetchBudget $budget = null,
+    ) {}
+
+    // -----------------------------------------------------------------------
+    // HTTP
+    // -----------------------------------------------------------------------
+
+    /** Fetch HTML content. Returns null on any failure (network, non-200, budget). */
+    protected function fetchHtml(string $url, array $headers = []): ?string
+    {
+        if ($this->budget && $this->budget->isExhausted()) {
+            Log::warning('v5.scrape.budget_exhausted', ['url' => $url]);
+            return null;
+        }
+
+        $headers = array_merge(['User-Agent' => self::USER_AGENT], $headers);
+
+        $res = $this->fetcher->tryFetch($url, $headers);
+        if ($res === null) {
+            return null;
+        }
+
+        if (($res['status'] ?? 0) < 200 || ($res['status'] ?? 0) >= 300) {
+            return null;
+        }
+
+        if ($this->budget) {
+            $this->budget->tick();
+        }
+
+        return $res['body'] ?? null;
+    }
+
+    // -----------------------------------------------------------------------
+    // URL normalization (replaces 11 normalizer classes)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Normalize a URL or handle to canonical form.
+     * Built-in patterns cover common cases; platforms override for custom logic.
+     */
+    protected function normalizeUrl(string $input, string $pattern): ?string
+    {
+        // Pattern placeholders: <handle>, <username>, <slug>, <id>
+        return match ($pattern) {
+            'handle' => $this->normalizeHandle($input),
+            'url' => $this->normalizeToUrl($input),
+            'path_segment' => $this->extractPathSegment($input),
+            default => $this->applyRegexPattern($input, $pattern),
+        };
+    }
+
+    protected function normalizeHandle(string $input): string
+    {
+        // Strip leading @, trim whitespace, lowercase
+        return mb_strtolower(trim(ltrim(trim($input), '@')));
+    }
+
+    protected function normalizeToUrl(string $input): string
+    {
+        // Ensure https:// prefix
+        if (! str_starts_with($input, 'http')) {
+            return 'https://'.$input;
+        }
+        // Upgrade http to https
+        return preg_replace('/^http:/', 'https:', $input);
+    }
+
+    protected function extractPathSegment(string $input): ?string
+    {
+        $path = parse_url($input, PHP_URL_PATH);
+        if (! $path) {
+            return null;
+        }
+        return trim($path, '/');
+    }
+
+    protected function applyRegexPattern(string $input, string $pattern): ?string
+    {
+        if (preg_match($pattern, $input, $m)) {
+            return $m[1] ?? $m[0] ?? null;
+        }
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // HTML parsing (JSON-LD, OG tags, meta, RSS)
+    // -----------------------------------------------------------------------
+
+    /** Extract all JSON-LD nodes from HTML. */
+    protected function jsonLdNodes(string $html): array
+    {
+        $nodes = [];
+        $pattern = '/<script[^>]+type="application\/ld\+json"[^>]*>(.*?)<\/script>/s';
+        if (preg_match_all($pattern, $html, $matches)) {
+            foreach ($matches[1] as $json) {
+                $data = json_decode($json, true);
+                if (is_array($data)) {
+                    $nodes[] = $data;
+                }
+            }
+        }
+        return $nodes;
+    }
+
+    /** Extract OG meta and standard meta content. */
+    protected function metaContent(string $html, string $property): ?string
+    {
+        // OG property
+        if (preg_match('/<meta[^>]+property="og:'.preg_quote($property, '/').'"[^>]+content="([^"]*)"[^>]*>/i', $html, $m)) {
+            return $m[1];
+        }
+        // OG name
+        if (preg_match('/<meta[^>]+name="og:'.preg_quote($property, '/').'"[^>]+content="([^"]*)"[^>]*>/i', $html, $m)) {
+            return $m[1];
+        }
+        // Standard meta name
+        if (preg_match('/<meta[^>]+name="'.preg_quote($property, '/').'"[^>]+content="([^"]*)"[^>]*>/i', $html, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    /** Extract a link tag href by rel. */
+    protected function linkTag(string $html, string $rel): ?string
+    {
+        if (preg_match('/<link[^>]+rel="'.preg_quote($rel, '/').'"[^>]+href="([^"]*)"[^>]*>/i', $html, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    /** Resolve a relative URL against a base URL. */
+    protected function absoluteUrl(string $base, string $relative): string
+    {
+        if (str_starts_with($relative, 'http')) {
+            return $relative;
+        }
+        $parts = parse_url($base);
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'] ?? '';
+        if (str_starts_with($relative, '//')) {
+            return $scheme.':'.$relative;
+        }
+        if (str_starts_with($relative, '/')) {
+            return $scheme.'://'.$host.$relative;
+        }
+        $path = dirname($parts['path'] ?? '/');
+        return $scheme.'://'.$host.$path.'/'.$relative;
+    }
+
+    /** Parse an RSS/Atom feed. Returns array of entries with title, link, date, thumbnail. */
+    protected function parseRssFeed(string $xml, int $limit = 15): array
+    {
+        $feed = simplexml_load_string($xml);
+        if (! $feed) {
+            return [];
+        }
+
+        $items = [];
+        $count = 0;
+
+        // RSS 2.0
+        if (isset($feed->channel->item)) {
+            foreach ($feed->channel->item as $item) {
+                if ($count >= $limit) break;
+                $items[] = $this->mapRssItem($item);
+                $count++;
+            }
+        }
+
+        // Atom
+        if (empty($items) && isset($feed->entry)) {
+            foreach ($feed->entry as $entry) {
+                if ($count >= $limit) break;
+                $items[] = $this->mapAtomEntry($entry);
+                $count++;
+            }
+        }
+
+        return $items;
+    }
+
+    private function mapRssItem(\SimpleXMLElement $item): array
+    {
+        $ns = $item->getNamespaces(true);
+        $media = $ns['media'] ?? null;
+
+        return [
+            'title' => (string) $item->title,
+            'url' => (string) ($item->link ?? $item->guid),
+            'date' => (string) ($item->pubDate ?? $item->date ?? ''),
+            'description' => (string) ($item->description ?? ''),
+            'thumbnail' => $media ? (string) ($item->children($media)->thumbnail->attributes()->url ?? '') : '',
+        ];
+    }
+
+    private function mapAtomEntry(\SimpleXMLElement $entry): array
+    {
+        $link = $entry->link;
+        $href = '';
+        if ($link) {
+            $attrs = $link->attributes();
+            $href = (string) ($attrs['href'] ?? $link);
+        }
+
+        return [
+            'title' => (string) $entry->title,
+            'url' => $href,
+            'date' => (string) ($entry->updated ?? $entry->published ?? ''),
+            'description' => (string) ($entry->summary ?? $entry->content ?? ''),
+            'thumbnail' => '',
+        ];
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    protected function sanitizeDescription(string $text, int $maxLength = 500): string
+    {
+        $text = strip_tags($text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/\s+/', ' ', $text);
+        $text = trim($text);
+        if (mb_strlen($text) > $maxLength) {
+            $text = mb_substr($text, 0, $maxLength - 3).'...';
+        }
+        return $text;
+    }
+
+    protected function formatPrice(float $price, string $currency = 'AUD'): string
+    {
+        return number_format($price, 2);
+    }
+
+    protected function lowestOffer(array $offers): ?array
+    {
+        if (empty($offers)) return null;
+        usort($offers, fn ($a, $b) => ($a['price'] ?? 0) <=> ($b['price'] ?? 0));
+        return $offers[0];
+    }
+
+    protected function sortByStartDate(array $items, string $key = 'startDate'): array
+    {
+        usort($items, fn ($a, $b) => ($a[$key] ?? '') <=> ($b[$key] ?? ''));
+        return $items;
+    }
+
+    /**
+     * Handle field-name drift: given an array of possible field names, return
+     * the first one that exists in the data. Used by Apify scrapers where
+     * actor output field names vary across versions.
+     */
+    protected function fieldDrift(array $data, array $fieldChains): mixed
+    {
+        foreach ($fieldChains as $chain) {
+            if (is_string($chain)) {
+                if (array_key_exists($chain, $data) && $data[$chain] !== null) {
+                    return $data[$chain];
+                }
+            } elseif (is_array($chain)) {
+                // Nested: ['profile', 'pic_url_hd'] → $data['profile']['pic_url_hd']
+                $value = $data;
+                foreach ($chain as $key) {
+                    if (! is_array($value) || ! array_key_exists($key, $value)) {
+                        continue 2;
+                    }
+                    $value = $value[$key];
+                }
+                if ($value !== null) {
+                    return $value;
+                }
+            }
+        }
+        return null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Logging
+    // -----------------------------------------------------------------------
+
+    protected function logFailure(string $platform, string $operation, ?string $detail = null): void
+    {
+        Log::warning("v5.scrape.{$platform}.{$operation}.failed", [
+            'detail' => $detail,
+            'hash' => $detail ? substr(sha1($detail), 0, 12) : null,
+        ]);
+    }
+
+    protected function logSuccess(string $platform, string $operation, int $itemCount = 0): void
+    {
+        Log::info("v5.scrape.{$platform}.{$operation}.ok", [
+            'item_count' => $itemCount,
+        ]);
+    }
+}
