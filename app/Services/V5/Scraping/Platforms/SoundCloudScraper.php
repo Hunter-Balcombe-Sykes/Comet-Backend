@@ -24,9 +24,9 @@ class SoundCloudScraper extends ApiBase implements FetchContract
      */
     public function fetch(string $identifier): array
     {
-        // SoundCloud oEmbed returns JSON by default — do NOT add format=json
-        // as it causes a 404 (the endpoint is strict about its parameters).
-        $data = $this->apiGet('', ['url' => $identifier]);
+        // SoundCloud oEmbed with format=json returns JSON; without the format
+        // parameter the endpoint returns XML, which apiGet cannot parse.
+        $data = $this->apiGet('', ['format' => 'json', 'url' => $identifier]);
         if (! $data) {
             return ['items' => [], 'profile' => []];
         }
