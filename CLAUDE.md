@@ -204,6 +204,13 @@ Partna is an individual-user-only platform. The model is `App\Models\Core\User\U
 - Adding a second architecture is a **platform decision, not a task** — needs CHECK widened, collapse undone, new `src/architectures/<name>/`, rebuilt dashboard picker. Pinned by `ArchitectureSystemConstraintsTest`.
 - Never reintroduce `site.themes`, `settings.design.*`, or theme-picker machinery. "Theme" ONLY means `theme_mode` (bleach/dust/warm/dusk/midnight).
 
+## Load-testing harness (`scripts/launch-check/k6/`)
+
+DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-26-k6-load-testing.md`). Its `seed.sql`/`jobs.js` hard-code 3 real invariants that silently broke them once already — touching any of these, re-check the harness:
+- Gallery capped at 6/site (`core.enforce_site_gallery_max6` trigger) — guarded by `tests/Postgres/GalleryMax6TriggerTest.php`.
+- A gallery item needs a matching `site.media_variants` (webp) row or its URL resolves empty — guarded by `tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php`'s gallery-engine tests.
+- Analytics writes need an `Origin`/`Referer` header matching the site's subdomain (SEC-1) — guarded by `tests/Feature/Security/TenantIsolation/PublicAnalyticsIdorTest.php`.
+
 ## Do NOT
 
 - Create Laravel migration files (use `supabase/migrations/` raw SQL)

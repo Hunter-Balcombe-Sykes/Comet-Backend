@@ -764,8 +764,9 @@ it('gallery engine returns camelCase GalleryImage[] when items are ready', funct
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
+    $mediaId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) Str::uuid(),
+        'id' => $mediaId,
         'site_id' => $siteId,
         'pool' => 'gallery',
         'path' => 'images/gallery/a.jpg',
@@ -778,20 +779,80 @@ it('gallery engine returns camelCase GalleryImage[] when items are ready', funct
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
+    // getGallery() filters out any item whose variantUrls() resolves empty (see
+    // SiteMedia::variantUrls() — webp-only, keyed by variant_key), so without
+    // this the row above is silently dropped and the assertions below would
+    // never run against real data. scripts/launch-check/k6/seed.sql hit this
+    // exact gap when built 2026-07-26 — its gallery insert needed a matching
+    // media_variants row for every image, not just the site_media row.
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $mediaId,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'webp',
+        'disk' => 'media',
+        'path' => 'images/gallery/a-optimized.webp',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
 
     $gallery = $this->getJson('/api/public/profiles/gallery-live')->assertOk()->json('data.profile.gallery');
 
-    // Shape contract: GalleryImage uses camelCase keys (alt, durationMs).
-    expect($gallery)->toBeArray();
-    if (count($gallery) > 0) {
-        expect(array_keys($gallery[0]))->toEqual([
-            'url', 'alt', 'caption', 'kind', 'poster', 'durationMs',
-        ]);
-        expect($gallery[0]['alt'])->toBe('Detail shot');
-        expect($gallery[0]['caption'])->toBe('Caption A');
-        expect($gallery[0]['kind'])->toBe('image');
-        expect($gallery[0]['durationMs'])->toBeNull();
-    }
+    // Shape contract: GalleryImage uses camelCase keys. Asserted unconditionally
+    // now — a variant-less seed previously made $gallery always empty, so this
+    // key list was never actually checked against real data (it was stale: no
+    // 'id'/'urlHd'/'popularityRank', which the real payload does carry).
+    expect($gallery)->toHaveCount(1);
+    expect(array_keys($gallery[0]))->toEqual([
+        'id', 'url', 'urlHd', 'alt', 'caption', 'kind', 'poster', 'durationMs', 'popularityRank',
+    ]);
+    expect($gallery[0]['url'])->not->toBe('');
+    expect($gallery[0]['alt'])->toBe('Detail shot');
+    expect($gallery[0]['caption'])->toBe('Caption A');
+    expect($gallery[0]['kind'])->toBe('image');
+    expect($gallery[0]['durationMs'])->toBeNull();
+});
+
+it('gallery engine filters out a ready item with no resolvable media variant', function () {
+    // Locks in the exact contract that silently broke scripts/launch-check/k6/seed.sql
+    // 2026-07-26: a site_media row can be is_active + processing_state=ready and still
+    // render nothing, because SiteMedia::variantUrls() needs a matching webp
+    // site.media_variants row too. This is deliberate (buildMediaItem() docblock: "null
+    // when the media has no resolvable primary URL"), not a bug — this test just makes
+    // sure it stays that way on purpose rather than by accident.
+    $pro = seedIndividualProfile('gallery-no-variant');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'gallery',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    // No site.media_variants row for this one — the point of the test.
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId,
+        'pool' => 'gallery',
+        'path' => 'images/gallery/no-variant.jpg',
+        'media_type' => 'image',
+        'processing_state' => 'ready',
+        'sort_order' => 0,
+        'is_active' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $gallery = $this->getJson('/api/public/profiles/gallery-no-variant')->assertOk()->json('data.profile.gallery');
+
+    expect($gallery)->toBe([]);
 });
 
 it('links engine emits a flat list with id/title/url/category/platform', function () {

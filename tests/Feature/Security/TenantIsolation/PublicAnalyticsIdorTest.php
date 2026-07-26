@@ -23,6 +23,10 @@ beforeEach(function () {
 // so an attacker who knows a victim's UUID (exposed in public page payloads) can
 // inject fabricated events. Fix: bind each ingest request to the site's canonical
 // Origin header. Browsers cannot forge Origin from JS.
+//
+// scripts/launch-check/k6/jobs.js depends on this exact contract — it sends an
+// Origin header matching the seeded site's subdomain host for this reason. If
+// this check's behavior changes, that script needs a matching update.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Pre-existing IDOR tests (subdomain cross-check path) ─────────────────────
