@@ -84,6 +84,11 @@ push whenever `development` is green and the diff touches real code.
 ## Deploy
 
 ```bash
+# 0. The env must be RUNNING. A stopped env accepts the push and silently
+#    never deploys — see the warning below. Non-negotiable pre-flight.
+~/.composer/vendor/bin/cloud environment:get production --json --fields=name,status
+#   status MUST be "running"
+
 # 1. Confirm the fast-forward is clean and see exactly what ships
 git fetch origin
 git rev-list --left-right --count origin/production...origin/development   # left MUST be 0
@@ -106,6 +111,23 @@ git push origin development:production
 Note step 3 pushes `development`'s tip to `production` without checking out `production` locally — that
 is intentional. It makes a non-fast-forward impossible to do by accident (git refuses it) and removes any
 chance of committing onto a local `production` branch.
+
+> **A stopped environment swallows the push — verified live 2026-07-26.** `usesPushToDeploy: true` only
+> deploys when the environment is `running`. Push to a `stopped` env and every signal looks benign:
+> git reports the ref updated, `refs/heads/production` genuinely moves to the new commit, no error is
+> raised anywhere — and no deployment is created. `deployment:list production` keeps showing the
+> *previous* deploy as `deployment.succeeded`, which reads as "we're fine" rather than "we never shipped".
+>
+> Two things make this easy to miss. Prod has `usesHibernation: false`, so `stopped` is a deliberate
+> state someone set, not something it recovers from on traffic. And the branch really did advance, so
+> `git log origin/production..development` comes back empty afterwards — by every git-side check the
+> deploy looks done. The only proof is a deployment whose `commitHash` matches what you pushed:
+>
+> ```bash
+> ~/.composer/vendor/bin/cloud deployment:list production --json \
+>   | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; print(d["commitHash"][:8], d["status"])'
+> git rev-parse --short development    # must equal the hash above
+> ```
 
 ---
 
@@ -135,14 +157,25 @@ production --minutes 10` if anything looks off.
 > `FAIL missing public resource returned 429 — must be 404, never 403`.
 >
 > That FAIL means "you are rate-limited", not "prod is broken" — the 429 is itself proof the app is up
-> and serving. Confirm the difference in one command: request a **different** random UUID. A `404`
-> there proves the app and DB are healthy and the bucket is the only problem, because the limiter key
-> includes the UUID:
+> and serving. Because the limiter key includes the UUID, requesting a **different** random UUID escapes
+> the bucket.
+>
+> **A bare 404 is not sufficient proof of health.** A stopped Laravel Cloud environment serves 404 with
+> an empty body for *every* path, `/api/health` included — so "404 on a random UUID" is equally
+> consistent with "app healthy, document absent" and "nothing is running." Distinguish them by the
+> response headers: Laravel attaches its middleware headers, a stopped env's edge 404 has none.
 >
 > ```bash
-> curl -s -o /dev/null -w '%{http_code}\n' \
->   "https://api.partna.au/api/public/documents/$(uuidgen | tr 'A-Z' 'a-z')/download"   # expect 404
+> # A Laravel-served 404 carries the app's security headers; an edge 404 is bare.
+> curl -sI "https://api.partna.au/api/public/documents/$(uuidgen | tr 'A-Z' 'a-z')/download" \
+>   | grep -iE '^(HTTP/|content-security-policy|permissions-policy|referrer-policy)'
+> # healthy  -> 404 AND the three policy headers present
+> # stopped  -> 404 with content-length: 0 and no policy headers  => the env is not running
 > ```
+>
+> Cross-check the env itself when the headers are bare — `cloud environment:get production --json
+> --fields=name,status` must say `running`. Verified live 2026-07-26: a `stopped` prod returned bare
+> 404s on every route while `deployment:list` still showed the previous deploy as `succeeded`.
 >
 > Practical impact: this only bites when deploying more than ~10 times an hour, or after any load or
 > probe traffic against that route. Do not "fix" it by relaxing the limiter — the 10/hour cap is
