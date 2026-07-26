@@ -165,6 +165,8 @@ class V5Router
         if (! str_starts_with($url, 'http')) {
             $url = 'https://'.$url;
         }
+        // Strip www. prefix so url_format patterns match both with and without it
+        $url = preg_replace('#^https?://www\.#i', 'https://', $url);
         return $url;
     }
 
