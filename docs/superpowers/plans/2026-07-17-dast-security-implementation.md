@@ -248,16 +248,15 @@ ln -s "$REPO_ROOT/supabase/migrations" "$SCRATCH/supabase/migrations"
 
 **Depends on:** Phase 1 (needs a running app to introspect + a target ZAP consumes). **Files:** `active/seed-endpoints.sh`.
 
-- [ ] **Step 1: Pull the route table** — `php artisan route:list --json` (458 routes here). Filter to the fuzz surface: `uri` starting `api/` (drop `_boost/*`, `up`, `{path}` catch-alls, and Vite/asset routes).
+- [x] **Step 1: Pull the route table** — `php artisan route:list --json` (487 `api/` routes now, up from the plan's 458 — codebase has grown; the filter logic is unaffected). Filter to the fuzz surface: `uri` starting `api/`. Checked for `_boost/*`, `up`, `{path}` catch-alls, and Vite/asset routes under `api/` — none currently exist there (the exclusion logic is still implemented defensively in case one is added later).
 
-- [ ] **Step 2: Spike — pick the seed format ZAP imports cleanly.** Produce **both** and keep whichever ZAP's automation framework consumes without warnings:
-  - **(recommended) minimal OpenAPI 3 doc** — for each route emit a `path` + `method`; expand `{param}` path segments to the seeded resource ids from Phase 3 (so authenticated scans hit real rows, not 404s); attach a trivial example body for POST/PUT/PATCH. ZAP `openapi` import expands methods + params.
-  - **flat URL seed** — newline-delimited concrete URLs, fed to ZAP as a context seed / `import urls`.
-  Default to OpenAPI; fall back to flat URLs if the import spike shows ZAP mishandling the generated doc.
+- [x] **Step 2: Spike — pick the seed format ZAP imports cleanly.** Both formats produced (`active/seed-endpoints.php`, a companion file — JSON transformation is far more natural in PHP than bash+jq, mirroring Phase 3's `mint-jwt.php`; deviation from the plan's file list of `active/seed-endpoints.sh` only). **Path params are NOT substituted with Phase-3 seeded ids at generation time** — declared as proper OpenAPI `parameters` (`in: path`, `required: true`) instead, letting ZAP's own import/scanner expand them. This resolves an apparent ordering issue in the plan: Phase 2 depends only on Phase 1, Phase 3 depends on Phase 1–2 (not the reverse), and Phase 4's own dispatch order runs `seed-endpoints.sh` *before* `seed-identities.php` — so real seeded ids cannot exist yet when this seed is generated. Real-id substitution for the cross-identity IDOR pass is Phase 4's context/exclusion concern, not the seed's.
+  - OpenAPI import tested twice: first against no live target (proved the doc format itself is valid — ZAP attempted every operation with zero parse/format errors, only "Connection refused" since nothing was listening) then for real against a live `bring-up.sh` stack. **Confirms `host.docker.internal` (not `127.0.0.1`) is the correct target host from inside a ZAP container** — useful early confirmation for Phase 4's macOS Docker networking spike.
+  - Kept both formats (no fallback needed — OpenAPI imported cleanly).
 
-- [ ] **Step 3: Write the artifact** to `$OUTDIR/seed-openapi.json` (or `seed-urls.txt`).
+- [x] **Step 3: Write the artifact** to `$OUTDIR/seed-openapi.json` (and `seed-urls.txt`).
 
-**Done when:** `seed-endpoints.sh` emits a seed covering the `api/` surface, path params substituted with Phase-3 seeded ids, and a manual `zap` import of that seed lists the endpoints in the ZAP sites tree with zero import errors.
+**Done when:** `seed-endpoints.sh` emits a seed covering the `api/` surface, path params substituted with Phase-3 seeded ids, and a manual `zap` import of that seed lists the endpoints in the ZAP sites tree with zero import errors. ✅ Verified 2026-07-26 (path-param substitution deferred to Phase 4 per the note above — see there for the real-id wiring) — against a live bring-up.sh stack, ZAP's `openapi` automation job: "Job openapi added 483 URLs... Job openapi finished... Automation plan succeeded!" Zero errors in the full run log.
 
 ---
 
