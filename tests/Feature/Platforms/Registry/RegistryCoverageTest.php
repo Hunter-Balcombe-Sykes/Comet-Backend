@@ -1,5 +1,6 @@
 <?php
 
+use App\Catalog\LegacyPlatformMap;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -15,23 +16,13 @@ use App\Services\Platforms\Strategies\Refresh\ScheduledRefresh;
 it('registers exactly the platforms the app accepts today', function () {
     $registry = app(PlatformRegistry::class);
 
-    $expected = [
-        'shop', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'spotify', 'soundcloud', 'bandcamp', 'mixcloud', 'tidal',
-        'youtube-music', 'youtube', 'vimeo', 'twitch', 'instagram', 'pinterest',
-        'tiktok', 'facebook', 'x', 'linkedin', 'threads', 'reddit',
-        'snapchat', 'discord', 'telegram', 'kick', 'medium', 'fresha',
-        'square', 'skool', 'strava', 'google-business', 'custom', 'opentable',
-        'booking', 'reservations', 'online-ordering', 'resdiary', 'nowbookit',
-        'events-custom',
-        // Link classification consolidation, Phase 2 (2026-07-25). Each is its
-        // own identity on the sitepage, so each earns a key. The ~55 new
-        // booking/reservation/ordering BRANDS deliberately do NOT appear here —
-        // under Decision 10 they ride as a `provider` string on the shared
-        // 'booking' / 'reservations' / 'online-ordering' keys above.
-        'whatsapp', 'substack', 'patreon', 'ko-fi', 'buymeacoffee', 'github',
-        'gitlab', 'codepen', 'dribbble', 'behance', 'gumroad',
-    ];
+    // Since the 27-provider stopgap (512689f4) + the P1 catalog bridge, the
+    // registry's key set and LegacyPlatformMap must be the SAME 78-slug
+    // vocabulary: the registry is what the legacy connect flows accept, the
+    // map is what the connection write-guard accepts — drift between them
+    // would let one layer accept what the other rejects. (The old hand-list
+    // here encoded Decision 10, which plan §0 supersedes.)
+    $expected = array_keys(LegacyPlatformMap::toSurfaceMap());
 
     sort($expected);
     $actual = $registry->keys();

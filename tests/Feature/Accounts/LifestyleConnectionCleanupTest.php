@@ -6,6 +6,7 @@
 // LifestyleConnectionCleanup soft-deletes them; the UserObserver runs it on the
 // partna→business switch, and the artisan command mops up existing orphans.
 
+use App\Catalog\LegacyPlatformMap;
 use App\Enums\AccountType;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -27,7 +28,8 @@ function lccConnection(string $userId, string $platform): string
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => $id,
         'user_id' => $userId,
-        'platform' => $platform,
+        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
         'resource_id' => 'res-'.Str::random(6),
         'payload' => json_encode(['x' => 1]),
         'is_active' => 1,

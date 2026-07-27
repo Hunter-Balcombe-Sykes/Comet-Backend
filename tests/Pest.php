@@ -584,10 +584,34 @@ function setupSitesTable(): void
     // (Shopify/Apple/Instagram/...). Read by the public platforms endpoint +
     // dashboard; any test that sets up a site may touch it. Mirrors the
     // production migration 20260602020000 (jsonb→TEXT, bool→INTEGER).
+    // Mirrors migration 20260727110000: surface_key is the identity column and
+    // `platform` is a GENERATED alias (14 special back-mappings + brand-prefix
+    // default). SQLite lacks split_part → substr/instr does the prefix branch.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
-        platform TEXT NOT NULL,
+        surface_key TEXT NOT NULL,
+        routing_class TEXT NOT NULL CHECK (routing_class IN (\'social\',\'content\',\'events\',\'shop\',\'booking\',\'reservations\',\'ordering\',\'link\',\'ignore\')),
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_by_detector TEXT NULL,
+        created_by_catalog_digest TEXT NULL,
+        platform TEXT GENERATED ALWAYS AS (CASE surface_key
+            WHEN \'apple_music.artist\' THEN \'apple-music\'
+            WHEN \'apple_podcasts.show\' THEN \'apple-podcast\'
+            WHEN \'bella_booking.book\' THEN \'bella-booking\'
+            WHEN \'google_business.listing\' THEN \'google-business\'
+            WHEN \'ko_fi.page\' THEN \'ko-fi\'
+            WHEN \'resident_advisor.tickets\' THEN \'resident-advisor\'
+            WHEN \'square.order\' THEN \'square-ordering\'
+            WHEN \'youtube_music.channel\' THEN \'youtube-music\'
+            WHEN \'partna.custom_link\' THEN \'custom\'
+            WHEN \'partna.manual_event\' THEN \'events-custom\'
+            WHEN \'partna.storefront\' THEN \'shop\'
+            WHEN \'partna.booking_link\' THEN \'booking\'
+            WHEN \'partna.reserve_link\' THEN \'reservations\'
+            WHEN \'partna.order_link\' THEN \'online-ordering\'
+            ELSE substr(surface_key, 1, instr(surface_key, \'.\') - 1)
+        END) STORED,
         resource_id TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT \'{}\',
         sort_order INTEGER NOT NULL DEFAULT 0,
@@ -628,8 +652,19 @@ function setupSitesTable(): void
     // database as its table.
     try {
         DB::connection('pgsql')->statement('CREATE UNIQUE INDEX IF NOT EXISTS site.idx_platform_connections_canonical
-            ON platform_connections (user_id, platform, canonical_key)
+            ON platform_connections (user_id, surface_key, canonical_key)
             WHERE canonical_key IS NOT NULL AND deleted_at IS NULL');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+
+    // Mirror of idx_platform_connections_unique_active (20260727110000) — the
+    // operative one-row-per (user, surface, resource) constraint updateOrCreate
+    // concurrency relies on.
+    try {
+        DB::connection('pgsql')->statement('CREATE UNIQUE INDEX IF NOT EXISTS site.idx_platform_connections_unique_active
+            ON platform_connections (user_id, surface_key, resource_id)
+            WHERE deleted_at IS NULL');
     } catch (Throwable $e) {
         // already exists / unsupported — ignore
     }

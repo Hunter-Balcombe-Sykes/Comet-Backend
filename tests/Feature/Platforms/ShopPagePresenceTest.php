@@ -10,6 +10,7 @@
 // page but isn't FOUND-25 (its connection payload carries real scraped
 // content directly), so it's asserted separately to confirm it's untouched.
 
+use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\PublicSite\SitepageDataResolverService;
@@ -28,7 +29,8 @@ function spConnection(User $user, string $platform, array $payload = []): string
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => $id,
         'user_id' => $user->id,
-        'platform' => $platform,
+        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
         'resource_id' => 'res-'.Str::random(6),
         'payload' => json_encode($payload),
         'is_active' => 1,

@@ -1,5 +1,6 @@
 <?php
 
+use App\Catalog\LegacyPlatformMap;
 use App\Services\PublicSite\SiteActionsService;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\DB;
@@ -35,7 +36,8 @@ function insertConnection(object $tenant, string $platform, array $payload = [],
     DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
         'id' => $id,
         'user_id' => $tenant->id,
-        'platform' => $platform,
+        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
         'resource_id' => 'r-'.Str::random(8),
         // Account rows carry a NULL resource_kind in prod — the discriminator is
         // only stamped for 'event' / 'link' rows (platform_connections_resource_kind_check).

@@ -1849,12 +1849,6 @@ parameters:
 			path: app/Models/Core/Site/Enquiry.php
 
 		-
-			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 2
-			path: app/Models/Core/Site/IntegrationConnection.php
-
-		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ShopProduct\:\:\$data\.$#'
 			identifier: property.notFound
 			count: 1
