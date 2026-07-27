@@ -36,8 +36,10 @@ class StravaClubScraper extends HtmlScrapeBase
     /**
      * Parse club profile from the club page HTML.
      *
-     * og:title is "City, Region | Club Name" — location first, name last.
-     * Clubs without a location are just the name. Also extracts member count
+     * og:title is either "City, Region | Club Name" (location first) or
+     * "Club Name | Strava" (Club name first, platform suffix). Detect the
+     * second form and swap so display_name is always the club name.
+     * Clubs without a pipe are just the name. Also extracts member count
      * from the page text and resolves the large OG avatar to the "original"
      * CDN rendition (~416px). Preserved from the old StravaClubScraper.
      */
@@ -55,6 +57,13 @@ class StravaClubScraper extends HtmlScrapeBase
             $pieces = array_map('trim', explode('|', $title));
             $name = array_pop($pieces) ?: $title;
             $location = implode(' | ', $pieces) ?: null;
+
+            // When the right-hand side is just "Strava" (Club Name | Strava),
+            // the real club name is on the left, not the right.
+            if (strcasecmp($name, 'Strava') === 0) {
+                $name = $location;
+                $location = null;
+            }
         }
 
         // Member count

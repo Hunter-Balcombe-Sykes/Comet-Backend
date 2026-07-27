@@ -115,7 +115,7 @@ class GoogleBusinessScraper extends ApiBase implements FetchContract
     {
         $host = strtolower(preg_replace('~^www\.~i', '', (string) parse_url($input, PHP_URL_HOST)));
 
-        if (! in_array($host, ['maps.app.goo.gl', 'goo.gl', 'share.google', 'g.co', 'maps.google.com'], true)) {
+        if (! in_array($host, ['maps.app.goo.gl', 'goo.gl', 'share.google', 'g.co', 'g.page', 'maps.google.com'], true)) {
             return $input;
         }
 
