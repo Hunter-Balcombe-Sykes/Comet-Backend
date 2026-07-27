@@ -193,9 +193,9 @@ return [
     |--------------------------------------------------------------------------
     */
     'menu' => [
-        'square_actor' => env('V5_SQUARE_MENU_ACTOR', 'square-menu-scraper'),
-        'ubereats_actor' => env('V5_UBEREATS_MENU_ACTOR', 'ubereats-menu-scraper'),
-        'doordash_actor' => env('V5_DOORDASH_MENU_ACTOR', 'doordash-menu-scraper'),
+        'square_actor' => env('V5_SQUARE_MENU_ACTOR', 'menus-r-us~restaurant-menu-scraper'),
+        'ubereats_actor' => env('V5_UBEREATS_MENU_ACTOR', 'memo23~uber-eats-scraper'),
+        'doordash_actor' => env('V5_DOORDASH_MENU_ACTOR', 'dz_omar~doordash-scraper'),
     ],
 
 ];

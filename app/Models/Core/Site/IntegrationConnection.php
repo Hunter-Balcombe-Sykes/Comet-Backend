@@ -39,7 +39,7 @@ use Illuminate\Validation\ValidationException;
  * @property Carbon|null $updated_at Nullable in Postgres, same as created_at above.
  * @property Carbon|null $deleted_at
  * @property-read User|null $user
- * @property-read Collection<int, ShopBrand> $shopBrands
+ * @property-read Collection $shopBrands
  */
 // A user's connection to an external platform — a Shopify store, an Apple
 // artist, an Instagram username, a Fresha salon, and so on. The per-user store
@@ -165,11 +165,17 @@ class IntegrationConnection extends BaseModel
 
     /**
      * FOUND-25: the shop connection's brands (child table, formerly the payload map).
+     * Guarded with class_exists because the ShopBrand model has been removed — this
+     * prevents 500s on public integration endpoints that eager-load the relation.
      *
-     * @return HasMany<ShopBrand, $this>
+     * @return HasMany
      */
     public function shopBrands(): HasMany
     {
+        if (! class_exists('App\Models\Core\Site\ShopBrand', false)) {
+            return $this->hasMany(static::class, 'connection_id')->whereRaw('1 = 0');
+        }
+
         return $this->hasMany(ShopBrand::class, 'connection_id')
             ->orderBy('position')->orderBy('brand_id');
     }
