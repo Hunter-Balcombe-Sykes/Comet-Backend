@@ -48,18 +48,28 @@ class Opentable
                 ->reservedPaths('/r/')
                 ->note('slug links carry no rid — connect flow nudges to profile link')
                 ->detect(
-                    Detector::url('opentable.com')
-                        ->query('rid')
-                        ->captures('rid')
-                        ->from(IdentifierSource::Query)
-                        ->strength(EvidenceStrength::DeepLinkWithSlug),
-                    ...array_map(
-                        fn (string $tld) => Detector::url("opentable.{$tld}")
-                            ->path('#^/restaurant/profile/(?<rid>\d+)#')
-                            ->captures('rid')
-                            ->from(IdentifierSource::Path)
-                            ->strength(EvidenceStrength::DeepLinkWithSlug),
-                        self::TLDS,
+                    // Both shapes exist on EVERY regional domain: the profile
+                    // path, and the ?rid= booking/widget link. Scoping the
+                    // query rule to .com alone would silently drop every
+                    // regional booking URL — including the AU ones that are
+                    // our primary market.
+                    ...array_merge(
+                        array_map(
+                            fn (string $tld) => Detector::url("opentable.{$tld}")
+                                ->path('#^/restaurant/profile/(?<rid>\d+)#')
+                                ->captures('rid')
+                                ->from(IdentifierSource::Path)
+                                ->strength(EvidenceStrength::DeepLinkWithSlug),
+                            self::TLDS,
+                        ),
+                        array_map(
+                            fn (string $tld) => Detector::url("opentable.{$tld}")
+                                ->query('rid')
+                                ->captures('rid')
+                                ->from(IdentifierSource::Query)
+                                ->strength(EvidenceStrength::DeepLinkWithSlug),
+                            self::TLDS,
+                        ),
                     ),
                 )
                 ->build(),

@@ -1,0 +1,56 @@
+<?php
+
+namespace App\Catalog\Definitions;
+
+use App\Catalog\Brand;
+use App\Catalog\Detector;
+use App\Catalog\Enums\EvidenceStrength;
+use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
+use App\Catalog\Enums\RoutingClass;
+use App\Catalog\Enums\Shelf;
+use App\Catalog\Surface;
+use App\Catalog\SurfaceBuilder;
+
+/**
+ * Shopify storefronts. Restores the detection WebsiteLinkHarvester's
+ * SHOP_HOSTS carried ('myshopify.com' IS decisively a storefront) which the
+ * first catalog pass dropped. `myshopify.com` is a suffix override, so the
+ * canonicaliser hands the tenant label through as the subdomain and this
+ * detector captures it as the store identifier.
+ *
+ * A merchant's OWN domain (their real storefront host) carries no
+ * distinguishing host signal — that stays the commerce probe's job (§11's
+ * five keyless probes), not a detector's.
+ */
+class Shopify
+{
+    public static function brand(): Brand
+    {
+        return Brand::make('shopify', 'Shopify', 'https://www.shopify.com');
+    }
+
+    /** @return list<Surface> */
+    public static function surfaces(): array
+    {
+        return [
+            SurfaceBuilder::for('shopify.store')
+                ->displayName('Shopify store')
+                ->routing(RoutingClass::Shop)
+                ->shelf(Shelf::Commerce)
+                ->identifier(IdentifierKind::Domain)
+                ->refreshEvery(0)
+                ->canonicalUrl('https://{store}.myshopify.com')
+                ->notConnectable()
+                ->detect(
+                    Detector::url('myshopify.com')
+                        ->subdomain('#^(?!www$)(?<store>[a-z0-9][a-z0-9-]{1,60})$#')
+                        ->captures('store')
+                        ->from(IdentifierSource::Subdomain)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug),
+                )
+                ->note('connects through the commerce probe (§11), not a catalog connect capability; own-domain storefronts carry no host signal and are probe-only')
+                ->build(),
+        ];
+    }
+}

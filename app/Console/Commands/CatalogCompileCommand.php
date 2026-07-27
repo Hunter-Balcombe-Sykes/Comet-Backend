@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\CapabilityManifest;
 use App\Catalog\Hosts;
 use App\Catalog\Surface;
+use App\Routing\Rulepack;
 use Illuminate\Console\Command;
 
 /**
@@ -119,13 +120,19 @@ class CatalogCompileCommand extends Command
         // Content-addressed: the digest covers the full semantic payload and
         // nothing else (no timestamps), so identical definitions always
         // produce an identical artefact.
+        // The routing rulepack is derived from the detectors above and baked
+        // in, so the router never builds an index at request time. Its digest
+        // input is the same payload, so a rule change always changes the
+        // artefact identity.
+        $rulepack = Rulepack::derive($detectors, 'pending')->toArtefact();
+
         $payload = [
             'brands' => $brands,
             'surfaces' => $surfaces,
             'detectors' => $detectors,
             'host_aliases' => $aliases,
             'suffix_overrides' => $suffixes,
-            'rulepack' => null, // compiled routing rulepack lands at P2
+            'rulepack' => $rulepack,
         ];
         $digest = 'sha256:'.hash('sha256', json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 

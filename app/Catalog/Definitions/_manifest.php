@@ -6,6 +6,7 @@ use App\Catalog\Definitions\ApplePodcasts;
 use App\Catalog\Definitions\Bandcamp;
 use App\Catalog\Definitions\Behance;
 use App\Catalog\Definitions\BellaBooking;
+use App\Catalog\Definitions\BigCartel;
 use App\Catalog\Definitions\Booksy;
 use App\Catalog\Definitions\Bopple;
 use App\Catalog\Definitions\Boulevard;
@@ -66,6 +67,7 @@ use App\Catalog\Definitions\Resy;
 use App\Catalog\Definitions\Schedulicity;
 use App\Catalog\Definitions\Setmore;
 use App\Catalog\Definitions\Sevenrooms;
+use App\Catalog\Definitions\Shopify;
 use App\Catalog\Definitions\Shortcuts;
 use App\Catalog\Definitions\SimplybookMe;
 use App\Catalog\Definitions\Skipthedishes;
@@ -113,6 +115,7 @@ return [
     ApplePodcasts::class,
     Bandcamp::class,
     Behance::class,
+    BigCartel::class,
     BellaBooking::class,
     Booksy::class,
     Bopple::class,
@@ -174,6 +177,7 @@ return [
     Schedulicity::class,
     Setmore::class,
     Sevenrooms::class,
+    Shopify::class,
     Shortcuts::class,
     SimplybookMe::class,
     Skipthedishes::class,
