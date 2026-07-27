@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\RoutingController;
+use App\Http\Controllers\Api\Routing\SuggestionsController;
 use App\Http\Controllers\Api\User\Account\MfaController;
 use App\Http\Controllers\Api\User\Account\SessionController;
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
@@ -67,6 +68,16 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->name('user.routing.preview');
         Route::post('/routing/links', [RoutingController::class, 'store'])
             ->name('user.routing.links');
+
+        // Review-suggestions inbox: what the router recognised but would not
+        // act on alone. The suggestion gate is only an improvement over silent
+        // writes if the suggestions land somewhere a person can resolve them.
+        Route::get('/routing/suggestions', [SuggestionsController::class, 'index'])
+            ->name('user.routing.suggestions');
+        Route::post('/routing/suggestions/{intent}/accept', [SuggestionsController::class, 'accept'])
+            ->whereUuid('intent')->name('user.routing.suggestions.accept');
+        Route::post('/routing/suggestions/{intent}/dismiss', [SuggestionsController::class, 'dismiss'])
+            ->whereUuid('intent')->name('user.routing.suggestions.dismiss');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync
