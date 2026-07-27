@@ -41,12 +41,9 @@ class BandcampReleaseProjector implements Projector
                 'f_authored' => ['creator' => $view->string('artist')],
                 'f_catalog' => ['release_type' => $view->string('type')],
             ],
-            'media' => array_values(array_filter([
-                $view->string('art_url') === null ? null : [
-                    'role' => 'cover',
-                    'url' => $view->string('art_url'),
-                ],
-            ])),
+            'media' => $view->string('art_url') === null ? [] : [
+                ['role' => 'cover', 'url' => $view->string('art_url')],
+            ],
         ];
     }
 }
