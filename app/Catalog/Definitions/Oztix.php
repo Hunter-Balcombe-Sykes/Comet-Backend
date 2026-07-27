@@ -1,0 +1,44 @@
+<?php
+
+namespace App\Catalog\Definitions;
+
+use App\Catalog\Brand;
+use App\Catalog\Detector;
+use App\Catalog\Enums\EvidenceStrength;
+use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\RoutingClass;
+use App\Catalog\Enums\Shelf;
+use App\Catalog\Surface;
+use App\Catalog\SurfaceBuilder;
+
+/**
+ * Oztix — events/ticketing, detect-only. MarketplaceListing strength: a
+ * ticket-seller host match is evidence of a listing, not a profile — the same
+ * reasoning the task calls out explicitly for ticketmaster/ticketek, applied
+ * uniformly across every ".tickets"-suffixed surface in this half.
+ */
+class Oztix
+{
+    public static function brand(): Brand
+    {
+        return Brand::make('oztix', 'Oztix', 'https://www.oztix.com.au');
+    }
+
+    /** @return list<Surface> */
+    public static function surfaces(): array
+    {
+        return [
+            SurfaceBuilder::for('oztix.tickets')
+                ->displayName('Oztix')
+                ->routing(RoutingClass::Events)
+                ->shelf(Shelf::Events)
+                ->identifier(IdentifierKind::Url)
+                ->refreshEvery(0)
+                ->notConnectable()
+                ->detect(
+                    Detector::url('oztix.com.au')->strength(EvidenceStrength::MarketplaceListing),
+                )
+                ->build(),
+        ];
+    }
+}
