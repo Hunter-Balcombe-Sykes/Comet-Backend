@@ -199,6 +199,7 @@ For every finding:
 ```
 --scope app/Catalog
 --scope app/Routing
+--scope app/Ingest
 --scope app/Http/Controllers/Api/Catalog
 --scope app/Http/Controllers/Api/Routing
 ```

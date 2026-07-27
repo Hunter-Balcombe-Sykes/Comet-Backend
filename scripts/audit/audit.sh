@@ -267,6 +267,7 @@ outbound-design|app/Services/Design
 signup-claim|app/Services/PreAccount app/Services/User
 outbound-platforms|app/Services/Platforms
 outbound-routing|app/Routing
+outbound-ingest|app/Ingest
 catalog|app/Catalog
 EOF
         ;;
@@ -275,7 +276,7 @@ account-core|app/Services/User app/Services/Accounts app/Services/Segments app/S
 site-cache|app/Services/Site app/Services/PublicSite app/Services/Cache app/Services/Cloudflare
 media-jobs|app/Services/Media app/Jobs
 moderation-policies|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Observers app/Policies
-connectors|app/Services/Platforms app/Routing
+connectors|app/Services/Platforms app/Routing app/Ingest
 schema-cron|supabase/migrations routes/console.php
 EOF
         ;;
@@ -380,6 +381,7 @@ prod-platforms-services|app/Services/Platforms
 prod-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 prod-catalog|app/Catalog
 prod-routing|app/Routing
+prod-ingest|app/Ingest
 prod-jobs|app/Jobs database/factories
 prod-schema|supabase/migrations
 feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/Feature/Contact
@@ -391,6 +393,7 @@ feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Document
 feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/EarlyAccess tests/Feature/Onboarding tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
 feature-catalog-routing|tests/Feature/Catalog tests/Feature/Routing tests/fixtures/Routing
+feature-ingest|tests/Feature/Ingest tests/Unit/Ingest
 unit-suite|tests/Unit
 EOF
         ;;
@@ -442,6 +445,7 @@ console-policies|app/Console app/Policies app/Rules app/Support app/Contracts ap
 wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
 catalog|app/Catalog
 routing|app/Routing
+ingest|app/Ingest
 EOF
         ;;
         semantic-correctness) cat <<'EOF'
@@ -461,6 +465,7 @@ console-policies|app/Console app/Policies app/Rules app/Support app/Contracts ap
 wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
 catalog|app/Catalog
 routing|app/Routing
+ingest|app/Ingest
 EOF
         ;;
         foundational-durability) cat <<'EOF'
