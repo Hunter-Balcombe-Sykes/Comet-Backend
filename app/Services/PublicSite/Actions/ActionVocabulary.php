@@ -7,7 +7,7 @@ namespace App\Services\PublicSite\Actions;
  * unified actions system (replaces the old open-ended page|item|button pool).
  * 23 static ids + 2 dynamic families (`ordering:<resource_id>`, `custom:<key>`).
  *
- * LOCKSTEP with apps/pages test/actions-vocabulary.test.ts' ACTION_IDS export
+ * LOCKSTEP with apps/pages test/actions.test.ts' ACTION_IDS export
  * — change both together or the wire and the frontend resolver drift.
  *
  * Design spec: docs/superpowers/plans/2026-07-23-actions-rebuild-demand-rate.md
