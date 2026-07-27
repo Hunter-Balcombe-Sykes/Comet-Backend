@@ -138,6 +138,8 @@ For every finding:
 --scope app/Http/Controllers/Api/Internal
 --scope app/Http/Controllers/Api/PublicSite
 --scope app/Http/Resources
+--scope app/Http/Controllers/Api/Catalog
+--scope app/Http/Controllers/Api/Routing
 ```
 
 ### Group C — Synchronous vendor reads

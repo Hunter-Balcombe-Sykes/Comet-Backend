@@ -1,5 +1,17 @@
 # Link classification consolidation
 
+> **SUPERSEDED (2026-07-27) by `2026-07-27-content-platform-rebuild.md` §2.**
+> This plan's target architecture shipped and is live; the rebuild replaces the
+> mechanism, not the intent. Carried forward as settled: Decision 7 (the DISC-7
+> unclaimed-consent gate stays removed), Decision 8 (socials route for all
+> account types; the GBP-socials asymmetry is deliberate), the routing gate
+> matrix (now evaluated pre-write in `PlacementPolicy`), first-link-per-platform
+> dedupe, and LIFE-106 XOR semantics (now keyed on `routing_class`).
+> **Decision 10 is overturned:** provider strings on shared pseudo-platform keys
+> are gone — every brand is a real catalog surface, and "link-only" is simply
+> the absence of a fetch capability. Read §2 of the rebuild plan for what is
+> actually running; this file is kept for its decision record.
+
 **Status:** Ready to execute. B1–B5 resolved, all decisions closed (1–10)
 **Date:** 2026-07-25
 **Verified against:** working tree at `5a524c27`

@@ -24,6 +24,64 @@ use Illuminate\Support\Facades\Queue;
 //            closure; a genuine (budget-not-exhausted) SafeUrlException must still
 //            be rethrown so it keeps today's loud 'error' terminal state.
 
+// These three helpers are this file's OWN copies on purpose. They previously
+// leaked in from ConnectFetchBudgetTest / FreshaRefreshTest /
+// ShopSyncFailureObservabilityTest, which only ever worked when Pest happened
+// to place those files in the same parallel process — adding any test file
+// elsewhere in the suite could (and did) redistribute them and break this one
+// with "undefined function". A test file must not depend on another test
+// file's declarations.
+
+/** A SafeUrlFetcher double standing in for "the budget just ran out". */
+function rfbExhaustedFetcher(): SafeUrlFetcher
+{
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('fetch')->andThrow(new SafeUrlException('Fetch budget exhausted for test'));
+    $fetcher->shouldReceive('tryFetch')->andReturnNull();
+    $fetcher->shouldReceive('fetchMany')->andReturnUsing(fn (array $urls) => array_fill_keys($urls, null));
+
+    return $fetcher;
+}
+
+/** @return array<string, mixed> one Fresha service row */
+function rfbFreshaService(string $id, string $name, ?string $price = '$50'): array
+{
+    return [
+        'serviceId' => $id, 'name' => $name, 'duration' => '30min',
+        'description' => null, 'price' => $price, 'priceValue' => null,
+        'currency' => null, 'category' => 'Cuts', 'hasVariants' => false,
+    ];
+}
+
+function rfbShopSyncUser(string $h): App\Models\Core\User\User
+{
+    $user = App\Models\Core\User\User::create([
+        'handle' => $h, 'handle_lc' => strtolower($h), 'display_name' => ucfirst($h),
+        'first_name' => ucfirst($h),
+        'account_type' => 'partna', 'auth_user_id' => (string) Illuminate\Support\Str::uuid(),
+        'primary_email' => "{$h}@example.com",
+    ]);
+    Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Illuminate\Support\Str::uuid(), 'user_id' => $user->id, 'subdomain' => $h,
+        'shop_auto_latest' => 1, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $user->fresh();
+}
+
+function rfbShopSyncBrand(App\Models\Core\User\User $user, string $brandId): App\Models\Core\Site\ShopBrand
+{
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    return App\Models\Core\Site\ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
+        'url' => 'https://sf.example', 'selection_mode' => 'latest', 'position' => 0,
+    ]);
+}
+
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
@@ -95,7 +153,7 @@ it('makes a genuinely exhausted refresh budget a quiet non-event — no breaker 
     $this->mock(PlatformHealthNotifier::class, function ($mock) {
         $mock->shouldNotReceive('connectionRefreshFailing');
     });
-    $this->app->instance(SafeUrlFetcher::class, exhaustedFetcher());
+    $this->app->instance(SafeUrlFetcher::class, rfbExhaustedFetcher());
 
     $user = createTenant('rfb2');
     $selection = [
@@ -103,7 +161,7 @@ it('makes a genuinely exhausted refresh budget a quiet non-event — no breaker 
         'storeName' => 'Acme',
         'mode' => 'storewide',
         'employee' => null,
-        'services' => [freshaService('s:1', 'Cut')],
+        'services' => [rfbFreshaService('s:1', 'Cut')],
         'hiddenServiceIds' => [],
     ];
     $payload = ['url' => $selection['url'], 'selection' => $selection];
@@ -131,7 +189,7 @@ it('makes a genuinely exhausted refresh budget a quiet non-event — no breaker 
 
 it('rethrows a genuine SafeUrlException when the budget is NOT exhausted', function () {
     config(['partna.http_fetch.refresh_budget_seconds' => 90]); // comfortably large — the default
-    $this->app->instance(SafeUrlFetcher::class, exhaustedFetcher());
+    $this->app->instance(SafeUrlFetcher::class, rfbExhaustedFetcher());
 
     $user = createTenant('rfb3');
     $selection = [
@@ -139,7 +197,7 @@ it('rethrows a genuine SafeUrlException when the budget is NOT exhausted', funct
         'storeName' => 'Acme',
         'mode' => 'storewide',
         'employee' => null,
-        'services' => [freshaService('s:1', 'Cut')],
+        'services' => [rfbFreshaService('s:1', 'Cut')],
         'hiddenServiceIds' => [],
     ];
     $conn = IntegrationConnection::create([
@@ -166,7 +224,7 @@ it('a healthy refresh well inside the budget stays byte-identical', function () 
     $this->mock(FreshaScraper::class, function ($m) {
         $m->shouldReceive('fetchLocation')->once()->andReturn(['name' => 'Acme Cuts']);
         $m->shouldReceive('extractServices')->once()->andReturn([
-            freshaService('s:1', 'Cut', '$55'),
+            rfbFreshaService('s:1', 'Cut', '$55'),
         ]);
         $m->shouldReceive('extractStoreName')->once()->andReturn('Acme Cuts');
     });
@@ -176,7 +234,7 @@ it('a healthy refresh well inside the budget stays byte-identical', function () 
         'storeName' => 'Acme',
         'mode' => 'storewide',
         'employee' => null,
-        'services' => [freshaService('s:1', 'Cut')],
+        'services' => [rfbFreshaService('s:1', 'Cut')],
         'hiddenServiceIds' => [],
     ];
     $conn = IntegrationConnection::create([
@@ -201,8 +259,8 @@ it('a healthy refresh well inside the budget stays byte-identical', function () 
 it('a shop platform refresh still returns its normal result under the ensureOpen() wrap', function () {
     config(['partna.http_fetch.refresh_budget_seconds' => 90]);
 
-    $user = shopSyncUser('rfb5');
-    $brand = shopSyncBrand($user, 'b1');
+    $user = rfbShopSyncUser('rfb5');
+    $brand = rfbShopSyncBrand($user, 'b1');
 
     $catalog = Mockery::mock(ShopCatalog::class);
     $catalog->shouldReceive('syncLatest')->once()->andReturn(3);

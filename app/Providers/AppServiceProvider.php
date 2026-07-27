@@ -56,6 +56,8 @@ use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSegmentPolicy;
 use App\Policies\UserSelfPolicy;
+use App\Routing\PublicSuffixList;
+use App\Routing\Rulepack;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
 use App\Services\Analytics\Ingestors\QueuedIngestor;
@@ -90,6 +92,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Routing (plan §2). Both are derived from the compiled catalog
+        // artefact rather than constructed from dependencies, so the container
+        // cannot autowire them — and both are immutable, so one instance per
+        // process is right. A deploy swaps the artefact and the process
+        // restarts, which is exactly when these should change.
+        $this->app->singleton(PublicSuffixList::class, fn () => PublicSuffixList::instance());
+        $this->app->singleton(Rulepack::class, fn () => Rulepack::fromCompiledCatalog());
+
         // Singleton so the request-scoped $requestCache memo actually persists
         // across the middleware / controller / nested service calls within a
         // single request. Without this, app(FeatureFlagService::class) resolves

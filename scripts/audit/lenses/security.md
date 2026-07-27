@@ -195,6 +195,14 @@ For every finding:
 --scope config
 ```
 
+### Group H — Catalog + link router (new platform-catalog & link-router subsystem)
+```
+--scope app/Catalog
+--scope app/Routing
+--scope app/Http/Controllers/Api/Catalog
+--scope app/Http/Controllers/Api/Routing
+```
+
 ## Exhaustiveness directive
 
 Walk every file in scope. Emit a finding for every distinct quotable instance. If four platform scrapers make raw `Http::get` calls on user-supplied URLs, that is four findings (or one grouped finding with four evidence blocks — choose whichever preserves quotable per-file evidence). If one file contains both an injection risk and a PII exposure, emit two findings. **Under-reporting on a security audit is the worst failure mode.**

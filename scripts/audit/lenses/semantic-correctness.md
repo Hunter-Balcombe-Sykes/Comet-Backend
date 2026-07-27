@@ -97,6 +97,13 @@ runs; the full sweep map lives in `codebase_chunks()`.
 --scope routes
 ```
 
+### Group E — Catalog + link-router data (new pure-definition subsystem)
+```
+--scope app/Catalog
+--scope app/Routing
+```
+(Controllers for this subsystem are already covered by Group C's `app/Http/Controllers` scope.)
+
 ## Exhaustiveness directive
 
 Read every file in scope. Semantic bugs are invisible to a skim — they require understanding what each call is *supposed* to do and checking the code against that intent, grounded in the repo. Examine every config read, every TTL/limit literal, every flag check, every guard, and every external-API call signature. But emit nothing you cannot ground: the correct output for correct code is an empty list.

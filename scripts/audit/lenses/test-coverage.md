@@ -169,6 +169,17 @@ For every finding:
 --scope tests/Feature/User
 ```
 
+### Group I — Catalog + Routing subsystem (new platform-catalog & link-router)
+```
+--scope tests/Feature/Catalog
+--scope tests/Feature/Routing
+--scope tests/fixtures/Routing
+--scope app/Catalog
+--scope app/Routing
+--scope app/Http/Controllers/Api/Catalog
+--scope app/Http/Controllers/Api/Routing
+```
+
 ## Exhaustiveness directive
 
 Walk every production file in scope and check for a corresponding test. Walk every test file and check it asserts what it claims. Emit a finding for every distinct quotable gap. **A coverage audit that under-reports gives false confidence — exactly the failure mode you're auditing against.**

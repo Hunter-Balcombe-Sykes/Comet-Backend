@@ -261,10 +261,13 @@ config-models|config app/Models app/Database
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
 public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php
 platforms-surface|app/Http/Controllers/Api/Platforms app/Http/Resources
+catalog-routing-surface|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Profile cloudflare-worker/src
 outbound-design|app/Services/Design
 signup-claim|app/Services/PreAccount app/Services/User
 outbound-platforms|app/Services/Platforms
+outbound-routing|app/Routing
+catalog|app/Catalog
 EOF
         ;;
         lifecycle-correctness) cat <<'EOF'
@@ -272,7 +275,7 @@ account-core|app/Services/User app/Services/Accounts app/Services/Segments app/S
 site-cache|app/Services/Site app/Services/PublicSite app/Services/Cache app/Services/Cloudflare
 media-jobs|app/Services/Media app/Jobs
 moderation-policies|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Observers app/Policies
-connectors|app/Services/Platforms
+connectors|app/Services/Platforms app/Routing
 schema-cron|supabase/migrations routes/console.php
 EOF
         ;;
@@ -288,6 +291,7 @@ vendors|app/Services/Media app/Services/Streaming app/Services/Cloudflare app/Se
 platforms|app/Services/Platforms
 console-controllers-user|app/Console app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 migrations|supabase/migrations
 EOF
         ;;
@@ -304,6 +308,7 @@ read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers
 write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Jobs/Notifications app/Jobs/Concerns app/Jobs/Moderation/Concerns app/Services/Analytics app/Services/Notifications app/Services/Streaming
 platforms-services|app/Services/Platforms app/Jobs/Platforms
 platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 design|app/Services/Design
 EOF
         ;;
@@ -312,6 +317,7 @@ hot-reads-app|app/Services/Site app/Services/PublicSite app/Services/Accounts ap
 hot-reads-platforms|app/Services/Platforms
 hot-reads-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 hot-reads-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Middleware
+hot-reads-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 EOF
         ;;
         webhook-idempotency) cat <<'EOF'
@@ -323,6 +329,7 @@ domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/
 vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app/Jobs app/Listeners
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
 media-design|app/Services/Media app/Services/Design app/Services/WebsiteScan
 EOF
@@ -337,6 +344,7 @@ models|app/Models app/Enums database/factories tests/Pest.php tests/TestCase.php
 writers-jobs|app/Jobs app/Observers
 writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 writers-platforms-controllers|app/Http/Controllers/Api/Platforms
+writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 services-platforms|app/Services/Platforms
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
@@ -348,6 +356,7 @@ EOF
 user-api|app/Http/Resources app/Http/Controllers/Api/User app/Http/Controllers/Api/ApiController.php
 public-staff-api|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal
 platforms-api|app/Http/Controllers/Api/Platforms
+catalog-routing-api|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 payload-services|app/Services/PublicSite app/Services/Site app/Services/Analytics
 EOF
         ;;
@@ -368,6 +377,9 @@ prod-http|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Webhooks 
 prod-requests|app/Http/Requests
 prod-platforms-controllers|app/Http/Controllers/Api/Platforms
 prod-platforms-services|app/Services/Platforms
+prod-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+prod-catalog|app/Catalog
+prod-routing|app/Routing
 prod-jobs|app/Jobs database/factories
 prod-schema|supabase/migrations
 feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/Feature/Contact
@@ -378,6 +390,7 @@ feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/
 feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware tests/Postgres
 feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/EarlyAccess tests/Feature/Onboarding tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
+feature-catalog-routing|tests/Feature/Catalog tests/Feature/Routing tests/fixtures/Routing
 unit-suite|tests/Unit
 EOF
         ;;
@@ -421,11 +434,14 @@ services-integrations|app/Services/Accounts app/Services/Auth app/Services/Early
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
 jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
 console-policies|app/Console app/Policies app/Rules app/Support app/Contracts app/DTOs app/helpers.php
 wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
+catalog|app/Catalog
+routing|app/Routing
 EOF
         ;;
         semantic-correctness) cat <<'EOF'
@@ -437,11 +453,14 @@ services-integrations|app/Services/Accounts app/Services/Auth app/Services/Early
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
 jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
 console-policies|app/Console app/Policies app/Rules app/Support app/Contracts app/DTOs app/helpers.php
 wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
+catalog|app/Catalog
+routing|app/Routing
 EOF
         ;;
         foundational-durability) cat <<'EOF'
@@ -449,8 +468,10 @@ platforms-controllers|app/Http/Controllers/Api/Platforms
 platforms-services|app/Services/Platforms
 schema-migrations|supabase/migrations
 models-config|app/Models config/partna.php
+catalog|app/Catalog
 integration-cross-cutting|app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
 controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
 controllers-staff-public|app/Http/Controllers/Api/Staff app/Http/Controllers/Api/PublicSite app/Http/Controllers/Concerns app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Controller.php
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-auth-cache|app/Services/Auth app/Services/Cache

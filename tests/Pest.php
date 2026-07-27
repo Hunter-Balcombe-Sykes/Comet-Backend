@@ -281,7 +281,12 @@ function attachTestSchemas(): void
         return;
     }
 
-    foreach (['core', 'site', 'audit', 'moderation', 'commerce', 'notifications', 'analytics', 'billing', 'retail', 'brand'] as $schema) {
+    // SQLite caps ATTACHed databases at 10, and a failed ATTACH is swallowed
+    // by the catch below — so this list must hold only schemas that exist.
+    // brand/commerce/billing/retail were dropped from the platform (see the
+    // repo CLAUDE.md schema list); attaching them cost four slots and bought
+    // nothing, which is what pushed catalog/routing over the limit.
+    foreach (['core', 'site', 'audit', 'moderation', 'notifications', 'analytics', 'catalog', 'routing'] as $schema) {
         try {
             $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
         } catch (Throwable $e) {
@@ -1113,7 +1118,11 @@ function tenantHelpersEnsureTables(): void
  * with its Site eager-loaded. Handle namespaces records so sequential calls
  * never collide.
  */
-function createTenant(string $handle): User
+/**
+ * @param  array<string, mixed>  $overrides  core.users column overrides —
+ *                                           account_type/sector/status, for tests that exercise capability gating.
+ */
+function createTenant(string $handle, array $overrides = []): User
 {
     tenantHelpersEnsureTables();
 
@@ -1121,7 +1130,9 @@ function createTenant(string $handle): User
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    DB::connection('pgsql')->table('core.users')->insert([
+    // $overrides FIRST: PHP's + keeps the left operand on key collision, so
+    // this is what makes an override actually override.
+    DB::connection('pgsql')->table('core.users')->insert($overrides + [
         'id' => $proId,
         'auth_user_id' => 'auth-'.Str::random(12),
         'handle' => $handle,
@@ -1942,6 +1953,93 @@ function setupEmailSubscriptionsTable(): void
  * site.site_subdomain_aliases — minimal columns for cache-invalidation paths
  * that iterate over historical aliases for a site.
  */
+/**
+ * routing schema (migration 20260727120000) — SQLite mirror. The real table
+ * is RANGE-partitioned by observed_at; SQLite has no partitioning, so this is
+ * a single table with the same columns. Partition routing itself is covered
+ * by the Postgres lane, not here.
+ */
+function setupRoutingTables(): void
+{
+    attachTestSchemas();
+    $pg = DB::connection('pgsql');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS routing.link_observations (
+        id TEXT NOT NULL,
+        user_id TEXT NULL,
+        observed_at TEXT NOT NULL,
+        source TEXT NOT NULL,
+        import_run_id TEXT NULL,
+        raw_url TEXT NOT NULL,
+        canonical_url TEXT NULL,
+        registrable_key TEXT NULL,
+        evidence TEXT NOT NULL DEFAULT \'{}\',
+        detector_id TEXT NULL,
+        surface_key TEXT NULL,
+        confidence INTEGER NULL,
+        margin INTEGER NULL,
+        verdict TEXT NULL,
+        block_reason TEXT NULL,
+        catalog_digest TEXT NULL,
+        PRIMARY KEY (id, observed_at)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS routing.source_intents (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        surface_key TEXT NOT NULL,
+        routing_class TEXT NOT NULL,
+        identifier TEXT NOT NULL,
+        canonical_url TEXT NULL,
+        state TEXT NOT NULL DEFAULT \'proposed\',
+        block_reason TEXT NULL,
+        conflicting_connection_id TEXT NULL,
+        connection_id TEXT NULL,
+        confidence INTEGER NULL,
+        origin TEXT NOT NULL,
+        import_run_id TEXT NULL,
+        detector_id TEXT NULL,
+        catalog_digest TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        resolved_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    try {
+        $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS routing.idx_source_intents_live
+            ON source_intents (user_id, surface_key, identifier)
+            WHERE state IN (\'proposed\', \'applied\', \'blocked\')');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS routing.item_tombstones (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT \'this_source\',
+        reason TEXT NULL,
+        created_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS routing.import_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source_url TEXT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NULL,
+        outcome TEXT NULL,
+        observations_count INTEGER NOT NULL DEFAULT 0,
+        intents_count INTEGER NOT NULL DEFAULT 0,
+        items_count INTEGER NOT NULL DEFAULT 0,
+        error_class TEXT NULL,
+        detail TEXT NOT NULL DEFAULT \'{}\',
+        created_at TEXT NOT NULL
+    )');
+}
+
 function setupSubdomainAliasesTable(): void
 {
     attachTestSchemas();

@@ -41,8 +41,12 @@ class ApplePodcasts
                 ->fetch('fetch.apple_podcasts.itunes.v1')
                 ->multiAccount(5)
                 ->detect(
-                    Detector::url('podcasts.apple.com')
-                        ->path('#^/(?:[a-z]{2}/)?podcast/#')
+                    // Keyed on the REGISTRABLE domain + product subdomain —
+                    // see the note in AppleMusic: a full-host key is never
+                    // looked up by the router.
+                    Detector::url('apple.com')
+                        ->subdomain('#^podcasts$#')
+                        ->path('#^/(?:[a-z]{2}/)?podcast(/|$)#')
                         ->strength(EvidenceStrength::DeepLinkWithSlug),
                 )
                 ->note('bespoke connect flow (P1)')
