@@ -230,10 +230,16 @@ return [
             'connection' => 'redis',
             'queue' => ['ingest'],
             'balance' => 'auto',
-            'maxProcesses' => 2,
+            // 1, not 2: a 15-minute dispatcher with 120s jobs has no need of
+            // two concurrent workers at pilot scale, and every extra permitted
+            // worker is heap this box does not have (see the ceiling note
+            // below). Raise it WITH a resize, not before one.
+            'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 256,
+            // 192, not 256: a connector run is an HTTP fetch plus JSON/HTML
+            // parsing and a few writes — nothing like the video tier.
+            'memory' => 192,
             'tries' => 1,
             'timeout' => 120,
             'nice' => 5,
@@ -252,20 +258,27 @@ return [
     | at minProcesses=1 when idle (see the Worker Lanes docblock above), so
     | that is 1 master + 5 middlemen + 5 workers (one per lane; supervisor-ingest
     | runs balance=>'auto' instead, but still floors at 1 idle worker like every
-    | other lane). A busy lane autoscales 1→maxProcesses; when supervisor-1,
-    | supervisor-mail AND supervisor-ingest all scale to 2 (production/
-    | development), the busy ceiling is 14 procs. Permitted worker heap sums to
-    | 2×256 (supervisor-1) + 2×128 (supervisor-mail) + 256 (supervisor-long) +
-    | 512 (supervisor-videos) + 2×256 (supervisor-ingest) = 2048 MiB; plus
+    | other lane). A busy lane autoscales 1→maxProcesses; when supervisor-1 and
+    | supervisor-mail both scale to 2 (production/development), the busy ceiling
+    | is 13 procs. Permitted worker heap sums to 2×256 (supervisor-1) +
+    | 2×128 (supervisor-mail) + 256 (supervisor-long) + 512 (supervisor-videos)
+    | + 192 (supervisor-ingest, capped at ONE worker) = 1728 MiB; plus
     | non-worker processes (master at horizon.memory_limit=64, 5 middlemen at
-    | ~90 MiB each) ≈ 514 MiB, for a permitted ceiling of ~2562 MiB against the
+    | ~90 MiB each) ≈ 514 MiB, for a permitted ceiling of ~2242 MiB against the
     | 2048 MiB flex-2gb Worker box (RV-4 resize, 2026-07-24).
-    | ⚠ STILL OPEN (2026-07-27): supervisor-ingest pushes the fully-simultaneous-
-    | max ceiling ~514 MiB over the box — RV-4 sized the box for four lanes, and
-    | adding a fifth was not paired with a resize. Every lane peaking at once is
-    | the pathological case, not the common one, so this is flagged rather than
-    | fixed here; if ingest volume grows, either shrink supervisor-ingest's
-    | maxProcesses or resize the box. Every environment must name all five
+    | ⚠ KNOWN OVER-COMMIT (2026-07-27): that ceiling is ~194 MiB over the box.
+    | Two things make it tolerable rather than reckless. First, `memory` is a
+    | per-worker RESTART THRESHOLD, not a reservation — the sum is what every
+    | worker would use if all of them simultaneously sat at the point where
+    | Horizon kills and respawns them, which is not a steady state. Second, the
+    | box had only ~88 MiB of headroom on this same pessimistic measure BEFORE
+    | ingest existed, so any fifth lane crosses it; supervisor-ingest is
+    | deliberately the smallest lane on the box (1 worker, 192 MiB) to keep the
+    | overshoot as small as a fifth lane can be. The rebuild plan's §19 already
+    | carries a Horizon-lane infra line for exactly this: the real fix is a box
+    | resize, which is an owner cost decision, not something to paper over by
+    | pretending the arithmetic works. Do NOT raise supervisor-ingest's
+    | maxProcesses before that resize. Every environment must name all five
     | lanes explicitly — that is what HorizonQueueCoverageTest walks to prove
     | every dispatchable queue has a consumer in every env.
     |
@@ -278,7 +291,7 @@ return [
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
-            'supervisor-ingest' => ['maxProcesses' => 2],
+            'supervisor-ingest' => ['maxProcesses' => 1],
         ],
 
         'development' => [
@@ -286,7 +299,7 @@ return [
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
-            'supervisor-ingest' => ['maxProcesses' => 2],
+            'supervisor-ingest' => ['maxProcesses' => 1],
         ],
 
         'local' => [

@@ -72,7 +72,7 @@ class RunExecutor
                 stream: $spec,
                 cursor: $this->cursorFor($streamId),
                 config: ['scope' => $source['scope'] ?? 'all', 'scope_n' => $source['scope_n'] ?? null],
-                isClaimed: (bool) ($source['is_claimed'] ?? true),
+                isClaimed: $this->isClaimed($source),
             );
 
             $io = $this->ioFor($manifest, $runId, (string) $source['id']);
@@ -235,6 +235,29 @@ class RunExecutor
         }
 
         return $cursor !== null && $cursor !== '';
+    }
+
+    /**
+     * Whether this source's owner has claimed their account.
+     *
+     * This decides which redactions apply (Manifest::redactionsFor), so it
+     * must be read from the user rather than assumed: defaulting to "claimed"
+     * would land third-party personal data for accounts nobody has claimed,
+     * which is the exact regression the claim-state-scoped redaction rule
+     * exists to prevent.
+     *
+     * @param  array<string, mixed>  $source
+     */
+    private function isClaimed(array $source): bool
+    {
+        $userId = $source['user_id'] ?? null;
+        if ($userId === null) {
+            return false;
+        }
+
+        $status = DB::table('core.users')->where('id', $userId)->value('status');
+
+        return $status !== null && $status !== 'unclaimed';
     }
 
     private function ensureStream(string $sourceId, string $streamName): string

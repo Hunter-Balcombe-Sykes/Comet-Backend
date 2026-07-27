@@ -118,7 +118,6 @@ class VimeoConnector implements Connector
     }
 
     /**
-     * @param  mixed  $video
      * @return array<string, mixed>|null
      */
     private function mapVideo(mixed $video): ?array
