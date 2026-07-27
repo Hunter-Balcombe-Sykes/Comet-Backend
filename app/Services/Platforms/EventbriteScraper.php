@@ -12,12 +12,19 @@ use Illuminate\Support\Carbon;
 // Spec: ~/Developer/platform link capabilites/eventbrite.md
 class EventbriteScraper extends PlatformScraper
 {
+    /**
+     * Real Eventbrite TLD suffixes, enumerated. The previous open-ended
+     * `[a-z.]+` matched `eventbrite.<attacker-domain>` mid-URL, letting a
+     * spoofed host pass as Eventbrite and get fetched/connected.
+     */
+    private const TLDS = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
+
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
     // Accept a full Eventbrite organiser URL → canonical /o/<slug-id> form, else null.
     public function normalizeOrgUrl(string $input): ?string
     {
-        if (preg_match('~https?://(?:www\.)?eventbrite\.[a-z.]+/o/[a-z0-9-]+~i', PlatformInput::urlish($input), $m)) {
+        if (preg_match('~https?://(?:www\.)?eventbrite\.'.self::TLDS.'/o/[a-z0-9-]+~i', PlatformInput::urlish($input), $m)) {
             return $m[0];
         }
 
@@ -27,7 +34,7 @@ class EventbriteScraper extends PlatformScraper
     // Accept a single event-page URL (/e/<slug>) → canonical form, else null.
     public function normalizeEventUrl(string $input): ?string
     {
-        if (preg_match('~https?://(?:www\.)?eventbrite\.[a-z.]+/e/[a-z0-9-]+~i', PlatformInput::urlish($input), $m)) {
+        if (preg_match('~https?://(?:www\.)?eventbrite\.'.self::TLDS.'/e/[a-z0-9-]+~i', PlatformInput::urlish($input), $m)) {
             return $m[0];
         }
 
@@ -67,7 +74,7 @@ class EventbriteScraper extends PlatformScraper
         $organiser = $this->orgName($page['body']);
 
         // Unique event-detail links the org page lists.
-        preg_match_all('~https://www\.eventbrite\.[a-z.]+/e/[a-z0-9-]+~i', $page['body'], $m);
+        preg_match_all('~https://www\.eventbrite\.'.self::TLDS.'/e/[a-z0-9-]+~i', $page['body'], $m);
         $eventUrls = array_values(array_unique($m[0]));
 
         // Fetch a few extra (some may be past / unparseable). All detail pages are
@@ -200,7 +207,7 @@ class EventbriteScraper extends PlatformScraper
      */
     private function normalizeLink(string $url): string
     {
-        return preg_replace('~^(https?://)www\.eventbrite\.[a-z.]+(/.*)$~i', '$1www.eventbrite.com$2', $url) ?? $url;
+        return preg_replace('~^(https?://)www\.eventbrite\.'.self::TLDS.'(/.*)$~i', '$1www.eventbrite.com$2', $url) ?? $url;
     }
 
     // og:title on the org page reads "<Organiser> Events | Eventbrite".

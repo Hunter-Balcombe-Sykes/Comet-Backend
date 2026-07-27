@@ -1313,6 +1313,19 @@ return [
         // (menu/shop/events/link-card scrapers included) AND to
         // YoutubeThumbnailResolver's raw pool, not just connect.
         'connect_timeout_seconds' => (int) env('PARTNA_HTTP_CONNECT_TIMEOUT_SECONDS', 3),
+        // Own-infrastructure host suffixes SafeUrlFetcher::assertSafe() refuses
+        // outright (exact host or any subdomain). Everything here resolves to
+        // PUBLIC IPs, so the private/reserved address check never catches them —
+        // without this list a pasted https://dev-api.partna.au/… or a Supabase /
+        // R2 endpoint URL would be fetched by our own backend (request loops,
+        // internal-surface reach). Env override is comma-separated.
+        'denied_host_suffixes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env(
+                'PARTNA_HTTP_FETCH_DENIED_HOST_SUFFIXES',
+                'partna.au,supabase.co,laravel.cloud,r2.cloudflarestorage.com,r2.dev,workers.dev'
+            ))
+        ))),
         // Wall-clock budget (seconds) for one FetchBudget::open() operation —
         // e.g. a platform connect's full parse+fetch(+retry) chain, which can
         // otherwise spend up to max_redirects+1 hops x timeout_seconds (doubled
