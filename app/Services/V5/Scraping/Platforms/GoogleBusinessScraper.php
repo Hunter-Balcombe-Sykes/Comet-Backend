@@ -76,16 +76,18 @@ class GoogleBusinessScraper extends ApiBase implements FetchContract
             }
         }
 
-        // 3. With a place ID and API key — fetch details directly
-        if ($placeId !== null && $this->hasApiKey()) {
+        // 3. With a confirmed place ID (ChIJ prefix) — fetch details directly
+        if ($placeId !== null && str_starts_with($placeId, 'ChIJ') && $this->hasApiKey()) {
             $details = $this->fetchPlaceDetails($placeId);
             if ($details !== null) {
                 return $this->buildResult($details, $placeId);
             }
         }
 
-        // 4. No place ID but have name — try Text Search
-        if ($placeId === null && $placeName !== null && $this->hasApiKey()) {
+        // 4. Have a place name from URL parsing — try Text Search (most reliable
+        //    for URL-derived data where the extracted place ID may be a non-ChIJ
+        //    data segment rather than a real place ID)
+        if ($placeName !== null && $this->hasApiKey()) {
             $details = $this->searchPlace($placeName, $lat, $lng);
             if ($details !== null) {
                 $fetchedPlaceId = data_get($details, 'id');
@@ -93,7 +95,15 @@ class GoogleBusinessScraper extends ApiBase implements FetchContract
             }
         }
 
-        // 5. Fallback — no API key or fetch failed; return manual items
+        // 5. Non-ChIJ place ID extracted from URL — try direct fetch anyway
+        if ($placeId !== null && $this->hasApiKey()) {
+            $details = $this->fetchPlaceDetails($placeId);
+            if ($details !== null) {
+                return $this->buildResult($details, $placeId);
+            }
+        }
+
+        // 6. Fallback — no API key or fetch failed; return manual items
         $reason = $this->hasApiKey()
             ? 'Could not resolve or fetch place details for: '.$input
             : 'Google Places API key not configured (services.google_maps.server_api_key)';
