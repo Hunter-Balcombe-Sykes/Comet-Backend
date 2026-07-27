@@ -13,8 +13,6 @@ use App\Ingest\Runtime\Pull;
 // Tier C: the connector's real pull() against recorded responses. No network,
 // no DB — a connector is a pure function from (Pull, Io) to Messages.
 
-const FRESHA_GRAPHQL_URL = 'https://www.fresha.com/graphql';
-
 /** A minimal Io that answers POSTs to the pinned GraphQL endpoint from a fixed response. */
 function freshaIo(array $response): Io
 {

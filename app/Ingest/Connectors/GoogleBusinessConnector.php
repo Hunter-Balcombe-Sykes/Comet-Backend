@@ -58,7 +58,15 @@ class GoogleBusinessConnector implements Connector
         return new Manifest(
             source: SourceKey::of('google_business'),
             identifierKind: 'place_id',
-            hosts: ['maps.googleapis.com', 'places.googleapis.com'],
+            // EMPTY on purpose. `hosts` governs what $io->get()/getMany() may
+            // contact, and this connector never fetches over HTTP: its one
+            // billed call goes through $io->effect('api', 'places.details'),
+            // whose driver is GoogleBusinessService — the only place permitted
+            // to issue a keyed Places request, because that is where
+            // PlacesBudget is claimed. Naming the Places hosts here would
+            // imply a direct path that must never exist (and
+            // PlacesBudgetGuardTest fails the build if one appears).
+            hosts: [],
             streams: [
                 'profile' => new StreamSpec(
                     name: 'profile',
