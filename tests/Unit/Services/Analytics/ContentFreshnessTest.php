@@ -1,5 +1,6 @@
 <?php
 
+use App\Catalog\LegacyPlatformMap;
 use App\Services\Analytics\ContentFreshness;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -23,7 +24,8 @@ function freshnessSeedConnection(object $tenant, string $platform, string $creat
     DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
         'id' => $id,
         'user_id' => $tenant->id,
-        'platform' => $platform,
+        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
         'resource_id' => $platform.'-'.Str::random(6),
         'is_active' => 1,
         'created_at' => $createdAt,

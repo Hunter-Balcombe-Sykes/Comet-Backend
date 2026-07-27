@@ -395,7 +395,8 @@ it('fails closed to an empty payload when a stored payload is a scalar, not an a
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $user->id,
-        'platform' => 'facebook',
+        'surface_key' => 'facebook.profile',
+        'routing_class' => 'social',
         'resource_id' => 'facebook',
         'payload' => json_encode('leaked-scalar-value'),
         'is_active' => true,

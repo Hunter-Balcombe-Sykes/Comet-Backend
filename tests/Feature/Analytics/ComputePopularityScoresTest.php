@@ -37,7 +37,8 @@ it('seeds brand-new content with a freshness-only score (page + link item, zero 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
-        'platform' => 'custom',
+        'surface_key' => 'partna.custom_link',
+        'routing_class' => 'link',
         'resource_id' => 'link-'.Str::random(8),
         'resource_kind' => 'link',
         'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/fresh']),
@@ -70,7 +71,8 @@ it('seeds nothing for ancient connections (boost below the floor) — the action
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
-        'platform' => 'custom',
+        'surface_key' => 'partna.custom_link',
+        'routing_class' => 'link',
         'resource_id' => $resourceId,
         'resource_kind' => 'link',
         'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/old', 'name' => 'Old link']),
@@ -223,7 +225,8 @@ it('reports (but does not throw) when the ranked-actions layer fails, and still 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
-        'platform' => 'custom',
+        'surface_key' => 'partna.custom_link',
+        'routing_class' => 'link',
         'resource_id' => $resourceId,
         'resource_kind' => 'link',
         'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/obs3', 'name' => 'Obs3 link']),
@@ -276,7 +279,8 @@ it('processes a site with a recent event but skips a published site with none, i
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $idle->id,
-        'platform' => 'custom',
+        'surface_key' => 'partna.custom_link',
+        'routing_class' => 'link',
         'resource_id' => 'link-'.Str::random(8),
         'resource_kind' => 'link',
         'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/idle']),
@@ -323,7 +327,8 @@ it('an explicit --site bypasses the recent-events scope even with zero recent ev
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $idle->id,
-        'platform' => 'custom',
+        'surface_key' => 'partna.custom_link',
+        'routing_class' => 'link',
         'resource_id' => 'link-'.Str::random(8),
         'resource_kind' => 'link',
         'payload' => json_encode(['kind' => 'link', 'url' => 'https://example.com/explicit']),

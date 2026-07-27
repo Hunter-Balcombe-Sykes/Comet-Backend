@@ -210,7 +210,8 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $gbUser->id,
-        'platform' => 'google-business',
+        'surface_key' => 'google_business.listing',
+        'routing_class' => 'content',
         'resource_id' => 'gb-1',
         'payload' => json_encode([
             'name' => "Jane's Salon",
@@ -225,7 +226,8 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $igUser->id,
-        'platform' => 'instagram',
+        'surface_key' => 'instagram.profile',
+        'routing_class' => 'social',
         'resource_id' => 'ig-1',
         'payload' => json_encode([
             '_folder' => 'platforms/instagram/old',

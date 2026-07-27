@@ -9,6 +9,7 @@
 // these pages. Shop is intentionally NOT gated — business accounts keep Shop
 // (managed via the dedicated Products page), covered by ShopPagePresenceTest.
 
+use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\PublicSite\SitepageDataResolverService;
@@ -26,7 +27,8 @@ function lppConnection(string $userId, string $platform, array $payload = []): v
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $userId,
-        'platform' => $platform,
+        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
         'resource_id' => 'res-'.Str::random(6),
         'payload' => json_encode($payload),
         'is_active' => 1,

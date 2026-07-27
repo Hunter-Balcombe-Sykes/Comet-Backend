@@ -1,5 +1,6 @@
 <?php
 
+use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Policies\IntegrationConnectionPolicy;
@@ -24,7 +25,8 @@ function displaySeedConnection(string $userId, array $payload, string $platform 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => $id,
         'user_id' => $userId,
-        'platform' => $platform,
+        'surface_key' => LegacyPlatformMap::surfaceFor($platform),
+        'routing_class' => LegacyPlatformMap::routingClassFor(LegacyPlatformMap::surfaceFor($platform)),
         'resource_id' => 'res-'.Str::random(6),
         'payload' => json_encode($payload),
         'display_settings' => $displaySettings !== null ? json_encode($displaySettings) : null,

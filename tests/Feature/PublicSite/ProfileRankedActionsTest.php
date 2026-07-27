@@ -182,7 +182,8 @@ it('applies manual page order when smart_page_order is off — unknown dropped, 
     DB::connection('pgsql')->table('site.platform_connections')->insert([                                              // listen page
         'id' => (string) Str::uuid(),
         'user_id' => $tenant->id,
-        'platform' => 'spotify',
+        'surface_key' => 'spotify.player',
+        'routing_class' => 'content',
         'resource_id' => 'artist-1',
         // Account row → NULL discriminator (platform_connections_resource_kind_check).
         'resource_kind' => null,

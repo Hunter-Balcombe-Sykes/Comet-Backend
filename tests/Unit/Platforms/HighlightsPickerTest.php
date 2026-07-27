@@ -41,10 +41,13 @@ function hpUser(string $h): User
 // registered highlights-capable platform would do.
 function hpRow(User $user, array $payload, ?Carbon $lastRefreshedAt = null): IntegrationConnection
 {
+    // Distinct resource_id per row: the (user, surface, resource) active-row
+    // unique index has always existed in Postgres; the SQLite mirror now
+    // enforces it too, so a fixture reusing one resource_id would collide.
     return IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'vimeo',
-        'resource_id' => 'vimeo',
+        'resource_id' => 'vimeo-'.Str::random(8),
         'payload' => $payload,
         'is_active' => true,
         'last_refresh_status' => 'ok',

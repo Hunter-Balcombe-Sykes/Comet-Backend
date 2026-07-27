@@ -87,8 +87,8 @@ it('resolves has_integration as any-active or a specific platform', function () 
     ovaSeedUser(); // no connections
 
     DB::connection('pgsql')->table('site.platform_connections')->insert([
-        ['id' => (string) Str::uuid(), 'user_id' => $withInsta, 'platform' => 'instagram', 'resource_id' => 'instagram', 'is_active' => 1, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
-        ['id' => (string) Str::uuid(), 'user_id' => $withSquareInactive, 'platform' => 'square', 'resource_id' => 'square', 'is_active' => 0, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
+        ['id' => (string) Str::uuid(), 'user_id' => $withInsta, 'surface_key' => 'instagram.profile', 'routing_class' => 'social', 'resource_id' => 'instagram', 'is_active' => 1, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
+        ['id' => (string) Str::uuid(), 'user_id' => $withSquareInactive, 'surface_key' => 'square.book', 'routing_class' => 'booking', 'resource_id' => 'square', 'is_active' => 0, 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString()],
     ]);
 
     $resolver = app(SegmentResolver::class);
@@ -223,7 +223,8 @@ function ovaSeedInstagram(string $userId, mixed $followers, array $overrides = [
     DB::connection('pgsql')->table('site.platform_connections')->insert(array_merge([
         'id' => (string) Str::uuid(),
         'user_id' => $userId,
-        'platform' => 'instagram',
+        'surface_key' => 'instagram.profile',
+        'routing_class' => 'social',
         'resource_id' => 'instagram',
         'payload' => json_encode(['followersCount' => $followers]),
         'is_active' => 1,
@@ -269,7 +270,7 @@ it('excludes non-numeric and missing ig follower counts without erroring', funct
     DB::connection('pgsql')->table('site.platform_connections')->insert([
         'id' => (string) Str::uuid(),
         'user_id' => $absent,
-        'platform' => 'instagram', 'resource_id' => 'instagram',
+        'surface_key' => 'instagram.profile', 'routing_class' => 'social', 'resource_id' => 'instagram',
         'payload' => json_encode(['username' => 'nofollowers']),
         'is_active' => 1,
         'created_at' => now()->toDateTimeString(),

@@ -2,11 +2,11 @@
 
 namespace App\Models\Core\Site;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Exceptions\Platforms\TenantAnchorImmutableException;
 use App\Exceptions\Platforms\UnregisteredPlatformException;
 use App\Models\BaseModel;
 use App\Models\Core\User\User;
-use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,7 +18,12 @@ use Illuminate\Validation\ValidationException;
 /**
  * @property string $id
  * @property string $user_id
- * @property string $platform Validated against PlatformRegistry on write (see booted() below) — the registry, not a PHP enum, is the source of truth for valid values.
+ * @property string $platform GENERATED legacy alias of surface_key (read-only at the DB; the mutator translates legacy writes — see setPlatformAttribute).
+ * @property string $surface_key Catalog surface key ({brand}.{product}) — the identity column since 20260727110000; validated against LegacyPlatformMap on write (booted() below).
+ * @property string $routing_class Catalog routing class (social|content|events|shop|booking|reservations|ordering|link|ignore) — travels with surface_key.
+ * @property bool $is_primary The sitepage CTA choice for this user+routing_class (unique per class where true).
+ * @property string|null $created_by_detector Detector id that auto-created this row (P2 router provenance).
+ * @property string|null $created_by_catalog_digest Catalog artefact digest at auto-create time.
  * @property string $resource_id
  * @property string|null $canonical_key Normalized identity key for account-row dedupe (FOUND-14); NULL for event- and link- prefixed resource rows.
  * @property string|null $resource_kind One of 'event'|'link', or NULL for account rows (platform_connections_resource_kind_check).
@@ -77,6 +82,9 @@ class IntegrationConnection extends BaseModel
     protected $fillable = [
         'user_id',
         'platform',
+        'surface_key',
+        'routing_class',
+        'is_primary',
         'resource_id',
         'canonical_key',
         'resource_kind',
@@ -100,6 +108,7 @@ class IntegrationConnection extends BaseModel
         'display_settings' => 'array',
         'sort_order' => 'integer',
         'is_active' => 'boolean',
+        'is_primary' => 'boolean',
         'consecutive_failures' => 'integer',
         'last_visited_at' => 'datetime',
         'last_refreshed_at' => 'datetime',
@@ -110,12 +119,15 @@ class IntegrationConnection extends BaseModel
 
     /**
      * App-level replacement for the dropped `platform_connections_platform_check`
-     * DB constraint (see commit c3ead5f1). The PlatformRegistry is the gate.
+     * DB constraint (see commit c3ead5f1). Since 20260727110000 the gate is the
+     * catalog surface vocabulary (LegacyPlatformMap at P1; the compiled artefact
+     * once P2 consumers land) — `platform` itself is DB-generated.
      *
-     * Only fires when `platform` is being set or changed — so innocent status-only
-     * updates to existing rows (e.g. the refresh cron writing `last_refresh_status`)
-     * never re-validate. This is a DATA-INTEGRITY write invariant, not resource
-     * authorization, so it correctly lives here rather than in a Policy.
+     * Only fires when the surface is being set or changed — so innocent
+     * status-only updates to existing rows (e.g. the refresh cron writing
+     * `last_refresh_status`) never re-validate. This is a DATA-INTEGRITY write
+     * invariant, not resource authorization, so it correctly lives here rather
+     * than in a Policy.
      */
     protected static function booted(): void
     {
@@ -135,18 +147,18 @@ class IntegrationConnection extends BaseModel
                 );
             }
 
-            if (! $connection->isDirty('platform')) {
+            if (! $connection->isDirty('surface_key')) {
                 return;
             }
 
-            $platform = $connection->platform;
+            $surfaceKey = $connection->getAttributes()['surface_key'] ?? null;
 
-            if (! is_string($platform) || ! app(PlatformRegistry::class)->has($platform)) {
+            if (! is_string($surfaceKey) || ! LegacyPlatformMap::isKnownSurface($surfaceKey)) {
                 // report() before throwing so Nightwatch sees this. ValidationException
                 // is in Laravel's $internalDontReport, making guard-trips in queued
                 // jobs invisible without this explicit report call.
                 report(new UnregisteredPlatformException(
-                    platform: is_string($platform) ? $platform : '(non-string)',
+                    platform: is_string($surfaceKey) ? $surfaceKey : '(non-string)',
                     userId: $connection->user_id,
                 ));
 
@@ -154,7 +166,50 @@ class IntegrationConnection extends BaseModel
                     'platform' => 'The selected platform is not a supported platform.',
                 ]);
             }
+
+            // routing_class always travels with the surface — a caller that set
+            // surface_key directly without it gets the map's answer.
+            if (($connection->getAttributes()['routing_class'] ?? null) === null) {
+                $connection->setAttribute('routing_class', LegacyPlatformMap::routingClassFor($surfaceKey));
+            }
         });
+    }
+
+    /**
+     * Legacy write path: callers still assign the old platform slug; the
+     * surface key is what actually persists (the DB `platform` column is
+     * GENERATED from it — writes to it would error). Accepts a surface key
+     * transparently so call sites can migrate incrementally.
+     */
+    public function setPlatformAttribute(mixed $value): void
+    {
+        $value = is_string($value) ? $value : '';
+        $surface = LegacyPlatformMap::surfaceFor($value)
+            ?? (LegacyPlatformMap::isKnownSurface($value) ? $value : $value);
+
+        $this->attributes['surface_key'] = $surface;
+        $routing = LegacyPlatformMap::routingClassFor($surface);
+        if ($routing !== null) {
+            $this->attributes['routing_class'] = $routing;
+        }
+        // Never set attributes['platform'] — the column is generated.
+        unset($this->attributes['platform']);
+    }
+
+    /**
+     * Reads keep working everywhere: fresh DB rows carry the generated column;
+     * unsaved in-memory models derive the legacy slug from the surface key.
+     */
+    public function getPlatformAttribute(?string $value): ?string
+    {
+        if ($value !== null) {
+            return $value;
+        }
+        $surface = $this->attributes['surface_key'] ?? null;
+
+        return is_string($surface) && $surface !== ''
+            ? LegacyPlatformMap::legacyFor($surface)
+            : null;
     }
 
     /** @return BelongsTo<User, $this> */

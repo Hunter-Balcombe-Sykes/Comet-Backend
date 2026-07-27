@@ -57,7 +57,8 @@ it('detects opentable for reservations and nothing for ordering', function () {
     $detector = app(ProviderDetector::class);
 
     expect($detector->detectFor('reservations', 'https://www.opentable.com.au/r/ollies'))->toBe('opentable');
-    expect($detector->detectFor('reservations', 'https://resy.com/x'))->toBeNull();
+    // resy earned its own key in the 27-provider stopgap — detectable since.
+    expect($detector->detectFor('reservations', 'https://resy.com/x'))->toBe('resy');
     expect($detector->detectFor('online-ordering', 'https://www.ubereats.com/store/x'))->toBeNull();
 });
 
@@ -70,8 +71,11 @@ it('detects events providers by host (eventbrite / humanitix), custom otherwise'
 
 it('providersFor returns detectable event slugs in registration order, excluding fallbacks', function () {
     $detector = app(ProviderDetector::class);
-    // events-custom has no Detection strategy and must be excluded.
-    expect($detector->providersFor('events'))->toBe(['eventbrite', 'humanitix']);
+    // events-custom has no Detection strategy and must be excluded. The five
+    // ticket sellers joined in the 27-provider stopgap, in registration order.
+    expect($detector->providersFor('events'))->toBe([
+        'eventbrite', 'humanitix', 'ticketek', 'oztix', 'trybooking', 'resident-advisor', 'ticketmaster',
+    ]);
 });
 
 // ── Booking detect routing ────────────────────────────────────────────
