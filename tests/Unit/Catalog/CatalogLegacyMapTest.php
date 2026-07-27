@@ -36,6 +36,18 @@ it('keeps the special back-map exactly the set of surfaces whose legacy slug is 
     expect($actual)->toBe($expectedSpecials);
 });
 
+it('retires a platform without pretending the migration never mapped it', function () {
+    // A retired platform stays in the historical backfill CASE (that file
+    // records what actually ran) but must be gone from every LIVE map, so a
+    // retired slug can never be written again.
+    foreach (LegacyPlatformMap::retiredMap() as $legacy => $surface) {
+        expect(LegacyPlatformMap::toSurfaceMap())->not->toHaveKey($legacy)
+            ->and(LegacyPlatformMap::surfaceFor($legacy))->toBeNull()
+            ->and(LegacyPlatformMap::routingClassFor($surface))->toBeNull()
+            ->and(LegacyPlatformMap::isKnownSurface($surface))->toBeFalse();
+    }
+});
+
 it('matches the backfill migration CASE pair-for-pair', function () {
     $sql = file_get_contents(base_path('supabase/migrations/20260727110000_connections_surface_key.sql'));
 
@@ -46,7 +58,14 @@ it('matches the backfill migration CASE pair-for-pair', function () {
         $sqlPairs[$legacy] = $surface;
     }
 
-    expect($sqlPairs)->toBe(LegacyPlatformMap::toSurfaceMap());
+    // Historical: the CASE also carries platforms retired since it ran.
+    // Both sides are sorted — a mapping's key ORDER carries no meaning, and
+    // asserting on it would fail the day someone alphabetises either list.
+    $expected = LegacyPlatformMap::historicalSurfaceMap();
+    ksort($sqlPairs);
+    ksort($expected);
+
+    expect($sqlPairs)->toBe($expected);
 });
 
 it('matches the generated alias CASE pair-for-pair', function () {

@@ -58,7 +58,6 @@ class LegacyPlatformMap
         'oztix' => 'oztix.tickets',
         'patreon' => 'patreon.page',
         'phorest' => 'phorest.book',
-        'pinterest' => 'pinterest.profile',
         'quandoo' => 'quandoo.reserve',
         'reddit' => 'reddit.profile',
         'resdiary' => 'resdiary.reserve',
@@ -102,6 +101,27 @@ class LegacyPlatformMap
     ];
 
     /**
+     * Platforms REMOVED from the product after the 20260727110000 migration
+     * ran. Their rows are still in that migration's backfill CASE — it is a
+     * historical record of a one-time operation, not a live mapping, and
+     * editing an applied migration to hide a later decision would make the
+     * file lie about what actually executed.
+     *
+     * Kept here so the lockstep test can tell "the map and the SQL disagree"
+     * (a bug) apart from "this platform was retired" (a decision), and so
+     * anyone reading the map can see WHY the migration has an entry the map
+     * does not.
+     *
+     * @var array<string, string> legacy slug => the surface it used to map to
+     */
+    private const RETIRED = [
+        // Removed 2026-07-28 by owner decision: Partna no longer supports
+        // Pinterest. Connector, catalog surface, legacy scraper and registry
+        // entry all deleted in the same change.
+        'pinterest' => 'pinterest.profile',
+    ];
+
+    /**
      * Surface key => legacy slug, ONLY where the legacy slug is not simply the
      * surface's brand prefix. Everything else aliases via the prefix rule
      * (split_part in Postgres). Keep this list mirrored in the generated
@@ -136,7 +156,7 @@ class LegacyPlatformMap
         'gitlab.profile' => 'social', 'codepen.profile' => 'social', 'dribbble.profile' => 'social',
         'behance.profile' => 'social',
         // content (no gates, no XOR, no CTA class)
-        'pinterest.profile' => 'content', 'strava.club' => 'content', 'skool.community' => 'content',
+        'strava.club' => 'content', 'skool.community' => 'content',
         'youtube.channel' => 'content', 'vimeo.account' => 'content', 'twitch.channel' => 'content',
         'spotify.player' => 'content', 'soundcloud.player' => 'content', 'mixcloud.player' => 'content',
         'tidal.player' => 'content', 'apple_music.artist' => 'content', 'apple_podcasts.show' => 'content',
@@ -225,6 +245,26 @@ class LegacyPlatformMap
     public static function toSurfaceMap(): array
     {
         return self::TO_SURFACE;
+    }
+
+    /**
+     * Live mappings plus retired ones — what the historical backfill CASE
+     * contains. Only the lockstep test should need this.
+     *
+     * @return array<string, string>
+     */
+    public static function historicalSurfaceMap(): array
+    {
+        $all = self::TO_SURFACE + self::RETIRED;
+        ksort($all);
+
+        return $all;
+    }
+
+    /** @return array<string, string> */
+    public static function retiredMap(): array
+    {
+        return self::RETIRED;
     }
 
     /** @return array<string, string> */

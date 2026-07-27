@@ -15,7 +15,7 @@ $brands = [
     'square', 'instagram', 'tiktok', 'spotify', 'youtube', 'twitch',
     'ubereats', 'doordash', 'quandoo', 'treatwell', 'resy', 'tock',
     'ticketmaster', 'vagaro', 'humanitix', 'soundcloud', 'bandcamp',
-    'pinterest', 'linkedin', 'facebook', 'medium', 'substack', 'skool',
+    'linkedin', 'facebook', 'medium', 'substack', 'skool',
     'menulog', 'nowbookit', 'resdiary',
 ];
 

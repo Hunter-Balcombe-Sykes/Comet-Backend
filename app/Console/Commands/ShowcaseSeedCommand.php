@@ -51,7 +51,6 @@ class ShowcaseSeedCommand extends Command
         'apple_music.artist' => '1419227',
         'apple_podcasts.show' => '1200361736',
         'substack.publication' => 'thebrowser',
-        'pinterest.profile' => 'nasa',
         'x.profile' => 'nasa',
         'linkedin.profile' => 'nasa',
         'facebook.profile' => 'NASA',

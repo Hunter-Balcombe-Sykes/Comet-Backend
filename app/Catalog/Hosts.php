@@ -15,7 +15,6 @@ class Hosts
         return [
             'youtu.be' => 'youtube.com',
             'music.youtube.com' => 'youtube.com',
-            'pin.it' => 'pinterest.com',
             'wa.me' => 'whatsapp.com',
             't.me' => 'telegram.org',
             'fb.me' => 'facebook.com',

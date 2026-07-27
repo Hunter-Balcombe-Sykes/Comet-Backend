@@ -58,7 +58,6 @@ use App\Catalog\Definitions\Partiful;
 use App\Catalog\Definitions\Partna;
 use App\Catalog\Definitions\Patreon;
 use App\Catalog\Definitions\Phorest;
-use App\Catalog\Definitions\Pinterest;
 use App\Catalog\Definitions\Quandoo;
 use App\Catalog\Definitions\Reddit;
 use App\Catalog\Definitions\Resdiary;
@@ -168,7 +167,6 @@ return [
     Partna::class,
     Patreon::class,
     Phorest::class,
-    Pinterest::class,
     Quandoo::class,
     Reddit::class,
     Resdiary::class,

@@ -16,7 +16,7 @@ use App\Catalog\SurfaceBuilder;
  * Strava — clubs only (athlete profiles are login-walled, per
  * StravaClubScraper's own comment, so never modelled here). refreshEvery has
  * no dedicated config('partna.refresh.intervals.strava') key and no
- * ->refreshEvery() call in PRSP — same unlisted-fallback shape as Pinterest
+ * ->refreshEvery() call in PRSP — an unlisted-fallback shape
  * (see sidecar AMBIGUOUS #1); encoded as the real 24h default rather than 0,
  * since StravaFetch genuinely refreshes it on a schedule.
  */
@@ -37,7 +37,7 @@ class Strava
                 ->shelf(Shelf::Community)
                 ->identifier(IdentifierKind::Slug)
                 ->refreshEvery(86400)
-                ->note('refresh interval falls back to refresh.default_ttl_seconds — no dedicated config key exists (mirrors Pinterest, D2#7 in the inventory)')
+                ->note('refresh interval falls back to refresh.default_ttl_seconds — no dedicated config key exists (D2#7 in the inventory)')
                 ->canonicalUrl('https://www.strava.com/clubs/{slug}')
                 ->connect('connect.strava.url.v1')
                 ->fetch('fetch.strava.scrape.v1')

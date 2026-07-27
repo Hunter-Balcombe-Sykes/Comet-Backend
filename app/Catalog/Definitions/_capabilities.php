@@ -15,7 +15,6 @@ use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
-use App\Services\Platforms\Strategies\Connect\PinterestConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
@@ -34,7 +33,6 @@ use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
-use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
 use App\Services\Platforms\Strategies\Fetch\StravaFetch;
 use App\Services\Platforms\Strategies\Fetch\TwitchFetch;
@@ -72,7 +70,6 @@ return [
     'connect.bandcamp.url.v1' => [BandcampConnect::class, []],
     'connect.nowbookit.url.v1' => [NowBookitConnect::class, []],
     'connect.opentable.url.v1' => [OpenTableConnect::class, []],
-    'connect.pinterest.url.v1' => [PinterestConnect::class, []],
     'connect.resdiary.url.v1' => [ResDiaryConnect::class, []],
     'connect.soundcloud.url.v1' => [SoundcloudConnect::class, []],
     'connect.spotify.url.v1' => [SpotifyConnect::class, []],
@@ -91,7 +88,6 @@ return [
     'connect_fetch.fresha.scrape.v1' => [FreshaConnectFetch::class, []],
     'fetch.google_business.places.v1' => [GoogleBusinessFetch::class, []],
     'fetch.humanitix.scrape.v1' => [HumanitixFetch::class, []],
-    'fetch.pinterest.scrape.v1' => [PinterestFetch::class, []],
     'fetch.skool.scrape.v1' => [SkoolFetch::class, []],
     'fetch.soundcloud.oembed.v1' => fn (): object => new OEmbedFetch(
         app(OEmbedService::class),
