@@ -7,9 +7,9 @@ Companion to `2026-07-27-content-platform-rebuild.md`. One entry per phase; upda
 | P0 early hotfixes | ✅ landed | `rebuild/p0-hotfixes` → development | full suite + new regression tests green |
 | P1 catalog | ✅ landed | `rebuild/p1-catalog` → development | compile+contract gates, 26 catalog tests (1,161 asserts), sync idempotence on real PG, full suite green |
 | P2 routing | ✅ landed | `rebuild/p2-routing` → development | 449-case corpus, 100 routing tests, full suite + architecture guards green |
-| P3 ingest + pilots | queued | — | — |
-| P4 content/identity | queued | — | — |
-| P5 sections/serving + creator cohort | queued | — | — |
+| P3 ingest + pilots | ✅ core landed | development | 105 ingest tests; schema live on dev |
+| P4 content/identity | 🔄 core landed | development | 33-table content schema live; 28 resolver/value tests |
+| P5 sections/serving + creator cohort | 🔄 core landed | development | sections+documents schema live; 21 builder/rule tests |
 | P6 frontend | queued | — | — |
 | P7 connectors/upgrades + food cohort | queued | — | — |
 | P8 deletions + re-measure | queued | — | — |
@@ -56,3 +56,29 @@ Companion to `2026-07-27-content-platform-rebuild.md`. One entry per phase; upda
 **Also fixed en route:** a pre-existing test-suite fragility (`RefreshFetchBudgetTest` borrowed four helpers from three other test files; it only passed when Pest co-located them, and new test files broke it) and SQLite's 10-database ATTACH cap silently swallowing the new schemas (four long-deleted schemas dropped from the attach list). New directories wired into all 12 audit lenses + their `.md` scope groups — no exemptions, no weakened assertions.
 
 **Decisions logged during build:** capability naming standardised `role.brand.method.v1`; legacy `shop` rows map to `partna.storefront` (real storefront connections), with `partna.manual_product` reserved separately for §16 manual adds — a deliberate refinement of the plan's pseudo-platform wording; Instagram's surface carries no fetch capability until the P3 connector exists (bespoke Apify flow noted); `isConnectable` means "the catalog can drive this" (bespoke-only GBP/Skool are notConnectable with notes); brand plane's design-system `brand.json`/colors.css generation deferred to its consumers (P5/P6); youtube_music icon asset still missing — P6 item. Three pre-existing test failures from the dev's 27-provider stopgap were repaired en route (registry coverage now asserts registry==LegacyPlatformMap lockstep), plus two latent test bugs the stricter SQLite schema mirror exposed.
+
+## P3 — Ingestion (2026-07-27)
+
+**Shipped:** `ingest` schema (15 tables: sources with the DB claim as THE run lock and an EWMA cadence band, streams with coverage/health/guard/run_seq fence, runs, hash-partitioned content-addressed `record_versions`, `record_state`, the effects ledger, anomalies). Manifest/StreamSpec/SourceProfile — one declaration deciding cadence, whether absence may EVER mean deletion, and the dashboard's pinnable/editable flags. Message sum type (Record | Covered | Bookmark | Note | Deferred | Unavailable). Coverage + domination. DocHasher (volatility on the hash INPUT only) and Redactor (applied BEFORE landing). EffectLedger (charge-once; a dead claim is REFUSED, not retried). Lander (unchanged content writes zero rows; ≥40% single-run vanish trips the guard, files a critical anomaly and deletes nothing). Connector contract + HttpIo/ReplayIo + RunExecutor. SourceScheduler. Projection layer with instrumented reads. Connectors: Bandcamp, Vimeo, Spotify oEmbed, YouTube RSS, Fresha, Google Business. `ingest:dispatch` (15 min) + `ingest:stranded` (hourly) + a dedicated Horizon lane.
+
+**Corrections made to delivered work:** the Horizon lane was sized 2×256 MiB, pushing the box's permitted ceiling ~514 MiB past 2048 — capped to ONE worker at 192 MiB everywhere, with the residual ~194 MiB over-commit stated plainly in the config (the box had only ~88 MiB of headroom before a fifth lane existed, so *any* fifth lane crosses it; `memory` is a restart threshold, not a reservation; the real fix is the resize §19 already carries). `RunExecutor` read `is_claimed` off a column that does not exist and so always defaulted TRUE — which would have landed third-party personal data for unclaimed accounts, exactly the regression claim-state-scoped redaction prevents. `PlacesBudgetGuardTest` caught the GoogleBusiness connector naming the Places host in its manifest; it makes no direct HTTP calls at all (the billed call goes through the ledgered effect whose driver claims PlacesBudget), so the host list is now empty with the reason stated.
+
+**Also:** phpstan caught absence-folding calling `Covered::dominates()` instead of `Covered->coverage->dominates()` — it would have fataled the first time any stream tried to fold absence.
+
+## P4 — Content & identity (2026-07-27)
+
+**Shipped:** `content` schema (33 tables) — items (thin spine: no pool, no is_selected, no sort_order, no identifier), source_items with stable coords, identity_keys as EVIDENCE (deliberately no unique index — two sources sharing an ISRC is the signal, not a write failure), identity_decisions, anchors, merges, candidates, `manual_overrides` (typed per-column, NULL = explicit clear), 14 typed facet singletons keyed (item, source), set-union collections (offers/media/tags/variants/actions/refs), media_assets as entities, collections and slugs.
+
+**The Resolver is pure (C7):** source items + human decisions in, groups out, no DB and no clock, so identity is RECOMPUTED rather than accumulated. Pass order is load-bearing — join → user's "same" → user's "different" as a CUT → corroborating unions — which is what makes a human ruling survive a joining key that disagrees (C8). Poisoned keys (one source attaching a value to two of its own records) are dropped entirely. Evidential keys never merge; they queue, and never re-ask an answered question.
+
+**ValueResolver:** per-column rules (recency/priority/longest/union) with manual override absolute. Recency ranks by when CONTENT changed, past a 24h dwell — otherwise an hourly re-publisher owns every volatile column forever.
+
+## P5 — Sections & serving (2026-07-27)
+
+**Shipped:** pages/sections/section_items/section_groups + source_routes + versioned site_documents + site_build_state + design_kit_restyles. Nav is PAGES (three sections on a Menu page = one nav row). Capability sits on the page and is checked at WRITE time. The rule DSL is bounded at 7 operators / 5 predicates — that bound is the feature, since it is what lets one rule be validated, rendered as an English sentence, and explained per candidate.
+
+**DocumentBuilder:** read revision → build → hash → commit under CAS. Byte-identical output inserts nothing and purges nothing; a builder whose revision moved cannot mark the site clean. Two bugs found in testing: a raw `now()` that tied BuildState to Postgres for no benefit, and `commit()` against a site with no state row affecting zero rows — the FIRST build of every new site would have reported "superseded" forever.
+
+## Frontend (P6 groundwork)
+
+`lib/catalog.ts` reads `GET /catalog/surfaces` instead of mirroring the backend registry in 565 hand-maintained lines. Module-level cache is safe because the ETag is the artefact digest — the payload can only change on deploy. `legacyPlatform` is carried so the old mirror can be deleted screen by screen rather than in one flag day.
