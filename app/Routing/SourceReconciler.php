@@ -196,7 +196,12 @@ class SourceReconciler
             'surface_key' => $surfaceKey,
             'routing_class' => $routingClass,
             'resource_id' => $identifier,
-            'payload' => ['url' => $iri->canonical, 'source' => $context->origin],
+            'payload' => ConnectionPayload::forWrite(
+                $iri->canonical,
+                $identifier,
+                (string) (CompiledCatalog::surface($surfaceKey)['identifier_kind'] ?? ''),
+                $context->origin,
+            ),
             'is_active' => true,
             'last_refresh_status' => 'pending',
         ]);

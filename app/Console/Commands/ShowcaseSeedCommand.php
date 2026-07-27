@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Catalog\CompiledCatalog;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\ConnectionPayload;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -167,7 +168,12 @@ class ShowcaseSeedCommand extends Command
                 'surface_key' => $surfaceKey,
                 'routing_class' => $surface['routing_class'],
                 'resource_id' => $identifier,
-                'payload' => ['source' => 'showcase'],
+                'payload' => ConnectionPayload::forWrite(
+                    $this->canonicalUrlFor($surface, $identifier),
+                    $identifier,
+                    (string) ($surface['identifier_kind'] ?? ''),
+                    'showcase',
+                ),
                 'is_active' => true,
                 'last_refresh_status' => 'pending',
             ]);
@@ -191,6 +197,33 @@ class ShowcaseSeedCommand extends Command
 
         $this->line("  created {$created}, already present {$skipped}");
         $this->line("  dashboard: /account · sitepage: https://{$plan['handle']}.partna.au");
+    }
+
+    /**
+     * The URL a real user would have pasted to create this connection.
+     *
+     * Seeds are stored as identifiers, not URLs, so the canonical URL is
+     * rebuilt from the surface's template. Templates carry either one
+     * placeholder (`{handle}`) or a slash-joined run of them (`{kind}/{id}`,
+     * whose identifier is itself `artist/xyz`), so a run is substituted whole.
+     * Some surfaces have no template and some seeds are already absolute URLs —
+     * both fall through to the identifier, which is the truest thing available.
+     *
+     * @param  array<string, mixed>  $surface
+     */
+    private function canonicalUrlFor(array $surface, string $identifier): string
+    {
+        if (str_starts_with($identifier, 'http://') || str_starts_with($identifier, 'https://')) {
+            return $identifier;
+        }
+
+        $template = $surface['canonical_url_template'] ?? null;
+
+        if (! is_string($template) || $template === '') {
+            return $identifier;
+        }
+
+        return preg_replace('/\{[a-z_]+\}(?:\/\{[a-z_]+\})*/', $identifier, $template, 1) ?? $identifier;
     }
 
     private function ensureUser(string $handle, string $accountType, string $sector): User
