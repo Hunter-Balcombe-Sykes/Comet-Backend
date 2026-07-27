@@ -86,12 +86,17 @@ class ShowcaseSeedCommand extends Command
 
     public function handle(): int
     {
+        // NOTE: `sector` must be a real slug from core.users' users_sector_check
+        // (e.g. 'musician', 'restaurant') — NOT one of the plan's preset BUCKET
+        // names. The SQLite test mirror has no CHECK constraint, so this only
+        // fails against real Postgres; getting it wrong once is what put this
+        // note here.
         $dryRun = (bool) $this->option('dry-run');
         $only = $this->option('only');
 
         $plans = array_filter([
-            'creator' => $only === 'eats' ? null : ['handle' => 'showcase-creator', 'type' => 'partna', 'sector' => 'music_audio', 'map' => self::CREATOR],
-            'eats' => $only === 'creator' ? null : ['handle' => 'showcase-eats', 'type' => 'business', 'sector' => 'food_drink', 'map' => self::EATS],
+            'creator' => $only === 'eats' ? null : ['handle' => 'showcase-creator', 'type' => 'partna', 'sector' => 'musician', 'map' => self::CREATOR],
+            'eats' => $only === 'creator' ? null : ['handle' => 'showcase-eats', 'type' => 'business', 'sector' => 'restaurant', 'map' => self::EATS],
         ]);
 
         foreach ($plans as $label => $plan) {
