@@ -71,7 +71,16 @@ class FreshaConnector implements Connector
                     requires: [],
                     volatile: [],
                     orderField: null,
-                    authoritativeFields: ['display_name', 'address', 'phone'],
+                    // EMPTY until a real capture confirms the location path
+                    // this connector currently guesses at. Declaring a field
+                    // authoritative is a claim that this source is CAPABLE of
+                    // reporting it — which authorises clearing the user's value
+                    // when it comes back absent. Making that claim on an
+                    // unverified path risks wiping a real business name,
+                    // address or phone number the first time the guess is
+                    // wrong. Populate this in the same change that verifies
+                    // the path, never before.
+                    authoritativeFields: [],
                 ),
             ],
             cost: CostClass::Free,
