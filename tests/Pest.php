@@ -1950,6 +1950,158 @@ function setupEmailSubscriptionsTable(): void
 }
 
 /**
+ * ingest.* schema (supabase/migrations/20260727130000_ingest_schema.sql) —
+ * SQLite mirror. record_versions is HASH-partitioned in production purely
+ * for volume; SQLite has no partitioning, so it is one plain table here —
+ * what the tests actually depend on is the content-addressed
+ * UNIQUE(stream_id, key, doc_hash) index, which is what makes
+ * insertOrIgnore's "unchanged content writes nothing" property hold on
+ * either engine.
+ *
+ * Lander::foldAbsence() embeds a raw `now()` SQL fragment inside an UPDATE
+ * (Postgres has that function; SQLite doesn't), so a `now` UDF is shimmed
+ * here the same way shimPgAdvisoryLockForSqlite() shims hashtext /
+ * pg_advisory_xact_lock elsewhere in this file.
+ */
+function setupIngestTables(): void
+{
+    attachTestSchemas();
+    $pg = DB::connection('pgsql');
+
+    try {
+        $pg->statement("ATTACH DATABASE ':memory:' AS ingest");
+    } catch (Throwable $e) {
+        // already attached — ignore
+    }
+
+    if ($pg->getDriverName() === 'sqlite') {
+        $pg->getPdo()->sqliteCreateFunction('now', fn () => now()->toDateTimeString(), 0);
+    }
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.sources (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        connection_id TEXT NULL,
+        source_key TEXT NOT NULL,
+        surface_key TEXT NOT NULL,
+        identifier TEXT NOT NULL,
+        cost_units INTEGER NOT NULL DEFAULT 1,
+        min_interval_secs INTEGER NOT NULL DEFAULT 3600,
+        max_interval_secs INTEGER NOT NULL DEFAULT 604800,
+        change_rate REAL NOT NULL DEFAULT 0.5,
+        next_attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_run_at TEXT NULL,
+        visibility REAL NOT NULL DEFAULT 1.0,
+        in_flight_since TEXT NULL,
+        in_flight_run_id TEXT NULL,
+        health TEXT NOT NULL DEFAULT \'ok\' CHECK (health IN (\'ok\',\'degraded\',\'unavailable\',\'shape\',\'suppressed\',\'dead\')),
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        auto_sync INTEGER NOT NULL DEFAULT 1,
+        scope TEXT NOT NULL DEFAULT \'all\' CHECK (scope IN (\'all\',\'latest_n\')),
+        scope_n INTEGER NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (connection_id, source_key)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.streams (
+        id TEXT PRIMARY KEY NOT NULL,
+        source_id TEXT NOT NULL,
+        stream_name TEXT NOT NULL,
+        cursor TEXT NULL,
+        coverage TEXT NULL,
+        observed_schema TEXT NOT NULL DEFAULT \'{}\',
+        schema_hash TEXT NULL,
+        health TEXT NOT NULL DEFAULT \'ok\' CHECK (health IN (\'ok\',\'degraded\',\'unavailable\',\'shape\',\'suppressed\')),
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        suppressed_until TEXT NULL,
+        guard_tripped_at TEXT NULL,
+        run_seq INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (source_id, stream_name)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        source_id TEXT NOT NULL,
+        trigger TEXT NOT NULL CHECK (trigger IN (\'schedule\',\'manual\',\'connect\',\'backfill\',\'reproject\')),
+        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        finished_at TEXT NULL,
+        outcome TEXT NULL CHECK (outcome IS NULL OR outcome IN (\'ok\',\'not_modified\',\'unavailable\',\'shape\',\'degraded\',\'budget_skipped\',\'deferred\',\'error\')),
+        error_class TEXT NULL,
+        records_seen INTEGER NOT NULL DEFAULT 0,
+        records_changed INTEGER NOT NULL DEFAULT 0,
+        records_tombstoned INTEGER NOT NULL DEFAULT 0,
+        effects_count INTEGER NOT NULL DEFAULT 0,
+        cost_claimed INTEGER NOT NULL DEFAULT 0,
+        detail TEXT NOT NULL DEFAULT \'{}\',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )');
+
+    // Single plain table (no partitioning) — the UNIQUE index below is the
+    // load-bearing bit: it is what makes insertOrIgnore's "unchanged content
+    // writes nothing" property hold, mirroring idx_record_versions_content.
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.record_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stream_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        doc_hash TEXT NOT NULL,
+        doc TEXT NOT NULL,
+        first_seen_run TEXT NULL,
+        first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        UNIQUE (stream_id, key, doc_hash)
+    )');
+    try {
+        $pg->statement('CREATE INDEX IF NOT EXISTS ingest.idx_record_versions_current ON record_versions (stream_id, key) WHERE is_current');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.record_state (
+        stream_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        current_version_id INTEGER NULL,
+        last_seen_run TEXT NULL,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        absent_since TEXT NULL,
+        absent_runs INTEGER NOT NULL DEFAULT 0,
+        tombstoned_at TEXT NULL,
+        PRIMARY KEY (stream_id, key)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.effects (
+        digest TEXT PRIMARY KEY,
+        run_id TEXT NULL,
+        source_id TEXT NULL,
+        kind TEXT NOT NULL,
+        cost_tag TEXT NULL,
+        cost_units INTEGER NOT NULL DEFAULT 0,
+        claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        settled_at TEXT NULL,
+        status TEXT NOT NULL DEFAULT \'claimed\' CHECK (status IN (\'claimed\',\'ok\',\'failed\',\'refused\',\'abandoned\')),
+        body_ref TEXT NULL,
+        meta TEXT NOT NULL DEFAULT \'{}\'
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS ingest.anomalies (
+        id TEXT PRIMARY KEY NOT NULL,
+        stream_id TEXT NULL,
+        source_id TEXT NULL,
+        run_id TEXT NULL,
+        kind TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT \'warning\' CHECK (severity IN (\'info\',\'warning\',\'critical\')),
+        summary TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT \'{}\',
+        detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TEXT NULL,
+        resolved_by TEXT NULL,
+        resolution TEXT NULL
+    )');
+}
+
+/**
  * site.site_subdomain_aliases — minimal columns for cache-invalidation paths
  * that iterate over historical aliases for a site.
  */
