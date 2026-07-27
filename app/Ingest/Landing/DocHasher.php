@@ -90,8 +90,8 @@ class DocHasher
      * reordered doc is not a changed doc. List order IS preserved: for a feed,
      * order is content.
      *
-     * @param  array<string, mixed>  $value
-     * @return array<string, mixed>
+     * @param  array<array-key, mixed>  $value
+     * @return array<array-key, mixed>
      */
     private static function sortRecursive(array $value): array
     {

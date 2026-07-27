@@ -41,13 +41,13 @@ class EffectLedger
         ?string $costTag = null,
         int $costUnits = 0,
     ): array {
+        // ANY existing row for this digest means we do not act: it is either
+        // already settled (reuse), freshly claimed elsewhere (refuse), or a
+        // dead claim (refuse — the vendor may have charged us).
         $existing = DB::table('ingest.effects')->where('digest', $digest)->first();
 
         if ($existing !== null) {
-            $verdict = $this->verdictFor($existing);
-            if ($verdict !== null) {
-                return $verdict;
-            }
+            return $this->verdictFor($existing);
         }
 
         // Claim first, then act. An insert that loses the race means another
@@ -69,7 +69,7 @@ class EffectLedger
 
             return $row === null
                 ? ['status' => 'refused', 'result' => null, 'cached' => false]
-                : ($this->verdictFor($row) ?? ['status' => 'refused', 'result' => null, 'cached' => false]);
+                : $this->verdictFor($row);
         }
 
         try {
@@ -95,11 +95,8 @@ class EffectLedger
         }
     }
 
-    /**
-     * @return array{status: string, result: mixed, cached: bool}|null null when
-     *                                                                 the caller should proceed
-     */
-    private function verdictFor(object $row): ?array
+    /** @return array{status: string, result: mixed, cached: bool} */
+    private function verdictFor(object $row): array
     {
         if ($row->settled_at !== null) {
             // Already done — success or failure, either way not again.

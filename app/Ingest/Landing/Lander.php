@@ -138,7 +138,7 @@ class Lander
                 continue;
             }
             $orderValue = $this->orderValueFor($streamId, $row->key, $spec);
-            if ($covered->dominates($row->key, $orderValue)) {
+            if ($covered->coverage->dominates($row->key, $orderValue)) {
                 $dominatedAbsent[] = $row;
             }
         }
