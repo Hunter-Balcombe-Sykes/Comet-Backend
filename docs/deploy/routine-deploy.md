@@ -101,6 +101,15 @@ git diff --name-only origin/production origin/development -- supabase/migrations
 #                  supabase db push --dry-run     ← read every line
 #                  supabase db push
 
+# 2b. Catalog changes, if any (bootstrap/catalog/compiled.php or app/Catalog/**)
+git diff --name-only origin/production origin/development -- bootstrap/catalog/ app/Catalog/
+#   if non-empty:  php artisan catalog:compile --check   ← artefact must match definitions (CI also guards this)
+#                  and AFTER the code lands (step 4 succeeded):
+#                  cloud command:run production 'php artisan catalog:sync'
+#   The hourly scheduled catalog:sync is the convergence net if this step is
+#   forgotten — but run it explicitly so the catalog schema is current the
+#   moment the deploy finishes, not up to an hour later.
+
 # 3. Ship
 git push origin development:production
 

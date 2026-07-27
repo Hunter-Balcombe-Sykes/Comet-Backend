@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\User\Account\MfaController;
@@ -51,6 +52,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // reason to serve it pre-auth.
         Route::get('/config/integrations', [PublicConfigController::class, 'integrations'])
             ->name('user.config.integrations');
+
+        // Compiled platform catalog for pickers — the successor to the FE's
+        // hand-maintained platform mirror (plan §1). ETag = artefact digest.
+        Route::get('/catalog/surfaces', [CatalogSurfacesController::class, 'index'])
+            ->name('user.catalog.surfaces');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync

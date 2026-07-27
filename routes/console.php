@@ -40,6 +40,16 @@ $reportScheduledFailure = fn (string $task) => function (?Throwable $e = null) u
     ]);
 };
 
+// Catalog convergence net: sync is digest-gated (no-op when already landed),
+// so the hour cadence costs one SELECT — its job is making sure a deploy that
+// forgot the manual `catalog:sync` step still converges within the hour.
+Schedule::command('catalog:sync')
+    ->hourly()
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('catalog-sync'));
+
 Schedule::command('partna:purge-soft-deletes')
     ->dailyAt('03:20')
     ->onOneServer()
