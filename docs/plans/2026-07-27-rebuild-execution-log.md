@@ -103,3 +103,47 @@ Apple Music and Apple Podcasts still render nothing, correctly: their allowlists
 **Link-add sheet mounted** on `/account/custom-links`, replacing the single-field modal with the URL-plus-category-shelves drawer. Wiring it up exposed two more defects: `lib/catalog.ts` cast its response without parsing it (a non-catalog body threw inside a render and took the surface down), and `useCatalog` fetched on mount, so a closed sheet bought a request on every page load. Both fixed, and `lib/catalog` went from zero tests to ten.
 
 **P8 remains blocked** — see `2026-07-28-p8-deletion-readiness.md`. Five capabilities the new pipeline does not have, not five tasks nobody got to. The one with real user-visible harm is the missing `routing.item_tombstones` backfill: migrating a scan path before it would resurrect connections users deliberately deleted, and no test would catch it.
+
+## P6 — Frontend rebuild (2026-07-28, overnight run)
+
+**The answer to "why am I not seeing it":** deploys were reaching app.partna.au
+all along (verified: latest Vercel deployment Ready, domain serving it). What
+was missing was the rebuild itself — the previous session's frontend changes
+were small fixes; the visible IA work had not been built. It has now:
+
+- **Platforms.** The sidebar's seven platform-ish rows (Integrations,
+  E-commerce, Events, Booking, Reservations, Online ordering, Custom links)
+  are ONE "Platforms" entry. Everything lives under `/account/platforms`:
+  the index (connected rows + links panel + one "Add link" sheet), the
+  `[platform]` detail template (moved wholesale, history preserved), and the
+  class pages as static segments. Old URLs redirect forever with subpath
+  preserved — load-bearing, since notification rows persist
+  `/account/integrations` as cta_url. New rows write `/account/platforms`
+  (backend f7960678).
+- **One add flow.** The routing link-add sheet (URL on top, catalog shelves
+  underneath) is the index's single entry; guided flows (Instagram scan,
+  booking/reservations setup, store sync) hand off to their wizards from
+  inside it. The old Add-integration picker died.
+- **Sharing folded into Overview; Notifications page retired** (the bell
+  panel expands rows in place — the snapshot already carried body + actions);
+  BETA mark on the sidebar wordmark.
+- **Every Dialog is a bottom sheet on mobile** (Vercel's geist/modal
+  behaviour), implemented once at the primitive with forceModal escape
+  hatches (lightbox, cropper, command palette). The named ceremonies became
+  sheets outright: site URL, custom domain, 2FA, privacy/terms, add contact,
+  and every data-table row detail via the DetailDialog conversion.
+- **Geist alignment round:** critique agents audited against
+  vercel.com/geist + the repo's own taste.md; the fixes ranged from a lying
+  "Disconnect" (a destructive-styled link that only navigated — now a real
+  disconnect with confirm) to skeletons that didn't match their loaded
+  layout, spinner-less pending buttons, first-person system copy, and an
+  overview URL-change checklist that contradicted its own success screen
+  about whether old links redirect (they do: 301 aliases, 14 days).
+- **Consolidation:** EntitySheetSuccessBody / PageHeaderSkeleton /
+  ItemRowSkeleton / StatValue / ghost-destructive variant / one date-format
+  vocabulary; dead code deleted (toggle-group, scripts/overhaul, undeclared
+  deps trued up).
+
+Font was already Geist Sans/Mono via the `geist` package on both layouts —
+verified against Vercel's own wiring (variables on <html>, antialiased body)
+and left alone.
