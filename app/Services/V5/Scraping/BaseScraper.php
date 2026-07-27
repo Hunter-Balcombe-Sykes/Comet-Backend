@@ -104,15 +104,22 @@ abstract class BaseScraper
     // HTML parsing (JSON-LD, OG tags, meta, RSS)
     // -----------------------------------------------------------------------
 
-    /** Extract all JSON-LD nodes from HTML. */
+    /** Extract all JSON-LD nodes from HTML, flattening @graph and top-level arrays. */
     protected function jsonLdNodes(string $html): array
     {
         $nodes = [];
         $pattern = '/<script[^>]+type="application\/ld\+json"[^>]*>(.*?)<\/script>/s';
         if (preg_match_all($pattern, $html, $matches)) {
             foreach ($matches[1] as $json) {
-                $data = json_decode($json, true);
-                if (is_array($data)) {
+                $data = json_decode(trim($json), true);
+                if (! is_array($data)) {
+                    continue;
+                }
+                if (isset($data['@graph']) && is_array($data['@graph'])) {
+                    $nodes = array_merge($nodes, $data['@graph']);
+                } elseif (array_is_list($data)) {
+                    $nodes = array_merge($nodes, $data);
+                } else {
                     $nodes[] = $data;
                 }
             }
@@ -120,20 +127,24 @@ abstract class BaseScraper
         return $nodes;
     }
 
-    /** Extract OG meta and standard meta content. */
+    /** Extract OG meta and standard meta content. Handles property/content in either order. */
     protected function metaContent(string $html, string $property): ?string
     {
-        // OG property
-        if (preg_match('/<meta[^>]+property="og:'.preg_quote($property, '/').'"[^>]+content="([^"]*)"[^>]*>/i', $html, $m)) {
-            return $m[1];
+        $p = preg_quote($property, '~');
+        // OG property — either attribute order
+        if (preg_match('~<meta[^>]+property=["\']og:'.$p.'["\'][^>]+content=["\']([^"\']+)["\']~i', $html, $m)
+            || preg_match('~<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:'.$p.'["\']~i', $html, $m)) {
+            return html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5);
         }
         // OG name
-        if (preg_match('/<meta[^>]+name="og:'.preg_quote($property, '/').'"[^>]+content="([^"]*)"[^>]*>/i', $html, $m)) {
-            return $m[1];
+        if (preg_match('~<meta[^>]+name=["\']og:'.$p.'["\'][^>]+content=["\']([^"\']+)["\']~i', $html, $m)
+            || preg_match('~<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']og:'.$p.'["\']~i', $html, $m)) {
+            return html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5);
         }
-        // Standard meta name
-        if (preg_match('/<meta[^>]+name="'.preg_quote($property, '/').'"[^>]+content="([^"]*)"[^>]*>/i', $html, $m)) {
-            return $m[1];
+        // Standard meta name (description, keywords, etc.)
+        if (preg_match('~<meta[^>]+name=["\']'.$p.'["\'][^>]+content=["\']([^"\']+)["\']~i', $html, $m)
+            || preg_match('~<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']'.$p.'["\']~i', $html, $m)) {
+            return html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5);
         }
         return null;
     }
@@ -234,8 +245,11 @@ abstract class BaseScraper
     // Helpers
     // -----------------------------------------------------------------------
 
-    protected function sanitizeDescription(string $text, int $maxLength = 500): string
+    protected function sanitizeDescription(mixed $text, int $maxLength = 500): ?string
     {
+        if (! is_string($text) || trim($text) === '') {
+            return null;
+        }
         $text = strip_tags($text);
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $text = preg_replace('/\s+/', ' ', $text);
@@ -243,7 +257,7 @@ abstract class BaseScraper
         if (mb_strlen($text) > $maxLength) {
             $text = mb_substr($text, 0, $maxLength - 3).'...';
         }
-        return $text;
+        return $text !== '' ? $text : null;
     }
 
     /**
@@ -308,7 +322,21 @@ abstract class BaseScraper
 
     protected function sortByStartDate(array $items, string $key = 'startDate'): array
     {
-        usort($items, fn ($a, $b) => ($a[$key] ?? '') <=> ($b[$key] ?? ''));
+        usort($items, function ($a, $b) use ($key) {
+            $aDate = $a[$key] ?? '';
+            $bDate = $b[$key] ?? '';
+            if ($aDate === '' && $bDate === '') {
+                return 0;
+            }
+            if ($aDate === '') {
+                return -1;
+            }
+            if ($bDate === '') {
+                return 1;
+            }
+
+            return \Carbon\Carbon::parse($aDate)->getTimestamp() <=> \Carbon\Carbon::parse($bDate)->getTimestamp();
+        });
         return $items;
     }
 

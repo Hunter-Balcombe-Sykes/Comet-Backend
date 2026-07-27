@@ -13,7 +13,7 @@ class StravaClubScraper extends HtmlScrapeBase
     /**
      * Main entry: fetch club profile info from a strava.com/clubs URL or slug.
      *
-     * @return array{display_name:?string, profile_pic_url:?string, bio:?string, location:?string, member_count:?int, items:list<array>}|null
+     * @return array{items:list<array>, profile:array{display_name:?string, profile_pic_url:?string, bio:?string, location:?string, member_count:?int}}|null
      */
     public function fetch(string $input): ?array
     {
@@ -27,7 +27,10 @@ class StravaClubScraper extends HtmlScrapeBase
             return null;
         }
 
-        return array_merge($profile, ['items' => []]);
+        return [
+            'items' => [],
+            'profile' => $profile,
+        ];
     }
 
     /**

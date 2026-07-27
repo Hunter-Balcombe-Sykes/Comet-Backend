@@ -20,7 +20,7 @@ class SkoolScraper extends HtmlScrapeBase
     /**
      * Main entry: fetch community profile info from a Skool URL or slug.
      *
-     * @return array{display_name:?string, profile_pic_url:?string, bio:?string, slug:?string, items:list<array>}|null
+     * @return array{items:list<array>, profile:array{display_name:?string, profile_pic_url:?string, bio:?string}}|null
      */
     public function fetch(string $input): ?array
     {
@@ -34,7 +34,10 @@ class SkoolScraper extends HtmlScrapeBase
             return null;
         }
 
-        return array_merge($profile, ['items' => []]);
+        return [
+            'items' => [],
+            'profile' => $profile,
+        ];
     }
 
     /**
