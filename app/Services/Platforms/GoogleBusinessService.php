@@ -63,7 +63,7 @@ class GoogleBusinessService extends PlatformScraper
 
         // Interstitial case: the canonical place URL is in the page body.
         if (is_string($res['body'] ?? null)
-            && preg_match('~https://www\.google\.[a-z.]+/maps/place/[^"\'\\\\<>\s]+~i', $res['body'], $m)) {
+            && preg_match('~https://www\.google\.(?:com(?:\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2})/maps/place/[^"\'\\\\<>\s]+~i', $res['body'], $m)) {
             return html_entity_decode($m[0], ENT_QUOTES | ENT_HTML5);
         }
 
@@ -76,7 +76,10 @@ class GoogleBusinessService extends PlatformScraper
     private function parsePlaceUrl(string $url): ?array
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        if (! preg_match('~(^|\.)google\.[a-z.]+$~', $host)) {
+        // Structured Google TLD shapes only (google.com / google.com.au /
+        // google.co.uk / google.de) — an open `[a-z.]+` suffix accepted
+        // `google.<attacker-domain>` as a Maps host.
+        if (! preg_match('~(^|\.)google\.(com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2})$~', $host)) {
             return null;
         }
 

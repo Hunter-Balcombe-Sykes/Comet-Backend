@@ -11,6 +11,14 @@ namespace App\Services\Platforms;
 class OpenTableService
 {
     /**
+     * Real OpenTable TLD suffixes, enumerated. An open-ended `[a-z.]+` suffix
+     * here let `opentable.<attacker-domain>` pass as OpenTable (host spoofing);
+     * a rid/embed sourced from a spoofed host points the reserve button at an
+     * attacker-chosen widget, so the suffix set must stay closed.
+     */
+    private const TLDS = '(?:com|com\.au|com\.mx|co\.uk|co\.th|ca|de|jp|ie|sg|hk|ae|it|es|nl|at)';
+
+    /**
      * Restaurant id (rid) from an OpenTable URL. Profile links carry it directly
      * (/restaurant/profile/<rid>); some links pass it as ?rid=. Slug links
      * (/r/<slug>) DON'T contain it and can't be resolved server-side (WAF) — the
@@ -19,28 +27,28 @@ class OpenTableService
     public function parseRid(string $url): ?string
     {
         $url = PlatformInput::urlish($url);
-        if (preg_match('~opentable\.[a-z.]+/restaurant/profile/(\d+)~i', $url, $m)) {
+        if (preg_match('~opentable\.'.self::TLDS.'/restaurant/profile/(\d+)~i', $url, $m)) {
             return $m[1];
         }
-        if (preg_match('~[?&]rid=(\d+)~i', $url, $m)) {
+        if ($this->isOpenTableUrl($url) && preg_match('~[?&]rid=(\d+)~i', $url, $m)) {
             return $m[1];
         }
 
         return null;
     }
 
-    /** True for any opentable.* host. */
+    /** True for any real opentable.* host (closed TLD set). */
     public function isOpenTableUrl(string $url): bool
     {
         $host = strtolower((string) parse_url(PlatformInput::urlish($url), PHP_URL_HOST));
 
-        return (bool) preg_match('~(^|\.)opentable\.[a-z.]+$~', $host);
+        return (bool) preg_match('~(^|\.)opentable\.'.self::TLDS.'$~', $host);
     }
 
     /** Best-effort display name from a /r/<slug> link; null for profile links. */
     public function nameFromUrl(string $url): ?string
     {
-        if (preg_match('~opentable\.[a-z.]+/r/([a-z0-9-]+)~i', PlatformInput::urlish($url), $m)) {
+        if (preg_match('~opentable\.'.self::TLDS.'/r/([a-z0-9-]+)~i', PlatformInput::urlish($url), $m)) {
             $slug = preg_replace('~-\d+$~', '', $m[1]);   // drop a trailing -<rid> if present
             $name = ucwords(str_replace('-', ' ', (string) $slug));
 

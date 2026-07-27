@@ -421,7 +421,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('resdiary')->detect(new ServiceMatch(fn (string $u) => $resDiary->isResDiaryUrl($u)));
             $r->get('nowbookit')->detect(new ServiceMatch(fn (string $u) => $nowBookit->isNowBookitUrl($u)));
             // Events: Eventbrite has regional TLDs; Humanitix is single-domain.
-            $r->get('eventbrite')->detect(new HostMatch('~(^|\.)eventbrite\.[a-z.]+$~'));
+            $r->get('eventbrite')->detect(new HostMatch('~(^|\.)eventbrite\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)$~'));
             $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
 
             // ── 2026-07-26 Platform expansion: Booking detect-only ──
@@ -444,11 +444,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('resy')->label('Resy')->category(Cat::Reservations)->payload(CardPayload::class));
             $r->get('resy')->detect(new HostMatch('~(^|\.)resy\.com$~'));
             $r->register(PD::make('quandoo')->label('Quandoo')->category(Cat::Reservations)->payload(CardPayload::class));
-            $r->get('quandoo')->detect(new HostMatch('~(^|\.)quandoo\.[a-z.]+$~'));
+            $r->get('quandoo')->detect(new HostMatch('~(^|\.)quandoo\.(com|com\.au|de|at|ch|it|co\.uk|sg|hk|nl|fi)$~'));
 
             // ── 2026-07-26 Platform expansion: Events detect-only ──
             $r->register(PD::make('ticketek')->label('Ticketek')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('ticketek')->detect(new HostMatch('~(^|\.)ticketek\.[a-z.]+$~'));
+            $r->get('ticketek')->detect(new HostMatch('~(^|\.)ticketek\.(com|com\.au|co\.nz|com\.ar)$~'));
             $r->register(PD::make('oztix')->label('Oztix')->category(Cat::Events)->payload(CardPayload::class));
             $r->get('oztix')->detect(new HostMatch('~(^|\.)oztix\.com\.au$~'));
             $r->register(PD::make('trybooking')->label('TryBooking')->category(Cat::Events)->payload(CardPayload::class));
@@ -458,7 +458,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // ── 2026-07-26 Platform expansion: Logo-only ──
             $r->register(PD::make('ticketmaster')->label('Ticketmaster')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('ticketmaster')->detect(new HostMatch('~(^|\.)ticketmaster\.[a-z.]+$~'));
+            $r->get('ticketmaster')->detect(new HostMatch('~(^|\.)ticketmaster\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|be|dk|se|no|fi|at|ch|ie|com\.mx|sg|ae)$~'));
             $r->register(PD::make('bopple')->label('Bopple')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
             $r->get('bopple')->detect(new HostMatch('~(^|\.)bopple\.(com|me)$~'));
             $r->register(PD::make('square-ordering')->label('Square Online')->category(Cat::OnlineOrdering)->payload(CardPayload::class));

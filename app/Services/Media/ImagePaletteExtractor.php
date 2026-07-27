@@ -211,12 +211,10 @@ class ImagePaletteExtractor
         imagealphablending($thumb, false);
         imagesavealpha($thumb, true);
 
-        $ok = imagecopyresampled($thumb, $source, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
-        if ($ok === false) {
-            unset($thumb);
-
-            return false;
-        }
+        // No failure check: with two valid GdImages and ≥1 dimensions (both
+        // guaranteed above), imagecopyresampled cannot fail — current PHP stubs
+        // type it `true`, so a === false branch is statically dead.
+        imagecopyresampled($thumb, $source, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
 
         return $thumb;
     }

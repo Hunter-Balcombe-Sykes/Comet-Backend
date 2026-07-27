@@ -28,7 +28,7 @@ class WebsiteLinkHarvester
         'twitter' => '~(^|\.)(twitter\.com|x\.com)$~',
         'linkedin' => '~(^|\.)linkedin\.com$~',
         'youtube' => '~(^|\.)(youtube\.com|youtu\.be)$~',
-        'pinterest' => '~(^|\.)pinterest\.[a-z.]+$~',
+        'pinterest' => '~(^|\.)pinterest\.(com|com\.au|com\.mx|com\.br|co\.uk|co\.kr|ca|fr|de|es|it|jp|pt|se|dk|at|ch|cl|ie|nz)$~',
         // Expanded 2026-07-25 — link classification consolidation
         'spotify' => '~(^|\.)spotify\.com$~',
         'soundcloud' => '~(^|\.)soundcloud\.com$~',
@@ -53,14 +53,14 @@ class WebsiteLinkHarvester
      * classify() can report WHICH provider matched, not just "reservation-y".
      */
     private const RESERVATION_HOSTS = [
-        'OpenTable' => '~(^|\.)opentable\.[a-z.]+$~',
+        'OpenTable' => '~(^|\.)opentable\.(com|com\.au|com\.mx|co\.uk|co\.th|ca|de|jp|ie|sg|hk|ae|it|es|nl|at)$~',
         'ResDiary' => '~(^|\.)resdiary\.com$~',
         'NowBookit' => '~(^|\.)nowbookit\.com$~',
         // Expanded 2026-07-25
         'SevenRooms' => '~(^|\.)sevenrooms\.com$~',
         'Tock' => '~(^|\.)exploretock\.com$~',
-        'TheFork' => '~(^|\.)thefork\.[a-z.]+$~',
-        'Quandoo' => '~(^|\.)quandoo\.[a-z.]+$~',
+        'TheFork' => '~(^|\.)thefork\.(com|com\.au|com\.br|com\.ar|co\.uk|fr|es|it|pt|nl|be|ch|at|de|dk|se|cl)$~',
+        'Quandoo' => '~(^|\.)quandoo\.(com|com\.au|de|at|ch|it|co\.uk|sg|hk|nl|fi)$~',
         'Resy' => '~(^|\.)resy\.com$~',
         'Chope' => '~(^|\.)chope\.co$~',
         'Tablein' => '~(^|\.)tablein\.com$~',
@@ -89,12 +89,12 @@ class WebsiteLinkHarvester
         'Uber Eats' => '~(^|\.)ubereats\.com$~',
         'DoorDash' => '~(^|\.)doordash\.com$~',
         'Menulog' => '~(^|\.)menulog\.com\.au$~',
-        'Deliveroo' => '~(^|\.)deliveroo\.[a-z.]+$~',
+        'Deliveroo' => '~(^|\.)deliveroo\.(com|co\.uk|fr|ie|it|be|nl|sg|hk|ae|com\.kw|qa)$~',
         'Order Online' => '~(^|\.)order\.online$~',
         'OrderMate' => '~(^|\.)ordermate\.online$~',
         // Expanded 2026-07-25
         'SkipTheDishes' => '~(^|\.)skipthedishes\.com$~',
-        'Just Eat' => '~(^|\.)justeat\.[a-z.]+$~',
+        'Just Eat' => '~(^|\.)just-?eat\.(co\.uk|com|fr|ie|es|it|ch|dk|no|lu)$~',
         'Grubhub' => '~(^|\.)grubhub\.com$~',
         'Slice' => '~(^|\.)slicelife\.com$~',
         'ChowNow' => '~(^|\.)chownow\.com$~',
@@ -120,7 +120,7 @@ class WebsiteLinkHarvester
         'Mangomint' => '~(^|\.)mangomint\.com$~',
         'Boulevard' => '~(^|\.)boulevard\.io$~',
         'Ovatu' => '~(^|\.)ovatu\.com$~',
-        'Treatwell' => '~(^|\.)treatwell\.[a-z.]+$~',
+        'Treatwell' => '~(^|\.)treatwell\.(com|co\.uk|de|fr|nl|es|it|be|at|ch|ie|pt|lt|lv|gr)$~',
         'Noterro' => '~(^|\.)noterro\.com$~',
         'Schedulicity' => '~(^|\.)schedulicity\.com$~',
         'SimplyBook.me' => '~(^|\.)simplybook\.me$~',
@@ -359,7 +359,7 @@ class WebsiteLinkHarvester
         // HumanitixScraper::resolveHostUrl() is deliberately NOT used (its
         // event-URL branch fetches). Humanitix org runs BEFORE event: the two
         // shapes share a host and only '/host/' discriminates.
-        if (preg_match('~(^|\.)eventbrite\.[a-z.]+$~', $host)) {
+        if (preg_match('~(^|\.)eventbrite\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)$~', $host)) {
             if ($this->eventbrite()->normalizeOrgUrl($url) !== null) {
                 return ['platform' => 'eventbrite', 'category' => 'event-organiser', 'label' => 'Eventbrite'];
             }
@@ -393,7 +393,7 @@ class WebsiteLinkHarvester
 
             return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Partiful'];
         }
-        if (preg_match('~(^|\.)ticketmaster\.[a-z.]+$~', $host)) {
+        if (preg_match('~(^|\.)ticketmaster\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|be|dk|se|no|fi|at|ch|ie|com\.mx|sg|ae)$~', $host)) {
             return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Ticketmaster'];
         }
         if (preg_match('~(^|\.)meetup\.com$~', $host)) {

@@ -46,6 +46,22 @@ class SafeUrlFetcher
     /** Fallback default for config('partna.http_fetch.connect_timeout_seconds'). */
     private const CONNECT_TIMEOUT_SECONDS = 3;
 
+    /**
+     * Own-infrastructure host suffixes — user-supplied URLs must never make
+     * this backend fetch our own API, workers, database, or storage (request
+     * loops, auth-context confusion, internal-endpoint reach). All resolve to
+     * public IPs, so the address-range check alone never catches them.
+     * Fallback for config('partna.http_fetch.denied_host_suffixes').
+     */
+    private const DENIED_HOST_SUFFIXES = [
+        'partna.au',
+        'supabase.co',
+        'laravel.cloud',
+        'r2.cloudflarestorage.com',
+        'r2.dev',
+        'workers.dev',
+    ];
+
     private readonly int $maxRedirects;
 
     private readonly int $timeoutSeconds;
@@ -149,7 +165,10 @@ class SafeUrlFetcher
 
             $response = Http::withHeaders($headers)
                 ->timeout($hopTimeout)
-                ->connectTimeout($this->connectTimeoutSeconds)
+                // The connect phase must not outlive the hop's own budgeted
+                // window — an unclamped connect timeout let a slow-SYN host
+                // burn wall clock the budget had already spent.
+                ->connectTimeout(min($this->connectTimeoutSeconds, $hopTimeout))
                 ->withoutRedirecting()
                 ->get($current);
 
@@ -400,7 +419,7 @@ class SafeUrlFetcher
             $batch = Http::pool(fn (Pool $pool) => array_map(
                 fn (int $i, string $url) => $pool->as((string) $i)
                     ->timeout($chunkTimeout)
-                    ->connectTimeout($this->connectTimeoutSeconds)
+                    ->connectTimeout(min($this->connectTimeoutSeconds, $chunkTimeout))
                     ->withHeaders($mergedHeaders)
                     ->withoutRedirecting()
                     ->get($url),
@@ -480,6 +499,13 @@ class SafeUrlFetcher
         }
         if ($host === '') {
             throw new SafeUrlException("URL has no host: {$url}");
+        }
+
+        $lowerHost = strtolower(rtrim($host, '.'));
+        foreach ((array) config('partna.http_fetch.denied_host_suffixes', self::DENIED_HOST_SUFFIXES) as $suffix) {
+            if ($lowerHost === $suffix || str_ends_with($lowerHost, '.'.$suffix)) {
+                throw new SafeUrlException("Refusing own-infrastructure host ({$suffix}): {$url}");
+            }
         }
 
         // Literal IP hosts are checked directly; named hosts are resolved.
