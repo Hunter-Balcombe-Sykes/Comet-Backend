@@ -202,6 +202,8 @@ Run the lens against one group at a time. Each group is sized so the DeepSeek sc
 --scope app/Jobs/Platforms
 --scope app/Routing
 --scope app/Ingest
+--scope app/Content
+--scope app/Site
 ```
 
 ### Group F — Observers + cache write-path invalidation

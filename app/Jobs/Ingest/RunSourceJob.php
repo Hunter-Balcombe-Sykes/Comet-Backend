@@ -37,6 +37,16 @@ class RunSourceJob implements ShouldQueue
 
     public int $tries = 1;
 
+    /**
+     * Declared for the queue-hygiene policy even though $tries = 1 means it is
+     * never consulted: rescheduling a fetch is SourceScheduler's job, via
+     * next_attempt_at, where the delay can reflect what actually went wrong.
+     * A queue-level retry would re-run the whole pull blind — and for a
+     * connector with billed effects, only the EffectLedger would stand between
+     * that and paying twice.
+     */
+    public int $backoff = 0;
+
     public function __construct(public readonly string $sourceId)
     {
         $this->onQueue('ingest');

@@ -268,6 +268,8 @@ signup-claim|app/Services/PreAccount app/Services/User
 outbound-platforms|app/Services/Platforms
 outbound-routing|app/Routing
 outbound-ingest|app/Ingest
+content|app/Content app/Site
+outbound-content|app/Content app/Site
 catalog|app/Catalog
 EOF
         ;;
@@ -276,7 +278,7 @@ account-core|app/Services/User app/Services/Accounts app/Services/Segments app/S
 site-cache|app/Services/Site app/Services/PublicSite app/Services/Cache app/Services/Cloudflare
 media-jobs|app/Services/Media app/Jobs
 moderation-policies|app/Services/Moderation app/Services/Streaming app/Services/Notifications app/Notifications app/Observers app/Policies
-connectors|app/Services/Platforms app/Routing app/Ingest
+connectors|app/Services/Platforms app/Routing app/Ingest app/Content app/Site
 schema-cron|supabase/migrations routes/console.php
 EOF
         ;;
@@ -382,6 +384,8 @@ prod-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Contr
 prod-catalog|app/Catalog
 prod-routing|app/Routing
 prod-ingest|app/Ingest
+content|app/Content app/Site
+prod-content|app/Content app/Site
 prod-jobs|app/Jobs database/factories
 prod-schema|supabase/migrations
 feature-user-api|tests/Feature/User tests/Feature/Api tests/Feature/Http tests/Feature/Contact
@@ -394,6 +398,7 @@ feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Va
 feature-platforms|tests/Feature/Platforms
 feature-catalog-routing|tests/Feature/Catalog tests/Feature/Routing tests/fixtures/Routing
 feature-ingest|tests/Feature/Ingest tests/Unit/Ingest
+feature-content|tests/Feature/Site tests/Unit/Content tests/Unit/Site
 unit-suite|tests/Unit
 EOF
         ;;
@@ -446,6 +451,7 @@ wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
 catalog|app/Catalog
 routing|app/Routing
 ingest|app/Ingest
+content|app/Content app/Site
 EOF
         ;;
         semantic-correctness) cat <<'EOF'
@@ -466,6 +472,7 @@ wiring|routes config app/Providers bootstrap/app.php bootstrap/providers.php
 catalog|app/Catalog
 routing|app/Routing
 ingest|app/Ingest
+content|app/Content app/Site
 EOF
         ;;
         foundational-durability) cat <<'EOF'
