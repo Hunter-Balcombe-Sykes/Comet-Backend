@@ -340,7 +340,10 @@ class IriCanonicalizer
         parse_str($query, $parsed);
         $out = [];
         foreach ($parsed as $key => $value) {
-            if (! is_string($value) && ! is_numeric($value)) {
+            // parse_str yields strings or arrays (`a[]=1`); an array-valued
+            // param is never an identity, so it is dropped rather than
+            // flattened into something arbitrary.
+            if (! is_string($value)) {
                 continue;
             }
             $lower = strtolower((string) $key);

@@ -107,7 +107,10 @@ class RoutingCorpusCommand extends Command
         return $unsatisfiable === [] ? self::SUCCESS : self::FAILURE;
     }
 
-    /** @param array<string, array<string, mixed>> $cases */
+    /**
+     * @param  list<array<string, mixed>>  $cases
+     * @param  array<string, string>  $unsatisfiable  detector id => why
+     */
     private function report(array $cases, array $unsatisfiable): void
     {
         $this->info(sprintf('%d detector(s) round-tripped.', count($cases)));

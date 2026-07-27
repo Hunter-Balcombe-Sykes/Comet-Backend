@@ -80,7 +80,7 @@ final readonly class Rulepack
 
                 return strcmp($a, $b);
             });
-            $byKey[$key] = array_values($ids);
+            $byKey[$key] = $ids;
         }
 
         ksort($byKey);

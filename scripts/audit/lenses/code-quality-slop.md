@@ -130,6 +130,13 @@ are for targeted manual runs; the full sweep map lives in `codebase_chunks()`.
 --scope app/Providers
 ```
 
+### Group F — Catalog + link-router data (new pure-definition subsystem)
+```
+--scope app/Catalog
+--scope app/Routing
+```
+(Controllers for this subsystem are already covered by Group B's `app/Http/Controllers` scope.)
+
 ## Exhaustiveness directive
 
 Read every file in scope top to bottom. Slop hides in the gaps between the "real" code — the helper at the bottom of the class, the docblock nobody reads, the `catch` that does nothing. But never invent a finding to pad the list: an empty category is the correct output when the code is clean.

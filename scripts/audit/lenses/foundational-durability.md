@@ -76,8 +76,10 @@ The full `app` + `routes` + `supabase/migrations` + `config/partna.php` scope is
 - `platforms-services` — `app/Services/Platforms`
 - `schema-migrations` — `supabase/migrations`
 - `models-config` — `app/Models config/partna.php` (model casts beside the config registry, for denormalization findings)
+- `catalog` — `app/Catalog` (the compiled platform catalog — typed value objects, brand definitions, enums; successor to config/partna.php's platform tables, pure data/no I/O)
 - `integration-cross-cutting` — `app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags` (the "add one thing" registration paths)
 - `controllers-user`, `controllers-staff-public` — remaining API controllers + shared base controllers/Concerns
+- `controllers-catalog-routing` — `app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing` (new platform-catalog read endpoint + link-router preview/links endpoint)
 - `services-core`, `services-vendor` — remaining services
 - `requests-resources` — `app/Http/Requests app/Http/Resources` (Form Requests that enumerate JSON sub-keys; per-platform resource shapes)
 - `routing-middleware-policies` — `routes app/Console app/Http/Middleware app/Policies app/Observers`

@@ -119,6 +119,8 @@ For every finding:
 --scope app/Http/Controllers/Api/Platforms
 --scope app/Http/Controllers/Api/Internal
 --scope app/Http/Controllers/Api/Webhooks
+--scope app/Http/Controllers/Api/Catalog
+--scope app/Http/Controllers/Api/Routing
 ```
 
 ## Exhaustiveness directive

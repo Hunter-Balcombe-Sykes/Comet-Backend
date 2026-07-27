@@ -79,6 +79,8 @@ For every finding:
 --scope app/Http/Controllers/Api/User
 --scope app/Http/Controllers/Api/PublicSite
 --scope app/Http/Controllers/Api/Staff
+--scope app/Http/Controllers/Api/Catalog
+--scope app/Http/Controllers/Api/Routing
 ```
 
 ### Group C — Service methods that return collections
