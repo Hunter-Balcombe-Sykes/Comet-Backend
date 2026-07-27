@@ -179,7 +179,7 @@ trait ManagesIntegrationConnection
      * parameter of the same name): true writes a 'pending' placeholder instead
      * of 'ok', MERGED over any existing payload rather than replacing it. This
      * is the single-selection counterpart to writeAccountConnection's pending
-     * path — closes the gap W5 left open for pinterest/strava, whose
+     * path — closes the gap W5 left open for strava, whose
      * multiAccount() is false so GenericPlatformController::connect() routes
      * them here, not through writeAccountConnection(). Same three bugs the
      * merge guards against (reconnect blanking the card, the Bandcamp 304

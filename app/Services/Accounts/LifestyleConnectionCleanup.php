@@ -9,9 +9,8 @@ use App\Services\PublicSite\SitepageDataResolverService;
 
 /**
  * Soft-deletes a Business account's "lifestyle" platform connections — the
- * Listen / Community / Other platforms whose sitepage page is STANDARD_ONLY
- * (Listen / Strava / Skool / Pinterest), which Business Partna accounts don't
- * offer.
+ * Listen / Community platforms whose sitepage page is STANDARD_ONLY
+ * (Listen / Strava / Skool), which Business Partna accounts don't offer.
  *
  * Those integration groups are hidden from the business dashboard (Partna-
  * Frontend HIDDEN_GROUPS), so such a connection is un-removable there — an
@@ -31,10 +30,10 @@ class LifestyleConnectionCleanup
      */
     public static function lifestylePlatforms(): array
     {
-        return array_values(array_keys(array_filter(
+        return array_keys(array_filter(
             SitepageDataResolverService::PLATFORM_TO_PAGE,
             static fn (string $page): bool => in_array($page, SitepageId::STANDARD_ONLY, true),
-        )));
+        ));
     }
 
     /**

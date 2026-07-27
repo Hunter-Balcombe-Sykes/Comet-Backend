@@ -5,7 +5,7 @@ namespace App\Services\PublicSite\Actions;
 /**
  * The fixed action vocabulary — the ONLY things that can ever appear in the
  * unified actions system (replaces the old open-ended page|item|button pool).
- * 24 static ids + 2 dynamic families (`ordering:<resource_id>`, `custom:<key>`).
+ * 23 static ids + 2 dynamic families (`ordering:<resource_id>`, `custom:<key>`).
  *
  * LOCKSTEP with apps/pages test/actions-vocabulary.test.ts' ACTION_IDS export
  * — change both together or the wire and the frontend resolver drift.
@@ -25,7 +25,7 @@ final class ActionVocabulary
         'reservations', 'shop', 'shop-tracks', 'events', 'booking-services', 'menu', 'contact',
         'spotify', 'soundcloud', 'apple-music', 'apple-podcasts', 'twitch',
         'instagram', 'facebook', 'linkedin', 'youtube', 'tiktok', 'x',
-        'snapchat', 'pinterest', 'threads', 'discord', 'reddit', 'telegram',
+        'snapchat', 'threads', 'discord', 'reddit', 'telegram',
     ];
 
     /** @var list<string> */
@@ -52,7 +52,6 @@ final class ActionVocabulary
         'tiktok' => 'TikTok',
         'x' => 'X',
         'snapchat' => 'Snapchat',
-        'pinterest' => 'Pinterest',
         'threads' => 'Threads',
         'discord' => 'Discord',
         'reddit' => 'Reddit',

@@ -72,8 +72,8 @@ class OnboardingSuggestions
         'hair-salon' => ['booking'], 'barber' => ['booking'],
         'nail-technician' => ['booking'], 'esthetician' => ['booking'],
         'spa' => ['booking'], 'brows-lashes' => ['booking'],
-        'makeup-artist' => ['booking', 'pinterest'],
-        'tattoo-artist' => ['booking', 'pinterest'],
+        'makeup-artist' => ['booking'],
+        'tattoo-artist' => ['booking'],
 
         // Health & Fitness
         'personal-trainer' => ['booking', 'strava'],
@@ -91,9 +91,12 @@ class OnboardingSuggestions
         'it-services' => ['linkedin', 'booking'], 'virtual-assistant' => ['linkedin', 'booking'],
 
         // Retail & Shopping (the store step covers commerce itself)
-        'clothing-boutique' => ['pinterest'], 'jewellery' => ['pinterest'],
-        'florist' => ['pinterest'], 'gift-shop' => ['pinterest'],
-        'homewares' => ['pinterest'], 'artisan-maker' => ['pinterest'],
+        // NOTE: 2026-07 — this vertical's sole suggested platform was
+        // decommissioned, so every sector below now maps to []; the
+        // suggestions step is silently skipped until a replacement is chosen.
+        'clothing-boutique' => [], 'jewellery' => [],
+        'florist' => [], 'gift-shop' => [],
+        'homewares' => [], 'artisan-maker' => [],
 
         // Home & Trade Services
         'plumber' => ['booking'], 'electrician' => ['booking'], 'builder' => ['booking'],
@@ -110,8 +113,8 @@ class OnboardingSuggestions
 
         // Creative & Entertainment
         'musician' => ['spotify', 'soundcloud'],
-        'photographer' => ['vimeo', 'pinterest'], 'videographer' => ['vimeo', 'pinterest'],
-        'graphic-designer' => ['pinterest', 'custom'], 'artist' => ['pinterest', 'custom'],
+        'photographer' => ['vimeo'], 'videographer' => ['vimeo'],
+        'graphic-designer' => ['custom'], 'artist' => ['custom'],
         'content-creator' => ['youtube', 'tiktok'],
         'writer' => ['x', 'custom'],
 
@@ -128,7 +131,7 @@ class OnboardingSuggestions
     private const LABELS = [
         'booking' => 'Booking', 'reservations' => 'Reservations',
         'online-ordering' => 'Online ordering', 'events' => 'Event tickets',
-        'linkedin' => 'LinkedIn', 'pinterest' => 'Pinterest', 'strava' => 'Strava',
+        'linkedin' => 'LinkedIn', 'strava' => 'Strava',
         'spotify' => 'Spotify', 'soundcloud' => 'SoundCloud', 'vimeo' => 'Vimeo',
         'youtube' => 'YouTube', 'tiktok' => 'TikTok', 'x' => 'X',
         'custom' => 'Custom link',
@@ -146,7 +149,7 @@ class OnboardingSuggestions
         'reservations' => ['opentable', 'resdiary', 'nowbookit', 'reservations'],
         'online-ordering' => ['online-ordering'],
         'events' => ['eventbrite', 'humanitix', 'events-custom'],
-        'linkedin' => ['linkedin'], 'pinterest' => ['pinterest'], 'strava' => ['strava'],
+        'linkedin' => ['linkedin'], 'strava' => ['strava'],
         'spotify' => ['spotify'], 'soundcloud' => ['soundcloud'], 'vimeo' => ['vimeo'],
         'youtube' => ['youtube'], 'tiktok' => ['tiktok'], 'x' => ['x'],
     ];
@@ -197,7 +200,7 @@ class OnboardingSuggestions
             }
             $suggestions[] = [
                 'key' => $key,
-                'label' => self::LABELS[$key] ?? ucfirst($key),
+                'label' => self::LABELS[$key],
                 'prefillUrl' => $this->prefillFor($key, $unmatched),
             ];
         }

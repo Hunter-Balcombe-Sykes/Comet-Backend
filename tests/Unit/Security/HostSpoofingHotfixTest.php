@@ -24,7 +24,6 @@ it('rejects spoofed brand hosts in WebsiteLinkHarvester::classify()', function (
     'https://deliveroo.evil.co/menu/x',
     'https://justeat.attacker.com/restaurants-x',
     'https://treatwell.evil.org/place/x',
-    'https://pinterest.evil.com/acme',
     'https://www.eventbrite.evil.com/o/organiser-123',
     'https://ticketmaster.phish.io/event/x',
 ]);
@@ -40,7 +39,6 @@ it('still classifies real brand hosts in WebsiteLinkHarvester::classify()', func
     ['https://deliveroo.co.uk/menu/london/x', 'online-ordering'],
     ['https://www.just-eat.co.uk/restaurants-x', 'online-ordering'],
     ['https://www.treatwell.co.uk/place/x', 'booking'],
-    ['https://www.pinterest.com/acme', 'pinterest'],
     ['https://www.eventbrite.com.au/o/organiser-1234', 'eventbrite'],
     ['https://www.ticketmaster.com.au/event/x', 'events-custom'],
 ]);

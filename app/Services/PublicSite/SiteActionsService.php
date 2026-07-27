@@ -35,7 +35,7 @@ use Illuminate\Support\Collection;
 class SiteActionsService
 {
     /**
-     * The 17 media + social action ids resolved identically: prefer an
+     * The 16 media + social action ids resolved identically: prefer an
      * active IntegrationConnection for the platform; else fall back to a
      * live platform-tagged link block (D4). Order = ActionVocabulary
      * canonical order, kept explicit here (not sliced) so a future
@@ -46,7 +46,7 @@ class SiteActionsService
     private const PLATFORM_ACTION_IDS = [
         'spotify', 'soundcloud', 'apple-music', 'apple-podcasts', 'twitch',
         'instagram', 'facebook', 'linkedin', 'youtube', 'tiktok', 'x',
-        'snapchat', 'pinterest', 'threads', 'discord', 'reddit', 'telegram',
+        'snapchat', 'threads', 'discord', 'reddit', 'telegram',
     ];
 
     /**
@@ -194,7 +194,7 @@ class SiteActionsService
         }
 
         // D2: custom links — every live link block that ISN'T the synthesized
-        // booking row and isn't one of the 17 platform ids above, PLUS every
+        // booking row and isn't one of the 16 platform ids above, PLUS every
         // active 'custom' platform connection. Deduped by URL; a block wins
         // over a connection at the same URL (first-write-wins via `??=`).
         $platformSlugsInVocab = array_map(

@@ -174,7 +174,6 @@ class GoogleBusinessApifyScraper extends PlatformScraper
             'youtube' => $this->firstUrl(data_get($place, 'youtubes')),
             'tiktok' => $this->firstUrl(data_get($place, 'tiktoks')),
             'twitter' => $this->firstUrl(data_get($place, 'twitters')),
-            'pinterest' => $this->firstUrl(data_get($place, 'pinterests')),
         ], $notNull);
 
         return array_filter([

@@ -1,7 +1,7 @@
 <?php
 
-// Business accounts don't offer the lifestyle pages (Listen / Strava / Skool /
-// Pinterest) and their dashboard hides those groups, so a lifestyle connection
+// Business accounts don't offer the lifestyle pages (Listen / Strava / Skool)
+// and their dashboard hides those groups, so a lifestyle connection
 // carried over from when the account was `partna` is an un-removable orphan.
 // LifestyleConnectionCleanup soft-deletes them; the UserObserver runs it on the
 // partna→business switch, and the artisan command mops up existing orphans.
@@ -57,7 +57,7 @@ function lccActiveCount(string $userId): int
 it('derives the lifestyle platform set from the presence gate', function () {
     $platforms = LifestyleConnectionCleanup::lifestylePlatforms();
     // Listen + community + other platforms, NOT shop/bandcamp/google-business/booking.
-    expect($platforms)->toContain('apple-music', 'spotify', 'soundcloud', 'strava', 'skool', 'pinterest')
+    expect($platforms)->toContain('apple-music', 'spotify', 'soundcloud', 'strava', 'skool')
         ->and($platforms)->not->toContain('shop', 'bandcamp', 'fresha', 'google-business', 'instagram');
 });
 
@@ -88,7 +88,7 @@ it('is a no-op for standard (partna) accounts', function () {
 it('dry-run counts without deleting', function () {
     $pro = lccTenant('lcc-dry', 'business');
     lccConnection($pro->id, 'apple-music');
-    lccConnection($pro->id, 'pinterest');
+    lccConnection($pro->id, 'strava');
 
     $would = app(LifestyleConnectionCleanup::class)->forUser($pro, dryRun: true);
 

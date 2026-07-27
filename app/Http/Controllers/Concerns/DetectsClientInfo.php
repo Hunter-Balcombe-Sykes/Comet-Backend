@@ -53,7 +53,7 @@ trait DetectsClientInfo
             // SEO / index crawlers
             'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'rogerbot',
             // Social media crawlers
-            'facebookexternalhit', 'twitterbot', 'linkedinbot', 'pinterestbot',
+            'facebookexternalhit', 'twitterbot', 'linkedinbot',
             // Search engines (explicit in case generic 'bot' substring misses)
             'yandexbot', 'baiduspider', 'slurp',
             // Scripting / CLI tools

@@ -5,7 +5,7 @@ namespace App\Enums;
 /**
  * Canonical sitepage page-ids for the ONE architecture taxonomy.
  *
- * The 16 cases below, IN THIS ORDER, are the canonical default page order — the
+ * The 15 cases below, IN THIS ORDER, are the canonical default page order — the
  * order pages appear before any popularity re-ranking is applied. Every page is
  * presence-gated per site (shown only when the site has content for it); three
  * are additionally Business-only (see BUSINESS_ONLY).
@@ -29,7 +29,6 @@ enum SitepageId: string
     case Reviews = 'reviews';
     case Documents = 'documents';
     case Contact = 'contact';
-    case Pinterest = 'pinterest';
     case Strava = 'strava';
     case Skool = 'skool';
     case Links = 'links';
@@ -44,8 +43,8 @@ enum SitepageId: string
 
     /**
      * Pages available only to standard (partna) accounts — the lifestyle/creator
-     * content Business Partna accounts don't offer: Listen (music), the Community
-     * pages (Strava/Skool), and Pinterest ("Other"). Mirrors the dashboard's
+     * content Business Partna accounts don't offer: Listen (music) and the
+     * Community pages (Strava/Skool). Mirrors the dashboard's
      * account-type hiding (Partna-Frontend lib/integrations/platform-registry.ts
      * → HIDDEN_GROUPS = listen/community/shop/other for business). Gate on the
      * derived capability (AccountCapabilities::can_use_lifestyle_pages), never on
@@ -61,7 +60,7 @@ enum SitepageId: string
      *
      * @var list<string>
      */
-    public const STANDARD_ONLY = ['listen', 'pinterest', 'strava', 'skool'];
+    public const STANDARD_ONLY = ['listen', 'strava', 'skool'];
 
     /**
      * Legacy analytics section_key -> page-id bucketing. The scoring job
@@ -84,7 +83,6 @@ enum SitepageId: string
         'gallery' => 'gallery',
         'reviews' => 'reviews',
         'contact' => 'contact',
-        'pinterest' => 'pinterest',
         'strava' => 'strava',
         'skool' => 'skool',
 

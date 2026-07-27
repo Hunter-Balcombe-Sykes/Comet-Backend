@@ -28,7 +28,6 @@ class WebsiteLinkHarvester
         'twitter' => '~(^|\.)(twitter\.com|x\.com)$~',
         'linkedin' => '~(^|\.)linkedin\.com$~',
         'youtube' => '~(^|\.)(youtube\.com|youtu\.be)$~',
-        'pinterest' => '~(^|\.)pinterest\.(com|com\.au|com\.mx|com\.br|co\.uk|co\.kr|ca|fr|de|es|it|jp|pt|se|dk|at|ch|cl|ie|nz)$~',
         // Expanded 2026-07-25 — link classification consolidation
         'spotify' => '~(^|\.)spotify\.com$~',
         'soundcloud' => '~(^|\.)soundcloud\.com$~',
@@ -161,7 +160,6 @@ class WebsiteLinkHarvester
         'twitter' => ['x', 'X'],
         'linkedin' => ['linkedin', 'LinkedIn'],
         'youtube' => ['youtube', 'YouTube'],
-        'pinterest' => ['pinterest', 'Pinterest'],
         // Expanded 2026-07-25
         'spotify' => ['spotify', 'Spotify'],
         'soundcloud' => ['soundcloud', 'SoundCloud'],

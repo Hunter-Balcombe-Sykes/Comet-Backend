@@ -5,7 +5,6 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Platforms\BigCartelScraper;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\SquarespaceScraper;
 use App\Services\Platforms\StravaClubScraper;
@@ -179,27 +178,6 @@ it('twitch connect stores the og-scraped channel card', function () {
         ]);
 });
 
-// ── Pinterest ────────────────────────────────────────────────────────────────
-
-it('pinterest connect stores the profile and latest pins', function () {
-    $user = iv3User('pn1');
-
-    $this->mock(PinterestScraper::class, function ($m) {
-        $m->shouldReceive('parseUsername')->andReturn('mockmaker');
-        $m->shouldReceive('fetchProfile')->andReturn([
-            'username' => 'mockmaker', 'name' => 'Mock Maker', 'image' => 'https://i.pinimg.com/me.jpg', 'followers' => 2361,
-        ]);
-        $m->shouldReceive('fetchPins')->andReturn([
-            ['itemId' => '424605071145132476', 'thumbnail' => 'https://i.pinimg.com/564x/pin.jpg', 'link' => 'https://www.pinterest.com/pin/424605071145132476/', 'name' => null, 'date' => null],
-        ]);
-    });
-
-    actingAsUser($user)->postJson('/api/platforms/pinterest/connect', ['url' => 'https://au.pinterest.com/mockmaker/'])
-        ->assertOk()
-        ->assertJsonPath('followers', 2361)
-        ->assertJsonPath('items.0.itemId', '424605071145132476');
-});
-
 // ── Profile cards ────────────────────────────────────────────────────────────
 
 it('strava connect stores the club card with member count', function () {
@@ -285,7 +263,7 @@ it('selection and forget work for the new platforms', function () {
 });
 
 it('requires auth on every v3 platform route', function () {
-    foreach (['vimeo', 'twitch', 'pinterest', 'strava', 'google-business'] as $platform) {
+    foreach (['vimeo', 'twitch', 'strava', 'google-business'] as $platform) {
         $this->getJson("/api/platforms/{$platform}/selection")->assertUnauthorized();
     }
 });

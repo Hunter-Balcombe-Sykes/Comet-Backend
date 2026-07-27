@@ -25,7 +25,7 @@ it('pins the registry-driven route shapes', function () {
         expect($registry->get($key)->multiAccount())->toBeTrue($key);
     }
 
-    $multiFalse = ['pinterest', 'strava', 'opentable', 'resdiary', 'nowbookit'];
+    $multiFalse = ['strava', 'opentable', 'resdiary', 'nowbookit'];
     foreach ($multiFalse as $key) {
         expect($registry->get($key)->routeShape())->toBe(PlatformRouteShape::MultiAccount, $key);
         expect($registry->get($key)->multiAccount())->toBeFalse($key);

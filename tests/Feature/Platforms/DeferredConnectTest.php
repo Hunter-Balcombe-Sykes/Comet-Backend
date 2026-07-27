@@ -4,8 +4,8 @@ use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\OEmbedService;
-use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\StravaClubScraper;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -14,9 +14,8 @@ use Illuminate\Support\Str;
 // the rollout flag: config('partna.connect.deferred'), empty by default. Covers
 // the flag branch in ConnectResolver/GenericPlatformController::connect(), the
 // new GET .../connect/status poll endpoint, and the writeConnection() pending/
-// merge path W6 adds for pinterest/strava (the two deferred platforms whose
-// multiAccount() is false, so they never reached writeAccountConnection()'s W5
-// pending support).
+// merge path W6 adds for strava (the one deferred platform whose multiAccount()
+// is false, so it never reached writeAccountConnection()'s W5 pending support).
 
 beforeEach(function () {
     setupUsersTable();
@@ -64,16 +63,16 @@ it('DELIBERATELY VACUOUS — flag off leaves spotify connect byte-identical (rol
     expect($row->last_refresh_status)->toBe('ok');
 });
 
-it('DELIBERATELY VACUOUS — flag off leaves every one of the 8 deferred platforms strategy-driven, not queue-driven', function () {
+it('DELIBERATELY VACUOUS — flag off leaves every one of the 7 deferred platforms strategy-driven, not queue-driven', function () {
     // Confirms the claim in the W6 report: with the flag off, ConnectResolver's
-    // ->deferred is false for all 8 registered deferred platforms, so
+    // ->deferred is false for all 7 registered deferred platforms, so
     // GenericPlatformController::connect() never reaches connectDeferred() and
     // never touches the queue. Uses the real registry (not synthetic descriptors)
     // so a future accidental default flip anywhere in config wiring is caught.
     config(['partna.connect.deferred' => []]);
 
     $registry = app(PlatformRegistry::class);
-    foreach (['spotify', 'bandcamp', 'twitch', 'pinterest', 'strava', 'vimeo', 'youtube-music', 'youtube'] as $slug) {
+    foreach (['spotify', 'bandcamp', 'twitch', 'strava', 'vimeo', 'youtube-music', 'youtube'] as $slug) {
         $descriptor = $registry->get($slug);
         expect($descriptor->supportsDeferredConnect())->toBeTrue("expected {$slug} to support deferral");
         expect(in_array($slug, config('partna.connect.deferred'), true))->toBeFalse("expected {$slug} NOT active by default");
@@ -262,23 +261,22 @@ it('stale pending (worker vanished > 5 minutes ago) reports failed, not pending 
 
 // ── Single-selection deferred platforms (the W5 gap this unit closes) ──────
 
-it('flag on: pinterest (single-selection, multiAccount() false) takes the pending path and MERGES on reconnect', function () {
-    config(['partna.connect.deferred' => ['pinterest']]);
-    $user = dcUser('pinmerge1');
+it('flag on: strava (single-selection, multiAccount() false) takes the pending path and MERGES on reconnect', function () {
+    config(['partna.connect.deferred' => ['strava']]);
+    $user = dcUser('stravamerge1');
 
     // Seed an existing completed connection with fields identify() never derives.
     IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'pinterest',
-        'resource_id' => 'pinterest',
+        'platform' => 'strava',
+        'resource_id' => 'strava',
         'payload' => [
-            'url' => 'https://www.pinterest.com/validuser123/',
-            'username' => 'validuser123',
-            'name' => 'Old Name',
+            'url' => 'https://www.strava.com/clubs/oldclub',
+            'name' => 'Old Club',
+            'location' => 'Old City',
             'image' => 'https://old.example/avatar.jpg',
-            'followers' => 999,
-            'latest' => ['id' => 'pin-old'],
-            'items' => [['id' => 'pin-old']],
+            'description' => 'Old description',
+            'members' => 999,
         ],
         'is_active' => true,
         'last_refresh_status' => 'ok',
@@ -287,76 +285,73 @@ it('flag on: pinterest (single-selection, multiAccount() false) takes the pendin
 
     Queue::fake();
 
-    // No PinterestScraper mock needed: parseUsername() is pure (no network),
-    // and identify() never calls fetchProfile()/fetchPins() — that's the seam.
-    $response = actingAsUser($user)->postJson('/api/platforms/pinterest/connect', ['url' => 'validuser123'])
+    // No StravaClubScraper mock needed: normalizeUrl() is pure (no network),
+    // and identify() never calls fetchClub() — that's the seam.
+    $response = actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'newclub123'])
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
-        ->assertJsonPath('username', 'validuser123');
+        ->assertJsonPath('url', 'https://www.strava.com/clubs/newclub123');
 
-    // No 'id' — pinterest/strava's 200 shape never carried one either (see
+    // No 'id' — strava's 200 shape never carried one either (see
     // RegistryConnectCoverageTest / the plan §2e), so the 202 shape doesn't
     // invent one.
     expect($response->json())->not->toHaveKey('id');
-    expect($response->json('statusUrl'))->toBe(url('/api/platforms/pinterest/connect/status'));
+    expect($response->json('statusUrl'))->toBe(url('/api/platforms/strava/connect/status'));
 
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'pinterest')->first();
-    expect($row->resource_id)->toBe('pinterest'); // single default row, no acct- hash
+    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'strava')->first();
+    expect($row->resource_id)->toBe('strava'); // single default row, no acct- hash
     expect($row->last_refresh_status)->toBe('pending');
     expect($row->last_refreshed_at)->toBeNull();
 
-    // MERGE, not replace: identify()'s {url, username} landed, but the fields
-    // only resolve()/the job ever derive survive from the prior connection.
-    expect($row->payload['url'])->toBe('https://www.pinterest.com/validuser123/');
-    expect($row->payload['username'])->toBe('validuser123');
-    expect($row->payload['name'])->toBe('Old Name');
+    // MERGE, not replace: identify()'s {url} landed, but the fields only
+    // resolve()/the job ever derive survive from the prior connection.
+    expect($row->payload['url'])->toBe('https://www.strava.com/clubs/newclub123');
+    expect($row->payload['name'])->toBe('Old Club');
+    expect($row->payload['location'])->toBe('Old City');
     expect($row->payload['image'])->toBe('https://old.example/avatar.jpg');
-    expect($row->payload['followers'])->toBe(999);
-    expect($row->payload['latest'])->toBe(['id' => 'pin-old']);
-    expect($row->payload['items'])->toBe([['id' => 'pin-old']]);
+    expect($row->payload['description'])->toBe('Old description');
+    expect($row->payload['members'])->toBe(999);
 
-    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === $row->id && $job->platform === 'pinterest');
+    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === $row->id && $job->platform === 'strava');
 });
 
-it('flag on: pinterest connect on a brand-new user (nothing to merge onto) stores the partial payload as-is', function () {
-    config(['partna.connect.deferred' => ['pinterest']]);
-    $user = dcUser('pinnew1');
+it('flag on: strava connect on a brand-new user (nothing to merge onto) stores the partial payload as-is', function () {
+    config(['partna.connect.deferred' => ['strava']]);
+    $user = dcUser('stravanew1');
     Queue::fake();
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/connect', ['url' => 'brandnewuser'])
+    actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'brandnewclub'])
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
-        ->assertJsonPath('username', 'brandnewuser');
+        ->assertJsonPath('url', 'https://www.strava.com/clubs/brandnewclub');
 
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'pinterest')->first();
+    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'strava')->first();
     expect($row->payload)->toBe([
-        'url' => 'https://www.pinterest.com/brandnewuser/',
-        'username' => 'brandnewuser',
+        'url' => 'https://www.strava.com/clubs/brandnewclub',
     ]);
 });
 
-it('flag off: pinterest connect is unchanged — still a synchronous 200 with today\'s shape', function () {
-    // DELIBERATELY VACUOUS against current code (pinterest was never touched by
+it('flag off: strava connect is unchanged — still a synchronous 200 with today\'s shape', function () {
+    // DELIBERATELY VACUOUS against current code (strava was never touched by
     // W6's writeConnection($pending) change unless the flag names it) — the
     // rollout-safety counterpart to the spotify one above, for the single-
     // selection archetype specifically (the one W6 added NEW write-path code
     // for). Proves that new code path is unreachable at the default flag value.
     config(['partna.connect.deferred' => []]);
-    $user = dcUser('pinoff1');
+    $user = dcUser('stravaoff1');
 
-    $this->mock(PinterestScraper::class, function ($m) {
-        $m->shouldReceive('parseUsername')->andReturn('validuser123');
-        $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Pinner', 'image' => 'i', 'followers' => 10]);
-        $m->shouldReceive('fetchPins')->andReturn([]);
+    $this->mock(StravaClubScraper::class, function ($m) {
+        $m->shouldReceive('normalizeUrl')->andReturn('https://www.strava.com/clubs/validclub');
+        $m->shouldReceive('fetchClub')->andReturn(['name' => 'Valid Club', 'location' => null, 'image' => 'i', 'description' => null, 'members' => 10]);
     });
 
     Queue::fake();
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/connect', ['url' => 'validuser123'])
+    actingAsUser($user)->postJson('/api/platforms/strava/connect', ['url' => 'validclub'])
         ->assertOk()
-        ->assertJsonPath('name', 'Pinner');
+        ->assertJsonPath('name', 'Valid Club');
 
     Queue::assertNothingPushed();
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'pinterest')->first();
+    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'strava')->first();
     expect($row->last_refresh_status)->toBe('ok');
 });

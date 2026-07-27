@@ -1981,12 +1981,6 @@ parameters:
 			path: app/Policies/ServicePolicy.php
 
 		-
-			message: '#^Parameter \#1 \$array \(array\{''spotify'', ''soundcloud'', ''apple\-music'', ''apple\-podcast'', ''youtube\-music'', ''tidal'', ''mixcloud'', ''pinterest'', \.\.\.\}\) of array_values is already a list, call has no effect\.$#'
-			identifier: arrayValues.list
-			count: 1
-			path: app/Services/Accounts/LifestyleConnectionCleanup.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>visitors" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 4
@@ -2333,12 +2327,6 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/Notifications/NotificationPublisher.php
-
-		-
-			message: '#^Offset ''booking''\|''custom''\|''events''\|''linkedin''\|''online\-ordering''\|''pinterest''\|''reservations''\|''soundcloud''\|''spotify''\|''strava''\|''tiktok''\|''vimeo''\|''x''\|''youtube'' on array\{booking\: ''Booking'', reservations\: ''Reservations'', online\-ordering\: ''Online ordering'', events\: ''Event tickets'', linkedin\: ''LinkedIn'', pinterest\: ''Pinterest'', strava\: ''Strava'', spotify\: ''Spotify'', \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: app/Services/Onboarding/OnboardingSuggestions.php
 
 		-
 			message: '#^Offset ''status'' on array\{status\: int, body\: string, finalUrl\: string, contentType\: string\} on left side of \?\? always exists and is not nullable\.$#'

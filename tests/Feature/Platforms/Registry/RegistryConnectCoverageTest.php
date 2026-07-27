@@ -13,7 +13,6 @@ it('pins the descriptor-driven connect contract for every reducible platform', f
         'humanitix' => ['url', ['required', 'string', 'max:500'], [], false],
         'nowbookit' => ['url', ['required', 'string', 'max:2048'], [], false],
         'opentable' => ['url', ['required', 'string', 'max:2048'], [], false],
-        'pinterest' => ['url', ['required', 'string', 'max:200'], [], false],
         'resdiary' => ['url', ['required', 'string', 'max:2048'], [], false],
         'skool' => ['url', ['required', 'string', 'max:500'], [], false],
         'soundcloud' => ['url', ['required', 'string', 'max:500'], [], false],
@@ -61,7 +60,7 @@ it('pins deferredConnect() flag <=> DeferredConnect interface for every descript
     // vice versa), the flag<=>instanceof equality breaks.
     $registry = app(PlatformRegistry::class);
 
-    $deferredKeys = ['spotify', 'bandcamp', 'twitch', 'pinterest', 'strava', 'vimeo', 'youtube-music', 'youtube'];
+    $deferredKeys = ['spotify', 'bandcamp', 'twitch', 'strava', 'vimeo', 'youtube-music', 'youtube'];
 
     foreach ($registry->all() as $key => $descriptor) {
         $strategy = $descriptor->connectStrategy();

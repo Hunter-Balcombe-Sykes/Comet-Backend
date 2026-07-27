@@ -3,17 +3,17 @@
 use App\Services\PublicSite\Actions\ActionVocabulary;
 use Tests\TestCase;
 
-// Pins the fixed 26-action vocabulary (24 static ids + 2 dynamic families) —
+// Pins the fixed 25-action vocabulary (23 static ids + 2 dynamic families) —
 // LOCKSTEP with apps/pages test/actions-vocabulary.test.ts. Change both sides
 // together or the wire and the frontend resolver drift.
 uses(TestCase::class)->in(__FILE__);
 
-it('exposes exactly the 24 static ids in canonical order', function () {
+it('exposes exactly the 23 static ids in canonical order', function () {
     expect(ActionVocabulary::STATIC_IDS)->toBe([
         'reservations', 'shop', 'shop-tracks', 'events', 'booking-services', 'menu', 'contact',
         'spotify', 'soundcloud', 'apple-music', 'apple-podcasts', 'twitch',
         'instagram', 'facebook', 'linkedin', 'youtube', 'tiktok', 'x',
-        'snapchat', 'pinterest', 'threads', 'discord', 'reddit', 'telegram',
+        'snapchat', 'threads', 'discord', 'reddit', 'telegram',
     ]);
 });
 

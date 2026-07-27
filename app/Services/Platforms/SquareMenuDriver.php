@@ -95,6 +95,7 @@ class SquareMenuDriver implements MenuPlatformDriver
             if (is_numeric($clean)) {
                 return round((float) $clean, 2);
             }
+
             return null;
         }
         if (is_int($value)) {
@@ -103,6 +104,7 @@ class SquareMenuDriver implements MenuPlatformDriver
         if (is_float($value)) {
             return round($value, 2);
         }
+
         return null;
     }
 }

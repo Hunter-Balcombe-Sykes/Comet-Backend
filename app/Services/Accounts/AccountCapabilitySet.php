@@ -62,8 +62,8 @@ final readonly class AccountCapabilitySet
         // on the type directly (#30).
         public bool $can_use_multipage_site,
         // Standard (partna) accounts offer the lifestyle/creator content pages —
-        // Listen (music), Community (Strava/Skool), and the "Other" socials
-        // (Pinterest). Business Partna accounts don't: those integration groups
+        // Listen (music) and Community (Strava/Skool). Business Partna
+        // accounts don't: those integration groups
         // are hidden from their dashboard (Partna-Frontend
         // lib/integrations/platform-registry.ts → HIDDEN_GROUPS), so a business
         // account can't manage such a connection and shouldn't advertise the

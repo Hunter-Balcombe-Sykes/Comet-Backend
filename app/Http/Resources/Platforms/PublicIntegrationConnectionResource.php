@@ -147,7 +147,6 @@ class PublicIntegrationConnectionResource extends ApiResource
         // youtube-music: channelId (the re-fetch input) stays private.
         'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights'],
         'twitch' => ['url', 'login', 'name', 'image', 'description'],
-        'pinterest' => ['url', 'username', 'name', 'image', 'followers', 'latest', 'items'],
         'skool' => ['url', 'name', 'image', 'description'],
         'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
         // google-business: placeId / phoneIntl / priceLevel / priceRange /

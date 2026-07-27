@@ -85,7 +85,7 @@ class SitepageDataResolverService
         // Google Business feeds the Contact page.
         'google-business' => 'contact',
         // Standalone social pages.
-        'pinterest' => 'pinterest', 'strava' => 'strava', 'skool' => 'skool',
+        'strava' => 'strava', 'skool' => 'skool',
         // Custom links → the Links page. Link items are sourced from custom
         // connections, so a live custom connection means the Links page exists
         // (previously Links presence relied only on link Blocks, which missed
@@ -298,7 +298,7 @@ class SitepageDataResolverService
         }
 
         // Standard-gate: drop the lifestyle/creator pages (Listen / Strava /
-        // Skool / Pinterest) for accounts that don't offer them (Business
+        // Skool) for accounts that don't offer them (Business
         // Partna). Those integration groups are hidden from the business
         // dashboard, so such a connection can't be managed or removed there —
         // without this a stale, un-removable connection would advertise an

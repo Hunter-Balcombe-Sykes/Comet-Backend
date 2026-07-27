@@ -14,7 +14,6 @@ use App\Http\Resources\Platforms\LinkConnectionResource;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Http\Resources\Platforms\NowBookitConnectionResource;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
-use App\Http\Resources\Platforms\PinterestConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Http\Resources\Platforms\SkoolConnectionResource;
@@ -60,7 +59,6 @@ use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\Payloads\StandaloneEventPayload;
-use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -71,7 +69,6 @@ use App\Services\Platforms\SkoolScraper;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
-use App\Services\Platforms\Strategies\Connect\PinterestConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
@@ -92,7 +89,6 @@ use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
-use App\Services\Platforms\Strategies\Fetch\PinterestFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Platforms\Strategies\Fetch\SkoolFetch;
 use App\Services\Platforms\Strategies\Fetch\StravaFetch;
@@ -273,19 +269,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // DeferredConnect. Message copied verbatim from resolve()'s
             // fetch-stage failure.
             $r->get('twitch')->deferredConnect()->connectFetchError('Could not find that Twitch channel.');
-            $r->register(PD::make('pinterest')->label('Pinterest')->category(Cat::Content)->resource(PinterestConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b / Task 7). Consumed by Plan 6's registry-driven refresher.
-            $r->get('pinterest')->fetch(fn () => new PinterestFetch(
-                app(PinterestScraper::class),
-            ));
-            // Connect strategy (FOUND-24) — parse-fail message is the frozen 422
-            // contract, copied verbatim from the deleted PinterestController.
-            $r->get('pinterest')->connect(fn () => new PinterestConnect(app(PinterestScraper::class)), 'Enter your Pinterest profile (pinterest.com/yourname).');
-            // Deferred-connect seam (Phase 2, W4) — PinterestConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('pinterest')->deferredConnect()->connectFetchError('Could not find that Pinterest profile.');
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -523,7 +506,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('pinterest')->connectInput('url', ['required', 'string', 'max:200']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('skool')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('soundcloud')->connectInput('url', ['required', 'string', 'max:500']);
@@ -621,7 +603,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
             // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/twitch/youtube/pinterest/strava/nowbookit/resdiary/
+            // spotify/soundcloud/twitch/youtube/strava/nowbookit/resdiary/
             // opentable are now fully registry-driven (FOUND-24) — null controller routes
             // connect through GenericPlatformController + the descriptor's ConnectStrategy
             // (registered above). Strava is the one platform whose READS also moved here
@@ -639,7 +621,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('vimeo')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('bandcamp')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('pinterest')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('strava')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);

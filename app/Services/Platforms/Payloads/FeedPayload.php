@@ -2,8 +2,8 @@
 
 namespace App\Services\Platforms\Payloads;
 
-// Typed boundary for the scraped/API-feed archetype — ONE DTO spanning the 9 feed
-// platforms (youtube, youtube-music, vimeo, bandcamp, twitch, pinterest, apple-music,
+// Typed boundary for the scraped/API-feed archetype — ONE DTO spanning the 8 feed
+// platforms (youtube, youtube-music, vimeo, bandcamp, twitch, apple-music,
 // apple-podcast, strava). Each platform stores a SUBSET of these keys; this is their union.
 // `channelId` (YouTube Music) and `apiPath` (Vimeo) are private re-fetch inputs the
 // resources never emit — carried so the fetch strategies + Plan 6's refresher read

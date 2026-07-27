@@ -490,8 +490,8 @@ class PlatformDescriptor
     /**
      * Resolve the strategy ConnectFetchJob should run for a fresh connect.
      * Defaults to fetchStrategy() when no connectFetch() was registered — this
-     * is what keeps the eight already-armed deferred platforms (spotify,
-     * bandcamp, twitch, pinterest, strava, vimeo, youtube-music, youtube)
+     * is what keeps the seven already-armed deferred platforms (spotify,
+     * bandcamp, twitch, strava, vimeo, youtube-music, youtube)
      * resolving byte-identically to today; only a descriptor that calls
      * connectFetch() (Fresha) diverges.
      */

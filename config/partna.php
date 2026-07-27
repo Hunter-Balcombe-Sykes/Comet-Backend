@@ -173,7 +173,6 @@ return [
         'spotify',
         'soundcloud',
         'snapchat',
-        'pinterest',
         'threads',
         'discord',
         'reddit',
@@ -479,17 +478,6 @@ return [
             'url_template' => 'https://snapchat.com/add/{handle}',
             'host_allowlist' => ['snapchat.com', 'www.snapchat.com'],
             'url_path_extractor' => '#^/add/([a-zA-Z0-9._-]{3,15})/?$#',
-            'default_category' => 'social',
-            'handle_location' => 'path',
-        ],
-        'pinterest' => [
-            'display_name' => 'Pinterest',
-            'icon_key' => 'pinterest',
-            'placeholder' => 'yourname',
-            'handle_pattern' => '/^[a-zA-Z0-9_-]{3,30}$/',
-            'url_template' => 'https://pinterest.com/{handle}',
-            'host_allowlist' => ['pinterest.com', 'www.pinterest.com'],
-            'url_path_extractor' => '#^/([a-zA-Z0-9_-]{3,30})/?$#',
             'default_category' => 'social',
             'handle_location' => 'path',
         ],
@@ -897,7 +885,6 @@ return [
             'tiktok' => 0.05,
             'x' => 0.05,
             'snapchat' => 0.05,
-            'pinterest' => 0.05,
             'threads' => 0.05,
             'discord' => 0.05,
             'reddit' => 0.05,
@@ -2200,7 +2187,7 @@ return [
         ],
 
         // Page-id → display label for the "page views" metric + insight headlines.
-        // Keyed by the 16 canonical page-ids (App\Enums\SitepageId) that
+        // Keyed by the 15 canonical page-ids (App\Enums\SitepageId) that
         // section_keys fold into via SitepageId::SECTION_KEY_TO_PAGE — the
         // page-model successor to section_titles above (stored section_keys are
         // immutable; folding + relabelling happens at the query layer only).
@@ -2210,7 +2197,7 @@ return [
             'home' => 'Home', 'listen' => 'Listen', 'watch' => 'Watch', 'shop' => 'Shop',
             'menu' => 'Menu', 'book' => 'Book', 'reservations' => 'Reservations',
             'events' => 'Events', 'gallery' => 'Gallery', 'reviews' => 'Reviews',
-            'documents' => 'Documents', 'contact' => 'Contact', 'pinterest' => 'Pinterest',
+            'documents' => 'Documents', 'contact' => 'Contact',
             'strava' => 'Strava', 'skool' => 'Skool', 'links' => 'Links',
         ],
     ],

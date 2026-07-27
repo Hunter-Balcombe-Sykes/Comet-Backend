@@ -2,12 +2,10 @@
 
 use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\OEmbedService;
-use App\Services\Platforms\PinterestScraper;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
-use App\Services\Platforms\Strategies\Connect\PinterestConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
@@ -111,29 +109,6 @@ it('twitch: identify() and resolve() select the same identity key on success, an
     expect($identify->selection['login'])->toBe($resolve->selection['login']);
 
     // Too short for TwitchScraper::parseLogin's {3,25} pattern.
-    $badIdentify = $strategy->identify('ab');
-    $badResolve = $strategy->resolve('ab');
-    expect($badIdentify->error)->toBe($badResolve->error)->toBeNull();
-    expect($badIdentify->status)->toBe($badResolve->status)->toBe(422);
-});
-
-it('pinterest: identify() and resolve() select the same identity key on success, and share the parse-fail shape', function () {
-    $this->partialMock(PinterestScraper::class, function ($m) {
-        $m->shouldReceive('fetchProfile')->andReturn(['name' => 'Pinner', 'image' => 'i', 'followers' => 10]);
-        $m->shouldReceive('fetchPins')->andReturn([]);
-    });
-
-    $strategy = app(PinterestConnect::class);
-    $identify = $strategy->identify('validuser123');
-    $resolve = $strategy->resolve('validuser123');
-
-    expect($identify->failed())->toBeFalse();
-    expect($resolve->failed())->toBeFalse();
-    // PinterestFetch reads username.
-    expect($identify->selection['username'])->toBe('validuser123');
-    expect($identify->selection['username'])->toBe($resolve->selection['username']);
-
-    // Too short for PinterestScraper::parseUsername's {3,30} pattern.
     $badIdentify = $strategy->identify('ab');
     $badResolve = $strategy->resolve('ab');
     expect($badIdentify->error)->toBe($badResolve->error)->toBeNull();

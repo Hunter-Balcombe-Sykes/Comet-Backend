@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
 // CA-W4 — wires DefersBespokeConnect (CA-W2, commit 904d51c7) onto Skool, the
 // second bespoke consumer after Apple (CA-W3). Skool is single-selection (one
 // row per user, no ?account=), so its 202/poll shapes carry no `id` — the
-// pinterest/strava idiom in DeferredConnectTest.php, not Apple's.
+// strava idiom in DeferredConnectTest.php, not Apple's.
 //
 // Per ConnectFetchJob's own docblock: never rely on the sync queue driver to
 // prove pending/queued behaviour — on sync, a poll immediately after connect

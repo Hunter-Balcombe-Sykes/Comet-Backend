@@ -52,7 +52,6 @@ class AnalyticsQueryService
         'X (Twitter)' => "COALESCE(utm_source,'') ILIKE 'twitter%' OR COALESCE(utm_source,'') ILIKE 'x%' OR COALESCE(referrer,'') ILIKE '%twitter.com%' OR COALESCE(referrer,'') ILIKE '%t.co%' OR COALESCE(referrer,'') ILIKE '%x.com%'",
         'LinkedIn' => "COALESCE(utm_source,'') ILIKE 'linkedin%' OR COALESCE(referrer,'') ILIKE '%linkedin.com%'",
         'Snapchat' => "COALESCE(utm_source,'') ILIKE 'snapchat%' OR COALESCE(referrer,'') ILIKE '%snapchat.com%' OR COALESCE(referrer,'') ILIKE '%sc.link%'",
-        'Pinterest' => "COALESCE(utm_source,'') ILIKE 'pinterest%' OR COALESCE(referrer,'') ILIKE '%pinterest.%'",
         'Reddit' => "COALESCE(utm_source,'') ILIKE 'reddit%' OR COALESCE(referrer,'') ILIKE '%reddit.com%'",
         'Organic (Google)' => "COALESCE(utm_source,'') ILIKE 'google%' OR COALESCE(referrer,'') ILIKE '%google.%'",
         'Organic (Bing)' => "COALESCE(utm_source,'') ILIKE 'bing%' OR COALESCE(referrer,'') ILIKE '%bing.com%'",
@@ -70,7 +69,7 @@ class AnalyticsQueryService
     private const REFERRER_LABELS = [
         'Organic (Google)', 'Organic (Bing)', 'Organic (DuckDuckGo)', 'Organic (Yahoo)',
         'Instagram', 'Facebook', 'TikTok', 'YouTube', 'X (Twitter)', 'LinkedIn',
-        'Snapchat', 'Pinterest', 'Reddit', 'Direct Link', 'Other',
+        'Snapchat', 'Reddit', 'Direct Link', 'Other',
     ];
 
     /**

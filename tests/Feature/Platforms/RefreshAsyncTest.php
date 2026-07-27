@@ -33,7 +33,7 @@ function refreshAsyncUser(string $handle): User
 }
 
 /** @return array{0: User, 1: IntegrationConnection} */
-function refreshAsyncConnectedUser(string $handle, string $platform = 'pinterest', bool $active = true): array
+function refreshAsyncConnectedUser(string $handle, string $platform = 'strava', bool $active = true): array
 {
     $user = refreshAsyncUser($handle);
     $connection = IntegrationConnection::create([
@@ -54,7 +54,7 @@ it('returns 202 with status/refreshed/statusUrl and omits ok', function () {
     Queue::fake();
     [$user] = refreshAsyncConnectedUser('rv8shape');
 
-    $response = actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    $response = actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('refreshed', 1)
@@ -68,22 +68,22 @@ it('dispatches one manual RefreshConnectionJob per active row', function () {
     Queue::fake();
     $user = refreshAsyncUser('rv8multi');
     $a = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-a',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-a',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $b = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-b',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-b',
         'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('refreshed', 2);
 
     Queue::assertPushed(RefreshConnectionJob::class, 2);
     foreach ([$a, $b] as $row) {
         Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $row->id
-            && $job->platform === 'pinterest'
+            && $job->platform === 'strava'
             && $job->manual === true);
     }
 });
@@ -92,15 +92,15 @@ it('excludes inactive rows from both the count and the dispatch', function () {
     Queue::fake();
     $user = refreshAsyncUser('rv8inactive');
     $active = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-active',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-active',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     $inactive = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-inactive',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-inactive',
         'payload' => ['username' => 'b'], 'is_active' => false, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('refreshed', 1);
 
@@ -126,7 +126,7 @@ it('actually runs the refresh after the controller marks the row pending — the
         ->andReturn($connection);
     app()->instance(PlatformRefresher::class, $refresher);
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(202);
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')->assertStatus(202);
 });
 
 it('stamps the row pending quietly — no model observer event, no cache purge', function () {
@@ -138,7 +138,7 @@ it('stamps the row pending quietly — no model observer event, no cache purge',
         $observerFired = true;
     });
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(202);
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')->assertStatus(202);
 
     expect($observerFired)->toBeFalse();
     Queue::assertNotPushed(CloudflareCachePurgeJob::class);
@@ -149,7 +149,7 @@ it('never queues another user\'s connection for the same platform', function () 
     [$owner, $ownerRow] = refreshAsyncConnectedUser('rv8own');
     [, $otherRow] = refreshAsyncConnectedUser('rv8other');
 
-    actingAsUser($owner)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($owner)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('refreshed', 1);
 
@@ -161,8 +161,8 @@ it('429 cooldown still fires on a rapid second POST after the queue swap', funct
     Queue::fake();
     [$user] = refreshAsyncConnectedUser('rv8cooldown');
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(202);
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')->assertStatus(429);
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')->assertStatus(202);
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')->assertStatus(429);
 });
 
 // W6-1: RefreshController::refresh() used to select every active row
@@ -174,15 +174,15 @@ it('excludes an already-pending row from both the count and the dispatch', funct
     Queue::fake();
     $user = refreshAsyncUser('rv8alreadypending');
     $pending = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-pending',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-pending',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'pending',
     ]);
     $ok = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-ok',
         'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('refreshed', 1);
 
@@ -198,15 +198,15 @@ it('still selects a NULL-status row and an "ok" row for manual refresh', functio
     Queue::fake();
     $user = refreshAsyncUser('rv8nullstatus');
     $nullStatus = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-null',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-null',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => null,
     ]);
     $ok = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-ok',
         'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('refreshed', 2);
 
@@ -221,17 +221,17 @@ it('still selects a NULL-status row and an "ok" row for manual refresh', functio
 it('polls pending while a row is still pending, then ready once all rows read ok', function () {
     $user = refreshAsyncUser('rv8pending');
     $connection = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'pending',
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($user)->getJson('/api/platforms/strava/refresh/status')
         ->assertOk()
         ->assertExactJson(['status' => 'pending']);
 
     $connection->updateQuietly(['last_refresh_status' => 'ok']);
 
-    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($user)->getJson('/api/platforms/strava/refresh/status')
         ->assertOk()
         ->assertJsonPath('status', 'ready')
         ->assertJsonPath('refreshed', 1)
@@ -241,11 +241,11 @@ it('polls pending while a row is still pending, then ready once all rows read ok
 it('polls failed when no row ends ok', function () {
     $user = refreshAsyncUser('rv8failed');
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'error',
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($user)->getJson('/api/platforms/strava/refresh/status')
         ->assertOk()
         ->assertJsonPath('status', 'failed')
         ->assertJsonPath('refreshed', 1)
@@ -259,19 +259,19 @@ it('polls failed when no row ends ok', function () {
 it('polls ready when a mixed ok+failed batch has at least one ok row', function () {
     $user = refreshAsyncUser('rv8mixed');
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-ok',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-ok',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-error-1',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-error-1',
         'payload' => ['username' => 'b'], 'is_active' => true, 'last_refresh_status' => 'error',
     ]);
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest-error-2',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava-error-2',
         'payload' => ['username' => 'c'], 'is_active' => true, 'last_refresh_status' => 'error',
     ]);
 
-    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($user)->getJson('/api/platforms/strava/refresh/status')
         ->assertOk()
         ->assertJsonPath('status', 'ready')
         ->assertJsonPath('refreshed', 3)
@@ -281,13 +281,13 @@ it('polls ready when a mixed ok+failed batch has at least one ok row', function 
 it('resolves a stale pending row (6 minutes old) to failed via the escape hatch', function () {
     $user = refreshAsyncUser('rv8stale');
     IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest',
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava',
         'payload' => ['username' => 'a'], 'is_active' => true, 'last_refresh_status' => 'pending',
     ]);
 
     $this->travel(6)->minutes();
 
-    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($user)->getJson('/api/platforms/strava/refresh/status')
         ->assertOk()
         ->assertJsonPath('status', 'failed')
         ->assertJsonPath('refreshed', 1)
@@ -297,7 +297,7 @@ it('resolves a stale pending row (6 minutes old) to failed via the escape hatch'
 it('404s the poll endpoint when the caller has no active row for that platform', function () {
     $user = refreshAsyncUser('rv8pollnone');
 
-    actingAsUser($user)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($user)->getJson('/api/platforms/strava/refresh/status')
         ->assertStatus(404)
         ->assertJsonPath('message', 'Nothing connected to refresh.');
 });
@@ -306,7 +306,7 @@ it('never resolves another user\'s row when polling status', function () {
     [, $otherRow] = refreshAsyncConnectedUser('rv8pollother');
     $caller = refreshAsyncUser('rv8pollcaller');
 
-    actingAsUser($caller)->getJson('/api/platforms/pinterest/refresh/status')
+    actingAsUser($caller)->getJson('/api/platforms/strava/refresh/status')
         ->assertStatus(404);
 });
 
@@ -333,7 +333,7 @@ it('resolves a stranded pending row to a terminal status when the refresher thro
     // this exercises the exact seam production hits, not a simulated call to
     // failed().
     try {
-        RefreshConnectionJob::dispatch($connection->id, 'pinterest', manual: true);
+        RefreshConnectionJob::dispatch($connection->id, 'strava', manual: true);
         $this->fail('Expected the uncaught exception to propagate.');
     } catch (RuntimeException $e) {
         expect($e->getMessage())->toBe('unexpected fetch failure — not a Fetch*Exception');
@@ -346,7 +346,7 @@ it('resolves a stranded pending row to a terminal status when the refresher thro
     // ONLY 'pending' rows, so this now-'error' row is selectable again.
     app()->forgetInstance(PlatformRefresher::class);
     Queue::fake();
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('refreshed', 1);
     Queue::assertPushed(RefreshConnectionJob::class, fn (RefreshConnectionJob $job) => $job->connectionId === $connection->id);

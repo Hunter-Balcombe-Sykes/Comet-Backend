@@ -587,8 +587,8 @@ it('an available platform (no rule, or an explicit allow) is unaffected by the w
 // This job resolves its work via connectFetchStrategy(), not fetchStrategy()
 // directly — the one line this unit changed. connectFetchStrategy() defaults
 // to fetchStrategy() for every descriptor that hasn't called connectFetch(),
-// so this is the single assertion protecting the eight already-armed deferred
-// platforms (spotify, bandcamp, twitch, pinterest, strava, vimeo,
+// so this is the single assertion protecting the seven already-armed deferred
+// platforms (spotify, bandcamp, twitch, strava, vimeo,
 // youtube-music, youtube) from that shared-infra change.
 
 it('connectFetchStrategy() falls back to fetchStrategy() for every descriptor except fresha, which overrides it', function () {

@@ -142,7 +142,7 @@ class GenericPlatformController extends ApiController
      * Mirrors connect()'s own multiAccount()/single-selection split: the
      * account-row write (writeAccountConnection) for the six multi-account
      * deferred platforms, the single default-resource write (writeConnection,
-     * extended in W6 with its own $pending/merge support) for pinterest/strava.
+     * extended in W6 with its own $pending/merge support) for strava.
      */
     // PWL-2: wrapped for the same reason as connect() above — the pending row
     // this writes is exactly what ConnectFetchJob's own locked write completes.
@@ -199,7 +199,7 @@ class GenericPlatformController extends ApiController
         $body = ['status' => 'pending'];
         // 'id' mirrors the 200 shape's own asymmetry (present on multi-account
         // platforms only — see the non-deferred branch above, which likewise
-        // omits it for pinterest/strava).
+        // omits it for strava).
         if ($descriptor->multiAccount()) {
             $body['id'] = $row->resource_id;
             $statusUrl .= '?account='.$row->resource_id;
@@ -219,7 +219,7 @@ class GenericPlatformController extends ApiController
     // endpoint for a deferred connect (Unit 11 W6). Only registered (see
     // routes/api/platforms.php) for descriptors where supportsDeferredConnect()
     // is true; `account` is the `id` the 202 body returned — omit it for
-    // pinterest/strava (single-selection; requestedAccountRow() falls back to
+    // strava (single-selection; requestedAccountRow() falls back to
     // the platform's one row). 404, never 403, for a resource that doesn't
     // exist or isn't the caller's: requestedAccountRow() is already scoped to
     // $user->integrationConnections(), so another user's row is never visible

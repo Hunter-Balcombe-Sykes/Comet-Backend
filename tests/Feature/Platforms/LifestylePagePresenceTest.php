@@ -1,7 +1,7 @@
 <?php
 
 // Business Partna accounts don't offer the lifestyle/creator pages (Listen /
-// Strava / Skool / Pinterest) — those integration groups are hidden from the
+// Strava / Skool) — those integration groups are hidden from the
 // business dashboard (Partna-Frontend HIDDEN_GROUPS), so such a connection
 // can't be managed there. Without the standard-gate in presentPageIds, a
 // business account with a stale/orphaned listen (etc.) connection would still
@@ -67,28 +67,24 @@ it('keeps Listen present for a standard account with the same music connection',
     expect(lppPresentPages($pro))->toContain('listen');
 });
 
-it('drops Strava, Skool and Pinterest from presence for a business account', function () {
+it('drops Strava and Skool from presence for a business account', function () {
     $pro = lppTenant('lpp-biz-lifestyle', 'business');
     lppConnection($pro->id, 'strava', ['name' => 'A Club']);
     lppConnection($pro->id, 'skool', ['name' => 'A Community']);
-    lppConnection($pro->id, 'pinterest', ['username' => 'someone']);
 
     $pages = lppPresentPages($pro);
     expect($pages)->not->toContain('strava')
-        ->and($pages)->not->toContain('skool')
-        ->and($pages)->not->toContain('pinterest');
+        ->and($pages)->not->toContain('skool');
 });
 
-it('keeps Strava, Skool and Pinterest present for a standard account', function () {
+it('keeps Strava and Skool present for a standard account', function () {
     $pro = lppTenant('lpp-partna-lifestyle', 'partna');
     lppConnection($pro->id, 'strava', ['name' => 'A Club']);
     lppConnection($pro->id, 'skool', ['name' => 'A Community']);
-    lppConnection($pro->id, 'pinterest', ['username' => 'someone']);
 
     $pages = lppPresentPages($pro);
     expect($pages)->toContain('strava')
-        ->and($pages)->toContain('skool')
-        ->and($pages)->toContain('pinterest');
+        ->and($pages)->toContain('skool');
 });
 
 it('still keeps Watch present for a business account (not a lifestyle-gated page)', function () {

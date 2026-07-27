@@ -111,7 +111,6 @@ it('classifies each known social host to its platform + label', function (string
     ['https://x.com/acme', 'x', 'X'],
     ['https://www.linkedin.com/in/acme', 'linkedin', 'LinkedIn'],
     ['https://www.youtube.com/@acme', 'youtube', 'YouTube'],
-    ['https://www.pinterest.com/acme', 'pinterest', 'Pinterest'],
 ]);
 
 it('classifies booking hosts to their specific provider platform', function (string $url, string $platform, string $label) {

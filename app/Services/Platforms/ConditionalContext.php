@@ -38,7 +38,6 @@ use App\Models\Core\Site\IntegrationConnection;
 //     (the organiser/account path is multi-URL via fetchMany — NOT a candidate)
 //   • YoutubeFetch  — needs channelId cached first (today it resolves handle→id via
 //     a prior channel-page GET, making it a 2-call fetch)
-//   • PinterestFetch — its feed.rss GET is ideal but is paired with a profile GET
 // NOT candidates: iTunes (already app-cached, Plan 4), Google Places (billed, raw
 // Http::, 6-day gated), the menu (Apify actor — no HTTP validator; #CACHE-1 stays
 // Bundle C), and any strategy whose payload needs >1 upstream call.

@@ -90,7 +90,7 @@ it('rejects refreshing a platform that has nothing to pull', function () {
 });
 
 it('404s when nothing is connected to refresh', function () {
-    actingAsUser(dv2User('refn'))->postJson('/api/platforms/pinterest/refresh')->assertStatus(404);
+    actingAsUser(dv2User('refn'))->postJson('/api/platforms/strava/refresh')->assertStatus(404);
 });
 
 it('refreshes a connected platform then cools down', function () {
@@ -98,11 +98,11 @@ it('refreshes a connected platform then cools down', function () {
 
     $user = dv2User('refp');
     $connection = IntegrationConnection::create([
-        'user_id' => $user->id, 'platform' => 'pinterest', 'resource_id' => 'pinterest',
-        'payload' => ['username' => 'someone'], 'is_active' => true,
+        'user_id' => $user->id, 'platform' => 'strava', 'resource_id' => 'strava',
+        'payload' => ['name' => 'A Club'], 'is_active' => true,
     ]);
 
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('refreshed', 1)
@@ -110,12 +110,12 @@ it('refreshes a connected platform then cools down', function () {
 
     Queue::assertPushed(RefreshConnectionJob::class, function (RefreshConnectionJob $job) use ($connection) {
         return $job->connectionId === $connection->id
-            && $job->platform === 'pinterest'
+            && $job->platform === 'strava'
             && $job->manual === true;
     });
 
     // Immediate second hit is rate-limited by the per-user+platform cooldown.
-    actingAsUser($user)->postJson('/api/platforms/pinterest/refresh')
+    actingAsUser($user)->postJson('/api/platforms/strava/refresh')
         ->assertStatus(429);
 });
 

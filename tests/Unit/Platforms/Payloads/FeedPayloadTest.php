@@ -3,7 +3,7 @@
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\BandcampConnectionResource;
-use App\Http\Resources\Platforms\PinterestConnectionResource;
+use App\Http\Resources\Platforms\StravaConnectionResource;
 use App\Http\Resources\Platforms\TwitchConnectionResource;
 use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
@@ -85,9 +85,9 @@ dataset('feed_payloads', [
     'twitch' => [TwitchConnectionResource::class, [
         'url' => 'https://www.twitch.tv/x', 'login' => 'x', 'name' => 'X', 'image' => 'i', 'description' => 'bio',
     ]],
-    'pinterest' => [PinterestConnectionResource::class, [
-        'url' => 'https://www.pinterest.com/x/', 'username' => 'x', 'name' => 'X', 'image' => 'i',
-        'followers' => 4200, 'latest' => ['id' => 1], 'items' => [['id' => 1]],
+    'strava' => [StravaConnectionResource::class, [
+        'url' => 'https://www.strava.com/clubs/x', 'name' => 'X', 'location' => 'Melbourne, Australia',
+        'image' => 'i', 'description' => 'd', 'members' => 4200,
     ]],
     'apple-music' => [AppleMusicConnectionResource::class, [
         'input' => 'in', 'name' => 'Album', 'thumbnail' => 't', 'releaseDate' => '2026-01-01', 'link' => 'l',

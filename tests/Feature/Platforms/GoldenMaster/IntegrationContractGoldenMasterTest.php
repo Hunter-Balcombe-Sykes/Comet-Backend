@@ -370,33 +370,30 @@ it('freezes the twitch accounts list contract', function () {
     expect($accounts[0]['login'])->toBe('streamer');
 });
 
-// Pinterest is a single-account feed platform (no /accounts). After the Task 7
-// migration to $migratedReads (multi=false), selection is served by
-// GenericPlatformController via FeedPayload → PinterestConnectionResource.
-it('freezes the pinterest selection contract', function () {
-    $user = gmUser('gmpisel');
-    $pin = ['itemId' => 'p1', 'thumbnail' => 'https://i.pinimg.com/564x/p1.jpg', 'link' => 'https://www.pinterest.com/pin/1/', 'name' => 'Pin One', 'date' => '2026-03-03T00:00:00+00:00'];
-    gmSeed($user, 'pinterest', [
-        'url' => 'https://www.pinterest.com/pinner/',
-        'username' => 'pinner',
-        'name' => 'Pinner',
-        'image' => 'https://i.pinimg.com/avatars/p.jpg',
-        'followers' => 500,
-        'latest' => $pin,
-        'items' => [$pin],
+// Strava is a single-account feed platform (no /accounts) — multiAccount()
+// false, selection served by GenericPlatformController via FeedPayload →
+// StravaConnectionResource.
+it('freezes the strava selection contract', function () {
+    $user = gmUser('gmstsel');
+    gmSeed($user, 'strava', [
+        'url' => 'https://www.strava.com/clubs/myclub',
+        'name' => 'My Club',
+        'location' => 'San Francisco, California',
+        'image' => 'https://example.com/avatar.jpg',
+        'description' => 'A running club.',
+        'members' => 500,
         '_leak' => 'must-not-appear',
     ]);
 
-    $sel = actingAsUser($user)->getJson('/api/platforms/pinterest/selection')->assertOk()->json('selection');
+    $sel = actingAsUser($user)->getJson('/api/platforms/strava/selection')->assertOk()->json('selection');
 
     expect($sel)->toEqual([
-        'url' => 'https://www.pinterest.com/pinner/',
-        'username' => 'pinner',
-        'name' => 'Pinner',
-        'image' => 'https://i.pinimg.com/avatars/p.jpg',
-        'followers' => 500,
-        'latest' => $pin,
-        'items' => [$pin],
+        'url' => 'https://www.strava.com/clubs/myclub',
+        'name' => 'My Club',
+        'location' => 'San Francisco, California',
+        'image' => 'https://example.com/avatar.jpg',
+        'description' => 'A running club.',
+        'members' => 500,
     ]);
     expect($sel)->not->toHaveKey('_leak');
 });
@@ -602,7 +599,9 @@ it('covers every integration GET read-route in the golden master', function () {
     // (capability, not activation). Does NOT touch the settled-brand shape test
     // above ("freezes the shop brands list contract"), which stays unmodified —
     // this is purely a new route appearing in the enumeration. 78 -> 80.
-    expect($readRoutes->count())->toBe(80);
+    // 2026-07-28: Pinterest platform decommissioned — its 2 routes
+    // (.../connect/status + .../selection) are gone entirely, not migrated. 80 -> 78.
+    expect($readRoutes->count())->toBe(78);
     expect($readRoutes->all())->toEqual([
         'api/platforms/apple/music/accounts',
         'api/platforms/apple/music/connect/status',
@@ -641,8 +640,6 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/online-ordering/entries',
         'api/platforms/online-ordering/entries/{id}/status',
         'api/platforms/opentable/selection',
-        'api/platforms/pinterest/connect/status',
-        'api/platforms/pinterest/selection',
         'api/platforms/reddit/selection',
         'api/platforms/resdiary/selection',
         'api/platforms/reservations/detect/status',
