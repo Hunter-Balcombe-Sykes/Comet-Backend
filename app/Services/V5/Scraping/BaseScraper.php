@@ -366,6 +366,7 @@ abstract class BaseScraper
         ];
         if ($thumbnail !== null) {
             $values[] = ['field_name' => 'thumbnail', 'value' => $thumbnail, 'format' => 'image'];
+            $values[] = ['field_name' => 'thumbnail_url', 'value' => $thumbnail, 'format' => 'image'];
         }
 
         return [

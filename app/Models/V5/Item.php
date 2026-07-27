@@ -16,12 +16,15 @@ class Item extends BaseModel
     protected $table = 'v5.items';
 
     protected $fillable = [
-        'user_id', 'identifier', 'name', 'item_type', 'is_selected',
+        'user_id', 'identifier', 'name', 'item_type', 'is_selected', 'resolved_values',
     ];
 
     protected function casts(): array
     {
-        return ['is_selected' => 'boolean'];
+        return [
+            'is_selected' => 'boolean',
+            'resolved_values' => 'array',
+        ];
     }
 
     public function pools(): BelongsToMany

@@ -75,14 +75,32 @@ class InstagramScraper extends ApifyBase
 
         $values = [];
 
-        $url = $raw['url'] ?? $raw['display_url'] ?? $raw['displayUrl'] ?? '';
+        // Main display URL — covers display_url, displayUrl, display_src, displaySrc
+        $url = $raw['url'] ?? $raw['display_url'] ?? $raw['displayUrl']
+            ?? $raw['display_src'] ?? $raw['displaySrc'] ?? '';
         if ($url !== '') {
             $values[] = ['field_name' => 'url', 'value' => $url, 'format' => 'url'];
+            // Also store as 'image' so the frontend can display it
+            $values[] = ['field_name' => 'image', 'value' => $url, 'format' => 'image'];
         }
 
-        $thumbnail = $raw['thumbnail_src'] ?? $raw['thumbnailSrc'] ?? '';
+        // Thumbnail — covers thumbnail_src, thumbnailSrc, thumbnail_url, thumbnailUrl
+        $thumbnail = $raw['thumbnail_src'] ?? $raw['thumbnailSrc']
+            ?? $raw['thumbnail_url'] ?? $raw['thumbnailUrl'] ?? '';
+        if ($thumbnail === '' && $url !== '') {
+            $thumbnail = $url; // fallback: use display URL as thumbnail
+        }
         if ($thumbnail !== '') {
-            $values[] = ['field_name' => 'thumbnail', 'value' => $thumbnail, 'format' => 'url'];
+            $values[] = ['field_name' => 'thumbnail', 'value' => $thumbnail, 'format' => 'image'];
+            $values[] = ['field_name' => 'thumbnail_url', 'value' => $thumbnail, 'format' => 'image'];
+        }
+
+        // Video URL for video posts
+        if ($isVideo) {
+            $videoUrl = $raw['video_url'] ?? $raw['videoUrl'] ?? '';
+            if ($videoUrl !== '') {
+                $values[] = ['field_name' => 'video_url', 'value' => $videoUrl, 'format' => 'url'];
+            }
         }
 
         if (is_string($caption) && $caption !== '') {
