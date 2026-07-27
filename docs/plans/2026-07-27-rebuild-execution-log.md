@@ -82,3 +82,24 @@ Companion to `2026-07-27-content-platform-rebuild.md`. One entry per phase; upda
 ## Frontend (P6 groundwork)
 
 `lib/catalog.ts` reads `GET /catalog/surfaces` instead of mirroring the backend registry in 565 hand-maintained lines. Module-level cache is safe because the ETag is the artefact digest — the payload can only change on deploy. `legacyPlatform` is carried so the old mirror can be deleted screen by screen rather than in one flag day.
+
+## Going live (2026-07-28)
+
+**The showcase accounts were not reachable, then were blank.** Two separate faults, both only findable from outside the code:
+
+1. `showcase-creator` and `showcase-eats` were published in the database but had no Cloudflare KV entry, so `<handle>.partna.au` 404'd. Dev and prod share one KV namespace (`ollies` was present, the showcase pair was not), so `partna:backfill-subdomain-kv` was all that was needed. Both now serve 200.
+2. Once reachable, every platform page rendered the bare home shell with zero outbound links. The connections were real, active and correctly routed — but the public wire served `"payload":[]` for all 20 of them. `PublicIntegrationConnectionResource` filters payload through a per-platform allowlist (socials expect `{username,url}`), and the showcase seeder wrote only `{source:'showcase'}`, so filtering left nothing. The sitepage reads `payload.url`, and Instagram reads `payload.username` exclusively, so an empty payload renders an empty page.
+
+The seeder was the immediate cause, but `SourceReconciler` had the same bug latent: it wrote `url` and never `username`, so a genuinely routed Instagram connection would also have rendered blank. Both writers now go through `App\Routing\ConnectionPayload`, which also refuses to publish composite (`artist/4gzp…`) or opaque (`1419227`) identifiers as a username. **This survived 5,969 passing tests because nothing asserted what reaches the public wire.** After backfilling 28 rows, showcase-creator renders 10 platforms and showcase-eats 3.
+
+Apple Music and Apple Podcasts still render nothing, correctly: their allowlists expect `link`, which is *content* supplied by a refresh job, not identity written at link time. `last_refresh_status = 'pending'` is the honest state.
+
+**Deploy trap, re-derived the hard way.** The pages worker deploy was correct and active, yet the live page kept serving pre-removal Pinterest markup. The router caches at `PRIMARY_CACHE_TTL_S = 86400` and builds its cache key without the query string, so a `?cb=` buster does nothing. `apps/pages/CLAUDE.md:125` already documents both facts; reading it first would have saved the detour. Purge is not optional after a pages deploy.
+
+**Pinterest removal completed** across the monorepo (design-system assets, page taxonomy, platform sections, actions vocabulary). The whole Pinterest data path in apps/pages turned out to be already dead — no component read `surfaces.pinterest` — so removing it changed no behaviour. The "Other" platform-section category went with it, having existed solely to hold Pinterest.
+
+**Monorepo CI had been red since 2026-07-25** on the tokens-only audit, failing on five values `apps/pages/CLAUDE.md` already sanctioned. The regex lived in both `ci.yml` and CLAUDE.md and the copies drifted. Both now call `apps/pages/scripts/tokens-only-audit.sh`. Verified the gate still fails on a real violation rather than being green by construction; that check exposed a blind spot (only line-leading declarations are inspected, so single-line rules and `@media` breakpoints go unseen) which is documented in the script rather than papered over, since widening it would flag the two structural breakpoints.
+
+**Link-add sheet mounted** on `/account/custom-links`, replacing the single-field modal with the URL-plus-category-shelves drawer. Wiring it up exposed two more defects: `lib/catalog.ts` cast its response without parsing it (a non-catalog body threw inside a render and took the surface down), and `useCatalog` fetched on mount, so a closed sheet bought a request on every page load. Both fixed, and `lib/catalog` went from zero tests to ten.
+
+**P8 remains blocked** — see `2026-07-28-p8-deletion-readiness.md`. Five capabilities the new pipeline does not have, not five tasks nobody got to. The one with real user-visible harm is the missing `routing.item_tombstones` backfill: migrating a scan path before it would resurrect connections users deliberately deleted, and no test would catch it.
