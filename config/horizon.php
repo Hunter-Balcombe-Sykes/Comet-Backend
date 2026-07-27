@@ -210,6 +210,34 @@ return [
             'timeout' => 3600,
             'nice' => 5,
         ],
+        // Ingest lane (plan §4/P3): ingest:dispatch fans out one RunSourceJob per
+        // due ingest.sources row every 15 minutes. Split into its OWN supervisor
+        // rather than folded into supervisor-1's ten-queue priority list — that
+        // lane's balance=>false strict ordering means a busy day on any
+        // higher-priority queue could starve a 15-min-cadence dispatcher
+        // indefinitely, the same head-of-line risk RV-12 split 'mail'/
+        // 'notifications' out for. balance=>'auto' (not false, unlike every
+        // sibling lane) is deliberate: this lane carries exactly ONE queue name,
+        // so there is no cross-queue priority order to protect, and 'auto' lets
+        // Horizon scale workers down to idle between dispatch bursts instead of
+        // holding maxProcesses workers alive around the clock. 'redis'
+        // connection's retry_after=360 comfortably exceeds RunSourceJob's own
+        // $timeout=120 (JOB-103). memory=256 matches supervisor-1's tier: a
+        // connector run is an HTTP fetch plus regex/JSON parsing and a handful of
+        // DB writes — the same rough weight class as that lane's mixed workload,
+        // not the video tier.
+        'supervisor-ingest' => [
+            'connection' => 'redis',
+            'queue' => ['ingest'],
+            'balance' => 'auto',
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 120,
+            'nice' => 5,
+        ],
     ],
 
     /*
@@ -219,20 +247,27 @@ return [
     |
     | Process-count overrides per environment. Footprint = 1 master + one
     | middleman process per lane + workers, ~90 MiB each (an estimate, not a
-    | measurement): idle deployed footprint is 9 procs (~810 MiB) — under
+    | measurement): idle deployed footprint is 11 procs (~990 MiB) — under
     | balance=>false, AutoScaler::numberOfWorkersPerQueue() floors every lane
     | at minProcesses=1 when idle (see the Worker Lanes docblock above), so
-    | that is 1 master + 4 middlemen + 4 workers (one per lane). A busy lane
-    | autoscales 1→maxProcesses; when supervisor-1 AND supervisor-mail both
-    | scale to 2 (production/development), the busy ceiling is 11 procs.
-    | Permitted worker heap sums to 2×256 (supervisor-1) + 2×128
-    | (supervisor-mail) + 256 (supervisor-long) + 512 (supervisor-videos) =
-    | 1536 MiB; plus non-worker processes (master at horizon.memory_limit=64,
-    | 4 middlemen at ~90 MiB each) ≈ 424 MiB, for a permitted ceiling of
-    | ~1960 MiB against the 2048 MiB flex-2gb Worker box (RV-4 resize,
-    | 2026-07-24). Every environment must name all four lanes explicitly —
-    | that is what HorizonQueueCoverageTest walks to prove every dispatchable
-    | queue has a consumer in every env.
+    | that is 1 master + 5 middlemen + 5 workers (one per lane; supervisor-ingest
+    | runs balance=>'auto' instead, but still floors at 1 idle worker like every
+    | other lane). A busy lane autoscales 1→maxProcesses; when supervisor-1,
+    | supervisor-mail AND supervisor-ingest all scale to 2 (production/
+    | development), the busy ceiling is 14 procs. Permitted worker heap sums to
+    | 2×256 (supervisor-1) + 2×128 (supervisor-mail) + 256 (supervisor-long) +
+    | 512 (supervisor-videos) + 2×256 (supervisor-ingest) = 2048 MiB; plus
+    | non-worker processes (master at horizon.memory_limit=64, 5 middlemen at
+    | ~90 MiB each) ≈ 514 MiB, for a permitted ceiling of ~2562 MiB against the
+    | 2048 MiB flex-2gb Worker box (RV-4 resize, 2026-07-24).
+    | ⚠ STILL OPEN (2026-07-27): supervisor-ingest pushes the fully-simultaneous-
+    | max ceiling ~514 MiB over the box — RV-4 sized the box for four lanes, and
+    | adding a fifth was not paired with a resize. Every lane peaking at once is
+    | the pathological case, not the common one, so this is flagged rather than
+    | fixed here; if ingest volume grows, either shrink supervisor-ingest's
+    | maxProcesses or resize the box. Every environment must name all five
+    | lanes explicitly — that is what HorizonQueueCoverageTest walks to prove
+    | every dispatchable queue has a consumer in every env.
     |
     */
 
@@ -243,6 +278,7 @@ return [
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
+            'supervisor-ingest' => ['maxProcesses' => 2],
         ],
 
         'development' => [
@@ -250,6 +286,7 @@ return [
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
+            'supervisor-ingest' => ['maxProcesses' => 2],
         ],
 
         'local' => [
@@ -257,6 +294,7 @@ return [
             'supervisor-mail' => ['maxProcesses' => 1],
             'supervisor-long' => ['maxProcesses' => 2],
             'supervisor-videos' => ['maxProcesses' => 1],
+            'supervisor-ingest' => ['maxProcesses' => 1],
         ],
 
     ],

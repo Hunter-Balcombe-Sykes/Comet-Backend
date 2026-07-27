@@ -418,3 +418,25 @@ Schedule::command('menu:retry-unavailable')
     ->withoutOverlapping(30) // 30min lock — 2x the 15min cadence to prevent same-tick races.
     ->runInBackground()
     ->onFailure($reportScheduledFailure('menu:retry-unavailable'));
+
+// Ingest dispatcher (plan §4/P3): fans out a queued RunSourceJob per due ingest.sources
+// row via SourceScheduler::claimDue(). 15-min cadence so a source's own measured cadence
+// (min_interval_secs can be as low as an hour) is picked up promptly; the heavy fetch work
+// runs on the 'ingest' queue, not here. withoutOverlapping(20) exceeds the 15min cadence so
+// a slow tick's lock can't expire mid-flight and race the next one.
+Schedule::command('ingest:dispatch')
+    ->everyFifteenMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(20)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('ingest:dispatch'));
+
+// Stranded-claim watchdog: releases an ingest.sources claim that outlived any plausible
+// run (a worker died mid-flight) and files the anomaly. Hourly is ample slack — a claim
+// only qualifies past SourceScheduler::STRANDED_AFTER_SECONDS (2h), so an hourly cadence
+// still catches one within the same hour it goes stale.
+Schedule::command('ingest:stranded')
+    ->hourly()
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->onFailure($reportScheduledFailure('ingest:stranded'));

@@ -1963,6 +1963,111 @@ function setupEmailSubscriptionsTable(): void
  * here the same way shimPgAdvisoryLockForSqlite() shims hashtext /
  * pg_advisory_xact_lock elsewhere in this file.
  */
+/**
+ * content + site section/document tables (migrations 20260727140000 and
+ * 20260727150000) — SQLite mirror. Only the tables the builder and resolvers
+ * actually touch; the full 33-table content schema is exercised in the
+ * Postgres lane, not here.
+ */
+function setupSectionsTables(): void
+{
+    attachTestSchemas();
+    $pg = DB::connection('pgsql');
+
+    // Attached HERE rather than in attachTestSchemas()' shared list: SQLite
+    // caps attachments at 10, and only the tests that touch content need it.
+    // (Same pattern setupIngestTables() uses for `ingest`.)
+    try {
+        $pg->statement("ATTACH DATABASE ':memory:' AS content");
+    } catch (Throwable $e) {
+        // already attached — ignore
+    }
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.items (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        headline_cache TEXT NULL,
+        facets_cache TEXT NOT NULL DEFAULT \'[]\',
+        eligible_cache TEXT NOT NULL DEFAULT \'[]\',
+        removed_at TEXT NULL,
+        review_flag TEXT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.pages (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        label TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        order_mode TEXT NOT NULL DEFAULT \'manual\',
+        is_hidden INTEGER NOT NULL DEFAULT 0,
+        capability TEXT NULL,
+        preset_key TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.sections (
+        id TEXT PRIMARY KEY NOT NULL,
+        page_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
+        key TEXT NULL,
+        label TEXT NULL,
+        slot TEXT NOT NULL DEFAULT \'body\',
+        kind TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        rule TEXT NOT NULL DEFAULT \'{}\',
+        mode TEXT NOT NULL DEFAULT \'automatic\',
+        order_by TEXT NOT NULL DEFAULT \'recency\',
+        limit_n INTEGER NULL,
+        group_by TEXT NULL,
+        render TEXT NOT NULL DEFAULT \'cards\',
+        density TEXT NULL,
+        price_mode TEXT NULL,
+        min_items INTEGER NOT NULL DEFAULT 1,
+        on_empty TEXT NOT NULL DEFAULT \'hide\',
+        stale_display TEXT NOT NULL DEFAULT \'inherit\',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.section_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        section_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        sort_key REAL NULL,
+        created_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.site_documents (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        channel TEXT NOT NULL DEFAULT \'live\',
+        document TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        builder_revision INTEGER NOT NULL,
+        warnings TEXT NOT NULL DEFAULT \'[]\',
+        built_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.site_build_state (
+        site_id TEXT PRIMARY KEY NOT NULL,
+        content_revision INTEGER NOT NULL DEFAULT 0,
+        built_revision INTEGER NOT NULL DEFAULT 0,
+        building_since TEXT NULL,
+        popularity_floor_at TEXT NULL,
+        last_built_at TEXT NULL,
+        updated_at TEXT NOT NULL
+    )');
+}
+
 function setupIngestTables(): void
 {
     attachTestSchemas();
