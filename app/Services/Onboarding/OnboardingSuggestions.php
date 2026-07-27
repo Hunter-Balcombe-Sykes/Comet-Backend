@@ -90,13 +90,17 @@ class OnboardingSuggestions
         'mortgage-broker' => ['linkedin', 'booking'], 'marketing-agency' => ['linkedin', 'booking'],
         'it-services' => ['linkedin', 'booking'], 'virtual-assistant' => ['linkedin', 'booking'],
 
-        // Retail & Shopping (the store step covers commerce itself)
-        // NOTE: 2026-07 — this vertical's sole suggested platform was
-        // decommissioned, so every sector below now maps to []; the
-        // suggestions step is silently skipped until a replacement is chosen.
-        'clothing-boutique' => [], 'jewellery' => [],
-        'florist' => [], 'gift-shop' => [],
-        'homewares' => [], 'artisan-maker' => [],
+        // Retail & Shopping (the store step covers commerce itself).
+        // Pinterest was this vertical's only suggestion until it was retired
+        // (2026-07-28), which would have left all six sectors with nothing to
+        // suggest and the step silently skipped. TikTok replaces it as the
+        // closest available fit: these are visual, product-discovery
+        // businesses, and a store LINK would be redundant with the store step
+        // that already runs. This is a product judgement made to avoid a
+        // silent gap — worth revisiting if a better fit is added.
+        'clothing-boutique' => ['tiktok'], 'jewellery' => ['tiktok'],
+        'florist' => ['tiktok'], 'gift-shop' => ['tiktok'],
+        'homewares' => ['tiktok'], 'artisan-maker' => ['tiktok'],
 
         // Home & Trade Services
         'plumber' => ['booking'], 'electrician' => ['booking'], 'builder' => ['booking'],

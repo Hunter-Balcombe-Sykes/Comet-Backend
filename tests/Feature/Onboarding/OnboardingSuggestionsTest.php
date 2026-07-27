@@ -7,6 +7,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Onboarding\OnboardingSuggestions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -158,4 +159,21 @@ it('returns no suggestions for the other sector', function () {
 
 it('rejects an unauthenticated request', function () {
     $this->getJson('/api/onboarding/suggestions')->assertUnauthorized();
+});
+
+it('leaves no sector without something to suggest', function () {
+    // Retiring a platform silently emptied six retail sectors once
+    // (Pinterest, 2026-07-28) — the step then skipped itself with no signal.
+    // A sector mapping to nothing is a gap worth failing the build over.
+    $reflection = new ReflectionClass(OnboardingSuggestions::class);
+    $bySector = $reflection->getConstant('SECTOR_SUGGESTIONS');
+
+    // 'other' is the deliberate exception: a catch-all sector has nothing
+    // specific to suggest, and inventing something for it would be worse.
+    $empty = array_values(array_diff(
+        array_keys(array_filter($bySector, fn (array $keys) => $keys === [])),
+        ['other'],
+    ));
+
+    expect($empty)->toBe([], 'Sectors with no suggestion: '.implode(', ', $empty));
 });
