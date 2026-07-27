@@ -134,6 +134,7 @@ are for targeted manual runs; the full sweep map lives in `codebase_chunks()`.
 ```
 --scope app/Catalog
 --scope app/Routing
+--scope app/Ingest
 ```
 (Controllers for this subsystem are already covered by Group B's `app/Http/Controllers` scope.)
 

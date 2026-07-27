@@ -9,11 +9,11 @@ use Illuminate\Support\Str;
  * Decides WHICH sources run next and holds the only run lock in the system.
  *
  * The claim is a conditional UPDATE … RETURNING on the source row itself, not
- * `ShouldBeUnique` and not `Cache::lock` (plan §4: ONE mechanism). Two
- * reasons: the lock is visible in the same row as the schedule that produced
- * it, so "why isn't this running?" is one query; and a lock that lives in
- * Redis can outlive or predecease the row it protects, which is how sources
- * end up permanently stuck for reasons nobody can see.
+ * a queue uniqueness constraint and not a Redis lock (plan §4: ONE
+ * mechanism). Two reasons: the lock is visible in the same row as the
+ * schedule that produced it, so "why isn't this running?" is one query; and a
+ * lock living in Redis can outlive or predecease the row it protects, which
+ * is how sources end up permanently stuck for reasons nobody can see.
  *
  * Cadence is MEASURED, not configured: a source that keeps returning
  * unchanged content drifts toward its maximum interval on its own, and one

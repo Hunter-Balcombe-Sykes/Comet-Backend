@@ -173,9 +173,12 @@ For every finding:
 ```
 --scope tests/Feature/Catalog
 --scope tests/Feature/Routing
+--scope tests/Feature/Ingest
+--scope tests/Unit/Ingest
 --scope tests/fixtures/Routing
 --scope app/Catalog
 --scope app/Routing
+--scope app/Ingest
 --scope app/Http/Controllers/Api/Catalog
 --scope app/Http/Controllers/Api/Routing
 ```
