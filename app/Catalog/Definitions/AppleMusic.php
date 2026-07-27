@@ -39,8 +39,13 @@ class AppleMusic
                 ->fetch('fetch.apple_music.itunes.v1')
                 ->multiAccount(5)
                 ->detect(
-                    Detector::url('music.apple.com')
-                        ->path('#^/(?:[a-z]{2}/)?artist/#')
+                    // Keyed on the REGISTRABLE domain with the product
+                    // subdomain as its own rule: the router looks detectors up
+                    // by eTLD+1, so a key of `music.apple.com` is never
+                    // consulted and the surface would be undetectable.
+                    Detector::url('apple.com')
+                        ->subdomain('#^music$#')
+                        ->path('#^/(?:[a-z]{2}/)?artist(/|$)#')
                         ->strength(EvidenceStrength::DeepLinkWithSlug),
                 )
                 ->note('bespoke connect flow (P1)')

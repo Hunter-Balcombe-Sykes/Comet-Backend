@@ -52,7 +52,10 @@ class Eventbrite
         );
 
         $detectors[] = Detector::url('eventbrite.com')
-            ->path('#^/e/#')
+            // (/|$) not a bare trailing slash: canonicalisation strips a
+            // trailing slash, so `#^/e/#` could never match the canonical
+            // form of https://eventbrite.com/e/.
+            ->path('#^/e(/|$)#')
             ->strength(EvidenceStrength::MarketplaceListing)
             ->note('single event page — routes to event flow, not organiser connect');
 

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
+use App\Http\Controllers\Api\Routing\RoutingController;
 use App\Http\Controllers\Api\User\Account\MfaController;
 use App\Http\Controllers\Api\User\Account\SessionController;
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
@@ -57,6 +58,15 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // hand-maintained platform mirror (plan §1). ETag = artefact digest.
         Route::get('/catalog/surfaces', [CatalogSurfacesController::class, 'index'])
             ->name('user.catalog.surfaces');
+
+        // Link routing (plan §2) — the successor to POST /platforms/custom/links.
+        // preview() writes nothing and is called on every keystroke pause, so it
+        // gets its own tighter throttle than the shared authenticated bucket.
+        Route::post('/routing/preview', [RoutingController::class, 'preview'])
+            ->middleware('throttle:60,1')
+            ->name('user.routing.preview');
+        Route::post('/routing/links', [RoutingController::class, 'store'])
+            ->name('user.routing.links');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync
