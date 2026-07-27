@@ -53,7 +53,9 @@ class WebsiteImporter
         }
 
         $links = array_slice(
-            $this->harvester->allOutboundLinks($response['body'], $response['finalUrl'] ?? $websiteUrl),
+            // finalUrl, not the requested URL: relative hrefs must resolve
+            // against wherever the redirect chain actually landed.
+            $this->harvester->allOutboundLinks($response['body'], $response['finalUrl']),
             0,
             self::MAX_LINKS,
         );
