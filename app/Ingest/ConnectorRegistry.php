@@ -2,7 +2,11 @@
 
 namespace App\Ingest;
 
+use App\Ingest\Connectors\AppleMusicConnector;
+use App\Ingest\Connectors\ApplePodcastsConnector;
 use App\Ingest\Connectors\BandcampConnector;
+use App\Ingest\Connectors\PinterestConnector;
+use App\Ingest\Connectors\SubstackConnector;
 use App\Ingest\Manifest\Manifest;
 use App\Ingest\Runtime\Connector;
 
@@ -21,7 +25,11 @@ final class ConnectorRegistry
 {
     /** @var array<string, class-string<Connector>> */
     private const MAP = [
+        'apple_music' => AppleMusicConnector::class,
+        'apple_podcasts' => ApplePodcastsConnector::class,
         'bandcamp' => BandcampConnector::class,
+        'pinterest' => PinterestConnector::class,
+        'substack' => SubstackConnector::class,
     ];
 
     public static function has(string $key): bool

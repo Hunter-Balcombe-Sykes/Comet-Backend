@@ -174,9 +174,26 @@ class LegacyPlatformMap
         return self::TO_SURFACE[$legacyPlatform] ?? null;
     }
 
+    /**
+     * Whether this surface may be written to a connection.
+     *
+     * The COMPILED CATALOG is the authority — this map only covers the 78
+     * legacy platforms it exists to bridge, so validating against it alone
+     * would make every brand added since P1 (Shopify, Uber Eats, Menulog…)
+     * unconnectable. The map is consulted as a fallback for the one case the
+     * catalog cannot answer: an environment where the artefact is missing.
+     */
     public static function isKnownSurface(string $surfaceKey): bool
     {
-        return isset(self::ROUTING_CLASS[$surfaceKey]);
+        if (isset(self::ROUTING_CLASS[$surfaceKey])) {
+            return true;
+        }
+
+        try {
+            return CompiledCatalog::surface($surfaceKey) !== null;
+        } catch (CatalogNotCompiled) {
+            return false;
+        }
     }
 
     public static function legacyFor(string $surfaceKey): string
@@ -185,9 +202,23 @@ class LegacyPlatformMap
             ?? explode('.', $surfaceKey, 2)[0];
     }
 
+    /**
+     * The routing class for a surface. Same authority order as
+     * isKnownSurface(): the map answers for legacy surfaces (where it is the
+     * lockstep-tested truth the migration's SQL mirrors), the catalog answers
+     * for everything added since.
+     */
     public static function routingClassFor(string $surfaceKey): ?string
     {
-        return self::ROUTING_CLASS[$surfaceKey] ?? null;
+        if (isset(self::ROUTING_CLASS[$surfaceKey])) {
+            return self::ROUTING_CLASS[$surfaceKey];
+        }
+
+        try {
+            return CompiledCatalog::surface($surfaceKey)['routing_class'] ?? null;
+        } catch (CatalogNotCompiled) {
+            return null;
+        }
     }
 
     /** @return array<string, string> */
