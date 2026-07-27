@@ -333,7 +333,7 @@ it('notifies the user when the website scan surfaces a conflict finding', functi
 
     $note = DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->first();
     expect($note)->not->toBeNull();
-    expect($note->cta_url)->toBe('/account/integrations');
+    expect($note->cta_url)->toBe('/account/platforms');
 });
 
 it('does not notify when the website scan finds nothing conflicting', function () {

@@ -52,7 +52,7 @@ class PlatformHealthNotifier
             title: "Reconnect your {$label}",
             body: "We couldn't refresh your {$label} connection after several attempts, so your page may be showing outdated content. Reconnect it to start syncing again.",
             dedupeKey: "platform_connection_failed:{$connection->id}:{$episode}",
-            ctaUrl: '/account/integrations',
+            ctaUrl: '/account/platforms',
             critical: true,
             retentionConfigKey: null,
         );
@@ -71,7 +71,7 @@ class PlatformHealthNotifier
             title: "We couldn't update your menu",
             body: "Your latest menu couldn't be fetched from your provider. We'll keep retrying automatically — if it persists, check your online-ordering link.",
             dedupeKey: "content_scrape:menu_failed:{$userId}",
-            ctaUrl: '/account/integrations',
+            ctaUrl: '/account/platforms',
             critical: false,
             retentionConfigKey: 'content_scrape',
         );

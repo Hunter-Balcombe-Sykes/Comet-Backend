@@ -158,7 +158,7 @@ it('merges a conflict finding into the IG payload syncFindings and notifies the 
 
     $note = DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->first();
     expect($note)->not->toBeNull();
-    expect($note->cta_url)->toBe('/account/integrations');
+    expect($note->cta_url)->toBe('/account/platforms');
 });
 
 it('does not duplicate a finding for a platform the direct bio scan already recorded', function () {

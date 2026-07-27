@@ -56,7 +56,7 @@ class IntegrationNotifier
                 title: "{$label} connected",
                 body: "Your {$label} connection is live and will now show on your Partna page.",
                 dedupeKey: "integration_connected:{$connection->id}",
-                ctaUrl: '/account/integrations',
+                ctaUrl: '/account/platforms',
                 primaryActionLabel: 'View',
                 retentionConfigKey: 'integration_connected',
                 critical: false,

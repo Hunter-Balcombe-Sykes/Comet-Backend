@@ -26,7 +26,7 @@ class FindingsNotifier
             'type' => 'Info',
             'title' => $title,
             'body' => $body,
-            'cta_url' => '/account/integrations',
+            'cta_url' => '/account/platforms',
             'severity' => 'info',
             'starts_at' => $now,
             'ends_at' => null,

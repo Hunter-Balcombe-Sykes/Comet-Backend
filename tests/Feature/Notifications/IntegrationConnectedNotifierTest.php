@@ -78,7 +78,7 @@ it('publishes a non-critical in-app notification naming the platform', function 
     expect($row->title)->toBe('Instagram connected');
     expect($row->type)->toBe('Success');
     expect((int) $row->critical)->toBe(0);
-    expect($row->cta_url)->toBe('/account/integrations');
+    expect($row->cta_url)->toBe('/account/platforms');
     expect($row->dedupe_key)->toBe("integration_connected:{$connection->id}");
 });
 
