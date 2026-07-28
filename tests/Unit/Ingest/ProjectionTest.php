@@ -9,6 +9,7 @@ use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
+use App\Ingest\Projection\SchemaOrgEventProjector;
 use App\Ingest\Projection\SpotifyChannelProjector;
 use App\Ingest\Projection\SubstackArticleProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
@@ -224,4 +225,46 @@ it('projects a places photo as a media item carrying the ref, never a keyed url'
         ->and($projected['media'][0]['ref'])->toBe('places/abc/photos/def')
         ->and($projected['media'][0]['width'])->toBe(4032)
         ->and(json_encode($projected))->not->toContain('key=');
+});
+
+it('projects a schema-org event with occurrence, place, from-offer and cover', function () {
+    $projected = (new SchemaOrgEventProjector)->project(new RecordView([
+        'name' => 'Spring Show', 'url' => 'https://www.eventbrite.com/e/spring-show-tickets-111',
+        'start_date' => '2026-09-20T19:00:00+10:00', 'end_date' => '2026-09-20T23:00:00+10:00',
+        'venue' => 'The Corner Hotel', 'locality' => 'Richmond',
+        'description' => 'A big night of live music.',
+        'price_min' => 25.0, 'currency' => 'AUD', 'availability' => 'available',
+        'image' => 'https://img.evbuc.com/banner.jpg',
+    ]));
+
+    expect($projected['kind'])->toBe('event')
+        ->and($projected['headline'])->toBe('Spring Show')
+        ->and($projected['facets']['f_occurrence']['starts_at_local'])->toBe('2026-09-20T19:00:00+10:00')
+        // Derived from the embedded offset — pure string math, no clock.
+        ->and($projected['facets']['f_occurrence']['starts_at_utc'])->toBe('2026-09-20T09:00:00Z')
+        ->and($projected['facets']['f_occurrence']['zone_confidence'])->toBe('offset_only')
+        ->and($projected['facets']['f_place']['venue_name'])->toBe('The Corner Hotel')
+        ->and($projected['facets']['f_place']['locality'])->toBe('Richmond')
+        ->and($projected['offers'][0]['amount_minor'])->toBe(2500)
+        ->and($projected['offers'][0]['qualifier'])->toBe('from')
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('marks a zero-minimum event offer as free and tolerates a dateless event', function () {
+    $free = (new SchemaOrgEventProjector)->project(new RecordView([
+        'name' => 'Open Day', 'url' => 'https://events.humanitix.com/open-day', 'price_min' => 0.0,
+    ]));
+    $dateless = (new SchemaOrgEventProjector)->project(new RecordView([
+        'name' => 'TBA', 'url' => 'https://events.humanitix.com/tba',
+    ]));
+
+    expect($free['offers'][0]['qualifier'])->toBe('free')
+        ->and($free['offers'][0]['amount_minor'])->toBe(0)
+        ->and($dateless['facets'])->not->toHaveKey('f_occurrence')
+        ->and($dateless['offers'])->toBe([]);
+});
+
+it('projects nothing rather than a nameless or linkless event', function () {
+    expect((new SchemaOrgEventProjector)->project(new RecordView(['url' => 'https://x.com/e/y'])))->toBeNull()
+        ->and((new SchemaOrgEventProjector)->project(new RecordView(['name' => 'Ghost Show'])))->toBeNull();
 });

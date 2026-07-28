@@ -157,6 +157,10 @@ class SourceProvisioner
         return match ($sourceKey) {
             'bandcamp' => $this->httpUrl($payload['url'] ?? null, 'bandcamp.com')
                 ?? $this->httpUrl($resource, 'bandcamp.com'),
+            'eventbrite' => $this->eventbriteOrgUrl($payload['url'] ?? null)
+                ?? $this->eventbriteOrgUrl($resource),
+            'humanitix' => $this->humanitixHostUrl($payload['url'] ?? null)
+                ?? $this->humanitixHostUrl($resource),
             'vimeo' => $this->cleanString($payload['apiPath'] ?? null)
                 ?? $this->bareSlug($resource, 'vimeo'),
             'youtube' => $this->cleanString($payload['channelId'] ?? null)
@@ -243,6 +247,36 @@ class SourceProvisioner
         }
         if (preg_match('~^https?://(?:music|itunes)\.apple\.com/.*/(\d+)(?:[?#]|$)~', $value, $m)) {
             return $m[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Canonical Eventbrite organiser URL (/o/<slug-id>) from any regional
+     * host, normalized to www.eventbrite.com. Enumerated TLDs — an open glob
+     * would re-open the spoofable-host hole (§17).
+     */
+    private function eventbriteOrgUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
+        if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
+            return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** Canonical Humanitix host-page URL from a host or event URL. */
+    private function humanitixHostUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('~^https?://(?:events\.)?humanitix\.com/host/([a-z0-9-]+)~i', $value, $m)) {
+            return 'https://events.humanitix.com/host/'.strtolower($m[1]);
         }
 
         return null;

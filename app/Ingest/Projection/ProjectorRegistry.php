@@ -19,7 +19,11 @@ final class ProjectorRegistry
         'apple_music' => ['listen' => AppleMusicReleaseProjector::class],
         'apple_podcasts' => ['listen' => ApplePodcastsEpisodeProjector::class],
         'bandcamp' => ['releases' => BandcampReleaseProjector::class],
+        // Eventbrite and Humanitix land the SAME doc shape
+        // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
+        'eventbrite' => ['events' => SchemaOrgEventProjector::class],
         'fresha' => ['services' => FreshaServiceProjector::class],
+        'humanitix' => ['events' => SchemaOrgEventProjector::class],
         'google_business' => [
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,

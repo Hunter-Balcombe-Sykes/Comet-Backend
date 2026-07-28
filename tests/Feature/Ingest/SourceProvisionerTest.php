@@ -237,6 +237,26 @@ it('seeds scheduling defaults from the connector manifest', function () {
         ->and((int) $row->cost_units)->toBe(1);
 });
 
+it('provisions eventbrite from a regional organiser url normalized to .com, and humanitix from host or event-derived urls', function () {
+    $userId = provisionerUser();
+
+    $eventbrite = makeConnection($userId, ['platform' => 'eventbrite', 'payload' => ['url' => 'https://www.eventbrite.com.au/o/Laneway-Collective-1234567890']]);
+    $humanitix = makeConnection($userId, ['platform' => 'humanitix', 'payload' => ['url' => 'https://events.humanitix.com/host/Run-Club-Melbourne?ref=x']]);
+
+    expect(ingestSourceFor($eventbrite)->identifier)->toBe('https://www.eventbrite.com/o/laneway-collective-1234567890')
+        ->and(ingestSourceFor($humanitix)->identifier)->toBe('https://events.humanitix.com/host/run-club-melbourne');
+});
+
+it('refuses a spoofed eventbrite host and a humanitix event page with no host path', function () {
+    $userId = provisionerUser();
+
+    $spoofed = makeConnection($userId, ['platform' => 'eventbrite', 'payload' => ['url' => 'https://eventbrite.evil.com/o/fake-1']]);
+    $eventOnly = makeConnection($userId, ['platform' => 'humanitix', 'payload' => ['url' => 'https://events.humanitix.com/dawn-run-august']]);
+
+    expect(ingestSourceFor($spoofed))->toBeNull()
+        ->and(ingestSourceFor($eventOnly))->toBeNull();
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {
