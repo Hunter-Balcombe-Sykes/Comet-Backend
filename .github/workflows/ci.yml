@@ -154,6 +154,12 @@ jobs:
           #   - DedupesRecipientSends       — RV-10 per-recipient Cache::add SETNX claim + Cache::forget rollback; key is action-log-scoped and content-addressed (sha256 of "<actionLogId>|<recipient>"), same pattern as SendFeedbackEmailJob
           #   - MenuApifyScraper            — negative-cache "blocked/hard_error" marker + its recovery forget, key via CacheKeyGenerator::menuScrapeBlocked(platform, url) (same shape as YoutubeThumbnailResolver/AppleSearch)
           #   - ShopBrandSeeder             — picker-catalog warm mirroring addBrand()'s, key via CacheKeyGenerator::shopifyBrandCatalog($id); ShopController is already allowlisted for this exact cache
+          # File-level exceptions (audited 2026-07-28 — a FOURTH round of the same
+          # story: all three landed while CI was red at PHPStan, so GS-1 never ran
+          # on them. Each key is scoped/content-addressed — vetted, not a leak):
+          #   - RecordScheduledTaskHeartbeat — scheduler liveness beacon; key is the class const prefix + a normalized TASK name (taskKey()), carries no tenant identity at all
+          #   - ProbeBudget                 — atomic Cache::add SETNX counter init (+increment/decrement), keys via CacheKeyGenerator::routingProbe{Global,User}Daily(); same shape as AnalyticsDedupGuard/RefreshController. The docblock at :24 also matches the grep
+          #   - ProbeGate                   — probe-answer memo incl. negative results, key via CacheKeyGenerator::routingProbeUrl($url) — content-addressed by URL (same shape as YoutubeThumbnailResolver/AppleSearch/MenuApifyScraper)
           set +e
           BAD=$(git grep -n -E '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
             'app/' \
@@ -182,7 +188,10 @@ jobs:
             ':!app/Services/User/AccountDeletionService.php' \
             ':!app/Jobs/Moderation/Concerns/DedupesRecipientSends.php' \
             ':!app/Services/Platforms/MenuApifyScraper.php' \
-            ':!app/Services/Platforms/ShopBrandSeeder.php')
+            ':!app/Services/Platforms/ShopBrandSeeder.php' \
+            ':!app/Listeners/RecordScheduledTaskHeartbeat.php' \
+            ':!app/Routing/Probes/ProbeBudget.php' \
+            ':!app/Routing/Probes/ProbeGate.php')
           set -e
           if [ -n "$BAD" ]; then
             echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."
