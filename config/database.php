@@ -171,15 +171,27 @@ return [
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', 6379),
             'database' => env('REDIS_CACHE_DB', 1),
-            // igbinary + LZ4: ~3× memory savings on large payloads.
-            // Prerequisites before setting REDIS_IGBINARY=true:
-            //   1. Confirm phpredis compiled with igbinary + LZ4 (check phpinfo()).
-            //   2. Flush the Redis cache on deploy — serializer change invalidates existing entries.
+            // LZ4 value compression. Measured 2026-07-28 on dev (phpredis 6.3.0):
+            // whole cache keyspace 157,968 B → 45,560 B (3.47×); pro:model:{id}
+            // 8,256 B → 2,616 B (3.16×). Nothing grew, down to 1-byte values.
+            //
+            // Compression only, NO serializer — do not re-add one. RedisStore::serialize()
+            // already returns serialize($value), so phpredis only ever sees a string:
+            // SERIALIZER_IGBINARY measured 8,248 B against 8,256 B uncompressed, i.e. nothing,
+            // and 8 B *worse* than LZ4 alone when paired with it.
+            //
+            // Turning this ON needs no flush: phpredis passes through payloads that don't
+            // look compressed, so pre-existing entries stay readable and age out on their
+            // TTLs. Turning it OFF is the unsafe direction — compressed bytes read without
+            // the flag unserialize() to false, i.e. a cached falsy hit. Roll back by bumping
+            // CACHE_PREFIX in the same deploy, not by flushing.
+            // See docs/superpowers/specs/2026-07-28-redis-cache-compression-design.md §7.
+            //
+            // ZSTD is also compiled in and measured 4.42× on the same keyspace, at ~4× the
+            // decompression cost. Left on the table: this sits on the authenticated hot path
+            // and the extra headroom isn't needed yet.
             'options' => array_filter([
-                'serializer' => env('REDIS_IGBINARY', false) && defined('Redis::SERIALIZER_IGBINARY')
-                    ? Redis::SERIALIZER_IGBINARY
-                    : null,
-                'compression' => env('REDIS_IGBINARY', false) && defined('Redis::COMPRESSION_LZ4')
+                'compression' => env('REDIS_CACHE_COMPRESSION', false) && defined('Redis::COMPRESSION_LZ4')
                     ? Redis::COMPRESSION_LZ4
                     : null,
             ]),

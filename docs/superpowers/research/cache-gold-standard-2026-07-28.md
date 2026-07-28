@@ -98,7 +98,7 @@ Locks live on a separate Redis DB from cache data specifically so `Cache::flush(
 | Negative caching | 30s primary + 5m stale sentinel | DNS RFC 2308; CDN ~2m for 404s | **No** | — |
 | Multi-level cache | auth-id → id → model, two-tier | Standard | **No** | — |
 | SWR refresh cost | Lock-winner recomputes **synchronously in-request** | `Cache::flexible()` defers refresh post-response | **Yes** | **P2** |
-| Serialisation | PHP native `serialize()` of Eloquent models | igbinary/MessagePack + compression | **Yes** | **P2** |
+| Serialisation | PHP native `serialize()` of Eloquent models, uncompressed | Compression on the wire (LZ4) — a serializer swap is unreachable, see §2.5 correction 1 | **Yes** | **P2** |
 | Monitoring | Per-op hit/miss + hourly SLO, `min_sample` gate | Golden signals + burn-rate + Redis-side | **Partial** | **P2** |
 | SLO threshold | Single 90% target across `site` and `pro` prefixes | Per-workload targets | **Yes** | **P1** |
 | Eviction | **Unknown and unreadable** | `allkeys-lru` / `allkeys-lfu` for a cache | **Yes** | **P1** |
@@ -170,15 +170,27 @@ Both keys now carry TTLs, and `tests/Feature/Cache/CacheKeyspaceConstraintsTest.
 
 ### 2.5 Serialisation is PHP-native `serialize()` — **P2**
 
-**Current:** `config/database.php` has igbinary + LZ4 wired behind `REDIS_IGBINARY`, defaulting `false`, with the two prerequisites documented inline (confirm phpredis was compiled with both; flush the cache on deploy because the serializer change invalidates existing entries). The flag is **not set** in either Cloud environment.
+> **Correction, 2026-07-28.** Three of this section's claims were wrong and are corrected below by direct measurement on `development` (phpredis 6.3.0). The recommendation stands in outcome — enable it on dev first — but for a different mechanism, with a different flag, and with the safety note pointing the other way. Design: `docs/superpowers/specs/2026-07-28-redis-cache-compression-design.md`.
 
-**Gold standard:** Shopify wrote a three-part engineering series specifically about the cost of Ruby's `Marshal` in their Memcached layer ([Caching Without Marshal](https://shopify.engineering/caching-without-marshal-part-one)) — the equivalent problem. The `pro:model:{id}` cache stores a **hydrated Eloquent model with its `site` relation eager-loaded**, which is the single largest serialised payload in the keyspace and is written every 60s per active user.
+**Current:** `config/database.php` had igbinary + LZ4 wired behind a single `REDIS_IGBINARY` flag, defaulting `false`, set in neither Cloud environment. Cached values are stored as raw PHP `serialize()` output.
 
-**Recommendation:** enable `REDIS_IGBINARY=true` on **development first**, measure, then promote. The inline comment claims ~3× memory savings on large payloads. The deploy must be paired with a cache flush — and note that flush is safe here precisely because of the isolated lock DB (§1.7). Do not enable this on prod and dev simultaneously; the point is to have a control. Effort: 1h + a measurement window.
+**Gold standard:** Shopify wrote a three-part engineering series specifically about the cost of Ruby's `Marshal` in their Memcached layer ([Caching Without Marshal](https://shopify.engineering/caching-without-marshal-part-one)) — the analogous problem. The analogy does not carry all the way, for the reason in correction 1.
 
-> **Plain English:** Redis stores text and bytes, not PHP objects. So before we can cache a User object we have to flatten it into a string, and PHP's built-in way of doing that (`serialize()`) is verbose and human-readable-ish — it spells out every property name in full. There's a faster, much more compact alternative called igbinary, plus LZ4 compression on top, and the plumbing for both is *already written* in `config/database.php` sitting behind an off switch. Nobody's flipped it.
+**Correction 1 — igbinary is a no-op here; the entire win is LZ4.** `Illuminate\Cache\RedisStore::serialize()` already returns `serialize($value)`, so phpredis is handed a **string** and has no object graph left to encode. Measured on a real `pro:model:{id}` payload: no encoding 8,256 B; `SERIALIZER_IGBINARY` alone 8,248 B (0.1%); `COMPRESSION_LZ4` alone 2,616 B (**3.16×**); both together 2,624 B — 8 B *worse* than LZ4 alone. The `~3×` figure was real but belonged entirely to the compression half. Unlike Shopify, we cannot reach the serialisation format without replacing the cache store.
+
+**Correction 2 — the flush prerequisite guards the wrong direction.** A legacy uncompressed value read *with* compression on returns intact and unserialises (phpredis passes through payloads that don't look compressed), so **rolling forward needs no flush**. A compressed value read *with* compression off returns raw bytes that `unserialize()` to `false` — a cached falsy hit. **Rolling back** is the unsafe direction, and it wants a `CACHE_PREFIX` bump rather than a flush, because a flush races the draining old instances.
+
+**Correction 3 — `pro:model:{id}` is not the largest payload in the keyspace.** A scan of all 151 string keys on the dev cache DB puts it third, behind `platforms:itunes:*` (6 keys, 81,792 B, one 42,158 B value) and `pro:{uuid}:*` (3 keys, 41,344 B). It *is* the most write-heavy large payload — the 60 s TTL claim is correct — but sizing the change on it alone understates the benefit. Keyspace-wide: 157,968 B → 45,560 B under LZ4 (**3.47×**), → 35,752 B under ZSTD (4.42×). Nothing grew, down to 1-byte values.
+
+**Recommendation:** enable `REDIS_CACHE_COMPRESSION=true` (LZ4, compression only, no serializer) on **development first**, verify every consumer round-trips, then promote. The promote gate is correctness, not a memory measurement — the sizing evidence is above, and prod holds 0 users so a prod control carries no signal. Effort: 1h.
+
+> **Plain English:** Redis stores text and bytes, not PHP objects. So before we can cache a User object we have to flatten it into a string, and PHP's built-in way of doing that (`serialize()`) is verbose — it spells out every property name in full. There are two separate ideas for improving that, and the config had both wired to one switch: a more compact flattening format (igbinary), and squashing the result with a compression algorithm (LZ4).
 >
-> This matters most for one specific entry: `pro:model:{id}` caches a fully-loaded User object *with its whole site relationship attached*, and rewrites it every 60 seconds for every active user. It's the biggest thing we store, written the most often. The comment in the config estimates roughly 3× memory savings. The one catch is that changing how things are encoded makes every existing cache entry unreadable, so it has to ship together with a cache wipe — which is safe here precisely because of the locks-in-their-own-compartment design in §1.7. Turn it on in dev only at first, so we have something to compare against.
+> When measured, only one of them does anything. Laravel flattens the object into a string *before* handing it to Redis, so by the time igbinary gets a look there's no object left — just a string it can't improve on. It saved 8 bytes out of 8,256. The compression, on the other hand, took the same entry from 8,256 bytes down to 2,616, and took the entire cache from about 158 KB to about 46 KB. So the "roughly 3×" the old comment promised is real, but it comes from the half nobody expected.
+>
+> The other thing that turned out backwards: the old note said switching this on would make existing cache entries unreadable, so it had to ship with a cache wipe. It doesn't — Redis's client notices an entry isn't compressed and hands it back unchanged. It's switching it back *off* that's dangerous, because a compressed entry read by code that isn't expecting compression comes back as garbage that quietly looks like a real (empty) answer. So the care belongs on the undo, not the do.
+>
+> Finally, this isn't really about one entry. The old note called the cached User object the biggest thing we store; it's actually third, behind some cached iTunes data. Compression applies to everything in the cache at once, which is the better way to think about the win.
 
 ### 2.6 `Cache::memo()` is unused — **P3**
 
@@ -249,7 +261,7 @@ Ranked by impact × feasibility. Every row is one change with a decision, not a 
 | 1 | Read `maxmemory-policy` + `maxmemory` from the Laravel Cloud console for dev and prod; request **`volatile-lru`** if it is anything else (NOT `allkeys-lru` — the instance is shared with the queue, see §2.1 correction) | **Implement** | Prevents OOM write-failures and guarantees rotation-key reclamation | 1h |
 | 2 | Per-prefix `min_hit_rate` map in `config/partna.php` + `AggregateCacheMetricsJob` | **Implement** | Stops a permanently-firing Nightwatch alert; restores signal | 2h |
 | 3 | Give `cache:lock_release_failures` and `scheduler:last_run:*` TTLs — **done**, see §2.1 correction | **Implement** | Makes the keyspace all-TTL, which `volatile-*` policies assume | 0.5h |
-| 4 | Enable `REDIS_IGBINARY=true` on **dev only**, measure, then promote | **Implement** | ~3× memory reduction on the largest payloads (`pro:model:*`) | 1h + window |
+| 4 | Enable `REDIS_CACHE_COMPRESSION=true` (LZ4, no serializer) on **dev only**, verify consumers, then promote | **Implement** | 3.47× measured across the whole cache keyspace — see §2.5 corrections | 1h |
 | 5 | Escalate the `INFO`/`CONFIG` `NOPERM` gap to Laravel Cloud | **Implement** | Cache saturation is currently invisible until it causes an incident | 1h |
 | 6 | Defer the SWR recompute via `defer()` in the HTTP path, keeping sync behaviour for queue/console | **Implement** | Removes full recompute latency from one request per refresh window | 4h |
 | 7 | Document the DB-index / Cluster incompatibility in `CLAUDE.md` | **Implement** | Prevents a future scaling decision being made on a wrong premise | 0.5h |
@@ -325,7 +337,7 @@ Genuinely stronger isolation than DB indices, and the only form that survives a 
 
 1. ~~**TTL on `cache:lock_release_failures`**~~ (0.5h) — **done 2026-07-28**, together with the key this research missed (`scheduler:last_run:*`, the genuine cache-DB offender) and a CI guard. Makes the whole shared instance all-TTL apart from the queue, which is the precondition `volatile-lru` assumes. See the §2.1 correction.
 2. **Per-prefix `min_hit_rate`** (2h) — `config/partna.php` gains a map, `AggregateCacheMetricsJob::handle()` looks up per prefix with the scalar as fallback. Turns a permanently-firing alert back into a signal. Highest value-per-hour item on the list.
-3. **`REDIS_IGBINARY=true` on dev** (1h) — flip the env var, flush the dev cache, compare `dbsize`-adjacent memory behaviour over a day. Zero code change; the wiring already exists and the prerequisites are already documented inline.
+3. **`REDIS_CACHE_COMPRESSION=true` on dev** (1h) — flip the env var and verify each consumer round-trips. No flush (see §2.5 correction 2), and no measurement window: the sizing is already established at 3.47× keyspace-wide. Needs the small config change in the §2.5 design doc first — the old `REDIS_IGBINARY` wiring paired the working half with a measured no-op.
 4. **`CLAUDE.md` note on DB-index vs Cluster** (0.5h) — one paragraph recording that DB-index isolation is deliberate, single-node-only, and incompatible with Redis Cluster.
 
 Item 1 in §3 (read the eviction policy from the Cloud console) is higher priority than any of these but is not a code change and cannot be done from this repo.
