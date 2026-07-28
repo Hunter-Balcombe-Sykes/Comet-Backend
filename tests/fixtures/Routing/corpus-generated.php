@@ -1031,13 +1031,13 @@ return array (
   ),
   109 => 
   array (
-    'url' => 'https://medium.com/@aaa',
+    'url' => 'https://medium.com/@aa',
     'expect' => 
     array (
       'surface' => 'medium.profile',
-      'identifier' => 'aaa',
+      'identifier' => 'aa',
     ),
-    'detector' => 'd3efbabfe42831d1',
+    'detector' => '85140673f4482d8e',
   ),
   110 => 
   array (
