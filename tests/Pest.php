@@ -2068,6 +2068,215 @@ function setupSectionsTables(): void
     )');
 }
 
+/**
+ * content.* plane beyond content.items (migration 20260727140000) — SQLite
+ * mirror for projection/identity tests: the channel + per-record grains,
+ * identity evidence, anchors, and the typed facet tables ProjectionWriter
+ * writes. jsonb→TEXT, bool→INTEGER, timestamptz→TEXT per house convention.
+ */
+function setupContentTables(): void
+{
+    setupSectionsTables();
+    $pg = DB::connection('pgsql');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (\'connection\',\'manual\',\'import\')),
+        connection_id TEXT NULL,
+        import_run_id TEXT NULL,
+        label TEXT NULL,
+        priority INTEGER NOT NULL DEFAULT 100,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        source_id TEXT NOT NULL,
+        coord TEXT NOT NULL,
+        stream_id TEXT NULL,
+        record_key TEXT NULL,
+        item_id TEXT NULL,
+        kind TEXT NOT NULL,
+        projector_version INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        removed_at TEXT NULL,
+        UNIQUE (source_id, coord)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.identity_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_item_id TEXT NOT NULL,
+        key_class TEXT NOT NULL,
+        key_value TEXT NOT NULL,
+        tier TEXT NOT NULL CHECK (tier IN (\'joining\',\'corroborating\',\'evidential\')),
+        created_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.identity_decisions (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        verdict TEXT NOT NULL CHECK (verdict IN (\'same\',\'different\')),
+        left_coord TEXT NOT NULL,
+        right_coord TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        decided_by TEXT NULL,
+        UNIQUE (user_id, left_coord, right_coord)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_anchors (
+        coord TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        bound_at TEXT NOT NULL,
+        superseded_by TEXT NULL,
+        PRIMARY KEY (user_id, coord)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_merges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        kept_item_id TEXT NULL,
+        discarded_item_id TEXT NULL,
+        reason TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT \'{}\',
+        merged_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.identity_candidates (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        left_item_id TEXT NOT NULL,
+        right_item_id TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        evidence TEXT NOT NULL DEFAULT \'{}\',
+        dismissed_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (user_id, left_item_id, right_item_id)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.manual_overrides (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        facet TEXT NOT NULL,
+        column_name TEXT NOT NULL,
+        value TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (item_id, facet, column_name)
+    )');
+
+    // Singleton facets: one row per (item, source); columns per 20260727140000.
+    $singletons = [
+        'f_text' => 'headline TEXT NULL, body TEXT NULL, summary TEXT NULL',
+        'f_link' => 'url TEXT NOT NULL, canonical_url TEXT NULL',
+        'f_duration' => 'seconds INTEGER NULL',
+        'f_published' => 'published_from TEXT NULL, published_to TEXT NULL, verbatim TEXT NULL, precision TEXT NULL',
+        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL, starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
+        'f_embed' => 'provider TEXT NOT NULL, embed_key TEXT NOT NULL, variant TEXT NULL',
+        'f_playable' => 'stream_url TEXT NULL, preview_url TEXT NULL, is_explicit INTEGER NULL',
+        'f_authored' => 'creator TEXT NULL, creator_url TEXT NULL, collaborators TEXT NULL',
+        'f_catalog' => 'release_type TEXT NULL, track_number INTEGER NULL, disc_number INTEGER NULL, isrc TEXT NULL, gtin TEXT NULL, sku TEXT NULL',
+        'f_place' => 'venue_name TEXT NULL, address TEXT NULL, locality TEXT NULL, region TEXT NULL, country_code TEXT NULL, latitude REAL NULL, longitude REAL NULL',
+        'f_rated' => 'rating REAL NULL, rating_max REAL NULL, ratings_count INTEGER NULL',
+        'f_review' => 'author_name TEXT NULL, author_photo_url TEXT NULL, rating REAL NULL, text TEXT NULL, reviewed_at TEXT NULL',
+        'f_channel' => 'handle TEXT NULL, followers INTEGER NULL, avatar_url TEXT NULL, is_live INTEGER NULL, verified INTEGER NULL',
+        'f_file' => 'file_url TEXT NULL, mime_type TEXT NULL, size_bytes INTEGER NULL, page_count INTEGER NULL',
+    ];
+    foreach ($singletons as $facet => $columns) {
+        $pg->statement("CREATE TABLE IF NOT EXISTS content.{$facet} (
+            item_id TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            {$columns},
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (item_id, source_id)
+        )");
+    }
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.media_assets (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        source_url TEXT NULL,
+        storage_path TEXT NULL,
+        mime_type TEXT NULL,
+        width INTEGER NULL,
+        height INTEGER NULL,
+        dims_confidence TEXT NULL,
+        palette TEXT NULL,
+        variant_family TEXT NULL,
+        blurhash TEXT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (user_id, fingerprint)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_media (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        asset_id TEXT NULL,
+        role TEXT NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\')),
+        position INTEGER NOT NULL DEFAULT 0,
+        alt_text TEXT NULL,
+        created_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.offers (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        channel TEXT NULL,
+        variant_label TEXT NULL,
+        amount_minor INTEGER NULL,
+        currency TEXT NULL,
+        qualifier TEXT NOT NULL DEFAULT \'exact\',
+        amount_max_minor INTEGER NULL,
+        url TEXT NULL,
+        availability TEXT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_tags (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        tag_type TEXT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.f_action (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        intent TEXT NOT NULL,
+        label TEXT NULL,
+        url TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.collections (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        parent_id TEXT NULL,
+        label TEXT NOT NULL,
+        kind TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        is_user_created INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.collection_items (
+        collection_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (collection_id, item_id)
+    )');
+}
+
 function setupIngestTables(): void
 {
     attachTestSchemas();

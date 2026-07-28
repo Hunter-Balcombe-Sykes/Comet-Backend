@@ -22,7 +22,17 @@ class RecordView
     private array $reads = [];
 
     /** @param array<string, mixed> $doc */
-    public function __construct(private readonly array $doc) {}
+    public function __construct(private readonly array $doc, private readonly ?string $key = null) {}
+
+    /**
+     * The vendor's stable record key (the Record's own key, not a doc path).
+     * Some connectors put the identity ONLY here — Spotify's oEmbed doc, for
+     * example, carries a title but not the entity path it describes.
+     */
+    public function key(): ?string
+    {
+        return $this->key;
+    }
 
     public function string(string $path, ?string $default = null): ?string
     {

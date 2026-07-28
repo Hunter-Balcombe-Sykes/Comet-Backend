@@ -37,7 +37,7 @@ class BandcampReleaseProjector implements Projector
             'headline' => $title,
             'facets' => [
                 'f_link' => ['url' => $url],
-                'f_published' => ['at' => $view->string('release_date')],
+                'f_published' => ['published_from' => $view->string('release_date')],
                 'f_authored' => ['creator' => $view->string('artist')],
                 'f_catalog' => ['release_type' => $view->string('type')],
             ],

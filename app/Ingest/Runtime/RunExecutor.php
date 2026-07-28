@@ -10,6 +10,8 @@ use App\Ingest\Message\Deferred;
 use App\Ingest\Message\Note;
 use App\Ingest\Message\Record;
 use App\Ingest\Message\Unavailable;
+use App\Ingest\Projection\ProjectionWriter;
+use App\Ingest\Projection\ProjectorRegistry;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -33,7 +35,10 @@ use Illuminate\Support\Str;
  */
 class RunExecutor
 {
-    public function __construct(private readonly Lander $lander) {}
+    public function __construct(
+        private readonly Lander $lander,
+        private readonly ProjectionWriter $projections,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $source  row from ingest.sources
@@ -154,6 +159,31 @@ class RunExecutor
             $this->recordStreamSuccess($streamId, $result['covered']);
             $this->lander->clearGuardIfRecovered($streamId);
             $notes = array_merge($notes, array_map(fn (Note $n) => ['code' => $n->code, 'message' => $n->message], $result['notes']));
+
+            // Landing → Projection, in the same run (plan §4): content rows
+            // exist the moment records land, not on some later sweep. Only
+            // when something moved — an unchanged run has nothing to project
+            // — and never fatal to the fetch: the record log is durable, so a
+            // projection bug is recoverable by `ingest:project` after a fix.
+            if (($landed['changed'] > 0 || $landed['tombstoned'] > 0)
+                && ProjectorRegistry::has((string) $source['source_key'], $streamName)) {
+                try {
+                    $this->projections->projectStream($source, $streamId, $streamName);
+                } catch (\Throwable $e) {
+                    report($e);
+                    $notes[] = ['code' => 'projection_error', 'message' => $e->getMessage()];
+                    DB::table('ingest.anomalies')->insert([
+                        'id' => (string) Str::uuid(),
+                        'stream_id' => $streamId,
+                        'source_id' => $source['id'],
+                        'run_id' => $runId,
+                        'kind' => 'projection',
+                        'severity' => 'warning',
+                        'summary' => 'Projection failed after a successful landing: '.mb_substr($e->getMessage(), 0, 300),
+                        'detected_at' => now(),
+                    ]);
+                }
+            }
         }
 
         DB::table('ingest.runs')->where('id', $runId)->update([
