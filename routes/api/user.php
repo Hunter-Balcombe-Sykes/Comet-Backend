@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
+use App\Http\Controllers\Api\Content\IdentityCandidateController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
@@ -122,7 +123,16 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/site/sections/{section}/groups/{groupKey}', [SectionGroupController::class, 'destroy'])
             ->whereUuid('section')->name('site.sections.groups.destroy');
 
-        // ── Content library (plan §6). ─────────────────────────────────────
+        // ── Content library (plan §5/§6). ──────────────────────────────────
+        // Possible-duplicates queue: the declared recovery path for the
+        // resolver's false-split-over-false-merge bias.
+        Route::get('/content/identity/candidates', [IdentityCandidateController::class, 'index'])
+            ->name('content.identity.candidates');
+        Route::post('/content/identity/candidates/{candidate}/rule', [IdentityCandidateController::class, 'rule'])
+            ->whereUuid('candidate')->name('content.identity.candidates.rule');
+        Route::post('/content/identity/candidates/{candidate}/dismiss', [IdentityCandidateController::class, 'dismiss'])
+            ->whereUuid('candidate')->name('content.identity.candidates.dismiss');
+
         // Per-column manual edits — the "edited" chip and its reset-to-source.
         Route::get('/content/items/{item}/overrides', [ManualOverrideController::class, 'index'])
             ->whereUuid('item')->name('content.items.overrides.index');
