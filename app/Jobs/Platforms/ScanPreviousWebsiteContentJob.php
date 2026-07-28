@@ -6,6 +6,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Design\DesignKitAutopilot;
 use App\Services\Design\LogoAutoGrabber;
 use App\Services\Http\MetadataParser;
 use App\Services\Http\SafeUrlFetcher;
@@ -333,6 +334,13 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor);
         ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor)
             ->delay(now()->addSeconds(120));
+
+        // §13's second half of website evidence: the font keyword classifier.
+        // Same $html as everything above (no extra fetch), same fill-if-empty
+        // discipline as the accent — a font the user (or an earlier scan)
+        // already chose is never touched.
+        $autopilot = app(DesignKitAutopilot::class);
+        $autopilot->persistFillIfEmpty($this->siteId, $autopilot->fromWebsiteEvidence($html)['proposals']);
     }
 
     /**

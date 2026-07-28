@@ -3329,3 +3329,67 @@ function seedPageWithSection(string $siteId, array $sectionOverrides = []): arra
 
     return [$pageId, (string) $sectionId];
 }
+
+/**
+ * site.field_bindings (migration 20260728150000) — SQLite mirror for the §14
+ * per-field priority bindings. SQLite enforces the declared CHECKs (manual =
+ * priority 0), matching the Postgres DDL.
+ */
+function setupFieldBindingsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.field_bindings (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        source_key TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 100,
+        mode TEXT NOT NULL DEFAULT \'fill_blank\' CHECK (mode IN (\'overwrite\', \'fill_blank\')),
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (site_id, field, source_key),
+        CHECK (
+            (source_key = \'manual\' AND priority = 0)
+            OR (source_key <> \'manual\' AND priority > 0)
+        )
+    )');
+}
+
+/**
+ * site.design_kit_restyles (migration 20260727150000) — SQLite mirror for the
+ * §13 "Restyle from brand" undo snapshots.
+ */
+function setupDesignKitRestylesTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kit_restyles (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        snapshot TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        undone_at TEXT NULL
+    )');
+}
+
+/**
+ * content.brand_asset_refs (migration 20260728130000) — SQLite mirror for the
+ * store-brand plane: owned-asset refs per (connection, role). media_assets
+ * comes from setupContentTables(), which this calls first.
+ */
+function setupBrandAssetRefsTable(): void
+{
+    setupContentTables();
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.brand_asset_refs (
+        id TEXT PRIMARY KEY NOT NULL,
+        connection_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN (\'logo_square\', \'logo_full\', \'favicon\')),
+        asset_id TEXT NULL,
+        source_url TEXT NULL,
+        attribution TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (connection_id, role)
+    )');
+}

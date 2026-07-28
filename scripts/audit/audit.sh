@@ -329,7 +329,7 @@ callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal ap
 EOF
         ;;
         transaction-boundaries) cat <<'EOF'
-domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Services/EarlyAccess app/Observers app/Http/Controllers/Api/Internal app/Services/Content
+domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Services/EarlyAccess app/Services/Profile app/Observers app/Http/Controllers/Api/Internal app/Services/Content
 vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app/Jobs app/Listeners
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User
