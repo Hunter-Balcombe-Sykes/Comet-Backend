@@ -166,3 +166,14 @@ Multi-page class configs (booking/reservations/ordering/e-commerce) keep
 their pages under /account/platforms/* and their rows navigate.
 
 taste.md carries the round-2 verdicts so round 1's entry can't mislead.
+
+## P6 round 3 — pools template + connections-only sheets (2026-07-28)
+
+Owner's final concept landed: platform sheets show connections only (info +
+accounts + rules + disconnect — every content grid moved out); Links is its
+own table page; and ONE shared template (components/pools/content-pool.tsx)
+drives every content pool — Events, Watch, and the new Listen — each page
+now a ~60-line config over a central selected-items table with the shared
+add sheet (manual URL + pick-from-connected-accounts). Products is a pool
+page again with store accounts in its sheet; the mobile menu is full-screen.
+One template to edit, every pool follows.
