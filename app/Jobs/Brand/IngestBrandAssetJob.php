@@ -11,6 +11,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Fetch one brand asset and attach it to a connection (plan §12).
@@ -84,5 +86,18 @@ class IngestBrandAssetJob implements ShouldBeUnique, ShouldQueue
         }
 
         $pipeline->ingest($this->userId, $this->connectionId, $this->role, $this->sourceUrl, $this->attribution);
+    }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+
+        Log::error('IngestBrandAssetJob: brand asset ingest exhausted retries.', [
+            'user_id' => $this->userId,
+            'connection_id' => $this->connectionId,
+            'role' => $this->role,
+            'error' => $e->getMessage(),
+            'exception' => get_class($e),
+        ]);
     }
 }
