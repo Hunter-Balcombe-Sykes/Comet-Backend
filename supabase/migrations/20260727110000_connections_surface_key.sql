@@ -5,8 +5,45 @@
 -- form of App\Catalog\LegacyPlatformMap — CatalogLegacyMapTest pins the two
 -- in lockstep. Pseudo buckets map to hidden partna.* surfaces that alias
 -- back verbatim: zero behaviour change until P2's reproject.
--- FK to catalog.surfaces is deliberately deferred to P2 (after catalog:sync
--- is proven in the deploy path) so an empty catalog can never block writes.
+-- FK to catalog.surfaces: PROMISED FOR P2, AND WITHDRAWN 2026-07-28. The
+-- original reason (an empty catalog must never block writes) turned out to be
+-- permanent rather than temporary, and a second reason was found. Recorded
+-- here rather than quietly dropped, because a promise removed without a stated
+-- reason is indistinguishable from a promise forgotten.
+--
+--   1. `catalog:sync` is not part of the migration path and cannot be. It runs
+--      AFTER the code deploy (docs/deploy/routine-deploy.md step 2b, explicitly
+--      after step 4) plus hourly as a convergence net, while migrations run
+--      BEFORE it at step 2. A from-zero apply — the documented fresh-prod
+--      cutover, and scripts/db/fresh-reset.sh locally — therefore finishes with
+--      catalog.surfaces EMPTY. An FK would make every connection write fail
+--      from the end of migrations until someone remembered to sync, turning an
+--      operational lag the runbook explicitly tolerates ("up to an hour later")
+--      into user-facing 500s. NOT VALID does not help: it exempts existing rows
+--      but still enforces on every INSERT and UPDATE.
+--   2. A restore would be permanently un-validatable. `catalog:sync` is
+--      upsert+tombstone — rows are never deleted — so on a LONG-LIVED database
+--      a retired surface keeps its row and an FK stays satisfiable. A restored
+--      dump has no such luck: the R2 dump (the org is on Supabase Free, so it
+--      is the only backup) carries platform_connections rows whose surface_key
+--      is 'pinterest.profile', while a sync into the fresh project writes only
+--      what the CURRENT artefact holds — and Pinterest was retired on
+--      2026-07-28. VALIDATE CONSTRAINT would fail, and any UPDATE touching
+--      those rows would fail with it.
+--
+-- What the FK was for is already enforced, and enforced better:
+-- IntegrationConnection::booted() rejects any surface_key the catalog does not
+-- know (LegacyPlatformMap::isKnownSurface → CompiledCatalog), pinned by
+-- tests/Feature/Catalog/ConnectionSurfaceGuardTest.php. That check reads the
+-- COMPILED ARTEFACT — the same thing the router reads — whereas an FK would
+-- check the DB projection, which lags the artefact by up to an hour by design.
+-- The FK would have been the weaker of the two, and the one that fails closed
+-- at the wrong moments.
+--
+-- routing.source_intents.surface_key stays unconstrained for the same reasons;
+-- it is written only from a placement whose surface came out of the artefact.
+-- Revisit only if catalog:sync ever becomes a migration-ordered step.
+--
 -- Table is dev-scale (hundreds of rows): plain index builds, no CONCURRENTLY.
 --
 -- guard:no-unsafe-migrations:disable-file
