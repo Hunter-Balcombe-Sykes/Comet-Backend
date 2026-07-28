@@ -147,3 +147,22 @@ were small fixes; the visible IA work had not been built. It has now:
 Font was already Geist Sans/Mono via the `geist` package on both layouts —
 verified against Vercel's own wiring (variables on <html>, antialiased body)
 and left alone.
+
+## P6 round 2 — owner IA correction (2026-07-28, mid-run)
+
+The owner clarified overnight: platforms must have NO pages of their own —
+the Platforms surface is a DATA TABLE whose rows open management SHEETS —
+and the content pools (Events / Media / Watch, plus Services) are LHS pages
+on ONE shared single-page template.
+
+Shipped in `c1c3c303`: the [platform] page tree deleted (every old URL
+redirects into the table's ?platform= deep link, which auto-opens the right
+sheet — persisted cta_urls keep working); the sheet mounts the SAME section
+component the old page did, with Settings stacked below; the PoolPage
+template; /account/events restored as a real single page (events +
+organisers + settings stacked); /account/watch built new (per-platform
+featured-video managers); Media and Services collapsed to single pages.
+Multi-page class configs (booking/reservations/ordering/e-commerce) keep
+their pages under /account/platforms/* and their rows navigate.
+
+taste.md carries the round-2 verdicts so round 1's entry can't mislead.
