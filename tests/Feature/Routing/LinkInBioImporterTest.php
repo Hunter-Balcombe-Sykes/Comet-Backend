@@ -100,3 +100,126 @@ it('never leaves a bio page with only chrome looking like a successful haul', fu
         ->and($result['skipped_chrome'])->toBe(2)
         ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(0);
 });
+
+// ── Batch (P8 blocker 3) ────────────────────────────────────────────────────
+// An Instagram bio harvest hands over every URL it found on one profile. That
+// is ONE acquisition of one account, so it must be one run — N runs would burn
+// N of the user's 3 daily slots and misreport what happened.
+
+it('unrolls a list of bio pages as ONE run, not one run per page', function () {
+    $pro = createTenant('bio-batch');
+    Http::fake([
+        'example.com/one*' => Http::response('<html><body><a href="https://www.instagram.com/theartist">IG</a></body></html>', 200),
+        'example.com/two*' => Http::response('<html><body><a href="https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4">Spotify</a></body></html>', 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/one',
+        'https://example.com/two',
+    ]);
+
+    expect($result['outcome'])->toBe('ok')
+        ->and($result['pages'])->toBe(2)
+        ->and($result['observations'])->toBe(2)
+        ->and(DB::table('routing.import_runs')->where('user_id', $pro->id)->count())->toBe(1);
+});
+
+it('counts a link found on two bio pages once', function () {
+    // Cross-page dedupe is the point of one shared run: the same Instagram on
+    // a Linktree AND a Beacons page is one intent, not two.
+    $pro = createTenant('bio-batch-dupes');
+    Http::fake([
+        '*' => Http::response('<html><body><a href="https://www.instagram.com/theartist">IG</a></body></html>', 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/one',
+        'https://example.com/two',
+    ]);
+
+    expect($result['observations'])->toBe(1)
+        ->and(DB::table('routing.link_observations')->where('user_id', $pro->id)->count())->toBe(1);
+});
+
+it('reports a partly unreachable batch as partial, not as a clean haul', function () {
+    // "Found nothing" and "could not look" are different answers, and a caller
+    // that cannot tell them apart will retry the wrong one.
+    $pro = createTenant('bio-batch-partial');
+    Http::fake([
+        'example.com/up*' => Http::response('<html><body><a href="https://www.instagram.com/theartist">IG</a></body></html>', 200),
+        'example.com/down*' => Http::response('', 404),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/up',
+        'https://example.com/down',
+    ]);
+
+    expect($result['outcome'])->toBe('partial')
+        ->and($result['pages'])->toBe(1)
+        ->and($result['pages_unavailable'])->toBe(1)
+        ->and($result['observations'])->toBe(1);
+});
+
+it('treats a wholly unreachable batch the same as a single dead page', function () {
+    Http::fake(['*' => Http::response('', 500)]);
+
+    $result = app(LinkInBioImporter::class)->import(createTenant('bio-batch-dead'), [
+        'https://example.com/a',
+        'https://example.com/b',
+    ]);
+
+    expect($result['outcome'])->toBe('unavailable')
+        ->and($result['observations'])->toBe(0);
+});
+
+it('records a bio harvest under its own run kind', function () {
+    // routing.import_runs has accepted kind='bio_harvest' since the schema
+    // landed; nothing could write it until the importer took a list.
+    $pro = createTenant('bio-harvest-kind');
+    bioPage('<html><body><a href="https://www.instagram.com/theartist">IG</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, ['https://example.com/profile'], 'bio_harvest');
+
+    $run = DB::table('routing.import_runs')->where('user_id', $pro->id)->first();
+    expect($run->kind)->toBe('bio_harvest')
+        ->and(DB::table('routing.link_observations')->where('user_id', $pro->id)->value('source'))->toBe('bio_harvest');
+});
+
+it('refuses an unknown run kind rather than writing one the schema rejects', function () {
+    // The CHECK on import_runs.kind is the real authority; silently coercing
+    // beats a 500 from a typo'd caller, and a wrong-but-valid kind is visible.
+    $pro = createTenant('bio-bad-kind');
+    bioPage('<html><body><a href="https://www.instagram.com/theartist">IG</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, ['https://example.com/profile'], 'not_a_kind');
+
+    expect(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('kind'))->toBe('link_in_bio');
+});
+
+it('spends one link budget across the whole batch', function () {
+    // The cap is the RUN's, not the page's: 20 pages must not buy 20x the
+    // routing work a single page gets.
+    $pro = createTenant('bio-batch-budget');
+    $page = function (string $prefix): string {
+        $links = '';
+        for ($i = 0; $i < 80; $i++) {
+            $links .= '<a href="https://'.$prefix.$i.'.test/x">L</a>';
+        }
+
+        return '<html><body>'.$links.'</body></html>';
+    };
+    Http::fake([
+        'example.com/one*' => Http::response($page('first'), 200),
+        'example.com/two*' => Http::response($page('second'), 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/one',
+        'https://example.com/two',
+    ]);
+
+    // 80 distinct links per page, two pages, cap 100 — the second page is cut
+    // off rather than doubling the spend to 160.
+    expect($result['observations'])->toBe(100);
+});
