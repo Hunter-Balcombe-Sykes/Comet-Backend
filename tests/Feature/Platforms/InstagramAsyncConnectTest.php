@@ -70,6 +70,49 @@ it('connect() returns 202 with a poll URL and dispatches InstagramConnectJob', f
     expect($conn->payload)->toBe([]);
 });
 
+it('accepts a dotted username as a bare handle, not a domain (maha.restaurant)', function () {
+    // Regression: PlatformInput::urlish() saw the TLD-shaped "maha.restaurant"
+    // as a host and rewrote it to https://maha.restaurant → bogus 422 for a
+    // perfectly valid IG handle. Bare-handle input must win before urlish().
+    Queue::fake();
+    config(['services.apify.token' => 'test-token']);
+
+    $user = igAsyncUser('igdotted');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/instagram/connect', ['username' => 'maha.restaurant'])
+        ->assertStatus(202);
+
+    Queue::assertPushed(InstagramConnectJob::class, fn ($job) => $job->username === 'maha.restaurant');
+});
+
+it('still extracts a dotted username from a pasted profile URL', function () {
+    Queue::fake();
+    config(['services.apify.token' => 'test-token']);
+
+    $user = igAsyncUser('igdottedurl');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/instagram/connect', ['username' => 'https://instagram.com/maha.restaurant'])
+        ->assertStatus(202);
+
+    Queue::assertPushed(InstagramConnectJob::class, fn ($job) => $job->username === 'maha.restaurant');
+});
+
+it('still rejects a pasted bare instagram.com host with no username', function () {
+    // "instagram.com" / "www.instagram.com" match the handle grammar but are
+    // hosts — they must keep flowing down the URL path and 422, never be
+    // scraped as the literal username.
+    Queue::fake();
+    config(['services.apify.token' => 'test-token']);
+
+    actingAsUser(igAsyncUser('igbarehost'))
+        ->postJson('/api/platforms/instagram/connect', ['username' => 'www.instagram.com'])
+        ->assertStatus(422);
+
+    Queue::assertNothingPushed();
+});
+
 // ── no per-user cooldown: rapid re-connect is allowed ────────────────────────
 
 it('allows a rapid second connect (no per-user cooldown)', function () {

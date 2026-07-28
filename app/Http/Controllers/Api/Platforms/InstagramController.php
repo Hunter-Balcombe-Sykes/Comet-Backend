@@ -338,11 +338,22 @@ class InstagramController extends ApiController
     private function validateUsername(Request $request): JsonResponse|string
     {
         $validated = $request->validate(['username' => ['required', 'string', 'max:200']]);
-        // Accept a pasted profile URL (scheme optional) as well as @handle/handle.
-        $raw = PlatformInput::urlish(trim($validated['username']));
-        $username = preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $raw, $m)
-            ? $m[1]
-            : ltrim($raw, '@');
+        $input = trim($validated['username']);
+
+        // A bare @handle/handle is taken as-is BEFORE any urlish() rewriting:
+        // IG allows dots, so a handle like "maha.restaurant" is TLD-shaped and
+        // urlish() would rewrite it to "https://maha.restaurant" → bogus 422.
+        // Excluding "instagram.com" keeps a pasted bare host on the URL path.
+        $bare = ltrim($input, '@');
+        if (! str_contains(strtolower($bare), 'instagram.com') && preg_match('/^[A-Za-z0-9._]{1,80}$/', $bare)) {
+            $username = $bare;
+        } else {
+            // Accept a pasted profile URL (scheme optional) as well as @handle/handle.
+            $raw = PlatformInput::urlish($input);
+            $username = preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $raw, $m)
+                ? $m[1]
+                : ltrim($raw, '@');
+        }
         if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
             return $this->error("That doesn't look like a valid Instagram username.", 422);
         }
