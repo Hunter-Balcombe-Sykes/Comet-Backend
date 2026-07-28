@@ -529,7 +529,6 @@ function setupSitesTable(): void
         manual_booking_url TEXT NULL,
         shop_link_mode TEXT NOT NULL DEFAULT \'checkout\',
         shop_auto_latest INTEGER NOT NULL DEFAULT 1,
-        deleted_at TEXT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');

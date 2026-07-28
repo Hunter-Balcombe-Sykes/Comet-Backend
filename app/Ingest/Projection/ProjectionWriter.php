@@ -693,7 +693,8 @@ class ProjectionWriter
 
     private function bumpSite(string $userId): void
     {
-        $siteId = DB::table('site.sites')->where('user_id', $userId)->whereNull('deleted_at')->value('id');
+        // site.sites has no deleted_at — sites die by cascade, not soft delete.
+        $siteId = DB::table('site.sites')->where('user_id', $userId)->value('id');
         if ($siteId !== null) {
             BuildState::bump((string) $siteId);
         }

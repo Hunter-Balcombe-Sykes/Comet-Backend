@@ -33,7 +33,7 @@ class SiteBuildDocumentsCommand extends Command
         $channel = (string) $this->option('channel');
 
         if (($user = $this->argument('user')) !== null) {
-            $siteId = DB::table('site.sites')->where('user_id', $user)->whereNull('deleted_at')->value('id');
+            $siteId = DB::table('site.sites')->where('user_id', $user)->value('id');
             if ($siteId === null) {
                 $this->error("No site for user {$user}.");
 
@@ -53,7 +53,6 @@ class SiteBuildDocumentsCommand extends Command
         } elseif ($this->option('all')) {
             $siteIds = DB::table('site.sites')
                 ->where('is_published', true)
-                ->whereNull('deleted_at')
                 ->pluck('id');
         } else {
             $this->error('Pass a user id, --stale, or --all.');
