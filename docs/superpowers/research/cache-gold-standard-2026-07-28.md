@@ -152,6 +152,18 @@ Both keys now carry TTLs, and `tests/Feature/Cache/CacheKeyspaceConstraintsTest.
 
 **Recommendation:** keep the hand-rolled `CacheLockService` — see §4 for why a wholesale migration to `flexible()` would be a regression — but adopt its one genuinely better idea. In the SWR branch of `rememberLocked()`, wrap the recompute in `defer()` and return `$stale` immediately. The lock is still held across the deferred closure, so single-flight is preserved. Note that `defer()` only fires in an HTTP request context; the queue/console path must keep the synchronous behaviour, and `WarmPublicSiteCacheJob` depends on it. Effort: 4h including tests for both contexts.
 
+**Shipped 2026-07-28.** Implemented in both SWR sites, not just `rememberLocked`:
+`SiteCacheService::getPublicSitePayload` hand-rolls its own SWR against the
+`site:fill:{subdomain}` lock and never routes through `CacheLockService`, so a
+`rememberLocked`-only fix would have missed the hottest and most expensive path
+in the product. Two premises in the original finding were wrong and are corrected
+here: `defer()` is **not** HTTP-only — `FoundationServiceProvider` also flushes it
+after queued jobs (`JobAttempted`) and artisan commands (`CommandFinished`), so
+the console gate is mandatory rather than incidental; and the lock is only "still
+held across the deferred closure" if the release moves *inside* that closure, which
+the original one-line `defer($callback)` sketch would not have done. Ops kill-switch:
+`PARTNA_CACHE_SWR_DEFER_RECOMPUTE=false`.
+
 > **Plain English:** When a cache entry goes stale, one request gets nominated to rebuild it. Right now that request has to sit and wait for the rebuild to finish before it gets a reply — so one visitor per refresh cycle pays the full cost (maybe several hundred milliseconds of database work) while everyone else is served instantly from the older copy. It's not broken, it's just unfair: one person in the queue does the washing up for everybody.
 >
 > Laravel has a neat trick for this. It sends the response to the visitor *first*, then does the rebuild afterwards, in the same PHP process, once nobody's waiting. The visitor gets the fast old copy like everyone else and never knows they were volunteered. We should copy that behaviour into our own helper. One wrinkle: that "after the response" hook only exists during a web request — there's no response to send in a queued job or a console command — so the current wait-for-it behaviour has to stay for those, and `WarmPublicSiteCacheJob` in particular relies on it.
@@ -263,7 +275,7 @@ Ranked by impact × feasibility. Every row is one change with a decision, not a 
 | 3 | Give `cache:lock_release_failures` and `scheduler:last_run:*` TTLs — **done**, see §2.1 correction | **Implement** | Makes the keyspace all-TTL, which `volatile-*` policies assume | 0.5h |
 | 4 | Enable `REDIS_CACHE_COMPRESSION=true` (LZ4, no serializer) on **dev only**, verify consumers, then promote | **Implement** | 3.47× measured across the whole cache keyspace — see §2.5 corrections | 1h |
 | 5 | Escalate the `INFO`/`CONFIG` `NOPERM` gap to Laravel Cloud | **Implement** | Cache saturation is currently invisible until it causes an incident | 1h |
-| 6 | Defer the SWR recompute via `defer()` in the HTTP path, keeping sync behaviour for queue/console | **Implement** | Removes full recompute latency from one request per refresh window | 4h |
+| 6 | ~~Defer the SWR recompute via `defer()` in the HTTP path, keeping sync behaviour for queue/console~~ — **done 2026-07-28** | **Implement** | Removes full recompute latency from one request per refresh window | 4h |
 | 7 | Document the DB-index / Cluster incompatibility in `CLAUDE.md` | **Implement** | Prevents a future scaling decision being made on a wrong premise | 0.5h |
 | 8 | Cache-operation latency percentiles | **Defer** | Meaningless at zero production traffic; revisit post-pilot | — |
 | 9 | `Cache::memo()` for intra-request memoisation | **Defer** | The redundant-read pressure it targets is largely absent | — |
