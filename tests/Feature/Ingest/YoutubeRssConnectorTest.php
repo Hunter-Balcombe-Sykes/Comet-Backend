@@ -2,6 +2,7 @@
 
 use App\Ingest\Connectors\YoutubeRssConnector;
 use App\Ingest\Manifest\SourceProfile;
+use App\Ingest\Message\Bookmark;
 use App\Ingest\Message\Covered;
 use App\Ingest\Message\Note;
 use App\Ingest\Message\Record;
@@ -190,4 +191,75 @@ it('uses a Feed profile with an order field, so its absences can mean deletion',
     expect($spec->profile)->toBe(SourceProfile::Feed)
         ->and($spec->orderField)->toBe('published')
         ->and($spec->mayDelete())->toBeTrue();
+});
+
+// ── Handle resolution (legacy connections store only the handle) ────────────
+
+it('resolves a bare handle to the channel id via the channel page and caches it in a bookmark', function () {
+    $channelId = 'UCresolved0000000000000A';
+    $io = youtubeIo([
+        'https://www.youtube.com/@mkbhd' => [
+            'status' => 200,
+            'body' => '<html><script>var x = {"channelId":"'.$channelId.'","junk":1};</script></html>',
+            'headers' => [],
+        ],
+        youtubeFeedUrl($channelId) => [
+            'status' => 200,
+            'body' => youtubeFeedXml([
+                ['id' => 'clipOne', 'title' => 'Resolved Video', 'published' => '2025-03-03T00:00:00+00:00'],
+            ], $channelId),
+            'headers' => [],
+        ],
+    ]);
+
+    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull('mkbhd'), $io));
+
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    $bookmarks = array_values(array_filter($messages, fn ($m) => $m instanceof Bookmark));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['title'])->toBe('Resolved Video')
+        ->and($bookmarks)->toHaveCount(1)
+        ->and($bookmarks[0]->cursor)->toBe(['channel_id' => $channelId]);
+});
+
+it('reuses a cursor-cached channel id without re-fetching the channel page', function () {
+    $channelId = 'UCcached000000000000000B';
+    // No @handle page in the map: touching it would 404 and the run would
+    // degrade — passing proves the cursor short-circuited the resolution.
+    $io = youtubeIo([
+        youtubeFeedUrl($channelId) => [
+            'status' => 200,
+            'body' => youtubeFeedXml([
+                ['id' => 'cachedClip', 'title' => 'Cached', 'published' => '2025-04-04T00:00:00+00:00'],
+            ], $channelId),
+            'headers' => [],
+        ],
+    ]);
+
+    $pull = new Pull(
+        identifier: 'mkbhd',
+        stream: YoutubeRssConnector::manifest()->stream('watch'),
+        cursor: ['channel_id' => $channelId],
+    );
+
+    $messages = iterator_to_array((new YoutubeRssConnector)->pull($pull, $io));
+
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    $bookmarks = array_values(array_filter($messages, fn ($m) => $m instanceof Bookmark));
+
+    expect($records)->toHaveCount(1)
+        // Nothing was freshly resolved, so no bookmark churn.
+        ->and($bookmarks)->toBeEmpty();
+});
+
+it('degrades to unavailable when a handle cannot be resolved, never to an empty feed', function () {
+    $io = youtubeIo([
+        'https://www.youtube.com/@ghost' => ['status' => 200, 'body' => '<html>no id here</html>', 'headers' => []],
+    ]);
+
+    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull('ghost'), $io));
+
+    expect($messages)->toHaveCount(1)
+        ->and($messages[0])->toBeInstanceOf(Unavailable::class);
 });

@@ -8,6 +8,7 @@ use App\Ingest\Manifest\Manifest;
 use App\Ingest\Manifest\SourceKey;
 use App\Ingest\Manifest\SourceProfile;
 use App\Ingest\Manifest\StreamSpec;
+use App\Ingest\Message\Bookmark;
 use App\Ingest\Message\Covered;
 use App\Ingest\Message\Message;
 use App\Ingest\Message\Note;
@@ -23,6 +24,13 @@ use SimpleXMLElement;
  * — an Atom feed capped at the latest 15 uploads, newest first. Same honesty
  * requirement as Vimeo: only ever a prefix down to the oldest `published`
  * actually seen, never exhaustive (C5).
+ *
+ * The identifier may be a UC… channel id OR a bare handle: connections made
+ * through the legacy connect flow store only `payload.handle`, and the feed
+ * endpoint accepts nothing but the id. A handle is resolved once via the
+ * channel page (the same `"channelId":"UC…"` capture YoutubeScraper has
+ * proven in production) and cached in the stream cursor via Bookmark, so
+ * later runs cost one request again.
  *
  * XXE guard: LIBXML_NONET stops libxml resolving any external entity/DTD over
  * the network; LIBXML_NOENT is deliberately NOT passed (that flag is what
@@ -55,7 +63,27 @@ class YoutubeRssConnector implements Connector
     /** @return iterable<Message> */
     public function pull(Pull $pull, Io $io): iterable
     {
-        $channelId = trim($pull->identifier);
+        $identifier = trim($pull->identifier);
+        $resolvedFresh = false;
+
+        if ($this->isChannelId($identifier)) {
+            $channelId = $identifier;
+        } else {
+            $cached = $pull->cursor['channel_id'] ?? null;
+            $channelId = is_string($cached) && $this->isChannelId($cached)
+                ? $cached
+                : $this->resolveHandle($identifier, $io);
+            $resolvedFresh = $channelId !== null && $channelId !== $cached;
+
+            if ($channelId === null) {
+                // No id means no feed URL at all — and a failed resolution is
+                // UNAVAILABLE, never "the channel has no uploads" (C5).
+                yield new Unavailable("could not resolve handle '{$identifier}' to a channel id");
+
+                return;
+            }
+        }
+
         $response = $io->get('https://www.youtube.com/feeds/videos.xml?'.http_build_query(['channel_id' => $channelId]));
 
         if ($response['status'] !== 200 || $response['body'] === '') {
@@ -94,6 +122,37 @@ class YoutubeRssConnector implements Connector
         // only a prefix down to the oldest entry actually seen.
         $dates = array_filter(array_column($items, 'published'));
         yield new Covered('watch', Coverage::prefix($dates === [] ? null : min($dates), count($items)));
+
+        if ($resolvedFresh) {
+            // Cache the resolution so the next run skips the channel-page hop.
+            yield new Bookmark('watch', ['channel_id' => $channelId]);
+        }
+    }
+
+    private function isChannelId(string $value): bool
+    {
+        return (bool) preg_match('/^UC[A-Za-z0-9_-]{22}$/', $value);
+    }
+
+    /**
+     * Handle → channel id via the public channel page. Mirrors
+     * YoutubeScraper's production-proven capture; a page that will not yield
+     * one (renamed handle, consent interstitial) resolves to null and the
+     * caller degrades to Unavailable.
+     */
+    private function resolveHandle(string $handle, Io $io): ?string
+    {
+        $handle = ltrim($handle, '@');
+        if ($handle === '' || preg_match('~[\s/]~u', $handle)) {
+            return null;
+        }
+
+        $response = $io->get('https://www.youtube.com/@'.rawurlencode($handle));
+        if ($response['status'] !== 200 || $response['body'] === '') {
+            return null;
+        }
+
+        return preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $response['body'], $m) ? $m[1] : null;
     }
 
     /** @return list<array<string, mixed>>|null null when the body does not parse as XML */

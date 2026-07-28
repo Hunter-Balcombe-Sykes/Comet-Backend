@@ -2,6 +2,7 @@
 
 namespace App\Observers\Core;
 
+use App\Ingest\SourceProvisioner;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\IntegrationConnection;
@@ -14,6 +15,7 @@ use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
 
 // Purges the user's public sitepage edge cache on a MEANINGFUL platform-connection
@@ -133,6 +135,15 @@ class IntegrationConnectionObserver
             }
 
             $this->syncEventSlugs($connection);
+        }
+
+        // Ingest source provisioning (plan §4): a connect, a payload write
+        // (deferred connects fill the identity keys AFTER the placeholder
+        // insert), or an (de)activation keeps the ingest.sources seam in step.
+        if ($connection->wasRecentlyCreated
+            || $connection->wasChanged('payload')
+            || $connection->wasChanged('is_active')) {
+            $this->syncIngestSource($connection);
         }
 
         // Content-selection connect hooks (best-effort, never break the save):
@@ -440,6 +451,34 @@ class IntegrationConnectionObserver
         $this->refresher->refresh($connection);
         $this->cleanupMirroredMedia($connection);
         $this->retireEventSlugsOnDelete($connection);
+        $this->syncIngestSource($connection);
+    }
+
+    /**
+     * Keep the connection's ingest.sources row in step (create on connect,
+     * auto_sync off on disconnect/deactivate, identifier refresh on payload
+     * change). Best-effort — a failure here must never break the save. A
+     * QueryException is logged without report(): the only way this write can
+     * raise one is a test DB that never provisioned the ingest mirror, and
+     * report()-ing that on every connection save across the suite is noise.
+     */
+    private function syncIngestSource(IntegrationConnection $connection): void
+    {
+        try {
+            app(SourceProvisioner::class)->sync($connection);
+        } catch (QueryException $e) {
+            Log::debug('IntegrationConnectionObserver ingest-source sync query failure', [
+                'platform_connection_id' => $connection->id,
+                'message' => $e->getMessage(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver ingest-source sync failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -480,6 +519,7 @@ class IntegrationConnectionObserver
     public function restored(IntegrationConnection $connection): void
     {
         $this->refresher->refresh($connection);
+        $this->syncIngestSource($connection);
 
         // deleted() HARD-deletes the slug rows (a retired row would still squat
         // the slug), so a restore has to re-mint them — otherwise the connection
