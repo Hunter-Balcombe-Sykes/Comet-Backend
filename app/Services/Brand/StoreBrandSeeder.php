@@ -121,6 +121,14 @@ class StoreBrandSeeder
         // ShopBrandSeeder — a hand-typed code must survive every re-scan.
         $scanned = UrlParamExtractor::extract($sourceUrl);
 
+        // Favicon/logo are written only when THIS probe carried them: not every
+        // probe fetches them (Shopify's doesn't), and a re-seed must never wipe
+        // a value an earlier fetch already earned.
+        $carried = array_filter([
+            'favicon' => $probe->evidence['favicon'] ?? null,
+            'logo' => $probe->evidence['logo'] ?? null,
+        ], fn ($v) => $v !== null);
+
         return ShopBrand::updateOrCreate(
             ['connection_id' => $connectionId, 'brand_id' => $probe->identifier],
             [
@@ -132,12 +140,11 @@ class StoreBrandSeeder
                 'source_url' => $probe->evidence['source_url'] ?? $sourceUrl,
                 'name' => $probe->evidence['shop_name'] ?? null,
                 'currency' => $probe->evidence['currency'] ?? null,
-                'favicon' => $probe->evidence['favicon'] ?? null,
-                'logo' => $probe->evidence['logo'] ?? null,
                 'discount_code' => $existing?->discount_code ?: ($scanned['discountCode'] ?? ''),
                 'referral_query' => $existing?->referral_query ?: ($scanned['referralQuery'] ?? ''),
                 'is_individual' => false,
                 'position' => $existing !== null ? $existing->position : (($maxPosition === null ? -1 : $maxPosition) + 1),
+                ...$carried,
             ],
         );
     }
