@@ -18,7 +18,15 @@ class RecordScheduledTaskHeartbeat
     public function handle(ScheduledTaskStarting $event): void
     {
         $key = self::taskKey($event->task);
-        Cache::forever(self::CACHE_PREFIX.$key, now()->toIso8601String());
+        // TTL, not forever: maxmemory-policy is instance-wide across every Redis
+        // DB here, so an inevictable key on the cache DB is ballast the queue
+        // pays for. 30d clears every current task's max(2 x interval, 1h)
+        // staleness window by an order of magnitude — the longest scheduled
+        // interval is daily. Should a monthly task ever exist, an expired
+        // heartbeat degrades one row's last_run_at to null rather than faking a
+        // 503: HealthController forgives a null heartbeat whenever any other
+        // task proves the runner alive.
+        Cache::put(self::CACHE_PREFIX.$key, now()->toIso8601String(), now()->addDays(30));
     }
 
     // Stable identifier for a scheduled task. Prefers description (set explicitly

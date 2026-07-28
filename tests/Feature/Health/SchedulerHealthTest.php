@@ -5,9 +5,14 @@ use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Mockery as M;
 
 beforeEach(function () {
     Cache::flush();
+});
+
+afterEach(function () {
+    M::close();
 });
 
 it('reports 503 when no scheduled tasks have heartbeats yet', function () {
@@ -100,4 +105,18 @@ it('records a heartbeat when a ScheduledTaskStarting event fires', function () {
     Event::dispatch(new ScheduledTaskStarting($event));
 
     expect(Cache::get(RecordScheduledTaskHeartbeat::CACHE_PREFIX.$key))->not->toBeNull();
+});
+
+it('writes the scheduler heartbeat with a TTL so it stays evictable', function () {
+    $task = app(Schedule::class)->events()[0];
+    $key = RecordScheduledTaskHeartbeat::CACHE_PREFIX.RecordScheduledTaskHeartbeat::taskKey($task);
+
+    // forever() would make the key inevictable under volatile-lru — permanent
+    // ballast on the shared Valkey instance. See CacheKeyspaceConstraintsTest.
+    Cache::shouldReceive('forever')->never();
+    Cache::shouldReceive('put')
+        ->with($key, M::type('string'), M::type(DateTimeInterface::class))
+        ->once();
+
+    (new RecordScheduledTaskHeartbeat)->handle(new ScheduledTaskStarting($task));
 });
