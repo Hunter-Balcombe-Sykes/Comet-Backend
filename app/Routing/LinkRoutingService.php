@@ -49,25 +49,30 @@ class LinkRoutingService
         $this->observer->record($iri, $projection, $placement, $context);
         $applied = $this->reconciler->reconcile($placement, $context, $iri);
 
-        return $this->describe($iri, $projection, $placement) + [
+        // The reconciler can downgrade Place → Hold (conflict, cap), so the
+        // verdict it returns is the authoritative one. array_replace, not `+`:
+        // `+` keeps the LEFT side on key collision, which silently discarded
+        // these overrides.
+        return array_replace($this->describe($iri, $projection, $placement), [
             'intentId' => $applied['intent_id'],
             'connectionId' => $applied['connection_id'],
-            // The reconciler can downgrade Place → Hold (conflict, cap), so
-            // the verdict it returns is the authoritative one.
             'verdict' => $applied['verdict'],
-            'blockReason' => $applied['block_reason'],
-        ];
+            'blockReason' => $applied['verdict'] === Verdict::Reject->value ? $applied['block_reason'] : null,
+        ]);
     }
 
     /** @return array<string, mixed> */
     private function describe(Iri $iri, Projection $projection, Placement $placement): array
     {
         $surface = $placement->surfaceKey !== null ? CompiledCatalog::surface($placement->surfaceKey) : null;
+        $isNote = $placement->verdict === Verdict::Note;
 
         return [
             'verdict' => $placement->verdict->value,
             'canonicalUrl' => $iri->canonical,
-            'routedTo' => $surface === null ? null : [
+            // A Note is not routed anywhere — it stays a plain link item, so
+            // naming a surface here would read as a connection that isn't.
+            'routedTo' => ($surface === null || $isNote) ? null : [
                 'surfaceKey' => $placement->surfaceKey,
                 'brandKey' => $surface['brand_key'],
                 'displayName' => $surface['display_name'],
@@ -75,8 +80,12 @@ class LinkRoutingService
                 'identifier' => $placement->identifier,
             ],
             'confidence' => $projection->matched() ? $projection->confidence : null,
-            'blockReason' => $placement->blockReason,
-            'explanation' => $placement->explanation,
+            // ONLY a Reject blocks the add. The dashboard disables submit
+            // whenever blockReason is set, so anything non-null here must mean
+            // "cannot add" — a Note is kept as a link (Verdict::Note: never
+            // dropped) and Choose/Hold go to the review inbox.
+            'blockReason' => $placement->verdict === Verdict::Reject ? $placement->blockReason : null,
+            'explanation' => $isNote ? "We'll keep this as a link on your site." : $placement->explanation,
             'conflictingConnectionId' => $placement->conflictingConnectionId,
         ];
     }

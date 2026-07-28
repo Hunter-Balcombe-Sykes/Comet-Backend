@@ -28,9 +28,17 @@ class PlacementPolicy
     public function decide(Projection $projection, RoutingContext $context): Placement
     {
         if (! $projection->matched()) {
-            // Unmatched is not an error: a link we don't recognise is still a
-            // link the user wants on their page.
-            return new Placement(Verdict::Note, null, null, $projection->reason, 'unrecognised link');
+            // Unmatched is not one bucket. A healthy URL we simply don't
+            // recognise is still a link the user wants on their page (Note —
+            // kept, never dropped). A URL the canonicaliser refused (malformed,
+            // own-infra, shortener, confusable host…) can never become a link
+            // card at all, so it must keep blocking — the "unroutable" case
+            // Verdict::Reject documents.
+            if (in_array($projection->reason, ['unknown-domain', 'no-rule-matched'], true)) {
+                return new Placement(Verdict::Note, null, null, $projection->reason, 'unrecognised link');
+            }
+
+            return Placement::reject($projection->reason ?? 'unroutable');
         }
 
         $surfaceKey = $projection->surfaceKey;

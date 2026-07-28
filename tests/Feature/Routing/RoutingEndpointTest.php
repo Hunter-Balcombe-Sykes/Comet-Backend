@@ -33,10 +33,29 @@ it('previews a recognised link without writing anything', function () {
 it('explains an unrecognised link rather than failing', function () {
     $pro = createTenant('routing-unknown');
 
+    // Verdict::Note is "keep as a link item, never dropped" — so the preview
+    // must NOT read as a block. The dashboard disables submit whenever
+    // blockReason is set; an unrecognised-but-healthy URL has to stay addable.
     actingAsUser($pro)->postJson('/api/routing/preview', ['url' => 'https://joesplumbing.com.au/'])
         ->assertOk()
         ->assertJsonPath('verdict', 'note')
-        ->assertJsonPath('routedTo', null);
+        ->assertJsonPath('routedTo', null)
+        ->assertJsonPath('blockReason', null)
+        ->assertJsonPath('explanation', "We'll keep this as a link on your site.");
+});
+
+it('previews a below-auto-threshold link without a blockReason so it can be submitted for review', function () {
+    $pro = createTenant('routing-choose-preview');
+
+    // fresha.com/a/… projects at 75, under booking's auto bar (80) but over
+    // suggest (55) → Choose. A Choose is a question for the review inbox, not
+    // a block — blockReason non-null here would disable the Add button and the
+    // question could never be asked.
+    actingAsUser($pro)->postJson('/api/routing/preview', ['url' => 'https://www.fresha.com/a/some-salon-abc123'])
+        ->assertOk()
+        ->assertJsonPath('verdict', 'choose')
+        ->assertJsonPath('routedTo.surfaceKey', 'fresha.book')
+        ->assertJsonPath('blockReason', null);
 });
 
 // ── store: the full observe → project → place → reconcile pass ───────────────
@@ -107,9 +126,13 @@ it('never connects a spoofed brand host', function () {
 it('refuses to write own-infrastructure links', function () {
     $pro = createTenant('routing-owninfra');
 
+    // Own infrastructure is unroutable (Verdict::Reject's own list) — it can
+    // never become a link card, so unlike an unrecognised business URL it
+    // keeps a blockReason and genuinely blocks.
     actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://dev-api.partna.au/api/internal/x'])
         ->assertStatus(202)
-        ->assertJsonPath('verdict', 'note');
+        ->assertJsonPath('verdict', 'reject')
+        ->assertJsonPath('blockReason', 'own-infra');
 
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 });
@@ -124,13 +147,15 @@ it('gates a reservations link for an account that cannot use reservations', func
         'url' => 'https://www.opentable.com.au/restaurant/profile/12345',
     ]);
 
+    // Denied never means dropped — a gate demotes to Note, and a Note never
+    // blocks the add (blockReason stays a Reject-only signal). The WHY is
+    // still recorded on the observation.
     $response->assertStatus(202)
         ->assertJsonPath('verdict', 'note')
-        ->assertJsonPath('blockReason', 'gate');
+        ->assertJsonPath('blockReason', null)
+        ->assertJsonPath('routedTo', null);
 
-    // Denied never means dropped — the user still gets their link, and we
-    // recorded exactly why it was not connected.
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', '!=', 'custom')->count())->toBe(0)
         ->and(DB::table('routing.link_observations')->where('block_reason', 'gate')->count())->toBe(1);
 });
 
