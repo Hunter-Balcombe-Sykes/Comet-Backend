@@ -212,22 +212,16 @@ it('writes a same ruling the pure resolver honours', function () {
     expect($resolution->sameItem('spotify:acct:1', 'bandcamp:acct:2'))->toBeTrue();
 });
 
-it('writes a different ruling as a cut — which DisjointSet applies in only one direction (KNOWN GAP)', function () {
-    // CHARACTERISATION, not an endorsement. Decision's own contract says a
-    // human's ruling beats every key "in both directions" (C8), and this
-    // endpoint stores one row per ruling with the coords sorted, exactly as
-    // the unique index expects.
+it('writes a different ruling as a cut the resolver honours in BOTH argument orders', function () {
+    // Decision's contract: a human's ruling beats every key "in both
+    // directions" (C8). The endpoint stores one row per ruling with the
+    // coords SORTED, so the resolver must split the pair regardless of which
+    // coord that ordering puts second.
     //
-    // DisjointSet::separate() re-roots its SECOND argument, so a cut only
-    // bites when that argument is the union CHILD. Whether the sorted order
-    // puts the child second depends on which coord happened to win the union
-    // — something no writer can know. So a `different` ruling currently fails
-    // to split roughly half the time.
-    //
-    // The fix belongs in app/Content/Identity/DisjointSet.php (lane A), not
-    // here: writing the row twice to compensate would have to be un-done the
-    // day it is fixed. When it IS fixed, the second expectation below flips —
-    // delete this test and merge it into the one above.
+    // Old bug (fixed 2026-07-28): DisjointSet::separate() always re-rooted
+    // its SECOND argument, a no-op whenever that argument was the union ROOT
+    // — so a stored `different` ruling silently failed to split roughly half
+    // the time, decided by which coord happened to win the union.
     $pro = createTenant('identity-resolver-diff');
     [, , $candidateId] = seedDuplicatePair($pro->id);
 
@@ -243,13 +237,14 @@ it('writes a different ruling as a cut — which DisjointSet applies in only one
         new SourceItem('bandcamp:acct:2', 'src-b', 'track', [new IdentityKey(KeyClass::Isrc, 'USRC17607839')]),
     ];
 
+    // Union child second (the order the old code happened to handle)…
     $childSecond = (new Resolver)->resolve($items, [new Decision('spotify:acct:1', 'bandcamp:acct:2', 'different')]);
     expect($childSecond->sameItem('spotify:acct:1', 'bandcamp:acct:2'))->toBeFalse();
 
-    // The stored (sorted) order puts the union ROOT second here, and the cut
-    // is silently lost. This is the gap.
+    // …and the stored (sorted) order, which puts the union ROOT second here —
+    // the exact shape the old direction bug lost.
     $rootSecond = (new Resolver)->resolve($items, storedDecisions($pro->id));
-    expect($rootSecond->sameItem('spotify:acct:1', 'bandcamp:acct:2'))->toBeTrue();
+    expect($rootSecond->sameItem('spotify:acct:1', 'bandcamp:acct:2'))->toBeFalse();
 });
 
 it('warns rather than lying when an item has no source records', function () {

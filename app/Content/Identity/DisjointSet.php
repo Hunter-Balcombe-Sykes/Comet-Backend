@@ -64,10 +64,24 @@ class DisjointSet
             return;
         }
 
+        if ($this->find($a) !== $this->find($b)) {
+            return;
+        }
+
+        // Re-root whichever argument is NOT the group root. Re-rooting the
+        // root is a no-op, and always re-rooting $b (the old bug) silently
+        // lost the cut whenever $b's side had won the union — an accident of
+        // argument order no caller controls (stored decisions arrive with
+        // coords sorted). Anything transitively joined only through the
+        // detached element follows it.
+        $detach = $this->find($b) === $b ? $a : $b;
+        $this->parent[$detach] = $detach;
+
+        // If one argument's path ran through the other, one detach pulled
+        // both out together — split the pair itself.
         if ($this->find($a) === $this->find($b)) {
-            // Rebuild: keep $a's side rooted where it is and re-root $b alone.
-            // Anything transitively joined only through $b follows it.
-            $this->parent[$b] = $b;
+            $other = $detach === $b ? $a : $b;
+            $this->parent[$other] = $other;
         }
     }
 
