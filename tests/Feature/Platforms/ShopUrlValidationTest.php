@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Str;
@@ -146,6 +148,33 @@ it('reports a marker-bearing WooCommerce site with a blocked Store API as unreac
         ->postJson('/api/platforms/shop/brands', ['url' => 'https://fearnoevil.com.au'])
         ->assertStatus(422)
         ->assertJsonPath('code', 'store_unreachable');
+});
+
+it('returns the coded store_catalog_blocked 422 when a connected store 429s its catalog (GET .../products)', function () {
+    // Live repro: Culture Kings — a connected Shopify brand whose upstream WAF
+    // answers /products.json with 429. ShopifyScraper abort(502)s, which used
+    // to surface as a raw 502 in the picker; the dashboard needs the same
+    // coded-422 contract as the add flows to render it inline.
+    $user = shopValidationUser('b14blocked');
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'blockedstore-example', 'provider' => 'shopify',
+        'url' => 'https://blockedstore.example', 'discount_code' => '', 'position' => 0,
+    ]);
+
+    fakeShopFetcher([
+        '/products.json' => [429, 'Too Many Requests'],
+    ]);
+
+    actingAsUser($user)
+        ->getJson('/api/platforms/shop/brands/blockedstore-example/products')
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'store_catalog_blocked')
+        ->assertJsonStructure(['code', 'message']);
 });
 
 it('connects a WooCommerce store end-to-end off the real bluelane.co payloads', function () {

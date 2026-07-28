@@ -579,11 +579,29 @@ class ShopController extends ApiController
         }
 
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
-        $products = Cache::remember(
-            $this->catalogKey($id),
-            self::applyJitter(self::CATALOG_TTL_MINUTES * 60),
-            fn () => $this->budget->open($seconds, fn () => $this->providerProducts($map[$id])),
-        );
+        try {
+            $products = Cache::remember(
+                $this->catalogKey($id),
+                self::applyJitter(self::CATALOG_TTL_MINUTES * 60),
+                fn () => $this->budget->open($seconds, fn () => $this->providerProducts($map[$id])),
+            );
+        } catch (HttpException $e) {
+            // Scrapers abort(502) when the store's catalog endpoint is blocked
+            // (WAF 429s, disabled products.json). Raw 502s render as an opaque
+            // dashboard failure — surface the same coded-422 contract the
+            // add-brand/add-product flows use (WS-B1) so it can render inline.
+            // Anything non-502 (e.g. a 429 from our own budget guards) keeps
+            // its meaning.
+            if ($e->getStatusCode() !== 502) {
+                throw $e;
+            }
+
+            return $this->error(
+                'This store is temporarily blocking product browsing — try again later.',
+                422,
+                extra: ['code' => 'store_catalog_blocked'],
+            );
+        }
 
         return $this->success(['products' => $products]);
     }
