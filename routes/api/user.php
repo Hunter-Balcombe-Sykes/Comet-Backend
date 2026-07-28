@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Content\IdentityCandidateController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
+use App\Http\Controllers\Api\Routing\ConnectionsController;
 use App\Http\Controllers\Api\Routing\RoutingController;
 use App\Http\Controllers\Api\Routing\SuggestionsController;
 use App\Http\Controllers\Api\Site\PageController;
@@ -86,6 +87,14 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('intent')->name('user.routing.suggestions.accept');
         Route::post('/routing/suggestions/{intent}/dismiss', [SuggestionsController::class, 'dismiss'])
             ->whereUuid('intent')->name('user.routing.suggestions.dismiss');
+
+        // Connections with per-class is_primary, and the SetPrimarySheet's
+        // write: one primary CTA per (user, routing_class), swapped in a
+        // single transaction (plan §1).
+        Route::get('/routing/connections', [ConnectionsController::class, 'index'])
+            ->name('user.routing.connections');
+        Route::post('/routing/connections/{connection}/primary', [ConnectionsController::class, 'setPrimary'])
+            ->whereUuid('connection')->name('user.routing.connections.primary');
 
         // ── Surface model (plan §7): pages, sections, pins and excludes. ────
         // Nav is PAGES — one row per page, never per section — so pages own

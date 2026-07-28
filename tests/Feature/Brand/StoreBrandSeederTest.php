@@ -89,6 +89,8 @@ it('honours a tombstone it never checks for', function () {
     // THE POINT OF B2. StoreBrandSeeder contains no tombstone logic at all —
     // the refusal is honoured because the decision goes through
     // PlacementPolicy, not because this class remembered to re-implement it.
+    // Seeded from a SCAN origin: tombstones are origin-aware (owner decision,
+    // 2026-07-28) and only bind re-imports — a direct 'paste' would win.
     $pro = createTenant('store-tombstoned');
     storeResponds();
 
@@ -101,7 +103,7 @@ it('honours a tombstone it never checks for', function () {
         'created_at' => now(),
     ]);
 
-    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com', 'website_import');
 
     expect($result['outcome'])->toBe('not_placed')
         ->and($result['reason'])->toBe('tombstoned')

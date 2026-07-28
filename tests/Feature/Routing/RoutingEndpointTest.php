@@ -240,7 +240,10 @@ it('gates a reservations link for an account that cannot use reservations', func
         ->and(DB::table('routing.link_observations')->where('block_reason', 'gate')->count())->toBe(1);
 });
 
-it('honours a tombstone — a refused link never comes back', function () {
+it('lets a direct paste supersede a tombstone — the refusal only binds re-imports', function () {
+    // Owner decision 2026-07-28: tombstones suppress scan/suggestion origins;
+    // the user pasting the URL again is the counter-instruction. Scan
+    // suppression is pinned in TombstoneResurrectionTest.
     $pro = createTenant('routing-tombstone');
 
     DB::table('routing.item_tombstones')->insert([
@@ -253,11 +256,11 @@ it('honours a tombstone — a refused link never comes back', function () {
 
     actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://x.com/someuser'])
         ->assertStatus(202)
-        ->assertJsonPath('verdict', 'reject')
-        ->assertJsonPath('outcome', null);
+        ->assertJsonPath('verdict', 'place')
+        ->assertJsonPath('outcome', 'connected');
 
-    // A reject writes NOTHING — not even a link card. The user said no once.
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+        ->and(DB::table('routing.item_tombstones')->where('user_id', $pro->id)->count())->toBe(0);
 });
 
 // ── validation ───────────────────────────────────────────────────────────────

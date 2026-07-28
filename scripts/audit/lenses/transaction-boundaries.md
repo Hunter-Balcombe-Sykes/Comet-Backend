@@ -166,6 +166,7 @@ For every finding:
 ```
 --scope app/Http/Controllers/Api/Catalog
 --scope app/Http/Controllers/Api/Routing
+--scope app/Routing
 ```
 
 ## Exhaustiveness directive

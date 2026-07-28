@@ -12,6 +12,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // /synced now also folds new-pipeline Hold intents (SyncFindingsBridge),
+    // so the routing tables must exist even for payload-only cases.
+    setupRoutingTables();
 });
 
 function igSyncedUser(string $h): User

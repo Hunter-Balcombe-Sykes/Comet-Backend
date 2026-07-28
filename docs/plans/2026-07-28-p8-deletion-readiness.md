@@ -8,15 +8,15 @@ restatement of the plan's intent, but the measured state of its preconditions.
 calls it. A deletion that "should be fine" is how a platform loses a feature
 nobody noticed was load-bearing.
 
-## Verdict (2026-07-28, revised): P8 STILL CANNOT PROCEED — one hard blocker left
+## Verdict (2026-07-28, revised again): no hard CAPABILITY blocker left on the scan paths
 
-Originally five blockers, all "capabilities that were never built". Three are
-now built (B2 brand plane, B3 bio-harvest importer, B5 tombstone backfill), one
-is half-built (B1 probe runtime: the runtime exists, one of five probes does),
-and **B4 — the findings/synced-modal contract — is untouched and is the reason
-no scan path may migrate.** It is the nastiest of the five precisely because it
-is not a crash: LinkInBioScanJob and InstagramAutoSync would migrate
-"successfully" and silently stop telling users about conflicts.
+Originally five blockers, all "capabilities that were never built". Four are
+now built (B2 brand plane, B3 bio-harvest importer, B4 findings/synced-modal
+fold, B5 tombstone backfill); B1 remains half-built (probe runtime exists, one
+of five probes does) and still blocks the SHOP consumers only. With B4
+resolved (wave-2B), LinkInBioScanJob and InstagramAutoSync may migrate without
+silently dropping conflict findings — the remaining gates are the ordering
+constraints below (apply the B5 migration first) and per-consumer parity work.
 
 Anyone picking this up should read §"Hard blockers" first and resist the
 temptation to migrate the easy consumers in isolation. The two *ordering*
@@ -62,13 +62,20 @@ files has been deleted, because none of their consumers has been migrated.
    accepts `string|list<string>` plus a run kind, recording ONE `import_runs`
    row per batch with a shared dedupe table and a shared link budget.
    `kind='bio_harvest'` now has a writer.
-4. **Findings / synced-modal contract.** New-pipeline conflicts become Hold
-   intents behind `GET /api/routing/suggestions`, which the dashboard has not
-   mounted. Nothing folds them into `payload.syncFindings`, which the existing
-   Instagram modal and its applySync swap flow read. **Blocks LinkInBioScanJob
-   and InstagramAutoSync semantically** — they would migrate "successfully" and
-   silently stop telling users about conflicts. **STILL OPEN — the last hard
-   blocker on the scan paths.**
+4. **Findings / synced-modal contract — RESOLVED 2026-07-28 (wave-2B).**
+   `App\Routing\SyncFindingsBridge` folds Hold intents (state=blocked,
+   block_reason=conflict, origin ∈ {bio_harvest, link_in_bio}) into the
+   `GET /platforms/instagram/synced` RESPONSE at read time, shaped exactly as
+   legacy conflict findings (never written into `payload.syncFindings` — one
+   source of truth, nothing to un-ship later). `POST /synced/apply` falls back
+   to the intent ledger when no payload finding matches, resolving it through
+   `App\Routing\SuggestionApplier` — the same demote/create/settle transaction
+   the suggestions inbox uses (extracted from `SuggestionsController::accept`,
+   keeping intent application single-writer). Origin-scoped on purpose: the
+   Instagram modal owns the bio-scan origins; GoogleBusinessAutoSync's modal
+   folds its own origin when that path migrates. Pinned in
+   `tests/Feature/Routing/SyncFindingsFoldTest.php`. **LinkInBioScanJob and
+   InstagramAutoSync are no longer semantically blocked.**
 5. **Soft-delete tombstone backfill — RESOLVED 2026-07-28.**
    `supabase/migrations/20260728120000_backfill_item_tombstones.sql` seeds
    `routing.item_tombstones` from historical soft-deleted connections, with
@@ -158,21 +165,22 @@ ref still resurrects deletions.
 - After applying, spot-check on dev:
   `SELECT count(*) FROM routing.item_tombstones WHERE reason LIKE 'legacy%';`
 
-Known consequence to decide on, not a bug: `PlacementPolicy::isTombstoned()`
-does not consider `RoutingContext::isDirectRequest()`, so a tombstone also
-blocks a deliberate manual re-add, not just a re-import. That is the reader's
-existing semantics (already true of every tombstone the suggestions inbox
-writes) now applying to a wider set of rows. If re-add should beat a tombstone,
-the fix is an origin-aware check in `PlacementPolicy` — **not** a narrower
-backfill, which would only restore the resurrection hazard.
+~~Known consequence to decide on~~ — **DECIDED AND IMPLEMENTED 2026-07-28
+(wave-2B):** a direct request wins over a tombstone. `PlacementPolicy` only
+consults tombstones when `! $context->isDirectRequest()`, and
+`SourceReconciler::applyIntent` deletes the superseded `surface:identifier`
+tombstone when a direct re-add applies (a bare-surface refusal stays — it is
+wider than the one account being restored). Scan/suggestion origins stay
+suppressed. Pinned in `TombstoneResurrectionTest` (both directions) and
+`RoutingEndpointTest`; the backfill stays exactly as wide as it was.
 
 ## Order of operations when the above clears
 
 1. ~~Backfill `routing.item_tombstones` from historical soft-deletes~~ — code
    landed 2026-07-28; **apply the migration before any scan path migrates.**
-2. Decide the findings contract (blocker 4): fold Hold intents into
-   `payload.syncFindings`, or mount the suggestions surface and retire the
-   modal. Do not migrate a scan path until this is answered.
+2. ~~Decide the findings contract (blocker 4)~~ — decided and built 2026-07-28
+   (wave-2B): Hold intents fold into the /synced RESPONSE via
+   `SyncFindingsBridge`; the modal stays. See blocker 4 above.
 3. Migrate `CustomLinksController` — smallest real write-path switch. Add a
    routed-branch test to the legacy endpoint first; it currently has none, so
    there is nothing to prove parity against.

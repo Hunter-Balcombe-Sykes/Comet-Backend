@@ -16,7 +16,10 @@ use Illuminate\Support\Str;
  * a true account of why every connection exists.
  *
  * Reconcile, never replace (C4/C5): this never deletes a user's connection,
- * never reorders anything, and never resurrects what a tombstone refused.
+ * never reorders anything, and never resurrects what a tombstone refused —
+ * unless the user themselves pastes the link again, in which case the direct
+ * request wins and the superseded tombstone is cleared (owner decision,
+ * 2026-07-28).
  */
 class SourceReconciler
 {
@@ -180,6 +183,18 @@ class SourceReconciler
         Iri $iri,
         RoutingContext $context,
     ): string {
+        // A direct re-add supersedes an earlier refusal of this exact source:
+        // leaving the tombstone would make the very next scan reject a link
+        // the user explicitly restored. Narrow on purpose — a bare-surface
+        // refusal covers every account on the surface, which one account's
+        // re-add does not answer, so only the surface:identifier ref goes.
+        if ($context->isDirectRequest()) {
+            DB::table('routing.item_tombstones')
+                ->where('user_id', $user->id)
+                ->where('source_ref', $surfaceKey.':'.$identifier)
+                ->delete();
+        }
+
         $connection = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)

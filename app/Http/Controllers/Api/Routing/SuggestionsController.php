@@ -5,8 +5,7 @@ namespace App\Http\Controllers\Api\Routing;
 use App\Catalog\CompiledCatalog;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
-use App\Models\Core\Site\IntegrationConnection;
-use App\Routing\ConnectionPayload;
+use App\Routing\SuggestionApplier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +30,8 @@ use Illuminate\Support\Str;
 class SuggestionsController extends ApiController
 {
     use ResolveCurrentUser;
+
+    public function __construct(private readonly SuggestionApplier $applier) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -84,64 +85,15 @@ class SuggestionsController extends ApiController
             return $this->error('That platform is no longer supported.', 422);
         }
 
-        return DB::transaction(function () use ($user, $intent, $surface) {
-            // Replacing an incumbent: demote it rather than delete it. The
-            // user asked for a different primary, not for their data to go.
-            if ($intent->conflicting_connection_id !== null) {
-                IntegrationConnection::query()
-                    ->where('id', $intent->conflicting_connection_id)
-                    ->where('user_id', $user->id)
-                    ->update(['is_primary' => false]);
-            }
+        // Shared with the synced-modal's "Change to" swap (SyncFindingsBridge)
+        // — one writer for intent application, wherever the user answered.
+        $connection = $this->applier->apply($user, $intent, $surface);
 
-            $connection = IntegrationConnection::query()
-                ->where('user_id', $user->id)
-                ->where('surface_key', $intent->surface_key)
-                ->where('resource_id', $intent->identifier)
-                ->whereNull('deleted_at')
-                ->first();
-
-            if ($connection === null) {
-                $connection = new IntegrationConnection([
-                    'user_id' => $user->id,
-                    'surface_key' => $intent->surface_key,
-                    'routing_class' => $intent->routing_class,
-                    'resource_id' => $intent->identifier,
-                    // Through ConnectionPayload like every other writer: a
-                    // handle-identity surface needs `username` on the public
-                    // wire or the sitepage renders blank (the showcase
-                    // regression). A raw ['url','source'] here was a third,
-                    // drifting writer.
-                    'payload' => ConnectionPayload::forWrite(
-                        (string) $intent->canonical_url,
-                        (string) $intent->identifier,
-                        (string) ($surface['identifier_kind'] ?? ''),
-                        'suggestion',
-                    ),
-                    'is_active' => true,
-                    'last_refresh_status' => 'pending',
-                ]);
-                $connection->save();
-            }
-
-            if ($intent->conflicting_connection_id !== null) {
-                $connection->forceFill(['is_primary' => true])->save();
-            }
-
-            DB::table('routing.source_intents')->where('id', $intent->id)->update([
-                'state' => 'applied',
-                'block_reason' => null,
-                'connection_id' => $connection->id,
-                'resolved_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            return $this->success([
-                'connectionId' => $connection->id,
-                'surfaceKey' => $intent->surface_key,
-                'displayName' => $surface['display_name'],
-            ]);
-        });
+        return $this->success([
+            'connectionId' => $connection->id,
+            'surfaceKey' => $intent->surface_key,
+            'displayName' => $surface['display_name'],
+        ]);
     }
 
     /**

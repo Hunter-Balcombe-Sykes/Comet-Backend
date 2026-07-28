@@ -58,9 +58,13 @@ class PlacementPolicy
             return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'retired', 'brand no longer operating');
         }
 
-        // A user's removal is permanent (C8): re-importing the same link must
-        // never resurrect what they deleted.
-        if ($context->user !== null && $this->isTombstoned($context->user, $projection)) {
+        // A user's removal is permanent against RE-IMPORTS (C8): a scan or
+        // harvest must never resurrect what they deleted. An explicit paste
+        // is the opposite of a re-import — the user directly asking for the
+        // link back — so a direct request wins over the tombstone (owner
+        // decision, 2026-07-28). The reconciler deletes the superseded
+        // refusal when the re-add actually applies.
+        if ($context->user !== null && ! $context->isDirectRequest() && $this->isTombstoned($context->user, $projection)) {
             return Placement::reject('tombstoned', $surfaceKey);
         }
 
