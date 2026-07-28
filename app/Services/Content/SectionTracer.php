@@ -1,0 +1,313 @@
+<?php
+
+namespace App\Services\Content;
+
+use App\Models\Core\Site\Section;
+use App\Site\Documents\BuildState;
+use App\Site\Documents\DocumentBuilder;
+use App\Site\Sections\RuleOperator;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * "Why is this thing on my page — and why isn't that one?" (plan §7).
+ *
+ * The trace answers per candidate, not in aggregate, because the 3am version
+ * of the question is always about ONE item. It deliberately mirrors
+ * {@see DocumentBuilder} rather than describing the rule
+ * as designed: a diagnostic that disagrees with the live page is worse than no
+ * diagnostic. Where the builder ignores an operator, this says so in the
+ * `gaps` list instead of pretending the predicate was applied.
+ *
+ * Executed operators today: kind_is, published_within. The other five are
+ * declared, validated and narratable but not yet executed — see `gaps`.
+ */
+final class SectionTracer
+{
+    /** Mirrors DocumentBuilder::ruleCandidates()' own bound. */
+    private const CANDIDATE_SCAN_LIMIT = 200;
+
+    /** The operators DocumentBuilder actually executes today. */
+    private const EXECUTED_OPERATORS = [
+        RuleOperator::KindIs->value,
+        RuleOperator::PublishedWithin->value,
+    ];
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function trace(Section $section): array
+    {
+        $rule = $section->ruleObject();
+        $predicates = $this->tracePredicates($section);
+        $curation = $this->curationFor($section);
+        $buildState = BuildState::read((string) $section->site_id);
+
+        return [
+            'section' => [
+                'id' => (string) $section->id,
+                'key' => $section->key,
+                'label' => $section->label,
+                'mode' => $section->mode,
+                'orderBy' => $section->order_by,
+                'limitN' => $section->limit_n === null ? null : (int) $section->limit_n,
+                'minItems' => (int) $section->min_items,
+                'onEmpty' => $section->on_empty,
+            ],
+            'rule' => [
+                'sentence' => $rule->toSentence(),
+                'predicates' => $predicates,
+            ],
+            // The builder reads this BEFORE building and commits under CAS, so
+            // "stale" here is the honest answer to "is my page showing this yet?"
+            'buildState' => [
+                'contentRevision' => $buildState['content_revision'],
+                'builtRevision' => $buildState['built_revision'],
+                'stale' => $buildState['content_revision'] > $buildState['built_revision'],
+            ],
+            'candidates' => $this->traceCandidates($section, $curation),
+            'gaps' => $this->gaps($predicates),
+        ];
+    }
+
+    /**
+     * @return array{pinned: list<string>, excluded: array<string, true>, sortKeys: array<string, float|null>}
+     */
+    private function curationFor(Section $section): array
+    {
+        $rows = DB::table('site.section_items')
+            ->where('section_id', $section->id)
+            ->get();
+
+        $pinned = $rows->where('state', 'pinned')->sortBy('sort_key');
+
+        return [
+            'pinned' => array_values($pinned->pluck('item_id')->all()),
+            'excluded' => array_fill_keys($rows->where('state', 'excluded')->pluck('item_id')->all(), true),
+            'sortKeys' => $pinned->pluck('sort_key', 'item_id')->all(),
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function tracePredicates(Section $section): array
+    {
+        $out = [];
+
+        foreach ($section->ruleObject()->predicates as $predicate) {
+            $executed = in_array($predicate->operator->value, self::EXECUTED_OPERATORS, true);
+
+            $out[] = [
+                'op' => $predicate->operator->value,
+                'values' => $predicate->values,
+                'negated' => $predicate->negated,
+                'status' => $executed ? 'applied' : 'ignored',
+                'reason' => $this->predicateReason($predicate->operator, $executed),
+            ];
+        }
+
+        return $out;
+    }
+
+    private function predicateReason(RuleOperator $operator, bool $executed): string
+    {
+        if (! $executed) {
+            return 'Saved and shown in the rule, but not yet narrowing the list: this condition needs '
+                .'facet, source or tag joins the document builder does not run yet.';
+        }
+
+        return match ($operator) {
+            // Named rather than hidden: the builder filters on last_seen_at,
+            // which is when we last SAW the item, not when it was published.
+            // For a source that re-reports its whole catalogue this is close
+            // enough to be useful and far enough to be worth stating.
+            RuleOperator::PublishedWithin => 'Applied against when the item was last seen, not its published date.',
+            default => 'Applied.',
+        };
+    }
+
+    /**
+     * @param  array{pinned: list<string>, excluded: array<string, true>, sortKeys: array<string, float|null>}  $curation
+     * @return list<array<string, mixed>>
+     */
+    private function traceCandidates(Section $section, array $curation): array
+    {
+        // Hand-picked sections are exactly their pins: the rule is never
+        // consulted, so enumerating rule candidates here would invent a
+        // shortlist the live page does not have.
+        $ruleCandidateIds = $section->mode === 'hand_picked'
+            ? []
+            : $this->ruleCandidateIds($section, $curation['pinned']);
+
+        $ordered = array_merge($curation['pinned'], $ruleCandidateIds);
+        $excludedOnly = array_diff(array_keys($curation['excluded']), $ordered);
+
+        $items = $this->itemsById(array_merge($ordered, $excludedOnly));
+
+        $out = [];
+        $admitted = 0;
+        $limit = $section->limit_n === null ? null : (int) $section->limit_n;
+
+        foreach ($ordered as $position => $itemId) {
+            $item = $items[$itemId] ?? null;
+            $isPinned = in_array($itemId, $curation['pinned'], true);
+
+            [$verdict, $reason] = $this->verdictFor(
+                item: $item,
+                isPinned: $isPinned,
+                isExcluded: isset($curation['excluded'][$itemId]),
+                overLimit: $limit !== null && $admitted >= $limit,
+                position: $position,
+            );
+
+            if ($verdict === 'included' || $verdict === 'pinned') {
+                $admitted++;
+            }
+
+            $out[] = $this->candidateRow($itemId, $item, $verdict, $reason, $curation['sortKeys'][$itemId] ?? null);
+        }
+
+        // Items the user hid that the rule would not have produced anyway.
+        // Listing them is the point: a hide that did nothing still looks like
+        // a hide in the UI, and the user deserves to be told which it was.
+        foreach ($excludedOnly as $itemId) {
+            $out[] = $this->candidateRow(
+                $itemId,
+                $items[$itemId] ?? null,
+                'excluded',
+                'Hidden by you. The rule would not have included it anyway.',
+                null,
+            );
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function verdictFor(?object $item, bool $isPinned, bool $isExcluded, bool $overLimit, int $position): array
+    {
+        if ($item === null) {
+            return ['missing', 'This item no longer exists in your library.'];
+        }
+
+        if ($item->removed_at !== null) {
+            return ['removed', 'You deleted this item, so nothing can show it.'];
+        }
+
+        // Excludes beat pins: the last thing the user said wins, and hiding
+        // something you previously pinned is a normal way to change your mind.
+        if ($isExcluded) {
+            return ['excluded', 'Hidden by you in this section.'];
+        }
+
+        if ($overLimit) {
+            return ['over_limit', 'Matched, but the section is already full.'];
+        }
+
+        if ($isPinned) {
+            return ['pinned', 'Pinned by you at position '.($position + 1).'.'];
+        }
+
+        return ['included', 'Matched the rule.'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function candidateRow(string $itemId, ?object $item, string $verdict, string $reason, float|int|string|null $sortKey): array
+    {
+        return [
+            'itemId' => $itemId,
+            'kind' => $item->kind ?? null,
+            'headline' => $item->headline_cache ?? null,
+            'verdict' => $verdict,
+            'reason' => $reason,
+            'sortKey' => $sortKey === null ? null : (float) $sortKey,
+        ];
+    }
+
+    /**
+     * Mirrors DocumentBuilder::ruleCandidates() exactly — including which
+     * operators it silently skips.
+     *
+     * @param  list<string>  $alreadyPinned
+     * @return list<string>
+     */
+    private function ruleCandidateIds(Section $section, array $alreadyPinned): array
+    {
+        $query = DB::table('content.items')
+            ->join('site.sites', 'site.sites.user_id', '=', 'content.items.user_id')
+            ->where('site.sites.id', $section->site_id)
+            ->whereNull('content.items.removed_at');
+
+        foreach ($section->ruleObject()->predicates as $predicate) {
+            match ($predicate->operator) {
+                RuleOperator::KindIs => $predicate->negated
+                    ? $query->whereNotIn('content.items.kind', $predicate->values)
+                    : $query->whereIn('content.items.kind', $predicate->values),
+                RuleOperator::PublishedWithin => $query->where(
+                    'content.items.last_seen_at', '>=',
+                    now()->subDays((int) ($predicate->values[0] ?? 30)),
+                ),
+                default => null,
+            };
+        }
+
+        $ordered = match ($section->order_by) {
+            'alphabetical' => $query->orderBy('content.items.headline_cache'),
+            default => $query->orderByDesc('content.items.last_seen_at'),
+        };
+
+        return array_values($ordered
+            ->whereNotIn('content.items.id', $alreadyPinned ?: ['00000000-0000-0000-0000-000000000000'])
+            ->limit(self::CANDIDATE_SCAN_LIMIT)
+            ->pluck('content.items.id')
+            ->all());
+    }
+
+    /**
+     * @param  list<string>  $ids
+     * @return array<string, object>
+     */
+    private function itemsById(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::table('content.items')
+            ->whereIn('id', array_values(array_unique($ids)))
+            ->get()
+            ->keyBy('id')
+            ->all();
+    }
+
+    /**
+     * What this trace cannot tell you yet, stated rather than implied by
+     * absence.
+     *
+     * @param  list<array<string, mixed>>  $predicates
+     * @return list<array{code: string, detail: string}>
+     */
+    private function gaps(array $predicates): array
+    {
+        $gaps = [];
+
+        $ignored = array_values(array_unique(array_map(
+            fn (array $p): string => (string) $p['op'],
+            array_filter($predicates, fn (array $p): bool => $p['status'] === 'ignored'),
+        )));
+
+        if ($ignored !== []) {
+            $gaps[] = [
+                'code' => 'unexecuted_operators',
+                'detail' => 'These conditions are stored and validated but not yet applied when the page is '
+                    .'built, so the list below is wider than the rule reads: '.implode(', ', $ignored).'.',
+            ];
+        }
+
+        return $gaps;
+    }
+}

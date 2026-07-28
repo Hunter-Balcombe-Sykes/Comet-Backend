@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
+use App\Http\Controllers\Api\Content\ContentKindController;
 use App\Http\Controllers\Api\Content\IdentityCandidateController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
@@ -11,6 +12,7 @@ use App\Http\Controllers\Api\Site\PageController;
 use App\Http\Controllers\Api\Site\SectionController;
 use App\Http\Controllers\Api\Site\SectionGroupController;
 use App\Http\Controllers\Api\Site\SectionItemController;
+use App\Http\Controllers\Api\Site\SectionTraceController;
 use App\Http\Controllers\Api\User\Account\MfaController;
 use App\Http\Controllers\Api\User\Account\SessionController;
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
@@ -105,6 +107,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/site/sections/{section}', [SectionController::class, 'destroy'])
             ->whereUuid('section')->name('site.sections.destroy');
 
+        // Diagnostics (plan §7): why is this item on my page, and why isn't
+        // that one? On demand — explaining every section on every build would
+        // charge every user for a question most never ask.
+        Route::get('/site/sections/{section}/trace', [SectionTraceController::class, 'show'])
+            ->whereUuid('section')->name('site.sections.trace');
+
         // Pins and excludes — the ONLY two curation verbs (C4: an ingest run
         // may never write either).
         Route::get('/site/sections/{section}/items', [SectionItemController::class, 'index'])
@@ -124,6 +132,11 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('section')->name('site.sections.groups.destroy');
 
         // ── Content library (plan §5/§6). ──────────────────────────────────
+        // The kind registry the LibraryView builds its columns from. Its
+        // pinnable/editable flags are what make Reviews show/hide-only.
+        Route::get('/content/kinds', [ContentKindController::class, 'index'])
+            ->name('content.kinds');
+
         // Possible-duplicates queue: the declared recovery path for the
         // resolver's false-split-over-false-merge bias.
         Route::get('/content/identity/candidates', [IdentityCandidateController::class, 'index'])
