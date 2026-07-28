@@ -83,7 +83,14 @@ class HttpIo implements Io
 
     public function effect(string $kind, string $name, array $input): array
     {
-        $digest = EffectLedger::digestFor($kind, ['name' => $name] + $input);
+        // Freshness-bucketed: within one window a retry or sibling stream
+        // replays the stored result; the next window re-bills deliberately —
+        // without it a recurring billed fetch would be one-shot forever.
+        $digest = EffectLedger::digestFor(
+            $kind,
+            ['name' => $name] + $input,
+            (int) config('partna.ingest.effect_freshness_seconds'),
+        );
 
         $outcome = $this->ledger->once(
             digest: $digest,
@@ -102,7 +109,7 @@ class HttpIo implements Io
             return ['status' => $outcome['status'], 'cached' => $outcome['cached'], 'data' => null];
         }
 
-        return ['status' => 'ok', 'cached' => false, 'data' => $outcome['result']];
+        return ['status' => 'ok', 'cached' => $outcome['cached'], 'data' => $outcome['result']];
     }
 
     /**

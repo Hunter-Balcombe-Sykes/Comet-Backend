@@ -25,6 +25,14 @@ class EffectLedger
     private const ABANDON_AFTER_SECONDS = 900;
 
     /**
+     * Largest result stored inline in `meta` for replay. Bigger payloads are
+     * summarised only; their replay is REFUSED (never ok-with-null) until the
+     * P7 drivers wire `body_ref` to durable off-row storage — local disk is
+     * ephemeral across Cloud workers, so a file pointer would lie.
+     */
+    private const RESULT_INLINE_MAX_BYTES = 1_000_000;
+
+    /**
      * Run $effect at most once for this digest, ever.
      *
      * @template T
@@ -75,10 +83,21 @@ class EffectLedger
         try {
             $result = $effect();
 
+            // Persist the result WITH the settlement: a replay (same-run
+            // sibling stream, or a retry) must return the data that was paid
+            // for, or charge-once quietly turns "ok" into "no data".
+            $meta = ['summary' => $this->summarise($result)];
+            $encoded = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($encoded !== false && strlen($encoded) <= self::RESULT_INLINE_MAX_BYTES) {
+                $meta['result'] = $result;
+            } else {
+                $meta['result_omitted'] = true;
+            }
+
             DB::table('ingest.effects')->where('digest', $digest)->update([
                 'status' => 'ok',
                 'settled_at' => now(),
-                'meta' => json_encode(['summary' => $this->summarise($result)]),
+                'meta' => json_encode($meta),
             ]);
 
             return ['status' => 'ok', 'result' => $result, 'cached' => false];
@@ -99,7 +118,22 @@ class EffectLedger
     private function verdictFor(object $row): array
     {
         if ($row->settled_at !== null) {
-            // Already done — success or failure, either way not again.
+            if ($row->status === 'ok') {
+                $meta = json_decode((string) $row->meta, true);
+                if (is_array($meta) && array_key_exists('result', $meta)) {
+                    return ['status' => 'ok', 'result' => $meta['result'], 'cached' => true];
+                }
+
+                // Settled ok but the data is gone (pre-persistence row, or an
+                // oversized result). Fail CLOSED: a data-less "ok" folds into
+                // false success downstream — refused folds into Unavailable,
+                // which is the honest outcome.
+                Log::warning('ingest.effect.replay_unavailable', ['digest' => $row->digest, 'kind' => $row->kind]);
+
+                return ['status' => 'refused', 'result' => null, 'cached' => true];
+            }
+
+            // A settled failure — known, charged, never auto-retried.
             return ['status' => $row->status, 'result' => null, 'cached' => true];
         }
 
@@ -121,15 +155,25 @@ class EffectLedger
     /**
      * Deterministic digest of an effect. Two callers describing the same
      * request must produce the same digest, or charge-once is worthless — so
-     * key order is normalised and nothing time-varying is included.
+     * key order is normalised.
+     *
+     * $freshnessSeconds bounds HOW LONG the digest stays the same: within one
+     * window, retries and sibling streams dedupe (and replay the stored
+     * result); the next window produces a new digest, so a recurring billed
+     * fetch re-bills DELIBERATELY instead of being one-shot forever. No
+     * window = the historical forever-digest (true one-time effects).
      *
      * @param  array<string, mixed>  $request
      */
-    public static function digestFor(string $kind, array $request): string
+    public static function digestFor(string $kind, array $request, ?int $freshnessSeconds = null): string
     {
         ksort($request);
 
-        return substr(hash('sha256', $kind.'|'.json_encode($request, JSON_UNESCAPED_SLASHES)), 0, 32);
+        $bucket = ($freshnessSeconds !== null && $freshnessSeconds > 0)
+            ? '|'.intdiv(now()->getTimestamp(), $freshnessSeconds)
+            : '';
+
+        return substr(hash('sha256', $kind.'|'.json_encode($request, JSON_UNESCAPED_SLASHES).$bucket), 0, 32);
     }
 
     private function summarise(mixed $result): string

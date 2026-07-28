@@ -934,6 +934,18 @@ return [
         'prune_batch_size' => (int) env('PARTNA_EARLY_ACCESS_PRUNE_BATCH_SIZE', 1000),
     ],
 
+    // Ingest runtime (plan §4).
+    'ingest' => [
+        // Freshness window for billed-effect digests (EffectLedger/C6). Within
+        // one window, retries and sibling streams of the same request dedupe
+        // and replay the stored result; the next window mints a new digest so
+        // a recurring billed fetch re-bills deliberately. 7 days sits at the
+        // weekly cadence of the menu actors — the fastest recurring billed
+        // sources; GBP's monthly cadence just re-bills once per window it
+        // actually runs in.
+        'effect_freshness_seconds' => (int) env('PARTNA_INGEST_EFFECT_FRESHNESS_SECONDS', 604800),
+    ],
+
     // Pre-Account Sites (site-first signup + staff marketing builds).
     'pre_account' => [
         'expiry_days' => (int) env('PARTNA_PRE_ACCOUNT_EXPIRY_DAYS', 30),

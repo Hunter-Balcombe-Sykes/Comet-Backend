@@ -5,6 +5,7 @@
 // mirror (setupIngestTables(), tests/Pest.php).
 
 use App\Ingest\Runtime\EffectLedger;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -29,8 +30,68 @@ it('runs an effect exactly once for a digest — a second call with the same dig
 
         return 'result-again';
     });
-    expect($second)->toBe(['status' => 'ok', 'result' => null, 'cached' => true]);
+    // The replay carries the ORIGINAL result: a cross-stream or retry caller
+    // gets the data it paid for, not a data-less "ok" that folds into
+    // Unavailable downstream.
+    expect($second)->toBe(['status' => 'ok', 'result' => 'result', 'cached' => true]);
     expect($calls)->toBe(1); // the closure must NOT run again
+});
+
+it('refuses (never ok-with-null) when a settled row predates result persistence', function () {
+    $digest = EffectLedger::digestFor('places_fetch', ['place_id' => 'legacy-row']);
+    // A row settled by the pre-replay ledger: ok, but no stored result.
+    DB::table('ingest.effects')->insert([
+        'digest' => $digest, 'kind' => 'http', 'claimed_at' => now(),
+        'settled_at' => now(), 'status' => 'ok', 'meta' => json_encode(['summary' => 'string(6)']),
+    ]);
+
+    $ledger = new EffectLedger;
+    $calls = 0;
+    $verdict = $ledger->once($digest, 'http', function () use (&$calls) {
+        $calls++;
+
+        return 'nope';
+    });
+
+    // Fail closed: an "ok" whose data is gone must not masquerade as success —
+    // callers fold refused into Unavailable, which is honest.
+    expect($verdict)->toBe(['status' => 'refused', 'result' => null, 'cached' => true]);
+    expect($calls)->toBe(0);
+});
+
+it('omits an oversized result from the ledger and refuses its replay rather than returning ok-with-null', function () {
+    $ledger = new EffectLedger;
+    $digest = EffectLedger::digestFor('actor_run', ['actor' => 'huge-output']);
+    $huge = ['blob' => str_repeat('x', 1_100_000)];
+
+    $first = $ledger->once($digest, 'actor', fn () => $huge);
+    // The live call still returns the data — only the REPLAY is lost.
+    expect($first['status'])->toBe('ok');
+    expect($first['result'])->toBe($huge);
+
+    $verdict = $ledger->once($digest, 'actor', fn () => 'nope');
+    expect($verdict)->toBe(['status' => 'refused', 'result' => null, 'cached' => true]);
+});
+
+it('scopes a freshness-windowed digest to its bucket: stable within the window, different in the next one', function () {
+    Carbon::setTestNow('2026-07-28 10:00:00');
+    $week = 604800;
+
+    $d1 = EffectLedger::digestFor('places_fetch', ['place_id' => 'abc'], $week);
+    Carbon::setTestNow('2026-07-28 11:00:00'); // same bucket
+    $d2 = EffectLedger::digestFor('places_fetch', ['place_id' => 'abc'], $week);
+    expect($d2)->toBe($d1);
+
+    Carbon::setTestNow('2026-08-11 10:00:00'); // two windows on
+    $d3 = EffectLedger::digestFor('places_fetch', ['place_id' => 'abc'], $week);
+    expect($d3)->not->toBe($d1);
+
+    // No window = the historical forever-digest, unchanged.
+    $d4 = EffectLedger::digestFor('places_fetch', ['place_id' => 'abc']);
+    expect($d4)->toBe(EffectLedger::digestFor('places_fetch', ['place_id' => 'abc']));
+    expect($d4)->not->toBe($d1);
+
+    Carbon::setTestNow();
 });
 
 it('settles a failing effect as failed and rethrows, then refuses to retry a known failure on a later call', function () {
