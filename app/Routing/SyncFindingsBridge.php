@@ -51,7 +51,7 @@ class SyncFindingsBridge
             ->first(fn (object $intent) => LegacyPlatformMap::legacyFor($intent->surface_key) === $legacyPlatform);
     }
 
-    /** @return Collection<int, object> */
+    /** @return Collection<int, \stdClass> */
     private function conflicts(User $user): Collection
     {
         return DB::table('routing.source_intents')
