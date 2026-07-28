@@ -8,6 +8,15 @@
 -- FK to catalog.surfaces is deliberately deferred to P2 (after catalog:sync
 -- is proven in the deploy path) so an empty catalog can never block writes.
 -- Table is dev-scale (hundreds of rows): plain index builds, no CONCURRENTLY.
+--
+-- guard:no-unsafe-migrations:disable-file
+-- Justification (2026-07-28): applied to dev on 2026-07-27 against a cold,
+-- hundreds-of-rows table — none of the lock-safety patterns (CONCURRENTLY,
+-- four-step NOT NULL, NOT VALID) buy anything here, and splitting an
+-- ALREADY-APPLIED file into the guard's per-statement shape would desync
+-- supabase_migrations history on dev. From-zero applies run this against an
+-- empty table, where every statement is instant. Same precedent as the
+-- pre-account-sites marker (now archived with the 2026-07-26 baseline).
 
 ALTER TABLE "site"."platform_connections"
     ADD COLUMN "surface_key" text,

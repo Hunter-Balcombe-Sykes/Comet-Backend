@@ -194,6 +194,10 @@ return [
         'a424dd547cbd', // SupabaseAdminService:190
         '041b628b341b', // AccountDeletionService:953
         'f810d8fe0c0f', // KickApiClient:54
+        // Re-vetted 2026-07-28: DAST seeding generates a RANDOM per-run
+        // password at runtime ('dast-seed-'.bin2hex(random_bytes(12))) — the
+        // literal is a prefix label, not a secret.
+        'f5d227992271', // scripts/dast/active/seed-identities.php:70
         '2152b8323ce7', // TwitchApiClient:52
 
         // ── Command injection: false positives, vetted 2026-07-19 ──────────
