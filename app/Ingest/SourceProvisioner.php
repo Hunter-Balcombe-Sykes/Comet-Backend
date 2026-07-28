@@ -182,6 +182,8 @@ class SourceProvisioner
                 ?? $this->googlePlaceId($resource),
             'substack' => $this->bareSlug($resource, 'substack')
                 ?? $this->substackSlug($payload['url'] ?? null),
+            'twitch' => $this->twitchLogin($payload['login'] ?? null)
+                ?? $this->twitchLogin($this->bareSlug($resource, 'twitch')),
             default => null,
         };
     }
@@ -271,6 +273,17 @@ class SourceProvisioner
         $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
         if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
             return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** A twitch login: 3–25 word chars, lowercased. */
+    private function twitchLogin(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('/^@?([A-Za-z0-9_]{3,25})$/', $value, $m)) {
+            return strtolower($m[1]);
         }
 
         return null;

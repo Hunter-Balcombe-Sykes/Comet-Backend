@@ -31,6 +31,10 @@ final class ProjectorRegistry
         'soundcloud' => ['listen' => SoundcloudChannelProjector::class],
         'spotify' => ['listen' => SpotifyChannelProjector::class],
         'substack' => ['posts' => SubstackArticleProjector::class],
+        'twitch' => [
+            'channel' => ChannelCardProjector::class,
+            'vods' => TwitchVodProjector::class,
+        ],
         'vimeo' => ['watch' => VimeoVideoProjector::class],
         'youtube' => ['watch' => YoutubeVideoProjector::class],
     ];

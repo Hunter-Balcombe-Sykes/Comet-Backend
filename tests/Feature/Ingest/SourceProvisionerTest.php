@@ -270,6 +270,16 @@ it('provisions soundcloud from a payload link url or a bare profile slug in reso
         ->and(ingestSourceFor($placeholder))->toBeNull();
 });
 
+it('provisions twitch from the payload login, lowercased, and refuses placeholders', function () {
+    $userId = provisionerUser();
+
+    $login = makeConnection($userId, ['platform' => 'twitch', 'payload' => ['login' => 'SomeStreamer']]);
+    $placeholder = makeConnection($userId, ['platform' => 'twitch', 'resource_id' => 'twitch', 'payload' => []]);
+
+    expect(ingestSourceFor($login)->identifier)->toBe('somestreamer')
+        ->and(ingestSourceFor($placeholder))->toBeNull();
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {

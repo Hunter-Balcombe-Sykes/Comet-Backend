@@ -12,6 +12,7 @@ use App\Ingest\Connectors\HumanitixConnector;
 use App\Ingest\Connectors\SoundcloudConnector;
 use App\Ingest\Connectors\SpotifyOembedConnector;
 use App\Ingest\Connectors\SubstackConnector;
+use App\Ingest\Connectors\TwitchConnector;
 use App\Ingest\Connectors\VimeoConnector;
 use App\Ingest\Connectors\YoutubeRssConnector;
 use App\Ingest\Manifest\Manifest;
@@ -49,6 +50,7 @@ final class ConnectorRegistry
         'soundcloud' => SoundcloudConnector::class,
         'spotify' => SpotifyOembedConnector::class,
         'substack' => SubstackConnector::class,
+        'twitch' => TwitchConnector::class,
         'vimeo' => VimeoConnector::class,
         'youtube' => YoutubeRssConnector::class,
     ];
