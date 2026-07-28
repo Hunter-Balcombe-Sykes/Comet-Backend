@@ -10,6 +10,7 @@ use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\GumroadConnector;
 use App\Ingest\Connectors\HumanitixConnector;
+use App\Ingest\Connectors\InstagramConnector;
 use App\Ingest\Connectors\SkoolConnector;
 use App\Ingest\Connectors\SoundcloudConnector;
 use App\Ingest\Connectors\SpotifyOembedConnector;
@@ -52,6 +53,7 @@ final class ConnectorRegistry
         'google_business' => GoogleBusinessConnector::class,
         'gumroad' => GumroadConnector::class,
         'humanitix' => HumanitixConnector::class,
+        'instagram' => InstagramConnector::class,
         'skool' => SkoolConnector::class,
         'soundcloud' => SoundcloudConnector::class,
         'spotify' => SpotifyOembedConnector::class,

@@ -181,6 +181,8 @@ class SourceProvisioner
                 ?? $this->appleId($resource),
             'fresha' => $this->freshaSlug($payload['url'] ?? null)
                 ?? $this->bareSlug($resource, 'fresha'),
+            'instagram' => $this->instagramUsername($payload['username'] ?? null)
+                ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
             'gumroad' => $this->gumroadSubdomain($payload['url'] ?? null)
                 ?? $this->gumroadSubdomain($resource)
                 ?? $this->bareSlug($resource, 'gumroad'),
@@ -284,6 +286,17 @@ class SourceProvisioner
         $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
         if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
             return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** An instagram username: letters/digits/underscore/dots, no trailing dot, ≤30. */
+    private function instagramUsername(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('/^@?([A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?)$/', $value, $m)) {
+            return strtolower($m[1]);
         }
 
         return null;

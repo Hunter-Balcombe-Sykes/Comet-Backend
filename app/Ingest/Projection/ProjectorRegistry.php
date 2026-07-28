@@ -25,6 +25,7 @@ final class ProjectorRegistry
         'fresha' => ['services' => FreshaServiceProjector::class],
         'gumroad' => ['products' => GumroadProductProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
+        'instagram' => ['media' => InstagramMediaProjector::class],
         'google_business' => [
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,

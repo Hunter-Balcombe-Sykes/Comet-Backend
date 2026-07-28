@@ -113,9 +113,11 @@ it('creates no source when no usable identifier can be derived', function () {
 });
 
 it('creates no source for a brand with no registered connector', function () {
+    // Kick is a real catalog surface with no ingest connector (instagram,
+    // the old example here, gained one with the P7 fleet).
     $connection = makeConnection(provisionerUser(), [
-        'platform' => 'instagram',
-        'payload' => ['username' => 'nasa'],
+        'platform' => 'kick',
+        'payload' => ['handle' => 'somestreamer'],
     ]);
 
     expect(ingestSourceFor($connection))->toBeNull();
@@ -313,6 +315,17 @@ it('provisions gumroad from the store subdomain, never the apex or www', functio
 
     expect(ingestSourceFor($store)->identifier)->toBe('easlo')
         ->and(ingestSourceFor($apex))->toBeNull();
+});
+
+it('provisions instagram from the payload username, unscheduled (actor-billed, manual-only)', function () {
+    $userId = provisionerUser();
+
+    $connection = makeConnection($userId, ['platform' => 'instagram', 'payload' => ['username' => '@Some.Studio']]);
+
+    $row = ingestSourceFor($connection);
+    expect($row->identifier)->toBe('some.studio')
+        // CostClass::Actor: the scheduler must never pick this up on its own.
+        ->and((bool) $row->auto_sync)->toBeFalse();
 });
 
 // ── Backfill command ────────────────────────────────────────────────────────

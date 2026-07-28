@@ -9,6 +9,7 @@ use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
 use App\Ingest\Projection\GumroadProductProjector;
+use App\Ingest\Projection\InstagramMediaProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
 use App\Ingest\Projection\SchemaOrgEventProjector;
@@ -326,6 +327,31 @@ it('projects a yt-music upload as a track linking to music.youtube.com with the 
         ->and($projected['facets']['f_embed'])->toBe(['provider' => 'youtube', 'embed_key' => 'dQw4w9WgXcQ'])
         ->and($projected['facets']['f_authored']['creator'])->toBe('Some Artist')
         ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('projects an instagram carousel as one media item with cover + gallery frames', function () {
+    $projected = (new InstagramMediaProjector)->project(new RecordView([
+        'shortcode' => 'Cnewest99',
+        'type' => 'Sidecar',
+        'caption' => 'Before and after.',
+        'taken_at' => '2026-07-20T03:15:00Z',
+        'url' => 'https://www.instagram.com/p/Cnewest99/',
+        'display_url' => 'https://scontent.cdninstagram.com/v/car0.jpg',
+        'images' => [
+            'https://scontent.cdninstagram.com/v/car0.jpg',
+            'https://scontent.cdninstagram.com/v/car1.jpg',
+            'https://scontent.cdninstagram.com/v/car2.jpg',
+        ],
+    ]));
+
+    expect($projected['kind'])->toBe('media')
+        ->and($projected['media'])->toHaveCount(3)
+        ->and($projected['media'][0]['role'])->toBe('cover')
+        ->and($projected['media'][1]['role'])->toBe('gallery')
+        // The ref survives CDN re-signing; the asset pipeline keys on it.
+        ->and($projected['media'][2]['ref'])->toBe('instagram:Cnewest99:2')
+        ->and($projected['facets']['f_text']['body'])->toBe('Before and after.')
+        ->and($projected['facets']['f_published']['published_from'])->toBe('2026-07-20T03:15:00Z');
 });
 
 it('projects a gumroad product with an honest price qualifier per pricing mode', function () {
