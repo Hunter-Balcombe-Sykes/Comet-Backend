@@ -47,6 +47,9 @@ beforeEach(function () {
     // race it lands on — mirrors FreshaConnectLockTest's beforeEach.
     setupServicesTable();
     shimPgAdvisoryLockForSqlite();
+    // /synced now also folds new-pipeline Hold intents (SyncFindingsBridge),
+    // so the routing tables must exist even for payload-only cases.
+    setupRoutingTables();
 });
 
 function bxRaceUser(string $h): User

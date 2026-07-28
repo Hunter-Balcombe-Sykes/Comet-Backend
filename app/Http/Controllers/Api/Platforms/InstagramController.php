@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platforms;
 
+use App\Catalog\CompiledCatalog;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Http\Controllers\Api\Platforms\Concerns\ManagesIntegrationConnection;
@@ -9,6 +10,9 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Routing\SuggestionApplier;
+use App\Routing\SyncFindingsBridge;
 use App\Rules\PlatformInRegistry;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\CacheKeyGenerator;
@@ -37,6 +41,11 @@ class InstagramController extends ApiController
     use DefersBespokeConnect;
     use ManagesIntegrationConnection;
     use ResolveCurrentUser;
+
+    public function __construct(
+        private readonly SyncFindingsBridge $findingsBridge,
+        private readonly SuggestionApplier $applier,
+    ) {}
 
     protected function platform(): string
     {
@@ -193,6 +202,18 @@ class InstagramController extends ApiController
             ->values()
             ->all();
 
+        // B4 (p8 readiness blocker 4): the new router records scan conflicts
+        // as Hold intents, not payload findings — fold them into this response
+        // so a migrated scan path keeps telling users about conflicts. Deduped
+        // by platform; a recorded payload finding for the platform stands.
+        $seenPlatforms = array_flip(array_column($synced, 'platform'));
+        foreach ($this->findingsBridge->conflictFindings($user) as $folded) {
+            if (! isset($seenPlatforms[$folded['platform']])) {
+                $seenPlatforms[$folded['platform']] = true;
+                $synced[] = $folded;
+            }
+        }
+
         return $this->success(['synced' => $synced, 'unmatched' => $payload->unmatched]);
     }
 
@@ -219,7 +240,9 @@ class InstagramController extends ApiController
             }
         }
         if ($idx === null || $ig === null) {
-            return $this->error('Nothing to change for that platform.', 404);
+            // B4: no recorded payload finding — the conflict may be a Hold
+            // intent the new router wrote instead. Same swap, new ledger.
+            return $this->applyIntentConflict($request, $user, $platform);
         }
 
         // PWL-7: applyFinding() writes OTHER platforms' rows (remove + write the
@@ -270,6 +293,29 @@ class InstagramController extends ApiController
         } catch (LockTimeoutException) {
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
+
+        return $this->synced($request);
+    }
+
+    /**
+     * "Change to" for a conflict the NEW pipeline recorded (a Hold intent
+     * folded into /synced by SyncFindingsBridge): apply the intent through the
+     * same demote/create/settle transaction the suggestions inbox uses. No
+     * platform lock needed — nothing here touches the IG row's payload.
+     */
+    private function applyIntentConflict(Request $request, User $user, string $platform): JsonResponse
+    {
+        $intent = $this->findingsBridge->findConflict($user, $platform);
+        if ($intent === null) {
+            return $this->error('Nothing to change for that platform.', 404);
+        }
+
+        $surface = CompiledCatalog::surface($intent->surface_key);
+        if ($surface === null) {
+            return $this->error('That platform is no longer supported.', 422);
+        }
+
+        $this->applier->apply($user, $intent, $surface);
 
         return $this->synced($request);
     }
