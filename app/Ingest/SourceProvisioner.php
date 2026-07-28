@@ -189,6 +189,15 @@ class SourceProvisioner
             'google_business' => $this->cleanString($connection->place_id)
                 ?? $this->cleanString($payload['placeId'] ?? null)
                 ?? $this->googlePlaceId($resource),
+            // Menu brands: only a URL the platform's own menu host-pattern
+            // recognises is a scrapeable store — a square.book (squareup.com)
+            // booking link must never provision a menu source.
+            'square' => $this->menuStoreUrl('square', $payload['url'] ?? null)
+                ?? $this->menuStoreUrl('square', $resource),
+            'uber_eats' => $this->menuStoreUrl('uber-eats', $payload['url'] ?? null)
+                ?? $this->menuStoreUrl('uber-eats', $resource),
+            'doordash' => $this->menuStoreUrl('doordash', $payload['url'] ?? null)
+                ?? $this->menuStoreUrl('doordash', $resource),
             'skool' => $this->skoolUrl($payload['url'] ?? null)
                 ?? $this->skoolUrl($this->bareSlug($resource, 'skool')),
             'strava' => $this->stravaClubUrl($payload['url'] ?? null)
@@ -289,6 +298,28 @@ class SourceProvisioner
         }
 
         return null;
+    }
+
+    /**
+     * A store URL the given menu platform's host pattern recognises
+     * (config partna.menu.platforms — the same registry MenuSource reads),
+     * normalized like MenuSource::normalize: query and trailing slash
+     * stripped so pickup/delivery variants collapse to one identifier.
+     */
+    private function menuStoreUrl(string $platform, mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null || ! preg_match('~^https?://~i', $value)) {
+            return null;
+        }
+
+        $pattern = (string) config("partna.menu.platforms.{$platform}.host_pattern");
+        $host = strtolower((string) parse_url($value, PHP_URL_HOST));
+        if ($pattern === '' || $host === '' || ! preg_match($pattern, $host)) {
+            return null;
+        }
+
+        return rtrim((string) strtok($value, '?#'), '/');
     }
 
     /** An instagram username: letters/digits/underscore/dots, no trailing dot, ≤30. */

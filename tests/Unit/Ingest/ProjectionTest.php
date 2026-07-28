@@ -10,6 +10,7 @@ use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
 use App\Ingest\Projection\GumroadProductProjector;
 use App\Ingest\Projection\InstagramMediaProjector;
+use App\Ingest\Projection\MenuItemProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
 use App\Ingest\Projection\SchemaOrgEventProjector;
@@ -352,6 +353,29 @@ it('projects an instagram carousel as one media item with cover + gallery frames
         ->and($projected['media'][2]['ref'])->toBe('instagram:Cnewest99:2')
         ->and($projected['facets']['f_text']['body'])->toBe('Before and after.')
         ->and($projected['facets']['f_published']['published_from'])->toBe('2026-07-20T03:15:00Z');
+});
+
+it('projects a landed menu item with its category tag and an exact offer in minor units', function () {
+    $projected = (new MenuItemProjector)->project(new RecordView([
+        'external_id' => 'sq-101', 'name' => 'Salmon Roll', 'description' => 'Eight pieces.',
+        'price' => 14.5, 'currency' => 'AUD', 'image' => 'https://sq-cdn/salmon.jpg',
+        'category' => 'Sushi Rolls', 'position' => 0, 'store_name' => 'Fat Tuna',
+    ]));
+
+    expect($projected['kind'])->toBe('menu_item')
+        ->and($projected['headline'])->toBe('Salmon Roll')
+        ->and($projected['offers'][0])->toMatchArray(['amount_minor' => 1450, 'currency' => 'AUD', 'qualifier' => 'exact'])
+        ->and($projected['tags'][0])->toBe(['tag' => 'Sushi Rolls', 'tag_type' => 'category'])
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('emits no offer for a priceless menu item rather than a zero', function () {
+    $projected = (new MenuItemProjector)->project(new RecordView([
+        'name' => 'Market Fish', 'category' => 'Mains',
+    ]));
+
+    expect($projected['offers'])->toBe([])
+        ->and($projected['media'])->toBe([]);
 });
 
 it('projects a gumroad product with an honest price qualifier per pricing mode', function () {

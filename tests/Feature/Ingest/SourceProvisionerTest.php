@@ -328,6 +328,22 @@ it('provisions instagram from the payload username, unscheduled (actor-billed, m
         ->and((bool) $row->auto_sync)->toBeFalse();
 });
 
+it('provisions menu sources only from urls the platform host-pattern recognises', function () {
+    $userId = provisionerUser();
+
+    $squareOrder = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.fat-tuna.com/menu?mode=pickup']]);
+    // A square BOOKING link (squareup.com) is not a scrapeable menu.
+    $squareBook = makeConnection($userId, ['platform' => 'square', 'payload' => ['url' => 'https://squareup.com/appointments/book/abc']]);
+    $uber = makeConnection($userId, ['surface_key' => 'uber_eats.order', 'payload' => ['url' => 'https://www.ubereats.com/au/store/doc-pizza/abc?diningMode=DELIVERY']]);
+    $doordash = makeConnection($userId, ['surface_key' => 'doordash.order', 'payload' => ['url' => 'https://www.doordash.com/store/burger-republic-123/']]);
+
+    expect(ingestSourceFor($squareOrder)->identifier)->toBe('https://order.fat-tuna.com/menu')
+        ->and((bool) ingestSourceFor($squareOrder)->auto_sync)->toBeFalse()
+        ->and(ingestSourceFor($squareBook))->toBeNull()
+        ->and(ingestSourceFor($uber)->identifier)->toBe('https://www.ubereats.com/au/store/doc-pizza/abc')
+        ->and(ingestSourceFor($doordash)->identifier)->toBe('https://www.doordash.com/store/burger-republic-123');
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {

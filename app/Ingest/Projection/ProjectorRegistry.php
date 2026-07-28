@@ -19,6 +19,9 @@ final class ProjectorRegistry
         'apple_music' => ['listen' => AppleMusicReleaseProjector::class],
         'apple_podcasts' => ['listen' => ApplePodcastsEpisodeProjector::class],
         'bandcamp' => ['releases' => BandcampReleaseProjector::class],
+        // The three menu platforms land the SAME doc shape (MenuRecords) —
+        // one projector, on purpose.
+        'doordash' => ['menu' => MenuItemProjector::class],
         // Eventbrite and Humanitix land the SAME doc shape
         // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
@@ -33,12 +36,14 @@ final class ProjectorRegistry
         'skool' => ['community' => ChannelCardProjector::class],
         'soundcloud' => ['listen' => SoundcloudChannelProjector::class],
         'spotify' => ['listen' => SpotifyChannelProjector::class],
+        'square' => ['menu' => MenuItemProjector::class],
         'strava' => ['club' => ChannelCardProjector::class],
         'substack' => ['posts' => SubstackArticleProjector::class],
         'twitch' => [
             'channel' => ChannelCardProjector::class,
             'vods' => TwitchVodProjector::class,
         ],
+        'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],
         'youtube' => ['watch' => YoutubeVideoProjector::class],
         'youtube_music' => ['releases' => YoutubeMusicTrackProjector::class],
