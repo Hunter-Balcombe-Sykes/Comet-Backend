@@ -73,6 +73,9 @@ final class AccountCapabilities
             // flag rather than deleted so it remains a one-line kill switch if the
             // consent question returns before pilot.
             can_autosync_scraped_connections: true,
+            // Both types curate their own duplicates — the platform has no
+            // reason to let one account type merge items and not the other.
+            can_curate_identity: true,
         );
     }
 }

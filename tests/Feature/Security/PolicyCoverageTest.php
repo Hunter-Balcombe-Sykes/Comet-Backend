@@ -13,6 +13,8 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\MenuItemPlatform;
 use App\Models\Core\Site\MenuPlatformLink;
+use App\Models\Core\Site\SectionGroup;
+use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\UserHandleAlias;
@@ -91,6 +93,14 @@ const POLICY_EXEMPT = [
     // policy in the migration). A Laravel policy would be meaningless — there is no
     // controller action to gate and the Gate has no authenticated actor for this table.
     SupabaseEmailEvent::class,
+
+    // Curation child rows (plan §7). Neither carries user_id, and neither is
+    // reachable except through its parent section's route
+    // (/site/sections/{section}/…). The section is authorised by
+    // SectionPolicy, so a per-row policy would gate nothing that is not
+    // already gated. Same precedent as MenuItem above.
+    SectionItem::class,
+    SectionGroup::class,
 
     // Send-time suppression list (Resend bounce/complaint). Internal system table,
     // no user-facing API endpoint and no tenant ownership (keyed on email_hash,

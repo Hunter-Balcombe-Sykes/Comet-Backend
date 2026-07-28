@@ -261,7 +261,7 @@ config-models|config app/Models app/Database
 user-surface|app/Http/Controllers/Api/User app/Http/Requests
 public-staff-surface|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/HealthController.php
 platforms-surface|app/Http/Controllers/Api/Platforms app/Http/Resources
-catalog-routing-surface|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+catalog-routing-surface|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 outbound-services|app/Services/BotProtection app/Services/Auth app/Services/Streaming app/Services/Media app/Services/Http app/Services/Profile cloudflare-worker/src
 outbound-design|app/Services/Design
 signup-claim|app/Services/PreAccount app/Services/User
@@ -294,7 +294,7 @@ vendors|app/Services/Media app/Services/Streaming app/Services/Cloudflare app/Se
 platforms|app/Services/Platforms
 console-controllers-user|app/Console app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 migrations|supabase/migrations
 EOF
         ;;
@@ -311,7 +311,7 @@ read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers
 write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Jobs/Notifications app/Jobs/Concerns app/Jobs/Moderation/Concerns app/Services/Analytics app/Services/Notifications app/Services/Streaming
 platforms-services|app/Services/Platforms app/Jobs/Platforms
 platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 routing-probes|app/Routing/Probes app/Services/Brand
 design|app/Services/Design
 EOF
@@ -321,7 +321,7 @@ hot-reads-app|app/Services/Site app/Services/PublicSite app/Services/Accounts ap
 hot-reads-platforms|app/Services/Platforms
 hot-reads-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 hot-reads-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Middleware
-hot-reads-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+hot-reads-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 EOF
         ;;
         webhook-idempotency) cat <<'EOF'
@@ -329,11 +329,11 @@ callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal ap
 EOF
         ;;
         transaction-boundaries) cat <<'EOF'
-domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Services/EarlyAccess app/Observers app/Http/Controllers/Api/Internal
+domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/Services/Moderation app/Services/Accounts app/Services/Auth app/Services/Feedback app/Services/EarlyAccess app/Observers app/Http/Controllers/Api/Internal app/Services/Content
 vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app/Jobs app/Listeners
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
 media-design|app/Services/Media app/Services/Design app/Services/WebsiteScan
 EOF
@@ -348,10 +348,10 @@ models|app/Models app/Enums database/factories tests/Pest.php tests/TestCase.php
 writers-jobs|app/Jobs app/Observers
 writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 writers-platforms-controllers|app/Http/Controllers/Api/Platforms
-writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
-services-core|app/Services/User app/Services/Site app/Services/PublicSite
+services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
 services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
 EOF
@@ -360,7 +360,7 @@ EOF
 user-api|app/Http/Resources app/Http/Controllers/Api/User app/Http/Controllers/Api/ApiController.php
 public-staff-api|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal
 platforms-api|app/Http/Controllers/Api/Platforms
-catalog-routing-api|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+catalog-routing-api|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 payload-services|app/Services/PublicSite app/Services/Site app/Services/Analytics
 EOF
         ;;
@@ -370,7 +370,7 @@ consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
-services-core|app/Services/User app/Services/Site app/Services/PublicSite
+services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit
 services-rest|app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding
 EOF
@@ -381,7 +381,7 @@ prod-http|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Webhooks 
 prod-requests|app/Http/Requests
 prod-platforms-controllers|app/Http/Controllers/Api/Platforms
 prod-platforms-services|app/Services/Platforms
-prod-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+prod-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 prod-catalog|app/Catalog
 prod-routing|app/Routing
 prod-ingest|app/Ingest
@@ -437,13 +437,13 @@ EOF
         code-quality-slop) cat <<'EOF'
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
-services-site|app/Services/User app/Services/Site app/Services/PublicSite
+services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
 jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
@@ -458,13 +458,13 @@ EOF
         semantic-correctness) cat <<'EOF'
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
-services-site|app/Services/User app/Services/Site app/Services/PublicSite
+services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Concerns app/Http/Controllers/Controller.php
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 requests|app/Http/Requests
 resources-models|app/Http/Resources app/Models
 jobs-observers|app/Jobs app/Observers app/Notifications app/Listeners
@@ -484,9 +484,9 @@ models-config|app/Models config/partna.php
 catalog|app/Catalog
 integration-cross-cutting|app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
 controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site
 controllers-staff-public|app/Http/Controllers/Api/Staff app/Http/Controllers/Api/PublicSite app/Http/Controllers/Concerns app/Http/Controllers/Api/ApiController.php app/Http/Controllers/Api/HealthController.php app/Http/Controllers/Controller.php
-services-core|app/Services/User app/Services/Site app/Services/PublicSite
+services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
 services-auth-cache|app/Services/Auth app/Services/Cache
 services-vendor|app/Services/Media app/Services/Analytics app/Services/Moderation app/Services/Streaming app/Services/Cloudflare app/Services/BotProtection app/Services/Diagnostics app/Services/Feedback app/Services/Webhooks app/Services/Audit
 requests-resources|app/Http/Requests app/Http/Resources

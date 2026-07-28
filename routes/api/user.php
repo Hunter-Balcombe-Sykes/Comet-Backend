@@ -5,6 +5,10 @@ use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\RoutingController;
 use App\Http\Controllers\Api\Routing\SuggestionsController;
+use App\Http\Controllers\Api\Site\PageController;
+use App\Http\Controllers\Api\Site\SectionController;
+use App\Http\Controllers\Api\Site\SectionGroupController;
+use App\Http\Controllers\Api\Site\SectionItemController;
 use App\Http\Controllers\Api\User\Account\MfaController;
 use App\Http\Controllers\Api\User\Account\SessionController;
 use App\Http\Controllers\Api\User\Account\UserAccountDeletionController;
@@ -78,6 +82,44 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('intent')->name('user.routing.suggestions.accept');
         Route::post('/routing/suggestions/{intent}/dismiss', [SuggestionsController::class, 'dismiss'])
             ->whereUuid('intent')->name('user.routing.suggestions.dismiss');
+
+        // ── Surface model (plan §7): pages, sections, pins and excludes. ────
+        // Nav is PAGES — one row per page, never per section — so pages own
+        // key/label/visibility and sections own membership. Every write here
+        // bumps the site's content revision; nothing here publishes.
+        Route::get('/site/pages', [PageController::class, 'index'])->name('site.pages.index');
+        Route::post('/site/pages', [PageController::class, 'store'])->name('site.pages.store');
+        Route::patch('/site/pages/{page}', [PageController::class, 'update'])
+            ->whereUuid('page')->name('site.pages.update');
+        Route::delete('/site/pages/{page}', [PageController::class, 'destroy'])
+            ->whereUuid('page')->name('site.pages.destroy');
+
+        Route::get('/site/sections', [SectionController::class, 'index'])->name('site.sections.index');
+        Route::post('/site/sections', [SectionController::class, 'store'])->name('site.sections.store');
+        Route::get('/site/sections/{section}', [SectionController::class, 'show'])
+            ->whereUuid('section')->name('site.sections.show');
+        Route::patch('/site/sections/{section}', [SectionController::class, 'update'])
+            ->whereUuid('section')->name('site.sections.update');
+        Route::delete('/site/sections/{section}', [SectionController::class, 'destroy'])
+            ->whereUuid('section')->name('site.sections.destroy');
+
+        // Pins and excludes — the ONLY two curation verbs (C4: an ingest run
+        // may never write either).
+        Route::get('/site/sections/{section}/items', [SectionItemController::class, 'index'])
+            ->whereUuid('section')->name('site.sections.items.index');
+        Route::put('/site/sections/{section}/items/{item}', [SectionItemController::class, 'upsert'])
+            ->whereUuid(['section', 'item'])->name('site.sections.items.upsert');
+        Route::delete('/site/sections/{section}/items/{item}', [SectionItemController::class, 'destroy'])
+            ->whereUuid(['section', 'item'])->name('site.sections.items.destroy');
+
+        // Group label/order overrides — needed because a group_by other than
+        // category produces keys, not rows to hang a label on.
+        Route::get('/site/sections/{section}/groups', [SectionGroupController::class, 'index'])
+            ->whereUuid('section')->name('site.sections.groups.index');
+        Route::put('/site/sections/{section}/groups/{groupKey}', [SectionGroupController::class, 'upsert'])
+            ->whereUuid('section')->name('site.sections.groups.upsert');
+        Route::delete('/site/sections/{section}/groups/{groupKey}', [SectionGroupController::class, 'destroy'])
+            ->whereUuid('section')->name('site.sections.groups.destroy');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync

@@ -96,5 +96,12 @@ final readonly class AccountCapabilitySet
         // data (e.g. InstagramAutoSync classifying a bio link). False only
         // while unclaimed; true for every claimed status.
         public bool $can_autosync_scraped_connections,
+        // content.curate_identity (plan §5): may this account merge, split or
+        // dismiss possible-duplicate items? Both account types get it — the
+        // gate exists so identity curation has a named place to be withdrawn
+        // from (an abusive account, a support freeze) without a controller
+        // change, and so the endpoints comply with the doctrine that every new
+        // endpoint consults AccountCapabilities.
+        public bool $can_curate_identity,
     ) {}
 }

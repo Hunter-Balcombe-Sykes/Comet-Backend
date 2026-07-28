@@ -6,6 +6,7 @@ use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
 use App\Models\Analytics\LeadSubmission;
+use App\Models\Content\Item as ContentItem;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\FeatureFlag;
@@ -24,6 +25,8 @@ use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\Page;
+use App\Models\Core\Site\Section;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SiteSubdomainAlias;
@@ -39,6 +42,7 @@ use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
 use App\Policies\CasePolicy;
+use App\Policies\ContentItemPolicy;
 use App\Policies\ContentSelectionPolicy;
 use App\Policies\CustomerPolicy;
 use App\Policies\DecisionPolicy;
@@ -52,6 +56,7 @@ use App\Policies\IntegrationConnectionPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PartnaStaffPolicy;
 use App\Policies\PreAccountBuildPolicy;
+use App\Policies\SectionPolicy;
 use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSegmentPolicy;
@@ -213,6 +218,13 @@ class AppServiceProvider extends ServiceProvider
         // Content Selection picks — dedicated policy (view/manage), ownership
         // resolved via the parent Site.
         Gate::policy(ContentSelection::class, ContentSelectionPolicy::class);
+        // Surface model (plan §7): pages and sections carry site_id, so their
+        // policy resolves ownership through a preloaded site relation.
+        // section_items/section_groups are authorised via the parent section.
+        Gate::policy(Page::class, SectionPolicy::class);
+        Gate::policy(Section::class, SectionPolicy::class);
+        // Content spine (plan §5/§6): items carry user_id directly.
+        Gate::policy(ContentItem::class, ContentItemPolicy::class);
 
         // Refuse to boot in production with throttling disabled — a misconfigured
         // PARTNA_THROTTLE_ENABLED=false would silently strip all rate limiting.

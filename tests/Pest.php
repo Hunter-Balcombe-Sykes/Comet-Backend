@@ -2914,3 +2914,210 @@ function setupEmailSuppressionsTable(): void
         updated_at TEXT NULL
     )");
 }
+
+/**
+ * The rest of the curation surface (migrations 20260727140000 / 20260727150000)
+ * — SQLite mirror layered on top of setupSectionsTables().
+ *
+ * Split from that helper rather than folded into it because it serves the
+ * document builder, which needs items/pages/sections and nothing else. What
+ * follows is the identity and override storage the curation API writes; the
+ * UNIQUE constraints are the load-bearing part, since every endpoint here has
+ * upsert semantics that depend on them.
+ */
+function setupContentCurationTables(): void
+{
+    setupSectionsTables();
+    $pg = DB::connection('pgsql');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.section_groups (
+        id TEXT PRIMARY KEY NOT NULL,
+        section_id TEXT NOT NULL,
+        group_key TEXT NOT NULL,
+        label TEXT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_hidden INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (section_id, group_key)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        connection_id TEXT NULL,
+        import_run_id TEXT NULL,
+        label TEXT NULL,
+        priority INTEGER NOT NULL DEFAULT 100,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        source_id TEXT NOT NULL,
+        coord TEXT NOT NULL,
+        stream_id TEXT NULL,
+        record_key TEXT NULL,
+        item_id TEXT NULL,
+        kind TEXT NOT NULL,
+        projector_version INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        removed_at TEXT NULL,
+        UNIQUE (source_id, coord)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.identity_decisions (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        left_coord TEXT NOT NULL,
+        right_coord TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        decided_by TEXT NULL,
+        UNIQUE (user_id, left_coord, right_coord)
+    )');
+
+    $pg->statement("CREATE TABLE IF NOT EXISTS content.identity_candidates (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        left_item_id TEXT NOT NULL,
+        right_item_id TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        evidence TEXT NOT NULL DEFAULT '{}',
+        dismissed_at TEXT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (user_id, left_item_id, right_item_id)
+    )");
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_anchors (
+        coord TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        bound_at TEXT NOT NULL,
+        superseded_by TEXT NULL,
+        PRIMARY KEY (user_id, coord)
+    )');
+
+    $pg->statement("CREATE TABLE IF NOT EXISTS content.item_merges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        kept_item_id TEXT NULL,
+        discarded_item_id TEXT NULL,
+        reason TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}',
+        merged_at TEXT NOT NULL
+    )");
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.manual_overrides (
+        id TEXT PRIMARY KEY NOT NULL,
+        item_id TEXT NOT NULL,
+        facet TEXT NOT NULL,
+        column_name TEXT NOT NULL,
+        value TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (item_id, facet, column_name)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_slugs (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        UNIQUE (user_id, slug)
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.collections (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        parent_id TEXT NULL,
+        label TEXT NOT NULL,
+        kind TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        is_user_created INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )');
+
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.collection_items (
+        collection_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        source_id TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (collection_id, item_id)
+    )');
+}
+
+/**
+ * One content.items row for a tenant, with sane defaults. Returns its id.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function seedContentItem(string $userId, array $overrides = []): string
+{
+    $id = $overrides['id'] ?? (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('content.items')->insert(array_merge([
+        'id' => $id,
+        'user_id' => $userId,
+        'kind' => 'video',
+        'headline_cache' => 'An item',
+        'facets_cache' => '[]',
+        'eligible_cache' => '[]',
+        'first_seen_at' => $now,
+        'last_seen_at' => $now,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ], $overrides));
+
+    return (string) $id;
+}
+
+/**
+ * A page plus one section on a tenant's site.
+ *
+ * @param  array<string, mixed>  $sectionOverrides
+ * @return array{0: string, 1: string} [pageId, sectionId]
+ */
+function seedPageWithSection(string $siteId, array $sectionOverrides = []): array
+{
+    $pageId = (string) Str::uuid();
+    $sectionId = $sectionOverrides['id'] ?? (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('site.pages')->insert([
+        'id' => $pageId,
+        'site_id' => $siteId,
+        'key' => 'work-'.substr($pageId, 0, 8),
+        'label' => 'Work',
+        'sort_order' => 0,
+        'order_mode' => 'manual',
+        'is_hidden' => 0,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.sections')->insert(array_merge([
+        'id' => $sectionId,
+        'page_id' => $pageId,
+        'site_id' => $siteId,
+        'kind' => 'collection',
+        'label' => 'Everything',
+        'sort_order' => 0,
+        'rule' => '{}',
+        'mode' => 'automatic',
+        'order_by' => 'recency',
+        'render' => 'cards',
+        'min_items' => 1,
+        'on_empty' => 'hide',
+        'stale_display' => 'inherit',
+        'created_at' => $now,
+        'updated_at' => $now,
+    ], $sectionOverrides));
+
+    return [$pageId, (string) $sectionId];
+}
