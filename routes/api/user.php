@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Catalog\CatalogSurfacesController;
+use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\RoutingController;
@@ -120,6 +121,15 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('section')->name('site.sections.groups.upsert');
         Route::delete('/site/sections/{section}/groups/{groupKey}', [SectionGroupController::class, 'destroy'])
             ->whereUuid('section')->name('site.sections.groups.destroy');
+
+        // ── Content library (plan §6). ─────────────────────────────────────
+        // Per-column manual edits — the "edited" chip and its reset-to-source.
+        Route::get('/content/items/{item}/overrides', [ManualOverrideController::class, 'index'])
+            ->whereUuid('item')->name('content.items.overrides.index');
+        Route::put('/content/items/{item}/overrides', [ManualOverrideController::class, 'upsert'])
+            ->whereUuid('item')->name('content.items.overrides.upsert');
+        Route::delete('/content/items/{item}/overrides/{facet}/{column}', [ManualOverrideController::class, 'destroy'])
+            ->whereUuid('item')->name('content.items.overrides.destroy');
 
         // Profile sector/industry — curated picker options + manual set. The
         // sector is also fillable by the Google Business precedence sync

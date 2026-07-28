@@ -5,6 +5,7 @@ use App\Models\Analytics\ItemView;
 use App\Models\Analytics\LinkClick;
 use App\Models\Analytics\SectionView;
 use App\Models\Analytics\SiteVisit;
+use App\Models\Content\ManualOverride;
 use App\Models\Core\EmailSuppression;
 use App\Models\Core\HandleChangeLog;
 use App\Models\Core\MediaVariant;
@@ -94,13 +95,15 @@ const POLICY_EXEMPT = [
     // controller action to gate and the Gate has no authenticated actor for this table.
     SupabaseEmailEvent::class,
 
-    // Curation child rows (plan §7). Neither carries user_id, and neither is
-    // reachable except through its parent section's route
-    // (/site/sections/{section}/…). The section is authorised by
-    // SectionPolicy, so a per-row policy would gate nothing that is not
-    // already gated. Same precedent as MenuItem above.
+    // Curation + override child rows (plan §6/§7). None carries user_id, and
+    // none is reachable except through its parent's route — section_items and
+    // section_groups via /site/sections/{section}/…, manual_overrides via
+    // /content/items/{item}/overrides. The parent is authorised by
+    // SectionPolicy / ContentItemPolicy, so a per-row policy would gate
+    // nothing that is not already gated. Same precedent as MenuItem above.
     SectionItem::class,
     SectionGroup::class,
+    ManualOverride::class,
 
     // Send-time suppression list (Resend bounce/complaint). Internal system table,
     // no user-facing API endpoint and no tenant ownership (keyed on email_hash,
