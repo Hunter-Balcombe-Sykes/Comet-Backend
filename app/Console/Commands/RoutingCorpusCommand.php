@@ -23,7 +23,7 @@ use Illuminate\Console\Command;
 class RoutingCorpusCommand extends Command
 {
     protected $signature = 'routing:corpus
-        {--out= : where to write (default tests/Fixtures/Routing/corpus-generated.php)}
+        {--out= : where to write (default tests/fixtures/Routing/corpus-generated.php)}
         {--check : verify the committed corpus still round-trips; write nothing}';
 
     protected $description = 'Generate/verify the detector-derived half of the routing corpus';
@@ -73,7 +73,7 @@ class RoutingCorpusCommand extends Command
 
         usort($cases, fn (array $a, array $b) => strcmp($a['url'], $b['url']));
 
-        $path = $this->option('out') ?: base_path('tests/Fixtures/Routing/corpus-generated.php');
+        $path = $this->option('out') ?: base_path('tests/fixtures/Routing/corpus-generated.php');
 
         if ($this->option('check')) {
             if (! is_file($path)) {

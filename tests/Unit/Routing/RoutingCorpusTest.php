@@ -30,7 +30,7 @@ function corpusCanonicalizer(): IriCanonicalizer
 }
 
 it('places every generated positive on its own surface with its own identifier', function () {
-    $cases = require base_path('tests/Fixtures/Routing/corpus-generated.php');
+    $cases = require base_path('tests/fixtures/Routing/corpus-generated.php');
     expect($cases)->not->toBeEmpty();
 
     $failures = [];
@@ -57,7 +57,7 @@ it('places every generated positive on its own surface with its own identifier',
 });
 
 it('never places a surface for anything in the negative corpus', function () {
-    $cases = require base_path('tests/Fixtures/Routing/corpus-negatives.php');
+    $cases = require base_path('tests/fixtures/Routing/corpus-negatives.php');
     expect(count($cases))->toBeGreaterThan(150);
 
     $failures = [];
@@ -80,7 +80,7 @@ it('never places a surface for anything in the negative corpus', function () {
 });
 
 it('covers every placeable detector in the catalog', function () {
-    $cases = require base_path('tests/Fixtures/Routing/corpus-generated.php');
+    $cases = require base_path('tests/fixtures/Routing/corpus-generated.php');
     $covered = array_unique(array_column($cases, 'detector'));
 
     $placeable = [];
