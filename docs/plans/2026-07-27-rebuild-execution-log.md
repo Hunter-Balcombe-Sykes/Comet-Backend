@@ -326,3 +326,30 @@ non-reproducing order-flake in the first run; two full reruns clean).
 
 Merge-review note: both waves based off fcd8eb15 and merged cleanly over
 the deleted_at stitch fix; the corrected sites stand-in survived the merge.
+
+## Connector fleet merged + EffectLedger semantics (2026-07-28, overnight continuation)
+
+**Fleet (merge 11c399ab):** all ten §11 scope items — eventbrite + humanitix
+(shared SchemaOrgEvent path), soundcloud (Spotify's oEmbed twin), twitch
+(channel + Helix VODs under existing client-creds), skool + strava (built
+behind their kill-switches), #20 youtube_music (empty feed lands nothing,
+claims nothing), #21 gumroad (Inertia payload verified against live
+profiles), instagram (Actor cost class ⇒ manual-only by construction,
+hosts: []), square/uber_eats/doordash menus (one landed shape, one
+projector). 21 connector classes, all registered, drift + lockstep guards
+green. No schema changes needed. tiktok/booksy stay owner-gated; nothing
+built. 2,221 tests green on the merged result (counts re-verified after a
+zsh word-split bug produced two false-negative runs — unquoted $var does
+not split in zsh).
+
+**EffectLedger charge-once gap closed (694906b7, chip from the fleet
+agent):** settled effects now persist their result (≤1MB inline in meta)
+and replays return it with cached:true; pre-fix or oversized rows REFUSE on
+replay instead of ok-with-null; digests take a freshness window
+(partna.ingest.effect_freshness_seconds, default 7d) so sibling streams and
+retries dedupe with data while recurring billed fetches re-bill
+deliberately. HttpIo::effect() stops hardcoding cached:false. Was dormant
+(no P7 driver) but the fleet's instagram + menu actors depend on it.
+
+CatalogArtefactTest rewrites bootstrap/catalog/compiled.php in place on
+every run (same digest, cosmetic churn) — flagged as its own task chip.

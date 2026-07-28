@@ -38,10 +38,10 @@ Companion docs: 2026-07-28-remaining-work-audit.md (verified ground truth),
   surface), catalog-fed StoreBrandProfiler, §13 autopilot + restyle endpoints, §15 PresetInstantiator
   (no cold-build caller yet — §14 pipeline swap wires it), §14 field_bindings (migration
   20260728150000 APPLIED to dev ref). IdentitySync stays live writer until the swap.
-- CONNECTOR FLEET agent (worktree, launched by continuation session — LANE A gate cleared):
-  NEXT-queue item 1, eventbrite→humanitix→soundcloud→twitch→skool→strava→#20 yt-music→#21
-  gumroad→instagram (manual+caps)→square/ubereats/doordash. tiktok/booksy still owner-gated, NOT
-  being built.
+- CONNECTOR FLEET: DONE, merged 11c399ab, deployed to dev. All ten §11 items (21 connector classes
+  registered, drift guards green, no schema changes). tiktok/booksy stay owner-gated — NOT built.
+- EffectLedger chip (fleet agent's flag): DONE 694906b7 — replays carry data, freshness-bucketed
+  digests, fail-closed on missing/oversized results. NEXT-queue item 1 is now fully landed.
 
 ## NEXT backend queue (after the above land)
 1. Connector fleet (plan §11, needs LANE A landed first — same dirs): eventbrite, humanitix,
