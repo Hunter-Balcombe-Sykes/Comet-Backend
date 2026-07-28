@@ -124,7 +124,7 @@ class InstagramConnector implements Connector
         if (! is_array($item) || $item === []) {
             return null;
         }
-        if (isset($item['error']) && $item['error'] !== null && $item['error'] !== '') {
+        if (isset($item['error']) && $item['error'] !== '') {
             return null;
         }
 

@@ -15,7 +15,10 @@ namespace App\Ingest\Support;
 final class MenuRecords
 {
     /**
-     * @param  list<array{name: string, items: list<array<string, mixed>>}>  $categories
+     * Defensive on purpose: each connector maps its vendor shape first, but
+     * a drifted actor payload must degrade to skipped rows, never a throw.
+     *
+     * @param  list<array<string, mixed>>  $categories
      * @return list<array{key: string, doc: array<string, mixed>}>
      */
     public static function flatten(array $categories, ?string $storeName, ?string $currency): array
