@@ -308,7 +308,7 @@ read-services|app/Services/Cache app/Services/Site app/Services/PublicSite app/S
 read-user-mw|app/Services/User app/Http/Middleware
 read-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 read-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
-write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Jobs/Notifications app/Jobs/Concerns app/Jobs/Moderation/Concerns app/Services/Analytics app/Services/Notifications app/Services/Streaming
+write-paths|app/Observers app/Listeners app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics app/Jobs/Notifications app/Jobs/Concerns app/Jobs/Moderation/Concerns app/Services/Analytics app/Services/Notifications app/Services/Streaming
 platforms-services|app/Services/Platforms app/Jobs/Platforms
 platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content

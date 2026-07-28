@@ -129,6 +129,7 @@ For every finding:
 ### Group C — Write paths that should push-invalidate
 ```
 --scope app/Observers
+--scope app/Listeners
 --scope app/Http/Controllers/Api/Webhooks
 --scope app/Services/Site
 --scope app/Services/User
