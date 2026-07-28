@@ -41,7 +41,7 @@ class Medium
                 ->multiAccount(5)
                 ->detect(
                     Detector::url('medium.com')
-                        ->path('#^/@(?<handle>[A-Za-z0-9_-]{3,40})/?$#')
+                        ->path('#^/@(?<handle>[A-Za-z0-9_-]{2,40})/?$#')
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::ProfileLink),

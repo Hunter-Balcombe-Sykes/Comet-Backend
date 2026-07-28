@@ -2,6 +2,7 @@
 
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\LinkedinNormalizer;
+use App\Services\Platforms\Normalizers\MediumNormalizer;
 use App\Services\Platforms\Normalizers\RedditNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
@@ -87,6 +88,18 @@ it('TikTok normalizes a tiktok.com/@handle url', function () {
 
 it('TikTok rejects an @-only input (empty handle)', function () {
     expect((new TiktokNormalizer)('@'))->toBeNull();
+});
+
+it('Medium accepts a 2-char handle — its own founder is @ev', function () {
+    // Regression: the {3,40} grammar rejected real 2-char Medium handles.
+    expect((new MediumNormalizer)('ev'))
+        ->toBe(['username' => 'ev', 'url' => 'https://medium.com/@ev']);
+    expect((new MediumNormalizer)('https://medium.com/@ev'))
+        ->toBe(['username' => 'ev', 'url' => 'https://medium.com/@ev']);
+});
+
+it('Medium still rejects a 1-char handle', function () {
+    expect((new MediumNormalizer)('e'))->toBeNull();
 });
 
 it('Facebook normalizes a vanity handle', function () {

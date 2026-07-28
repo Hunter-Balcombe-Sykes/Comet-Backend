@@ -26,7 +26,8 @@ class MediumNormalizer
             $candidate = PlatformInput::token($s);
         }
 
-        if (! preg_match('~^[A-Za-z0-9_-]{3,40}$~', $candidate)) {
+        // {2,40}: Medium itself has 2-char handles (founder @ev).
+        if (! preg_match('~^[A-Za-z0-9_-]{2,40}$~', $candidate)) {
             return null;
         }
 
