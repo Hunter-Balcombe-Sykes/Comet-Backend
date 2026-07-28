@@ -8,16 +8,22 @@ restatement of the plan's intent, but the measured state of its preconditions.
 calls it. A deletion that "should be fine" is how a platform loses a feature
 nobody noticed was load-bearing.
 
-## Verdict (2026-07-28): P8 CANNOT PROCEED
+## Verdict (2026-07-28, revised): P8 STILL CANNOT PROCEED — one hard blocker left
 
-Not "not yet scheduled" — blocked on capabilities that were never built. The
-new pipeline cannot answer questions the old one answers today, so migrating
-its consumers would remove working behaviour rather than replace it. The
-blockers are named below with the precise missing piece. Anyone picking this up
-should read §"Hard blockers" first and resist the temptation to migrate the
-easy consumers in isolation: two of the blockers (payload parity, tombstone
-backfill) are *ordering* constraints that make an otherwise-safe migration
-unsafe if done first.
+Originally five blockers, all "capabilities that were never built". Three are
+now built (B2 brand plane, B3 bio-harvest importer, B5 tombstone backfill), one
+is half-built (B1 probe runtime: the runtime exists, one of five probes does),
+and **B4 — the findings/synced-modal contract — is untouched and is the reason
+no scan path may migrate.** It is the nastiest of the five precisely because it
+is not a crash: LinkInBioScanJob and InstagramAutoSync would migrate
+"successfully" and silently stop telling users about conflicts.
+
+Anyone picking this up should read §"Hard blockers" first and resist the
+temptation to migrate the easy consumers in isolation. The two *ordering*
+constraints (payload parity, tombstone backfill) that make an otherwise-safe
+migration unsafe if done first are both resolved in code — but the tombstone
+backfill is a MIGRATION, and it is not yet applied to any ref. See "Before
+deletion day".
 
 ## Measured footprint
 
@@ -34,30 +40,44 @@ files has been deleted, because none of their consumers has been migrated.
 
 ## Hard blockers — missing capability, not missing effort
 
-1. **Runtime probe execution.** `probe_capability` exists only as compiled
-   catalog metadata (`app/Catalog/Detector.php:30`); its sole runtime reader is
-   `CatalogSyncCommand` persisting it to a column. The planned `LinkProbeWorker`
-   / `ProbeGate` / `ProbeBudget` do not exist. Nothing in the new pipeline can
-   answer "is this URL a Shopify/Woo/Squarespace/BigCartel storefront" or
-   produce the `detected` array. **Blocks ShopController, CommerceProbeJob,
-   ShopBrandSeeder/Profiler.**
-2. **Brand plane / store seeding.** No successor to `ShopBrandSeeder`'s
-   ShopBrand-row creation; `app/Catalog/Brand.php` is a value object.
-3. **Bio-harvest importer.** `routing.import_runs` already accepts
-   `kind='bio_harvest'`, but both existing importers fetch a *page* and
-   `InstagramAutoSync` supplies a *list* of URLs. **Blocks InstagramAutoSync.**
+1. **Runtime probe execution — PARTIALLY RESOLVED 2026-07-28.** The runtime now
+   exists: `app/Routing/Probes/` (`LinkProbeWorker`, `ProbeGate`, `ProbeBudget`,
+   `Probe`, `ProbeOutcome`) with the Shopify own-domain `/meta.json` probe
+   delegating to `ShopifyScraper::probeMeta()`. A probe answer re-enters as an
+   ordinary `Projection`, so tombstones/capabilities/thresholds apply to a
+   probed storefront without reimplementation. **Still open: four of five
+   probes** (Woo `/wp-json/wc/store/v1/products`, Squarespace `?format=json`,
+   BigCartel `store.json`, generic JSON-LD — all present in the legacy
+   `ShopProviderDetector` and ready to port). `ShopController` and
+   `CommerceProbeJob` cannot migrate until a merchant on any of those four
+   stops being identifiable.
+2. **Brand plane / store seeding — RESOLVED 2026-07-28.**
+   `App\Services\Brand\StoreBrandSeeder` is the successor: it probes, hands the
+   answer to `PlacementPolicy`, lets `SourceReconciler` own the write, and
+   writes only the `site.shop_brands` row itself. It contains no tombstone,
+   lock or connection-upsert logic — that is the point, and
+   `StoreBrandSeederTest` proves the refusal is still honoured. `ShopBrandProfiler`
+   still has no successor (product-catalog derivation is a separate concern).
+3. **Bio-harvest importer — RESOLVED 2026-07-28.** `LinkInBioImporter::import()`
+   accepts `string|list<string>` plus a run kind, recording ONE `import_runs`
+   row per batch with a shared dedupe table and a shared link budget.
+   `kind='bio_harvest'` now has a writer.
 4. **Findings / synced-modal contract.** New-pipeline conflicts become Hold
    intents behind `GET /api/routing/suggestions`, which the dashboard has not
    mounted. Nothing folds them into `payload.syncFindings`, which the existing
    Instagram modal and its applySync swap flow read. **Blocks LinkInBioScanJob
    and InstagramAutoSync semantically** — they would migrate "successfully" and
-   silently stop telling users about conflicts.
-5. **Soft-delete tombstone backfill.** Legacy refusal is a soft-deleted
-   connection; new refusal is `routing.item_tombstones`
-   (`PlacementPolicy.php:123`). No migration backfills the new table from
-   historical soft-deletes. **Migrating any scan path before this backfill can
-   resurrect connections users deliberately deleted.** This is the blocker with
-   real user-visible harm, and it is invisible in tests.
+   silently stop telling users about conflicts. **STILL OPEN — the last hard
+   blocker on the scan paths.**
+5. **Soft-delete tombstone backfill — RESOLVED 2026-07-28.**
+   `supabase/migrations/20260728120000_backfill_item_tombstones.sql` seeds
+   `routing.item_tombstones` from historical soft-deleted connections, with
+   three argued exclusions (live sibling / Pinterest retirement / unclaimed
+   users). `tests/Postgres/ItemTombstoneBackfillTest.php` runs the migration's
+   real SQL off disk; `tests/Feature/Routing/TombstoneResurrectionTest.php`
+   pins both shapes of the hazard (re-paste re-creates the connection, re-scan
+   re-proposes the intent) next to the fix.
+   **Not yet applied to dev or prod** — see "Before deletion day" below.
 
 **Payload parity — RESOLVED 2026-07-28 (amended same day).** `SourceReconciler`
 wrote `{url, source}` and never `username`, while the public allowlist emits
@@ -86,10 +106,11 @@ on `LinkRoutingService`. **Status: 9 consumers, 0 migrated.**
 | `ReservationsController` | `preview()` + `LegacyPlatformMap::legacyFor`; XOR stays caller-owned | MODERATE |
 | `BookingController` | same | MODERATE |
 | `LinkInBioScanJob` | `LinkInBioImporter` (built) + blocker 4 | MODERATE |
-| `InstagramAutoSync` | needs blocker 3 + blocker 4 | HARD |
-| `CommerceProbeJob` | needs blocker 1 | HARD |
-| `ShopBrandSeeder` / `ShopBrandProfiler` | needs blockers 1 + 2 | HARD |
-| `ShopController` | needs blocker 1 | HARD |
+| `InstagramAutoSync` | ~~blocker 3~~ + blocker 4 | MODERATE (was HARD) |
+| `CommerceProbeJob` | needs blocker 1's remaining four probes | HARD |
+| `ShopBrandSeeder` | `StoreBrandSeeder` (built) + blocker 1's remaining probes | MODERATE (was HARD) |
+| `ShopBrandProfiler` | no successor — product-catalog derivation, unstarted | HARD |
+| `ShopController` | needs blocker 1's remaining four probes | HARD |
 | `PublicIntegrationConnectionResource` | no call site — shape coupling only | MODERATE |
 
 **The plan's list is incomplete.** These also reference classes slated for
@@ -122,10 +143,33 @@ php artisan rebuild:footprint
 git grep -l "LinkRouter\|ProviderDetector" -- app/
 ```
 
+## Before deletion day — operational, not code
+
+The B5 backfill is **written and proven, not applied**. It is a migration, so
+it lands with the next `supabase db push`; until it has run against a ref, that
+ref still resurrects deletions.
+
+- Apply to dev (`glncumufgaqcmqhzwrxm`), then prod (`edplucmvkcnokyygxqsb`).
+  Prod carries no customer data yet, so its run is a no-op — dev's is not.
+- **The 30-day window is the deadline that matters.** `PurgeSoftDeleted`
+  hard-deletes a soft-deleted connection 30 days after `deleted_at`, so every
+  day this sits unapplied is a day of refusals that become unrecoverable. This
+  is the one item on the list with an expiry date.
+- After applying, spot-check on dev:
+  `SELECT count(*) FROM routing.item_tombstones WHERE reason LIKE 'legacy%';`
+
+Known consequence to decide on, not a bug: `PlacementPolicy::isTombstoned()`
+does not consider `RoutingContext::isDirectRequest()`, so a tombstone also
+blocks a deliberate manual re-add, not just a re-import. That is the reader's
+existing semantics (already true of every tombstone the suggestions inbox
+writes) now applying to a wider set of rows. If re-add should beat a tombstone,
+the fix is an origin-aware check in `PlacementPolicy` — **not** a narrower
+backfill, which would only restore the resurrection hazard.
+
 ## Order of operations when the above clears
 
-1. Backfill `routing.item_tombstones` from historical soft-deletes (blocker 5)
-   — before any scan path migrates, not after.
+1. ~~Backfill `routing.item_tombstones` from historical soft-deletes~~ — code
+   landed 2026-07-28; **apply the migration before any scan path migrates.**
 2. Decide the findings contract (blocker 4): fold Hold intents into
    `payload.syncFindings`, or mount the suggestions surface and retire the
    modal. Do not migrate a scan path until this is answered.
@@ -134,11 +178,17 @@ git grep -l "LinkRouter\|ProviderDetector" -- app/
    there is nothing to prove parity against.
 4. Reservations, then Booking. XOR/single-slot stays controller-owned; the race
    suites are the parity oracle.
-5. `LinkInBioScanJob`, then `InstagramAutoSync` (needs blocker 3).
-6. Build the probe runtime (blocker 1) + brand plane (blocker 2). Write
-   `CommerceProbeJob::handle()` and `ShopBrandSeeder` characterization tests
-   first — neither has any today.
-7. Shop consumers last.
+5. `LinkInBioScanJob`, then `InstagramAutoSync` — pass the harvested bio URLs
+   to `LinkInBioImporter::import($user, $urls, 'bio_harvest')`.
+6. Port the remaining four probes into `app/Routing/Probes/` from
+   `ShopProviderDetector`'s cascade (Woo, Squarespace, BigCartel, generic
+   JSON-LD), each delegating to its existing scraper the way
+   `ShopifyStorefrontProbe` does. Write `CommerceProbeJob::handle()` and
+   `ShopBrandSeeder` characterization tests first — neither has any today, and
+   `StoreBrandSeederTest` is the shape they should take.
+7. Shop consumers last. `ShopBrandProfiler` has no successor at all: its
+   product-catalog derivation is a separate piece of work from B2's brand-row
+   seeding, and nothing in the new pipeline does it.
 8. Move `allOutboundLinks()` into the new namespace, then delete
    `WebsiteLinkHarvester`.
 9. Re-run `rebuild:footprint`; record the final number in the execution log.
