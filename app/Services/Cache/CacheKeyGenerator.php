@@ -289,6 +289,12 @@ class CacheKeyGenerator
      * Full individual profile payload, keyed by handle + updated_at timestamp
      * so the key naturally rolls forward on any site/user mutation without
      * explicit Cache::forget.
+     *
+     * Rotation abandons the previous key rather than deleting it, so every
+     * superseded key lingers for its full TTL. Resident orphans are edit_rate x
+     * TTL — bounded by edit flow, not by site count — which holds only while the
+     * TTL stays short. Bound: config('partna.public_profile.cache_ttl_ceiling_seconds'),
+     * enforced hourly by AggregateCacheMetricsJob.
      */
     public static function publicProfile(string $handle, int $updatedAtTs): string
     {
