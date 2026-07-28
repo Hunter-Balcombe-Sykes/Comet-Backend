@@ -59,7 +59,7 @@ Companion to `2026-07-27-content-platform-rebuild.md`. One entry per phase; upda
 
 ## P3 — Ingestion (2026-07-27)
 
-**Shipped:** `ingest` schema (15 tables: sources with the DB claim as THE run lock and an EWMA cadence band, streams with coverage/health/guard/run_seq fence, runs, hash-partitioned content-addressed `record_versions`, `record_state`, the effects ledger, anomalies). Manifest/StreamSpec/SourceProfile — one declaration deciding cadence, whether absence may EVER mean deletion, and the dashboard's pinnable/editable flags. Message sum type (Record | Covered | Bookmark | Note | Deferred | Unavailable). Coverage + domination. DocHasher (volatility on the hash INPUT only) and Redactor (applied BEFORE landing). EffectLedger (charge-once; a dead claim is REFUSED, not retried). Lander (unchanged content writes zero rows; ≥40% single-run vanish trips the guard, files a critical anomaly and deletes nothing). Connector contract + HttpIo/ReplayIo + RunExecutor. SourceScheduler. Projection layer with instrumented reads. Connectors: Bandcamp, Vimeo, Spotify oEmbed, YouTube RSS, Fresha, Google Business. `ingest:dispatch` (15 min) + `ingest:stranded` (hourly) + a dedicated Horizon lane.
+**Shipped:** `ingest` schema (15 tables: sources with the DB claim as THE run lock and an EWMA cadence band, streams with coverage/health/guard/run_seq fence, runs, hash-partitioned content-addressed `record_versions`, `record_state`, the effects ledger, anomalies). Manifest/StreamSpec/SourceProfile — one declaration deciding cadence, whether absence may EVER mean deletion, and the dashboard's pinnable/editable flags. Message sum type (Record | Covered | Bookmark | Note | Deferred | Unavailable). Coverage + domination. DocHasher (volatility on the hash INPUT only) and Redactor (applied BEFORE landing). EffectLedger (charge-once; a dead claim is REFUSED, not retried). Lander (unchanged content writes zero rows; ≥40% single-run vanish trips the guard, files a critical anomaly and deletes nothing). Connector contract + HttpIo/ReplayIo + RunExecutor. SourceScheduler. Projection layer with instrumented reads. Connector CLASSES: Bandcamp, Vimeo, Spotify oEmbed, YouTube RSS, Fresha, Google Business (+ Apple Music, Apple Podcasts, Substack) — but `ConnectorRegistry::MAP` registered only 4 of the 9 (apple_music, apple_podcasts, bandcamp, substack), so the other five were undispatchable until the P6-round-5 audit repair registered them all and added a directory-walking drift guard. `ingest:dispatch` (15 min) + `ingest:stranded` (hourly) + a dedicated Horizon lane.
 
 **Corrections made to delivered work:** the Horizon lane was sized 2×256 MiB, pushing the box's permitted ceiling ~514 MiB past 2048 — capped to ONE worker at 192 MiB everywhere, with the residual ~194 MiB over-commit stated plainly in the config (the box had only ~88 MiB of headroom before a fifth lane existed, so *any* fifth lane crosses it; `memory` is a restart threshold, not a reservation; the real fix is the resize §19 already carries). `RunExecutor` read `is_claimed` off a column that does not exist and so always defaulted TRUE — which would have landed third-party personal data for unclaimed accounts, exactly the regression claim-state-scoped redaction prevents. `PlacesBudgetGuardTest` caught the GoogleBusiness connector naming the Places host in its manifest; it makes no direct HTTP calls at all (the billed call goes through the ledgered effect whose driver claims PlacesBudget), so the host list is now empty with the reason stated.
 
@@ -218,3 +218,48 @@ Frontend: 766 tests green, tsc 0, lint 0 errors, production build clean;
 app.partna.au verified byte-identical with the newest deployment. Seeding
 sweep (Maha Restaurant, one real connection per platform) running as the
 E2E case study — results land in this log's next entry.
+
+**Maha sweep — results.** The promised E2E case study ran against the real
+API on user handle `ollies`: 25+ platforms connected end-to-end (paste →
+route → connection → public wire). Two platforms surfaced kill-switched
+(strava, skool — FeatureAvailability rules, expected); fresha correctly
+capability-blocked for the food business (booking is the non-food side of
+the sector gate, so a restaurant pasting a Fresha link gets the gate, not a
+connection). The sweep's bug list — headlined by the Links-page add flow
+blocking every unrecognised URL — was handed to the fix rounds below.
+
+## P6 round 5 — audit repairs (2026-07-28)
+
+Four audit findings fixed, each with tests, all on `development`:
+
+1. **Note read as a block (LIVE, E2E-verified).** Pasting an unrecognised
+   business URL (broadsheet.com.au/melbourne) on the Links page showed
+   blockReason "unknown-domain / unrecognised link" and disabled Add —
+   despite `Verdict::Note` being documented "keep as a link item, never
+   dropped". `LinkRoutingService::describe()` now makes blockReason a
+   Reject-only signal (Note → routedTo:null, blockReason:null, "We'll keep
+   this as a link on your site."); `PlacementPolicy` splits unmatched into
+   Note (healthy unknown domain) vs Reject (canonicaliser-refused:
+   malformed / own-infra / shortener / confusable), matching Verdict's own
+   doc. Also fixed en route: `route()`'s reconciler verdict override was
+   dead code (`+` keeps the left operand), so Place→Hold downgrades
+   misreported "place" on the wire.
+2. **Note now WRITES the link.** `/routing/links` answered 202 "pending"
+   for a Note and persisted nothing — the URL vanished. The legacy custom-
+   link write (rid, minimal card, lock, dedupe, 20-cap, EnrichLinkCardJob)
+   was extracted into `CustomLinkSeeder::writeCard()`; the new `addManual()`
+   entry (no previous-website skip — an explicit paste is intent) backs a
+   Note branch in `RoutingController::store`, so the same row the legacy
+   endpoint writes lands and `GET /platforms/custom/links` + the sitepage
+   render it. Cap full → structured 422 `link_cap_reached`. The response
+   gained the ADDITIVE `outcome` field: connected | link | review | null.
+3. **Suggestions payload leak.** `SuggestionsController::accept` wrote
+   `['url','source']` by hand — a third writer bypassing
+   `ConnectionPayload::forWrite`, i.e. the blank-sitepage regression class
+   resurrected for accepted suggestions (Instagram renders from `username`
+   alone). Routed through `ConnectionPayload::forWrite`; test pins
+   username+url+source on an accepted Instagram-like suggestion.
+4. **Connector registry drift** — see the corrected P3 entry: 5 of 9
+   connector classes were unregistered and undispatchable; all 9 now
+   registered under their manifest source keys with a two-way drift guard
+   (`tests/Unit/Ingest/ConnectorRegistryTest.php`).

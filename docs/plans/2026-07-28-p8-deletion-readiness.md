@@ -59,14 +59,21 @@ files has been deleted, because none of their consumers has been migrated.
    resurrect connections users deliberately deleted.** This is the blocker with
    real user-visible harm, and it is invisible in tests.
 
-**Payload parity — RESOLVED 2026-07-28.** `SourceReconciler` wrote
-`{url, source}` and never `username`, while the public allowlist emits
+**Payload parity — RESOLVED 2026-07-28 (amended same day).** `SourceReconciler`
+wrote `{url, source}` and never `username`, while the public allowlist emits
 `{username, url}` for socials and Instagram renders from `username` alone. Both
-writers now go through `App\Routing\ConnectionPayload`. This was found live: the
-showcase accounts served `"payload":[]` for all 20 connections and every
-platform page rendered blank. It was invisible to 5,969 passing tests because
-nothing asserted what reaches the public wire — `tests/Unit/Routing/ConnectionPayloadTest.php`
-now does.
+writers were routed through `App\Routing\ConnectionPayload`. This was found
+live: the showcase accounts served `"payload":[]` for all 20 connections and
+every platform page rendered blank. It was invisible to 5,969 passing tests
+because nothing asserted what reaches the public wire —
+`tests/Unit/Routing/ConnectionPayloadTest.php` now does.
+"Both writers" undercounted: `SuggestionsController::accept` was a THIRD
+writer, still building `['url','source']` by hand, so an accepted Instagram
+suggestion re-created the blank-page payload. Fixed in the P6 round-5 audit
+repairs — it now calls `ConnectionPayload::forWrite`, and
+`SuggestionsInboxTest` pins the username on an accepted handle-surface
+suggestion. Lesson stands: parity claims about "all writers" need a grep, not
+a memory.
 
 ## Blocking: live consumers of the legacy router
 
@@ -97,8 +104,10 @@ namespace first.
 ## Frontend
 
 `lib/catalog.ts` and `lib/routing.ts` are live: the routing link-add sheet is
-**mounted** on `/account/custom-links` as of 2026-07-28, so `POST /routing/links`
-now has a real production caller.
+**mounted** — since the P6 IA rounds it lives on the Platforms index
+(`app/(dashboard)/account/platforms/page.tsx`), and `/account/custom-links` is
+now only a redirect stub into it — so `POST /routing/links` has a real
+production caller.
 
 `lib/social/platforms.ts` (565 lines) still cannot be deleted — its remaining
 consumers are type/icon readers and the early-access forms, not add-link UIs.
