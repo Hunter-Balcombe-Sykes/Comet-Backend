@@ -45,6 +45,8 @@ class ChannelCardProjector implements Projector
                     'provider' => $view->string('embed.provider'),
                     'embed_key' => $view->string('embed.key'),
                 ],
+                // Strava clubs carry a "City, Region" locality on the card.
+                'f_place' => $view->string('location') === null ? null : ['locality' => $view->string('location')],
             ]),
             'media' => $view->string('avatar') === null ? [] : [
                 ['role' => 'avatar', 'url' => $view->string('avatar')],

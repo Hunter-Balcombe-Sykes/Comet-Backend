@@ -9,8 +9,10 @@ use App\Ingest\Connectors\EventbriteConnector;
 use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\HumanitixConnector;
+use App\Ingest\Connectors\SkoolConnector;
 use App\Ingest\Connectors\SoundcloudConnector;
 use App\Ingest\Connectors\SpotifyOembedConnector;
+use App\Ingest\Connectors\StravaConnector;
 use App\Ingest\Connectors\SubstackConnector;
 use App\Ingest\Connectors\TwitchConnector;
 use App\Ingest\Connectors\VimeoConnector;
@@ -47,8 +49,10 @@ final class ConnectorRegistry
         'fresha' => FreshaConnector::class,
         'google_business' => GoogleBusinessConnector::class,
         'humanitix' => HumanitixConnector::class,
+        'skool' => SkoolConnector::class,
         'soundcloud' => SoundcloudConnector::class,
         'spotify' => SpotifyOembedConnector::class,
+        'strava' => StravaConnector::class,
         'substack' => SubstackConnector::class,
         'twitch' => TwitchConnector::class,
         'vimeo' => VimeoConnector::class,

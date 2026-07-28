@@ -4,6 +4,7 @@ use App\Ingest\ConnectorRegistry;
 use App\Ingest\Projection\AppleMusicReleaseProjector;
 use App\Ingest\Projection\ApplePodcastsEpisodeProjector;
 use App\Ingest\Projection\BandcampReleaseProjector;
+use App\Ingest\Projection\ChannelCardProjector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
@@ -13,6 +14,7 @@ use App\Ingest\Projection\SchemaOrgEventProjector;
 use App\Ingest\Projection\SoundcloudChannelProjector;
 use App\Ingest\Projection\SpotifyChannelProjector;
 use App\Ingest\Projection\SubstackArticleProjector;
+use App\Ingest\Projection\TwitchVodProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
 use App\Ingest\Projection\YoutubeVideoProjector;
 use Tests\TestCase;
@@ -268,6 +270,44 @@ it('marks a zero-minimum event offer as free and tolerates a dateless event', fu
 it('projects nothing rather than a nameless or linkless event', function () {
     expect((new SchemaOrgEventProjector)->project(new RecordView(['url' => 'https://x.com/e/y'])))->toBeNull()
         ->and((new SchemaOrgEventProjector)->project(new RecordView(['name' => 'Ghost Show'])))->toBeNull();
+});
+
+it('projects a normalized account card into a channel item for every og-scrape source', function () {
+    // Twitch shape: handle + live-player embed.
+    $twitch = (new ChannelCardProjector)->project(new RecordView([
+        'name' => 'SomeStreamer', 'url' => 'https://www.twitch.tv/somestreamer',
+        'handle' => 'somestreamer', 'avatar' => 'https://static-cdn.jtvnw.net/a.png',
+        'description' => 'Speedruns most evenings.',
+        'embed' => ['provider' => 'twitch', 'key' => 'somestreamer'],
+    ]));
+    // Strava shape: locality + member count, no embed.
+    $strava = (new ChannelCardProjector)->project(new RecordView([
+        'name' => 'Midday Milers', 'url' => 'https://www.strava.com/clubs/milers',
+        'location' => 'Melbourne, Victoria', 'followers' => 1204,
+    ]));
+
+    expect($twitch['kind'])->toBe('channel')
+        ->and($twitch['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => 'somestreamer'])
+        ->and($twitch['facets']['f_channel']['handle'])->toBe('somestreamer')
+        ->and($twitch['media'][0]['role'])->toBe('avatar')
+        ->and($strava['facets']['f_place']['locality'])->toBe('Melbourne, Victoria')
+        ->and($strava['facets']['f_channel']['followers'])->toBe(1204)
+        ->and($strava['facets'])->not->toHaveKey('f_embed');
+});
+
+it('projects a twitch vod as a video with duration and the vod embed variant', function () {
+    $projected = (new TwitchVodProjector)->project(new RecordView([
+        'id' => '335921245', 'title' => 'Twitch Rivals finals',
+        'url' => 'https://www.twitch.tv/videos/335921245',
+        'published' => '2026-07-14T22:04:28Z',
+        'thumbnail' => 'https://static-cdn.jtvnw.net/cf_vods/x/thumb0-640x360.jpg',
+        'duration_seconds' => 11313, 'views' => 1863062,
+    ]));
+
+    expect($projected['kind'])->toBe('video')
+        ->and($projected['facets']['f_duration']['seconds'])->toBe(11313)
+        ->and($projected['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => '335921245', 'variant' => 'vod'])
+        ->and($projected['media'][0]['role'])->toBe('cover');
 });
 
 it('projects a soundcloud oembed into a channel whose embed key is the parsed player src', function () {

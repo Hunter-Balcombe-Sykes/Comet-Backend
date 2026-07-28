@@ -28,8 +28,10 @@ final class ProjectorRegistry
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,
         ],
+        'skool' => ['community' => ChannelCardProjector::class],
         'soundcloud' => ['listen' => SoundcloudChannelProjector::class],
         'spotify' => ['listen' => SpotifyChannelProjector::class],
+        'strava' => ['club' => ChannelCardProjector::class],
         'substack' => ['posts' => SubstackArticleProjector::class],
         'twitch' => [
             'channel' => ChannelCardProjector::class,

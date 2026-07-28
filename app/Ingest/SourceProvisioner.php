@@ -180,6 +180,10 @@ class SourceProvisioner
             'google_business' => $this->cleanString($connection->place_id)
                 ?? $this->cleanString($payload['placeId'] ?? null)
                 ?? $this->googlePlaceId($resource),
+            'skool' => $this->skoolUrl($payload['url'] ?? null)
+                ?? $this->skoolUrl($this->bareSlug($resource, 'skool')),
+            'strava' => $this->stravaClubUrl($payload['url'] ?? null)
+                ?? $this->stravaClubUrl($this->bareSlug($resource, 'strava')),
             'substack' => $this->bareSlug($resource, 'substack')
                 ?? $this->substackSlug($payload['url'] ?? null),
             'twitch' => $this->twitchLogin($payload['login'] ?? null)
@@ -273,6 +277,46 @@ class SourceProvisioner
         $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
         if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
             return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** Canonical Skool community URL from a skool.com link or a bare slug. */
+    private function skoolUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?skool\.com/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
+            $slug = strtolower($m[1]);
+        } elseif (preg_match('~^[a-z0-9][a-z0-9-]*$~i', $value)) {
+            $slug = strtolower($value);
+        } else {
+            return null;
+        }
+
+        // Product pages, not communities.
+        if (in_array($slug, ['signup', 'login', 'discovery', 'games', 'about', 'legal', 'careers', 'affiliates'], true)) {
+            return null;
+        }
+
+        return 'https://www.skool.com/'.$slug;
+    }
+
+    /** Canonical Strava club URL from a strava.com/clubs link or a bare slug/id. */
+    private function stravaClubUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?strava\.com/clubs/([A-Za-z0-9_-]+)~i', $value, $m)) {
+            return 'https://www.strava.com/clubs/'.$m[1];
+        }
+        if (preg_match('~^[A-Za-z0-9_-]{2,60}$~', $value)) {
+            return 'https://www.strava.com/clubs/'.$value;
         }
 
         return null;

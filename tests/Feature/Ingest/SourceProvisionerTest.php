@@ -280,6 +280,20 @@ it('provisions twitch from the payload login, lowercased, and refuses placeholde
         ->and(ingestSourceFor($placeholder))->toBeNull();
 });
 
+it('provisions skool and strava as canonical community urls, refusing product chrome slugs', function () {
+    $userId = provisionerUser();
+
+    $skool = makeConnection($userId, ['platform' => 'skool', 'payload' => ['url' => 'https://skool.com/Max-Business-School/about?ref=x']]);
+    $skoolChrome = makeConnection($userId, ['platform' => 'skool', 'payload' => ['url' => 'https://www.skool.com/signup']]);
+    $strava = makeConnection($userId, ['platform' => 'strava', 'payload' => ['url' => 'https://strava.com/clubs/Midday-Milers']]);
+    $stravaBare = makeConnection($userId, ['platform' => 'strava', 'resource_id' => '289149', 'payload' => []]);
+
+    expect(ingestSourceFor($skool)->identifier)->toBe('https://www.skool.com/max-business-school')
+        ->and(ingestSourceFor($skoolChrome))->toBeNull()
+        ->and(ingestSourceFor($strava)->identifier)->toBe('https://www.strava.com/clubs/Midday-Milers')
+        ->and(ingestSourceFor($stravaBare)->identifier)->toBe('https://www.strava.com/clubs/289149');
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {
