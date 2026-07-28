@@ -333,7 +333,7 @@ domain-services|app/Services/User app/Services/PreAccount app/Services/Site app/
 vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app/Jobs app/Listeners
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User
-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
+controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content app/Routing
 controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
 media-design|app/Services/Media app/Services/Design app/Services/WebsiteScan
 EOF
