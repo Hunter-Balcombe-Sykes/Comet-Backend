@@ -63,3 +63,9 @@ Resume-from-here for ANY Claude session. Read with: docs/plans/2026-07-28-remain
 - app.partna.au (prod FE) talks to dev-api.partna.au (NEXT_PUBLIC_API_BASE_URL) — intended.
 - Maha data quirks: stale "Doc Pizza" online-ordering rows from an earlier GB seed; IG followers/post
   counts 0 (partial Apify) — cosmetic.
+
+## Update ~15:1x — lanes B + C stitched
+- LANE C DONE + both migrations APPLIED to dev ref (tombstones backfill 20260728120000, brand_asset_refs 20260728130000).
+- LANE B DONE (routes pushed 61636698..bec14245): curation/pages/sections/items/groups, identity queue, overrides, /content/kinds, section trace; 71 tests. Its one red (IngestBrandAssetJob missing failed()) fixed in 90af365d — development green.
+- Open from B's report: DisjointSet::separate() directional bug (task #27, characterization-pinned); merges repoint source items only (facets re-derive when lane A's projector lands); trace explains 2/7 ops until lane A's full DSL.
+- Still running: LANE A only.
