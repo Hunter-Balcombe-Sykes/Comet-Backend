@@ -3332,6 +3332,22 @@ function seedPageWithSection(string $siteId, array $sectionOverrides = []): arra
 }
 
 /**
+ * site.design_kit_restyles (migration 20260727150000) — SQLite mirror for the
+ * §13 "Restyle from brand" undo snapshots.
+ */
+function setupDesignKitRestylesTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kit_restyles (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        snapshot TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        undone_at TEXT NULL
+    )');
+}
+
+/**
  * content.brand_asset_refs (migration 20260728130000) — SQLite mirror for the
  * store-brand plane: owned-asset refs per (connection, role). media_assets
  * comes from setupContentTables(), which this calls first.

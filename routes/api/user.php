@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\RoutingController;
 use App\Http\Controllers\Api\Routing\SuggestionsController;
 use App\Http\Controllers\Api\Site\PageController;
+use App\Http\Controllers\Api\Site\RestyleController;
 use App\Http\Controllers\Api\Site\SectionController;
 use App\Http\Controllers\Api\Site\SectionGroupController;
 use App\Http\Controllers\Api\Site\SectionItemController;
@@ -124,6 +125,15 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
 
         // Group label/order overrides — needed because a group_by other than
         // category produces keys, not rows to hang a label on.
+        // "Restyle from brand" (plan §13): preview diff → explicit apply with
+        // an undo snapshot → undo. Never fires on its own.
+        Route::get('/site/restyle/preview', [RestyleController::class, 'preview'])
+            ->name('site.restyle.preview');
+        Route::post('/site/restyle', [RestyleController::class, 'store'])
+            ->name('site.restyle.apply');
+        Route::post('/site/restyle/{restyle}/undo', [RestyleController::class, 'undo'])
+            ->whereUuid('restyle')->name('site.restyle.undo');
+
         Route::get('/site/sections/{section}/groups', [SectionGroupController::class, 'index'])
             ->whereUuid('section')->name('site.sections.groups.index');
         Route::put('/site/sections/{section}/groups/{groupKey}', [SectionGroupController::class, 'upsert'])
