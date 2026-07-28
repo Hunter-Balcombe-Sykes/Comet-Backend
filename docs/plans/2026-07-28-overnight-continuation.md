@@ -34,10 +34,14 @@ Companion docs: 2026-07-28-remaining-work-audit.md (verified ground truth),
   both argument orders, tombstones origin-aware (direct paste wins, reconciler deletes superseded
   refusal; scan suppression kept), B4 SyncFindingsBridge folds Hold intents into the IG synced
   modal at read time + SuggestionApplier extraction. 1941 tests green on merged result.
-- WAVE-2C agent (worktree): RELAUNCHED by continuation session. remaining 4 shop probes (Woo/Squarespace/BigCartel/generic — port from
-  ShopProviderDetector into app/Routing/Probes), ShopBrandProfiler successor (product-catalog
-  derivation), §13 kit autopilot (fromBrandPalette + fromWebsiteEvidence → design_kit_restyles),
-  §15 PresetInstantiator (10 presets → pages/sections/kit seed), §14 field_bindings.
+- WAVE-2C: DONE, merged 8cf04af5, deployed to dev. 5-platform probe cascade (+squarespace.store
+  surface), catalog-fed StoreBrandProfiler, §13 autopilot + restyle endpoints, §15 PresetInstantiator
+  (no cold-build caller yet — §14 pipeline swap wires it), §14 field_bindings (migration
+  20260728150000 APPLIED to dev ref). IdentitySync stays live writer until the swap.
+- CONNECTOR FLEET agent (worktree, launched by continuation session — LANE A gate cleared):
+  NEXT-queue item 1, eventbrite→humanitix→soundcloud→twitch→skool→strava→#20 yt-music→#21
+  gumroad→instagram (manual+caps)→square/ubereats/doordash. tiktok/booksy still owner-gated, NOT
+  being built.
 
 ## NEXT backend queue (after the above land)
 1. Connector fleet (plan §11, needs LANE A landed first — same dirs): eventbrite, humanitix,

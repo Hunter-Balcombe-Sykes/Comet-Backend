@@ -291,3 +291,38 @@ v1 (pages/navigation/warnings/builderRevision); a manual BuildState::bump
 (rev 1 > built 0) was picked up by the scheduled sweeper within 3 minutes —
 Horizon ran the job, the builder hashed byte-identical output, committed
 built_revision=1 with no new version and no purge, exactly per protocol.
+
+## WAVE-2B + WAVE-2C merged (2026-07-28, overnight continuation)
+
+Both wave agents (relaunched after the prior session died) landed and are
+deployed to dev.
+
+**WAVE-2B (merge e76c8456):** #26 primary-CTA API (`GET
+/api/routing/connections` with per-class is_primary + class→id primary map;
+`POST /routing/connections/{id}/primary` demote+promote in one transaction —
+no migration, the column and partial index already existed). #27
+`DisjointSet::separate()` now cuts in both argument orders (the old code
+always re-rooted its second argument — a no-op whenever that side had won
+the union, so coord-sorted cuts silently failed about half the time).
+Tombstones are origin-aware: a direct paste wins over a prior removal and
+deletes the superseded refusal; scan/harvest resurrection stays blocked
+(C8). B4: `SyncFindingsBridge` folds Hold intents into the Instagram
+synced-modal response at read time; `SuggestionApplier` extracted so intent
+application stays single-writer. 1941 tests green on the merged result.
+
+**WAVE-2C (merge 8cf04af5):** probe cascade speaks all five shop platforms
+(Woo/Squarespace/BigCartel/generic ported into app/Routing/Probes;
+`squarespace.store` surface added, artefact recompiled, corpus regenerated).
+StoreBrandProfiler successor reads the catalog instead of re-fetching. §13
+design-kit autopilot (fromBrandPalette + fromWebsiteEvidence →
+site.design_kit_restyles, WCAG tone-mapping, restyle/undo endpoints). §15
+preset library + PresetInstantiator (ten arrangements + blank; no cold-build
+caller yet — that is the §14 pipeline-swap item). §14 field_bindings:
+migration 20260728150000 (manual=priority-0 CHECK is the lock, C2) APPLIED
+to dev ref via db push; FieldBindingSeeder rides PresetInstantiator;
+FieldBindingResolver fails closed; IdentitySync remains the live writer
+until the pipeline swap. 729 tests green on the merged result (one
+non-reproducing order-flake in the first run; two full reruns clean).
+
+Merge-review note: both waves based off fcd8eb15 and merged cleanly over
+the deleted_at stitch fix; the corrected sites stand-in survived the merge.
