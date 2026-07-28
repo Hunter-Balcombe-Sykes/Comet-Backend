@@ -29,12 +29,11 @@ Companion docs: 2026-07-28-remaining-work-audit.md (verified ground truth),
   every projection bump 42703'd silently, so no document ever built. Verified end-to-end after fix:
   doc v1 built inline, sweeper picked up a manual bump within 3 min (unchanged-hash path). See
   execution log "LANE A landed + stitch".
-- WAVE-2B agent (worktree): RELAUNCHED by continuation session (prior session died before start).
-  #26 primary-CTA API (read per-class is_primary + POST
-  /routing/connections/{id}/primary), #27 DisjointSet::separate() direction fix (characterization
-  test pinned in IdentityQueueTest), tombstone-vs-deliberate-re-add decision (PlacementPolicy
-  isTombstoned should let isDirectRequest re-adds win — implement origin-aware check), B4
-  findings/synced-modal scan contract (p8-readiness doc names it; sole hard blocker on scan paths).
+- WAVE-2B: DONE, merged e76c8456, deployed to dev. #26 primary-CTA API (GET /routing/connections +
+  POST .../{id}/primary; no migration — is_primary existed), #27 DisjointSet::separate() cuts in
+  both argument orders, tombstones origin-aware (direct paste wins, reconciler deletes superseded
+  refusal; scan suppression kept), B4 SyncFindingsBridge folds Hold intents into the IG synced
+  modal at read time + SuggestionApplier extraction. 1941 tests green on merged result.
 - WAVE-2C agent (worktree): RELAUNCHED by continuation session. remaining 4 shop probes (Woo/Squarespace/BigCartel/generic — port from
   ShopProviderDetector into app/Routing/Probes), ShopBrandProfiler successor (product-catalog
   derivation), §13 kit autopilot (fromBrandPalette + fromWebsiteEvidence → design_kit_restyles),
