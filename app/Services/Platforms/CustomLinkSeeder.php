@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\Log;
  */
 class CustomLinkSeeder
 {
-    private const MAX_LINKS = 20;
+    public const MAX_LINKS = 20;
 
     public function __construct(
         private readonly LinkCardScraper $scraper,
@@ -87,6 +87,43 @@ class CustomLinkSeeder
             return null;
         }
 
+        return $this->writeCard($user, $normalized)['row'];
+    }
+
+    /**
+     * Manual add from the routing endpoint (a Verdict::Note on POST
+     * /routing/links). Same write as seedCustom() with two deliberate
+     * differences: the previous-website skip does NOT apply (an explicit
+     * paste is user intent, not a scrape re-discovering the old site), and
+     * the outcome is discriminated so the controller can shape a real HTTP
+     * answer instead of a silent null (cap → 422, lock → 423).
+     *
+     * @return array{status: 'created'|'exists'|'cap_full'|'busy'|'invalid'|'unavailable', row: ?IntegrationConnection}
+     */
+    public function addManual(User $user, string $url): array
+    {
+        if ($user->isPendingDeletion() || ! FeatureAvailability::for($user)->allows('integration.custom')) {
+            return ['status' => 'unavailable', 'row' => null];
+        }
+
+        $normalized = $this->scraper->normalizeUrl($url);
+        if ($normalized === null) {
+            return ['status' => 'invalid', 'row' => null];
+        }
+
+        return $this->writeCard($user, $normalized);
+    }
+
+    /**
+     * The one custom-link write body (extracted verbatim from seedCustom,
+     * which itself carried CustomLinksController::addLink's semantics): rid
+     * from the lowercased URL, minimal card payload, per-user custom lock,
+     * dedupe by rid, MAX_LINKS cap, EnrichLinkCardJob on genuine creates.
+     *
+     * @return array{status: 'created'|'exists'|'cap_full'|'busy', row: ?IntegrationConnection}
+     */
+    private function writeCard(User $user, string $normalized): array
+    {
         $rid = 'link-'.substr(sha1(strtolower($normalized)), 0, 16);
         $payload = ['kind' => 'link', ...$this->scraper->minimalCard($normalized)];
 
@@ -113,14 +150,18 @@ class CustomLinkSeeder
         } catch (LockTimeoutException) {
             Log::warning('platforms.custom_link_seeder.lock_timeout', ['user_id' => (string) $user->id, 'resource_id' => $rid]);
 
-            return null;
+            return ['status' => 'busy', 'row' => null];
         }
 
-        if ($row !== null && $isNew) {
+        if ($row === null) {
+            return ['status' => 'cap_full', 'row' => null];
+        }
+
+        if ($isNew) {
             EnrichLinkCardJob::dispatch((string) $user->id, 'custom', $rid, $normalized)->afterCommit();
         }
 
-        return $row;
+        return ['status' => $isNew ? 'created' : 'exists', 'row' => $row];
     }
 
     /**

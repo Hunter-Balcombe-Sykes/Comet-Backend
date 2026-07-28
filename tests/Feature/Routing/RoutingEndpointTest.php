@@ -1,7 +1,9 @@
 <?php
 
+use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupUsersTable();
@@ -69,6 +71,7 @@ it('connects a confident link and records the whole decision', function () {
 
     $response->assertStatus(202)
         ->assertJsonPath('status', 'ok')
+        ->assertJsonPath('outcome', 'connected')
         ->assertJsonPath('verdict', 'place');
 
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->first();
@@ -100,27 +103,102 @@ it('is idempotent — the same link twice yields one connection', function () {
         ->and(DB::table('routing.source_intents')->count())->toBe(1);
 });
 
-it('keeps an unrecognised link as a note without creating a connection', function () {
+it('keeps an unrecognised link as a real link card, not a vanished pending', function () {
+    Queue::fake();
     $pro = createTenant('routing-note');
 
-    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/'])
-        ->assertStatus(202)
-        ->assertJsonPath('status', 'pending')
-        ->assertJsonPath('verdict', 'note');
+    // Verdict::Note's promise made real: the URL lands as the SAME custom-link
+    // row the legacy endpoint writes, so the Links list and the sitepage show
+    // it. Before this branch existed the endpoint said 202 "pending" and the
+    // URL went nowhere.
+    $response = actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/']);
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    $response->assertStatus(202)
+        ->assertJsonPath('status', 'pending')
+        ->assertJsonPath('outcome', 'link')
+        ->assertJsonPath('verdict', 'note')
+        ->assertJsonPath('blockReason', null);
+
+    // No platform connection — but exactly one custom link card.
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', '!=', 'custom')->count())->toBe(0);
+    $card = IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->first();
+    expect($card)->not->toBeNull()
+        ->and($card->resource_kind)->toBe('link')
+        ->and($card->payload['url'])->toBe($response->json('canonicalUrl'));
+
+    // Visible where the dashboard and sitepage actually read links from.
+    $links = actingAsUser($pro)->getJson('/api/platforms/custom/links')->assertOk()->json('links');
+    expect($links)->toHaveCount(1)
+        ->and($links[0]['name'])->toBe('joesplumbing.com.au');
+
+    // The enrichment job upgrades the minimal card, same as a legacy add.
+    Queue::assertPushed(EnrichLinkCardJob::class, fn ($j) => $j->platform === 'custom');
+
     // Still observed: an unmatched link is exactly what the rot report needs.
     expect(DB::table('routing.link_observations')->count())->toBe(1);
 });
 
+it('adding the same unrecognised link twice keeps one card and still answers outcome link', function () {
+    Queue::fake();
+    $pro = createTenant('routing-note-dedupe');
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/'])->assertStatus(202);
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/'])
+        ->assertStatus(202)
+        ->assertJsonPath('outcome', 'link');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(1);
+});
+
+it('answers a structured 422 when the link cap is full', function () {
+    Queue::fake();
+    $pro = createTenant('routing-note-cap');
+
+    foreach (range(1, 20) as $i) {
+        IntegrationConnection::create([
+            'user_id' => $pro->id,
+            'platform' => 'custom',
+            'resource_id' => "link-capfill{$i}",
+            'resource_kind' => 'link',
+            'payload' => ['kind' => 'link', 'url' => "https://example{$i}.com.au"],
+            'is_active' => true,
+            'last_refresh_status' => 'ok',
+        ]);
+    }
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'link_cap_reached');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(20);
+});
+
+it('sends a below-auto-threshold link to review rather than connecting or noting it', function () {
+    $pro = createTenant('routing-review');
+
+    // fresha.com/a/… projects at 75 — under booking's auto bar (80), over
+    // suggest (55) → Choose: an intent for the suggestions inbox.
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.fresha.com/a/some-salon-abc123'])
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'pending')
+        ->assertJsonPath('outcome', 'review')
+        ->assertJsonPath('verdict', 'choose');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->value('state'))->toBe('proposed');
+});
+
 it('never connects a spoofed brand host', function () {
+    Queue::fake();
     $pro = createTenant('routing-spoof');
 
     actingAsUser($pro)->postJson('/api/routing/links', [
         'url' => 'https://opentable.evil.com/restaurant/profile/12345',
     ])->assertStatus(202)->assertJsonPath('verdict', 'note');
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    // The spoof registers as evil.com — an unknown domain. It may become a
+    // plain link card (the user pasted it), but NEVER an OpenTable connection.
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', '!=', 'custom')->count())->toBe(0);
 });
 
 it('refuses to write own-infrastructure links', function () {
@@ -140,6 +218,7 @@ it('refuses to write own-infrastructure links', function () {
 // ── gates ────────────────────────────────────────────────────────────────────
 
 it('gates a reservations link for an account that cannot use reservations', function () {
+    Queue::fake();
     // A non-food BUSINESS: can_use_reservations is false, can_use_booking true.
     $pro = createTenant('routing-gate', ['account_type' => 'business', 'sector' => 'hair_beauty']);
 
@@ -148,14 +227,16 @@ it('gates a reservations link for an account that cannot use reservations', func
     ]);
 
     // Denied never means dropped — a gate demotes to Note, and a Note never
-    // blocks the add (blockReason stays a Reject-only signal). The WHY is
-    // still recorded on the observation.
+    // blocks the add (blockReason stays a Reject-only signal). The user still
+    // gets their link, as a plain card; the WHY lands on the observation.
     $response->assertStatus(202)
         ->assertJsonPath('verdict', 'note')
+        ->assertJsonPath('outcome', 'link')
         ->assertJsonPath('blockReason', null)
         ->assertJsonPath('routedTo', null);
 
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', '!=', 'custom')->count())->toBe(0)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(1)
         ->and(DB::table('routing.link_observations')->where('block_reason', 'gate')->count())->toBe(1);
 });
 
@@ -172,8 +253,10 @@ it('honours a tombstone — a refused link never comes back', function () {
 
     actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://x.com/someuser'])
         ->assertStatus(202)
-        ->assertJsonPath('verdict', 'reject');
+        ->assertJsonPath('verdict', 'reject')
+        ->assertJsonPath('outcome', null);
 
+    // A reject writes NOTHING — not even a link card. The user said no once.
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 });
 
