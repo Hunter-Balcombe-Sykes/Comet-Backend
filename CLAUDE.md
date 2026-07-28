@@ -33,7 +33,7 @@ Feature branches off `development`. PR → merge → fast-forward `development` 
 | Backend | PHP 8.4 (`composer.json` `^8.4`; CI + both Cloud envs on 8.4), Laravel 12 |
 | Database | PostgreSQL (Supabase-hosted), schemas: `public`, `core`, `site`, `notifications`, `analytics`, `audit` |
 | Auth | Supabase Auth (JWT) — no backend login; frontend forwards token |
-| Cache/Queue | Redis (DB 0 = **queue + Horizon**, 1 = cache, 2 = sessions, 4 = cache locks; DB 3 is a dormant queue-override slot). Queue and Horizon both resolve the connection named `default` (`config/queue.php` `REDIS_QUEUE_CONNECTION`, `config/horizon.php` `use`) — **not** the connection named `queue`. Cache is kept off DB 0 because `Cache::flush()` issues a raw `FLUSHDB` that would wipe Horizon job state. |
+| Cache/Queue | Redis (DB 0 = **queue + Horizon**, 1 = cache, 2 = sessions, 4 = cache locks; DB 3 is a dormant queue-override slot). Queue and Horizon both resolve the connection named `default` (`config/queue.php` `REDIS_QUEUE_CONNECTION`, `config/horizon.php` `use`) — **not** the connection named `queue`. Cache is kept off DB 0 because `Cache::flush()` issues a raw `FLUSHDB` that would wipe Horizon job state. All five connections share one Valkey instance, so `maxmemory-policy` is **instance-wide** — target is `volatile-lru`, under which "has a TTL" is what protects queued jobs from eviction. Therefore every cache key MUST carry a TTL: never `Cache::forever()`. Guarded by `tests/Feature/Cache/CacheKeyspaceConstraintsTest.php`. |
 | Jobs | Laravel Horizon (Redis-backed), separate `redis_video` connection for video processing |
 | Frontend | Vite 7, Tailwind CSS 4 (minimal — mostly API backend) |
 | Testing | Pest 4 + PHPUnit, Mockery, SQLite in-memory for tests |
