@@ -113,9 +113,11 @@ it('creates no source when no usable identifier can be derived', function () {
 });
 
 it('creates no source for a brand with no registered connector', function () {
+    // Kick is a real catalog surface with no ingest connector (instagram,
+    // the old example here, gained one with the P7 fleet).
     $connection = makeConnection(provisionerUser(), [
-        'platform' => 'instagram',
-        'payload' => ['username' => 'nasa'],
+        'platform' => 'kick',
+        'payload' => ['handle' => 'somestreamer'],
     ]);
 
     expect(ingestSourceFor($connection))->toBeNull();
@@ -235,6 +237,111 @@ it('seeds scheduling defaults from the connector manifest', function () {
     expect((int) $row->min_interval_secs)->toBe(172800)
         ->and((int) $row->max_interval_secs)->toBe(604800)
         ->and((int) $row->cost_units)->toBe(1);
+});
+
+it('provisions eventbrite from a regional organiser url normalized to .com, and humanitix from host or event-derived urls', function () {
+    $userId = provisionerUser();
+
+    $eventbrite = makeConnection($userId, ['platform' => 'eventbrite', 'payload' => ['url' => 'https://www.eventbrite.com.au/o/Laneway-Collective-1234567890']]);
+    $humanitix = makeConnection($userId, ['platform' => 'humanitix', 'payload' => ['url' => 'https://events.humanitix.com/host/Run-Club-Melbourne?ref=x']]);
+
+    expect(ingestSourceFor($eventbrite)->identifier)->toBe('https://www.eventbrite.com/o/laneway-collective-1234567890')
+        ->and(ingestSourceFor($humanitix)->identifier)->toBe('https://events.humanitix.com/host/run-club-melbourne');
+});
+
+it('refuses a spoofed eventbrite host and a humanitix event page with no host path', function () {
+    $userId = provisionerUser();
+
+    $spoofed = makeConnection($userId, ['platform' => 'eventbrite', 'payload' => ['url' => 'https://eventbrite.evil.com/o/fake-1']]);
+    $eventOnly = makeConnection($userId, ['platform' => 'humanitix', 'payload' => ['url' => 'https://events.humanitix.com/dawn-run-august']]);
+
+    expect(ingestSourceFor($spoofed))->toBeNull()
+        ->and(ingestSourceFor($eventOnly))->toBeNull();
+});
+
+it('provisions soundcloud from a payload link url or a bare profile slug in resource_id', function () {
+    $userId = provisionerUser();
+
+    $linked = makeConnection($userId, ['platform' => 'soundcloud', 'payload' => ['url' => 'https://soundcloud.com/forss/sets/soulhack']]);
+    $bare = makeConnection($userId, ['platform' => 'soundcloud', 'resource_id' => 'forss', 'payload' => []]);
+    $placeholder = makeConnection($userId, ['platform' => 'soundcloud', 'resource_id' => 'soundcloud', 'payload' => []]);
+
+    expect(ingestSourceFor($linked)->identifier)->toBe('https://soundcloud.com/forss/sets/soulhack')
+        ->and(ingestSourceFor($bare)->identifier)->toBe('https://soundcloud.com/forss')
+        // The legacy placeholder slug is not an identity.
+        ->and(ingestSourceFor($placeholder))->toBeNull();
+});
+
+it('provisions twitch from the payload login, lowercased, and refuses placeholders', function () {
+    $userId = provisionerUser();
+
+    $login = makeConnection($userId, ['platform' => 'twitch', 'payload' => ['login' => 'SomeStreamer']]);
+    $placeholder = makeConnection($userId, ['platform' => 'twitch', 'resource_id' => 'twitch', 'payload' => []]);
+
+    expect(ingestSourceFor($login)->identifier)->toBe('somestreamer')
+        ->and(ingestSourceFor($placeholder))->toBeNull();
+});
+
+it('provisions skool and strava as canonical community urls, refusing product chrome slugs', function () {
+    $userId = provisionerUser();
+
+    $skool = makeConnection($userId, ['platform' => 'skool', 'payload' => ['url' => 'https://skool.com/Max-Business-School/about?ref=x']]);
+    $skoolChrome = makeConnection($userId, ['platform' => 'skool', 'payload' => ['url' => 'https://www.skool.com/signup']]);
+    $strava = makeConnection($userId, ['platform' => 'strava', 'payload' => ['url' => 'https://strava.com/clubs/Midday-Milers']]);
+    $stravaBare = makeConnection($userId, ['platform' => 'strava', 'resource_id' => '289149', 'payload' => []]);
+
+    expect(ingestSourceFor($skool)->identifier)->toBe('https://www.skool.com/max-business-school')
+        ->and(ingestSourceFor($skoolChrome))->toBeNull()
+        ->and(ingestSourceFor($strava)->identifier)->toBe('https://www.strava.com/clubs/Midday-Milers')
+        ->and(ingestSourceFor($stravaBare)->identifier)->toBe('https://www.strava.com/clubs/289149');
+});
+
+it('provisions youtube_music only from a real UC channel id', function () {
+    $userId = provisionerUser();
+
+    $withId = makeConnection($userId, ['platform' => 'youtube-music', 'payload' => ['channelId' => 'UCabcdefghijklmnopqrstuv']]);
+    $handleOnly = makeConnection($userId, ['platform' => 'youtube-music', 'payload' => ['handle' => 'someartist']]);
+
+    expect(ingestSourceFor($withId)->identifier)->toBe('UCabcdefghijklmnopqrstuv')
+        // Unlike plain youtube there is no handle fallback for Topic channels.
+        ->and(ingestSourceFor($handleOnly))->toBeNull();
+});
+
+it('provisions gumroad from the store subdomain, never the apex or www', function () {
+    $userId = provisionerUser();
+
+    $store = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://Easlo.gumroad.com/l/brain']]);
+    $apex = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://gumroad.com/discover']]);
+
+    expect(ingestSourceFor($store)->identifier)->toBe('easlo')
+        ->and(ingestSourceFor($apex))->toBeNull();
+});
+
+it('provisions instagram from the payload username, unscheduled (actor-billed, manual-only)', function () {
+    $userId = provisionerUser();
+
+    $connection = makeConnection($userId, ['platform' => 'instagram', 'payload' => ['username' => '@Some.Studio']]);
+
+    $row = ingestSourceFor($connection);
+    expect($row->identifier)->toBe('some.studio')
+        // CostClass::Actor: the scheduler must never pick this up on its own.
+        ->and((bool) $row->auto_sync)->toBeFalse();
+});
+
+it('provisions menu sources only from urls the platform host-pattern recognises', function () {
+    $userId = provisionerUser();
+
+    $squareOrder = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.fat-tuna.com/menu?mode=pickup']]);
+    // A square BOOKING link (squareup.com) is not a scrapeable menu.
+    $squareBook = makeConnection($userId, ['platform' => 'square', 'payload' => ['url' => 'https://squareup.com/appointments/book/abc']]);
+    $uber = makeConnection($userId, ['surface_key' => 'uber_eats.order', 'payload' => ['url' => 'https://www.ubereats.com/au/store/doc-pizza/abc?diningMode=DELIVERY']]);
+    $doordash = makeConnection($userId, ['surface_key' => 'doordash.order', 'payload' => ['url' => 'https://www.doordash.com/store/burger-republic-123/']]);
+
+    expect(ingestSourceFor($squareOrder)->identifier)->toBe('https://order.fat-tuna.com/menu')
+        ->and((bool) ingestSourceFor($squareOrder)->auto_sync)->toBeFalse()
+        ->and(ingestSourceFor($squareBook))->toBeNull()
+        ->and(ingestSourceFor($uber)->identifier)->toBe('https://www.ubereats.com/au/store/doc-pizza/abc')
+        ->and(ingestSourceFor($doordash)->identifier)->toBe('https://www.doordash.com/store/burger-republic-123');
 });
 
 // ── Backfill command ────────────────────────────────────────────────────────

@@ -4,14 +4,22 @@ use App\Ingest\ConnectorRegistry;
 use App\Ingest\Projection\AppleMusicReleaseProjector;
 use App\Ingest\Projection\ApplePodcastsEpisodeProjector;
 use App\Ingest\Projection\BandcampReleaseProjector;
+use App\Ingest\Projection\ChannelCardProjector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
+use App\Ingest\Projection\GumroadProductProjector;
+use App\Ingest\Projection\InstagramMediaProjector;
+use App\Ingest\Projection\MenuItemProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
+use App\Ingest\Projection\SchemaOrgEventProjector;
+use App\Ingest\Projection\SoundcloudChannelProjector;
 use App\Ingest\Projection\SpotifyChannelProjector;
 use App\Ingest\Projection\SubstackArticleProjector;
+use App\Ingest\Projection\TwitchVodProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
+use App\Ingest\Projection\YoutubeMusicTrackProjector;
 use App\Ingest\Projection\YoutubeVideoProjector;
 use Tests\TestCase;
 
@@ -224,4 +232,185 @@ it('projects a places photo as a media item carrying the ref, never a keyed url'
         ->and($projected['media'][0]['ref'])->toBe('places/abc/photos/def')
         ->and($projected['media'][0]['width'])->toBe(4032)
         ->and(json_encode($projected))->not->toContain('key=');
+});
+
+it('projects a schema-org event with occurrence, place, from-offer and cover', function () {
+    $projected = (new SchemaOrgEventProjector)->project(new RecordView([
+        'name' => 'Spring Show', 'url' => 'https://www.eventbrite.com/e/spring-show-tickets-111',
+        'start_date' => '2026-09-20T19:00:00+10:00', 'end_date' => '2026-09-20T23:00:00+10:00',
+        'venue' => 'The Corner Hotel', 'locality' => 'Richmond',
+        'description' => 'A big night of live music.',
+        'price_min' => 25.0, 'currency' => 'AUD', 'availability' => 'available',
+        'image' => 'https://img.evbuc.com/banner.jpg',
+    ]));
+
+    expect($projected['kind'])->toBe('event')
+        ->and($projected['headline'])->toBe('Spring Show')
+        ->and($projected['facets']['f_occurrence']['starts_at_local'])->toBe('2026-09-20T19:00:00+10:00')
+        // Derived from the embedded offset — pure string math, no clock.
+        ->and($projected['facets']['f_occurrence']['starts_at_utc'])->toBe('2026-09-20T09:00:00Z')
+        ->and($projected['facets']['f_occurrence']['zone_confidence'])->toBe('offset_only')
+        ->and($projected['facets']['f_place']['venue_name'])->toBe('The Corner Hotel')
+        ->and($projected['facets']['f_place']['locality'])->toBe('Richmond')
+        ->and($projected['offers'][0]['amount_minor'])->toBe(2500)
+        ->and($projected['offers'][0]['qualifier'])->toBe('from')
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('marks a zero-minimum event offer as free and tolerates a dateless event', function () {
+    $free = (new SchemaOrgEventProjector)->project(new RecordView([
+        'name' => 'Open Day', 'url' => 'https://events.humanitix.com/open-day', 'price_min' => 0.0,
+    ]));
+    $dateless = (new SchemaOrgEventProjector)->project(new RecordView([
+        'name' => 'TBA', 'url' => 'https://events.humanitix.com/tba',
+    ]));
+
+    expect($free['offers'][0]['qualifier'])->toBe('free')
+        ->and($free['offers'][0]['amount_minor'])->toBe(0)
+        ->and($dateless['facets'])->not->toHaveKey('f_occurrence')
+        ->and($dateless['offers'])->toBe([]);
+});
+
+it('projects nothing rather than a nameless or linkless event', function () {
+    expect((new SchemaOrgEventProjector)->project(new RecordView(['url' => 'https://x.com/e/y'])))->toBeNull()
+        ->and((new SchemaOrgEventProjector)->project(new RecordView(['name' => 'Ghost Show'])))->toBeNull();
+});
+
+it('projects a normalized account card into a channel item for every og-scrape source', function () {
+    // Twitch shape: handle + live-player embed.
+    $twitch = (new ChannelCardProjector)->project(new RecordView([
+        'name' => 'SomeStreamer', 'url' => 'https://www.twitch.tv/somestreamer',
+        'handle' => 'somestreamer', 'avatar' => 'https://static-cdn.jtvnw.net/a.png',
+        'description' => 'Speedruns most evenings.',
+        'embed' => ['provider' => 'twitch', 'key' => 'somestreamer'],
+    ]));
+    // Strava shape: locality + member count, no embed.
+    $strava = (new ChannelCardProjector)->project(new RecordView([
+        'name' => 'Midday Milers', 'url' => 'https://www.strava.com/clubs/milers',
+        'location' => 'Melbourne, Victoria', 'followers' => 1204,
+    ]));
+
+    expect($twitch['kind'])->toBe('channel')
+        ->and($twitch['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => 'somestreamer'])
+        ->and($twitch['facets']['f_channel']['handle'])->toBe('somestreamer')
+        ->and($twitch['media'][0]['role'])->toBe('avatar')
+        ->and($strava['facets']['f_place']['locality'])->toBe('Melbourne, Victoria')
+        ->and($strava['facets']['f_channel']['followers'])->toBe(1204)
+        ->and($strava['facets'])->not->toHaveKey('f_embed');
+});
+
+it('projects a twitch vod as a video with duration and the vod embed variant', function () {
+    $projected = (new TwitchVodProjector)->project(new RecordView([
+        'id' => '335921245', 'title' => 'Twitch Rivals finals',
+        'url' => 'https://www.twitch.tv/videos/335921245',
+        'published' => '2026-07-14T22:04:28Z',
+        'thumbnail' => 'https://static-cdn.jtvnw.net/cf_vods/x/thumb0-640x360.jpg',
+        'duration_seconds' => 11313, 'views' => 1863062,
+    ]));
+
+    expect($projected['kind'])->toBe('video')
+        ->and($projected['facets']['f_duration']['seconds'])->toBe(11313)
+        ->and($projected['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => '335921245', 'variant' => 'vod'])
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('projects a yt-music upload as a track linking to music.youtube.com with the standard embed', function () {
+    $projected = (new YoutubeMusicTrackProjector)->project(new RecordView([
+        'id' => 'dQw4w9WgXcQ', 'title' => 'New Single',
+        'url' => 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+        'published' => '2026-07-01T00:00:00+00:00',
+        'thumbnail' => 'https://i4.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+        'artist' => 'Some Artist',
+    ]));
+
+    expect($projected['kind'])->toBe('track')
+        ->and($projected['facets']['f_link']['url'])->toBe('https://music.youtube.com/watch?v=dQw4w9WgXcQ')
+        ->and($projected['facets']['f_embed'])->toBe(['provider' => 'youtube', 'embed_key' => 'dQw4w9WgXcQ'])
+        ->and($projected['facets']['f_authored']['creator'])->toBe('Some Artist')
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('projects an instagram carousel as one media item with cover + gallery frames', function () {
+    $projected = (new InstagramMediaProjector)->project(new RecordView([
+        'shortcode' => 'Cnewest99',
+        'type' => 'Sidecar',
+        'caption' => 'Before and after.',
+        'taken_at' => '2026-07-20T03:15:00Z',
+        'url' => 'https://www.instagram.com/p/Cnewest99/',
+        'display_url' => 'https://scontent.cdninstagram.com/v/car0.jpg',
+        'images' => [
+            'https://scontent.cdninstagram.com/v/car0.jpg',
+            'https://scontent.cdninstagram.com/v/car1.jpg',
+            'https://scontent.cdninstagram.com/v/car2.jpg',
+        ],
+    ]));
+
+    expect($projected['kind'])->toBe('media')
+        ->and($projected['media'])->toHaveCount(3)
+        ->and($projected['media'][0]['role'])->toBe('cover')
+        ->and($projected['media'][1]['role'])->toBe('gallery')
+        // The ref survives CDN re-signing; the asset pipeline keys on it.
+        ->and($projected['media'][2]['ref'])->toBe('instagram:Cnewest99:2')
+        ->and($projected['facets']['f_text']['body'])->toBe('Before and after.')
+        ->and($projected['facets']['f_published']['published_from'])->toBe('2026-07-20T03:15:00Z');
+});
+
+it('projects a landed menu item with its category tag and an exact offer in minor units', function () {
+    $projected = (new MenuItemProjector)->project(new RecordView([
+        'external_id' => 'sq-101', 'name' => 'Salmon Roll', 'description' => 'Eight pieces.',
+        'price' => 14.5, 'currency' => 'AUD', 'image' => 'https://sq-cdn/salmon.jpg',
+        'category' => 'Sushi Rolls', 'position' => 0, 'store_name' => 'Fat Tuna',
+    ]));
+
+    expect($projected['kind'])->toBe('menu_item')
+        ->and($projected['headline'])->toBe('Salmon Roll')
+        ->and($projected['offers'][0])->toMatchArray(['amount_minor' => 1450, 'currency' => 'AUD', 'qualifier' => 'exact'])
+        ->and($projected['tags'][0])->toBe(['tag' => 'Sushi Rolls', 'tag_type' => 'category'])
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('emits no offer for a priceless menu item rather than a zero', function () {
+    $projected = (new MenuItemProjector)->project(new RecordView([
+        'name' => 'Market Fish', 'category' => 'Mains',
+    ]));
+
+    expect($projected['offers'])->toBe([])
+        ->and($projected['media'])->toBe([]);
+});
+
+it('projects a gumroad product with an honest price qualifier per pricing mode', function () {
+    $fixed = (new GumroadProductProjector)->project(new RecordView([
+        'permalink' => 'beygm', 'name' => 'Finance Tracker', 'url' => 'https://easlo.gumroad.com/l/beygm',
+        'price_cents' => 3900, 'currency' => 'USD',
+        'thumbnail' => 'https://public-files.gumroad.com/t', 'rating' => 4.9, 'ratings_count' => 134,
+    ]));
+    $pwyw = (new GumroadProductProjector)->project(new RecordView([
+        'name' => 'Tip Jar', 'url' => 'https://x.gumroad.com/l/tip', 'price_cents' => 500, 'pay_what_you_want' => true,
+    ]));
+    $free = (new GumroadProductProjector)->project(new RecordView([
+        'name' => 'Freebie', 'url' => 'https://x.gumroad.com/l/free', 'price_cents' => 0,
+    ]));
+
+    expect($fixed['kind'])->toBe('product')
+        ->and($fixed['offers'][0])->toMatchArray(['amount_minor' => 3900, 'currency' => 'USD', 'qualifier' => 'exact'])
+        ->and($fixed['facets']['f_rated'])->toBe(['rating' => 4.9, 'rating_max' => 5.0, 'ratings_count' => 134])
+        // A pay-what-you-want price is a floor, never an exact.
+        ->and($pwyw['offers'][0]['qualifier'])->toBe('from')
+        ->and($free['offers'][0]['qualifier'])->toBe('free');
+});
+
+it('projects a soundcloud oembed into a channel whose embed key is the parsed player src', function () {
+    $projected = (new SoundcloudChannelProjector)->project(new RecordView([
+        'title' => 'Forss', 'url' => 'https://soundcloud.com/forss',
+        'thumbnail_url' => 'https://i1.sndcdn.com/avatars-000001-t500x500.jpg',
+        'embed_url' => 'https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fusers%2F2',
+        'author_name' => 'Forss',
+    ]));
+
+    expect($projected['kind'])->toBe('channel')
+        ->and($projected['headline'])->toBe('Forss')
+        ->and($projected['facets']['f_embed']['provider'])->toBe('soundcloud')
+        ->and($projected['facets']['f_embed']['embed_key'])->toBe('https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fusers%2F2')
+        ->and($projected['facets']['f_channel']['avatar_url'])->toBe('https://i1.sndcdn.com/avatars-000001-t500x500.jpg')
+        ->and($projected['media'][0]['role'])->toBe('avatar');
 });

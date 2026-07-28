@@ -157,22 +157,55 @@ class SourceProvisioner
         return match ($sourceKey) {
             'bandcamp' => $this->httpUrl($payload['url'] ?? null, 'bandcamp.com')
                 ?? $this->httpUrl($resource, 'bandcamp.com'),
+            'eventbrite' => $this->eventbriteOrgUrl($payload['url'] ?? null)
+                ?? $this->eventbriteOrgUrl($resource),
+            'humanitix' => $this->humanitixHostUrl($payload['url'] ?? null)
+                ?? $this->humanitixHostUrl($resource),
             'vimeo' => $this->cleanString($payload['apiPath'] ?? null)
                 ?? $this->bareSlug($resource, 'vimeo'),
             'youtube' => $this->cleanString($payload['channelId'] ?? null)
                 ?? $this->youtubeChannelId($resource)
                 ?? $this->bareSlug($payload['handle'] ?? null, 'youtube'),
+            // No handle fallback: the legacy youtube-music connect flow always
+            // resolved and stored the Topic channel's UC… id.
+            'youtube_music' => $this->youtubeChannelId((string) ($payload['channelId'] ?? ''))
+                ?? $this->youtubeChannelId($resource),
+            'soundcloud' => $this->soundcloudUrl($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->soundcloudUrl($resource)
+                ?? ($this->bareSlug($resource, 'soundcloud') === null
+                    ? null
+                    : 'https://soundcloud.com/'.strtolower((string) $this->bareSlug($resource, 'soundcloud'))),
             'spotify' => $this->httpUrl($payload['url'] ?? $payload['link'] ?? null, 'spotify.com')
                 ?? $this->spotifyEntityUrl($resource),
             'apple_music', 'apple_podcasts' => $this->appleId($payload['input'] ?? null)
                 ?? $this->appleId($resource),
             'fresha' => $this->freshaSlug($payload['url'] ?? null)
                 ?? $this->bareSlug($resource, 'fresha'),
+            'instagram' => $this->instagramUsername($payload['username'] ?? null)
+                ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
+            'gumroad' => $this->gumroadSubdomain($payload['url'] ?? null)
+                ?? $this->gumroadSubdomain($resource)
+                ?? $this->bareSlug($resource, 'gumroad'),
             'google_business' => $this->cleanString($connection->place_id)
                 ?? $this->cleanString($payload['placeId'] ?? null)
                 ?? $this->googlePlaceId($resource),
+            // Menu brands: only a URL the platform's own menu host-pattern
+            // recognises is a scrapeable store — a square.book (squareup.com)
+            // booking link must never provision a menu source.
+            'square' => $this->menuStoreUrl('square', $payload['url'] ?? null)
+                ?? $this->menuStoreUrl('square', $resource),
+            'uber_eats' => $this->menuStoreUrl('uber-eats', $payload['url'] ?? null)
+                ?? $this->menuStoreUrl('uber-eats', $resource),
+            'doordash' => $this->menuStoreUrl('doordash', $payload['url'] ?? null)
+                ?? $this->menuStoreUrl('doordash', $resource),
+            'skool' => $this->skoolUrl($payload['url'] ?? null)
+                ?? $this->skoolUrl($this->bareSlug($resource, 'skool')),
+            'strava' => $this->stravaClubUrl($payload['url'] ?? null)
+                ?? $this->stravaClubUrl($this->bareSlug($resource, 'strava')),
             'substack' => $this->bareSlug($resource, 'substack')
                 ?? $this->substackSlug($payload['url'] ?? null),
+            'twitch' => $this->twitchLogin($payload['login'] ?? null)
+                ?? $this->twitchLogin($this->bareSlug($resource, 'twitch')),
             default => null,
         };
     }
@@ -243,6 +276,143 @@ class SourceProvisioner
         }
         if (preg_match('~^https?://(?:music|itunes)\.apple\.com/.*/(\d+)(?:[?#]|$)~', $value, $m)) {
             return $m[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Canonical Eventbrite organiser URL (/o/<slug-id>) from any regional
+     * host, normalized to www.eventbrite.com. Enumerated TLDs — an open glob
+     * would re-open the spoofable-host hole (§17).
+     */
+    private function eventbriteOrgUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
+        if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
+            return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * A store URL the given menu platform's host pattern recognises
+     * (config partna.menu.platforms — the same registry MenuSource reads),
+     * normalized like MenuSource::normalize: query and trailing slash
+     * stripped so pickup/delivery variants collapse to one identifier.
+     */
+    private function menuStoreUrl(string $platform, mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null || ! preg_match('~^https?://~i', $value)) {
+            return null;
+        }
+
+        $pattern = (string) config("partna.menu.platforms.{$platform}.host_pattern");
+        $host = strtolower((string) parse_url($value, PHP_URL_HOST));
+        if ($pattern === '' || $host === '' || ! preg_match($pattern, $host)) {
+            return null;
+        }
+
+        return rtrim((string) strtok($value, '?#'), '/');
+    }
+
+    /** An instagram username: letters/digits/underscore/dots, no trailing dot, ≤30. */
+    private function instagramUsername(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('/^@?([A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?)$/', $value, $m)) {
+            return strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** The store subdomain from a {sub}.gumroad.com URL (never gumroad.com itself). */
+    private function gumroadSubdomain(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('~^https?://([a-z0-9][a-z0-9-]*)\.gumroad\.com~i', $value, $m)
+            && strtolower($m[1]) !== 'www' && strtolower($m[1]) !== 'app') {
+            return strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** Canonical Skool community URL from a skool.com link or a bare slug. */
+    private function skoolUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?skool\.com/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
+            $slug = strtolower($m[1]);
+        } elseif (preg_match('~^[a-z0-9][a-z0-9-]*$~i', $value)) {
+            $slug = strtolower($value);
+        } else {
+            return null;
+        }
+
+        // Product pages, not communities.
+        if (in_array($slug, ['signup', 'login', 'discovery', 'games', 'about', 'legal', 'careers', 'affiliates'], true)) {
+            return null;
+        }
+
+        return 'https://www.skool.com/'.$slug;
+    }
+
+    /** Canonical Strava club URL from a strava.com/clubs link or a bare slug/id. */
+    private function stravaClubUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?strava\.com/clubs/([A-Za-z0-9_-]+)~i', $value, $m)) {
+            return 'https://www.strava.com/clubs/'.$m[1];
+        }
+        if (preg_match('~^[A-Za-z0-9_-]{2,60}$~', $value)) {
+            return 'https://www.strava.com/clubs/'.$value;
+        }
+
+        return null;
+    }
+
+    /** A twitch login: 3–25 word chars, lowercased. */
+    private function twitchLogin(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('/^@?([A-Za-z0-9_]{3,25})$/', $value, $m)) {
+            return strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** Canonical SoundCloud entity URL (profile/track/set, ≤3 path segments). */
+    private function soundcloudUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('~^https?://(?:www\.|m\.)?soundcloud\.com(/[a-z0-9_-]+(?:/[a-z0-9_-]+){0,2})~i', $value, $m)) {
+            return 'https://soundcloud.com'.strtolower(rtrim($m[1], '/'));
+        }
+
+        return null;
+    }
+
+    /** Canonical Humanitix host-page URL from a host or event URL. */
+    private function humanitixHostUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('~^https?://(?:events\.)?humanitix\.com/host/([a-z0-9-]+)~i', $value, $m)) {
+            return 'https://events.humanitix.com/host/'.strtolower($m[1]);
         }
 
         return null;
