@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Cache\CacheLockService;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Support\Facades\Cache;
 
 beforeEach(function () {
@@ -38,7 +39,7 @@ it('applies jitter so all written TTLs fall within ±20% of the base TTL', funct
     Cache::shouldReceive('lock')
         ->andReturnUsing(function () {
             // Return a real-ish lock stub that acquires immediately.
-            $mock = Mockery::mock();
+            $mock = Mockery::mock(Lock::class);
             $mock->shouldReceive('get')->andReturn(true);
             $mock->shouldReceive('block')->andReturn(null);
             $mock->shouldReceive('release')->andReturn(null);
@@ -88,7 +89,7 @@ it('does not apply jitter to DateTimeInterface TTLs', function () {
 
     Cache::shouldReceive('lock')
         ->andReturnUsing(function () {
-            $mock = Mockery::mock();
+            $mock = Mockery::mock(Lock::class);
             $mock->shouldReceive('get')->andReturn(true);
             $mock->shouldReceive('block')->andReturn(null);
             $mock->shouldReceive('release')->andReturn(null);
