@@ -166,6 +166,11 @@ class SourceProvisioner
             'youtube' => $this->cleanString($payload['channelId'] ?? null)
                 ?? $this->youtubeChannelId($resource)
                 ?? $this->bareSlug($payload['handle'] ?? null, 'youtube'),
+            'soundcloud' => $this->soundcloudUrl($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->soundcloudUrl($resource)
+                ?? ($this->bareSlug($resource, 'soundcloud') === null
+                    ? null
+                    : 'https://soundcloud.com/'.strtolower((string) $this->bareSlug($resource, 'soundcloud'))),
             'spotify' => $this->httpUrl($payload['url'] ?? $payload['link'] ?? null, 'spotify.com')
                 ?? $this->spotifyEntityUrl($resource),
             'apple_music', 'apple_podcasts' => $this->appleId($payload['input'] ?? null)
@@ -266,6 +271,17 @@ class SourceProvisioner
         $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
         if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
             return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** Canonical SoundCloud entity URL (profile/track/set, ≤3 path segments). */
+    private function soundcloudUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('~^https?://(?:www\.|m\.)?soundcloud\.com(/[a-z0-9_-]+(?:/[a-z0-9_-]+){0,2})~i', $value, $m)) {
+            return 'https://soundcloud.com'.strtolower(rtrim($m[1], '/'));
         }
 
         return null;

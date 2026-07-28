@@ -9,6 +9,7 @@ use App\Ingest\Connectors\EventbriteConnector;
 use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\HumanitixConnector;
+use App\Ingest\Connectors\SoundcloudConnector;
 use App\Ingest\Connectors\SpotifyOembedConnector;
 use App\Ingest\Connectors\SubstackConnector;
 use App\Ingest\Connectors\VimeoConnector;
@@ -43,8 +44,9 @@ final class ConnectorRegistry
         'bandcamp' => BandcampConnector::class,
         'eventbrite' => EventbriteConnector::class,
         'fresha' => FreshaConnector::class,
-        'humanitix' => HumanitixConnector::class,
         'google_business' => GoogleBusinessConnector::class,
+        'humanitix' => HumanitixConnector::class,
+        'soundcloud' => SoundcloudConnector::class,
         'spotify' => SpotifyOembedConnector::class,
         'substack' => SubstackConnector::class,
         'vimeo' => VimeoConnector::class,

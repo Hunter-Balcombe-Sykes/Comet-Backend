@@ -257,6 +257,19 @@ it('refuses a spoofed eventbrite host and a humanitix event page with no host pa
         ->and(ingestSourceFor($eventOnly))->toBeNull();
 });
 
+it('provisions soundcloud from a payload link url or a bare profile slug in resource_id', function () {
+    $userId = provisionerUser();
+
+    $linked = makeConnection($userId, ['platform' => 'soundcloud', 'payload' => ['url' => 'https://soundcloud.com/forss/sets/soulhack']]);
+    $bare = makeConnection($userId, ['platform' => 'soundcloud', 'resource_id' => 'forss', 'payload' => []]);
+    $placeholder = makeConnection($userId, ['platform' => 'soundcloud', 'resource_id' => 'soundcloud', 'payload' => []]);
+
+    expect(ingestSourceFor($linked)->identifier)->toBe('https://soundcloud.com/forss/sets/soulhack')
+        ->and(ingestSourceFor($bare)->identifier)->toBe('https://soundcloud.com/forss')
+        // The legacy placeholder slug is not an identity.
+        ->and(ingestSourceFor($placeholder))->toBeNull();
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {

@@ -28,6 +28,7 @@ final class ProjectorRegistry
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,
         ],
+        'soundcloud' => ['listen' => SoundcloudChannelProjector::class],
         'spotify' => ['listen' => SpotifyChannelProjector::class],
         'substack' => ['posts' => SubstackArticleProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],

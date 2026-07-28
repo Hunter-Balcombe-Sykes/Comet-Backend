@@ -10,6 +10,7 @@ use App\Ingest\Projection\GoogleBusinessReviewProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
 use App\Ingest\Projection\SchemaOrgEventProjector;
+use App\Ingest\Projection\SoundcloudChannelProjector;
 use App\Ingest\Projection\SpotifyChannelProjector;
 use App\Ingest\Projection\SubstackArticleProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
@@ -267,4 +268,20 @@ it('marks a zero-minimum event offer as free and tolerates a dateless event', fu
 it('projects nothing rather than a nameless or linkless event', function () {
     expect((new SchemaOrgEventProjector)->project(new RecordView(['url' => 'https://x.com/e/y'])))->toBeNull()
         ->and((new SchemaOrgEventProjector)->project(new RecordView(['name' => 'Ghost Show'])))->toBeNull();
+});
+
+it('projects a soundcloud oembed into a channel whose embed key is the parsed player src', function () {
+    $projected = (new SoundcloudChannelProjector)->project(new RecordView([
+        'title' => 'Forss', 'url' => 'https://soundcloud.com/forss',
+        'thumbnail_url' => 'https://i1.sndcdn.com/avatars-000001-t500x500.jpg',
+        'embed_url' => 'https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fusers%2F2',
+        'author_name' => 'Forss',
+    ]));
+
+    expect($projected['kind'])->toBe('channel')
+        ->and($projected['headline'])->toBe('Forss')
+        ->and($projected['facets']['f_embed']['provider'])->toBe('soundcloud')
+        ->and($projected['facets']['f_embed']['embed_key'])->toBe('https://w.soundcloud.com/player/?url=https%3A%2F%2Fapi.soundcloud.com%2Fusers%2F2')
+        ->and($projected['facets']['f_channel']['avatar_url'])->toBe('https://i1.sndcdn.com/avatars-000001-t500x500.jpg')
+        ->and($projected['media'][0]['role'])->toBe('avatar');
 });
