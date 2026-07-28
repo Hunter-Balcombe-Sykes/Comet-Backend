@@ -19,7 +19,9 @@ use Illuminate\Console\Command;
  */
 class CatalogCompileCommand extends Command
 {
-    protected $signature = 'catalog:compile {--check : verify the committed artefact matches the definitions (CI guard, writes nothing)}';
+    protected $signature = 'catalog:compile
+        {--check : verify the committed artefact matches the definitions (CI guard, writes nothing)}
+        {--out= : write the artefact to this path instead of bootstrap/catalog/compiled.php (tests/tooling; ignored with --check)}';
 
     protected $description = 'Compile app/Catalog/Definitions into bootstrap/catalog/compiled.php';
 
@@ -155,6 +157,13 @@ class CatalogCompileCommand extends Command
             $this->info("Artefact matches definitions ({$digest}).");
 
             return self::SUCCESS;
+        }
+
+        // Tests compile to a scratch path so a suite run never rewrites the
+        // committed artefact in place (--check above always verifies the
+        // committed one regardless of --out).
+        if (($out = $this->option('out')) !== null && $out !== '') {
+            $path = $out;
         }
 
         if (! is_dir(dirname($path))) {

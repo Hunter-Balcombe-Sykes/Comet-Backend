@@ -23,11 +23,24 @@ it('has no unservable surfaces and no orphan capabilities', function () {
 });
 
 it('compiles deterministically — a second compile is byte-identical', function () {
-    $before = file_get_contents(CompiledCatalog::path());
-    Artisan::call('catalog:compile');
-    $after = file_get_contents(CompiledCatalog::path());
+    // Compile to scratch paths: two fresh compiles prove the generator is
+    // deterministic. The committed artefact stays byte-untouched — before
+    // --out existed this test rewrote it in place, and pint's reformatting
+    // meant every suite run left a huge cosmetic diff in the working tree.
+    $committed = file_get_contents(CompiledCatalog::path());
+    $first = tempnam(sys_get_temp_dir(), 'catalog-a-');
+    $second = tempnam(sys_get_temp_dir(), 'catalog-b-');
 
-    expect($after)->toBe($before);
+    try {
+        Artisan::call('catalog:compile', ['--out' => $first]);
+        Artisan::call('catalog:compile', ['--out' => $second]);
+
+        expect(file_get_contents($second))->toBe(file_get_contents($first))
+            ->and(file_get_contents(CompiledCatalog::path()))->toBe($committed);
+    } finally {
+        @unlink($first);
+        @unlink($second);
+    }
 });
 
 it('ships only valid, well-formed detectors', function () {
