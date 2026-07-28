@@ -158,13 +158,14 @@ ref still resurrects deletions.
 - After applying, spot-check on dev:
   `SELECT count(*) FROM routing.item_tombstones WHERE reason LIKE 'legacy%';`
 
-Known consequence to decide on, not a bug: `PlacementPolicy::isTombstoned()`
-does not consider `RoutingContext::isDirectRequest()`, so a tombstone also
-blocks a deliberate manual re-add, not just a re-import. That is the reader's
-existing semantics (already true of every tombstone the suggestions inbox
-writes) now applying to a wider set of rows. If re-add should beat a tombstone,
-the fix is an origin-aware check in `PlacementPolicy` — **not** a narrower
-backfill, which would only restore the resurrection hazard.
+~~Known consequence to decide on~~ — **DECIDED AND IMPLEMENTED 2026-07-28
+(wave-2B):** a direct request wins over a tombstone. `PlacementPolicy` only
+consults tombstones when `! $context->isDirectRequest()`, and
+`SourceReconciler::applyIntent` deletes the superseded `surface:identifier`
+tombstone when a direct re-add applies (a bare-surface refusal stays — it is
+wider than the one account being restored). Scan/suggestion origins stay
+suppressed. Pinned in `TombstoneResurrectionTest` (both directions) and
+`RoutingEndpointTest`; the backfill stays exactly as wide as it was.
 
 ## Order of operations when the above clears
 

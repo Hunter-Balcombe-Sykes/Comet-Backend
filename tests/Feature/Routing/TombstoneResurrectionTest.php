@@ -1,25 +1,23 @@
 <?php
 
 // The characterization the P8 readiness doc calls for (blocker B5): a
-// connection the user deleted, then re-scanned, stays dead.
+// connection the user deleted, then re-SCANNED, stays dead.
 //
-// The first two tests here deliberately prove the BUG. Under the legacy
-// pipeline a user's refusal WAS the soft-deleted row, and each legacy seeder
-// checked for it before writing (e.g. ShopBrandSeeder.php:51-59).
-// SourceReconciler does not — it looks only for a LIVE row
-// (whereNull('deleted_at')), so a soft-deleted connection is invisible to it.
+// Under the legacy pipeline a user's refusal WAS the soft-deleted row, and
+// each legacy seeder checked for it before writing (e.g.
+// ShopBrandSeeder.php:51-59). SourceReconciler does not — it looks only for a
+// LIVE row (whereNull('deleted_at')), so a soft-deleted connection is
+// invisible to it. That is the whole reason
+// 20260728120000_backfill_item_tombstones.sql exists, and the reason the
+// readiness doc orders it before any scan path migrates. The re-scan hazard
+// test below deliberately proves the bug the backfill closes: delete the
+// backfill and it starts describing production.
 //
-// Resurrection therefore has two shapes, and both matter:
-//   - a re-paste re-creates the CONNECTION outright;
-//   - a re-scan re-proposes it as an INTENT, putting the platform the user
-//     removed back in front of them in the suggestions inbox. Slower, equally
-//     unwanted.
-//
-// That is the whole reason 20260728120000_backfill_item_tombstones.sql exists,
-// and the reason the readiness doc orders it before any scan path migrates.
-// Keeping the hazard tests next to the fix tests is what stops someone
-// "simplifying" the backfill away later: delete it and the first two tests
-// start describing production.
+// Origin decides the rest (owner decision, 2026-07-28): a tombstone only
+// suppresses INDIRECT origins (scan / harvest / suggestion). An explicit
+// paste is the user directly asking for the link back, so it wins — the
+// connection is re-created and the superseded surface:identifier tombstone is
+// deleted, keeping later scans of the restored link honest.
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -73,17 +71,6 @@ function rescanBio(User $user, string $link): array
 
 // ── The hazard ───────────────────────────────────────────────────────────────
 
-it('re-creates a deleted connection on re-paste when nothing records the refusal', function () {
-    $pro = createTenant('tombstone-hazard-paste');
-    deletedConnection($pro, 'instagram.profile', 'theartist');
-
-    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.instagram.com/theartist'])
-        ->assertStatus(202)
-        ->assertJsonPath('verdict', 'place');
-
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
-});
-
 it('re-offers a deleted connection on re-scan when nothing records the refusal', function () {
     $pro = createTenant('tombstone-hazard-scan');
     deletedConnection($pro, 'instagram.profile', 'theartist');
@@ -94,19 +81,6 @@ it('re-offers a deleted connection on re-scan when nothing records the refusal',
 });
 
 // ── The fix ──────────────────────────────────────────────────────────────────
-
-it('keeps a deleted connection dead on re-paste once the refusal is backfilled', function () {
-    $pro = createTenant('tombstone-paste');
-    deletedConnection($pro, 'instagram.profile', 'theartist');
-    backfilledTombstone($pro, 'instagram.profile', 'theartist');
-
-    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.instagram.com/theartist'])
-        ->assertStatus(202)
-        ->assertJsonPath('verdict', 'reject')
-        ->assertJsonPath('blockReason', 'tombstoned');
-
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
-});
 
 it('keeps a deleted connection dead on re-scan once the refusal is backfilled', function () {
     $pro = createTenant('tombstone-scan');
@@ -143,6 +117,68 @@ it('leaves the user\'s deletion deleted rather than reviving the old row', funct
     rescanBio($pro, 'https://www.instagram.com/theartist');
 
     expect(IntegrationConnection::withTrashed()->find($connection->id)->deleted_at)->not->toBeNull();
+});
+
+// ── Direct requests win ──────────────────────────────────────────────────────
+
+it('lets an explicit re-paste beat the tombstone and clears the refusal', function () {
+    // The user pasting the URL again IS the counter-instruction to their old
+    // deletion — suppressing it would leave them no way back at all.
+    $pro = createTenant('tombstone-direct-paste');
+    deletedConnection($pro, 'instagram.profile', 'theartist');
+    backfilledTombstone($pro, 'instagram.profile', 'theartist');
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.instagram.com/theartist'])
+        ->assertStatus(202)
+        ->assertJsonPath('verdict', 'place')
+        ->assertJsonPath('outcome', 'connected');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+        // The refusal is superseded, not left to fight the restored link.
+        ->and(DB::table('routing.item_tombstones')
+            ->where('user_id', $pro->id)
+            ->where('source_ref', 'instagram.profile:theartist')
+            ->exists())->toBeFalse();
+});
+
+it('stops suppressing scans of a link the user explicitly restored', function () {
+    $pro = createTenant('tombstone-restored-scan');
+    deletedConnection($pro, 'instagram.profile', 'theartist');
+    backfilledTombstone($pro, 'instagram.profile', 'theartist');
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.instagram.com/theartist'])
+        ->assertStatus(202);
+
+    // With the tombstone superseded, a later harvest folds onto the live
+    // connection instead of rejecting the URL the user just asked for.
+    rescanBio($pro, 'https://www.instagram.com/theartist');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+        ->and(DB::table('routing.link_observations')->where('user_id', $pro->id)->where('block_reason', 'tombstoned')->count())
+        ->toBe(0);
+});
+
+it('clears only the exact refusal, never a whole-surface one', function () {
+    // A bare surface ref refuses EVERY account on the surface. Re-adding one
+    // account answers nothing about the others, so that wider refusal stays.
+    $pro = createTenant('tombstone-bare-survives');
+    DB::table('routing.item_tombstones')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'source_ref' => 'instagram.profile',
+        'scope' => 'this_source',
+        'reason' => 'whole-surface refusal',
+        'created_at' => now()->subDays(7),
+    ]);
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.instagram.com/theartist'])
+        ->assertStatus(202)
+        ->assertJsonPath('verdict', 'place');
+
+    expect(DB::table('routing.item_tombstones')
+        ->where('user_id', $pro->id)
+        ->where('source_ref', 'instagram.profile')
+        ->exists())->toBeTrue();
 });
 
 // ── The blast radius ─────────────────────────────────────────────────────────
