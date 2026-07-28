@@ -22,7 +22,7 @@ class SectionItemResource extends ApiResource
             'itemId' => (string) $this->item_id,
             'state' => $this->state,
             'sortKey' => $this->sort_key === null ? null : (float) $this->sort_key,
-            'createdAt' => $this->created_at?->toIso8601String(),
+            'createdAt' => $this->created_at->toIso8601String(),
         ];
     }
 }

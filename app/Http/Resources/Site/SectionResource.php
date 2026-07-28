@@ -43,8 +43,8 @@ class SectionResource extends ApiResource
             'staleDisplay' => $this->stale_display,
             'curation' => SectionItemResource::collection($this->whenLoaded('curation')),
             'groups' => SectionGroupResource::collection($this->whenLoaded('groups')),
-            'createdAt' => $this->created_at?->toIso8601String(),
-            'updatedAt' => $this->updated_at?->toIso8601String(),
+            'createdAt' => $this->created_at->toIso8601String(),
+            'updatedAt' => $this->updated_at->toIso8601String(),
         ];
     }
 }

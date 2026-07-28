@@ -131,8 +131,8 @@ final class ItemMerger
      */
     private function survivorFirst(Item $left, Item $right): array
     {
-        $leftFirst = $left->first_seen_at?->getTimestamp() ?? 0;
-        $rightFirst = $right->first_seen_at?->getTimestamp() ?? 0;
+        $leftFirst = $left->first_seen_at->getTimestamp();
+        $rightFirst = $right->first_seen_at->getTimestamp();
 
         if ($leftFirst !== $rightFirst) {
             return $leftFirst < $rightFirst ? [$left, $right] : [$right, $left];

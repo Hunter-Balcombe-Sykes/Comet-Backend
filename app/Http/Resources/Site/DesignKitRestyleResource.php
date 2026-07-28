@@ -16,7 +16,7 @@ class DesignKitRestyleResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'appliedAt' => $this->applied_at?->toIso8601String(),
+            'appliedAt' => $this->applied_at->toIso8601String(),
             'undoneAt' => $this->undone_at?->toIso8601String(),
         ];
     }

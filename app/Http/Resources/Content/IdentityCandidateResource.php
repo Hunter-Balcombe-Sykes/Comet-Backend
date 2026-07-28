@@ -26,7 +26,7 @@ class IdentityCandidateResource extends ApiResource
             'score' => (int) $this->score,
             'evidence' => (object) ($this->evidence ?? []),
             'dismissedAt' => $this->dismissed_at?->toIso8601String(),
-            'createdAt' => $this->created_at?->toIso8601String(),
+            'createdAt' => $this->created_at->toIso8601String(),
             'left' => $this->side($this->whenLoaded('leftItem'), (string) $this->left_item_id),
             'right' => $this->side($this->whenLoaded('rightItem'), (string) $this->right_item_id),
         ];
@@ -43,7 +43,7 @@ class IdentityCandidateResource extends ApiResource
             'itemId' => (string) $item->id,
             'kind' => $item->kind,
             'headline' => $item->headline_cache,
-            'firstSeenAt' => $item->first_seen_at?->toIso8601String(),
+            'firstSeenAt' => $item->first_seen_at->toIso8601String(),
         ];
     }
 }

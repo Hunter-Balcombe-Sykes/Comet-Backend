@@ -28,8 +28,8 @@ class PageResource extends ApiResource
             'capability' => $this->capability,
             'presetKey' => $this->preset_key,
             'sections' => SectionResource::collection($this->whenLoaded('sections')),
-            'createdAt' => $this->created_at?->toIso8601String(),
-            'updatedAt' => $this->updated_at?->toIso8601String(),
+            'createdAt' => $this->created_at->toIso8601String(),
+            'updatedAt' => $this->updated_at->toIso8601String(),
         ];
     }
 }

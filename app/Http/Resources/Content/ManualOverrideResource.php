@@ -29,8 +29,8 @@ class ManualOverrideResource extends ApiResource
             'column' => $this->column_name,
             'value' => $this->value,
             'isCleared' => $this->value === null,
-            'createdAt' => $this->created_at?->toIso8601String(),
-            'updatedAt' => $this->updated_at?->toIso8601String(),
+            'createdAt' => $this->created_at->toIso8601String(),
+            'updatedAt' => $this->updated_at->toIso8601String(),
         ];
     }
 }
