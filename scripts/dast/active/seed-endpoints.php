@@ -83,4 +83,4 @@ $openapi = [
 file_put_contents("$outdir/seed-openapi.json", json_encode($openapi, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 file_put_contents("$outdir/seed-urls.txt", implode("\n", $urls)."\n");
 
-fwrite(STDERR, '[dast] seed-endpoints: '.count($paths)." paths, ".count($urls)." method+URL entries\n");
+fwrite(STDERR, '[dast] seed-endpoints: '.count($paths).' paths, '.count($urls)." method+URL entries\n");

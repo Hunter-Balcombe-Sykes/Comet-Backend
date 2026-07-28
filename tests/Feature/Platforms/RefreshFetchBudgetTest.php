@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\ShopBrand;
+use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\Dispatchers\PlatformHealthNotifier;
@@ -8,9 +10,11 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\ShopCatalog;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // Task B: PlatformRefresher::refresh() is the ONE chokepoint every refresh (cron,
 // manual button, ShopController, observer, ShopBrandConnectJob) flows through. Its
@@ -53,30 +57,30 @@ function rfbFreshaService(string $id, string $name, ?string $price = '$50'): arr
     ];
 }
 
-function rfbShopSyncUser(string $h): App\Models\Core\User\User
+function rfbShopSyncUser(string $h): User
 {
-    $user = App\Models\Core\User\User::create([
+    $user = User::create([
         'handle' => $h, 'handle_lc' => strtolower($h), 'display_name' => ucfirst($h),
         'first_name' => ucfirst($h),
-        'account_type' => 'partna', 'auth_user_id' => (string) Illuminate\Support\Str::uuid(),
+        'account_type' => 'partna', 'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
-    Illuminate\Support\Facades\DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => (string) Illuminate\Support\Str::uuid(), 'user_id' => $user->id, 'subdomain' => $h,
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $user->id, 'subdomain' => $h,
         'shop_auto_latest' => 1, 'created_at' => now(), 'updated_at' => now(),
     ]);
 
     return $user->fresh();
 }
 
-function rfbShopSyncBrand(App\Models\Core\User\User $user, string $brandId): App\Models\Core\Site\ShopBrand
+function rfbShopSyncBrand(User $user, string $brandId): ShopBrand
 {
     $conn = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
         'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    return App\Models\Core\Site\ShopBrand::create([
+    return ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => $brandId, 'provider' => 'shopify',
         'url' => 'https://sf.example', 'selection_mode' => 'latest', 'position' => 0,
     ]);
