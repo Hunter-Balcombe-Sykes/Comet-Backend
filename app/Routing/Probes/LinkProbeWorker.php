@@ -41,12 +41,19 @@ class LinkProbeWorker
         private readonly ProbeGate $gate,
         private readonly ProbeBudget $budget,
         private readonly FetchBudget $fetchBudget,
+        BigCartelStorefrontProbe $bigcartel,
         ShopifyStorefrontProbe $shopify,
+        WooCommerceStorefrontProbe $woocommerce,
+        SquarespaceStorefrontProbe $squarespace,
+        GenericStorefrontProbe $generic,
     ) {
-        // Ordered: cheapest and most decisive first. Four more join here
-        // (Woo, Squarespace, BigCartel, generic JSON-LD) — the registry is the
-        // extension point, and every one of them ships the same contract.
-        $this->probes = [$shopify];
+        // All five of §11's commerce probes, cheapest and most decisive first
+        // — the legacy ShopProviderDetector's order, carried: Big Cartel is a
+        // pure host match (free for every non-bigcartel URL), Shopify and Woo
+        // are single platform-only endpoints, Squarespace may walk shop
+        // paths, and generic reads the page itself so every more-specific
+        // platform must get its chance before it.
+        $this->probes = [$bigcartel, $shopify, $woocommerce, $squarespace, $generic];
     }
 
     /**

@@ -76,6 +76,7 @@ use App\Catalog\Definitions\Snapchat;
 use App\Catalog\Definitions\Soundcloud;
 use App\Catalog\Definitions\Spotify;
 use App\Catalog\Definitions\Square;
+use App\Catalog\Definitions\Squarespace;
 use App\Catalog\Definitions\Stan;
 use App\Catalog\Definitions\Strava;
 use App\Catalog\Definitions\Substack;
@@ -186,6 +187,7 @@ return [
     Soundcloud::class,
     Spotify::class,
     Square::class,
+    Squarespace::class,
     Stan::class,
     Strava::class,
     Substack::class,

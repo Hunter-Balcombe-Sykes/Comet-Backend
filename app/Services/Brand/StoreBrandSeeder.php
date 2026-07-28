@@ -126,9 +126,14 @@ class StoreBrandSeeder
             [
                 'provider' => explode('.', (string) $probe->surfaceKey)[0],
                 'url' => $probe->evidence['origin'] ?? null,
-                'source_url' => $sourceUrl,
+                // Squarespace's probe discovers the products-collection URL and
+                // generic's the exact product page — refreshes must hit that,
+                // not whatever the user happened to paste.
+                'source_url' => $probe->evidence['source_url'] ?? $sourceUrl,
                 'name' => $probe->evidence['shop_name'] ?? null,
                 'currency' => $probe->evidence['currency'] ?? null,
+                'favicon' => $probe->evidence['favicon'] ?? null,
+                'logo' => $probe->evidence['logo'] ?? null,
                 'discount_code' => $existing?->discount_code ?: ($scanned['discountCode'] ?? ''),
                 'referral_query' => $existing?->referral_query ?: ($scanned['referralQuery'] ?? ''),
                 'is_individual' => false,
