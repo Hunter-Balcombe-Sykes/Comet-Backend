@@ -131,6 +131,80 @@ it('confirms slo prefixes and threshold defaults are as documented', function ()
     expect(config('partna.cache.slo.prefixes'))->toContain('site', 'pro');
     expect(config('partna.cache.slo.min_hit_rate'))->toBe(0.9);
     expect(config('partna.cache.slo.min_sample'))->toBe(10);
+    // Per-prefix targets are derived from each prefix's dominant TTL, not picked:
+    // site is public_payload at 900s, pro is professional_model at 60s.
+    expect(config('partna.cache.slo.min_hit_rate_by_prefix'))->toBe([
+        'site' => 0.90,
+        'pro' => 0.80,
+    ]);
+});
+
+// A hit rate is capped at 1 - 1/(lambda*TTL), so a 60s-TTL prefix and a 900s-TTL
+// prefix cannot share one target. These pin that each prefix is judged against
+// its own threshold rather than a single scalar.
+describe('per-prefix SLO thresholds', function () {
+    it('judges each prefix against its own threshold in the same bucket', function () {
+        Redis::shouldReceive('hGetAll')->andReturn([
+            // Identical 85% hit rates: under site's 0.90, over pro's 0.80. Only a
+            // per-prefix threshold can tell these two apart.
+            'site:hits' => '85',
+            'site:misses' => '15',
+            'pro:hits' => '85',
+            'pro:misses' => '15',
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldHaveReceived('report')->once();
+        $handler->shouldHaveReceived('report')
+            ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'prefix=site')
+                && str_contains($e->getMessage(), 'SLO: ≥90%'))
+            ->once();
+    });
+
+    it('reports pro only once it falls under its own lower threshold', function () {
+        Redis::shouldReceive('hGetAll')->andReturn([
+            'pro:hits' => '75',
+            'pro:misses' => '25', // 75% — under pro's 0.80
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldHaveReceived('report')
+            ->once()
+            ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'prefix=pro')
+                && str_contains($e->getMessage(), 'SLO: ≥80%'));
+    });
+
+    // Prefixes are open-ended — RecordCacheMetrics::extractPrefix() derives one
+    // from any cache key's first segment — so a tracked prefix with no map entry
+    // must fall back to the scalar rather than to zero. Guards the fallback
+    // through future refactors; it holds before and after this change.
+    it('falls back to the scalar for a tracked prefix absent from the map', function () {
+        config()->set('partna.cache.slo.prefixes', ['analytics']);
+        config()->set('partna.cache.slo.min_hit_rate', 0.5);
+
+        Redis::shouldReceive('hGetAll')->andReturn([
+            'analytics:hits' => '40',
+            'analytics:misses' => '60', // 40% — under the 0.5 scalar
+        ]);
+
+        Log::spy();
+        $handler = $this->spy(ExceptionHandler::class);
+
+        (new AggregateCacheMetricsJob)->handle();
+
+        $handler->shouldHaveReceived('report')
+            ->once()
+            ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'prefix=analytics')
+                && str_contains($e->getMessage(), 'SLO: ≥50%'));
+    });
 });
 
 // CACHE-3: the >=90% target and the 10-read noise floor are production numbers.
@@ -138,10 +212,13 @@ it('confirms slo prefixes and threshold defaults are as documented', function ()
 // traffic cannot reach 90% on a 60s-TTL key no matter how healthy the cache is
 // (dev observed ~5.7 hits per recompute => an ~87% ceiling). Both knobs are now
 // env-tunable so a low-traffic environment can raise the floor instead of
-// alerting hourly on statistically meaningless buckets.
+// alerting hourly on statistically meaningless buckets. The target is tuned per
+// prefix (min_hit_rate_by_prefix); the scalar covers unmapped prefixes only.
 describe('SLO calibration is configurable (CACHE-3)', function () {
     it('honours a configured minimum hit rate', function () {
-        config()->set('partna.cache.slo.min_hit_rate', 0.5);
+        // site is in min_hit_rate_by_prefix, so the map entry is the knob that
+        // governs it — the scalar only covers prefixes with no entry.
+        config()->set('partna.cache.slo.min_hit_rate_by_prefix.site', 0.5);
 
         Redis::shouldReceive('hGetAll')->andReturn([
             'site:hits' => '60',
@@ -193,7 +270,7 @@ describe('SLO calibration is configurable (CACHE-3)', function () {
     });
 
     it('still reports when a configured threshold is genuinely breached', function () {
-        config()->set('partna.cache.slo.min_hit_rate', 0.5);
+        config()->set('partna.cache.slo.min_hit_rate_by_prefix.pro', 0.5);
         config()->set('partna.cache.slo.min_sample', 20);
 
         Redis::shouldReceive('hGetAll')->andReturn([

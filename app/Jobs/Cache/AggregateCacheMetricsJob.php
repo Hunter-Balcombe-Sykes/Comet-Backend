@@ -53,8 +53,12 @@ class AggregateCacheMetricsJob implements ShouldQueue
         // CACHE-3: the target and the noise floor are per-environment — a hit
         // rate is capped by traffic density, not just cache health (see
         // config/partna.php 'cache.slo').
+        // The target is also per-prefix: a hit rate is capped at 1 - 1/(lambda*TTL),
+        // so a 60s-TTL prefix and a 900s-TTL prefix cannot share one threshold.
+        // Unmapped prefixes fall back to the scalar.
         $sloPrefixes = (array) config('partna.cache.slo.prefixes', []);
-        $minHitRate = (float) config('partna.cache.slo.min_hit_rate');
+        $hitRateByPrefix = (array) config('partna.cache.slo.min_hit_rate_by_prefix', []);
+        $fallbackHitRate = (float) config('partna.cache.slo.min_hit_rate');
         $minSample = (int) config('partna.cache.slo.min_sample');
 
         foreach ($stats as $prefix => $counts) {
@@ -63,6 +67,7 @@ class AggregateCacheMetricsJob implements ShouldQueue
             $writes = $counts['writes'] ?? 0;
             $total = $hits + $misses;
             $hitRate = $total > 0 ? round($hits / $total, 4) : null;
+            $minHitRate = (float) ($hitRateByPrefix[$prefix] ?? $fallbackHitRate);
 
             Log::info('cache.metrics', [
                 'prefix' => $prefix,

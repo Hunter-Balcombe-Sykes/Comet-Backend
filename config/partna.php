@@ -1963,13 +1963,34 @@ return [
         // ~5.7 hits per recompute on `pro`, an ~87% ceiling, and fired hourly
         // regardless. Both knobs are per-environment for that reason: keep the
         // production target here and raise min_sample where traffic is thin.
+        //
+        // The ceiling is a property of each prefix's TTL, so one target cannot
+        // serve both: `site` is dominated by 'ttls.public_payload' at 900s
+        // (90% needs under one read per minute per key — reachable anywhere),
+        // while `pro` is dominated by 'ttls.professional_model' at 60s. Hence
+        // min_hit_rate_by_prefix below. Do NOT raise professional_model's TTL to
+        // chase the number: it is a freshness contract on the authenticated
+        // user's own profile.
         'slo' => [
             'prefixes' => array_values(array_filter(array_map(
                 'trim',
                 explode(',', (string) env('PARTNA_CACHE_SLO_PREFIXES', 'site,pro'))
             ))),
+            // Fallback for tracked prefixes with no entry in the map below.
+            // Prefixes are open-ended — RecordCacheMetrics::extractPrefix()
+            // derives one from any cache key's first segment — so this must stay.
             'min_hit_rate' => (float) env('PARTNA_CACHE_SLO_MIN_HIT_RATE', 0.9),
+            // Per-prefix targets, derived from each prefix's dominant TTL. `pro`
+            // sits ~7 points under its worst observed ceiling (~87% on dev) so the
+            // alert has room to distinguish a real regression from traffic
+            // variance; it is a defensible floor, not an exact ceiling.
+            'min_hit_rate_by_prefix' => [
+                'site' => (float) env('PARTNA_CACHE_SLO_MIN_HIT_RATE_SITE', 0.90),
+                'pro' => (float) env('PARTNA_CACHE_SLO_MIN_HIT_RATE_PRO', 0.80),
+            ],
             // Reads (hits + misses) a bucket needs before it is judged at all.
+            // Deliberately NOT per-prefix: this is a statistical noise floor, not
+            // a TTL-derived ceiling, so one value serves every prefix.
             'min_sample' => (int) env('PARTNA_CACHE_SLO_MIN_SAMPLE', 10),
         ],
 
