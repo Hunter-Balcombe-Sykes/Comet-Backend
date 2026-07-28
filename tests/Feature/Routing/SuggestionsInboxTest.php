@@ -93,6 +93,23 @@ it('creates the connection when a suggestion is accepted', function () {
         ->and($intent->connection_id)->toBe($connection->id);
 });
 
+it('writes the payload through ConnectionPayload so a handle surface carries username', function () {
+    // The blank-sitepage regression class: the public allowlist emits
+    // {username, url} for socials and Instagram renders from `username`
+    // ALONE. A writer that skips ConnectionPayload::forWrite persists a
+    // payload the sitepage cannot render — every backend test still passes,
+    // and the page is empty.
+    $pro = createTenant('inbox-payload');
+    $intentId = seedIntent($pro->id);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    $payload = IntegrationConnection::query()->where('user_id', $pro->id)->first()->payload;
+    expect($payload['username'])->toBe('someone')
+        ->and($payload['url'])->toBe('https://www.instagram.com/someone')
+        ->and($payload['source'])->toBe('suggestion');
+});
+
 it('demotes the incumbent rather than deleting it when replacing', function () {
     // The user asked for a different primary, not for their data to go.
     $pro = createTenant('inbox-replace');

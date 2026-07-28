@@ -6,6 +6,7 @@ use App\Catalog\CompiledCatalog;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Routing\ConnectionPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -106,7 +107,17 @@ class SuggestionsController extends ApiController
                     'surface_key' => $intent->surface_key,
                     'routing_class' => $intent->routing_class,
                     'resource_id' => $intent->identifier,
-                    'payload' => ['url' => $intent->canonical_url, 'source' => 'suggestion'],
+                    // Through ConnectionPayload like every other writer: a
+                    // handle-identity surface needs `username` on the public
+                    // wire or the sitepage renders blank (the showcase
+                    // regression). A raw ['url','source'] here was a third,
+                    // drifting writer.
+                    'payload' => ConnectionPayload::forWrite(
+                        (string) $intent->canonical_url,
+                        (string) $intent->identifier,
+                        (string) ($surface['identifier_kind'] ?? ''),
+                        'suggestion',
+                    ),
                     'is_active' => true,
                     'last_refresh_status' => 'pending',
                 ]);
