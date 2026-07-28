@@ -23,16 +23,19 @@ Companion docs: 2026-07-28-remaining-work-audit.md (verified ground truth),
   connections via the live API. strava/skool kill-switched; fresha capability-blocked (correct).
 
 ## RUNNING
-- LANE A (worktree agent): ingest sources seam (committed), projection real → content.items
-  (committed, incl. FreshaServiceProjector), NOW: full 7-op DSL + site:build-documents command +
-  document job; then live Maha row counts, rebase, push. Stitch on landing: run its suites, verify
-  dev deploy, update execution log.
-- WAVE-2B agent (worktree): #26 primary-CTA API (read per-class is_primary + POST
+- LANE A: LANDED + STITCHED (2026-07-28 ~17:30). All three commits deployed to dev; suites green;
+  Maha live: 10 sources / 142 items. Stitch found + fixed a live bug (e64bd999): bumpSite and
+  site:build-documents filtered site.sites on a deleted_at column only the SQLite stand-in had —
+  every projection bump 42703'd silently, so no document ever built. Verified end-to-end after fix:
+  doc v1 built inline, sweeper picked up a manual bump within 3 min (unchanged-hash path). See
+  execution log "LANE A landed + stitch".
+- WAVE-2B agent (worktree): RELAUNCHED by continuation session (prior session died before start).
+  #26 primary-CTA API (read per-class is_primary + POST
   /routing/connections/{id}/primary), #27 DisjointSet::separate() direction fix (characterization
   test pinned in IdentityQueueTest), tombstone-vs-deliberate-re-add decision (PlacementPolicy
   isTombstoned should let isDirectRequest re-adds win — implement origin-aware check), B4
   findings/synced-modal scan contract (p8-readiness doc names it; sole hard blocker on scan paths).
-- WAVE-2C agent (worktree): remaining 4 shop probes (Woo/Squarespace/BigCartel/generic — port from
+- WAVE-2C agent (worktree): RELAUNCHED by continuation session. remaining 4 shop probes (Woo/Squarespace/BigCartel/generic — port from
   ShopProviderDetector into app/Routing/Probes), ShopBrandProfiler successor (product-catalog
   derivation), §13 kit autopilot (fromBrandPalette + fromWebsiteEvidence → design_kit_restyles),
   §15 PresetInstantiator (10 presets → pages/sections/kit seed), §14 field_bindings.

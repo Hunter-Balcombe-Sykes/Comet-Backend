@@ -263,3 +263,31 @@ Four audit findings fixed, each with tests, all on `development`:
    connector classes were unregistered and undispatchable; all 9 now
    registered under their manifest source keys with a two-way drift guard
    (`tests/Unit/Ingest/ConnectorRegistryTest.php`).
+
+## LANE A landed + stitch (2026-07-28, overnight continuation)
+
+The ingest lane's final tranche is on `development` and live-verified:
+sources seam (8cc57133), real projection (e0382908), and the full 7-op rule
+DSL with its callers — `BuildSiteDocumentJob`, `site:build-documents`, and
+the every-five-minutes `--stale` sweeper (c721afc8). Suites: 368 passed
+(Ingest + Site) plus Api/Content/PreAccount/Routing chunks green.
+
+**Live Maha numbers (dev, user `ollies`):** 10 ingest.sources, 10 streams,
+9 runs (7 ok, 2 unavailable), **142 content.items** — projection is real on
+live data.
+
+**Live bug found and fixed during the stitch (e64bd999).** Maha had 142
+items but ZERO site_build_state rows: `bumpSite()` and
+`site:build-documents` filtered `site.sites` on `whereNull('deleted_at')` —
+a column that exists only in the SQLite test stand-in, never in the real
+schema. Postgres threw 42703 on every projection; RunExecutor's deliberate
+projection_error note-catch kept run outcomes 'ok', so the sweep had
+nothing to sweep and no document ever built. Fix removed the phantom filter
+(3 sites) AND the phantom column from the Pest stand-in, which is the
+regression net — the covering tests fail against the corrected stand-in.
+
+**End-to-end verified on dev after the fix:** inline build wrote document
+v1 (pages/navigation/warnings/builderRevision); a manual BuildState::bump
+(rev 1 > built 0) was picked up by the scheduled sweeper within 3 minutes —
+Horizon ran the job, the builder hashed byte-identical output, committed
+built_revision=1 with no new version and no purge, exactly per protocol.
