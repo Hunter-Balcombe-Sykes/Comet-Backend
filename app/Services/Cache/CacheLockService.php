@@ -2,9 +2,11 @@
 
 namespace App\Services\Cache;
 
+use App\Services\Cache\Concerns\DefersRecompute;
 use App\Services\Cache\Concerns\JitteredTtl;
 use Closure;
 use DateTimeInterface;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -41,6 +43,7 @@ use Throwable;
  */
 class CacheLockService
 {
+    use DefersRecompute;
     use JitteredTtl;
 
     /**
@@ -96,42 +99,57 @@ class CacheLockService
             // recomputing), skip and return the stale value without waiting.
             $lock = Cache::lock('lock:'.$key, $lockSeconds);
             if ($lock->get()) {
-                try {
-                    // Re-check primary after acquiring — another process may have
-                    // just filled it while we were racing for the lock.
-                    $fresh = Cache::get($key);
-                    if ($fresh !== null) {
-                        return $fresh;
-                    }
+                // Re-check primary after acquiring — another process may have
+                // just filled it while we were racing for the lock.
+                $fresh = Cache::get($key);
+                if ($fresh !== null) {
+                    $this->releaseQuietly($lock);
 
+                    return $fresh;
+                }
+
+                // The lock release lives inside this closure, not in a finally at
+                // the call site. Releasing at return would free the lock the moment
+                // we hand back stale, so the next caller would also win it and
+                // defer its own recompute — N rebuilds instead of one.
+                $recompute = function () use ($lock, $key, $staleKey, $ttl, $callback, $stale): mixed {
                     try {
                         $value = $callback();
                     } catch (Throwable $e) {
                         // CCH-3: recompute failed but a known-good stale value is
                         // already in hand (SWR's whole purpose) — report and serve
                         // it instead of failing this one unlucky lock-winner's
-                        // request. Every other concurrent request in this window
-                        // already takes the "another worker refreshing" branch
-                        // below and gets $stale too — this just extends the same
-                        // treatment to the winner. $stale is guaranteed non-null
-                        // here (we're inside the `if ($stale !== null)` branch);
-                        // a genuinely cold miss with no stale copy is a different
-                        // code path further down and still propagates.
+                        // request. $stale is guaranteed non-null here; a genuinely
+                        // cold miss with no stale copy is a different code path
+                        // further down and still propagates.
                         report($e);
 
                         return $stale;
+                    } finally {
+                        // Released before the write on purpose: the lock decides
+                        // who recomputes, and writeWithJitter is idempotent, so
+                        // holding it across the write only widens the window a
+                        // crashed process can strand it.
+                        $this->releaseQuietly($lock);
                     }
+
                     $this->writeWithJitter($key, $staleKey, $value, $ttl);
 
                     return $value;
-                } finally {
-                    try {
-                        $lock->release();
-                    } catch (Throwable) {
-                        // Lock may have auto-expired — track silently so ops can detect driver issues.
-                        $this->recordLockReleaseFailure();
-                    }
+                };
+
+                if ($this->shouldDeferRecompute()) {
+                    // Unnamed on purpose: DeferredCallbackCollection keeps only the
+                    // last callback per name, and a dropped closure would strand a
+                    // held lock for its full $lockSeconds.
+                    defer($recompute)->always();
+
+                    return $stale;
                 }
+
+                // Console/worker: callers such as WarmPublicSiteCacheJob require
+                // the value to be warm before this returns.
+                return $recompute();
             }
 
             // Another worker is refreshing — return last-good without blocking.
@@ -170,12 +188,7 @@ class CacheLockService
         } finally {
             // Always release — even if the closure threw — so we don't hold the lock
             // for its full TTL after a failure.
-            try {
-                $lock->release();
-            } catch (Throwable) {
-                // Lock already released or driver doesn't support release-after-expiry.
-                $this->recordLockReleaseFailure();
-            }
+            $this->releaseQuietly($lock);
         }
     }
 
@@ -274,11 +287,22 @@ class CacheLockService
 
             return $value;
         } finally {
-            try {
-                $lock->release();
-            } catch (Throwable) {
-                $this->recordLockReleaseFailure();
-            }
+            $this->releaseQuietly($lock);
+        }
+    }
+
+    /**
+     * Release a lock, counting rather than throwing if the driver refuses.
+     *
+     * A release can legitimately fail when the lock already auto-expired; a
+     * failure to release must never surface as a request error.
+     */
+    private function releaseQuietly(Lock $lock): void
+    {
+        try {
+            $lock->release();
+        } catch (Throwable) {
+            $this->recordLockReleaseFailure();
         }
     }
 

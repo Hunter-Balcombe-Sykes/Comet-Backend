@@ -2008,6 +2008,13 @@ return [
             'min_sample' => (int) env('PARTNA_CACHE_SLO_MIN_SAMPLE', 10),
         ],
 
+        // cache-gold-standard §2.3: run the SWR lock-winner's recompute after the
+        // response (defer()) instead of in-request, so no visitor pays the rebuild.
+        // Ops kill-switch only — set false to restore the synchronous behaviour
+        // without a deploy. Ignored in console/worker contexts, which always
+        // recompute synchronously (see Concerns\DefersRecompute).
+        'swr_defer_recompute' => (bool) env('PARTNA_CACHE_SWR_DEFER_RECOMPUTE', true),
+
         // CFG-3: CDN/edge TTL (seconds) for AddPublicCacheHeaders' allow-listed public
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
