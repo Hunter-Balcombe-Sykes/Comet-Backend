@@ -108,6 +108,16 @@ class NotificationEmailPreferenceController extends ApiController
         }
 
         foreach ($updates as $update) {
+            // Mandatory categories are resolved to `true` at send time and
+            // reported as `true` by index(), so persisting a `false` here wrote
+            // a row that could never take effect — the client saw 200 OK, then
+            // the next refetch showed the toggle back on. Skipping keeps the
+            // stored state honest without 422-ing a client that sends the full
+            // set in one payload.
+            if (NotificationPublisher::isMandatory($update['category'])) {
+                continue;
+            }
+
             DB::statement(
                 'INSERT INTO notifications.notification_email_preferences (id, user_id, category_key, enabled, created_at, updated_at)
                  VALUES (?, ?, ?, ?, NOW(), NOW())

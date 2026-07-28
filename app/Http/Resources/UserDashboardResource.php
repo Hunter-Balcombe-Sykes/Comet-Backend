@@ -27,14 +27,31 @@ class UserDashboardResource extends ApiResource
             // on sector directly; it reads `capabilities` below for feature gating.
             'sector' => $this->sector,
             'sector_source' => $this->sector_source,
-            // Sector-derived feature flags (2026-07-15 industry/sector gating).
-            // Camel-cased for the frontend contract; source of truth is
-            // AccountCapabilities — never rederive these from sector client-side.
+            // The WHOLE capability set, camel-cased for the frontend contract.
+            // Source of truth is AccountCapabilities — never rederive these
+            // client-side, and never branch on account_type instead.
+            //
+            // This used to expose only the four sector-derived flags, which left
+            // the dashboard no way to know about multipage/lifestyle/storewide
+            // except by branching on account_type (the one thing the doctrine
+            // forbids) or by POSTing and reading the 4xx back. Additive: the
+            // original four keys keep their names and meaning.
             'capabilities' => [
                 'canUseMenu' => $capabilities->can_use_menu,
                 'canUseReservations' => $capabilities->can_use_reservations,
                 'canUseBooking' => $capabilities->can_use_booking,
                 'canUseOnlineOrdering' => $capabilities->can_use_online_ordering,
+                'canUseMultipageSite' => $capabilities->can_use_multipage_site,
+                'canUseLifestylePages' => $capabilities->can_use_lifestyle_pages,
+                'canBookStorewide' => $capabilities->can_book_storewide,
+                'canEditDesign' => $capabilities->can_edit_design,
+                'canCurateIdentity' => $capabilities->can_curate_identity,
+                'canSubmitFeedback' => $capabilities->can_submit_feedback,
+                'canBeReported' => $capabilities->can_be_reported,
+                'canAutosyncScrapedConnections' => $capabilities->can_autosync_scraped_connections,
+                'googleBusinessFullSync' => $capabilities->google_business_full_sync,
+                'googleBusinessSetsDisplayName' => $capabilities->google_business_sets_display_name,
+                'receiveModerationNotifications' => $capabilities->receive_moderation_notifications,
             ],
             // Staff-ness is independent of account_type (which stays
             // partna/business) — it derives from a linked core.partna_staff

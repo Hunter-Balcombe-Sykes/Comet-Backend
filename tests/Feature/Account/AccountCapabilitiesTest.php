@@ -163,11 +163,24 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
 
         expect($payload['sector'])->toBe('restaurant');
         expect($payload['sector_source'])->toBe('manual');
+        // Exact match on purpose: this is the dashboard's capability contract,
+        // and a key silently appearing or vanishing is exactly what it guards.
         expect($payload['capabilities'])->toBe([
             'canUseMenu' => true,
             'canUseReservations' => true,
             'canUseBooking' => false,
             'canUseOnlineOrdering' => true,
+            'canUseMultipageSite' => true,
+            'canUseLifestylePages' => false,
+            'canBookStorewide' => true,
+            'canEditDesign' => true,
+            'canCurateIdentity' => true,
+            'canSubmitFeedback' => true,
+            'canBeReported' => false,
+            'canAutosyncScrapedConnections' => true,
+            'googleBusinessFullSync' => true,
+            'googleBusinessSetsDisplayName' => true,
+            'receiveModerationNotifications' => false,
         ]);
     });
 
@@ -183,6 +196,17 @@ describe('UserDashboardResource — sector + capabilities (2026-07-15)', functio
             'canUseReservations' => true,
             'canUseBooking' => true,
             'canUseOnlineOrdering' => false,
+            'canUseMultipageSite' => false,
+            'canUseLifestylePages' => true,
+            'canBookStorewide' => false,
+            'canEditDesign' => true,
+            'canCurateIdentity' => true,
+            'canSubmitFeedback' => true,
+            'canBeReported' => false,
+            'canAutosyncScrapedConnections' => true,
+            'googleBusinessFullSync' => false,
+            'googleBusinessSetsDisplayName' => false,
+            'receiveModerationNotifications' => false,
         ]);
     });
 });
