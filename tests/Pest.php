@@ -3332,6 +3332,32 @@ function seedPageWithSection(string $siteId, array $sectionOverrides = []): arra
 }
 
 /**
+ * site.field_bindings (migration 20260728150000) — SQLite mirror for the §14
+ * per-field priority bindings. SQLite enforces the declared CHECKs (manual =
+ * priority 0), matching the Postgres DDL.
+ */
+function setupFieldBindingsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.field_bindings (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        source_key TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 100,
+        mode TEXT NOT NULL DEFAULT \'fill_blank\' CHECK (mode IN (\'overwrite\', \'fill_blank\')),
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (site_id, field, source_key),
+        CHECK (
+            (source_key = \'manual\' AND priority = 0)
+            OR (source_key <> \'manual\' AND priority > 0)
+        )
+    )');
+}
+
+/**
  * site.design_kit_restyles (migration 20260727150000) — SQLite mirror for the
  * §13 "Restyle from brand" undo snapshots.
  */

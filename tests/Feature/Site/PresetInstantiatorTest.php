@@ -18,6 +18,8 @@ beforeEach(function () {
     // The full content plane: the end-to-end case runs the DocumentBuilder,
     // whose facet rules EXISTS-join the typed tables (f_action et al).
     setupContentTables();
+    // Field bindings ride instantiation (§14) — the seeder touches this table.
+    setupFieldBindingsTable();
 });
 
 function presetTenant(string $handle, array $overrides = []): User

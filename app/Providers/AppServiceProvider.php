@@ -25,6 +25,7 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\ContentSelection;
 use App\Models\Core\Site\DesignKitRestyle;
 use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\FieldBinding;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\Page;
@@ -228,6 +229,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Section::class, SectionPolicy::class);
         // Design-kit restyles (plan §13): carry site_id, same ownership shape.
         Gate::policy(DesignKitRestyle::class, DesignKitRestylePolicy::class);
+        // Field bindings (plan §14): another site_id-owned child — SectionPolicy
+        // is the generic site-relation ownership policy (Page reuses it too).
+        Gate::policy(FieldBinding::class, SectionPolicy::class);
         // Content spine (plan §5/§6): items and the duplicates queue carry
         // user_id directly; manual_overrides go via the parent item.
         Gate::policy(ContentItem::class, ContentItemPolicy::class);

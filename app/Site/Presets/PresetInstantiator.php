@@ -6,6 +6,7 @@ use App\Models\Core\Site\Page;
 use App\Models\Core\Site\Section;
 use App\Models\Core\Site\Site;
 use App\Services\Content\PageCapabilities;
+use App\Services\Profile\FieldBindingSeeder;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 
@@ -30,6 +31,8 @@ use Illuminate\Support\Facades\DB;
  */
 class PresetInstantiator
 {
+    public function __construct(private readonly FieldBindingSeeder $bindings) {}
+
     /**
      * @return array{preset: string, createdPages: list<string>, createdSections: list<string>}
      */
@@ -103,6 +106,10 @@ class PresetInstantiator
                 }
             }
         });
+
+        // Field bindings ride the same instantiation (§14: "seeded by
+        // preset") and share its discipline: additive, never destructive.
+        $this->bindings->seed($site);
 
         if ($created['pages'] !== [] || $created['sections'] !== []) {
             BuildState::bump($siteId);
