@@ -440,3 +440,15 @@ Schedule::command('ingest:stranded')
     ->onOneServer()
     ->withoutOverlapping(10)
     ->onFailure($reportScheduledFailure('ingest:stranded'));
+
+// Document sweeper (plan §9): the NET under content_revision bump enforcement — any
+// site whose content moved past its built document gets a queued rebuild within five
+// minutes, whichever write path bumped it (observer, raw seam, projection). Builds are
+// hash-gated + CAS'd, so sweeping a site that produces byte-identical output costs one
+// SELECT and writes nothing.
+Schedule::command('site:build-documents --stale')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('site:build-documents'));

@@ -204,6 +204,26 @@ it('never creates a row for an inactive connection', function () {
     expect(ingestSourceFor($connection))->toBeNull();
 });
 
+it('creates billed-connector sources unscheduled until their effect drivers exist', function () {
+    // HttpIo::runBilledEffect throws for every billed effect until the P7
+    // drivers land — scheduling google_business now would error every run
+    // until the source went dead. The row must exist (the seam is complete);
+    // it just must not auto-run yet.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'google-business',
+        'place_id' => 'ChIJizFTarNC1moRjM6M4Z_OGAg',
+    ]);
+
+    $row = ingestSourceFor($connection);
+    expect($row)->not->toBeNull()
+        ->and((bool) $row->auto_sync)->toBeFalse();
+
+    // A later payload write must not silently re-enable it either.
+    $connection->payload = ['placeId' => 'ChIJizFTarNC1moRjM6M4Z_OGAg'];
+    $connection->save();
+    expect((bool) ingestSourceFor($connection)->auto_sync)->toBeFalse();
+});
+
 it('seeds scheduling defaults from the connector manifest', function () {
     $connection = makeConnection(provisionerUser(), [
         'platform' => 'fresha',

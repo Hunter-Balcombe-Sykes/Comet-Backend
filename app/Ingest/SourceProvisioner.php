@@ -2,6 +2,8 @@
 
 namespace App\Ingest;
 
+use App\Ingest\Manifest\CostClass;
+use App\Ingest\Manifest\Manifest;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -85,7 +87,7 @@ class SourceProvisioner
                 'min_interval_secs' => $manifest->defaultIntervalSeconds,
                 'max_interval_secs' => max($manifest->defaultIntervalSeconds, self::MAX_INTERVAL_FLOOR_SECS),
                 'next_attempt_at' => now(),
-                'auto_sync' => true,
+                'auto_sync' => self::schedulable($manifest),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -102,12 +104,24 @@ class SourceProvisioner
             // A different identifier is a different remote thing: fetch soon.
             $update['next_attempt_at'] = now();
         }
-        if (! $existing->auto_sync) {
+        if (! $existing->auto_sync && self::schedulable($manifest)) {
             $update['auto_sync'] = true;
         }
         DB::table('ingest.sources')->where('id', $existing->id)->update($update);
 
         return ['status' => count($update) > 1 ? 'updated' : 'unchanged', 'source_key' => $sourceKey];
+    }
+
+    /**
+     * Whether the scheduler may run this source TODAY. Billed connectors
+     * (google_business) declare effects that HttpIo::runBilledEffect cannot
+     * yet perform — the drivers land at P7 — so scheduling them now would
+     * error every run until the source went dead. The row still exists (the
+     * seam is complete); enabling is this one predicate when drivers land.
+     */
+    private static function schedulable(Manifest $manifest): bool
+    {
+        return $manifest->cost === CostClass::Free;
     }
 
     /** The brand half of a surface key, when a registered connector serves it. */
@@ -137,7 +151,7 @@ class SourceProvisioner
      */
     private function identifierFor(string $sourceKey, IntegrationConnection $connection): ?string
     {
-        $payload = is_array($connection->payload) ? $connection->payload : [];
+        $payload = $connection->payload ?? [];
         $resource = trim((string) $connection->resource_id);
 
         return match ($sourceKey) {

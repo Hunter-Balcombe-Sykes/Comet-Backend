@@ -81,7 +81,7 @@ class FreshaServiceProjector implements Projector
 
         return [
             'channel' => 'fresha',
-            'qualifier' => ($m['from'] ?? '') !== '' ? 'from' : 'exact',
+            'qualifier' => $m['from'] !== '' ? 'from' : 'exact',
             'amount_minor' => (int) round(((float) $m['amount']) * 100),
             // "A$" is unambiguous; a bare "$" is not, and never USD-defaults.
             'currency' => strcasecmp($m['currency'], 'A$') === 0 ? 'AUD' : null,
