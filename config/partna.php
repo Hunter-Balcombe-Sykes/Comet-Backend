@@ -1264,6 +1264,11 @@ return [
     */
     'logo_removal' => [
         'enabled' => (bool) env('PARTNA_LOGO_REMOVAL_ENABLED', false),
+        // Plan §12's config split. `enabled` governs WORKPLACE logos a user
+        // uploaded; this governs auto-grabbed STORE logos. Two switches, not
+        // one, so flipping the store path can never change what happens to a
+        // file a user handed us themselves.
+        'store_enabled' => (bool) env('PARTNA_LOGO_REMOVAL_STORE_ENABLED', false),
         'url' => env('PARTNA_LOGO_PROCESSOR_URL', ''),
         'token' => env('PARTNA_LOGO_PROCESSOR_TOKEN', ''),
         'timeout' => (int) env('PARTNA_LOGO_PROCESSOR_TIMEOUT', 120),
@@ -1641,6 +1646,32 @@ return [
             // session; a live scrape per open would hammer fresha.com for a list
             // that changes when someone joins or leaves a salon.
             'team_cache_seconds' => (int) env('PARTNA_FRESHA_TEAM_CACHE_SECONDS', 86400),
+        ],
+    ],
+
+    /*
+    |----------------------------------------------------------------------
+    | Routing — link probes (plan §11)
+    |----------------------------------------------------------------------
+    | Keyless commerce probes for own-domain storefronts. No vendor invoice
+    | to cap, but each probe is still an outbound request this backend makes
+    | on a user's say-so — unbounded, that is a reliability risk to us and an
+    | amplification vector aimed at someone else. Three ceilings, three
+    | different failures: a runaway import (global), one abusive account
+    | (per user), one 200-link page eating a whole day's allowance (per run).
+    */
+    'routing' => [
+        'probe' => [
+            // Probes one worker run may spend. Deliberately small: a page with
+            // 200 links should not be 200 outbound requests.
+            'per_run_cap' => (int) env('PARTNA_ROUTING_PROBE_PER_RUN_CAP', 6),
+            'user_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_USER_DAILY_CAP', 40),
+            'global_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_GLOBAL_DAILY_CAP', 2000),
+            // Wall-clock ceiling for the WHOLE probe cascade, not per probe.
+            'budget_seconds' => (int) env('PARTNA_ROUTING_PROBE_BUDGET_SECONDS', 15),
+            // How long a URL keeps its answer, hit or miss. A miss that isn't
+            // cached is a URL re-probed on every scan of the same page.
+            'cooldown_minutes' => (int) env('PARTNA_ROUTING_PROBE_COOLDOWN_MINUTES', 720),
         ],
     ],
 

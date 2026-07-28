@@ -56,6 +56,7 @@ use App\Policies\ServicePolicy;
 use App\Policies\SitePolicy;
 use App\Policies\UserSegmentPolicy;
 use App\Policies\UserSelfPolicy;
+use App\Routing\Probes\ProbeBudget;
 use App\Routing\PublicSuffixList;
 use App\Routing\Rulepack;
 use App\Services\Analytics\Contracts\AnalyticsEventWriter;
@@ -120,6 +121,16 @@ class AppServiceProvider extends ServiceProvider
         // (forgetScopedInstances() between jobs) can't leak a deadline from one
         // job into the next.
         $this->app->scoped(FetchBudget::class);
+
+        // scoped for exactly the reason above, and it bit the same way: the
+        // per-RUN dimension of ProbeBudget is counted on $this, and LinkProbeWorker
+        // and ProbeGate each inject it. Unbound, Laravel hands each collaborator
+        // its own instance, so the worker's counter and the gate's counter are
+        // different numbers and the per-run cap never fires — an import could
+        // probe every link on a 200-link page while the daily caps looked
+        // healthy. scoped, not singleton, so forgetScopedInstances() resets the
+        // run between queue jobs: one job = one run.
+        $this->app->scoped(ProbeBudget::class);
 
         // scoped so a single RecordCacheMetrics instance accumulates every cache
         // hit/miss/write across one HTTP request (the listener is resolved fresh

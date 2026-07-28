@@ -312,6 +312,7 @@ write-paths|app/Observers app/Jobs/Cache app/Jobs/Cloudflare app/Jobs/Analytics 
 platforms-services|app/Services/Platforms app/Jobs/Platforms
 platforms-controllers|app/Http/Controllers/Api/Platforms app/Http/Controllers/Api/HealthController.php
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
+routing-probes|app/Routing/Probes app/Services/Brand
 design|app/Services/Design
 EOF
         ;;
@@ -348,7 +349,7 @@ writers-jobs|app/Jobs app/Observers
 writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 writers-platforms-controllers|app/Http/Controllers/Api/Platforms
 writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing
-services-platforms|app/Services/Platforms
+services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
@@ -367,7 +368,7 @@ EOF
 config-files|config .env.example routes bootstrap/app.php bootstrap/providers.php .github/workflows deploy
 consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware
-services-platforms|app/Services/Platforms
+services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit
@@ -434,7 +435,7 @@ schema-pii|supabase/migrations
 EOF
         ;;
         code-quality-slop) cat <<'EOF'
-services-platforms|app/Services/Platforms
+services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
@@ -455,7 +456,7 @@ content|app/Content app/Site
 EOF
         ;;
         semantic-correctness) cat <<'EOF'
-services-platforms|app/Services/Platforms
+services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite
 services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit

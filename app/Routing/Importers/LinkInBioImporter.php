@@ -155,7 +155,11 @@ class LinkInBioImporter
     }
 
     /**
-     * @param  string|list<string>  $urls
+     * Defensive on purpose: the public signature promises list<string>, but a
+     * bio harvest builds its list from scraped text, and one null in it must
+     * not become an empty fetch.
+     *
+     * @param  string|array<array-key, mixed>  $urls
      * @return list<string>
      */
     private function normalisePages(string|array $urls): array

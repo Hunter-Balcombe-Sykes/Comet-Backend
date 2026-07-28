@@ -445,6 +445,20 @@ class SafeUrlFetcher
     }
 
     /**
+     * The own-infrastructure denylist assertSafe() enforces. Public because a
+     * caller that pre-filters URLs before spending anything (ProbeGate) must
+     * refuse exactly what this class would refuse — two hand-kept copies of
+     * this list would eventually disagree, and the cheap one disagreeing in
+     * the permissive direction is a silently reopened SSRF path.
+     *
+     * @return list<string>
+     */
+    public static function deniedHostSuffixes(): array
+    {
+        return array_values((array) config('partna.http_fetch.denied_host_suffixes', self::DENIED_HOST_SUFFIXES));
+    }
+
+    /**
      * Reject a terminal response whose body would blow the configured byte cap.
      *
      * Guzzle has already buffered the body by the time we see it, so this cannot
@@ -502,7 +516,7 @@ class SafeUrlFetcher
         }
 
         $lowerHost = strtolower(rtrim($host, '.'));
-        foreach ((array) config('partna.http_fetch.denied_host_suffixes', self::DENIED_HOST_SUFFIXES) as $suffix) {
+        foreach (self::deniedHostSuffixes() as $suffix) {
             if ($lowerHost === $suffix || str_ends_with($lowerHost, '.'.$suffix)) {
                 throw new SafeUrlException("Refusing own-infrastructure host ({$suffix}): {$url}");
             }

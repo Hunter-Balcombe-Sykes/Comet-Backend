@@ -477,4 +477,27 @@ class CacheKeyGenerator
     {
         return "idempotency:index:{$userId}";
     }
+
+    /** Global daily link-probe counter across all users (plan §11 ProbeBudget). */
+    public static function routingProbeGlobalDaily(string $date): string
+    {
+        return 'routing:probe:global:daily:'.$date;
+    }
+
+    /** Per-user daily link-probe counter. */
+    public static function routingProbeUserDaily(string $userId, string $date): string
+    {
+        return 'routing:probe:user:'.$userId.':daily:'.$date;
+    }
+
+    /**
+     * Per-URL probe cooldown / result cache. Keyed by the canonical URL and NOT
+     * by user — the outbound request is the cost, and two users pasting the
+     * same storefront should cost one probe, not two. Mirrors the menu-scrape
+     * negative-marker precedent.
+     */
+    public static function routingProbeUrl(string $canonicalUrl): string
+    {
+        return 'routing:probe:url:'.sha1(strtolower($canonicalUrl));
+    }
 }
