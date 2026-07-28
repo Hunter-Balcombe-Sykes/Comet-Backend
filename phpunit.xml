@@ -18,7 +18,15 @@
         </include>
     </source>
     <php>
-        <ini name="memory_limit" value="512M"/>
+        <!-- A serial run peaks at ~870 MB: PHPUnit/Pest retain every test case for
+             the life of the process (~0.1 MB/test, measured identically in Unit,
+             which never boots the app), so the high-water mark scales with test
+             count, not with any one test. 512M aborted the run mid-Feature. This
+             is a runaway guard with ~2x headroom, not a target — raise it when the
+             suite grows rather than calling ini_set() from a test: ini_set is
+             process-global and PHPUnit does not restore it, so one test lifting
+             the cap silently lifts it for every test that follows. -->
+        <ini name="memory_limit" value="2G"/>
         <env name="APIFY_TOKEN" value=""/>
         <env name="APP_ENV" value="testing"/>
         <!-- Pinned like every other env below: without it APP_DEBUG falls through

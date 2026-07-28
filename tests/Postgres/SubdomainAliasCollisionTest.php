@@ -194,7 +194,7 @@ function seedRenameFixture(string $currentSubdomain, string $incomingSubdomain):
 }
 
 /** Creates a second site owned by a second user, to hold a foreign alias. */
-function seedForeignAlias(string $subdomain, ?string $expiresAt): string
+function seedForeignAliasPg(string $subdomain, ?string $expiresAt): string
 {
     $userId = (string) Str::uuid();
     $siteId = (string) Str::uuid();
@@ -226,7 +226,7 @@ function seedForeignAlias(string $subdomain, ?string $expiresAt): string
 
 it('survives a collision with another site\'s ACTIVE alias without poisoning the caller transaction', function () {
     [$site, $professional] = seedRenameFixture('simondoylehair-1', 'simon-doyle');
-    $foreignSiteId = seedForeignAlias('simondoylehair-1', now()->addDays(90)->toDateTimeString());
+    $foreignSiteId = seedForeignAliasPg('simondoylehair-1', now()->addDays(90)->toDateTimeString());
 
     DB::connection('pgsql')->transaction(function () use ($site, $professional) {
         app(RenameSubdomainAction::class)->execute($site, 'simon-doyle', $professional);
@@ -251,7 +251,7 @@ it('survives a collision with another site\'s ACTIVE alias without poisoning the
 
 it('reclaims a subdomain another site holds as an EXPIRED alias', function () {
     [$site, $professional] = seedRenameFixture('lapsed-name', 'fresh-name');
-    seedForeignAlias('lapsed-name', now()->subDay()->toDateTimeString());
+    seedForeignAliasPg('lapsed-name', now()->subDay()->toDateTimeString());
 
     DB::connection('pgsql')->transaction(function () use ($site, $professional) {
         app(RenameSubdomainAction::class)->execute($site, 'fresh-name', $professional);
@@ -300,7 +300,7 @@ it('refreshes its own pre-existing alias row rather than failing', function () {
 
 it('confirms a bare insert-and-catch on the global alias index poisons the outer transaction', function () {
     [$site] = seedRenameFixture('control-name', 'unused');
-    seedForeignAlias('control-name', now()->addDays(90)->toDateTimeString());
+    seedForeignAliasPg('control-name', now()->addDays(90)->toDateTimeString());
 
     try {
         DB::connection('pgsql')->beginTransaction();

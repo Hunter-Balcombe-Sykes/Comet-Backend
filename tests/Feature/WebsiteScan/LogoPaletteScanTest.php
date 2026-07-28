@@ -19,7 +19,6 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupMediaTables();
-    ini_set('memory_limit', '-1');
 
     $testRoot = storage_path('framework/testing/disks/logo-palette-scan');
     config([

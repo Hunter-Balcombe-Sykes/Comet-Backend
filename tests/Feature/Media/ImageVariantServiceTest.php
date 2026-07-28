@@ -15,11 +15,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupMediaTables();
 
-    // Large GD fixtures (e.g. 6000x4000 = ~96 MB raw) exceed the default 128 MB
-    // test limit. Unlock memory for this suite — image processing is memory-heavy
-    // by nature and must be tested at realistic resolutions.
-    ini_set('memory_limit', '-1');
-
     // Use a real local disk rooted in a unique test directory, mirroring the
     // pattern in tests/Unit/MediaJobReliabilityTest.php. Keeps filesystem state
     // inspectable and avoids Storage::fake() quirks around the media disk.

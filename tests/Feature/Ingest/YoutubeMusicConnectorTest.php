@@ -46,12 +46,12 @@ function youtubeMusicIo(array $responses): Io
     };
 }
 
-const YTM_CHANNEL = 'UCabcdefghijklmnopqrstuv';
+const YTM_CONNECTOR_CHANNEL = 'UCabcdefghijklmnopqrstuv';
 
 function youtubeMusicPull(array $config = []): Pull
 {
     return new Pull(
-        identifier: YTM_CHANNEL,
+        identifier: YTM_CONNECTOR_CHANNEL,
         stream: YoutubeMusicConnector::manifest()->stream('releases'),
         config: $config,
     );
@@ -59,7 +59,7 @@ function youtubeMusicPull(array $config = []): Pull
 
 function youtubeMusicFeedUrl(): string
 {
-    return 'https://www.youtube.com/feeds/videos.xml?channel_id='.YTM_CHANNEL;
+    return 'https://www.youtube.com/feeds/videos.xml?channel_id='.YTM_CONNECTOR_CHANNEL;
 }
 
 /** @param list<array{id: string, title: string, published: string}> $entries */
