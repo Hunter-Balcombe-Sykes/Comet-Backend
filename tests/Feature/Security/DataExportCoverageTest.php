@@ -6,6 +6,7 @@ use App\Services\User\AccountDeletionService;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Symfony\Component\Finder\Finder;
 use Tests\Support\SchemaDrift\MigrationColumnReplay;
+use Tests\Support\SchemaDrift\SelectStatementParser;
 
 /*
 |--------------------------------------------------------------------------
@@ -155,6 +156,14 @@ const CASCADE_ERASED = [
     'site.enquiries',   // enquiries_professional_fk -> core.users ON DELETE CASCADE
     'site.workplaces',  // site_id PK -> site.sites ON DELETE CASCADE (site dies with the user)
     'core.pre_account_builds',  // user_id UNIQUE FK -> core.users ON DELETE CASCADE (1:1 origin record dies with the user)
+    'content.sources',       // user_id FK -> core.users ON DELETE CASCADE
+    'content.items',         // user_id FK -> core.users ON DELETE CASCADE
+    'content.source_items',  // source_id FK -> content.sources -> core.users ON DELETE CASCADE
+    'content.f_text',        // item_id FK -> content.items -> core.users ON DELETE CASCADE
+    'content.f_place',       // ditto
+    'content.f_review',      // ditto
+    'content.f_authored',    // ditto
+    'content.f_channel',     // ditto
 ];
 
 /*
@@ -252,26 +261,7 @@ const SELECT_STAR_EXEMPT = [
  */
 function tableCallSegments(string $statement): array
 {
-    if (! preg_match_all(
-        '/->table\(\s*[\'"]([a-zA-Z_]+\.[a-zA-Z_]+)[\'"]\s*\)/',
-        $statement,
-        $matches,
-        PREG_OFFSET_CAPTURE
-    )) {
-        return [];
-    }
-
-    $segments = [];
-    $count = count($matches[0]);
-
-    for ($i = 0; $i < $count; $i++) {
-        $table = $matches[1][$i][0];
-        $start = $matches[0][$i][1];
-        $end = $i + 1 < $count ? $matches[0][$i + 1][1] : strlen($statement);
-        $segments[] = [$table, substr($statement, $start, $end - $start)];
-    }
-
-    return $segments;
+    return SelectStatementParser::tableCallSegments($statement);
 }
 
 it('every ->table() call in the export builder chains an explicit ->select() (or ->value()), unless exempted', function () {

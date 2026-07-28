@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 
 // Shared SQLite schema setup for data-export feature tests.
 // Mirrors AccountDeletionTestCase — attaches each schema as its own
-// in-memory DB so schema-qualified table names (core.*, site.*, brand.*, etc.) resolve.
+// in-memory DB so schema-qualified table names (core.*, site.*, etc.) resolve.
 class DataExportTestCase
 {
     public static function boot(): void
@@ -26,7 +26,17 @@ class DataExportTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'commerce', 'notifications', 'billing', 'site', 'analytics', 'brand', 'audit', 'moderation'] as $schema) {
+        // commerce/billing/brand were dropped from this list (#PRIV-2 content
+        // sections): the platform no longer has those schemas (CLAUDE.md —
+        // "No brand, commerce, billing"), and no test depending on this
+        // boot() ever referenced billing.subscriptions /
+        // commerce.commission_movements / commerce.commission_payouts /
+        // brand.brand_profiles / brand.brand_partner_links — they were dead
+        // weight. Freed 3 of SQLite's 10-attachment slots for `content`
+        // (setupContentTables() attaches it, plus `catalog`/`routing` via its
+        // shared attachTestSchemas() call), needed by the new content.*
+        // export sections.
+        foreach (['core', 'notifications', 'site', 'analytics', 'audit', 'moderation'] as $schema) {
             try {
                 $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
             } catch (\Throwable) {
@@ -197,22 +207,6 @@ class DataExportTestCase
             skip_confirmation INTEGER,
             created_at TEXT,
             updated_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            industry TEXT,
-            created_at TEXT,
-            updated_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_partner_links (
-            id TEXT PRIMARY KEY,
-            brand_user_id TEXT,
-            affiliate_user_id TEXT,
-            created_at TEXT,
-            deleted_at TEXT NULL
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
@@ -570,31 +564,6 @@ class DataExportTestCase
             color_accent TEXT,
             color_text TEXT,
             typography_font_family TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS billing.subscriptions (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            plan_id TEXT,
-            status TEXT,
-            created_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS commerce.commission_movements (
-            id TEXT PRIMARY KEY,
-            affiliate_user_id TEXT,
-            brand_user_id TEXT,
-            amount_cents INTEGER,
-            created_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS commerce.commission_payouts (
-            id TEXT PRIMARY KEY,
-            affiliate_user_id TEXT,
-            brand_user_id TEXT,
-            status TEXT,
-            amount_cents INTEGER,
-            created_at TEXT
         )');
 
         $conn->statement('CREATE TABLE IF NOT EXISTS audit.user_deletion_audit (

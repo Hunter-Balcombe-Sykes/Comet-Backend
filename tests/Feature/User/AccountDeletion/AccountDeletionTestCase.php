@@ -5,8 +5,8 @@ namespace Tests\Feature\User\AccountDeletion;
 use Illuminate\Support\Facades\DB;
 
 // Shared SQLite schema setup for account-deletion feature tests.
-// Mirrors the pattern from BrandBootstrapTest — attaches each schema as its own
-// in-memory DB so schema-qualified table names (core.*, commerce.*, etc.) resolve.
+// Attaches each schema as its own in-memory DB so schema-qualified table
+// names (core.*, site.*, ingest.*, etc.) resolve.
 class AccountDeletionTestCase
 {
     public static function boot(): void
@@ -26,7 +26,14 @@ class AccountDeletionTestCase
 
         $conn = DB::connection('pgsql');
 
-        foreach (['core', 'brand', 'commerce', 'notifications', 'billing', 'site', 'audit', 'moderation', 'analytics'] as $schema) {
+        // brand/commerce/billing were dropped from this list (#PRIV-1): the
+        // platform no longer has those schemas (CLAUDE.md — "No brand,
+        // commerce, billing"), and no test depending on this boot() ever
+        // referenced brand.brand_profiles / commerce.commission_payouts /
+        // commerce.brand_commission_topups / billing.subscriptions — they
+        // were dead weight. Freed 3 of SQLite's 10-attachment slots for
+        // `ingest`, needed by purgeIngestEffects() coverage.
+        foreach (['core', 'notifications', 'site', 'audit', 'moderation', 'analytics', 'ingest'] as $schema) {
             try {
                 $conn->statement("ATTACH DATABASE ':memory:' AS {$schema}");
             } catch (\Throwable) {
@@ -93,18 +100,6 @@ class AccountDeletionTestCase
             updated_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS brand.brand_profiles (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            abn TEXT,
-            acn TEXT,
-            legal_business_name TEXT,
-            business_type TEXT,
-            brand_status TEXT DEFAULT "deactivated",
-            created_at TEXT,
-            updated_at TEXT
-        )');
-
         $conn->statement('CREATE TABLE IF NOT EXISTS core.professional_integrations (
             id TEXT PRIMARY KEY,
             user_id TEXT,
@@ -114,22 +109,34 @@ class AccountDeletionTestCase
             updated_at TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS commerce.commission_payouts (
+        // #PRIV-1: ingest.sources/effects — purgeIngestEffects() deletes
+        // ingest.effects rows for the user's ingest.sources before forceDelete.
+        // Mirrors the production DDL (20260727130000_ingest_schema.sql) minus
+        // partitioning/RLS/grants, which SQLite doesn't have anyway.
+        $conn->statement('CREATE TABLE IF NOT EXISTS ingest.sources (
             id TEXT PRIMARY KEY,
-            brand_user_id TEXT,
-            affiliate_user_id TEXT,
-            status TEXT,
-            amount_cents INTEGER,
-            created_at TEXT
+            user_id TEXT NOT NULL,
+            connection_id TEXT NULL,
+            source_key TEXT NOT NULL,
+            surface_key TEXT NOT NULL,
+            identifier TEXT NOT NULL,
+            created_at TEXT NULL,
+            updated_at TEXT NULL
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS commerce.brand_commission_topups (
-            id TEXT PRIMARY KEY,
-            brand_user_id TEXT,
-            status TEXT,
-            amount_cents INTEGER,
-            created_at TEXT
-        )');
+        $conn->statement("CREATE TABLE IF NOT EXISTS ingest.effects (
+            digest TEXT PRIMARY KEY,
+            run_id TEXT NULL,
+            source_id TEXT NULL,
+            kind TEXT NOT NULL DEFAULT 'http',
+            cost_tag TEXT NULL,
+            cost_units INTEGER NOT NULL DEFAULT 0,
+            claimed_at TEXT NULL,
+            settled_at TEXT NULL,
+            status TEXT NOT NULL DEFAULT 'claimed',
+            body_ref TEXT NULL,
+            meta TEXT NOT NULL DEFAULT '{}'
+        )");
 
         $conn->statement('CREATE TABLE IF NOT EXISTS site.customers (
             id TEXT PRIMARY KEY,
@@ -183,16 +190,6 @@ class AccountDeletionTestCase
             processing_state TEXT,
             is_active INTEGER,
             deleted_at TEXT,
-            created_at TEXT,
-            updated_at TEXT
-        )');
-
-        $conn->statement('CREATE TABLE IF NOT EXISTS billing.subscriptions (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            stripe_subscription_id TEXT,
-            status TEXT,
-            cancel_at_period_end INTEGER DEFAULT 0,
             created_at TEXT,
             updated_at TEXT
         )');

@@ -9,6 +9,7 @@ use Tests\Feature\User\DataExport\DataExportTestCase;
 
 beforeEach(function () {
     DataExportTestCase::boot();
+    setupContentTables();
 });
 
 function seedProForPayload(string $id, string $email = 'jane@example.com', ?string $authUserId = null): User
@@ -1449,6 +1450,166 @@ it('redacts visitor fingerprints from every analytics section (PRIV-4)', functio
     expect($payload['analytics']['link_clicks'][0]['platform'])->toBe('instagram');
     expect($payload['analytics']['section_views'][0]['section_key'])->toBe('hero');
     expect($payload['analytics']['item_views'][0]['item_type'])->toBe('service');
+});
+
+it('#PRIV-2: withholds Google Business reviewer PII from the integrations payload but keeps the owner\'s own data', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'platform' => 'google-business',
+        'resource_id' => 'jane-salon',
+        'resource_kind' => null,
+        'canonical_key' => 'google-business:jane-salon',
+        'payload' => json_encode([
+            'name' => "Jane's Salon",
+            'address' => '123 Example St',
+            'reviews' => [['author_name' => 'A Reviewer', 'text' => 'Great!']],
+            'reviewSummary' => ['count' => 12, 'average' => 4.8],
+        ]),
+        'display_settings' => null,
+        'sort_order' => 0,
+        'is_active' => 1,
+        'created_at' => '2026-05-01T00:00:00Z',
+        'updated_at' => '2026-05-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $row = $payload['integrations'][0];
+    expect($row['payload'])->not->toHaveKey('reviews');
+    expect($row['payload'])->not->toHaveKey('reviewSummary');
+    expect($row['payload']['name'])->toBe("Jane's Salon");
+    expect($row['payload']['address'])->toBe('123 Example St');
+});
+
+it('#PRIV-2: withholds Eventbrite organiser/venue identity but keeps location (the account holder\'s own geography)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('site.platform_connections')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'platform' => 'eventbrite',
+        'resource_id' => 'jane-events',
+        'resource_kind' => null,
+        'canonical_key' => 'eventbrite:jane-events',
+        'payload' => json_encode([
+            'url' => 'https://eventbrite.com/o/jane-events',
+            'organiser' => ['name' => 'Jane Events Co', 'id' => 'org-123'],
+            'venue' => ['name' => 'The Venue', 'address' => '9 Venue Rd'],
+            'upcoming' => [['id' => 'evt-1', 'name' => 'Workshop']],
+            'location' => 'Sydney, NSW',
+        ]),
+        'display_settings' => null,
+        'sort_order' => 0,
+        'is_active' => 1,
+        'created_at' => '2026-05-01T00:00:00Z',
+        'updated_at' => '2026-05-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $row = $payload['integrations'][0];
+    expect($row['payload'])->not->toHaveKey('organiser');
+    expect($row['payload'])->not->toHaveKey('venue');
+    expect($row['payload']['url'])->toBe('https://eventbrite.com/o/jane-events');
+    expect($row['payload']['upcoming'])->not->toBeEmpty();
+    // The deliberate asymmetry with venue: location is the event's own
+    // geography, published by the account holder themselves.
+    expect($row['payload']['location'])->toBe('Sydney, NSW');
+});
+
+it('metadata.withheld is a non-empty transparency disclosure (Article 15)', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['metadata']['withheld'])->toBeString();
+    expect($payload['metadata']['withheld'])->not->toBe('');
+});
+
+it('DINT-2: exports content.* sections user-scoped, with reviewer identity withheld from f_review', function () {
+    setupContentTables();
+
+    $pro = seedProForPayload((string) Str::uuid());
+    $otherId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    $sourceId = (string) Str::uuid();
+    $otherSourceId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('content.sources')->insert([
+        ['id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'manual', 'priority' => 100, 'created_at' => $now, 'updated_at' => $now],
+        ['id' => $otherSourceId, 'user_id' => $otherId, 'kind' => 'manual', 'priority' => 100, 'created_at' => $now, 'updated_at' => $now],
+    ]);
+
+    $itemId = seedContentItem($pro->id, ['id' => (string) Str::uuid(), 'kind' => 'review', 'headline_cache' => 'A great review']);
+    $otherItemId = seedContentItem($otherId, ['id' => (string) Str::uuid(), 'kind' => 'review', 'headline_cache' => "Not Jane's item"]);
+
+    DB::connection('pgsql')->table('content.source_items')->insert([
+        'id' => (string) Str::uuid(),
+        'source_id' => $sourceId,
+        'coord' => 'google-business:jane-salon:review-1',
+        'item_id' => $itemId,
+        'kind' => 'review',
+        'first_seen_at' => $now,
+        'last_seen_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('content.f_place')->insert([
+        'item_id' => $itemId,
+        'source_id' => $sourceId,
+        'venue_name' => "Jane's Salon",
+        'address' => '123 Example St',
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('content.f_review')->insert([
+        'item_id' => $itemId,
+        'source_id' => $sourceId,
+        'author_name' => 'A Reviewer',
+        'author_photo_url' => 'https://example.com/photo.jpg',
+        'rating' => 5,
+        'text' => 'Great service!',
+        'updated_at' => $now,
+    ]);
+
+    // Another user's facet rows — must never leak into Jane's export.
+    DB::connection('pgsql')->table('content.f_place')->insert([
+        'item_id' => $otherItemId,
+        'source_id' => $otherSourceId,
+        'venue_name' => 'Not Jane\'s Venue',
+        'updated_at' => $now,
+    ]);
+    DB::connection('pgsql')->table('content.f_review')->insert([
+        'item_id' => $otherItemId,
+        'source_id' => $otherSourceId,
+        'author_name' => 'Someone Else Reviewer',
+        'rating' => 3,
+        'updated_at' => $now,
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['content']['sources'])->toHaveCount(1);
+    expect($payload['content']['items'])->toHaveCount(1);
+    expect($payload['content']['items'][0]['headline_cache'])->toBe('A great review');
+    expect($payload['content']['source_items'])->toHaveCount(1);
+
+    expect($payload['content']['f_place'])->toHaveCount(1);
+    expect($payload['content']['f_place'][0]['venue_name'])->toBe("Jane's Salon");
+
+    expect($payload['content']['f_review'])->toHaveCount(1);
+    $reviewRow = $payload['content']['f_review'][0];
+    expect($reviewRow)->not->toHaveKey('author_name');
+    expect($reviewRow)->not->toHaveKey('author_photo_url');
+    expect($reviewRow)->not->toHaveKey('text');
+    expect((float) $reviewRow['rating'])->toBe(5.0);
+
+    // Cross-tenant leak check across the whole payload, not just this section.
+    expect(json_encode($payload))->not->toContain('Someone Else Reviewer');
+    expect(json_encode($payload))->not->toContain("Not Jane's Venue");
 });
 
 it('every section stream() yields resolves to a real key in build() — FOUND-1 regression guard', function () {

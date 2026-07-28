@@ -8,6 +8,10 @@ use Tests\Feature\User\DataExport\DataExportTestCase;
 
 beforeEach(function () {
     DataExportTestCase::boot();
+    // DINT-2: the builder now always queries content.* (see
+    // DataExportPayloadBuilder::sectionDescriptors()) — needed regardless of
+    // whether a given test seeds any content rows.
+    setupContentTables();
     $GLOBALS['__writer_zip_paths'] = [];
 });
 

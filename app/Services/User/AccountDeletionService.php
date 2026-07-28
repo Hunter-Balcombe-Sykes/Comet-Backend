@@ -46,6 +46,22 @@ class AccountDeletionService
      *
      * Adding an email-keyed PII table? Add a purge*() call in purge() AND list
      * the table here, or the coverage guard fails.
+     *
+     * The whole `content.*` and `ingest.*` pipeline is absent from this list on
+     * purpose — every table there is reached by an FK cascade from `core.users`:
+     * `content.sources` / `content.items` / `content.identity_*` /
+     * `content.item_anchors` / `content.item_merges` cascade on `user_id`; every
+     * `content.f_*` facet and `content.source_items` cascades through
+     * `content.items` / `content.sources`; `ingest.sources` cascades on
+     * `user_id`, `ingest.streams` / `runs` on `source_id`, and
+     * `ingest.record_state` / `anomalies` on `stream_id`.
+     * `ingest.record_versions` was the one exception — no FK at all until
+     * migration `20260729120001` added `record_versions_stream_id_fk` (DINT-1).
+     * Its erasure now rides that cascade, and
+     * `tests/Postgres/IngestCascadeDeletionTest.php` is what proves it, because
+     * SQLite cannot.
+     * `ingest.effects` is the second exception and is purged explicitly below
+     * (SET NULL, not cascade).
      */
     public const PURGED_PII_TABLES = [
         'core.users',                          // forceDelete() — the subject row
@@ -54,6 +70,7 @@ class AccountDeletionService
         'notifications.email_subscriptions',   // purgeGlobalEmailSubscriptions() + purgeCrossTenantSubscriptions()
         'analytics.item_views',                // purgeItemViewsPii() — user_id is a denormalised column, no FK
         'analytics.action_events',             // purgeActionEventsPii() — same denormalised-column shape as item_views
+        'ingest.effects',                      // purgeIngestEffects() — FK is SET NULL (money ledger), not CASCADE
     ];
 
     /**
@@ -749,6 +766,7 @@ class AccountDeletionService
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
         $this->purgeItemViewsPii($professional);          // PRIV-3: analytics.item_views has no FK to core.users
         $this->purgeActionEventsPii($professional);       // same PRIV-3 shape: analytics.action_events has no FK to core.users
+        $this->purgeIngestEffects($professional);         // #PRIV-1: ingest.effects.meta carries scraped third-party PII; FK is SET NULL, not CASCADE
 
         // Pre-null the two append-only audit links (staff_audit_log, handle_change_log) so
         // forceDelete's ON DELETE SET NULL cascade matches 0 rows there and never trips
@@ -1145,6 +1163,64 @@ class AccountDeletionService
                 ->delete();
         } catch (\Throwable $e) {
             Log::error('Action event analytics erasure failed during account purge', [
+                'user_id' => $professional->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            report($e);
+        }
+    }
+
+    /**
+     * #PRIV-1: erase the ingest charge-once ledger's captured payloads.
+     *
+     * ingest.effects.meta stores the vendor result INLINE up to 1 MB
+     * (EffectLedger::once()), so a google-business effect's meta carries verbatim
+     * reviewer names and text — third-party PII with no other erasure path. The FK
+     * added by migration 20260729120002 is ON DELETE SET NULL, NOT CASCADE, on
+     * purpose: cascading would destroy the spend record we still owe reconciliation
+     * for. Erasure is therefore this explicit call, which MUST run before
+     * forceDelete() while ingest.sources still resolves this user's rows.
+     *
+     * body_ref: no writer exists today (EffectLedger never sets it — see its
+     * RESULT_INLINE_MAX_BYTES docblock: the P7 off-row drivers are unbuilt, and
+     * there is no ingest disk in config/filesystems.php). Rather than delete files
+     * from a guessed disk, this reports loudly if the column is ever populated, so
+     * the day P7 lands this gap pages instead of silently under-erasing. Wire the
+     * Storage::disk()->delete() loop HERE when it does.
+     */
+    private function purgeIngestEffects(User $professional): void
+    {
+        try {
+            $sourceIds = DB::connection('pgsql')
+                ->table('ingest.sources')
+                ->where('user_id', $professional->id)
+                ->pluck('id');
+
+            if ($sourceIds->isEmpty()) {
+                return;
+            }
+
+            $bodyRefs = DB::connection('pgsql')
+                ->table('ingest.effects')
+                ->whereIn('source_id', $sourceIds)
+                ->whereNotNull('body_ref')
+                ->pluck('body_ref');
+
+            if ($bodyRefs->isNotEmpty()) {
+                report(new \RuntimeException(
+                    'AccountDeletionService::purgeIngestEffects() — '.$bodyRefs->count()
+                    .' ingest.effects rows carry a body_ref but no off-row deletion path exists yet; '
+                    .'the referenced response bodies survive this erasure.'
+                ));
+            }
+
+            DB::connection('pgsql')
+                ->table('ingest.effects')
+                ->whereIn('source_id', $sourceIds)
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error('Ingest effects erasure failed during account purge', [
                 'user_id' => $professional->id,
                 'error' => $e->getMessage(),
             ]);

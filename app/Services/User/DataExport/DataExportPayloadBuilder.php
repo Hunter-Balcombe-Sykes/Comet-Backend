@@ -4,6 +4,7 @@ namespace App\Services\User\DataExport;
 
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
+use App\Services\Platforms\DsarPayloadFilter;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
 use Generator;
 use Illuminate\Database\Query\Builder;
@@ -32,6 +33,14 @@ class DataExportPayloadBuilder
      *
      * Entries MUST be schema-qualified — they are compared against the models'
      * $table values, which carry the Postgres schema prefix.
+     *
+     * DINT-2: `ingest.record_versions` and `ingest.effects` are deliberately
+     * NOT exported here. `record_versions.doc` is the raw, pre-projection
+     * vendor document — exporting it verbatim would reproduce #PRIV-2 at ten
+     * times the volume (it is precisely where Google reviewer names live
+     * before projection). `effects.meta` is the same content plus billing
+     * internals. The subject's own catalog is `content.*` below, which IS
+     * exported.
      */
     public const COVERED_PII_TABLES = [
         'core.users',
@@ -44,6 +53,9 @@ class DataExportPayloadBuilder
         'notifications.email_subscriptions',
         'audit.data_export_audit',
         'audit.user_deletion_audit',
+        'content.sources', 'content.items', 'content.source_items',
+        'content.f_text', 'content.f_place', 'content.f_review',
+        'content.f_authored', 'content.f_channel',
     ];
 
     private const SCHEMA_VERSION = 1;
@@ -165,6 +177,23 @@ class DataExportPayloadBuilder
             ['name' => 'media.site_media', 'kind' => 'rows', 'resolve' => fn () => $this->streamMedia($siteId)],
             ['name' => 'design_kit', 'kind' => 'rows', 'resolve' => fn () => $this->streamDesignKit($siteId)],
             ['name' => 'integrations', 'kind' => 'rows', 'resolve' => fn () => $this->streamIntegrations($userId)],
+            // DINT-2: the subject's own content catalog (content.* — migration
+            // 20260727140000). ingest.record_versions/effects are deliberately
+            // NOT exported (see COVERED_PII_TABLES docblock).
+            ['name' => 'content.sources', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentSources($userId)],
+            ['name' => 'content.items', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentItems($userId)],
+            ['name' => 'content.source_items', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentSourceItems($userId)],
+            ['name' => 'content.f_text', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFText($userId)],
+            ['name' => 'content.f_place', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFPlace($userId)],
+            // #PRIV-2 applied at the schema layer: this section discloses THAT
+            // a third-party-authored review exists and its rating/timestamp,
+            // never the reviewer's identity or verbatim words — those are
+            // withheld the same way DsarPayloadFilter withholds them from the
+            // integrations section (see WITHHELD_DISCLOSURE). author_name,
+            // author_photo_url, and text are deliberately omitted below.
+            ['name' => 'content.f_review', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFReview($userId)],
+            ['name' => 'content.f_authored', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFAuthored($userId)],
+            ['name' => 'content.f_channel', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFChannel($userId)],
             ['name' => 'analytics.site_visits', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSiteVisits($userId)],
             ['name' => 'analytics.link_clicks', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsLinkClicks($userId)],
             ['name' => 'analytics.section_views', 'kind' => 'rows', 'resolve' => fn () => $this->streamAnalyticsSectionViews($userId)],
@@ -218,6 +247,10 @@ class DataExportPayloadBuilder
             'exported_at' => now()->toIso8601String(),
             'schema_version' => self::SCHEMA_VERSION,
             'notes' => self::PII_DISCLOSURE,
+            // Article 15 transparency: telling the subject what was withheld
+            // and why is what makes the withholding lawful rather than an
+            // undisclosed omission. See DsarPayloadFilter::WITHHELD_DISCLOSURE.
+            'withheld' => DsarPayloadFilter::WITHHELD_DISCLOSURE,
         ];
     }
 
@@ -337,6 +370,13 @@ class DataExportPayloadBuilder
      * streamCustomers/streamServices) so a row pending its 30-day purge still
      * surfaces in a DSAR. payload and display_settings are stored as JSONB;
      * decoded here so the export nests them as arrays rather than raw JSON text.
+     *
+     * #PRIV-2: unlike display_settings (the owner's own toggle state, no
+     * third-party content), `payload` is passed through DsarPayloadFilter —
+     * without it, this section would hand back verbatim Google reviewer
+     * names/photos/text and Eventbrite/Humanitix organiser/venue identity,
+     * none of which is personal data about the account holder. See
+     * DsarPayloadFilter::WITHHELD_DISCLOSURE (surfaced in metadata.withheld).
      */
     private function streamIntegrations(string $userId): Generator
     {
@@ -352,10 +392,151 @@ class DataExportPayloadBuilder
                 ->where('user_id', $userId)
                 ->orderBy('sort_order')
         ) as $row) {
-            $row['payload'] = $this->decodeJsonColumn($row['payload'] ?? null);
+            $row['payload'] = DsarPayloadFilter::filter(
+                (string) ($row['platform'] ?? ''),
+                $this->decodeJsonColumn($row['payload'] ?? null),
+            );
             $row['display_settings'] = $this->decodeJsonColumn($row['display_settings'] ?? null);
             yield $row;
         }
+    }
+
+    /**
+     * DINT-2: the subject's own content catalog — the contribution channel
+     * (content.sources), never the raw per-source records.
+     */
+    private function streamContentSources(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.sources')
+                ->select(['id', 'user_id', 'kind', 'connection_id', 'import_run_id', 'label', 'priority', 'created_at', 'updated_at'])
+                ->where('user_id', $userId)
+        );
+    }
+
+    /**
+     * DINT-2: the resolved item spine. headline_cache/facets_cache/eligible_cache
+     * are dashboard-filtering caches only, not third-party content.
+     */
+    private function streamContentItems(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.items')
+                ->select(['id', 'user_id', 'kind', 'headline_cache', 'facets_cache', 'eligible_cache', 'removed_at', 'review_flag', 'first_seen_at', 'last_seen_at', 'created_at', 'updated_at'])
+                ->where('user_id', $userId)
+        );
+    }
+
+    /**
+     * DINT-2: per-external-record units. content.source_items carries no
+     * user_id of its own — scoped through content.sources.user_id. Highest
+     * cardinality of the content.* sections; streamed via lazyRows/cursor.
+     */
+    private function streamContentSourceItems(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.source_items')
+                ->join('content.sources', 'content.source_items.source_id', '=', 'content.sources.id')
+                ->where('content.sources.user_id', $userId)
+                ->select([
+                    'content.source_items.id', 'content.source_items.source_id', 'content.source_items.coord',
+                    'content.source_items.stream_id', 'content.source_items.record_key', 'content.source_items.item_id',
+                    'content.source_items.kind', 'content.source_items.projector_version',
+                    'content.source_items.first_seen_at', 'content.source_items.last_seen_at', 'content.source_items.removed_at',
+                ])
+        );
+    }
+
+    /**
+     * DINT-2: typed text facet (headline/body/summary). Facets carry no
+     * user_id of their own — scoped through content.items.user_id.
+     */
+    private function streamContentFText(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.f_text')
+                ->join('content.items', 'content.f_text.item_id', '=', 'content.items.id')
+                ->where('content.items.user_id', $userId)
+                ->select(['content.f_text.item_id', 'content.f_text.source_id', 'content.f_text.headline', 'content.f_text.body', 'content.f_text.summary', 'content.f_text.updated_at'])
+        );
+    }
+
+    /**
+     * DINT-2: typed place facet (venue/address). Scoped through
+     * content.items.user_id, same as every other facet in this builder.
+     */
+    private function streamContentFPlace(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.f_place')
+                ->join('content.items', 'content.f_place.item_id', '=', 'content.items.id')
+                ->where('content.items.user_id', $userId)
+                ->select([
+                    'content.f_place.item_id', 'content.f_place.source_id', 'content.f_place.venue_name',
+                    'content.f_place.address', 'content.f_place.locality', 'content.f_place.region',
+                    'content.f_place.country_code', 'content.f_place.latitude', 'content.f_place.longitude',
+                    'content.f_place.updated_at',
+                ])
+        );
+    }
+
+    /**
+     * DINT-2 / #PRIV-2 applied at the schema layer: discloses THAT a
+     * third-party-authored review exists (rating, timestamp) but never the
+     * reviewer's identity or verbatim words — author_name, author_photo_url,
+     * and text are deliberately OMITTED from the select list. Without this,
+     * the integrations section's DsarPayloadFilter withholding would be
+     * undone by handing the same reviewer PII straight back through this
+     * facet section.
+     */
+    private function streamContentFReview(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.f_review')
+                ->join('content.items', 'content.f_review.item_id', '=', 'content.items.id')
+                ->where('content.items.user_id', $userId)
+                ->select(['content.f_review.item_id', 'content.f_review.source_id', 'content.f_review.rating', 'content.f_review.reviewed_at', 'content.f_review.updated_at'])
+        );
+    }
+
+    /**
+     * DINT-2: typed authorship facet (creator/collaborators) — the account
+     * holder's own attribution data for their content, not third-party PII.
+     */
+    private function streamContentFAuthored(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.f_authored')
+                ->join('content.items', 'content.f_authored.item_id', '=', 'content.items.id')
+                ->where('content.items.user_id', $userId)
+                ->select(['content.f_authored.item_id', 'content.f_authored.source_id', 'content.f_authored.creator', 'content.f_authored.creator_url', 'content.f_authored.collaborators', 'content.f_authored.updated_at'])
+        );
+    }
+
+    /**
+     * DINT-2: typed channel facet (handle/followers) — the account holder's
+     * own channel presence data.
+     */
+    private function streamContentFChannel(string $userId): Generator
+    {
+        return $this->lazyRows(
+            DB::connection('pgsql')
+                ->table('content.f_channel')
+                ->join('content.items', 'content.f_channel.item_id', '=', 'content.items.id')
+                ->where('content.items.user_id', $userId)
+                ->select([
+                    'content.f_channel.item_id', 'content.f_channel.source_id', 'content.f_channel.handle',
+                    'content.f_channel.followers', 'content.f_channel.avatar_url', 'content.f_channel.is_live',
+                    'content.f_channel.verified', 'content.f_channel.updated_at',
+                ])
+        );
     }
 
     /**
