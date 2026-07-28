@@ -290,6 +290,48 @@ describe('SLO calibration is configurable (CACHE-3)', function () {
     });
 });
 
+it('reports when the public-profile cache TTL exceeds its orphan-key ceiling', function () {
+    config()->set('partna.public_profile.cache_ttl_seconds', 301);
+    config()->set('partna.public_profile.cache_ttl_ceiling_seconds', 300);
+
+    // Empty bucket on purpose: the ceiling is a property of configuration, not
+    // of traffic, so the check has to run above handle()'s empty-bucket return.
+    // A quiet hour is exactly when someone would be adjusting TTLs.
+    Redis::shouldReceive('hGetAll')->andReturn([]);
+    Log::spy();
+
+    $handler = $this->spy(ExceptionHandler::class);
+
+    (new AggregateCacheMetricsJob)->handle();
+
+    $handler->shouldHaveReceived('report')
+        ->once()
+        ->withArgs(fn (Throwable $e) => str_contains($e->getMessage(), 'orphan-key ceiling')
+            && str_contains($e->getMessage(), 'ttl=301s')
+            && str_contains($e->getMessage(), 'ceiling: 300s'));
+});
+
+it('does not report when the public-profile cache TTL sits exactly at its ceiling', function () {
+    config()->set('partna.public_profile.cache_ttl_seconds', 300);
+    config()->set('partna.public_profile.cache_ttl_ceiling_seconds', 300);
+
+    Redis::shouldReceive('hGetAll')->andReturn([]);
+    Log::spy();
+
+    $handler = $this->spy(ExceptionHandler::class);
+
+    (new AggregateCacheMetricsJob)->handle();
+
+    $handler->shouldNotHaveReceived('report');
+});
+
+it('ships a default public-profile TTL that is within its own ceiling', function () {
+    // Guards the other direction: lowering the ceiling below the shipped default
+    // would make every environment breach on the hour it deployed.
+    expect((int) config('partna.public_profile.cache_ttl_seconds'))
+        ->toBeLessThanOrEqual((int) config('partna.public_profile.cache_ttl_ceiling_seconds'));
+});
+
 it('failed() calls report() so terminal failures alert Nightwatch', function () {
     $handler = $this->spy(ExceptionHandler::class);
 

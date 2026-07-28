@@ -31,6 +31,8 @@ class AggregateCacheMetricsJob implements ShouldQueue
 
     public function handle(): void
     {
+        $this->reportTtlCeilingBreach();
+
         $bucket = now('UTC')->subHour()->format('Y-m-d-H');
         $bucketKey = "cache_metrics:{$bucket}";
 
@@ -96,6 +98,40 @@ class AggregateCacheMetricsJob implements ShouldQueue
                 ));
             }
         }
+    }
+
+    /**
+     * Guard the premise that makes orphaned rotation keys harmless.
+     *
+     * public.profile:{handle}:{ts} is never busted — a mutation mints a new key
+     * and abandons the old one for the rest of its TTL. Resident orphans are
+     * therefore edit_rate x TTL, bounded by edit flow rather than site count,
+     * which is what makes the 60s default a non-issue. TTL is the one term an
+     * operator controls and it is env-tunable in Cloud with no deploy, so nothing
+     * else in the codebase would notice it moving. Ceiling lives in config as
+     * code so raising it is a reviewed commit.
+     *
+     * Runs before handle()'s empty-bucket return: this is a property of
+     * configuration, not of traffic. Silent when in bounds — an hourly "still 60"
+     * line is noise, and the empty-bucket test asserts no info log.
+     */
+    private function reportTtlCeilingBreach(): void
+    {
+        $ttl = (int) config('partna.public_profile.cache_ttl_seconds', 60);
+        $ceiling = (int) config('partna.public_profile.cache_ttl_ceiling_seconds', 300);
+
+        if ($ceiling <= 0 || $ttl <= $ceiling) {
+            return;
+        }
+
+        // Message carries only ttl and ceiling, both of which change solely when
+        // a human changes them — so Nightwatch groups repeat hours into one issue
+        // rather than forking a new one every run.
+        report(new \RuntimeException(
+            "Public-profile cache TTL exceeds its orphan-key ceiling: ttl={$ttl}s (ceiling: {$ceiling}s). "
+            .'Orphaned public.profile:* keys live out this TTL, so raising it multiplies resident orphan '
+            .'bytes on the Valkey instance the queue shares. See cache-gold-standard-2026-07-28.md §2.4.'
+        ));
     }
 
     public function failed(\Throwable $e): void

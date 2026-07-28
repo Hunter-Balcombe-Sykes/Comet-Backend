@@ -1111,6 +1111,20 @@ return [
         'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
+        // Ceiling on the TTL above, checked hourly by AggregateCacheMetricsJob.
+        // Deliberately NOT env-tunable: cache_ttl_seconds is, so raising the tap
+        // needs no deploy, while raising the limit on the tap needs a reviewed
+        // commit. That asymmetry is the point.
+        //
+        // This is a MEMORY bound, not a freshness one. public.profile:{handle}:{ts}
+        // is timestamp-rotated, so a mutation mints a new key and freshness holds
+        // at any TTL. What the TTL governs is how long each ABANDONED key lingers:
+        // resident orphan bytes are edit_rate x TTL x payload_size — bounded by
+        // edit flow, not by site count, so a thousand sites does not mean a
+        // thousand orphans (research §2.4). 300 = 5x the current default, which
+        // keeps orphan bytes negligible against the 250MB Valkey the queue shares.
+        // Raise it only after redoing that arithmetic at the then-current edit rate.
+        'cache_ttl_ceiling_seconds' => 300,
         // Analytics endpoint exposed to the architecture via data.publicConfig.
         // partna-pages reads this and uses it for client-side beacons.
         // Defaults to the current APP_URL so the fallback is always environment-correct.
