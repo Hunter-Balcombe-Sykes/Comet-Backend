@@ -8,6 +8,7 @@ use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteSubdomainAlias;
 use App\Models\Views\PublicSitePayload;
+use App\Services\Cache\Concerns\DefersRecompute;
 use App\Services\Cache\Concerns\JitteredTtl;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -19,9 +20,17 @@ use Throwable;
 // V2: Public site payload caching with single-flight locking (prevents thundering herd). Handles 95% of traffic. Simplified in V2 — no more product payload caching.
 class SiteCacheService
 {
+    use DefersRecompute;
     use JitteredTtl;
 
     private const MISS_SENTINEL = '__MISS__';
+
+    /**
+     * Returned by the SWR recompute closure when it threw, so the caller can tell
+     * that apart from buildPayloadFromDb legitimately returning null ("no such
+     * site"). Only the thrown case falls through to the stale-healing ladder.
+     */
+    private const RECOMPUTE_FAILED = '__swr_recompute_failed__';
 
     /**
      * Cache-internal flag on payloads written by writePayloadWithStale: the
@@ -228,42 +237,68 @@ class SiteCacheService
             // Non-blocking attempt: if another worker is already recomputing, fall
             // through and return the stale value — that's the whole point of SWR.
             if ($fillLock->get()) {
-                try {
-                    // Re-check primary: another process may have filled it while we raced.
-                    $rechecked = Cache::get($key);
-                    if ($rechecked === self::MISS_SENTINEL) {
-                        return null;
+                // Re-check primary: another process may have filled it while we raced.
+                $rechecked = Cache::get($key);
+                if ($rechecked === self::MISS_SENTINEL) {
+                    $this->releaseLockQuiet($fillLock);
+
+                    return null;
+                }
+                if (is_array($rechecked) && array_key_exists('services', $rechecked)) {
+                    $this->releaseLockQuiet($fillLock);
+
+                    return $this->withoutResolvedMarker($rechecked);
+                }
+
+                // The lock release lives inside this closure so it survives across
+                // the deferred window — releasing at return would let the next
+                // caller win the lock and queue a second rebuild of the same key.
+                $recompute = function () use ($subdomain, $key): array|string|null {
+                    try {
+                        return $this->buildPayloadFromDb($subdomain, $key);
+                    } catch (Throwable $e) {
+                        // CCH-3: recompute failed but a known-good stale value is
+                        // already in hand — report and fall through to the SAME
+                        // stale-serving/healing ladder below used for "another
+                        // worker is refreshing". This does not mask a genuinely
+                        // broken cache: if $stale itself turns out unusable (old
+                        // shape), the ladder re-invokes buildPayloadFromDb and
+                        // that failure still propagates normally.
+                        report($e);
+
+                        return self::RECOMPUTE_FAILED;
                     }
-                    if (is_array($rechecked) && array_key_exists('services', $rechecked)) {
-                        return $this->withoutResolvedMarker($rechecked);
+                };
+
+                if ($this->shouldDeferRecompute()) {
+                    // Unnamed on purpose — see Concerns\DefersRecompute.
+                    defer(function () use ($recompute, $fillLock) {
+                        try {
+                            $recompute();
+                        } finally {
+                            $this->releaseLockQuiet($fillLock);
+                        }
+                    })->always();
+                    // Fall through to the stale-healing ladder below.
+                } else {
+                    try {
+                        $built = $recompute();
+                    } finally {
+                        $this->releaseLockQuiet($fillLock);
                     }
 
-                    return $this->buildPayloadFromDb($subdomain, $key);
-                } catch (Throwable $e) {
-                    // CCH-3: recompute failed but a known-good stale value is
-                    // already in hand — report and fall through to the SAME
-                    // stale-serving/healing ladder below used for "another
-                    // worker is refreshing", instead of failing this one
-                    // unlucky lock-winner's request. $stale is guaranteed
-                    // non-null here (we're inside `if ($stale !== null)`
-                    // above). This does not mask a genuinely broken cache: if
-                    // $stale itself turns out unusable (old shape), the ladder
-                    // below re-invokes buildPayloadFromDb and that failure
-                    // still propagates normally.
-                    report($e);
-                } finally {
-                    $this->releaseLockQuiet($fillLock);
+                    // A legitimate null ("no such site") passes straight through;
+                    // only the thrown case falls to the ladder.
+                    if ($built !== self::RECOMPUTE_FAILED) {
+                        return $built;
+                    }
                 }
             }
 
-            // Reached when another worker holds the fill lock, OR the lock-winner's
-            // own recompute just failed above (CCH-3) — either way, serve the
-            // last-good copy without blocking. Apply the same backward-compat
-            // healing as the primary-hit path: stale copies may hold a pre-V2
-            // payload shape (missing `services`, `legal`, or unsplit links/
-            // sections). If healing fails (old shape), fall through to
-            // buildPayloadFromDb — the fill-lock winner is already doing this, and
-            // the bounded extra DB hit is safer than serving a broken response.
+            // Reached when another worker holds the fill lock, when the lock-winner's
+            // own recompute failed (CCH-3), or when the lock-winner deferred its
+            // rebuild to after the response — either way, serve the last-good copy
+            // without blocking. Apply the same backward-compat healing as the
             if ($stale === self::MISS_SENTINEL) {
                 return null;
             }
