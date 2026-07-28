@@ -39,6 +39,7 @@ final class ProjectorRegistry
         ],
         'vimeo' => ['watch' => VimeoVideoProjector::class],
         'youtube' => ['watch' => YoutubeVideoProjector::class],
+        'youtube_music' => ['releases' => YoutubeMusicTrackProjector::class],
     ];
 
     public static function has(string $sourceKey, string $stream): bool

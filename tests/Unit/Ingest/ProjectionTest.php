@@ -16,6 +16,7 @@ use App\Ingest\Projection\SpotifyChannelProjector;
 use App\Ingest\Projection\SubstackArticleProjector;
 use App\Ingest\Projection\TwitchVodProjector;
 use App\Ingest\Projection\VimeoVideoProjector;
+use App\Ingest\Projection\YoutubeMusicTrackProjector;
 use App\Ingest\Projection\YoutubeVideoProjector;
 use Tests\TestCase;
 
@@ -307,6 +308,22 @@ it('projects a twitch vod as a video with duration and the vod embed variant', f
     expect($projected['kind'])->toBe('video')
         ->and($projected['facets']['f_duration']['seconds'])->toBe(11313)
         ->and($projected['facets']['f_embed'])->toBe(['provider' => 'twitch', 'embed_key' => '335921245', 'variant' => 'vod'])
+        ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('projects a yt-music upload as a track linking to music.youtube.com with the standard embed', function () {
+    $projected = (new YoutubeMusicTrackProjector)->project(new RecordView([
+        'id' => 'dQw4w9WgXcQ', 'title' => 'New Single',
+        'url' => 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+        'published' => '2026-07-01T00:00:00+00:00',
+        'thumbnail' => 'https://i4.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+        'artist' => 'Some Artist',
+    ]));
+
+    expect($projected['kind'])->toBe('track')
+        ->and($projected['facets']['f_link']['url'])->toBe('https://music.youtube.com/watch?v=dQw4w9WgXcQ')
+        ->and($projected['facets']['f_embed'])->toBe(['provider' => 'youtube', 'embed_key' => 'dQw4w9WgXcQ'])
+        ->and($projected['facets']['f_authored']['creator'])->toBe('Some Artist')
         ->and($projected['media'][0]['role'])->toBe('cover');
 });
 

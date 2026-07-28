@@ -166,6 +166,10 @@ class SourceProvisioner
             'youtube' => $this->cleanString($payload['channelId'] ?? null)
                 ?? $this->youtubeChannelId($resource)
                 ?? $this->bareSlug($payload['handle'] ?? null, 'youtube'),
+            // No handle fallback: the legacy youtube-music connect flow always
+            // resolved and stored the Topic channel's UC… id.
+            'youtube_music' => $this->youtubeChannelId((string) ($payload['channelId'] ?? ''))
+                ?? $this->youtubeChannelId($resource),
             'soundcloud' => $this->soundcloudUrl($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->soundcloudUrl($resource)
                 ?? ($this->bareSlug($resource, 'soundcloud') === null

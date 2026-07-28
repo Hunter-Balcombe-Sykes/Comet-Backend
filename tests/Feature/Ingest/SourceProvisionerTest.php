@@ -294,6 +294,17 @@ it('provisions skool and strava as canonical community urls, refusing product ch
         ->and(ingestSourceFor($stravaBare)->identifier)->toBe('https://www.strava.com/clubs/289149');
 });
 
+it('provisions youtube_music only from a real UC channel id', function () {
+    $userId = provisionerUser();
+
+    $withId = makeConnection($userId, ['platform' => 'youtube-music', 'payload' => ['channelId' => 'UCabcdefghijklmnopqrstuv']]);
+    $handleOnly = makeConnection($userId, ['platform' => 'youtube-music', 'payload' => ['handle' => 'someartist']]);
+
+    expect(ingestSourceFor($withId)->identifier)->toBe('UCabcdefghijklmnopqrstuv')
+        // Unlike plain youtube there is no handle fallback for Topic channels.
+        ->and(ingestSourceFor($handleOnly))->toBeNull();
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {

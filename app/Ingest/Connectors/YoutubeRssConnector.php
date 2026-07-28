@@ -17,7 +17,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
-use SimpleXMLElement;
+use App\Ingest\Support\YoutubeFeed;
 
 /**
  * YouTube's keyless channel RSS (GET youtube.com/feeds/videos.xml?channel_id=)
@@ -32,10 +32,9 @@ use SimpleXMLElement;
  * proven in production) and cached in the stream cursor via Bookmark, so
  * later runs cost one request again.
  *
- * XXE guard: LIBXML_NONET stops libxml resolving any external entity/DTD over
- * the network; LIBXML_NOENT is deliberately NOT passed (that flag is what
- * would substitute internal-DTD entities and open an expansion attack), so no
- * extra `libxml_set_external_entity_loader` call is needed on top.
+ * Feed parsing (incl. the XXE guard) lives in Support\YoutubeFeed, shared
+ * with YoutubeMusicConnector — the YT Music releases strategy reads the same
+ * uploads feed off the artist's auto-generated "- Topic" channel.
  */
 class YoutubeRssConnector implements Connector
 {
@@ -92,7 +91,7 @@ class YoutubeRssConnector implements Connector
             return;
         }
 
-        $items = $this->parseFeed($response['body']);
+        $items = YoutubeFeed::parse($response['body']);
 
         if ($items === null) {
             // Unparseable XML is a shape break (a layout/schema change, or a
@@ -153,74 +152,5 @@ class YoutubeRssConnector implements Connector
         }
 
         return preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $response['body'], $m) ? $m[1] : null;
-    }
-
-    /** @return list<array<string, mixed>>|null null when the body does not parse as XML */
-    private function parseFeed(string $xml): ?array
-    {
-        $previousState = libxml_use_internal_errors(true);
-        $doc = simplexml_load_string($xml, SimpleXMLElement::class, LIBXML_NONET);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previousState);
-
-        if ($doc === false) {
-            return null;
-        }
-
-        $namespaces = $doc->getNamespaces(true);
-        $ytNs = $namespaces['yt'] ?? 'http://www.youtube.com/xml/schemas/2015';
-        $mediaNs = $namespaces['media'] ?? 'http://search.yahoo.com/mrss/';
-
-        $items = [];
-        foreach ($doc->entry as $entry) {
-            $item = $this->mapEntry($entry, $ytNs, $mediaNs);
-            if ($item !== null) {
-                $items[] = $item;
-            }
-        }
-
-        return $items;
-    }
-
-    /** @return array<string, mixed>|null */
-    private function mapEntry(SimpleXMLElement $entry, string $ytNs, string $mediaNs): ?array
-    {
-        $ytChildren = $entry->children($ytNs);
-        $videoId = isset($ytChildren->videoId) ? trim((string) $ytChildren->videoId) : '';
-        $title = isset($entry->title) ? trim((string) $entry->title) : '';
-
-        if ($videoId === '' || $title === '') {
-            return null;
-        }
-
-        $link = null;
-        foreach ($entry->link as $linkEl) {
-            $href = (string) $linkEl->attributes()->href;
-            if ($href !== '') {
-                $link = $href;
-                break;
-            }
-        }
-
-        $thumbnail = null;
-        $mediaGroup = $entry->children($mediaNs)->group;
-        if ($mediaGroup !== null) {
-            foreach ($mediaGroup->children($mediaNs)->thumbnail as $thumb) {
-                $url = (string) $thumb->attributes()->url;
-                if ($url !== '') {
-                    $thumbnail = $url;
-                    break;
-                }
-            }
-        }
-
-        return [
-            'id' => $videoId,
-            'title' => $title,
-            'url' => $link ?? "https://www.youtube.com/watch?v={$videoId}",
-            'published' => isset($entry->published) ? (string) $entry->published : null,
-            'thumbnail' => $thumbnail,
-            'channel_title' => isset($entry->author->name) ? trim((string) $entry->author->name) : null,
-        ];
     }
 }

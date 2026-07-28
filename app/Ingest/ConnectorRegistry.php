@@ -16,6 +16,7 @@ use App\Ingest\Connectors\StravaConnector;
 use App\Ingest\Connectors\SubstackConnector;
 use App\Ingest\Connectors\TwitchConnector;
 use App\Ingest\Connectors\VimeoConnector;
+use App\Ingest\Connectors\YoutubeMusicConnector;
 use App\Ingest\Connectors\YoutubeRssConnector;
 use App\Ingest\Manifest\Manifest;
 use App\Ingest\Runtime\Connector;
@@ -57,6 +58,7 @@ final class ConnectorRegistry
         'twitch' => TwitchConnector::class,
         'vimeo' => VimeoConnector::class,
         'youtube' => YoutubeRssConnector::class,
+        'youtube_music' => YoutubeMusicConnector::class,
     ];
 
     public static function has(string $key): bool
