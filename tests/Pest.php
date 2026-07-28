@@ -3330,3 +3330,25 @@ function seedPageWithSection(string $siteId, array $sectionOverrides = []): arra
 
     return [$pageId, (string) $sectionId];
 }
+
+/**
+ * content.brand_asset_refs (migration 20260728130000) — SQLite mirror for the
+ * store-brand plane: owned-asset refs per (connection, role). media_assets
+ * comes from setupContentTables(), which this calls first.
+ */
+function setupBrandAssetRefsTable(): void
+{
+    setupContentTables();
+
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS content.brand_asset_refs (
+        id TEXT PRIMARY KEY NOT NULL,
+        connection_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN (\'logo_square\', \'logo_full\', \'favicon\')),
+        asset_id TEXT NULL,
+        source_url TEXT NULL,
+        attribution TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (connection_id, role)
+    )');
+}
