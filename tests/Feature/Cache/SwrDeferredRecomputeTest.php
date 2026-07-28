@@ -186,6 +186,37 @@ describe('HTTP context', function () {
         expect(Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10)->get())->toBeTrue();
     });
 
+    it('SiteCacheService rebuilds synchronously (not deferred) when the stale copy is legacy-shaped', function () {
+        config(['cache.stores.cache_locks' => ['driver' => 'array']]);
+
+        $subdomain = 'swr-defer-legacy-stale';
+        $key = CacheKeyGenerator::publicSitePayload($subdomain);
+        // Legacy shape — no `services` key, so it can't be served as the SWR fast
+        // path and must not be left standing behind a deferred rebuild.
+        Cache::put($key.':stale', ['site' => null], 600);
+
+        $service = new class(new CacheLockService) extends SiteCacheService
+        {
+            public int $built = 0;
+
+            protected function buildPayloadFromDb(string $subdomain, string $key): ?array
+            {
+                $this->built++;
+
+                return swrDeferStalePayload();
+            }
+        };
+
+        $result = $service->getPublicSitePayload($subdomain);
+
+        // Single synchronous rebuild, not a deferred one.
+        expect($service->built)->toBe(1);
+        expect($result)->toEqual(swrDeferStalePayload());
+        expect(count(app(DeferredCallbackCollection::class)))->toBe(0);
+        // Lock released synchronously — no deferred closure is holding it.
+        expect(Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10)->get())->toBeTrue();
+    });
+
     it('SiteCacheService does not let a second caller rebuild while one is deferred', function () {
         config(['cache.stores.cache_locks' => ['driver' => 'array']]);
 

@@ -250,9 +250,6 @@ class SiteCacheService
                     return $this->withoutResolvedMarker($rechecked);
                 }
 
-                // The lock release lives inside this closure so it survives across
-                // the deferred window — releasing at return would let the next
-                // caller win the lock and queue a second rebuild of the same key.
                 $recompute = function () use ($subdomain, $key): array|string|null {
                     try {
                         return $this->buildPayloadFromDb($subdomain, $key);
@@ -270,7 +267,12 @@ class SiteCacheService
                     }
                 };
 
-                if ($this->shouldDeferRecompute()) {
+                if ($this->shouldDeferRecompute() && is_array($stale) && array_key_exists('services', $stale)) {
+                    // The lock release happens in this wrapper's finally, not inside
+                    // $recompute itself — $recompute is reused for both the deferred
+                    // and synchronous paths, and it must survive across the deferred
+                    // window: releasing at return would let the next caller win the
+                    // lock and queue a second rebuild of the same key.
                     // Unnamed on purpose — see Concerns\DefersRecompute.
                     defer(function () use ($recompute, $fillLock) {
                         try {
@@ -298,7 +300,10 @@ class SiteCacheService
             // Reached when another worker holds the fill lock, when the lock-winner's
             // own recompute failed (CCH-3), or when the lock-winner deferred its
             // rebuild to after the response — either way, serve the last-good copy
-            // without blocking. Apply the same backward-compat healing as the
+            // without blocking. Apply the same backward-compat healing as the primary
+            // path above: a stale copy can hold a pre-V2 shape (missing `services`,
+            // `legal`, or unsplit links/sections); if healing fails, fall through to
+            // buildPayloadFromDb.
             if ($stale === self::MISS_SENTINEL) {
                 return null;
             }
