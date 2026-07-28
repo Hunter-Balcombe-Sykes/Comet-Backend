@@ -185,6 +185,16 @@ return [
         '2d77dfcb34d9', // PreAccountBuildHandleRaceTest — DROP TABLE, local const table name
         'bd0226c951ba', // ItemSlugAllocatorSavepointTest — CREATE TEMP TABLE, Str::random() local table name
         '28488bff79f2', // ItemSlugAllocatorSavepointTest — DROP TABLE, Str::random() local table name
+        // Vetted 2026-07-28: the content/ingest projection landed while CI was
+        // red at PHPStan, so Checkpoint never ran on it. Every interpolated
+        // identifier below is provably a closed set — a class constant's keys
+        // or the literal array being iterated on the line above — never
+        // request input. Values still travel via bindings.
+        '320c82ee77b5', // ProjectionWriter:536 — upsertSingletonFacet early-returns unless $facet is a SINGLETON_FACETS key (:521)
+        '7b0f383edf44', // ProjectionWriter:675 — $facet from array_keys(self::SINGLETON_FACETS)
+        'a15fee82d15b', // ProjectionWriter:680 — $collection from a literal foreach array
+        'bab8cea99a97', // IngestProjectCommand:142 — $collection from a literal foreach array
+        '24cc5ece6372', // IngestProjectCommand:148 — $facet from a literal foreach array
 
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
         // All are `Authorization: Bearer ` headers concatenating a VARIABLE
@@ -199,6 +209,7 @@ return [
         // literal is a prefix label, not a secret.
         'f5d227992271', // scripts/dast/active/seed-identities.php:70
         '2152b8323ce7', // TwitchApiClient:52
+        'f77b31bf97df', // TwitchConnector:138 — Bearer header over the app token minted at :132
 
         // ── Command injection: false positives, vetted 2026-07-19 ──────────
         // SET statement_timeout/lock_timeout interpolate config-derived ints
