@@ -31,6 +31,9 @@ use Throwable;
  */
 class LinkProbeWorker
 {
+    /** Miss reason meaning "we ran out of clock", not "we looked and it isn't one". */
+    private const CUT_SHORT = 'budget_wall_clock';
+
     /** @var list<Probe> */
     private readonly array $probes;
 
@@ -85,14 +88,21 @@ class LinkProbeWorker
 
         $outcome = $this->run($iri);
 
-        $this->gate->remember($iri, [
-            'outcome' => $outcome->outcome,
-            'surface_key' => $outcome->surfaceKey,
-            'identifier' => $outcome->identifier,
-            'probe' => $outcome->probe,
-            'evidence' => $outcome->evidence,
-            'reason' => $outcome->reason,
-        ]);
+        // Only a real answer is worth remembering for 12 hours. A cascade the
+        // wall clock cut short learned nothing ABOUT THE URL — caching it would
+        // turn one slow host into "this isn't a shop" for everyone who pastes
+        // it that day, which is exactly the collapse ProbeOutcome's three
+        // states exist to prevent.
+        if ($outcome->reason !== self::CUT_SHORT) {
+            $this->gate->remember($iri, [
+                'outcome' => $outcome->outcome,
+                'surface_key' => $outcome->surfaceKey,
+                'identifier' => $outcome->identifier,
+                'probe' => $outcome->probe,
+                'evidence' => $outcome->evidence,
+                'reason' => $outcome->reason,
+            ]);
+        }
 
         return $outcome;
     }
@@ -115,7 +125,7 @@ class LinkProbeWorker
     {
         foreach ($this->probes as $probe) {
             if ($this->fetchBudget->exhausted()) {
-                return ProbeOutcome::miss('budget_wall_clock');
+                return ProbeOutcome::miss(self::CUT_SHORT);
             }
 
             // A probe that throws is a probe that missed. One platform's

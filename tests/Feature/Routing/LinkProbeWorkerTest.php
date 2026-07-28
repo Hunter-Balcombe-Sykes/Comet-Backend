@@ -269,6 +269,25 @@ it('still bounds a pre-account build that has no user to charge', function () {
 
 // ── Failure isolation ────────────────────────────────────────────────────────
 
+it('does not cache "not a shop" when it was really "we ran out of clock"', function () {
+    // A cascade the wall clock cut short learned nothing about the URL.
+    // Remembering it for 12 hours would turn one slow host into a verdict for
+    // everyone who pastes that storefront today.
+    // One fake throughout: the store is a store the whole time, and only the
+    // clock changes. If the cut-short answer were cached, the retry would
+    // still say "not a shop" about a URL that plainly is one.
+    shopifyMetaResponds();
+
+    config()->set('partna.routing.probe.budget_seconds', 0);
+    $cut = probeWorker()->probe(probeIri('https://example.com'), 'user-slow');
+    expect($cut->reason)->toBe('budget_wall_clock');
+
+    config()->set('partna.routing.probe.budget_seconds', 15);
+    $retry = probeWorker()->probe(probeIri('https://example.com'), 'user-slow');
+
+    expect($retry->isMatch())->toBeTrue();
+});
+
 it('treats a probe that throws as a probe that missed', function () {
     // One platform's outage must never abort the cascade before the others
     // answer — that is how a Shopify blip would make every Woo store invisible.
