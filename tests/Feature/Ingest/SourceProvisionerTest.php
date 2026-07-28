@@ -305,6 +305,16 @@ it('provisions youtube_music only from a real UC channel id', function () {
         ->and(ingestSourceFor($handleOnly))->toBeNull();
 });
 
+it('provisions gumroad from the store subdomain, never the apex or www', function () {
+    $userId = provisionerUser();
+
+    $store = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://Easlo.gumroad.com/l/brain']]);
+    $apex = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://gumroad.com/discover']]);
+
+    expect(ingestSourceFor($store)->identifier)->toBe('easlo')
+        ->and(ingestSourceFor($apex))->toBeNull();
+});
+
 // ── Backfill command ────────────────────────────────────────────────────────
 
 it('backfills sources for existing connections and reports skips', function () {

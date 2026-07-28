@@ -8,6 +8,7 @@ use App\Ingest\Projection\ChannelCardProjector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\GoogleBusinessMediaProjector;
 use App\Ingest\Projection\GoogleBusinessReviewProjector;
+use App\Ingest\Projection\GumroadProductProjector;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Projection\RecordView;
 use App\Ingest\Projection\SchemaOrgEventProjector;
@@ -325,6 +326,27 @@ it('projects a yt-music upload as a track linking to music.youtube.com with the 
         ->and($projected['facets']['f_embed'])->toBe(['provider' => 'youtube', 'embed_key' => 'dQw4w9WgXcQ'])
         ->and($projected['facets']['f_authored']['creator'])->toBe('Some Artist')
         ->and($projected['media'][0]['role'])->toBe('cover');
+});
+
+it('projects a gumroad product with an honest price qualifier per pricing mode', function () {
+    $fixed = (new GumroadProductProjector)->project(new RecordView([
+        'permalink' => 'beygm', 'name' => 'Finance Tracker', 'url' => 'https://easlo.gumroad.com/l/beygm',
+        'price_cents' => 3900, 'currency' => 'USD',
+        'thumbnail' => 'https://public-files.gumroad.com/t', 'rating' => 4.9, 'ratings_count' => 134,
+    ]));
+    $pwyw = (new GumroadProductProjector)->project(new RecordView([
+        'name' => 'Tip Jar', 'url' => 'https://x.gumroad.com/l/tip', 'price_cents' => 500, 'pay_what_you_want' => true,
+    ]));
+    $free = (new GumroadProductProjector)->project(new RecordView([
+        'name' => 'Freebie', 'url' => 'https://x.gumroad.com/l/free', 'price_cents' => 0,
+    ]));
+
+    expect($fixed['kind'])->toBe('product')
+        ->and($fixed['offers'][0])->toMatchArray(['amount_minor' => 3900, 'currency' => 'USD', 'qualifier' => 'exact'])
+        ->and($fixed['facets']['f_rated'])->toBe(['rating' => 4.9, 'rating_max' => 5.0, 'ratings_count' => 134])
+        // A pay-what-you-want price is a floor, never an exact.
+        ->and($pwyw['offers'][0]['qualifier'])->toBe('from')
+        ->and($free['offers'][0]['qualifier'])->toBe('free');
 });
 
 it('projects a soundcloud oembed into a channel whose embed key is the parsed player src', function () {

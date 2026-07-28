@@ -181,6 +181,9 @@ class SourceProvisioner
                 ?? $this->appleId($resource),
             'fresha' => $this->freshaSlug($payload['url'] ?? null)
                 ?? $this->bareSlug($resource, 'fresha'),
+            'gumroad' => $this->gumroadSubdomain($payload['url'] ?? null)
+                ?? $this->gumroadSubdomain($resource)
+                ?? $this->bareSlug($resource, 'gumroad'),
             'google_business' => $this->cleanString($connection->place_id)
                 ?? $this->cleanString($payload['placeId'] ?? null)
                 ?? $this->googlePlaceId($resource),
@@ -281,6 +284,18 @@ class SourceProvisioner
         $tlds = '(?:com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)';
         if (preg_match('~^https?://(?:www\.)?eventbrite\.'.$tlds.'/o/([a-z0-9-]+)~i', $value, $m)) {
             return 'https://www.eventbrite.com/o/'.strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /** The store subdomain from a {sub}.gumroad.com URL (never gumroad.com itself). */
+    private function gumroadSubdomain(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('~^https?://([a-z0-9][a-z0-9-]*)\.gumroad\.com~i', $value, $m)
+            && strtolower($m[1]) !== 'www' && strtolower($m[1]) !== 'app') {
+            return strtolower($m[1]);
         }
 
         return null;

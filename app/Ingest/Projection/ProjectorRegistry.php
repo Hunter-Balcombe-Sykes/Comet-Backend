@@ -23,6 +23,7 @@ final class ProjectorRegistry
         // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
         'fresha' => ['services' => FreshaServiceProjector::class],
+        'gumroad' => ['products' => GumroadProductProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         'google_business' => [
             'reviews' => GoogleBusinessReviewProjector::class,
