@@ -71,18 +71,40 @@ jobs:
         run: composer audit
 
       - name: Copy env
+        id: copy_env
         run: cp .env.example .env && php artisan key:generate
 
+      # Every gate from here down carries `if: !cancelled() && copy_env succeeded`.
+      #
+      # Without it a step failure skips every LATER step, so one red gate silently
+      # disables all the others — and each time that happened, code landed with no
+      # scan at all. The GS-1 allowlist below records four separate rounds of
+      # exactly that (2026-06-12, 07-22, 07-25, 07-28); the last one hid seven
+      # gates for two days and ~40 runs. These checks are mutually independent —
+      # they need only a working install + .env, never each other's output — so
+      # running them all and reporting every failure per push costs nothing and is
+      # the difference between "PHPStan is red" and "PHPStan, Checkpoint, pint and
+      # GS-1 are red".
+      #
+      # Gated on copy_env rather than bare !cancelled() so a broken install or
+      # missing .env still short-circuits, instead of emitting nine confusing
+      # downstream failures that all trace back to one cause.
+      #
+      # The job still fails if ANY gate fails. This changes reporting, not strictness.
+
       - name: Static analysis (PHPStan level 5)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: composer analyse
 
       - name: Security scan (Checkpoint)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         # False positives are suppressed by hash in config/checkpoint.php. FAIL
         # (not WARN) breaks the build — see ScanCommand::outputTable in
         # vendor/andreapollastri/checkpoint.
         run: php artisan checkpoint:scan
 
       - name: Security audit (Vigil)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         # env-dependent checks (APP_DEBUG, headers) are only meaningful on the
         # deployed env; this CI gate covers filesystem/secrets/dependency checks.
         # APP_DEBUG=false neutralises the synthetic CI .env (.env.example already
@@ -90,9 +112,11 @@ jobs:
         run: APP_DEBUG=false php artisan vigil:audit --fail-on=critical
 
       - name: Check code style
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: vendor/bin/pint --test
 
       - name: Check for inline auth bypasses in controllers
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: |
           # Inline 403 aborts in controllers bypass the Policy layer — use authorizeForUser() instead.
           # Pattern catches abort(403, ...), abort_unless(..., 403, ...), abort_if(..., 403, ...).
@@ -108,6 +132,7 @@ jobs:
           echo "No inline auth bypasses found."
 
       - name: No raw Cache::* calls outside cache services (GS-1)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: |
           # GS-1: Cache keys must flow through CacheKeyGenerator and a *CacheService
           # to preserve tenant-prefix discipline. A rogue Cache::put('user_count', $n)
@@ -204,6 +229,7 @@ jobs:
           echo "No raw Cache:: calls outside the GS-1 allowlist."
 
       - name: No unsafe migration locking patterns (Master Pattern 20)
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: |
           # Master Pattern 20: migrations added after 2026-05-14 must not use patterns
           # that cause write downtime on populated tables:
@@ -219,6 +245,7 @@ jobs:
           php scripts/guard-no-unsafe-migrations.php
 
       - name: Launch-check parser regression suite
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         # scripts/launch-check/env-check.sh's cloud-payload parser shipped a FALSE
         # PASS twice; this suite pins both PoCs plus the fail-closed cases (absent
         # cloud CLI, absent jq, ungated production). It was previously unwired —
@@ -228,6 +255,7 @@ jobs:
         run: bash scripts/launch-check/env-check-parser.test.sh
 
       - name: Run tests
+        if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: composer test
 
   supply-chain:
