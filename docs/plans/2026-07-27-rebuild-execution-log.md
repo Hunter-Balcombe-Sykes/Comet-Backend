@@ -177,3 +177,44 @@ now a ~60-line config over a central selected-items table with the shared
 add sheet (manual URL + pick-from-connected-accounts). Products is a pool
 page again with store accounts in its sheet; the mobile menu is full-screen.
 One template to edit, every pool follows.
+
+## P6 round 4 — one table grammar + real rows + commerce catalog (2026-07-28)
+
+Owner's round-4 corrections, all live:
+
+**One table grammar everywhere** (frontend `da0d2ed3`): the products-table
+pattern is now THE pattern — every pool table (Events, Watch, Listen, Links,
+Products) and the Platforms index runs bulk select with a confirmed bulk
+Remove/Disconnect, Add + Refresh in the table toolbar, and row-click detail
+popups. Links rebuilt ONTO the pool template (its URL editor rides the
+template's renderDetail seam). The pool template grew removeMany — one
+full-replace save per highlights group, the same race products-section
+documents — plus a row detail with link-out and a URL-only add mode.
+
+**Platforms rows got real**: booking/reservations rows show the DETECTED
+provider (Fresha, Square, OpenTable…) with its brand mark unless the
+provider is a custom link; every connected store is its own row (favicon,
+provider · product count, per-store disconnect); EVERY row opens its sheet —
+the class pages (booking/reservations/online-ordering) are deleted, their
+URLs redirect into ?platform= stubs like every other platform URL.
+
+**Commerce catalog** (backend `9185e01e`): the commerce shelf now lists
+WooCommerce (new definition), Shopify (notConnectable removed), Bandcamp
+(second surface, detector-less so URL routing stays on bandcamp.artist) and
+Gumroad. Every add-sheet step carries a routed URL field (start, category,
+platform). Catalog-only surfaces get real brand marks via
+EXTRA_SURFACE_ICONS — Gumroad's generic globe is gone, WooCommerce/Shopify/
+Mixcloud/Big Cartel/Ticketmaster glyphs added (simple-icons, CC0).
+
+**CI unbroken** (backend `b22612dc`): the pipeline had been red since
+2026-07-27 15:53 — Checkpoint flagged the DAST seeder's runtime-generated
+password as a hardcoded secret and SKIPPED the migration guard + tests
+behind it. Suppressed with vetting note; the applied catalog migration
+(20260727110000) carries the sanctioned guard disable-file marker with
+justification. Local vendor refreshed to lock (guzzle 7.12.1 → 7.15.1
+patched line).
+
+Frontend: 766 tests green, tsc 0, lint 0 errors, production build clean;
+app.partna.au verified byte-identical with the newest deployment. Seeding
+sweep (Maha Restaurant, one real connection per platform) running as the
+E2E case study — results land in this log's next entry.
