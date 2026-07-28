@@ -41,7 +41,6 @@ class Shopify
                 ->identifier(IdentifierKind::Domain)
                 ->refreshEvery(0)
                 ->canonicalUrl('https://{store}.myshopify.com')
-                ->notConnectable()
                 ->detect(
                     Detector::url('myshopify.com')
                         ->subdomain('#^(?!www$)(?<store>[a-z0-9][a-z0-9-]{1,60})$#')
@@ -49,7 +48,7 @@ class Shopify
                         ->from(IdentifierSource::Subdomain)
                         ->strength(EvidenceStrength::DeepLinkWithSlug),
                 )
-                ->note('connects through the commerce probe (§11), not a catalog connect capability; own-domain storefronts carry no host signal and are probe-only')
+                ->note('listed in the picker; the dashboard hands shop-class picks to the store wizard / commerce probe (§11) — own-domain storefronts still carry no host signal')
                 ->build(),
         ];
     }

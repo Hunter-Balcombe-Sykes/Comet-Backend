@@ -51,6 +51,16 @@ class Bandcamp
                         ->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
+            SurfaceBuilder::for('bandcamp.store')
+                ->displayName('Bandcamp')
+                ->routing(RoutingClass::Content)
+                ->shelf(Shelf::Commerce)
+                ->identifier(IdentifierKind::Handle)
+                ->refreshEvery(43200)
+                ->canonicalUrl('https://{handle}.bandcamp.com')
+                ->connect('connect.bandcamp.url.v1')
+                ->note('Commerce-shelf listing of the same platform — Bandcamp pages are storefronts too. No detectors: URL routing stays owned by bandcamp.artist; picking this in the dashboard runs the same URL connect.')
+                ->build(),
         ];
     }
 }

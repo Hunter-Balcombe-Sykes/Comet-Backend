@@ -99,6 +99,7 @@ use App\Catalog\Definitions\Vagaro;
 use App\Catalog\Definitions\Vimeo;
 use App\Catalog\Definitions\Whatsapp;
 use App\Catalog\Definitions\Wolt;
+use App\Catalog\Definitions\Woocommerce;
 use App\Catalog\Definitions\X;
 use App\Catalog\Definitions\Youtube;
 use App\Catalog\Definitions\YoutubeMusic;
@@ -208,6 +209,7 @@ return [
     Vimeo::class,
     Whatsapp::class,
     Wolt::class,
+    Woocommerce::class,
     X::class,
     Youtube::class,
     YoutubeMusic::class,
