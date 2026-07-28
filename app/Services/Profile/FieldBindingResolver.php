@@ -75,7 +75,7 @@ class FieldBindingResolver
             $workplace = Workplace::query()->where('site_id', (string) $site->id)->lockForUpdate()->first()
                 ?? new Workplace(['site_id' => (string) $site->id]);
 
-            $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
+            $sources = (array) $workplace->field_sources;
             $stamp = now()->toIso8601String();
             $changed = false;
 

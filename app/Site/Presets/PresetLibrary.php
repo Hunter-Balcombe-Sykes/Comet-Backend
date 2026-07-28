@@ -65,7 +65,7 @@ final class PresetLibrary
     /** The preset for this user, general when no sector says otherwise. */
     public static function forUser(?User $user): string
     {
-        $slug = trim((string) ($user?->sector ?? ''));
+        $slug = trim((string) $user?->sector);
         if ($slug === '') {
             return self::GENERAL;
         }

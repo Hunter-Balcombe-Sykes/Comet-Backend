@@ -130,7 +130,7 @@ class DesignKitAutopilot
 
             $values = [];
             foreach ($proposals as $column => $value) {
-                $current = $existing?->{$column} ?? null;
+                $current = $existing?->{$column};
                 if ($current === null) {
                     $values[$column] = $value;
                 }
