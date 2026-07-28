@@ -4,6 +4,8 @@ use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Mockery as M;
 
 beforeEach(function () {
@@ -398,4 +400,45 @@ it('nullable: releases lock when closure throws', function () {
     );
 
     expect($call)->toThrow(RuntimeException::class, 'boom');
+});
+
+// Lock-release failure counter
+
+it('gives the lock-release failure counter a 7-day rolling TTL', function () {
+    $lock = M::mock(Lock::class);
+    $lock->shouldReceive('block')->with(5)->once();
+    $lock->shouldReceive('release')->once()->andThrow(new RuntimeException('release failed'));
+
+    Cache::shouldReceive('get')->with('test:ttl')->twice()->andReturn(null, null);
+    Cache::shouldReceive('get')->with('test:ttl:stale')->once()->andReturn(null);
+    Cache::shouldReceive('lock')->with('lock:test:ttl', 10)->once()->andReturn($lock);
+    Cache::shouldReceive('put')->andReturn(true);
+
+    // The counter lives on Redis DB 0 alongside Horizon. Without a TTL it is
+    // inevictable under volatile-lru, which is the policy this instance needs.
+    Redis::shouldReceive('incr')->with('cache:lock_release_failures')->once();
+    Redis::shouldReceive('expire')->with('cache:lock_release_failures', 604800)->once();
+
+    $result = $this->service->rememberLocked('test:ttl', 60, fn () => 'value');
+
+    expect($result)->toBe('value');
+});
+
+it('swallows a driver error from the counter rather than failing the request', function () {
+    $lock = M::mock(Lock::class);
+    $lock->shouldReceive('block')->with(5)->once();
+    $lock->shouldReceive('release')->once()->andThrow(new RuntimeException('release failed'));
+
+    Cache::shouldReceive('get')->with('test:swallow')->twice()->andReturn(null, null);
+    Cache::shouldReceive('get')->with('test:swallow:stale')->once()->andReturn(null);
+    Cache::shouldReceive('lock')->with('lock:test:swallow', 10)->once()->andReturn($lock);
+    Cache::shouldReceive('put')->andReturn(true);
+
+    // A failure to COUNT a failure must never cascade into the caller's request.
+    Redis::shouldReceive('incr')->andThrow(new RuntimeException('redis down'));
+    Log::shouldReceive('warning')->with('cache.lock_release_failure_counter_failed', M::type('array'))->once();
+
+    $result = $this->service->rememberLocked('test:swallow', 60, fn () => 'value');
+
+    expect($result)->toBe('value');
 });

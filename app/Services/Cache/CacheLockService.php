@@ -285,13 +285,20 @@ class CacheLockService
     /**
      * Increment the lock-release failure counter in Redis.
      *
-     * Key: cache:lock_release_failures (integer, no TTL — inspect with: redis-cli GET cache:lock_release_failures).
+     * Key: cache:lock_release_failures (integer, 7-day rolling window — inspect
+     * with: redis-cli GET cache:lock_release_failures). The window is deliberate:
+     * this counter exists so ops can spot a driver problem, not for lifetime
+     * accounting, and an untimed key is inevictable under the volatile-lru policy
+     * this shared Valkey instance needs. EXPIRE is re-issued on every increment,
+     * so the window rolls forward from the most recent failure.
+     *
      * Swallows driver errors silently — a failure to count must not cascade.
      */
     private function recordLockReleaseFailure(): void
     {
         try {
             Redis::incr('cache:lock_release_failures');
+            Redis::expire('cache:lock_release_failures', 7 * 86400);
         } catch (Throwable $e) {
             Log::warning('cache.lock_release_failure_counter_failed', ['error' => $e->getMessage()]);
         }
