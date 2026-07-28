@@ -5,7 +5,12 @@ namespace App\Ingest;
 use App\Ingest\Connectors\AppleMusicConnector;
 use App\Ingest\Connectors\ApplePodcastsConnector;
 use App\Ingest\Connectors\BandcampConnector;
+use App\Ingest\Connectors\FreshaConnector;
+use App\Ingest\Connectors\GoogleBusinessConnector;
+use App\Ingest\Connectors\SpotifyOembedConnector;
 use App\Ingest\Connectors\SubstackConnector;
+use App\Ingest\Connectors\VimeoConnector;
+use App\Ingest\Connectors\YoutubeRssConnector;
 use App\Ingest\Manifest\Manifest;
 use App\Ingest\Runtime\Connector;
 
@@ -22,12 +27,24 @@ use App\Ingest\Runtime\Connector;
  */
 final class ConnectorRegistry
 {
-    /** @var array<string, class-string<Connector>> */
+    /**
+     * Keys must equal each connector's own manifest()->source — the unit
+     * test (ConnectorRegistryTest) walks app/Ingest/Connectors and fails on
+     * any class missing here or registered under the wrong key, so a new
+     * connector cannot silently ship undispatched again.
+     *
+     * @var array<string, class-string<Connector>>
+     */
     private const MAP = [
         'apple_music' => AppleMusicConnector::class,
         'apple_podcasts' => ApplePodcastsConnector::class,
         'bandcamp' => BandcampConnector::class,
+        'fresha' => FreshaConnector::class,
+        'google_business' => GoogleBusinessConnector::class,
+        'spotify' => SpotifyOembedConnector::class,
         'substack' => SubstackConnector::class,
+        'vimeo' => VimeoConnector::class,
+        'youtube' => YoutubeRssConnector::class,
     ];
 
     public static function has(string $key): bool
