@@ -5,6 +5,7 @@ namespace App\Http\Resources\Routing;
 use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
 use App\Http\Resources\ApiResource;
+use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Http\Request;
 
 /**
@@ -13,7 +14,7 @@ use Illuminate\Http\Request;
  * SetPrimarySheet can group by class and mark the current CTA without a
  * second request.
  *
- * @mixin \App\Models\Core\Site\IntegrationConnection
+ * @mixin IntegrationConnection
  */
 class RoutingConnectionResource extends ApiResource
 {
