@@ -13,7 +13,7 @@
 ## Progress
 
 - P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 0 of 20 complete
+- P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 9 complete
 
 ---
@@ -346,7 +346,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#TEST-18** · P2 — `SectionPolicy::create()` and `DesignKitRestylePolicy::create()` return bare `false` (→ 403) on owner mismatch instead of `denyAsNotFound()` (→ 404), breaking the anti-enumeration contract — and has no test
+- [x] **#TEST-18** · P2 — `SectionPolicy::create()` and `DesignKitRestylePolicy::create()` return bare `false` (→ 403) on owner mismatch instead of `denyAsNotFound()` (→ 404), breaking the anti-enumeration contract — and has no test
     - **Where:** `app/Policies/SectionPolicy.php:28-32`, `app/Policies/DesignKitRestylePolicy.php:26-30`
     - **Affects:** Any actor probing whether a site exists by comparing 403 (exists, not yours) vs 404 (doesn't exist) responses on the page/section/restyle-create endpoints.
     - **Effort:** S (~0.5–1h)

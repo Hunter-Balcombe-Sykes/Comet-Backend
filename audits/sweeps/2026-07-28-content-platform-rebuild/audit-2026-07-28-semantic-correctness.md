@@ -24,7 +24,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 5 complete
+- P2 Medium: 3 of 5 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -113,7 +113,7 @@
         }
         ```
 
-- [ ] **#SEM-4** · P2 — `IriCanonicalizer` tenant-label extraction mishandles a `www.`-prefixed suffix-override host
+- [x] **#SEM-4** · P2 — `IriCanonicalizer` tenant-label extraction mishandles a `www.`-prefixed suffix-override host
     - **Where:** app/Routing/IriCanonicalizer.php:143-159 (specifically 155-156)
     - **Affects:** Smart-detect placement for suffix-override platforms (Shopify `myshopify.com`, Big Cartel `bigcartel.com`) when the pasted/harvested URL carries a `www.` sub-label ahead of the tenant, e.g. `www.acme.myshopify.com`.
     - **Effort:** S (~0.5–1h)
@@ -128,7 +128,7 @@
         $tenantLabel = $label === 'www' ? null : ($label ?: null);
         ```
 
-- [ ] **#SEM-5** · P2 — Content-identity poisoned-key guard compares raw values while the merge index compares canonicalised values, so same-source duplicates that differ only by canonicalisation slip past the guard
+- [x] **#SEM-5** · P2 — Content-identity poisoned-key guard compares raw values while the merge index compares canonicalised values, so same-source duplicates that differ only by canonicalisation slip past the guard
     - **Where:** app/Content/Identity/Resolver.php:96-110 (poisonedKeys, signature at line 100) vs :117-142 (keyIndex, signature at line 133); app/Content/Identity/KeyClass.php:106-114 (canonicalise)
     - **Affects:** Cross-source identity merging for any key class where canonicalisation is non-trivial (ISRC/GTIN14: strip punctuation + uppercase; CanonicalUrl/EnclosureUrl: lowercase). Two items from the *same* source sharing a key value that differs only in case/punctuation will be merged instead of being excluded as unreliable.
     - **Effort:** S (~0.5–1h)

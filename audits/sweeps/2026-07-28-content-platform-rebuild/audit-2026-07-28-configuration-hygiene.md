@@ -25,14 +25,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 19 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CFG-1** · P2 — Bot protection fail-open defaults to `true` — a future enforce-mode deploy silently bypasses CAPTCHA on verification failure
+- [x] **#CFG-1** · P2 — Bot protection fail-open defaults to `true` — a future enforce-mode deploy silently bypasses CAPTCHA on verification failure
     - **Where:** config/partna.php:2098 (`bot_protection.fail_open`)
     - **Affects:** All public mutation endpoints once `BOT_PROTECTION_MODE=enforce` is turned on for a given environment (signup, enquiry, subscribe, report) — a misconfigured or unreachable CAPTCHA provider means every request passes until the circuit-breaker's `failure_threshold` is reached.
     - **Effort:** S (~0.5–1h)

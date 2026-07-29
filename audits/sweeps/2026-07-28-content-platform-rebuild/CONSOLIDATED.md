@@ -412,7 +412,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 2 of 21 complete
+- P2 Medium: 4 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -839,7 +839,7 @@ tests originally scoped.
             ->withoutOverlapping(60) // 60min lock — closes a race between application-level whereNull guards on the notified_t* stamp columns.
         ```
 
-- [ ] **LIFE-22** · P2 — `DesignKitRestylePolicy::create()` returns a raw boolean (403) on ownership mismatch instead of the class's own documented 404 contract
+- [x] **LIFE-22** · P2 — `DesignKitRestylePolicy::create()` returns a raw boolean (403) on ownership mismatch instead of the class's own documented 404 contract
     - **Where:** app/Policies/DesignKitRestylePolicy.php:27-34
     - **Affects:** The create-restyle endpoint (`RestyleController::store`). Today the controller always builds `$skeleton` from the actor's *own* site (`$skeleton->site_id = $site->id`), so `ownerMatches()` cannot currently return `false` through this call site — but the inconsistency remains a live trap for any future caller.
     - **Effort:** S (~0.5–1h)
@@ -859,7 +859,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-23** · P2 — `SectionPolicy::create()` has the identical 403-instead-of-404 inconsistency as LIFE-22
+- [x] **LIFE-23** · P2 — `SectionPolicy::create()` has the identical 403-instead-of-404 inconsistency as LIFE-22
     - **Where:** app/Policies/SectionPolicy.php:33-40
     - **Affects:** `SectionController::store` — same "always the actor's own site" mitigation confirmed via `SectionController.php:78-83` (`$section->site_id = $site->id;` before `authorizeForUser`).
     - **Effort:** S (~0.5–1h)
@@ -3981,14 +3981,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 19 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CFG-1** · P2 — Bot protection fail-open defaults to `true` — a future enforce-mode deploy silently bypasses CAPTCHA on verification failure
+- [x] **#CFG-1** · P2 — Bot protection fail-open defaults to `true` — a future enforce-mode deploy silently bypasses CAPTCHA on verification failure
     - **Where:** config/partna.php:2098 (`bot_protection.fail_open`)
     - **Affects:** All public mutation endpoints once `BOT_PROTECTION_MODE=enforce` is turned on for a given environment (signup, enquiry, subscribe, report) — a misconfigured or unreachable CAPTCHA provider means every request passes until the circuit-breaker's `failure_threshold` is reached.
     - **Effort:** S (~0.5–1h)
@@ -4500,14 +4500,14 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
 
 ## Progress
 
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 6 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#API-1** · P2 — Public sitepage resolver emits three user-controlled URLs with no scheme gate; the sibling actions service gates every URL it emits
+- [x] **#API-1** · P2 — Public sitepage resolver emits three user-controlled URLs with no scheme gate; the sibling actions service gates every URL it emits
     - **Where:** `app/Services/PublicSite/SitepageDataResolverService.php:667` (`getLinks()`), `:904` (`getBooking()`), `:870` (`buildServicesData()`)
     - **Affects:** All public sitepage visitors — `resolved_url` (booking), link-block `url`, and `manual_booking_url` all land in the public JSON with no scheme check in this resolver, unlike the sibling `SiteActionsService`.
     - **Effort:** S (~0.5–1h)
@@ -4768,7 +4768,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 ## Progress
 
 - P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 0 of 20 complete
+- P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 9 complete
 
 ---
@@ -5101,7 +5101,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## P2 — Should fix
 
-- [ ] **#TEST-18** · P2 — `SectionPolicy::create()` and `DesignKitRestylePolicy::create()` return bare `false` (→ 403) on owner mismatch instead of `denyAsNotFound()` (→ 404), breaking the anti-enumeration contract — and has no test
+- [x] **#TEST-18** · P2 — `SectionPolicy::create()` and `DesignKitRestylePolicy::create()` return bare `false` (→ 403) on owner mismatch instead of `denyAsNotFound()` (→ 404), breaking the anti-enumeration contract — and has no test
     - **Where:** `app/Policies/SectionPolicy.php:28-32`, `app/Policies/DesignKitRestylePolicy.php:26-30`
     - **Affects:** Any actor probing whether a site exists by comparing 403 (exists, not yours) vs 404 (doesn't exist) responses on the page/section/restyle-create endpoints.
     - **Effort:** S (~0.5–1h)
@@ -6197,7 +6197,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 5 complete
+- P2 Medium: 3 of 5 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -6286,7 +6286,7 @@ None.
         }
         ```
 
-- [ ] **#SEM-4** · P2 — `IriCanonicalizer` tenant-label extraction mishandles a `www.`-prefixed suffix-override host
+- [x] **#SEM-4** · P2 — `IriCanonicalizer` tenant-label extraction mishandles a `www.`-prefixed suffix-override host
     - **Where:** app/Routing/IriCanonicalizer.php:143-159 (specifically 155-156)
     - **Affects:** Smart-detect placement for suffix-override platforms (Shopify `myshopify.com`, Big Cartel `bigcartel.com`) when the pasted/harvested URL carries a `www.` sub-label ahead of the tenant, e.g. `www.acme.myshopify.com`.
     - **Effort:** S (~0.5–1h)
@@ -6301,7 +6301,7 @@ None.
         $tenantLabel = $label === 'www' ? null : ($label ?: null);
         ```
 
-- [ ] **#SEM-5** · P2 — Content-identity poisoned-key guard compares raw values while the merge index compares canonicalised values, so same-source duplicates that differ only by canonicalisation slip past the guard
+- [x] **#SEM-5** · P2 — Content-identity poisoned-key guard compares raw values while the merge index compares canonicalised values, so same-source duplicates that differ only by canonicalisation slip past the guard
     - **Where:** app/Content/Identity/Resolver.php:96-110 (poisonedKeys, signature at line 100) vs :117-142 (keyIndex, signature at line 133); app/Content/Identity/KeyClass.php:106-114 (canonicalise)
     - **Affects:** Cross-source identity merging for any key class where canonicalisation is non-trivial (ISRC/GTIN14: strip punctuation + uppercase; CanonicalUrl/EnclosureUrl: lowercase). Two items from the *same* source sharing a key value that differs only in case/punctuation will be merged instead of being excluded as unreliable.
     - **Effort:** S (~0.5–1h)

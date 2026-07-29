@@ -25,14 +25,14 @@
 
 ## Progress
 
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 6 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#API-1** · P2 — Public sitepage resolver emits three user-controlled URLs with no scheme gate; the sibling actions service gates every URL it emits
+- [x] **#API-1** · P2 — Public sitepage resolver emits three user-controlled URLs with no scheme gate; the sibling actions service gates every URL it emits
     - **Where:** `app/Services/PublicSite/SitepageDataResolverService.php:667` (`getLinks()`), `:904` (`getBooking()`), `:870` (`buildServicesData()`)
     - **Affects:** All public sitepage visitors — `resolved_url` (booking), link-block `url`, and `manual_booking_url` all land in the public JSON with no scheme check in this resolver, unlike the sibling `SiteActionsService`.
     - **Effort:** S (~0.5–1h)

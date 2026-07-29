@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 2 of 21 complete
+- P2 Medium: 4 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -456,7 +456,7 @@
             ->withoutOverlapping(60) // 60min lock — closes a race between application-level whereNull guards on the notified_t* stamp columns.
         ```
 
-- [ ] **LIFE-22** · P2 — `DesignKitRestylePolicy::create()` returns a raw boolean (403) on ownership mismatch instead of the class's own documented 404 contract
+- [x] **LIFE-22** · P2 — `DesignKitRestylePolicy::create()` returns a raw boolean (403) on ownership mismatch instead of the class's own documented 404 contract
     - **Where:** app/Policies/DesignKitRestylePolicy.php:27-34
     - **Affects:** The create-restyle endpoint (`RestyleController::store`). Today the controller always builds `$skeleton` from the actor's *own* site (`$skeleton->site_id = $site->id`), so `ownerMatches()` cannot currently return `false` through this call site — but the inconsistency remains a live trap for any future caller.
     - **Effort:** S (~0.5–1h)
@@ -476,7 +476,7 @@
         }
         ```
 
-- [ ] **LIFE-23** · P2 — `SectionPolicy::create()` has the identical 403-instead-of-404 inconsistency as LIFE-22
+- [x] **LIFE-23** · P2 — `SectionPolicy::create()` has the identical 403-instead-of-404 inconsistency as LIFE-22
     - **Where:** app/Policies/SectionPolicy.php:33-40
     - **Affects:** `SectionController::store` — same "always the actor's own site" mitigation confirmed via `SectionController.php:78-83` (`$section->site_id = $site->id;` before `authorizeForUser`).
     - **Effort:** S (~0.5–1h)
