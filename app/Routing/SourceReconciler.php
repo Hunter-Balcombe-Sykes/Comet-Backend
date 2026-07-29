@@ -72,19 +72,43 @@ class SourceReconciler
             $blockReason = 'cap_reached';
         }
 
-        $intentId = $this->upsertIntent($user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId);
-        $result['intent_id'] = $intentId;
-        $result['verdict'] = $verdict->value;
-        $result['block_reason'] = $blockReason;
+        // One transaction for the intent write plus (on Place) its connection
+        // apply and settle-UPDATE — LIFE-16. Previously these were three
+        // independent autocommit statements: a throw partway through
+        // (IntegrationConnection::booted()'s saving() validator, a
+        // QueryException from applyIntent()) could leave an `applied` intent
+        // with connection_id IS NULL forever. Wrapping means a mid-write
+        // failure now leaves NO intent row instead of a dangling one — see
+        // SuggestionApplier::apply() for the same shape already in this
+        // codebase. NO catch in here: letting a failure roll back the whole
+        // transaction IS the fix. Every downstream side effect reachable from
+        // applyIntent() (Cloudflare purge, site touch, ingest.sources sync,
+        // content-selection seeding) is deferred past commit by
+        // IntegrationConnectionObserver::$afterCommit — see the comment on
+        // that property — so nothing here performs I/O inside the
+        // transaction.
+        [$intentId, $connectionId] = DB::transaction(function () use (
+            $user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId
+        ) {
+            $intentId = $this->upsertIntent($user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId);
 
-        if ($verdict === Verdict::Place) {
+            if ($verdict !== Verdict::Place) {
+                return [$intentId, null];
+            }
+
             $connectionId = $this->applyIntent($user, $placement->surfaceKey, $routingClass, $identifier, $iri, $context);
-            $result['connection_id'] = $connectionId;
 
             DB::table('routing.source_intents')
                 ->where('id', $intentId)
                 ->update(['connection_id' => $connectionId, 'resolved_at' => now(), 'updated_at' => now()]);
-        }
+
+            return [$intentId, $connectionId];
+        });
+
+        $result['intent_id'] = $intentId;
+        $result['connection_id'] = $connectionId;
+        $result['verdict'] = $verdict->value;
+        $result['block_reason'] = $blockReason;
 
         return $result;
     }
@@ -130,30 +154,31 @@ class SourceReconciler
     ): string {
         $now = now();
 
-        $existing = DB::table('routing.source_intents')
-            ->where('user_id', $user->id)
-            ->where('surface_key', $placement->surfaceKey)
-            ->where('identifier', $identifier)
-            ->whereIn('state', ['proposed', 'applied', 'blocked'])
-            ->first();
+        // A user's dismissal is not re-proposed by a later harvest; only live
+        // intents are advanced here.
+        $fields = [
+            'state' => $verdict->intentState(),
+            'block_reason' => $blockReason,
+            'conflicting_connection_id' => $conflictId,
+            'canonical_url' => $iri->canonical,
+            'confidence' => null,
+            'updated_at' => $now,
+        ];
 
-        if ($existing !== null) {
-            // A user's dismissal is not re-proposed by a later harvest; only
-            // live intents are advanced here.
-            DB::table('routing.source_intents')->where('id', $existing->id)->update([
-                'state' => $verdict->intentState(),
-                'block_reason' => $blockReason,
-                'conflicting_connection_id' => $conflictId,
-                'canonical_url' => $iri->canonical,
-                'confidence' => null,
-                'updated_at' => $now,
-            ]);
-
-            return (string) $existing->id;
+        // 1. A live intent already exists -> advance it.
+        if ($id = $this->advanceLiveIntent($user, $placement->surfaceKey, $identifier, $fields)) {
+            return $id;
         }
 
+        // 2. No live intent -> claim the slot. insertOrIgnore compiles to
+        //    `ON CONFLICT DO NOTHING` (pgsql) / `INSERT OR IGNORE` (sqlite),
+        //    so a concurrent winner comes back as 0 rows affected rather than
+        //    a raised 23505 — which on Postgres would abort the enclosing
+        //    LIFE-16 transaction (SQLSTATE 25P02; see
+        //    ItemSlugAllocator::allocateSlug() for the same fix already in
+        //    this codebase).
         $id = (string) Str::uuid();
-        DB::table('routing.source_intents')->insert([
+        $inserted = DB::table('routing.source_intents')->insertOrIgnore([
             'id' => $id,
             'user_id' => $user->id,
             'surface_key' => $placement->surfaceKey,
@@ -171,7 +196,51 @@ class SourceReconciler
             'updated_at' => $now,
         ]);
 
-        return $id;
+        if ($inserted > 0) {
+            return $id;
+        }
+
+        // 3. Lost the race: someone committed the live row between (1) and
+        //    (2). Advance THEIR row — same conditional UPDATE, and the
+        //    correct outcome (idempotent "already handled") rather than a
+        //    500. reconcile() only reaches here for a verdict that
+        //    writesIntent() (applied/proposed/blocked), which is always
+        //    inside idx_source_intents_live's predicate, so a live row
+        //    provably exists at this point; the throw below converts the
+        //    impossible case into a loud invariant failure instead of a
+        //    bogus id.
+        return $this->advanceLiveIntent($user, $placement->surfaceKey, $identifier, $fields)
+            ?? throw new \RuntimeException("Could not upsert source intent for {$placement->surfaceKey}:{$identifier}");
+    }
+
+    /**
+     * Advance the one live intent for this (user, surface, identifier)
+     * triple, if it exists. Null = no live row.
+     *
+     * Conditional UPDATE, not read-then-write: the affected-row count IS the
+     * existence check, and the matched row is locked for the rest of the
+     * enclosing transaction — which is what makes the re-read below
+     * race-free. Race-free ONLY inside a transaction that holds that lock
+     * (LIFE-16's DB::transaction in reconcile()); never call this outside one.
+     *
+     * @param  array<string, mixed>  $fields
+     */
+    private function advanceLiveIntent(User $user, ?string $surfaceKey, string $identifier, array $fields): ?string
+    {
+        $live = fn () => DB::table('routing.source_intents')
+            ->where('user_id', $user->id)
+            ->where('surface_key', $surfaceKey)
+            ->where('identifier', $identifier)
+            ->whereIn('state', ['proposed', 'applied', 'blocked']);
+
+        if ($live()->update($fields) === 0) {
+            return null;
+        }
+
+        // Safe re-read: idx_source_intents_live guarantees at most one
+        // matching row, $fields['state'] is always back in the live set, and
+        // our own UPDATE above holds its row lock until commit.
+        return (string) $live()->value('id');
     }
 
     /**
