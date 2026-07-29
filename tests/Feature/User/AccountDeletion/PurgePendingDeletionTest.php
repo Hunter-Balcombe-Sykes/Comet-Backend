@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
@@ -9,6 +10,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\Feature\User\AccountDeletion\AccountDeletionTestCase;
 
@@ -228,6 +230,105 @@ it('does not dispatch a custom-domain retirement when purging a user without an 
     Bus::assertNotDispatched(SyncSubdomainToKvJob::class, function (SyncSubdomainToKvJob $job) {
         return $job->retireCustomDomain !== null;
     });
+});
+
+it('dispatches CloudflareCachePurgeJob with the captured handle snapshot on purge (EDGE-1)', function () {
+    Bus::fake();
+
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    Bus::assertDispatched(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) use ($pro) {
+        return $job->handle === $pro->handle;
+    });
+});
+
+it('carries the active custom domain through to the edge cache purge job (EDGE-1)', function () {
+    Bus::fake();
+
+    $pro = seedPurgeableUser();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'subdomain' => $pro->handle,
+        'is_published' => 0,
+        'custom_domain' => 'purged.example',
+        'custom_domain_status' => 'active',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    Bus::assertDispatched(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->customDomain === 'purged.example';
+    });
+});
+
+it('still dispatches the edge cache purge with a null custom domain when none is active (EDGE-1 guard)', function () {
+    Bus::fake();
+
+    $pro = seedPurgeableUser();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'subdomain' => $pro->handle,
+        'is_published' => 0,
+        'custom_domain' => null,
+        'custom_domain_status' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    // Must not be hung off the $retireCustomDomain condition — the common
+    // (no-custom-domain) case would otherwise silently lose its edge purge.
+    Bus::assertDispatched(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) use ($pro) {
+        return $job->handle === $pro->handle && $job->customDomain === null;
+    });
+});
+
+it('does not dispatch the edge cache purge for a handle-less user (EDGE-1 guard)', function () {
+    Bus::fake();
+
+    $pro = seedPurgeableUser(['handle' => null, 'handle_lc' => null]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    Bus::assertNotDispatched(CloudflareCachePurgeJob::class);
+});
+
+it('enqueues the KV retire before the edge cache purge (EDGE-1 ordering)', function () {
+    Queue::fake();
+
+    $pro = seedPurgeableUser();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'subdomain' => $pro->handle,
+        'is_published' => 0,
+        'custom_domain' => 'purged.example',
+        'custom_domain_status' => 'active',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    $pushed = array_keys(Queue::pushedJobs());
+    expect($pushed)->toBe([SyncSubdomainToKvJob::class, CloudflareCachePurgeJob::class]);
 });
 
 // ── LIFE-102 / LIFE-103: purge-step failure logs must carry user_id ────────

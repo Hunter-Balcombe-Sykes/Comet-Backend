@@ -1,9 +1,11 @@
 <?php
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\User\User;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -88,6 +90,29 @@ it('returns 502 and leaves the row present when the auth-delete fails', function
     // Left in the same retryable state the daily command handles.
     expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->value('status'))
         ->toBe('pending_deletion');
+});
+
+it('dispatches the edge cache purge job via the staff immediate-delete path (EDGE-1)', function () {
+    Bus::fake();
+
+    $pro = seedAdminPurgeUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    $result = (new AccountDeletionService)->adminPurgeNow(
+        professional: $pro,
+        staffActorId: (string) Str::uuid(),
+        staffActorHandle: 'Admin One',
+        reason: 'Spam account — support ticket #999',
+        overrideObligations: false,
+        request: makeAdminPurgeStaffRequest(),
+    );
+
+    expect($result['success'])->toBeTrue();
+
+    Bus::assertDispatched(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) use ($pro) {
+        return $job->handle === $pro->handle;
+    });
 });
 
 it('skips the confirmation writes for an account already in the grace period', function () {

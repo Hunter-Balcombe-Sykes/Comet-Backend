@@ -3,6 +3,7 @@
 namespace App\Services\User;
 
 use App\Jobs\Account\SendAccountDeletionRequestMailJob;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\DeleteMediaArtifactsJob;
 use App\Mail\Notifications\AccountDeletionCancelledMail;
@@ -830,6 +831,32 @@ class AccountDeletionService
         // domain existed at capture time.
         if ($retireCustomDomain) {
             SyncSubdomainToKvJob::dispatch((string) $professional->id, $handleSnapshot, $retireCustomDomain);
+        }
+
+        // EDGE-1 (2026-07-29): purge the edge cache for the freed handle after
+        // forceDelete succeeds — not before. A pre-delete purge would be re-warmed
+        // by any visitor while the KV entry (retired by UserObserver::deleted, which
+        // fires from forceDelete's model event) is still live; dispatching here, in
+        // the same post-delete block as the $retireCustomDomain KV retire above,
+        // guarantees the KV-retire job is already ahead of this one in the
+        // single-process `cloudflare` queue, so the route is dark before the purge
+        // runs. Unconditional (not gated on $retireCustomDomain): a hard delete has
+        // NO reclaim cooldown (unlike a rename's 14d/90d alias window), so a
+        // reclaimer's own SiteObserver::saved() purge races the KV write and must
+        // not be the sole defence against serving the previous owner's cached HTML.
+        // $retireCustomDomain is passed explicitly because it's captured pre-cascade
+        // — the job's own DB fallback lookup resolves nothing once site.sites is gone.
+        if ($handleSnapshot !== '') {
+            try {
+                CloudflareCachePurgeJob::dispatch($handleSnapshot, $retireCustomDomain);
+            } catch (\Throwable $e) {
+                Log::warning('Edge cache purge dispatch failed during account purge', [
+                    'user_id' => $professional->id,
+                    'handle' => $handleSnapshot,
+                    'error' => $e->getMessage(),
+                ]);
+                report($e);
+            }
         }
 
         // Direct create (not logAuditEvent) — the professional row was just

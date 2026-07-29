@@ -169,16 +169,22 @@ it('reports changed=1 on a revert to a previously-seen hash, converges is_curren
     $lander = app(Lander::class);
     $streamId = $this->streamId;
 
-    $first = $lander->land($streamId, 'r1', $spec, [new Record('releases', 'k1', ['title' => 'A'])], null);
+    // Run ids must be real UUIDs: record_versions.first_seen_run is uuid, and
+    // pdo_pgsql rejects a bare label with 22P02 where SQLite silently accepts it.
+    $runA = (string) Str::uuid();
+    $runB = (string) Str::uuid();
+    $runC = (string) Str::uuid();
+
+    $first = $lander->land($streamId, $runA, $spec, [new Record('releases', 'k1', ['title' => 'A'])], null);
     expect($first['changed'])->toBe(1);
 
-    $second = $lander->land($streamId, 'r2', $spec, [new Record('releases', 'k1', ['title' => 'B'])], null);
+    $second = $lander->land($streamId, $runB, $spec, [new Record('releases', 'k1', ['title' => 'B'])], null);
     expect($second['changed'])->toBe(1);
 
     // The bug: pre-fix, this landing does not raise but silently reports
     // changed=0. Post-fix it converges and demote-then-promote survives the
     // real partial unique index without a 23505.
-    $third = $lander->land($streamId, 'r3', $spec, [new Record('releases', 'k1', ['title' => 'A'])], null);
+    $third = $lander->land($streamId, $runC, $spec, [new Record('releases', 'k1', ['title' => 'A'])], null);
     expect($third['changed'])->toBe(1);
 
     // Assert in SQL, not by casting in PHP (pdo_pgsql returns 't'/'f' as
