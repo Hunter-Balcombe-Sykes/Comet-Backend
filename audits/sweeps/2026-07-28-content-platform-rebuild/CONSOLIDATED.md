@@ -30,13 +30,50 @@
 
 ## Findings at a glance
 
-| Tier | Count |
-|------|-------|
-| P0 — blockers | 1 |
-| P1 — high     | 35 |
-| P2 — medium   | 125 |
-| P3 — low      | 98 |
-| **Total**     | **259** |
+| Tier | Count | Done | Left |
+|------|-------|------|------|
+| P0 — blockers | 1 | **1** | 0 |
+| P1 — high     | 35 | **33** | 0 |
+| P2 — medium   | 125 | 2 | 124 |
+| P3 — low      | 98 | 0 | 99 |
+| **Total**     | **259** | **36** | **223** |
+
+**Status as at 2026-07-29 — every P0 and P1 is closed.** `Count` is the
+original grading; `Done`/`Left` are against the current one, which is why P1
+shows 33 of 35 with 0 left: SCALE-3 was re-graded P1→P3 and SCALE-9 P1→P2
+during the run, so P2's live total is 126 and P3's is 99. The arithmetic
+reconciles: 1 + 33 + 126 + 99 = 259, and 259 − 36 = 223.
+
+The 223 remaining P2/P3 are **unworked by design**, not overlooked — this run
+was scoped to the pilot gate plus the P1 tranche. The folder will not
+auto-archive while they stand, which is intended.
+
+⚠️ **Read the per-finding notes before trusting a tick.** A large share of the
+P1s were closed by *re-grading*, not by writing what was asked for. Recurring
+patterns, each recorded next to its own checkbox:
+
+- **Phantom coverage gaps.** #TEST-16, #TEST-13, #TEST-1, #TEST-3, #TEST-17 and
+  most of #TEST-9 claimed "no tests" for code that was already covered — in
+  several cases by a test added in the *same commit* as the class. The lens
+  never over-reports, only under-looks: it cannot see `tests/Unit/Routing/`,
+  `tests/Unit/Policies/`, `tests/Feature/Security/PolicyEnforcement/` or
+  `TenantIsolation/`. **Worth fixing in `scripts/audit/lenses/` before the next
+  sweep**, or every future run pays the same tax.
+- **One fabricated prescription.** #TEST-1 asks for tests on `canUseListen()`
+  and `canUseStrava()`. Neither method exists.
+- **One actively harmful prescription.** #TEST-4's suggested `Queue::fake()` +
+  `assertPushed` cannot detect the bug it targets — a faked job never contends
+  for the lock. Two such assertions already existed, which is why the property
+  looked covered while being unproven.
+- **Two prescriptions that were simply wrong.** #TEST-11 says SQLite cannot
+  exercise CHECK constraints (it can) and names the wrong exemplar file.
+
+Against that, verifying the stale findings turned up **four real defects the
+audit never named**: the Google Business host gate admitting ~2,029 registrable
+suffixes; a stale identity decision minting empty content items; an unanchored
+Fresha slug extractor; and uncovered update-path capability gates allowing a
+create-then-PATCH privilege escalation. The re-grades were worth more than the
+tests originally scoped.
 
 ## Execution policy  (how `execute audit` runs this file)
 
@@ -4730,7 +4767,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## Progress
 
-- P1 High: 14 of 17 complete  (several partially stale — see individual entries)
+- P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -4738,7 +4775,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TEST-1** · P1 — `AccountCapabilities` gate-rejection path is untested for page creation, section rules, and lifestyle pages
+- [x] **#TEST-1** · P1 — `AccountCapabilities` gate-rejection path is untested for page creation, section rules, and lifestyle pages
+    - **STALE ON ITS HEADLINE CLAIM, AND PARTLY FABRICATED (2026-07-29):** the deny-branch tests it asks for already existed at `tests/Feature/Site/PageAndSectionCurationTest.php:54-61` and `:104-113`, added in the SAME commit (`61636698`) as `PageController`/`PageCapabilities`. Its third bullet prescribes tests for `canUseListen()`/`canUseStrava()` — **neither method exists**; the real flag `can_use_lifestyle_pages` was already asserted both ways. Re-graded P1 → P2. The REAL gap, which the audit never named: the update-path gates (`PageController.php:82-84`, `SectionController.php:104-106`) had zero coverage — a live privilege escalation (create an ungated page, then PATCH a gated capability onto it). Closed and mutation-proven.
     - **Where:** `app/Http/Controllers/Api/Site/PageController.php:122-128`, `app/Http/Controllers/Api/Site/SectionController.php:140-149`
     - **Affects:** Every capability-gated page/section type (menu, listen, events, etc.) — a regression that loosens `PageCapabilities::allows()` lets an account create pages it can't actually serve, producing a broken/blank block on their live sitepage.
     - **Effort:** M (~2–4h)
@@ -5000,7 +5038,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         $this->parent[$detach] = $detach;
         ```
 
-- [ ] **#TEST-15** · P1 — Policy ability coverage: only 1 of 14 Policy classes has a dedicated test file
+- [x] **#TEST-15** · P1 — Policy ability coverage: only 1 of 14 Policy classes has a dedicated test file
+    - **PREMISE DOES NOT HOLD (2026-07-29):** its evidence was an `ls` of `tests/Feature/Policies/`; policy tests actually live in `tests/Unit/Policies/` (10), `tests/Feature/Security/PolicyEnforcement/` (21) and `TenantIsolation/` (10) — off by ~40 files. All three named priorities are individually stale, and `ContentItemPolicy::curate()`'s 403 branch is unreachable by construction. Re-graded P1 → P3. The one real gap: `SectionPolicy::ownerMatches()`'s `site_id` cross-check and its `DesignKitRestylePolicy` twin — the documented setRelation-spoofing guard — had never been touched by any test. Closed.
     - **Where:** `app/Policies/` (14 classes: BasePolicy, CasePolicy, CustomerPolicy, DecisionPolicy, EnquiryPolicy, FeatureFlagPolicy, FeedbackPolicy, GdprPolicy, IntegrationConnectionPolicy, NotificationPolicy, PartnaStaffPolicy, ServicePolicy, SitePolicy, UserSelfPolicy) plus newer additions (ContentItemPolicy, SectionPolicy, DesignKitRestylePolicy) not listed in the lens but confirmed present in the codebase
     - **Affects:** Every authenticated CRUD endpoint. `Glob` of `tests/Feature/Policies/` confirms only `EnquiryPolicyTest.php` exists — the platform's entire authorization surface, outside of one policy, has no per-method allowed/denied test.
     - **Effort:** L (~1–2d)

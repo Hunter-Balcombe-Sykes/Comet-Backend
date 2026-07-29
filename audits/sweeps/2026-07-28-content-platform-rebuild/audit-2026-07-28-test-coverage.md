@@ -12,7 +12,7 @@
 
 ## Progress
 
-- P1 High: 14 of 17 complete  (several partially stale — see individual entries)
+- P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -20,7 +20,8 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TEST-1** · P1 — `AccountCapabilities` gate-rejection path is untested for page creation, section rules, and lifestyle pages
+- [x] **#TEST-1** · P1 — `AccountCapabilities` gate-rejection path is untested for page creation, section rules, and lifestyle pages
+    - **STALE ON ITS HEADLINE CLAIM, AND PARTLY FABRICATED (2026-07-29):** the deny-branch tests it asks for already existed at `tests/Feature/Site/PageAndSectionCurationTest.php:54-61` and `:104-113`, added in the SAME commit (`61636698`) as `PageController`/`PageCapabilities`. Its third bullet prescribes tests for `canUseListen()`/`canUseStrava()` — **neither method exists**; the real flag `can_use_lifestyle_pages` was already asserted both ways. Re-graded P1 → P2. The REAL gap, which the audit never named: the update-path gates (`PageController.php:82-84`, `SectionController.php:104-106`) had zero coverage — a live privilege escalation (create an ungated page, then PATCH a gated capability onto it). Closed and mutation-proven.
     - **Where:** `app/Http/Controllers/Api/Site/PageController.php:122-128`, `app/Http/Controllers/Api/Site/SectionController.php:140-149`
     - **Affects:** Every capability-gated page/section type (menu, listen, events, etc.) — a regression that loosens `PageCapabilities::allows()` lets an account create pages it can't actually serve, producing a broken/blank block on their live sitepage.
     - **Effort:** M (~2–4h)
@@ -282,7 +283,8 @@
         $this->parent[$detach] = $detach;
         ```
 
-- [ ] **#TEST-15** · P1 — Policy ability coverage: only 1 of 14 Policy classes has a dedicated test file
+- [x] **#TEST-15** · P1 — Policy ability coverage: only 1 of 14 Policy classes has a dedicated test file
+    - **PREMISE DOES NOT HOLD (2026-07-29):** its evidence was an `ls` of `tests/Feature/Policies/`; policy tests actually live in `tests/Unit/Policies/` (10), `tests/Feature/Security/PolicyEnforcement/` (21) and `TenantIsolation/` (10) — off by ~40 files. All three named priorities are individually stale, and `ContentItemPolicy::curate()`'s 403 branch is unreachable by construction. Re-graded P1 → P3. The one real gap: `SectionPolicy::ownerMatches()`'s `site_id` cross-check and its `DesignKitRestylePolicy` twin — the documented setRelation-spoofing guard — had never been touched by any test. Closed.
     - **Where:** `app/Policies/` (14 classes: BasePolicy, CasePolicy, CustomerPolicy, DecisionPolicy, EnquiryPolicy, FeatureFlagPolicy, FeedbackPolicy, GdprPolicy, IntegrationConnectionPolicy, NotificationPolicy, PartnaStaffPolicy, ServicePolicy, SitePolicy, UserSelfPolicy) plus newer additions (ContentItemPolicy, SectionPolicy, DesignKitRestylePolicy) not listed in the lens but confirmed present in the codebase
     - **Affects:** Every authenticated CRUD endpoint. `Glob` of `tests/Feature/Policies/` confirms only `EnquiryPolicyTest.php` exists — the platform's entire authorization surface, outside of one policy, has no per-method allowed/denied test.
     - **Effort:** L (~1–2d)
