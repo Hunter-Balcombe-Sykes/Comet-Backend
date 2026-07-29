@@ -77,14 +77,28 @@ class ProjectionWriter
         $contentSourceId = $this->ensureContentSource($userId, (string) $connectionId, $sourceKey);
         $accountRef = $this->accountRef((string) $connectionId, (string) $source['identifier']);
 
+        // SCALE-6: ->cursor() does not bound memory under pdo_pgsql (libpq
+        // buffers the whole result set client-side regardless of PHP-level
+        // iteration) — lazy(500) pages with real LIMIT/OFFSET round-trips.
+        // I1 hazard: orderBy('rv.first_seen_at') ALONE is not a unique sort
+        // key — several records in one run can share a timestamp, and
+        // LIMIT/OFFSET paging over a non-unique order silently skips and
+        // duplicates rows. The rs.key tiebreak is mandatory, not cosmetic,
+        // and must not be reordered ahead of first_seen_at: records are
+        // processed oldest-first so upsertSingletonFacet()'s upsert-on-
+        // (item_id, source_id) lets the LAST-processed record win each
+        // column (I1) — reordering the read silently changes which record's
+        // headline/facets a page shows.
         $records = DB::table('ingest.record_state as rs')
             ->join('ingest.record_versions as rv', function ($join) {
                 $join->on('rv.stream_id', '=', 'rs.stream_id')->on('rv.id', '=', 'rs.current_version_id');
             })
             ->where('rs.stream_id', $streamId)
             ->whereNull('rs.tombstoned_at')
+            ->select(['rs.key', 'rv.doc', 'rv.first_seen_at'])
             ->orderBy('rv.first_seen_at')
-            ->get(['rs.key', 'rv.doc', 'rv.first_seen_at']);
+            ->orderBy('rs.key')
+            ->lazy(500);
 
         $projections = [];
         $projectsToNothing = [];
@@ -264,22 +278,40 @@ class ProjectionWriter
      */
     private function retireAbsentSourceItems(string $contentSourceId, string $streamId, array $projectsToNothing): int
     {
-        $tombstonedKeys = DB::table('ingest.record_state')
+        // Adjacent defect (found in the same pass as SCALE-7): tombstones are
+        // never removed from ingest.record_state, so plucking every
+        // tombstoned key for the stream into PHP grows monotonically forever
+        // — worse than SCALE-7's bind list, which at least shrinks when
+        // items are removed. A correlated subquery keeps the tombstone
+        // check server-side instead of round-tripping the whole list.
+        // $projectsToNothing stays a literal list — it's bounded by this
+        // run's record count, not the stream's whole history.
+        //
+        // Preserve the early return when there is nothing to retire (a cheap
+        // exists() check rather than a full pluck) — it is what keeps the
+        // 'removed' counter honest without issuing the update at all.
+        $hasTombstones = DB::table('ingest.record_state')
             ->where('stream_id', $streamId)
             ->whereNotNull('tombstoned_at')
-            ->pluck('key')
-            ->all();
-
-        $keys = array_values(array_unique(array_merge($tombstonedKeys, $projectsToNothing)));
-        if ($keys === []) {
+            ->exists();
+        if (! $hasTombstones && $projectsToNothing === []) {
             return 0;
         }
 
         return DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('stream_id', $streamId)
-            ->whereIn('record_key', $keys)
             ->whereNull('removed_at')
+            ->where(function ($query) use ($streamId, $projectsToNothing) {
+                $query->whereIn('record_key', function ($sub) use ($streamId) {
+                    $sub->select('key')->from('ingest.record_state')
+                        ->where('stream_id', $streamId)
+                        ->whereNotNull('tombstoned_at');
+                });
+                if ($projectsToNothing !== []) {
+                    $query->orWhereIn('record_key', $projectsToNothing);
+                }
+            })
             ->update(['removed_at' => now(), 'last_seen_at' => now()]);
     }
 
@@ -291,19 +323,37 @@ class ProjectionWriter
      */
     private function resolveItems(string $userId, string $kind): array
     {
+        // Deterministic group order (recommended, plan §b.3): no user-visible
+        // change on its own (bindGroup() picks the winner by bound_at), but
+        // makes fresh-item UUID mint order reproducible instead of
+        // heap-order dependent — covered by the golden test above.
         $rows = DB::table('content.source_items as si')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
             ->where('cs.user_id', $userId)
             ->where('si.kind', $kind)
             ->whereNull('si.removed_at')
+            ->orderBy('si.first_seen_at')
+            ->orderBy('si.id')
             ->get(['si.id', 'si.coord', 'si.source_id', 'si.kind', 'si.first_seen_at']);
 
         if ($rows->isEmpty()) {
             return [];
         }
 
+        // SCALE-7: the audit's "chunk the reads" remedy is wrong here — the
+        // resolver is a global union-find (App\Content\Identity\Resolver),
+        // and chunking the ROW SET would silently stop merging a union that
+        // spans chunks. The legitimate reduction is the BIND LIST, not the
+        // row set: a subquery on the same si/cs predicate instead of
+        // materialising every source_item id into a whereIn(...) array.
         $keysBySourceItem = DB::table('content.identity_keys')
-            ->whereIn('source_item_id', $rows->pluck('id')->all())
+            ->whereIn('source_item_id', function ($sub) use ($userId, $kind) {
+                $sub->select('si.id')->from('content.source_items as si')
+                    ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                    ->where('cs.user_id', $userId)
+                    ->where('si.kind', $kind)
+                    ->whereNull('si.removed_at');
+            })
             ->get(['source_item_id', 'key_class', 'key_value'])
             ->groupBy('source_item_id');
 
@@ -343,15 +393,35 @@ class ProjectionWriter
 
         $this->recordCandidates($userId, $resolution->candidates, $itemByCoord);
 
-        DB::table('content.source_items')
-            ->whereIn('id', $rows->pluck('id')->all())
-            ->get(['id', 'coord', 'item_id'])
-            ->each(function (object $row) use ($itemByCoord) {
-                $target = $itemByCoord[$row->coord] ?? null;
-                if ($target !== null && $row->item_id !== $target) {
-                    DB::table('content.source_items')->where('id', $row->id)->update(['item_id' => $target]);
-                }
-            });
+        // One re-read is necessary for parity: mergeInto() (called from
+        // bindGroup() above, in this same pass) mutates item_id on rows that
+        // belong to a just-discarded loser item, so reading the PRE-bindGroup
+        // $rows collection here would write stale values. It is NOT a
+        // redundant read to eliminate. What the audit missed is the tail:
+        // the old code issued one UPDATE per row whose item_id moved — a
+        // second, unnamed N+1. Replaced with one UPDATE per distinct TARGET
+        // item id (typically 0 in steady state, since most rows already
+        // point at their resolved item).
+        $bySourceItemId = DB::table('content.source_items')
+            ->whereIn('id', function ($sub) use ($userId, $kind) {
+                $sub->select('si.id')->from('content.source_items as si')
+                    ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                    ->where('cs.user_id', $userId)
+                    ->where('si.kind', $kind)
+                    ->whereNull('si.removed_at');
+            })
+            ->get(['id', 'coord', 'item_id']);
+
+        $idsByTarget = [];
+        foreach ($bySourceItemId as $row) {
+            $target = $itemByCoord[$row->coord] ?? null;
+            if ($target !== null && $row->item_id !== $target) {
+                $idsByTarget[$target][] = $row->id;
+            }
+        }
+        foreach ($idsByTarget as $target => $ids) {
+            DB::table('content.source_items')->whereIn('id', $ids)->update(['item_id' => $target]);
+        }
 
         return $itemByCoord;
     }
@@ -646,48 +716,101 @@ class ProjectionWriter
         return $id;
     }
 
+    /** Per-chunk batch size for refreshItemCaches()/resolveItems(). Bind lists stay far under Postgres' 65,535 limit at this size. */
+    private const BATCH_SIZE = 500;
+
     /**
      * Dashboard-only caches (§5): headline via the real per-column resolution
      * over every source's f_text row, facet list for filtering. Serving joins
      * live tables; these never feed the document.
      *
+     * SCALE-8: this used to be 20 queries PER ITEM (1 f_text join + 14
+     * singleton exists() + 4 collection exists() + 1 update), i.e. 20 x the
+     * user's whole live item count for the kind on every run with any
+     * change — not 20 x changed items. Rewritten to batch across chunks of
+     * BATCH_SIZE items: each of the 14 singleton / 4 collection existence
+     * checks becomes one `WHERE item_id IN (batch)` query total (not one per
+     * table per item), and the f_text fetch keeps its `content.sources` join
+     * (I8 — ValueResolver needs cs.priority to weigh across sources; losing
+     * it would silently change every headline). last_seen_at/updated_at are
+     * bumped for the WHOLE batch in one UPDATE (I10 — accepted, documented
+     * nondeterminism on same-run ties, see plan); only items whose resolved
+     * headline or facet list actually changed get a second, narrow UPDATE.
+     *
      * @param  list<string>  $itemIds
      */
     private function refreshItemCaches(string $userId, array $itemIds): void
     {
-        foreach ($itemIds as $itemId) {
-            $contributions = DB::table('content.f_text as ft')
+        foreach (array_chunk($itemIds, self::BATCH_SIZE) as $batch) {
+            $contributionsByItem = DB::table('content.f_text as ft')
                 ->join('content.sources as cs', 'cs.id', '=', 'ft.source_id')
-                ->where('ft.item_id', $itemId)
-                ->get(['ft.source_id', 'ft.headline', 'cs.priority', 'ft.updated_at'])
-                ->map(fn (object $row) => new Contribution(
-                    sourceId: (string) $row->source_id,
-                    value: $row->headline,
-                    sourcePriority: (int) $row->priority,
-                    changedAt: $row->updated_at === null ? null : strtotime((string) $row->updated_at),
-                ))
-                ->all();
+                ->whereIn('ft.item_id', $batch)
+                ->get(['ft.item_id', 'ft.source_id', 'ft.headline', 'cs.priority', 'ft.updated_at'])
+                ->groupBy('item_id');
 
-            $headline = $this->values->resolve('f_text', 'headline', $contributions);
-
-            $present = [];
+            // 14 singleton facets + 4 collection tables: one `DISTINCT
+            // item_id` query per table, PER BATCH — not per item, and not
+            // per table per item. Declaration order is part of the cached
+            // value (I9), so it is preserved exactly below.
+            $presentByItem = array_fill_keys($batch, []);
             foreach (array_keys(self::SINGLETON_FACETS) as $facet) {
-                if (DB::table("content.{$facet}")->where('item_id', $itemId)->exists()) {
-                    $present[] = $facet;
+                $ids = DB::table("content.{$facet}")->whereIn('item_id', $batch)->distinct()->pluck('item_id');
+                foreach ($ids as $id) {
+                    $presentByItem[(string) $id][] = $facet;
                 }
             }
             foreach (['item_media', 'offers', 'item_tags', 'f_action'] as $collection) {
-                if (DB::table("content.{$collection}")->where('item_id', $itemId)->exists()) {
-                    $present[] = $collection;
+                $ids = DB::table("content.{$collection}")->whereIn('item_id', $batch)->distinct()->pluck('item_id');
+                foreach ($ids as $id) {
+                    $presentByItem[(string) $id][] = $collection;
                 }
             }
 
-            DB::table('content.items')->where('id', $itemId)->update([
-                'headline_cache' => $headline,
-                'facets_cache' => json_encode($present),
+            $rowsById = DB::table('content.items')->whereIn('id', $batch)
+                ->get(['id', 'headline_cache', 'facets_cache'])->keyBy('id');
+
+            // Every item in the batch is "seen" this run regardless of
+            // whether its cache changed — one UPDATE for the whole batch.
+            DB::table('content.items')->whereIn('id', $batch)->update([
                 'last_seen_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            foreach ($batch as $itemId) {
+                $contributions = $contributionsByItem->get($itemId, collect())
+                    ->map(fn (object $row) => new Contribution(
+                        sourceId: (string) $row->source_id,
+                        value: $row->headline,
+                        sourcePriority: (int) $row->priority,
+                        changedAt: $row->updated_at === null ? null : strtotime((string) $row->updated_at),
+                    ))
+                    ->all();
+
+                $headline = $this->values->resolve('f_text', 'headline', $contributions);
+                $present = $presentByItem[$itemId] ?? [];
+
+                $row = $rowsById->get($itemId);
+                if ($row === null) {
+                    continue;
+                }
+
+                // PARITY TRAP: compare the DECODED array, never the raw
+                // string. Postgres re-serialises jsonb with its own spacing
+                // on every read, so a string compare would mismatch on
+                // every run under Postgres while passing under SQLite (the
+                // CLAUDE.md "tests run SQLite, prod is Postgres" hazard) —
+                // silently defeating this skip in the environment it exists
+                // to protect.
+                $changed = $headline !== $row->headline_cache
+                    || json_decode((string) $row->facets_cache, true) !== $present;
+
+                if ($changed) {
+                    DB::table('content.items')->where('id', $itemId)->update([
+                        'headline_cache' => $headline,
+                        'facets_cache' => json_encode($present),
+                    ]);
+                }
+            }
         }
     }
 
