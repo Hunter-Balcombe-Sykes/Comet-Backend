@@ -85,6 +85,63 @@ it('update: owner pending_deletion → 423', function () {
     expect($response->status())->toBe(423);
 });
 
-// Explicitly NOT covered here: DesignKitRestylePolicy::create()'s non-owner
-// result. It returns bare `false` → 403 (:27-34), the #TEST-18 twin defect.
-// Leave untouched — see SectionPolicyTest.php's identical note.
+// ---------------------------------------------------------------------------
+// create — LIFE-22/#TEST-18: non-owner must be a 404, not a bare 403. The
+// deny branch is unreachable via HTTP (RestyleController::store() sets
+// site_id and setRelation('site', $site) to the SAME site), so these are
+// gate-level, mirroring SectionPolicyTest.php's identical coverage.
+// ---------------------------------------------------------------------------
+
+it('create: owner with a matching site → allowed', function () {
+    $actor = restylePolicy_actor();
+    $site = restylePolicy_site('S-CREATE-OWN', $actor->id);
+    $skeleton = restylePolicy_restyle('S-CREATE-OWN', $site);
+
+    expect(Gate::forUser($actor)->allows('create', $skeleton))->toBeTrue();
+});
+
+it('create: non-owner site → 404, not 403', function () {
+    $actor = restylePolicy_actor();
+    $otherSite = restylePolicy_site('S-CREATE-OTHER', 'someone-else');
+    $skeleton = restylePolicy_restyle('S-CREATE-OTHER', $otherSite);
+
+    $response = Gate::forUser($actor)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+    expect($response->status())->not->toBe(403);
+});
+
+it('create: SPOOFED site relation whose id does not match the row → 404', function () {
+    $attacker = restylePolicy_actor();
+    $attackerSite = restylePolicy_site('S-CREATE-ATTACKER', $attacker->id);
+    $skeleton = restylePolicy_restyle('S-CREATE-VICTIM', $attackerSite);
+
+    $response = Gate::forUser($attacker)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+});
+
+it('create: null site relation → 404', function () {
+    $skeleton = new DesignKitRestyle;
+    $skeleton->site_id = 'S-CREATE-SOME-SITE';
+    $skeleton->setRelation('site', null);
+
+    $actor = restylePolicy_actor();
+    $response = Gate::forUser($actor)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+});
+
+it('create: owner pending_deletion → 423, not 404', function () {
+    $actor = restylePolicy_actor('pending_deletion');
+    $site = restylePolicy_site('S-CREATE-PENDING', $actor->id);
+    $skeleton = restylePolicy_restyle('S-CREATE-PENDING', $site);
+
+    $response = Gate::forUser($actor)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(423);
+});

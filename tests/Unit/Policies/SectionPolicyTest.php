@@ -180,7 +180,63 @@ it('view: a Page resource resolves through the same policy', function () {
     expect($response->status())->toBe(404);
 });
 
-// Explicitly NOT covered here: SectionPolicy::create()'s non-owner result.
-// It returns bare `false` → 403 (SectionPolicy.php:33-40), which is the
-// #TEST-18 defect (should be denyAsNotFound() → 404). Asserting the current
-// 403 would pin a bug as correct behaviour — left untouched on purpose.
+// ---------------------------------------------------------------------------
+// create — LIFE-22/LIFE-23/#TEST-18: non-owner must be a 404, not a bare
+// 403. The deny branch is unreachable via HTTP (SectionController::store()
+// sets site_id and setRelation('site', $site) to the SAME site), so these
+// are gate-level, mirroring the view()/update() coverage above.
+// ---------------------------------------------------------------------------
+
+it('create: owner with a matching site → allowed', function () {
+    $actor = sectionPolicy_actor();
+    $site = sectionPolicy_site('S-CREATE-OWN', $actor->id);
+    $skeleton = sectionPolicy_section('S-CREATE-OWN', $site);
+
+    expect(Gate::forUser($actor)->allows('create', $skeleton))->toBeTrue();
+});
+
+it('create: non-owner site → 404, not 403', function () {
+    $actor = sectionPolicy_actor();
+    $otherSite = sectionPolicy_site('S-CREATE-OTHER', 'someone-else');
+    $skeleton = sectionPolicy_section('S-CREATE-OTHER', $otherSite);
+
+    $response = Gate::forUser($actor)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+    expect($response->status())->not->toBe(403);
+});
+
+it('create: SPOOFED site relation whose id does not match the row → 404', function () {
+    $attacker = sectionPolicy_actor();
+    $attackerSite = sectionPolicy_site('S-CREATE-ATTACKER', $attacker->id);
+    $skeleton = sectionPolicy_section('S-CREATE-VICTIM', $attackerSite);
+
+    $response = Gate::forUser($attacker)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+});
+
+it('create: null site relation → 404', function () {
+    $skeleton = new Section;
+    $skeleton->site_id = 'S-CREATE-SOME-SITE';
+    $skeleton->setRelation('site', null);
+
+    $actor = sectionPolicy_actor();
+    $response = Gate::forUser($actor)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(404);
+});
+
+it('create: owner pending_deletion → 423, not 404', function () {
+    $actor = sectionPolicy_actor('pending_deletion');
+    $site = sectionPolicy_site('S-CREATE-PENDING', $actor->id);
+    $skeleton = sectionPolicy_section('S-CREATE-PENDING', $site);
+
+    $response = Gate::forUser($actor)->inspect('create', $skeleton);
+
+    expect($response->denied())->toBeTrue();
+    expect($response->status())->toBe(423);
+});

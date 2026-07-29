@@ -112,6 +112,39 @@ it('treats multi-tenant suffixes as their own registrable boundary', function ()
         ->and($i->tenantScoped)->toBeTrue();
 });
 
+// #SEM-4 — a leading www. PREFIX on a tenant-scoped host must still yield the
+// tenant label, not fall through the exact-'www' guard into an unmatched
+// 'www.acme' subdomain.
+it('#SEM-4: strips a leading www. prefix on a tenant-scoped host to still yield the tenant label', function () {
+    $i = iri('https://www.acme.myshopify.com/products/thing');
+
+    expect($i->subdomain)->toBe('acme')
+        ->and($i->tenantScoped)->toBeTrue()
+        ->and($i->suffixParent)->toBe('myshopify.com')
+        // Deliberately unfixed divergence (out of scope, see IriCanonicalizer.php
+        // :152 and :181): the www and bare forms still yield two DIFFERENT
+        // registrable keys for one tenant. Pinned here so the next reader sees
+        // it is known, not overlooked.
+        ->and($i->registrableKey)->toBe('www.acme.myshopify.com');
+});
+
+it('#SEM-4: the bare tenant host (control, unchanged) still yields the tenant label', function () {
+    $i = iri('https://acme.myshopify.com/products/thing');
+
+    expect($i->subdomain)->toBe('acme');
+});
+
+it('#SEM-4: a bare www on the platform suffix itself still yields no subdomain — proves the original guard survives', function () {
+    $i = iri('https://www.myshopify.com/');
+
+    expect($i->subdomain)->toBeNull();
+});
+
+it('#SEM-4: the www-prefix fix also applies to non-Shopify suffix overrides', function () {
+    expect(iri('https://www.acme.bigcartel.com/')->subdomain)->toBe('acme')
+        ->and(iri('https://www.acme.as.me/')->subdomain)->toBe('acme');
+});
+
 it('exposes a subdomain only when it is meaningful', function () {
     expect(iri('https://www.example.com/x')->subdomain)->toBeNull()
         ->and(iri('https://shop.example.com/x')->subdomain)->toBe('shop')

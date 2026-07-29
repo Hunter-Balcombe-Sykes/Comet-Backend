@@ -155,6 +155,33 @@ it('ignores a key one source attached to two of its own records', function () {
     expect($result->groups)->toHaveCount(3);
 });
 
+// #SEM-5 — the guard above only catches a duplicate spelled the SAME way
+// twice. poisonedKeys() used to sign on the RAW value while keyIndex() signs
+// on the CANONICAL value, so two different spellings of the same ISRC from
+// one source dodged detection entirely and fell through to a false merge.
+// This is the test that turns RED without the fix: pre-fix it produces ONE
+// group (a:1/a:2/b:1 all merged — worse than a missed poison, an actual
+// false union across sources); post-fix it must produce 3 (no merge at all).
+it('poisons a key even when the same source spelled it two different ways', function () {
+    $result = (new Resolver)->resolve([
+        idItem('a:1', 'src-a', 'track', [idKey(KeyClass::Isrc, 'USRC17607839')]),
+        idItem('a:2', 'src-a', 'track', [idKey(KeyClass::Isrc, 'us-rc1-76-07839')]), // canonicalises identically
+        idItem('b:1', 'src-b', 'track', [idKey(KeyClass::Isrc, 'USRC17607839')]),
+    ]);
+
+    expect($result->groups)->toHaveCount(3);
+});
+
+it('poisons on a case-variant URL spelling too — not ISRC-specific', function () {
+    $result = (new Resolver)->resolve([
+        idItem('a:1', 'src-a', 'link', [idKey(KeyClass::CanonicalUrl, 'https://X.com/A')]),
+        idItem('a:2', 'src-a', 'link', [idKey(KeyClass::CanonicalUrl, 'https://x.com/a')]), // same after lowercasing
+        idItem('b:1', 'src-b', 'link', [idKey(KeyClass::CanonicalUrl, 'https://x.com/a')]),
+    ]);
+
+    expect($result->groups)->toHaveCount(3);
+});
+
 // ── Evidential keys ─────────────────────────────────────────────────────────
 
 it('never merges on an evidential key, offering it as a candidate instead', function () {

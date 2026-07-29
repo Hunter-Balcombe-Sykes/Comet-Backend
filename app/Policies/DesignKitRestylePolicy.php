@@ -30,7 +30,9 @@ class DesignKitRestylePolicy extends BasePolicy
             return $denied;
         }
 
-        return $this->ownerMatches($actor, $skeleton);
+        return $this->ownerMatches($actor, $skeleton)
+            ? true
+            : $this->denyAsNotFound();
     }
 
     /** Undo is the only mutation a restyle row supports. */

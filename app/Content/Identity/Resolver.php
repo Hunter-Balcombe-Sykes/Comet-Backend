@@ -106,7 +106,11 @@ class Resolver
 
         foreach ($items as $item) {
             foreach ($item->keys as $key) {
-                $signature = $key->class->value.'|'.$key->value;
+                // Canonicalise before signing, matching keyIndex() below —
+                // otherwise the same value spelled two different ways (raw)
+                // would sign as two different signatures and dodge the
+                // duplicate-in-one-source poison check entirely (#SEM-5).
+                $signature = $key->class->value.'|'.$key->class->canonicalise($key->value);
                 $sourceKey = $signature.'|'.$item->sourceId;
                 if (isset($seen[$sourceKey])) {
                     $poisoned[$signature] = true;
@@ -115,6 +119,10 @@ class Resolver
             }
         }
 
+        // Deliberately no tier()/minLength()/appliesTo() filter here, unlike
+        // keyIndex() below — this poisons more broadly than the index
+        // matches, which can only SUPPRESS merges, never create a false one.
+        // Do not "symmetrise" this into a weaker guard.
         return $poisoned;
     }
 

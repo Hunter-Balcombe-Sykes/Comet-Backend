@@ -153,7 +153,10 @@ class IriCanonicalizer
                 $tenantScoped = true;
                 $suffixParent = $suffix;
                 $label = substr($host, 0, -1 * (strlen($suffix) + 1));
-                $tenantLabel = $label === 'www' ? null : ($label ?: null);
+                if (str_starts_with($label, 'www.')) {
+                    $label = substr($label, 4);
+                }
+                $tenantLabel = ($label === '' || $label === 'www') ? null : $label;
                 break;
             }
         }
@@ -170,6 +173,12 @@ class IriCanonicalizer
             // that is what `#^(?<tenant>…)$#` patterns are written against.
             $subdomain = $tenantLabel;
         } elseif ($host !== $registrable && str_ends_with($host, '.'.$registrable)) {
+            // NOTE: this branch has the same class of bug the tenant-scoped
+            // branch above was fixed for (#SEM-4) — `www.shop.example.com`
+            // yields subdomain 'www.shop', not 'shop'. Left as-is: unlike the
+            // tenant branch, this feeds subdomain matching for every
+            // non-tenanted multi-label host, so fixing it changes detector
+            // behaviour far more broadly. Follow-up, not folded in here.
             $sub = substr($host, 0, -1 * (strlen($registrable) + 1));
             $subdomain = $sub === 'www' ? null : ($sub ?: null);
         }

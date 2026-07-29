@@ -36,7 +36,9 @@ class SectionPolicy extends BasePolicy
             return $denied;
         }
 
-        return $this->ownerMatches($actor, $skeleton);
+        return $this->ownerMatches($actor, $skeleton)
+            ? true
+            : $this->denyAsNotFound();
     }
 
     public function update(User $actor, Model $resource): bool|Response

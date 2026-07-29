@@ -1244,3 +1244,125 @@ it('handles a race where the site is deleted between resolve and payload cache r
     expect(Cache::get('handle.resolve:deleted-race-pro'))->toBeNull();
     expect(Cache::get('handle.resolve:deleted-race-pro:stale'))->toBeNull();
 });
+
+// ── #API-1: link/booking href scheme gate ────────────────────────────────
+// A link block or booking-section settings.booking_url written outside the
+// Form Request path (a seeder/import writer, or a row that predates the
+// write-side validator) must not surface a non-http(s) scheme as a public
+// href. UrlSafety::safeHref() gates SitepageDataResolverService::getLinks()
+// and ::getBooking() — these prove the gate at the actual public wire.
+
+it('drops a link block whose url has a non-http(s) scheme', function () {
+    $pro = seedIndividualProfile('links-xss');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    // Bypasses StoreLinkBlockRequest entirely — simulates a seeder/import
+    // writer or a row that predates the write-side scheme validator.
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'link',
+        'block_group' => 'links',
+        'title' => 'Malicious',
+        'url' => 'javascript:alert(1)',
+        'sort_order' => 1,
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'category' => 'custom',
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $links = $this->getJson('/api/public/profiles/links-xss')->assertOk()->json('data.profile.links');
+
+    expect($links)->toBe([]);
+});
+
+it('POSITIVE CONTROL: a link block with an https url survives verbatim', function () {
+    $pro = seedIndividualProfile('links-safe');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'link',
+        'block_group' => 'links',
+        'title' => 'Safe',
+        'url' => 'https://example.com/x',
+        'sort_order' => 1,
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'category' => 'custom',
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $links = $this->getJson('/api/public/profiles/links-safe')->assertOk()->json('data.profile.links');
+
+    expect($links)->toHaveCount(1);
+    expect($links[0]['url'])->toBe('https://example.com/x');
+});
+
+it('does not synthesise a booking link when settings.booking_url has a non-http(s) scheme', function () {
+    $pro = seedIndividualProfile('book-xss');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'booking',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([
+            'booking_url' => 'javascript:alert(1)',
+            'platform' => 'calendly',
+            'title' => 'Book a session',
+        ]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $profile = $this->getJson('/api/public/profiles/book-xss')->assertOk()->json('data.profile');
+
+    // sectionEnvelope() keeps state=live (the row exists, is active/enabled)
+    // but the closure returns null once the url is gated — getLinks() only
+    // synthesises the booking row when data is an array, so no row appears.
+    $bookingLinks = array_values(array_filter($profile['links'], fn (array $l) => $l['category'] === 'booking'));
+    expect($bookingLinks)->toBe([]);
+});
+
+it('POSITIVE CONTROL: a booking_url with an https scheme is still synthesised', function () {
+    $pro = seedIndividualProfile('book-safe');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'site_id' => $siteId,
+        'block_type' => 'booking',
+        'block_group' => 'sections',
+        'is_active' => 1,
+        'is_enabled' => 1,
+        'sort_order' => 0,
+        'settings' => json_encode([
+            'booking_url' => 'https://calendly.com/me',
+            'platform' => 'calendly',
+            'title' => 'Book a session',
+        ]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $profile = $this->getJson('/api/public/profiles/book-safe')->assertOk()->json('data.profile');
+
+    $bookingLinks = array_values(array_filter($profile['links'], fn (array $l) => $l['category'] === 'booking'));
+    expect($bookingLinks)->toHaveCount(1);
+    expect($bookingLinks[0]['url'])->toBe('https://calendly.com/me');
+});

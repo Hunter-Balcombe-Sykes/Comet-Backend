@@ -102,13 +102,33 @@ it('shadow mode passes provider exception + logs fail_open (not shadow_reject)',
 
 it('enforce mode fails open on provider exception', function () {
     Log::spy();
-    config(['partna.bot_protection.mode' => 'enforce']);
+    // #CFG-1: fail_open now defaults to false, so this must be explicit to
+    // keep testing the fail-open BRANCH rather than the default — matching
+    // the already-explicit style used elsewhere in this file (e.g. :237, :278).
+    config([
+        'partna.bot_protection.mode' => 'enforce',
+        'partna.bot_protection.fail_open' => true,
+    ]);
     app(FakeProvider::class)->queueException(new CaptchaProviderException('boom'));
 
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
 
     $response->assertOk();
     Log::shouldHaveReceived('warning')->withArgs(fn ($msg) => $msg === 'bot_protection.fail_open')->atLeast()->once();
+});
+
+// #CFG-1: the default (no fail_open override at all) must fail CLOSED.
+it('enforce mode fails CLOSED by default (no fail_open override) → 503 captcha_unavailable', function () {
+    config(['partna.bot_protection.mode' => 'enforce']);
+    app(FakeProvider::class)->queueException(new CaptchaProviderException('boom'));
+
+    $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
+
+    $response->assertStatus(503)->assertJson(['error' => 'captcha_unavailable']);
+});
+
+it('#CFG-1: partna.bot_protection.fail_open defaults to false with no env override', function () {
+    expect(config('partna.bot_protection.fail_open'))->toBeFalse();
 });
 
 it('captures the action tag through to the provider', function () {

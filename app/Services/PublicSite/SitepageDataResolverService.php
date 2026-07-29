@@ -14,6 +14,7 @@ use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
+use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -674,7 +675,7 @@ class SitepageDataResolverService
                     : 'custom';
 
                 $title = is_string($block->title) ? trim($block->title) : '';
-                $url = is_string($block->url) ? trim($block->url) : '';
+                $url = UrlSafety::safeHref($block->url) ?? '';
 
                 // Older rows can have empty title/url at rest — platform (column)
                 // + settings.handle are the source of truth there. Rebuild both
@@ -710,7 +711,7 @@ class SitepageDataResolverService
             $rows[] = [
                 'id' => '',
                 'title' => (string) ($bookingEnvelope['data']['title'] ?? 'Book now'),
-                'url' => (string) ($bookingEnvelope['data']['resolved_url'] ?? ''),
+                'url' => UrlSafety::safeHref($bookingEnvelope['data']['resolved_url'] ?? null) ?? '',
                 'category' => 'booking',
                 'platform' => is_string($bookingEnvelope['data']['platform'] ?? null)
                     ? $bookingEnvelope['data']['platform']
@@ -900,7 +901,7 @@ class SitepageDataResolverService
 
         return [
             'booking_mode' => $bookingMode,
-            'manual_booking_url' => $manualBookingUrl !== '' ? $manualBookingUrl : null,
+            'manual_booking_url' => UrlSafety::safeHref($manualBookingUrl),
             'services' => $services,
         ];
     }
@@ -915,7 +916,7 @@ class SitepageDataResolverService
     {
         return $this->sectionEnvelope($sections, 'booking', function (Block $section): ?array {
             $settings = is_array($section->settings) ? $section->settings : [];
-            $bookingUrl = trim((string) ($settings['booking_url'] ?? ''));
+            $bookingUrl = UrlSafety::safeHref($settings['booking_url'] ?? null);
 
             // FOUND-49 (documented-defer): settings.platform read here ONLY — one reader,
             // no validation rule, no query need. Promote to a column if a second reader appears.
@@ -927,7 +928,7 @@ class SitepageDataResolverService
                 ? trim((string) $settings['title'])
                 : '';
 
-            if ($bookingUrl === '') {
+            if ($bookingUrl === null) {
                 return null;
             }
 

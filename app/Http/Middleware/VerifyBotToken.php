@@ -29,7 +29,7 @@ final class VerifyBotToken
         }
 
         $driver = (string) config('partna.bot_protection.driver', 'null');
-        $failOpen = (bool) config('partna.bot_protection.fail_open', true);
+        $failOpen = (bool) config('partna.bot_protection.fail_open', false);
         $token = $this->extractToken($request);
 
         if ($token === null) {
