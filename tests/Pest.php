@@ -2069,6 +2069,57 @@ function setupSectionsTables(): void
 }
 
 /**
+ * Shared fixture builders for DocumentBuilder tests (DocumentBuilderTest,
+ * DocumentBuilderQueryCountTest). Global here — not file-local — so both
+ * test files can use them regardless of which one PHPUnit loads first.
+ */
+function buildTestSite(): array
+{
+    $pro = createTenant('builder-'.Str::lower(Str::random(6)));
+
+    return [$pro->id, DB::table('site.sites')->where('user_id', $pro->id)->value('id')];
+}
+
+function addPage(string $siteId, string $key, string $label, int $order = 0): string
+{
+    $id = (string) Str::uuid();
+    DB::table('site.pages')->insert([
+        'id' => $id, 'site_id' => $siteId, 'key' => $key, 'label' => $label,
+        'sort_order' => $order, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
+}
+
+function addSection(string $siteId, string $pageId, array $overrides = []): string
+{
+    $id = (string) Str::uuid();
+    DB::table('site.sections')->insert(array_merge([
+        'id' => $id, 'site_id' => $siteId, 'page_id' => $pageId,
+        'kind' => 'collection', 'slot' => 'body', 'mode' => 'automatic',
+        'render' => 'cards', 'order_by' => 'recency', 'on_empty' => 'hide',
+        'min_items' => 1, 'stale_display' => 'inherit',
+        'rule' => json_encode(['all' => [['op' => 'kind_is', 'values' => ['video']]]]),
+        'sort_order' => 0, 'created_at' => now(), 'updated_at' => now(),
+    ], $overrides));
+
+    return $id;
+}
+
+function addItem(string $userId, string $kind, string $headline): string
+{
+    $id = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $id, 'user_id' => $userId, 'kind' => $kind,
+        'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
+}
+
+/**
  * content.* plane beyond content.items (migration 20260727140000) — SQLite
  * mirror for projection/identity tests: the channel + per-record grains,
  * identity evidence, anchors, and the typed facet tables ProjectionWriter

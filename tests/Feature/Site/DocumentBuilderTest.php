@@ -11,51 +11,9 @@ beforeEach(function () {
     setupSectionsTables();
 });
 
-function buildTestSite(): array
-{
-    $pro = createTenant('builder-'.Str::lower(Str::random(6)));
-
-    return [$pro->id, DB::table('site.sites')->where('user_id', $pro->id)->value('id')];
-}
-
-function addPage(string $siteId, string $key, string $label, int $order = 0): string
-{
-    $id = (string) Str::uuid();
-    DB::table('site.pages')->insert([
-        'id' => $id, 'site_id' => $siteId, 'key' => $key, 'label' => $label,
-        'sort_order' => $order, 'created_at' => now(), 'updated_at' => now(),
-    ]);
-
-    return $id;
-}
-
-function addSection(string $siteId, string $pageId, array $overrides = []): string
-{
-    $id = (string) Str::uuid();
-    DB::table('site.sections')->insert(array_merge([
-        'id' => $id, 'site_id' => $siteId, 'page_id' => $pageId,
-        'kind' => 'collection', 'slot' => 'body', 'mode' => 'automatic',
-        'render' => 'cards', 'order_by' => 'recency', 'on_empty' => 'hide',
-        'min_items' => 1, 'stale_display' => 'inherit',
-        'rule' => json_encode(['all' => [['op' => 'kind_is', 'values' => ['video']]]]),
-        'sort_order' => 0, 'created_at' => now(), 'updated_at' => now(),
-    ], $overrides));
-
-    return $id;
-}
-
-function addItem(string $userId, string $kind, string $headline): string
-{
-    $id = (string) Str::uuid();
-    DB::table('content.items')->insert([
-        'id' => $id, 'user_id' => $userId, 'kind' => $kind,
-        'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
-        'first_seen_at' => now(), 'last_seen_at' => now(),
-        'created_at' => now(), 'updated_at' => now(),
-    ]);
-
-    return $id;
-}
+// buildTestSite()/addPage()/addSection()/addItem() live in tests/Pest.php —
+// shared with DocumentBuilderQueryCountTest.php, which must not redeclare
+// them regardless of which file PHPUnit loads first.
 
 // ── The build protocol ──────────────────────────────────────────────────────
 
@@ -261,4 +219,51 @@ it('excludes an item whose kind the rule does not ask for', function () {
 
     $headlines = array_column($document['pages'][0]['sections'][0]['items'], 'headline');
     expect($headlines)->toBe(['A Video']);
+});
+
+it('skips a pinned item that no longer exists', function () {
+    // A section_items row can pin an id with no matching content.items row
+    // (e.g. a hard-deleted item never cleaned up). That must be skipped
+    // silently, not fatal — and the rest of the section still renders.
+    [$userId, $siteId] = buildTestSite();
+    $pageId = addPage($siteId, 'watch', 'Watch');
+    $sectionId = addSection($siteId, $pageId);
+    addItem($userId, 'video', 'Still Here');
+
+    DB::table('site.section_items')->insert([
+        'id' => (string) Str::uuid(), 'section_id' => $sectionId,
+        'item_id' => (string) Str::uuid(), 'state' => 'pinned', 'sort_key' => 1.0, 'created_at' => now(),
+    ]);
+
+    $result = (new DocumentBuilder)->build($siteId);
+    $document = json_decode(DB::table('site.site_documents')->where('site_id', $siteId)->value('document'), true);
+
+    $headlines = array_column($document['pages'][0]['sections'][0]['items'], 'headline');
+    expect($result['status'])->toBe('built')
+        ->and($headlines)->toBe(['Still Here']);
+});
+
+it('does not let a deleted pinned item consume a limit slot', function () {
+    // limit_n counts ADMITTED items, not candidates: a pinned-then-deleted
+    // item must be skipped before the limit check, not counted against it.
+    [$userId, $siteId] = buildTestSite();
+    $pageId = addPage($siteId, 'watch', 'Watch');
+    $sectionId = addSection($siteId, $pageId, ['limit_n' => 2]);
+    addItem($userId, 'video', 'A');
+    addItem($userId, 'video', 'B');
+    addItem($userId, 'video', 'C');
+    $removedPin = addItem($userId, 'video', 'Deleted Pin');
+    DB::table('content.items')->where('id', $removedPin)->update(['removed_at' => now()]);
+
+    DB::table('site.section_items')->insert([
+        'id' => (string) Str::uuid(), 'section_id' => $sectionId,
+        'item_id' => $removedPin, 'state' => 'pinned', 'sort_key' => 1.0, 'created_at' => now(),
+    ]);
+
+    (new DocumentBuilder)->build($siteId);
+    $document = json_decode(DB::table('site.site_documents')->where('site_id', $siteId)->value('document'), true);
+
+    $headlines = array_column($document['pages'][0]['sections'][0]['items'], 'headline');
+    expect($headlines)->toHaveCount(2)
+        ->and($headlines)->not->toContain('Deleted Pin');
 });

@@ -2,6 +2,7 @@
 
 namespace App\Site\Documents;
 
+use App\Services\Content\SectionTracer;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -167,12 +168,14 @@ class DocumentBuilder
             ? $pinned
             : array_merge($pinned, $this->ruleCandidates($section, $pinned));
 
+        $itemsById = $this->itemsById($candidateIds);
+
         $items = [];
         foreach ($candidateIds as $itemId) {
             if (isset($excluded[$itemId])) {
                 continue;
             }
-            $item = $this->itemPayload($itemId);
+            $item = $this->itemPayload($itemsById[$itemId] ?? null);
             if ($item !== null) {
                 $items[] = $item;
             }
@@ -182,6 +185,30 @@ class DocumentBuilder
         }
 
         return $items;
+    }
+
+    /**
+     * One keyed fetch for every candidate a section might render, mirroring
+     * {@see SectionTracer::itemsById()} on the same
+     * table — the two drifted; bring this one back in line rather than
+     * inventing a second pattern. Callers MUST keep iterating $candidateIds
+     * and looking up in this map: iterating the map itself would silently
+     * reorder pins-first ordering and drop duplicate candidate ids.
+     *
+     * @param  list<string>  $ids
+     * @return array<string, object>
+     */
+    private function itemsById(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::table('content.items')
+            ->whereIn('id', array_values(array_unique($ids)))
+            ->get()
+            ->keyBy('id')
+            ->all();
     }
 
     /**
@@ -377,9 +404,8 @@ class DocumentBuilder
     }
 
     /** @return array<string, mixed>|null */
-    private function itemPayload(string $itemId): ?array
+    private function itemPayload(?object $item): ?array
     {
-        $item = DB::table('content.items')->where('id', $itemId)->first();
         if ($item === null || $item->removed_at !== null) {
             return null;
         }
