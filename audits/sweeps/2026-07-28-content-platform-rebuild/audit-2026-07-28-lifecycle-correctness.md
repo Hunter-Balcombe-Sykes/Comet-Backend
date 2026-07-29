@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 5 of 21 complete
+- P2 Medium: 7 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -158,7 +158,7 @@
         ]);
         ```
 
-- [ ] **LIFE-6** · P2 — `EffectLedger::once` catches all `\Throwable` on the claim insert instead of the typed unique-violation exception
+- [x] **LIFE-6** · P2 — `EffectLedger::once` catches all `\Throwable` on the claim insert instead of the typed unique-violation exception
     - **Where:** app/Ingest/Runtime/EffectLedger.php:63-81
     - **Affects:** Billed-effect connectors (Instagram, Google Business, Square/UberEats/DoorDash menus). Currently these sources are gated off the auto-scheduler (`SourceProvisioner::schedulable()` requires `CostClass::Free`, so `google_business`/`Actor`/`Metered` sources are never claimed by `SourceScheduler::claimDue()`), which limits live exposure today — verify this gate is still in place before treating the risk as fully dormant.
     - **Effort:** S (~0.5–1h)
@@ -396,7 +396,7 @@
         }
         ```
 
-- [ ] **LIFE-18** · P2 — No scheduled reconcile job releases `ingest.effects` rows stuck `claimed` after a worker crash
+- [x] **LIFE-18** · P2 — No scheduled reconcile job releases `ingest.effects` rows stuck `claimed` after a worker crash
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql (`idx_effects_unsettled`); routes/console.php (no matching schedule entry); referenced-but-nonexistent `ingest:effects --resolve` command in app/Ingest/Runtime/EffectLedger.php:17
     - **Affects:** Billed-effect budget slots for connectors that declare paid effects (Instagram, Google Business, menu Apify actors) — currently gated off the auto-scheduler (verify `SourceProvisioner::schedulable()`'s `CostClass::Free` gate is still in place before assuming full dormancy).
     - **Effort:** M (~2–4h)

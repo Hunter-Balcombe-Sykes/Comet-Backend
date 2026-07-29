@@ -412,7 +412,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 5 of 21 complete
+- P2 Medium: 7 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -541,7 +541,7 @@ tests originally scoped.
         ]);
         ```
 
-- [ ] **LIFE-6** · P2 — `EffectLedger::once` catches all `\Throwable` on the claim insert instead of the typed unique-violation exception
+- [x] **LIFE-6** · P2 — `EffectLedger::once` catches all `\Throwable` on the claim insert instead of the typed unique-violation exception
     - **Where:** app/Ingest/Runtime/EffectLedger.php:63-81
     - **Affects:** Billed-effect connectors (Instagram, Google Business, Square/UberEats/DoorDash menus). Currently these sources are gated off the auto-scheduler (`SourceProvisioner::schedulable()` requires `CostClass::Free`, so `google_business`/`Actor`/`Metered` sources are never claimed by `SourceScheduler::claimDue()`), which limits live exposure today — verify this gate is still in place before treating the risk as fully dormant.
     - **Effort:** S (~0.5–1h)
@@ -779,7 +779,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-18** · P2 — No scheduled reconcile job releases `ingest.effects` rows stuck `claimed` after a worker crash
+- [x] **LIFE-18** · P2 — No scheduled reconcile job releases `ingest.effects` rows stuck `claimed` after a worker crash
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql (`idx_effects_unsettled`); routes/console.php (no matching schedule entry); referenced-but-nonexistent `ingest:effects --resolve` command in app/Ingest/Runtime/EffectLedger.php:17
     - **Affects:** Billed-effect budget slots for connectors that declare paid effects (Instagram, Google Business, menu Apify actors) — currently gated off the auto-scheduler (verify `SourceProvisioner::schedulable()`'s `CostClass::Free` gate is still in place before assuming full dormancy).
     - **Effort:** M (~2–4h)
@@ -2373,7 +2373,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 2 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2436,7 +2436,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
         }
         ```
 
-- [ ] **#WHK-3** · P2 — `EffectLedger::once` catches `\Throwable`, masking non-duplicate INSERT failures as silent refusals
+- [x] **#WHK-3** · P2 — `EffectLedger::once` catches `\Throwable`, masking non-duplicate INSERT failures as silent refusals
     - **Category:** 2/4 (idempotency-anchor claim must distinguish "already claimed" from "claim attempt itself failed"; the ledger governs money — see recent commit note below).
     - **Where:** app/Ingest/Runtime/EffectLedger.php:63-81
     - **Affects:** Any billed ingest effect (Apify actor call, Places fetch) whose initial claim INSERT fails for a transient or structural reason other than a unique-digest violation — the effect is silently refused with no retry and no operator signal, rather than propagating so the caller can retry or escalate.
@@ -2469,7 +2469,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
         }
         ```
 
-- [ ] **#WHK-4** · P2 — `EffectLedger` abandoned-effect state is invisible to Nightwatch (breadcrumb-only `Log::warning`)
+- [x] **#WHK-4** · P2 — `EffectLedger` abandoned-effect state is invisible to Nightwatch (breadcrumb-only `Log::warning`)
     - **Category:** 9-equivalent (observability gap on a stuck idempotency anchor — same failure shape the lens calls out for bot-protection fail-open logging).
     - **Where:** app/Ingest/Runtime/EffectLedger.php:141-148
     - **Affects:** Operators — a billed effect abandoned by a dead worker (stale claim past the 900s window) permanently blocks retries of that digest until someone manually runs `ingest:effects --resolve`, and nothing pages anyone to do it.

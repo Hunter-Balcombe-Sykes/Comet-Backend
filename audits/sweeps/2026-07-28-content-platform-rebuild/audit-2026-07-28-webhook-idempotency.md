@@ -26,7 +26,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 2 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -89,7 +89,7 @@
         }
         ```
 
-- [ ] **#WHK-3** · P2 — `EffectLedger::once` catches `\Throwable`, masking non-duplicate INSERT failures as silent refusals
+- [x] **#WHK-3** · P2 — `EffectLedger::once` catches `\Throwable`, masking non-duplicate INSERT failures as silent refusals
     - **Category:** 2/4 (idempotency-anchor claim must distinguish "already claimed" from "claim attempt itself failed"; the ledger governs money — see recent commit note below).
     - **Where:** app/Ingest/Runtime/EffectLedger.php:63-81
     - **Affects:** Any billed ingest effect (Apify actor call, Places fetch) whose initial claim INSERT fails for a transient or structural reason other than a unique-digest violation — the effect is silently refused with no retry and no operator signal, rather than propagating so the caller can retry or escalate.
@@ -122,7 +122,7 @@
         }
         ```
 
-- [ ] **#WHK-4** · P2 — `EffectLedger` abandoned-effect state is invisible to Nightwatch (breadcrumb-only `Log::warning`)
+- [x] **#WHK-4** · P2 — `EffectLedger` abandoned-effect state is invisible to Nightwatch (breadcrumb-only `Log::warning`)
     - **Category:** 9-equivalent (observability gap on a stuck idempotency anchor — same failure shape the lens calls out for bot-protection fail-open logging).
     - **Where:** app/Ingest/Runtime/EffectLedger.php:141-148
     - **Affects:** Operators — a billed effect abandoned by a dead worker (stale claim past the 900s window) permanently blocks retries of that digest until someone manually runs `ingest:effects --resolve`, and nothing pages anyone to do it.
