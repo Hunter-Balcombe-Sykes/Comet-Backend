@@ -59,7 +59,13 @@ class SectionPolicy extends BasePolicy
 
     private function ownerMatches(User $actor, Model $resource): bool
     {
-        $site = $resource->getRelation('site');
+        // relationLoaded() first: getRelation() on an unloaded relation THROWS
+        // ("Undefined array key") rather than returning null, so the null guard
+        // below was unreachable and a caller that forgot setRelation() got a
+        // 500 instead of the 404 this policy exists to return. Not reachable
+        // from the current controllers, which always set it — this is the
+        // defence-in-depth path, which is exactly the kind that rots unnoticed.
+        $site = $resource->relationLoaded('site') ? $resource->getRelation('site') : null;
 
         if ($site === null) {
             return false;

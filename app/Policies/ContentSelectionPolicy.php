@@ -43,7 +43,10 @@ class ContentSelectionPolicy extends BasePolicy
     // authorizing — mirrors SitePolicy's SiteMedia resolution.
     private function ownerMatches(User $actor, Model $resource): bool
     {
-        $site = $resource->getRelation('site');
+        // relationLoaded() first — see SectionPolicy::ownerMatches(). getRelation()
+        // THROWS on an unloaded relation rather than returning null, so this guard
+        // never ran and a missing site relation surfaced as a 500.
+        $site = $resource->relationLoaded('site') ? $resource->getRelation('site') : null;
         if (! $site) {
             return false;
         }

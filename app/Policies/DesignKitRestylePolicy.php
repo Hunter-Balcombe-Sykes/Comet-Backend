@@ -49,7 +49,10 @@ class DesignKitRestylePolicy extends BasePolicy
 
     private function ownerMatches(User $actor, Model $resource): bool
     {
-        $site = $resource->getRelation('site');
+        // relationLoaded() first — see SectionPolicy::ownerMatches(). getRelation()
+        // on an unloaded relation throws, so the null guard below never ran and an
+        // unset site relation surfaced as a 500 rather than this policy's 404.
+        $site = $resource->relationLoaded('site') ? $resource->getRelation('site') : null;
 
         if ($site === null) {
             return false;
