@@ -412,7 +412,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 7 of 21 complete
+- P2 Medium: 10 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -472,7 +472,8 @@ tests originally scoped.
                 ?? new Workplace(['site_id' => (string) $site->id]);
         ```
 
-- [ ] **LIFE-3** · P2 — `Lander::foldAbsence` increments `absent_runs` via an unlocked read-modify-write
+- [x] **LIFE-3** · P2 — `Lander::foldAbsence` increments `absent_runs` via an unlocked read-modify-write
+    <!-- premise no longer holds: RESOLVED by aa1b5782 (P0/P1 SCALE-4/SCALE-5). Lander.php ~434-447 already uses DB::raw('absent_runs + 1') plus a conditional tombstone UPDATE whose affected-row count is the return value — the exact prescribed fix. No change made by Unit B; verified by the Unit B implementer and independently by its reviewer. -->
     - **Where:** app/Ingest/Landing/Lander.php:164-178
     - **Affects:** The tombstoning path for every `mayDelete()` stream (live, scheduled connectors). A lost increment under concurrency understates consecutive absences and can delay/prevent legitimate deletion.
     - **Effort:** S (~0.5–1h)
@@ -498,7 +499,8 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-4** · P2 — `Lander::land` re-reads `current_version_id` in a separate statement after the insert, racing a concurrent landing of the same key
+- [x] **LIFE-4** · P2 — `Lander::land` re-reads `current_version_id` in a separate statement after the insert, racing a concurrent landing of the same key
+    <!-- premise narrowed since adjudication: idx_record_versions_one_current (migration 20260729130001, added post-adjudication) now catches the changed-key collision loudly and self-heals via the per-record fallback. Unit B fixed the one hole that index does NOT cover: the $wasCurrent===true branch, where nothing arbitrates the pointer write. NOTE: the LIFE-4 concurrency test discriminates but only ~1 run in 13 (narrow race window); it is stable green post-fix. -->
     - **Where:** app/Ingest/Landing/Lander.php:60-97
     - **Affects:** `ingest.record_state.current_version_id` — same dormant-race caveat as LIFE-3 (protected today only by `SourceScheduler`'s per-source claim).
     - **Effort:** M (~2–4h)
@@ -521,7 +523,7 @@ tests originally scoped.
         ]], ['stream_id', 'key'], ['current_version_id', ...]);
         ```
 
-- [ ] **LIFE-5** · P2 — `RunExecutor::recordStreamFailure` increments `consecutive_failures` via an unlocked read-modify-write
+- [x] **LIFE-5** · P2 — `RunExecutor::recordStreamFailure` increments `consecutive_failures` via an unlocked read-modify-write
     - **Where:** app/Ingest/Runtime/RunExecutor.php:197-207
     - **Affects:** Per-stream backoff accuracy for the same set of currently-scheduled connectors — same dormant-race shape and mitigation as LIFE-3/LIFE-4.
     - **Effort:** S (~0.5–1h)
@@ -2373,14 +2375,14 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 2 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#WHK-1** · P2 — `SourceScheduler::releaseStranded` overwrites a legitimately re-claimed source (TOCTOU)
+- [x] **#WHK-1** · P2 — `SourceScheduler::releaseStranded` overwrites a legitimately re-claimed source (TOCTOU)
     - **Category:** 6 (out-of-order / stale-replay tolerance), generalized from webhook idempotency to the ingest scheduler's own claim/release protocol.
     - **Where:** app/Ingest/Runtime/SourceScheduler.php:192-204
     - **Affects:** Any `ingest.sources` row that is (a) flagged stranded by the 7200s cutoff, then (b) legitimately released and re-claimed by `claimDue()` in the narrow window between `releaseStranded`'s SELECT and its per-row UPDATE. The fresh claim's `in_flight_since` gets nulled out from under the new run.
@@ -2407,7 +2409,8 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
             ]);
         ```
 
-- [ ] **#WHK-2** · P2 — `Lander::foldAbsence` counter bumps are not atomic; a crash mid-batch shortens a key's tombstone runway
+- [x] **#WHK-2** · P2 — `Lander::foldAbsence` counter bumps are not atomic; a crash mid-batch shortens a key's tombstone runway
+    <!-- premise MOSTLY resolved by aa1b5782 (per-key UPDATE loop gone). The audit's stated failure mode (re-running the same absence-fold) has NO live path: RunSourceJob sets tries=1. Unit B fixed only the surviving residual — foldAbsence's write phase was not transactional, so a crash mid-fold could advance chunk 1 and not chunk 2, or set guard_tripped_at with no anomaly row. -->
     - **Category:** 4/6 (processing must be idempotent end-to-end; a partial-execution retry must not silently mutate outcomes).
     - **Where:** app/Ingest/Landing/Lander.php:165-178
     - **Affects:** Any stream where absence-folding partially commits before a process crash or DB timeout mid-loop — affected keys skip one "chance" and tombstone after 2 real absences instead of the documented 3.

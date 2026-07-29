@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 7 of 21 complete
+- P2 Medium: 10 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -89,7 +89,8 @@
                 ?? new Workplace(['site_id' => (string) $site->id]);
         ```
 
-- [ ] **LIFE-3** · P2 — `Lander::foldAbsence` increments `absent_runs` via an unlocked read-modify-write
+- [x] **LIFE-3** · P2 — `Lander::foldAbsence` increments `absent_runs` via an unlocked read-modify-write
+    <!-- premise no longer holds: RESOLVED by aa1b5782 (P0/P1 SCALE-4/SCALE-5). Lander.php ~434-447 already uses DB::raw('absent_runs + 1') plus a conditional tombstone UPDATE whose affected-row count is the return value — the exact prescribed fix. No change made by Unit B; verified by the Unit B implementer and independently by its reviewer. -->
     - **Where:** app/Ingest/Landing/Lander.php:164-178
     - **Affects:** The tombstoning path for every `mayDelete()` stream (live, scheduled connectors). A lost increment under concurrency understates consecutive absences and can delay/prevent legitimate deletion.
     - **Effort:** S (~0.5–1h)
@@ -115,7 +116,8 @@
         }
         ```
 
-- [ ] **LIFE-4** · P2 — `Lander::land` re-reads `current_version_id` in a separate statement after the insert, racing a concurrent landing of the same key
+- [x] **LIFE-4** · P2 — `Lander::land` re-reads `current_version_id` in a separate statement after the insert, racing a concurrent landing of the same key
+    <!-- premise narrowed since adjudication: idx_record_versions_one_current (migration 20260729130001, added post-adjudication) now catches the changed-key collision loudly and self-heals via the per-record fallback. Unit B fixed the one hole that index does NOT cover: the $wasCurrent===true branch, where nothing arbitrates the pointer write. NOTE: the LIFE-4 concurrency test discriminates but only ~1 run in 13 (narrow race window); it is stable green post-fix. -->
     - **Where:** app/Ingest/Landing/Lander.php:60-97
     - **Affects:** `ingest.record_state.current_version_id` — same dormant-race caveat as LIFE-3 (protected today only by `SourceScheduler`'s per-source claim).
     - **Effort:** M (~2–4h)
@@ -138,7 +140,7 @@
         ]], ['stream_id', 'key'], ['current_version_id', ...]);
         ```
 
-- [ ] **LIFE-5** · P2 — `RunExecutor::recordStreamFailure` increments `consecutive_failures` via an unlocked read-modify-write
+- [x] **LIFE-5** · P2 — `RunExecutor::recordStreamFailure` increments `consecutive_failures` via an unlocked read-modify-write
     - **Where:** app/Ingest/Runtime/RunExecutor.php:197-207
     - **Affects:** Per-stream backoff accuracy for the same set of currently-scheduled connectors — same dormant-race shape and mitigation as LIFE-3/LIFE-4.
     - **Effort:** S (~0.5–1h)

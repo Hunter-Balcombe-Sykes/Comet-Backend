@@ -26,14 +26,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 2 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#WHK-1** · P2 — `SourceScheduler::releaseStranded` overwrites a legitimately re-claimed source (TOCTOU)
+- [x] **#WHK-1** · P2 — `SourceScheduler::releaseStranded` overwrites a legitimately re-claimed source (TOCTOU)
     - **Category:** 6 (out-of-order / stale-replay tolerance), generalized from webhook idempotency to the ingest scheduler's own claim/release protocol.
     - **Where:** app/Ingest/Runtime/SourceScheduler.php:192-204
     - **Affects:** Any `ingest.sources` row that is (a) flagged stranded by the 7200s cutoff, then (b) legitimately released and re-claimed by `claimDue()` in the narrow window between `releaseStranded`'s SELECT and its per-row UPDATE. The fresh claim's `in_flight_since` gets nulled out from under the new run.
@@ -60,7 +60,8 @@
             ]);
         ```
 
-- [ ] **#WHK-2** · P2 — `Lander::foldAbsence` counter bumps are not atomic; a crash mid-batch shortens a key's tombstone runway
+- [x] **#WHK-2** · P2 — `Lander::foldAbsence` counter bumps are not atomic; a crash mid-batch shortens a key's tombstone runway
+    <!-- premise MOSTLY resolved by aa1b5782 (per-key UPDATE loop gone). The audit's stated failure mode (re-running the same absence-fold) has NO live path: RunSourceJob sets tries=1. Unit B fixed only the surviving residual — foldAbsence's write phase was not transactional, so a crash mid-fold could advance chunk 1 and not chunk 2, or set guard_tripped_at with no anomaly row. -->
     - **Category:** 4/6 (processing must be idempotent end-to-end; a partial-execution retry must not silently mutate outcomes).
     - **Where:** app/Ingest/Landing/Lander.php:165-178
     - **Affects:** Any stream where absence-folding partially commits before a process crash or DB timeout mid-loop — affected keys skip one "chance" and tombstone after 2 real absences instead of the documented 3.
