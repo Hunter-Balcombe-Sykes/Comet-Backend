@@ -225,6 +225,17 @@ it('skips a pinned item that no longer exists', function () {
     // A section_items row can pin an id with no matching content.items row
     // (e.g. a hard-deleted item never cleaned up). That must be skipped
     // silently, not fatal — and the rest of the section still renders.
+    //
+    // #PARITY-1: migration 20260729150007/150008 adds a real Postgres FK
+    // (section_items.item_id -> content.items(id) ON DELETE CASCADE), so
+    // post-migration this orphan state can no longer occur through normal
+    // deletes — a hard delete now cascades the pin away instead of leaving
+    // it dangling. This test keeps covering DocumentBuilder's resolver as a
+    // defence-in-depth branch (e.g. against a write that bypasses the FK).
+    // The SQLite stand-in in tests/Pest.php cannot express this FK at all
+    // (content and site are separate ATTACHed databases), so it never
+    // enforced this either way — see tests/Postgres/SectionItemsItemFkTest.php
+    // for the real-Postgres coverage.
     [$userId, $siteId] = buildTestSite();
     $pageId = addPage($siteId, 'watch', 'Watch');
     $sectionId = addSection($siteId, $pageId);

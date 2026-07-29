@@ -632,8 +632,20 @@ function setupSitesTable(): void
         display_settings TEXT NULL,
         canonical_key TEXT NULL,
         resource_kind TEXT NULL CHECK (resource_kind IS NULL OR resource_kind IN (\'event\',\'link\')),
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
+        -- #PARITY-1: 20260729150016..150018 sets created_at/updated_at NOT
+        -- NULL in Postgres. Mirrored here instead of left nullable — the
+        -- earlier DECLINED note (this comment used to live here) rested on
+        -- DueForRefreshScopeTest.php:88\'s explicit
+        -- `->update([\'updated_at\' => null])`, but that write is now
+        -- unreachable in prod too (the migration forbids it), so keeping the
+        -- stand-in permissive was mirroring a state that no longer exists.
+        -- See tests/Feature/Platforms/DueForRefreshScopeTest.php and
+        -- tests/Postgres/PlatformConnectionsTimestampsNotNullTest.php for
+        -- where that test\'s coverage moved. DEFAULT is required: several
+        -- insert sites across the suite legitimately omit both columns,
+        -- relying on the same DEFAULT now() Postgres declares.
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         deleted_at TEXT NULL
     )');
 
@@ -1986,7 +1998,10 @@ function setupSectionsTables(): void
     $pg->statement('CREATE TABLE IF NOT EXISTS content.items (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+            \'video\', \'track\', \'release\', \'episode\', \'channel\', \'service\', \'menu_item\',
+            \'product\', \'event\', \'link\', \'media\', \'review\', \'document\', \'article\'
+        )),
         headline_cache TEXT NULL,
         facets_cache TEXT NOT NULL DEFAULT \'[]\',
         eligible_cache TEXT NOT NULL DEFAULT \'[]\',
@@ -2004,7 +2019,7 @@ function setupSectionsTables(): void
         key TEXT NOT NULL,
         label TEXT NOT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
-        order_mode TEXT NOT NULL DEFAULT \'manual\',
+        order_mode TEXT NOT NULL DEFAULT \'manual\' CHECK (order_mode IN (\'manual\', \'auto\')),
         is_hidden INTEGER NOT NULL DEFAULT 0,
         capability TEXT NULL,
         preset_key TEXT NULL,
@@ -2012,35 +2027,43 @@ function setupSectionsTables(): void
         updated_at TEXT NOT NULL
     )');
 
+    // All seven CHECKs copied verbatim from
+    // supabase/migrations/20260727150000_sections_and_documents.sql:42-59
+    // (#PARITY-1).
     $pg->statement('CREATE TABLE IF NOT EXISTS site.sections (
         id TEXT PRIMARY KEY NOT NULL,
         page_id TEXT NOT NULL,
         site_id TEXT NOT NULL,
         key TEXT NULL,
         label TEXT NULL,
-        slot TEXT NOT NULL DEFAULT \'body\',
-        kind TEXT NOT NULL,
+        slot TEXT NOT NULL DEFAULT \'body\' CHECK (slot IN (\'body\', \'header_actions\', \'footer\')),
+        kind TEXT NOT NULL CHECK (kind IN (\'collection\', \'richtext\', \'contact_form\', \'newsletter\', \'map\', \'document\', \'policy\')),
         sort_order INTEGER NOT NULL DEFAULT 0,
         rule TEXT NOT NULL DEFAULT \'{}\',
-        mode TEXT NOT NULL DEFAULT \'automatic\',
+        mode TEXT NOT NULL DEFAULT \'automatic\' CHECK (mode IN (\'hand_picked\', \'automatic\', \'mixed\')),
         order_by TEXT NOT NULL DEFAULT \'recency\',
         limit_n INTEGER NULL,
-        group_by TEXT NULL,
-        render TEXT NOT NULL DEFAULT \'cards\',
+        group_by TEXT NULL CHECK (group_by IS NULL OR group_by IN (\'category\', \'source\', \'month\', \'letter\')),
+        render TEXT NOT NULL DEFAULT \'cards\' CHECK (render IN (\'cards\', \'rows\', \'tiles\', \'buttons\', \'carousel\')),
         density TEXT NULL,
         price_mode TEXT NULL,
         min_items INTEGER NOT NULL DEFAULT 1,
-        on_empty TEXT NOT NULL DEFAULT \'hide\',
-        stale_display TEXT NOT NULL DEFAULT \'inherit\',
+        on_empty TEXT NOT NULL DEFAULT \'hide\' CHECK (on_empty IN (\'hide\', \'show_message\', \'show_anyway\')),
+        stale_display TEXT NOT NULL DEFAULT \'inherit\' CHECK (stale_display IN (\'inherit\', \'show\', \'hide\')),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )');
 
+    // section_items.item_id -> content.items(id) has NO FK here — SQLite
+    // cannot express a cross-attached-database FK (content and site are
+    // separate ATTACHed :memory: databases; REFERENCES takes no schema
+    // qualifier). The FK is real in Postgres (migration 20260729150007/8)
+    // and covered on the Postgres lane by tests/Postgres/SectionItemsItemFkTest.php.
     $pg->statement('CREATE TABLE IF NOT EXISTS site.section_items (
         id TEXT PRIMARY KEY NOT NULL,
         section_id TEXT NOT NULL,
         item_id TEXT NOT NULL,
-        state TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN (\'pinned\', \'excluded\')),
         sort_key REAL NULL,
         created_at TEXT NOT NULL
     )');
@@ -2049,7 +2072,7 @@ function setupSectionsTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         site_id TEXT NOT NULL,
         version INTEGER NOT NULL,
-        channel TEXT NOT NULL DEFAULT \'live\',
+        channel TEXT NOT NULL DEFAULT \'live\' CHECK (channel IN (\'live\', \'draft\')),
         document TEXT NOT NULL,
         content_hash TEXT NOT NULL,
         builder_revision INTEGER NOT NULL,
@@ -2149,7 +2172,10 @@ function setupContentTables(): void
         stream_id TEXT NULL,
         record_key TEXT NULL,
         item_id TEXT NULL,
-        kind TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+            \'video\', \'track\', \'release\', \'episode\', \'channel\', \'service\', \'menu_item\',
+            \'product\', \'event\', \'link\', \'media\', \'review\', \'document\', \'article\'
+        )),
         projector_version INTEGER NOT NULL DEFAULT 1,
         first_seen_at TEXT NOT NULL,
         last_seen_at TEXT NOT NULL,
@@ -2224,8 +2250,8 @@ function setupContentTables(): void
         'f_text' => 'headline TEXT NULL, body TEXT NULL, summary TEXT NULL',
         'f_link' => 'url TEXT NOT NULL, canonical_url TEXT NULL',
         'f_duration' => 'seconds INTEGER NULL',
-        'f_published' => 'published_from TEXT NULL, published_to TEXT NULL, verbatim TEXT NULL, precision TEXT NULL',
-        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL, starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
+        'f_published' => 'published_from TEXT NULL, published_to TEXT NULL, verbatim TEXT NULL, precision TEXT NULL CHECK (precision IS NULL OR precision IN (\'year\', \'month\', \'day\', \'time\'))',
+        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL CHECK (zone_confidence IS NULL OR zone_confidence IN (\'explicit\', \'inferred\', \'assumed\')), starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
         'f_embed' => 'provider TEXT NOT NULL, embed_key TEXT NOT NULL, variant TEXT NULL',
         'f_playable' => 'stream_url TEXT NULL, preview_url TEXT NULL, is_explicit INTEGER NULL',
         'f_authored' => 'creator TEXT NULL, creator_url TEXT NULL, collaborators TEXT NULL',
@@ -2255,9 +2281,9 @@ function setupContentTables(): void
         mime_type TEXT NULL,
         width INTEGER NULL,
         height INTEGER NULL,
-        dims_confidence TEXT NULL,
+        dims_confidence TEXT NULL CHECK (dims_confidence IS NULL OR dims_confidence IN (\'measured\', \'declared\', \'guessed\')),
         palette TEXT NULL,
-        variant_family TEXT NULL,
+        variant_family TEXT NULL CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash TEXT NULL,
         created_at TEXT NOT NULL,
         UNIQUE (user_id, fingerprint)
@@ -2282,7 +2308,7 @@ function setupContentTables(): void
         variant_label TEXT NULL,
         amount_minor INTEGER NULL,
         currency TEXT NULL,
-        qualifier TEXT NOT NULL DEFAULT \'exact\',
+        qualifier TEXT NOT NULL DEFAULT \'exact\' CHECK (qualifier IN (\'exact\', \'from\', \'upto\', \'range\', \'free\', \'variable\', \'on_request\')),
         amount_max_minor INTEGER NULL,
         url TEXT NULL,
         availability TEXT NULL,
@@ -2440,7 +2466,7 @@ function setupIngestTables(): void
         digest TEXT PRIMARY KEY,
         run_id TEXT NULL,
         source_id TEXT NULL,
-        kind TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (\'http\', \'actor\', \'api\', \'ai\')),
         cost_tag TEXT NULL,
         cost_units INTEGER NOT NULL DEFAULT 0,
         claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2450,12 +2476,18 @@ function setupIngestTables(): void
         meta TEXT NOT NULL DEFAULT \'{}\'
     )');
 
+    // 7-value domain per supabase/migrations/20260729150004_anomalies_kind_check_not_valid.sql
+    // — includes 'effect_abandoned' (EffectLedger::markAbandoned()), which the
+    // stale column comment on the ORIGINAL 20260727130000 migration omitted.
     $pg->statement('CREATE TABLE IF NOT EXISTS ingest.anomalies (
         id TEXT PRIMARY KEY NOT NULL,
         stream_id TEXT NULL,
         source_id TEXT NULL,
         run_id TEXT NULL,
-        kind TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (
+            \'delete_guard\', \'shape\', \'drift\', \'stranded\', \'schema\', \'projection\',
+            \'effect_abandoned\'
+        )),
         severity TEXT NOT NULL DEFAULT \'warning\' CHECK (severity IN (\'info\',\'warning\',\'critical\')),
         summary TEXT NOT NULL,
         detail TEXT NOT NULL DEFAULT \'{}\',
@@ -2481,11 +2513,13 @@ function setupRoutingTables(): void
     attachTestSchemas();
     $pg = DB::connection('pgsql');
 
+    // CHECKs copied verbatim from
+    // supabase/migrations/20260727120000_routing_schema.sql:14-30 (#PARITY-1 Tier 2).
     $pg->statement('CREATE TABLE IF NOT EXISTS routing.link_observations (
         id TEXT NOT NULL,
         user_id TEXT NULL,
         observed_at TEXT NOT NULL,
-        source TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\')),
         import_run_id TEXT NULL,
         raw_url TEXT NOT NULL,
         canonical_url TEXT NULL,
@@ -2493,14 +2527,16 @@ function setupRoutingTables(): void
         evidence TEXT NOT NULL DEFAULT \'{}\',
         detector_id TEXT NULL,
         surface_key TEXT NULL,
-        confidence INTEGER NULL,
+        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         margin INTEGER NULL,
-        verdict TEXT NULL,
+        verdict TEXT NULL CHECK (verdict IS NULL OR verdict IN (\'place\', \'choose\', \'note\', \'hold\', \'reject\')),
         block_reason TEXT NULL,
         catalog_digest TEXT NULL,
         PRIMARY KEY (id, observed_at)
     )');
 
+    // CHECKs copied verbatim from
+    // supabase/migrations/20260727120000_routing_schema.sql:58-69 (#PARITY-1).
     $pg->statement('CREATE TABLE IF NOT EXISTS routing.source_intents (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
@@ -2508,12 +2544,15 @@ function setupRoutingTables(): void
         routing_class TEXT NOT NULL,
         identifier TEXT NOT NULL,
         canonical_url TEXT NULL,
-        state TEXT NOT NULL DEFAULT \'proposed\',
-        block_reason TEXT NULL,
+        state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
+        block_reason TEXT NULL CHECK (block_reason IS NULL OR block_reason IN (
+            \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'below_threshold\',
+            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\'
+        )),
         conflicting_connection_id TEXT NULL,
         connection_id TEXT NULL,
-        confidence INTEGER NULL,
-        origin TEXT NOT NULL,
+        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
+        origin TEXT NOT NULL CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\')),
         import_run_id TEXT NULL,
         detector_id TEXT NULL,
         catalog_digest TEXT NULL,
@@ -2535,7 +2574,7 @@ function setupRoutingTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
         source_ref TEXT NOT NULL,
-        scope TEXT NOT NULL DEFAULT \'this_source\',
+        scope TEXT NOT NULL DEFAULT \'this_source\' CHECK (scope IN (\'this_source\', \'any_source\')),
         reason TEXT NULL,
         created_at TEXT NOT NULL
     )');
@@ -2543,11 +2582,11 @@ function setupRoutingTables(): void
     $pg->statement('CREATE TABLE IF NOT EXISTS routing.import_runs (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (\'website\', \'link_in_bio\', \'bio_harvest\', \'menu_scan\')),
         source_url TEXT NULL,
         started_at TEXT NOT NULL,
         finished_at TEXT NULL,
-        outcome TEXT NULL,
+        outcome TEXT NULL CHECK (outcome IS NULL OR outcome IN (\'ok\', \'partial\', \'unavailable\', \'error\', \'cooldown\', \'budget\')),
         observations_count INTEGER NOT NULL DEFAULT 0,
         intents_count INTEGER NOT NULL DEFAULT 0,
         items_count INTEGER NOT NULL DEFAULT 0,
@@ -3187,7 +3226,16 @@ function setupEmailSuppressionsTable(): void
  */
 function setupContentCurationTables(): void
 {
-    setupSectionsTables();
+    // setupContentTables() already declares every content.* table this
+    // function used to duplicate (sources, source_items, identity_decisions,
+    // identity_candidates, item_anchors, item_merges, manual_overrides,
+    // collections, collection_items) — and does so WITH the CHECK
+    // constraints those duplicate copies lacked (#PARITY-1 §2: the curation
+    // lane was silently running against unchecked stand-ins). It also calls
+    // setupSectionsTables(), so no coverage is lost by switching the base
+    // call. section_groups and item_slugs below are the only tables genuinely
+    // unique to the curation lane.
+    setupContentTables();
     $pg = DB::connection('pgsql');
 
     $pg->statement('CREATE TABLE IF NOT EXISTS site.section_groups (
@@ -3200,86 +3248,6 @@ function setupContentCurationTables(): void
         UNIQUE (section_id, group_key)
     )');
 
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        connection_id TEXT NULL,
-        import_run_id TEXT NULL,
-        label TEXT NULL,
-        priority INTEGER NOT NULL DEFAULT 100,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
-        id TEXT PRIMARY KEY NOT NULL,
-        source_id TEXT NOT NULL,
-        coord TEXT NOT NULL,
-        stream_id TEXT NULL,
-        record_key TEXT NULL,
-        item_id TEXT NULL,
-        kind TEXT NOT NULL,
-        projector_version INTEGER NOT NULL DEFAULT 1,
-        first_seen_at TEXT NOT NULL,
-        last_seen_at TEXT NOT NULL,
-        removed_at TEXT NULL,
-        UNIQUE (source_id, coord)
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.identity_decisions (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        verdict TEXT NOT NULL,
-        left_coord TEXT NOT NULL,
-        right_coord TEXT NOT NULL,
-        decided_at TEXT NOT NULL,
-        decided_by TEXT NULL,
-        UNIQUE (user_id, left_coord, right_coord)
-    )');
-
-    $pg->statement("CREATE TABLE IF NOT EXISTS content.identity_candidates (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        left_item_id TEXT NOT NULL,
-        right_item_id TEXT NOT NULL,
-        score INTEGER NOT NULL,
-        evidence TEXT NOT NULL DEFAULT '{}',
-        dismissed_at TEXT NULL,
-        created_at TEXT NOT NULL,
-        UNIQUE (user_id, left_item_id, right_item_id)
-    )");
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_anchors (
-        coord TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        bound_at TEXT NOT NULL,
-        superseded_by TEXT NULL,
-        PRIMARY KEY (user_id, coord)
-    )');
-
-    $pg->statement("CREATE TABLE IF NOT EXISTS content.item_merges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        kept_item_id TEXT NULL,
-        discarded_item_id TEXT NULL,
-        reason TEXT NOT NULL,
-        detail TEXT NOT NULL DEFAULT '{}',
-        merged_at TEXT NOT NULL
-    )");
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.manual_overrides (
-        id TEXT PRIMARY KEY NOT NULL,
-        item_id TEXT NOT NULL,
-        facet TEXT NOT NULL,
-        column_name TEXT NOT NULL,
-        value TEXT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE (item_id, facet, column_name)
-    )');
-
     $pg->statement('CREATE TABLE IF NOT EXISTS content.item_slugs (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
@@ -3288,26 +3256,6 @@ function setupContentCurationTables(): void
         is_current INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         UNIQUE (user_id, slug)
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.collections (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        parent_id TEXT NULL,
-        label TEXT NOT NULL,
-        kind TEXT NULL,
-        position INTEGER NOT NULL DEFAULT 0,
-        is_user_created INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.collection_items (
-        collection_id TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        source_id TEXT NULL,
-        position INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (collection_id, item_id)
     )');
 }
 

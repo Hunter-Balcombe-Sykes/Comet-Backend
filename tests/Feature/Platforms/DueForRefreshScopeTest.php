@@ -70,7 +70,7 @@ it('excludes a pending row from the refresh selection while a normal due row is 
 // stranded 'pending' by a dead worker would vanish from monitoring too unless
 // something else can still see it. scopeStrandedPending() is that something
 // else — a separate, visibility-only scope (see CheckPlatformRefreshBacklogCommand).
-it('scopeStrandedPending finds an old pending row but not a fresh one, an ok one, or a null-updated_at one', function () {
+it('scopeStrandedPending finds an old pending row but not a fresh one or an ok one', function () {
     $user = scopeUser();
     $cutoff = now()->subMinutes(5);
 
@@ -82,18 +82,28 @@ it('scopeStrandedPending finds an old pending row but not a fresh one, an ok one
     $freshPending = ytConn($user, ['last_refresh_status' => 'pending', 'resource_id' => 'youtube-fresh-pending']);
     $ok = ytConn($user, ['last_refresh_status' => 'ok', 'resource_id' => 'youtube-ok']);
 
-    // Can't be proven stale (same reasoning as RefreshController::refreshStatus()'s
-    // own stale-pending check), so a NULL updated_at must never count as stranded.
-    $nullUpdatedAt = ytConn($user, ['last_refresh_status' => 'pending', 'resource_id' => 'youtube-null-updated']);
-    IntegrationConnection::query()->where('id', $nullUpdatedAt->id)->update(['updated_at' => null]);
-
     $found = IntegrationConnection::query()->strandedPending($cutoff)->pluck('id');
 
     expect($found)->toContain($stranded->id)
         ->not->toContain($freshPending->id)
-        ->not->toContain($ok->id)
-        ->not->toContain($nullUpdatedAt->id);
+        ->not->toContain($ok->id);
 });
+
+// #PARITY-1: this test used to also seed a NULL updated_at row via
+// ->update(['updated_at' => null]) to prove scopeStrandedPending()'s
+// whereNotNull('updated_at') treats an unprovably-stale row as not-stranded.
+// supabase/migrations/20260729150016..150018 makes
+// site.platform_connections.updated_at NOT NULL in Postgres, so that write
+// now fails there with the real constraint (23502) before it ever reaches
+// the scope — the state is unreachable through the app. The SQLite stand-in
+// mirrors the same NOT NULL (tests/Pest.php's site.platform_connections
+// definition), so injecting it here would just fail with SQLSTATE 19 instead
+// of exercising anything. The whereNotNull() defensive branch is still
+// covered — at the DB boundary — by
+// tests/Postgres/PlatformConnectionsTimestampsNotNullTest.php, which proves
+// Postgres itself now rejects a null updated_at, i.e. that
+// scopeStrandedPending()'s guard has no live path left to defend but the
+// invariant it assumed is real.
 
 // CA-SM review fix: a prior revision had this job ALSO bail out on
 // last_refresh_status === 'pending', reasoning that a pending row always
