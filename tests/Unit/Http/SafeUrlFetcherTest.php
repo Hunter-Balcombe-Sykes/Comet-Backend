@@ -257,3 +257,29 @@ it('fetchMany drops a URL whose body exceeds the byte cap', function () {
 
     expect($out['https://1.1.1.1/big'])->toBeNull();
 });
+
+// ── post() — mirrors the redirect-revalidation and byte-cap guarantees ────────
+//
+// post() shares fetch()'s send() loop (#SEC-5, LIFE-7), so it gets the same
+// per-hop SSRF re-validation and byte cap. Unlike fetchMany(), it throws
+// rather than silently dropping — same contract as fetch().
+
+it('post() rejects a redirect to a private IP (SSRF re-validation)', function () {
+    Http::fake([
+        '1.1.1.1/start' => Http::response('', 302, ['Location' => 'http://127.0.0.1/admin']),
+    ]);
+
+    expect(fn () => app(SafeUrlFetcher::class)->post('http://1.1.1.1/start', ['a' => 1]))
+        ->toThrow(SafeUrlException::class);
+
+    // The private-IP redirect target must never actually be requested.
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '127.0.0.1'));
+});
+
+it('post() throws when the response body exceeds the byte cap', function () {
+    config()->set('partna.http_fetch.max_bytes', 16);
+    Http::fake(['*' => Http::response(str_repeat('x', 64), 200)]);
+
+    expect(fn () => app(SafeUrlFetcher::class)->post('https://1.1.1.1/big', ['a' => 1]))
+        ->toThrow(SafeUrlException::class);
+});

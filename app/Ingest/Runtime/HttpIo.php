@@ -4,7 +4,6 @@ namespace App\Ingest\Runtime;
 
 use App\Ingest\Manifest\Manifest;
 use App\Services\Http\SafeUrlFetcher;
-use Illuminate\Support\Facades\Http;
 
 /**
  * The production Io. Every call passes three gates before a socket opens, in
@@ -49,16 +48,14 @@ class HttpIo implements Io
     {
         $this->admit($url);
 
-        // POST is not part of SafeUrlFetcher's surface; assert the same
-        // address policy explicitly before using the raw client.
-        $this->fetcher->assertPublicUrl($url);
+        // SafeUrlFetcher::post() re-validates every redirect hop and caps the
+        // response body — the same guarantees get()/getMany() already have.
+        $response = $this->fetcher->post($url, $body, $headers);
 
-        $response = Http::withHeaders($headers)
-            ->timeout((int) config('partna.http_fetch.timeout_seconds', 8))
-            ->connectTimeout((int) config('partna.http_fetch.connect_timeout_seconds', 3))
-            ->post($url, $body);
-
-        return ['status' => $response->status(), 'body' => $response->body(), 'headers' => ['content-type' => $response->header('Content-Type')]];
+        return ['status' => $response['status'], 'body' => $response['body'], 'headers' => [
+            'content-type' => $response['contentType'],
+            'final-url' => $response['finalUrl'],
+        ]];
     }
 
     public function getMany(array $urls, array $headers = []): array

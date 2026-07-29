@@ -143,6 +143,22 @@ class SafeUrlFetcher
      */
     private function fetchFollowingRedirects(string $url, array $headers): array
     {
+        return $this->send('GET', $url, $headers);
+    }
+
+    /**
+     * Method-aware version of the core fetch loop, shared by fetch() (GET) and
+     * post(): follow up to maxRedirects 3xx hops, SSRF-validating every hop,
+     * with the headers exactly as given (no defaults merged here).
+     *
+     * @param  array<string,mixed>  $body  Ignored for GET.
+     * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}
+     *
+     * @throws SafeUrlException
+     * @throws ConnectionException
+     */
+    private function send(string $method, string $url, array $headers, array $body = []): array
+    {
         $current = $url;
 
         for ($hop = 0; $hop <= $this->maxRedirects; $hop++) {
@@ -163,14 +179,15 @@ class SafeUrlFetcher
                 ? $this->timeoutSeconds
                 : (int) max(1, ceil(min($this->timeoutSeconds, $remaining)));
 
-            $response = Http::withHeaders($headers)
+            $request = Http::withHeaders($headers)
                 ->timeout($hopTimeout)
                 // The connect phase must not outlive the hop's own budgeted
                 // window — an unclamped connect timeout let a slow-SYN host
                 // burn wall clock the budget had already spent.
                 ->connectTimeout(min($this->connectTimeoutSeconds, $hopTimeout))
-                ->withoutRedirecting()
-                ->get($current);
+                ->withoutRedirecting();
+
+            $response = $method === 'POST' ? $request->post($current, $body) : $request->get($current);
 
             $status = $response->status();
 
@@ -178,6 +195,16 @@ class SafeUrlFetcher
             if ($status >= 300 && $status < 400 && $response->header('Location')) {
                 $location = $response->header('Location');
                 $current = $this->resolveRedirect($current, $location);
+
+                // Standard redirect method-rewrite semantics (matches Guzzle's
+                // default `strict => false`, made explicit here): 301/302/303
+                // downgrade the next hop to GET with an empty body — without
+                // this, a redirected POST would silently replay a credentialed
+                // body to the redirect target. 307/308 preserve method + body.
+                if ($method === 'POST' && in_array($status, [301, 302, 303], true)) {
+                    $method = 'GET';
+                    $body = [];
+                }
 
                 continue;
             }
@@ -198,6 +225,31 @@ class SafeUrlFetcher
         }
 
         throw new SafeUrlException("Too many redirects fetching {$url}");
+    }
+
+    /**
+     * POST a URL with the same SSRF guarantees as fetch(): scheme + public-
+     * address check on every hop, manual redirect following (max
+     * maxRedirects) with per-hop re-validation, and a byte cap on the
+     * response.
+     *
+     * TWO deliberate asymmetries with fetch(), both compatibility-driven —
+     * do not "fix" them:
+     *   - no default User-Agent/Accept merged in here; the caller's headers
+     *     go out exactly as given (merging `Accept: text/html,...` would
+     *     change the wire for Fresha's GraphQL endpoint).
+     *   - no 403 honest-UA retry: retrying a POST is not idempotent.
+     *
+     * @param  array<string,mixed>  $body
+     * @param  array<string,string>  $headers
+     * @return array{status:int, body:string, finalUrl:string, contentType:string, etag:?string, lastModified:?string}
+     *
+     * @throws SafeUrlException
+     * @throws ConnectionException
+     */
+    public function post(string $url, array $body = [], array $headers = []): array
+    {
+        return $this->send('POST', $url, $headers, $body);
     }
 
     /**
