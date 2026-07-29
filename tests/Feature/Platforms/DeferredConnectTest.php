@@ -125,6 +125,11 @@ it('flag on: spotify connect returns 202 with status/id/statusUrl + identity key
         'embedUrl' => 'https://open.spotify.com/embed/artist/abc123',
     ]);
 
+    // NOT an ordering proof — Queue::fake() means the job never actually runs,
+    // so this passes byte-identically whether the dispatch sits inside or
+    // outside the lock closure. The self-deadlock guard (#TEST-4) lives in
+    // DeferredConnectSelfDeadlockTest.php, which deliberately does NOT fake
+    // the queue.
     Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === $row->id && $job->platform === 'spotify');
 });
 
@@ -312,6 +317,8 @@ it('flag on: strava (single-selection, multiAccount() false) takes the pending p
     expect($row->payload['description'])->toBe('Old description');
     expect($row->payload['members'])->toBe(999);
 
+    // NOT an ordering proof — see the comment on the spotify case above; same
+    // Queue::fake() caveat applies here.
     Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === $row->id && $job->platform === 'strava');
 });
 

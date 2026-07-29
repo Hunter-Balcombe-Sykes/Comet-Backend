@@ -86,6 +86,26 @@ it('derives the fresha slug from the booking url and the youtube handle as a res
         ->and(ingestSourceFor($youtube)->identifier)->toBe('mkbhd');
 });
 
+it('derives the fresha slug only from a real fresha host, locale segment and all', function () {
+    // #TEST-3/D1 hardening: freshaSlug() used to be the only URL extractor in
+    // this class with no host anchor — `fresha.com/a/…` matches inside a
+    // hostile host's query string too. The locale group is the regression
+    // guard on the fix itself: legacy/seeded rows may still hold a
+    // `/en-au/a/…` path from before FreshaScraper::stripLocale existed, and a
+    // naive anchor would silently stop provisioning those.
+    $userId = provisionerUser();
+
+    $locale = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://www.fresha.com/en-au/a/brotherwolf-s82k3a7o']]);
+    $noLocale = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://fresha.com/a/brotherwolf-s82k3a7o']]);
+    $wrongHost = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://notfresha.com/a/rival-salon']]);
+    $spoofedQuery = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://evil.example/?next=fresha.com/a/rival-salon']]);
+
+    expect(ingestSourceFor($locale)->identifier)->toBe('brotherwolf-s82k3a7o')
+        ->and(ingestSourceFor($noLocale)->identifier)->toBe('brotherwolf-s82k3a7o')
+        ->and(ingestSourceFor($wrongHost))->toBeNull()
+        ->and(ingestSourceFor($spoofedQuery))->toBeNull();
+});
+
 it('accepts a real identifier stored in resource_id (seeded showcase rows)', function () {
     $userId = provisionerUser();
 
@@ -121,6 +141,33 @@ it('creates no source for a brand with no registered connector', function () {
     ]);
 
     expect(ingestSourceFor($connection))->toBeNull();
+});
+
+it('refuses malformed handles and spoofed hosts rather than provisioning a wrong identity', function () {
+    // The finding's stated failure mode is a regex typo that silently returns
+    // null and kills a platform forever — already covered by the 21 positive
+    // cases above. This is the OPPOSITE, actively harmful direction: a
+    // too-permissive regex that provisions a source pointed at somebody
+    // else's catalogue, which the class docblock calls "far worse than no row".
+    $userId = provisionerUser();
+
+    $spotifyHostSpoof = makeConnection($userId, ['platform' => 'spotify', 'payload' => ['url' => 'https://open.spotify.com.evil.example/artist/abc']]);
+    $spotifyMalformedResource = makeConnection($userId, ['platform' => 'spotify', 'resource_id' => 'artist', 'payload' => []]);
+    $instagramTrailingDot = makeConnection($userId, ['platform' => 'instagram', 'payload' => ['username' => 'bad.name.']]);
+    $instagramTooLong = makeConnection($userId, ['platform' => 'instagram', 'payload' => ['username' => str_repeat('a', 31)]]);
+    $twitchTooShort = makeConnection($userId, ['platform' => 'twitch', 'payload' => ['login' => 'ab']]);
+    $twitchHyphen = makeConnection($userId, ['platform' => 'twitch', 'payload' => ['login' => 'has-dash']]);
+    $bandcampHostSpoof = makeConnection($userId, ['platform' => 'bandcamp', 'payload' => ['url' => 'https://kinggizzard.bandcamp.com.evil.example/']]);
+    $gumroadReservedSubdomain = makeConnection($userId, ['platform' => 'gumroad', 'payload' => ['url' => 'https://www.gumroad.com/l/x']]);
+
+    expect(ingestSourceFor($spotifyHostSpoof))->toBeNull()
+        ->and(ingestSourceFor($spotifyMalformedResource))->toBeNull()
+        ->and(ingestSourceFor($instagramTrailingDot))->toBeNull()
+        ->and(ingestSourceFor($instagramTooLong))->toBeNull()
+        ->and(ingestSourceFor($twitchTooShort))->toBeNull()
+        ->and(ingestSourceFor($twitchHyphen))->toBeNull()
+        ->and(ingestSourceFor($bandcampHostSpoof))->toBeNull()
+        ->and(ingestSourceFor($gumroadReservedSubdomain))->toBeNull();
 });
 
 it('creates no source for event- and link-grade resource rows', function () {
@@ -174,6 +221,32 @@ it('updates the identifier and re-schedules when the payload identity changes, w
         ->and(strtotime((string) $row->next_attempt_at))->toBeLessThanOrEqual(time() + 5);
 });
 
+it('leaves next_attempt_at alone when a payload write does not change the identifier', function () {
+    // The mirror image of the test above: an UNCHANGED identifier must not
+    // reset scheduling state. The existing idempotence test only asserts row
+    // COUNT, so this is the one lifecycle branch that was actually unpinned.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'bandcamp',
+        'payload' => ['url' => 'https://artist.bandcamp.com'],
+    ]);
+
+    DB::table('ingest.sources')->where('connection_id', $connection->id)->update([
+        'change_rate' => 0.7,
+        'consecutive_failures' => 3,
+        'next_attempt_at' => now()->addDays(3),
+    ]);
+
+    $result = app(SourceProvisioner::class)->sync($connection->fresh());
+
+    expect($result['status'])->toBe('unchanged')
+        ->and($result['source_key'])->toBe('bandcamp');
+
+    $row = ingestSourceFor($connection);
+    expect((float) $row->change_rate)->toBe(0.7)
+        ->and((int) $row->consecutive_failures)->toBe(3)
+        ->and(strtotime((string) $row->next_attempt_at))->toBeGreaterThan(time() + 60);
+});
+
 it('turns auto_sync off on deactivate and soft-delete, and back on on restore', function () {
     $connection = makeConnection(provisionerUser(), [
         'platform' => 'bandcamp',
@@ -204,6 +277,40 @@ it('never creates a row for an inactive connection', function () {
     ]);
 
     expect(ingestSourceFor($connection))->toBeNull();
+});
+
+it('reports each sync outcome by name so the backfill command can count them', function () {
+    // sync()'s whole array{status, source_key?, reason?} return shape is
+    // otherwise unasserted anywhere — every existing test observes the
+    // ingest.sources side-effect through the observer, never the value
+    // sync() itself hands back to a direct caller (the backfill command).
+    $userId = provisionerUser();
+    $provisioner = app(SourceProvisioner::class);
+
+    $linkRow = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'custom',
+        'resource_id' => 'link-'.substr(sha1('t32link'), 0, 16),
+        'resource_kind' => 'link',
+        'payload' => ['url' => 'https://example.com'],
+        'is_active' => true,
+    ]);
+    $kick = makeConnection($userId, ['platform' => 'kick', 'payload' => ['handle' => 'somestreamer']]);
+    $placeholder = makeConnection($userId, ['platform' => 'bandcamp', 'resource_id' => 'bandcamp', 'payload' => []]);
+    $inactive = makeConnection($userId, ['platform' => 'bandcamp', 'payload' => ['url' => 'https://artist.bandcamp.com'], 'is_active' => false]);
+    $trashed = makeConnection($userId, ['platform' => 'bandcamp', 'payload' => ['url' => 'https://artist2.bandcamp.com']]);
+    $trashed->delete();
+    $fresh = makeConnection($userId, ['platform' => 'bandcamp', 'payload' => ['url' => 'https://artist3.bandcamp.com']]);
+    // Wipe what the observer already provisioned for $fresh so sync() sees a
+    // genuine no-existing-row case and reports 'created'.
+    DB::table('ingest.sources')->where('connection_id', $fresh->id)->delete();
+
+    expect($provisioner->sync($linkRow))->toBe(['status' => 'skipped', 'reason' => 'resource_row'])
+        ->and($provisioner->sync($kick))->toBe(['status' => 'skipped', 'reason' => 'no_connector'])
+        ->and($provisioner->sync($placeholder))->toBe(['status' => 'skipped', 'reason' => 'no_identifier', 'source_key' => 'bandcamp'])
+        ->and($provisioner->sync($inactive->fresh()))->toBe(['status' => 'deactivated', 'source_key' => 'bandcamp'])
+        ->and($provisioner->sync($trashed->fresh()))->toBe(['status' => 'retired', 'source_key' => 'bandcamp'])
+        ->and($provisioner->sync($fresh))->toBe(['status' => 'created', 'source_key' => 'bandcamp']);
 });
 
 it('creates billed-connector sources unscheduled until their effect drivers exist', function () {

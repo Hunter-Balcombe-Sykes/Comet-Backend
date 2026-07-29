@@ -421,7 +421,13 @@ class SourceProvisioner
     private function freshaSlug(mixed $value): ?string
     {
         $value = $this->cleanString($value);
-        if ($value !== null && preg_match('~fresha\.com/a/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
+        // Anchored like every sibling extractor: an unanchored match would pull
+        // a slug out of a hostile host's query string (§17). The optional
+        // locale group is load-bearing, not decorative — legacy/seeded rows
+        // may still hold a `/en-au/a/…` path from before FreshaScraper::
+        // stripLocale existed, and a bare anchor would silently stop
+        // provisioning those.
+        if ($value !== null && preg_match('~^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?a/([a-z0-9][a-z0-9-]*)~i', $value, $m)) {
             return $m[1];
         }
 
