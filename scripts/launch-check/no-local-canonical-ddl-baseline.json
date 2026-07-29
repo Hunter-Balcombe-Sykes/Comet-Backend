@@ -4,14 +4,5 @@
     "tests/Feature/FeatureFlags/SectionVisibilityTestCase.php",
     "tests/Feature/Staff/StaffAdminNotesTest.php",
     "tests/Feature/User/AccountDeletion/AccountDeletionTestCase.php",
-    "tests/Feature/User/DataExport/DataExportTestCase.php",
-    "tests/Postgres/BrandAssetPipelineTest.php",
-    "tests/Postgres/IngestCascadeDeletionTest.php",
-    "tests/Postgres/IngestProjectChunkingTest.php",
-    "tests/Postgres/ItemSlugAllocatorRegressionTest.php",
-    "tests/Postgres/ItemTombstoneBackfillTest.php",
-    "tests/Postgres/ProjectionWriterBatchingTest.php",
-    "tests/Postgres/SourceReconcilerAtomicityTest.php",
-    "tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php",
-    "tests/Postgres/SubdomainAliasCollisionTest.php"
+    "tests/Feature/User/DataExport/DataExportTestCase.php"
 ]
