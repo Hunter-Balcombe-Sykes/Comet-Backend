@@ -42,7 +42,12 @@ class SourceReconciler
         $user = $context->user;
         $surface = CompiledCatalog::surface($placement->surfaceKey);
         $routingClass = (string) $surface['routing_class'];
-        $identifier = $placement->identifier ?? $iri->canonical ?? $iri->raw;
+        // redactUrl() itself now fails closed (returns '' on a PCRE engine
+        // error), so this fallback is unreachable for a non-null $iri->raw —
+        // but "unreachable today" is precisely the assumption that already
+        // failed once in this repo (#SEC-1). Never fall back to the raw,
+        // possibly-secret-bearing URL.
+        $identifier = $placement->identifier ?? $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '';
 
         $verdict = $placement->verdict;
         $blockReason = $placement->blockReason;

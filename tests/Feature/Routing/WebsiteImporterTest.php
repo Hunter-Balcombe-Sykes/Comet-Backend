@@ -131,3 +131,14 @@ it('never creates a connection for the scraped page itself', function () {
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->pluck('resource_id')->all())
         ->not->toContain('https://example.com/');
 });
+
+it('redacts a secret-shaped param from the recorded source_url (#SEC-1)', function () {
+    $pro = createTenant('importer-secret-url');
+    websitePage('<html><body><a href="https://x.com/someshop">X</a></body></html>');
+
+    app(WebsiteImporter::class)->import($pro, 'https://example.com/?api_key=eyJhbGciOiJIUzI1NiJ9.aaa.bbb');
+
+    $run = DB::table('routing.import_runs')->where('user_id', $pro->id)->first();
+    expect($run->source_url)->toContain('api_key=[redacted]')
+        ->and($run->source_url)->not->toContain('eyJhbGci');
+});

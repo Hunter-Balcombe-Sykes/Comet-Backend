@@ -2,6 +2,7 @@
 
 namespace App\Routing\Importers;
 
+use App\Routing\SecretParams;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -32,7 +33,7 @@ class ImportRun
             'id' => $id,
             'user_id' => $userId,
             'kind' => $kind,
-            'source_url' => $sourceUrl,
+            'source_url' => SecretParams::redactUrl($sourceUrl),
             'started_at' => now(),
             'created_at' => now(),
         ]);
