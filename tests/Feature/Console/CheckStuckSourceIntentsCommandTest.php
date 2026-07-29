@@ -36,7 +36,11 @@ function seedSourceIntent(array $overrides = []): string
         'conflicting_connection_id' => null,
         'connection_id' => null,
         'confidence' => 60,
-        'origin' => 'import',
+        // 'import' is NOT in routing.source_intents' origin domain
+        // (20260727120000_routing_schema.sql). This seeded an invalid row that
+        // only passed because the SQLite stand-in had no CHECK — the exact
+        // defect #PARITY-1 describes, caught by the mirror Unit I added.
+        'origin' => 'website_import',
         'import_run_id' => null,
         'detector_id' => null,
         'catalog_digest' => null,
