@@ -12,7 +12,7 @@
 
 ## Progress
 
-- P1 High: 0 of 17 complete
+- P1 High: 1 of 17 complete
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -149,7 +149,8 @@
         }
         ```
 
-- [ ] **#TEST-8** · P1 — `ProbeBudget::tryClaim()`'s check-then-increment is not atomic despite a docblock claiming it is
+- [x] **#TEST-8** · P1 — `ProbeBudget::tryClaim()`'s check-then-increment is not atomic despite a docblock claiming it is
+    - **PREMISE REFUTED (2026-07-29):** `tryClaim()` is increment-then-check-then-rollback, not check-then-increment. `INCRBY` returns a distinct value per concurrent caller and a claim succeeds only within its own returned value, so over-admission is provably impossible; the audit's suggested `rememberLocked` remedy was rejected as serialising every claim to fix a non-existent bug. A REAL defect in the same lines was fixed instead: `Cache::add()` + `Cache::increment()` are two round trips, and an expiry landing between them leaves a TTL-less key — permanent, inevictable ballast under instance-wide `volatile-lru`, one per user per day. Now a single TTL-asserting EVAL. `ApifyBudget` carries the identical defect and is deliberately deferred to its own unit (paid-spend path).
     - **Where:** `app/Routing/Probes/ProbeBudget.php:47-75`
     - **Affects:** Global and per-user probe budget enforcement — this is a real correctness bug uncovered by reading the code, not just a coverage gap.
     - **Effort:** M (~2–4h)

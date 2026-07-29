@@ -28,7 +28,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 21 complete
 - P3 Low: 0 of 10 complete
 
@@ -36,7 +36,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **LIFE-1** · P1 — `safeQuery` swallows database failures silently, hiding whole page sections from public traffic with zero Nightwatch signal
+- [x] **LIFE-1** · P1 — `safeQuery` swallows database failures silently, hiding whole page sections from public traffic with zero Nightwatch signal
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:369-383
     - **Affects:** Every public sitepage visitor. A `QueryException` on any presence probe (links, gallery, menu, services, GBP display settings) silently drops that page from the site's navigation instead of surfacing an error.
     - **Effort:** S (~0.5–1h)

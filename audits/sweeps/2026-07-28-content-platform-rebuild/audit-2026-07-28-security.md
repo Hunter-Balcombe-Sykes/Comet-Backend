@@ -22,7 +22,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 4 complete
 - P3 Low: 0 of 6 complete
 
@@ -30,7 +30,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Router persists raw and canonical URLs verbatim, including any secret-bearing query parameters
+- [x] **#SEC-1** · P1 — Router persists raw and canonical URLs verbatim, including any secret-bearing query parameters
     - **Where:** app/Routing/LinkObserver.php:36-37, app/Routing/IriCanonicalizer.php:27-40
     - **Affects:** Any user who pastes a URL containing an access token, session id, API key, or signed-URL secret in a query parameter. The value is persisted verbatim in `routing.link_observations.raw_url`/`canonical_url`, `routing.source_intents.canonical_url`, and `integration_connections.payload->url` — three JSONB/text stores that also surface in exports and Nightwatch-adjacent tooling.
     - **Effort:** S (~0.5–1h)

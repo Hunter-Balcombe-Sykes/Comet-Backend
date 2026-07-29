@@ -79,7 +79,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 4 complete
 - P3 Low: 0 of 6 complete
 
@@ -87,7 +87,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Router persists raw and canonical URLs verbatim, including any secret-bearing query parameters
+- [x] **#SEC-1** · P1 — Router persists raw and canonical URLs verbatim, including any secret-bearing query parameters
     - **Where:** app/Routing/LinkObserver.php:36-37, app/Routing/IriCanonicalizer.php:27-40
     - **Affects:** Any user who pastes a URL containing an access token, session id, API key, or signed-URL secret in a query parameter. The value is persisted verbatim in `routing.link_observations.raw_url`/`canonical_url`, `routing.source_intents.canonical_url`, and `integration_connections.payload->url` — three JSONB/text stores that also surface in exports and Nightwatch-adjacent tooling.
     - **Effort:** S (~0.5–1h)
@@ -374,7 +374,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 21 complete
 - P3 Low: 0 of 10 complete
 
@@ -382,7 +382,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **LIFE-1** · P1 — `safeQuery` swallows database failures silently, hiding whole page sections from public traffic with zero Nightwatch signal
+- [x] **LIFE-1** · P1 — `safeQuery` swallows database failures silently, hiding whole page sections from public traffic with zero Nightwatch signal
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:369-383
     - **Affects:** Every public sitepage visitor. A `QueryException` on any presence probe (links, gallery, menu, services, GBP display settings) silently drops that page from the site's navigation instead of surfacing an error.
     - **Effort:** S (~0.5–1h)
@@ -4723,7 +4723,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## Progress
 
-- P1 High: 0 of 17 complete
+- P1 High: 1 of 17 complete
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -4860,7 +4860,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-8** · P1 — `ProbeBudget::tryClaim()`'s check-then-increment is not atomic despite a docblock claiming it is
+- [x] **#TEST-8** · P1 — `ProbeBudget::tryClaim()`'s check-then-increment is not atomic despite a docblock claiming it is
+    - **PREMISE REFUTED (2026-07-29):** `tryClaim()` is increment-then-check-then-rollback, not check-then-increment. `INCRBY` returns a distinct value per concurrent caller and a claim succeeds only within its own returned value, so over-admission is provably impossible; the audit's suggested `rememberLocked` remedy was rejected as serialising every claim to fix a non-existent bug. A REAL defect in the same lines was fixed instead: `Cache::add()` + `Cache::increment()` are two round trips, and an expiry landing between them leaves a TTL-less key — permanent, inevictable ballast under instance-wide `volatile-lru`, one per user per day. Now a single TTL-asserting EVAL. `ApifyBudget` carries the identical defect and is deliberately deferred to its own unit (paid-spend path).
     - **Where:** `app/Routing/Probes/ProbeBudget.php:47-75`
     - **Affects:** Global and per-user probe budget enforcement — this is a real correctness bug uncovered by reading the code, not just a coverage gap.
     - **Effort:** M (~2–4h)
