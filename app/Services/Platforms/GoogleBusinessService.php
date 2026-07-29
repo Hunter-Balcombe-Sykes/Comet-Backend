@@ -27,22 +27,53 @@ class GoogleBusinessService extends PlatformScraper
 {
     /**
      * Real Google ccTLD suffixes, enumerated — mirrors EventbriteScraper::TLDS /
-     * OpenTableService::TLDS. The previous host gate accepted the OPEN family
-     * `com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2}`, which admits ~2,029 registrable
-     * suffixes (`google.<any 2-letter cc>`, `google.co.<any cc>`,
-     * `google.com.<any cc>`) — `google.tk`, `google.cm`, `google.com.zz` all
-     * passed. Deliberately conservative: an omitted real locale is a visible,
-     * one-line-fix rejection; a wrongly-admitted one is the spoof hole this
-     * closes. Extend with a real Google country domain if one is rejected.
+     * OpenTableService::TLDS. The host gate must stay a CLOSED set: the original
+     * open family `com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2}` admits ~2,029
+     * registrable suffixes, so `google.tk`, `google.cm` and `google.com.zz` all
+     * passed as Maps hosts and an attacker only had to register one.
      *
-     * Entries must be VERIFIED, not guessed by pattern. Review caught a bare
-     * `pe` here on the first pass: `google.pe` does not exist (Peru is
-     * `google.com.pe`), so the gate simultaneously admitted a fabricated host
-     * and rejected the real one. Google's ccTLDs do not follow a derivable
-     * rule — `google.com.au` but `google.de`, `google.co.uk` but `google.fr` —
-     * so each entry has to be checked individually.
+     * Entries are VERIFIED, never guessed by pattern. Google's ccTLDs follow no
+     * derivable rule — `google.com.au` but `google.de`, `google.co.uk` but
+     * `google.fr` — and a guessed entry is worse than a missing one in both
+     * directions at once: review caught a bare `pe` in the first closed version,
+     * which admitted a host that does not exist while still rejecting the real
+     * `google.com.pe`.
+     *
+     * So this set was not written by hand. Every 2-letter ccTLD in IANA's
+     * tlds-alpha-by-domain list was expanded into all three shapes
+     * (`google.<cc>`, `google.com.<cc>`, `google.co.<cc>`), each candidate was
+     * resolved, and each resolved A record was reverse-looked-up and kept only
+     * when the PTR landed in Google's own `1e100.net` infrastructure domain —
+     * so presence here means the domain both exists AND answers from Google,
+     * not merely that it resolves. 745 candidates in, 248 verified out
+     * (2026-07-29). The method matters more than the list: re-run it rather
+     * than adding an entry by eye.
+     *
+     * Regenerating (network required):
+     *   curl -s https://data.iana.org/TLD/tlds-alpha-by-domain.txt \
+     *     | tr 'A-Z' 'a-z' | grep -E '^[a-z]{2}$' | sort -u \
+     *     | while read c; do printf 'google.%s\ngoogle.com.%s\ngoogle.co.%s\n' $c $c $c; done \
+     *     | xargs -P 12 -n 1 -I{} sh -c \
+     *         'ip=$(dig +short A {} | grep -E "^[0-9]" | head -1); [ -n "$ip" ] &&
+     *          case $(dig +short -x $ip | head -1) in *1e100.net.*) echo {} ;; esac'
+     *
+     * Grouped by shape rather than flattened so the three families stay legible
+     * and a regeneration diff is readable. Note `co` and `com` appear in the
+     * bare group too — `google.co` and `google.com` are both real.
      */
-    private const TLDS = '(?:com|com\.au|com\.br|com\.mx|com\.pe|com\.ar|com\.co|com\.tr|com\.sg|com\.hk|com\.tw|com\.ph|com\.vn|com\.pk|com\.eg|com\.sa|com\.ua|com\.ng|co\.uk|co\.jp|co\.in|co\.nz|co\.za|co\.kr|co\.id|co\.il|de|fr|it|es|nl|ca|ie|pl|pt|se|no|dk|fi|ch|at|be|cz|gr|hu|ro|ru|cl)';
+    private const TLDS = '(?:'
+        .'com\.(?:af|ag|ai|ar|au|bd|bh|bi|bn|bo|br|by|bz|co|cu|cy|do|dz|ec|eg|et|fj|ge|gh|gi|gp'
+        .'|gr|gt|gy|hk|ht|iq|jm|jo|kh|kw|kz|lb|lv|ly|mm|mt|mx|my|na|nf|ng|ni|np|nr|om|pa|pe|pg'
+        .'|ph|pk|pl|pr|ps|pt|py|qa|ru|sa|sb|sg|sl|sv|tj|tn|tr|tw|ua|uy|vc|ve|vn)'
+        .'|co\.(?:ao|bw|ck|cr|gy|hu|id|il|im|in|je|jp|ke|kr|ls|ma|mz|nz|rs|th|tz|ug|uk|uz|ve|vi'
+        .'|za|zm|zw)'
+        .'|(?:ac|ad|ae|af|ag|ai|al|am|as|at|az|ba|be|bf|bg|bi|bj|bo|bs|bt|by|ca|cc|cd|cf|cg|ch'
+        .'|ci|cl|cm|cn|co|com|cv|cz|de|dj|dk|dm|do|dz|ec|ee|es|eu|fi|fm|fr|ga|gd|ge|gf|gg|gl|gm'
+        .'|gp|gr|gy|hk|hn|hr|ht|hu|ie|im|in|io|iq|is|it|je|jo|jp|kg|ki|kr|kz|la|li|lk|lt|lu|lv'
+        .'|ma|md|me|mg|mk|ml|mn|ms|mu|mv|mw|mx|ne|ng|nl|no|nr|nu|pf|ph|pk|pl|pn|ps|pt|qa|re|ro'
+        .'|rs|ru|rw|sc|se|sg|sh|si|sk|sl|sm|sn|so|sr|st|td|tg|tk|tl|tm|tn|to|tt|tw|ua|us|uz|vg'
+        .'|vn|vu|ws)'
+        .')';
 
     public function __construct(private readonly SafeUrlFetcher $fetcher, private readonly PlacesBudget $budget) {}
 
@@ -80,9 +111,13 @@ class GoogleBusinessService extends PlatformScraper
             return $res['finalUrl'];
         }
 
-        // Interstitial case: the canonical place URL is in the page body.
+        // Interstitial case: the canonical place URL is in the page body. Same
+        // closed TLD set as the host gate — parsePlaceUrl() re-checks whatever
+        // this returns, so an open pattern here was not exploitable, but it
+        // would still lift an attacker-controlled `google.<anything>` URL out
+        // of a fetched body and carry it forward as the resolved place.
         if (is_string($res['body'] ?? null)
-            && preg_match('~https://www\.google\.(?:com(?:\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2})/maps/place/[^"\'\\\\<>\s]+~i', $res['body'], $m)) {
+            && preg_match('~https://www\.google\.'.self::TLDS.'/maps/place/[^"\'\\\\<>\s]+~i', $res['body'], $m)) {
             return html_entity_decode($m[0], ENT_QUOTES | ENT_HTML5);
         }
 

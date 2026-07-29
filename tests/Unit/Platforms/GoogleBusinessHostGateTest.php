@@ -2,7 +2,7 @@
 
 // #TEST-12: GoogleBusinessService::parsePlaceUrl() had ZERO spoof coverage and
 // its host gate was an OPEN family (`com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2}`)
-// admitting ~2,029 registrable suffixes — `google.tk`, `google.cm`,
+// admitting ~2,029 registrable suffixes — `google.evil`, `google.uk`,
 // `google.com.zz` all passed. It has been narrowed to a closed enumeration
 // (GoogleBusinessService::TLDS), matching EventbriteScraper::TLDS /
 // OpenTableService::TLDS. Driven entirely through the PUBLIC resolve() —
@@ -41,9 +41,21 @@ it('rejects a spoofed Google Maps host', function (string $url) {
     'google.com.evil.com' => ['https://google.com.evil.com/maps/place/X'],
     'notgoogle.com is not google' => ['https://notgoogle.com/maps/place/X'],
     'google.com appears only in the path' => ['https://evil.com/google.com/maps/place/X'],
-    // The open-family gate this replaces would have admitted BOTH of these —
+    // The open-family gate this replaces would have admitted ALL of these —
     // this is the load-bearing assertion of the finding.
-    'google.tk is not a real Google ccTLD' => ['https://google.tk/maps/place/X'],
+    //
+    // 'google.tk' USED to be this list's headline case, on the assumption that
+    // it was not a real Google domain. It is: google.tk resolves to Google and
+    // serves a Google Trust Services certificate whose SAN is google.tk, so
+    // Google registered it and a visitor could legitimately paste one. The
+    // cases below are verified NON-existent instead, and are the more useful
+    // shape anyway — each is the plausible-looking suffix for a country that
+    // actually uses a different one, which is exactly how a guessed
+    // enumeration goes wrong in both directions at once (see the TLDS
+    // docblock on the 'pe' that review caught).
+    'google.uk is not a real Google domain (the UK uses google.co.uk)' => ['https://google.uk/maps/place/X'],
+    'google.au is not a real Google domain (Australia uses google.com.au)' => ['https://google.au/maps/place/X'],
+    'google.pe is not a real Google domain (Peru uses google.com.pe)' => ['https://google.pe/maps/place/X'],
     'google.com.zz is not a real Google ccTLD' => ['https://google.com.zz/maps/place/X'],
 ]);
 
@@ -68,6 +80,19 @@ it('accepts the real Google Maps host shapes', function () {
     expect($svc->resolve('https://www.google.co.kr/maps/place/Some+Spot/@37.5,127.0,17z')['name'])->toBe('Some Spot');
     expect($svc->resolve('https://www.google.co.id/maps/place/Satu+Tempat/@-6.2,106.8,17z')['name'])->toBe('Satu Tempat');
     expect($svc->resolve('https://www.google.com.ua/maps/place/Some+Kyiv+Spot/@50.4,30.5,17z')['name'])->toBe('Some Kyiv Spot');
+
+    // The other failure direction, and the reason the enumeration was widened
+    // from 48 entries to the full verified set: a REAL Google domain that the
+    // short list omitted was rejected, so a visitor pasting a perfectly good
+    // Maps link from their own country got "that's not a Google Maps link".
+    // Every one of these is a live Google domain (verified by its Google Trust
+    // Services certificate) that the 48-entry list turned away.
+    expect($svc->resolve('https://www.google.com.ng/maps/place/Lagos+Spot/@6.5,3.4,17z')['name'])->toBe('Lagos Spot');
+    expect($svc->resolve('https://www.google.co.ke/maps/place/Nairobi+Spot/@-1.3,36.8,17z')['name'])->toBe('Nairobi Spot');
+    expect($svc->resolve('https://www.google.com.bd/maps/place/Dhaka+Spot/@23.8,90.4,17z')['name'])->toBe('Dhaka Spot');
+    expect($svc->resolve('https://www.google.hr/maps/place/Zagreb+Spot/@45.8,16.0,17z')['name'])->toBe('Zagreb Spot');
+    expect($svc->resolve('https://www.google.com.uy/maps/place/Montevideo+Spot/@-34.9,-56.2,17z')['name'])->toBe('Montevideo Spot');
+    expect($svc->resolve('https://www.google.is/maps/place/Reykjavik+Spot/@64.1,-21.9,17z')['name'])->toBe('Reykjavik Spot');
 
     // maps.google.com is also a recognised short-link host (see the fixture
     // helper above) — tryFetch is stubbed to miss, so resolve() falls back to
