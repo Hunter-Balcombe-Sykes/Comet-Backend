@@ -117,7 +117,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 1 of 4 complete
 - P3 Low: 0 of 6 complete
 
 ---
@@ -231,7 +231,7 @@ tests originally scoped.
         });
         ```
 
-- [ ] **#SEC-5** · P2 — `HttpIo::post()` follows redirects without the per-hop SSRF re-validation `get()`/`getMany()` perform
+- [x] **#SEC-5** · P2 — `HttpIo::post()` follows redirects without the per-hop SSRF re-validation `get()`/`getMany()` perform
     - **Where:** app/Ingest/Runtime/HttpIo.php:48-62
     - **Affects:** Ingest connectors calling `$io->post()` — currently `FreshaConnector` (hardcoded `self::GRAPHQL_URL`) and `TwitchConnector` (config-sourced `services.twitch.token_url`). Both current callers use fixed, non-user-supplied URLs, so exploitation today requires the fixed upstream host itself to issue a malicious redirect — not a client-reachable input.
     - **Effort:** S (~0.5–1h)
@@ -412,7 +412,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 4 of 21 complete
+- P2 Medium: 5 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -561,7 +561,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-7** · P2 — `HttpIo::post` skips redirect re-validation and the byte cap that `SafeUrlFetcher::fetch()` enforces on GET
+- [x] **LIFE-7** · P2 — `HttpIo::post` skips redirect re-validation and the byte cap that `SafeUrlFetcher::fetch()` enforces on GET
     - **Where:** app/Ingest/Runtime/HttpIo.php:48-62
     - **Affects:** Any connector POSTing through the shared `Io` abstraction. Today only `TwitchConnector::mintAppToken()` calls `post()`, against a fixed config URL (`services.twitch.token_url`), so there is no live user-controlled-URL exposure — but the gap is in the shared abstraction every future connector inherits.
     - **Effort:** S (~0.5–1h)

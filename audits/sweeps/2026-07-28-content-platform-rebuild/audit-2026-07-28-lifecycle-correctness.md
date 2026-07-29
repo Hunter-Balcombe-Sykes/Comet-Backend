@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 4 of 21 complete
+- P2 Medium: 5 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -178,7 +178,7 @@
         }
         ```
 
-- [ ] **LIFE-7** · P2 — `HttpIo::post` skips redirect re-validation and the byte cap that `SafeUrlFetcher::fetch()` enforces on GET
+- [x] **LIFE-7** · P2 — `HttpIo::post` skips redirect re-validation and the byte cap that `SafeUrlFetcher::fetch()` enforces on GET
     - **Where:** app/Ingest/Runtime/HttpIo.php:48-62
     - **Affects:** Any connector POSTing through the shared `Io` abstraction. Today only `TwitchConnector::mintAppToken()` calls `post()`, against a fixed config URL (`services.twitch.token_url`), so there is no live user-controlled-URL exposure — but the gap is in the shared abstraction every future connector inherits.
     - **Effort:** S (~0.5–1h)

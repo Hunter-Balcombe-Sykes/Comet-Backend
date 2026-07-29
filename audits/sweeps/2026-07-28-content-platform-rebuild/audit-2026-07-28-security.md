@@ -23,7 +23,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 1 of 4 complete
 - P3 Low: 0 of 6 complete
 
 ---
@@ -137,7 +137,7 @@
         });
         ```
 
-- [ ] **#SEC-5** · P2 — `HttpIo::post()` follows redirects without the per-hop SSRF re-validation `get()`/`getMany()` perform
+- [x] **#SEC-5** · P2 — `HttpIo::post()` follows redirects without the per-hop SSRF re-validation `get()`/`getMany()` perform
     - **Where:** app/Ingest/Runtime/HttpIo.php:48-62
     - **Affects:** Ingest connectors calling `$io->post()` — currently `FreshaConnector` (hardcoded `self::GRAPHQL_URL`) and `TwitchConnector` (config-sourced `services.twitch.token_url`). Both current callers use fixed, non-user-supplied URLs, so exploitation today requires the fixed upstream host itself to issue a malicious redirect — not a client-reachable input.
     - **Effort:** S (~0.5–1h)
