@@ -1,7 +1,10 @@
 <?php
 
 use App\Jobs\Platforms\EnrichLinkCardJob;
+use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Cache\CacheKeyGenerator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -328,4 +331,58 @@ it('redacts a secret-shaped param on the note (custom-link) path while a benign 
         ->and($card->payload['url'])->toContain('page=2')
         ->and($card->payload['url'])->not->toContain('session=abc123')
         ->and($card->payload['url'])->not->toContain('abc123');
+});
+
+// ── #TEST-2: the two write outcomes RoutingEndpointTest was missing — busy
+// (423, lock contention) and unavailable (503, feature-gated off) ───────────
+
+it('answers 423 when the custom-link lock is held by a concurrent writer', function () {
+    // Real object end to end (no mocking CustomLinkSeeder::addManual) — the
+    // lock key format below is CacheKeyGenerator::platformConnectionLock('custom', ...),
+    // the exact key CustomLinkSeeder::writeCard() takes with a 10s TTL and a
+    // 5s ->block(). Holding it here forces that real ->block(5, ...) call to
+    // time out and throw LockTimeoutException, which addManual maps to
+    // 'busy'. Costs ~5 real seconds — slow by design, not flaky.
+    $pro = createTenant('routing-note-busy');
+    $key = CacheKeyGenerator::platformConnectionLock('custom', (string) $pro->id);
+
+    $held = Cache::lock($key, 10);
+    expect($held->get())->toBeTrue();
+
+    try {
+        $response = actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/']);
+
+        // Assert the MESSAGE, not just the status: EnforcePendingDeletionReadOnly
+        // also returns 423 (body: {error: account_pending_deletion}) for an
+        // unrelated reason, so a bare assertStatus(423) would pass even if the
+        // lock-timeout branch never ran.
+        $response->assertStatus(423)
+            ->assertJsonPath('message', 'Another change is still saving — please retry in a moment.')
+            ->assertJsonMissingPath('error');
+    } finally {
+        $held->release();
+    }
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(0);
+});
+
+it('answers 503 when the custom integration is feature-disabled', function () {
+    // setupFeatureAvailabilityTable() is load-bearing here, not incidental:
+    // core.feature_availability doesn't exist until this creates it, so
+    // dropping this line fails the very next line (the rule insert itself
+    // errors, table missing) instead of silently degrading to 202. Either
+    // way, FeatureAvailability fails OPEN whenever the table can't be read
+    // (a DB fault is never allowed to lock users out of a feature) — so this
+    // fixture is the only thing standing between this test and a false-green
+    // 202. Do not "clean this up".
+    setupFeatureAvailabilityTable();
+    FeatureAvailabilityRule::query()->create(['feature_key' => 'integration.custom', 'mode' => 'disabled']);
+
+    $pro = createTenant('routing-note-unavailable');
+
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://joesplumbing.com.au/'])
+        ->assertStatus(503)
+        ->assertJsonPath('message', 'This integration is currently unavailable.');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->count())->toBe(0);
 });
