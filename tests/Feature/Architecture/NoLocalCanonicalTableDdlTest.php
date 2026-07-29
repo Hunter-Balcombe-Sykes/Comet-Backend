@@ -39,6 +39,75 @@
  */
 const NO_LOCAL_DDL_BASELINE_PATH = __DIR__.'/../../../scripts/launch-check/no-local-canonical-ddl-baseline.json';
 
+/**
+ * Token-based (not substring) check for a REAL `uses(PostgresTestCase::class)` call. A bare
+ * str_contains($contents, 'PostgresTestCase::class') is defeated by a decoy comment or a string
+ * literal that merely mentions the text — token_get_all() is immune to both by construction:
+ * PHP's tokenizer emits comments as a single T_COMMENT/T_DOC_COMMENT token and string literals
+ * as a single T_CONSTANT_ENCAPSED_STRING (or T_STRING-interpolated) token, neither of which ever
+ * decomposes into the T_STRING/T_DOUBLE_COLON/T_CLASS sequence a real `Foo::class` reference
+ * produces. This walks every `uses` T_STRING token, and inside that call's argument list looks
+ * for a `PostgresTestCase` T_STRING immediately followed (modulo whitespace/comments) by `::`
+ * then `class`.
+ */
+function fileHasRealUsesPostgresTestCaseCall(string $contents): bool
+{
+    $tokens = token_get_all($contents);
+    $count = count($tokens);
+    $skippable = [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT];
+
+    for ($i = 0; $i < $count; $i++) {
+        $token = $tokens[$i];
+        if (! is_array($token) || $token[0] !== T_STRING || $token[1] !== 'uses') {
+            continue;
+        }
+
+        $j = $i + 1;
+        while ($j < $count && is_array($tokens[$j]) && in_array($tokens[$j][0], $skippable, true)) {
+            $j++;
+        }
+        if (! isset($tokens[$j]) || $tokens[$j] !== '(') {
+            continue; // not a call — e.g. a property/method named "uses"
+        }
+
+        // Collect this call's argument-list tokens up to the matching close paren.
+        $depth = 1;
+        $k = $j + 1;
+        for (; $k < $count && $depth > 0; $k++) {
+            if ($tokens[$k] === '(') {
+                $depth++;
+            } elseif ($tokens[$k] === ')') {
+                $depth--;
+            }
+        }
+        $callTokens = array_slice($tokens, $j + 1, max(0, $k - $j - 2));
+
+        $callCount = count($callTokens);
+        for ($m = 0; $m < $callCount; $m++) {
+            $t = $callTokens[$m];
+            if (! is_array($t) || $t[0] !== T_STRING || $t[1] !== 'PostgresTestCase') {
+                continue;
+            }
+            $n = $m + 1;
+            while ($n < $callCount && is_array($callTokens[$n]) && in_array($callTokens[$n][0], $skippable, true)) {
+                $n++;
+            }
+            if (! isset($callTokens[$n]) || ! is_array($callTokens[$n]) || $callTokens[$n][0] !== T_DOUBLE_COLON) {
+                continue;
+            }
+            $n++;
+            while ($n < $callCount && is_array($callTokens[$n]) && in_array($callTokens[$n][0], $skippable, true)) {
+                $n++;
+            }
+            if (isset($callTokens[$n]) && is_array($callTokens[$n]) && $callTokens[$n][0] === T_CLASS) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 it('no test file builds local DDL for a canonical tenant table (or is baselined)', function () {
     $testsDir = dirname(__DIR__, 2); // repo/tests, from tests/Feature/Architecture
 
@@ -126,7 +195,7 @@ it('every tests/Postgres file opts into the real-Postgres lane (anti-dodge for t
             continue;
         }
         $contents = file_get_contents($file->getPathname());
-        if (! str_contains($contents, 'PostgresTestCase::class')) {
+        if (! fileHasRealUsesPostgresTestCaseCall($contents)) {
             $offenders[] = 'tests/Postgres/'.str_replace('\\', '/', ltrim(
                 substr($file->getPathname(), strlen($postgresDir)), '/\\'
             ));
