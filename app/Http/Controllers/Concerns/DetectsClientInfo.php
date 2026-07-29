@@ -36,6 +36,29 @@ trait DetectsClientInfo
     }
 
     /**
+     * #SEM-6: hoisted from a local var so detectDeviceType()'s bot check and any
+     * test asserting parity between the two can reference the SAME list — a
+     * signal added here can never again silently miss the other consumer.
+     */
+    private const BOT_UA_SIGNALS = [
+        // Generic bot signals
+        'bot', 'spider', 'crawler',
+        // SEO / index crawlers
+        'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'rogerbot',
+        // Social media crawlers
+        'facebookexternalhit', 'twitterbot', 'linkedinbot',
+        // Search engines (explicit in case generic 'bot' substring misses)
+        'yandexbot', 'baiduspider', 'slurp',
+        // Scripting / CLI tools
+        'python-requests', 'python-urllib',
+        'curl/', 'wget/',
+        'libwww-perl',
+        // Headless browsers and test automation
+        'headlesschrome', 'phantomjs', 'puppeteer',
+        'playwright', 'selenium',
+    ];
+
+    /**
      * Returns true if the User-Agent string matches a known bot, headless browser, or scripting tool.
      * Empty/null UAs are treated as bots — no legitimate browser omits the header.
      */
@@ -47,25 +70,7 @@ trait DetectsClientInfo
 
         $u = strtolower($ua);
 
-        $signals = [
-            // Generic bot signals
-            'bot', 'spider', 'crawler',
-            // SEO / index crawlers
-            'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'rogerbot',
-            // Social media crawlers
-            'facebookexternalhit', 'twitterbot', 'linkedinbot',
-            // Search engines (explicit in case generic 'bot' substring misses)
-            'yandexbot', 'baiduspider', 'slurp',
-            // Scripting / CLI tools
-            'python-requests', 'python-urllib',
-            'curl/', 'wget/',
-            'libwww-perl',
-            // Headless browsers and test automation
-            'headlesschrome', 'phantomjs', 'puppeteer',
-            'playwright', 'selenium',
-        ];
-
-        foreach ($signals as $signal) {
+        foreach (self::BOT_UA_SIGNALS as $signal) {
             if (str_contains($u, $signal)) {
                 return true;
             }
@@ -79,14 +84,22 @@ trait DetectsClientInfo
      */
     protected function detectDeviceType(?string $ua): ?string
     {
+        // Absent UA stays null (unknown), not 'bot' — deliberately diverges from
+        // isBotUserAgent()'s deny-by-default (empty UA = bot) so existing rows'
+        // device_type shape is preserved for the one caller with no bot filter
+        // of its own (AnalyticsController::pageview()).
         if (! $ua) {
             return null;
         }
 
         $u = strtolower($ua);
 
-        // Bots
-        if (str_contains($u, 'bot') || str_contains($u, 'spider') || str_contains($u, 'crawler')) {
+        // #SEM-6: delegate to isBotUserAgent() instead of re-testing a 3-substring
+        // subset of its 23-signal list. That subset missed facebookexternalhit,
+        // slurp, python-requests/urllib, curl/wget, libwww-perl, and headless
+        // browsers (HeadlessChrome/PhantomJS/Puppeteer/Playwright/Selenium), all of
+        // which reach here via pageview() (the only caller — see class docblock).
+        if ($this->isBotUserAgent($ua)) {
             return 'bot';
         }
 

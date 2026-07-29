@@ -16,6 +16,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Fields;
 use App\Ingest\Support\MenuRecords;
 
 /**
@@ -80,7 +81,7 @@ class SquareMenuConnector implements Connector
 
         $records = MenuRecords::flatten(
             $this->categories($data),
-            storeName: $this->firstString($data, ['restaurantName', 'name']),
+            storeName: Fields::firstString($data, ['restaurantName', 'name']),
             // Square's actor emits no currency; AUD is the pilot's market
             // (the same assumption SquareMenuDriver shipped).
             currency: 'AUD',
@@ -119,11 +120,11 @@ class SquareMenuConnector implements Connector
                     continue;
                 }
                 $items[] = [
-                    'externalId' => $this->firstString($item, ['id', 'externalId']),
-                    'name' => $this->firstString($item, ['name']),
-                    'description' => $this->firstString($item, ['description']),
+                    'externalId' => Fields::firstString($item, ['id', 'externalId']),
+                    'name' => Fields::firstString($item, ['name']),
+                    'description' => Fields::firstString($item, ['description']),
                     'price' => $this->parsePrice($item['price'] ?? null),
-                    'image' => $this->firstString($item, ['image', 'imageUrl', 'image_url']),
+                    'image' => Fields::firstString($item, ['image', 'imageUrl', 'image_url']),
                 ];
             }
             $out[] = ['name' => (string) ($category['name'] ?? 'Menu'), 'items' => $items];
@@ -145,19 +146,6 @@ class SquareMenuConnector implements Connector
         }
         if (is_float($value)) {
             return round($value, 2);
-        }
-
-        return null;
-    }
-
-    /** @param list<string> $keys */
-    private function firstString(array $item, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            $value = $item[$key] ?? null;
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
         }
 
         return null;

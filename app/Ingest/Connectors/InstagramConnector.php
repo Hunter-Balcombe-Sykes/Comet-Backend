@@ -16,6 +16,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Fields;
 
 /**
  * Instagram via the paid Apify profile actor (plan §11) — MANUAL-ONLY by
@@ -135,11 +136,11 @@ class InstagramConnector implements Connector
     private function profileMessages(array $profile, string $username): iterable
     {
         $doc = array_filter([
-            'username' => $this->firstString($profile, ['username', 'userName']) ?? $username,
-            'full_name' => $this->firstString($profile, ['fullName', 'full_name']),
-            'biography' => $this->firstString($profile, ['biography', 'bio']),
-            'avatar' => $this->firstString($profile, ['profilePicUrlHD', 'profile_pic_url_hd', 'profilePicUrl', 'profile_pic_url']),
-            'followers' => $this->firstInt($profile, ['followersCount', 'followers_count', 'edge_followed_by.count']),
+            'username' => Fields::firstString($profile, ['username', 'userName']) ?? $username,
+            'full_name' => Fields::firstString($profile, ['fullName', 'full_name']),
+            'biography' => Fields::firstString($profile, ['biography', 'bio']),
+            'avatar' => Fields::firstString($profile, ['profilePicUrlHD', 'profile_pic_url_hd', 'profilePicUrl', 'profile_pic_url']),
+            'followers' => Fields::firstInt($profile, ['followersCount', 'followers_count', 'edge_followed_by.count']),
         ], static fn ($v) => $v !== null);
 
         yield new Record('profile', $username, $doc);
@@ -199,20 +200,20 @@ class InstagramConnector implements Connector
             return null;
         }
 
-        $shortcode = $this->firstString($post, ['shortCode', 'shortcode', 'short_code', 'code']);
+        $shortcode = Fields::firstString($post, ['shortCode', 'shortcode', 'short_code', 'code']);
         if ($shortcode === null) {
             return null;
         }
 
-        $cover = $this->firstString($post, ['displayUrl', 'display_url', 'thumbnailUrl', 'thumbnail_url']);
-        $type = $this->firstString($post, ['type', '__typename']);
+        $cover = Fields::firstString($post, ['displayUrl', 'display_url', 'thumbnailUrl', 'thumbnail_url']);
+        $type = Fields::firstString($post, ['type', '__typename']);
 
         // A carousel is ONE record: every child frame's display URL in order.
         $images = [];
         foreach (['childPosts', 'child_posts', 'sidecarItems', 'sidecar_items'] as $childKey) {
             if (is_array($post[$childKey] ?? null)) {
                 foreach ($post[$childKey] as $child) {
-                    $childUrl = is_array($child) ? $this->firstString($child, ['displayUrl', 'display_url']) : null;
+                    $childUrl = is_array($child) ? Fields::firstString($child, ['displayUrl', 'display_url']) : null;
                     if ($childUrl !== null) {
                         $images[] = $childUrl;
                     }
@@ -227,11 +228,11 @@ class InstagramConnector implements Connector
         return array_filter([
             'shortcode' => $shortcode,
             'type' => $type,
-            'caption' => $this->firstString($post, ['caption', 'edge_media_to_caption.edges.0.node.text']),
+            'caption' => Fields::firstString($post, ['caption', 'edge_media_to_caption.edges.0.node.text']),
             'taken_at' => $this->takenAt($post),
             'url' => 'https://www.instagram.com/p/'.$shortcode.'/',
             'display_url' => $cover,
-            'video_url' => $this->firstString($post, ['videoUrl', 'video_url']),
+            'video_url' => Fields::firstString($post, ['videoUrl', 'video_url']),
             'images' => $images === [] ? null : $images,
         ], static fn ($v) => $v !== null);
     }
@@ -239,7 +240,7 @@ class InstagramConnector implements Connector
     /** @param array<string, mixed> $post */
     private function takenAt(array $post): ?string
     {
-        $timestamp = $this->firstString($post, ['timestamp', 'taken_at_timestamp', 'takenAt']);
+        $timestamp = Fields::firstString($post, ['timestamp', 'taken_at_timestamp', 'takenAt']);
         if ($timestamp === null) {
             return null;
         }
@@ -249,40 +250,5 @@ class InstagramConnector implements Connector
         }
 
         return $timestamp;
-    }
-
-    /**
-     * @param  array<string, mixed>  $item
-     * @param  list<string>  $paths
-     */
-    private function firstString(array $item, array $paths): ?string
-    {
-        foreach ($paths as $path) {
-            $value = data_get($item, $path);
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
-            if (is_numeric($value)) {
-                return (string) $value;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $item
-     * @param  list<string>  $paths
-     */
-    private function firstInt(array $item, array $paths): ?int
-    {
-        foreach ($paths as $path) {
-            $value = data_get($item, $path);
-            if (is_numeric($value)) {
-                return (int) $value;
-            }
-        }
-
-        return null;
     }
 }

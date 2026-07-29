@@ -179,3 +179,21 @@ it('declares media as a taken_at feed and profile as identity with no authoritat
         ->and($profile->target)->toBe('profile_fields')
         ->and($profile->authoritativeFields)->toBe([]);
 });
+
+// #SLOP-2 characterisation: Instagram already had the numeric fallback and used
+// data_get() before consolidation, so moving firstString/firstInt into
+// App\Ingest\Support\Fields is a no-op for this connector — pinned explicitly.
+it('characterisation: profile field resolution is unchanged by the Fields consolidation (#SLOP-2)', function () {
+    $io = instagramIo(['status' => 'ok', 'cached' => false, 'data' => [instagramActorProfile()]]);
+
+    $messages = iterator_to_array((new InstagramConnector)->pull(instagramPull('profile'), $io));
+    $record = array_values(array_filter($messages, fn ($m) => $m instanceof Record))[0];
+
+    expect($record->doc)->toBe([
+        'username' => 'some.studio',
+        'full_name' => 'Some Studio',
+        'biography' => 'Cuts and colour. Bookings via link.',
+        'avatar' => 'https://scontent.cdninstagram.com/v/avatar_hd.jpg?sig=abc',
+        'followers' => 12840,
+    ]);
+});

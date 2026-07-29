@@ -168,6 +168,115 @@ it('folds a refused effect into unavailable and an empty menu into a note, for a
     }
 });
 
+// ── #SLOP-2: firstString() consolidation behaviour changes ───────────────────
+// Square and UberEats' private firstString() copies lacked the numeric
+// fallback Doordash/Instagram already had. Consolidating onto the shared
+// App\Ingest\Support\Fields gives them that fallback too, which changes what
+// gets landed for numeric vendor payloads. See the Unit K plan / commit body
+// for the full persisted-key-churn analysis (Square externalId, UberEats
+// section-as-category-key) — accepted because prod carries zero customer rows.
+
+it('square: a numeric item id now lands as a string external_id and record key (behaviour change, #SLOP-2)', function () {
+    $dataset = [[
+        'restaurantName' => 'Numeric Co',
+        'menu' => ['categories' => [
+            ['name' => 'Mains', 'items' => [
+                ['id' => 4021, 'name' => 'Salmon Roll'],
+            ]],
+        ]],
+    ]];
+
+    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
+    $connector = new SquareMenuConnector;
+    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://order.numeric-co.com'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+
+    // Previously: no numeric fallback -> externalId null -> key was a sha1 digest.
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->key)->toBe('4021')
+        ->and($records[0]->doc['external_id'])->toBe('4021');
+});
+
+it('square: a bare-number item name is now landed instead of dropped (behaviour change, #SLOP-2)', function () {
+    $dataset = [[
+        'restaurantName' => 'Numeric Co',
+        'menu' => ['categories' => [
+            ['name' => 'Mains', 'items' => [
+                ['name' => 7],
+            ]],
+        ]],
+    ]];
+
+    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
+    $connector = new SquareMenuConnector;
+    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://order.numeric-co.com'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+
+    // Previously: name stayed null -> MenuRecords::flatten's empty-name skip dropped it.
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['name'])->toBe('7');
+});
+
+it('uber eats: a numeric section value becomes the category key instead of falling back to Menu (behaviour change, #SLOP-2)', function () {
+    $dataset = [[
+        'title' => 'Numeric Co',
+        'menuItems' => [
+            ['name' => 'Margherita', 'section' => 7],
+        ],
+    ]];
+
+    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
+    $connector = new UberEatsMenuConnector;
+    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://www.ubereats.com/au/store/numeric-co/abc'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+
+    // Previously: section stayed null -> fell back to the literal 'Menu' category.
+    // UberEats hardcodes externalId=null, so the record key is sha1(category|name) —
+    // this section rename churns the key for every item that lands under it.
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['category'])->toBe('7')
+        ->and($records[0]->key)->toBe(substr(sha1('7|margherita'), 0, 16));
+});
+
+it('uber eats: a bare-number item name is now landed instead of dropped (behaviour change, #SLOP-2)', function () {
+    $dataset = [[
+        'title' => 'Numeric Co',
+        'menuItems' => [
+            ['name' => 1855, 'section' => 'Wine'],
+        ],
+    ]];
+
+    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
+    $connector = new UberEatsMenuConnector;
+    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://www.ubereats.com/au/store/numeric-co/abc'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+
+    // Previously: firstString had no numeric fallback -> name stayed null -> `continue`.
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['name'])->toBe('1855')
+        ->and($records[0]->doc['category'])->toBe('Wine');
+});
+
+it('doordash: characterisation — a numeric item_id already worked before the Fields consolidation (#SLOP-2, no-op)', function () {
+    $dataset = [[
+        'name' => 'Burger Republic',
+        'menu_categories' => [
+            ['category_name' => 'Burgers', 'items' => [
+                ['item_id' => 4021, 'name' => 'Cheeseburger', 'price_cents' => 1590],
+            ]],
+        ],
+    ]];
+
+    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
+    $connector = new DoordashMenuConnector;
+    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://www.doordash.com/store/burger-republic-123'), $io));
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->key)->toBe('4021')
+        ->and($records[0]->doc['external_id'])->toBe('4021');
+});
+
 it('is actor-billed with no http path and a catalogue that never deletes, for all three', function () {
     foreach ([SquareMenuConnector::class, UberEatsMenuConnector::class, DoordashMenuConnector::class] as $class) {
         $manifest = $class::manifest();
