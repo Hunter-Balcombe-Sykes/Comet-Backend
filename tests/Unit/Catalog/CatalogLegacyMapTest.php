@@ -7,7 +7,7 @@ use Tests\TestCase;
 uses(TestCase::class)->in(__FILE__);
 
 // LegacyPlatformMap is consumed in three forms that must never drift: the PHP
-// map itself, the 20260727110000 migration's SQL CASEs, and the compiled
+// map itself, the 20260727110000 family's SQL CASEs, and the compiled
 // catalog artefact. These tests pin all three.
 
 it('round-trips every legacy platform through surface and back', function () {
@@ -49,7 +49,7 @@ it('retires a platform without pretending the migration never mapped it', functi
 });
 
 it('matches the backfill migration CASE pair-for-pair', function () {
-    $sql = file_get_contents(base_path('supabase/migrations/20260727110000_connections_surface_key.sql'));
+    $sql = file_get_contents(base_path('supabase/migrations/20260727110001_connections_surface_key_backfill.sql'));
 
     // The surface backfill: WHEN '<legacy>' THEN '<surface>' pairs.
     preg_match_all("~WHEN '([a-z0-9-]+)' THEN '([a-z0-9_]+\\.[a-z0-9_]+)'~", $sql, $m, PREG_SET_ORDER);
@@ -69,7 +69,7 @@ it('matches the backfill migration CASE pair-for-pair', function () {
 });
 
 it('matches the generated alias CASE pair-for-pair', function () {
-    $sql = file_get_contents(base_path('supabase/migrations/20260727110000_connections_surface_key.sql'));
+    $sql = file_get_contents(base_path('supabase/migrations/20260727110004_connections_platform_generated_alias.sql'));
 
     // The alias half lives after the GENERATED ALWAYS AS marker.
     $generated = substr($sql, strpos($sql, 'GENERATED ALWAYS AS'));

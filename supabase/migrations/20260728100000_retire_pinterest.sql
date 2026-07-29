@@ -16,6 +16,18 @@
 -- would make it lie about history. App\Catalog\LegacyPlatformMap::RETIRED
 -- carries the retirement so the lockstep test can tell a genuine drift apart
 -- from a deliberate removal.
+--
+-- SCALE-21 (2026-07-29): bounded. Both UPDATEs were already idempotent and
+-- narrowly scoped ("deleted_at IS NULL" / "state IN ('proposed','blocked')"),
+-- so batching buys nothing here — one retired connector, bounded row count.
+-- What was missing was a lock bound: without it a conflicting lock makes this
+-- statement wait indefinitely and stall the whole sequential db push. 2s is the
+-- repo's standard (CONVENTIONS.md §8); 30s of statement_timeout is generous for
+-- a predicate-scoped soft delete and fails visibly rather than silently.
+
+BEGIN;
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '30s';
 
 UPDATE "site"."platform_connections"
    SET "deleted_at" = now(),
@@ -34,6 +46,8 @@ UPDATE "routing"."source_intents"
        "updated_at" = now()
  WHERE "surface_key" = 'pinterest.profile'
    AND "state" IN ('proposed', 'blocked');
+
+COMMIT;
 
 -- Catalog projection rows tombstone on the next `catalog:sync` (the artefact
 -- no longer contains the brand/surface/detectors), so nothing to do here.
