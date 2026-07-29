@@ -837,10 +837,37 @@ class AccountDeletionService
         // forceDelete succeeds — not before. A pre-delete purge would be re-warmed
         // by any visitor while the KV entry (retired by UserObserver::deleted, which
         // fires from forceDelete's model event) is still live; dispatching here, in
-        // the same post-delete block as the $retireCustomDomain KV retire above,
-        // guarantees the KV-retire job is already ahead of this one in the
-        // single-process `cloudflare` queue, so the route is dark before the purge
-        // runs. Unconditional (not gated on $retireCustomDomain): a hard delete has
+        // the same post-delete block as the $retireCustomDomain KV retire above, puts
+        // this dispatch AFTER the KV-retire dispatch in Redis FIFO order.
+        //
+        // That does NOT guarantee completion order and this comment previously
+        // claimed it did. config/horizon.php's supervisor-1 (owns the `cloudflare`
+        // queue, balance=>false) runs maxProcesses=>2 in BOTH production and
+        // development — with two workers, dequeue order is not completion order:
+        // worker A can take the KV-retire job while worker B takes this purge, and
+        // the purge can finish before the KV entry is actually retired. A visitor
+        // request landing in that narrow window is served the still-live route and
+        // re-warms the very cache entry this purge just cleared.
+        //
+        // What actually closes that window: CloudflareCachePurgeJob::handle() always
+        // schedules its own follow-up purges (partna.cache.purge_followup_schedule,
+        // default [120, 300, 900] seconds) for any non-follow-up dispatch — this call
+        // included, unconditionally, regardless of $bulk or moderationCaseId. Each
+        // follow-up is dispatched up-front (not chained) with its own uniqueId
+        // discriminator (|fu1/|fu2/|fu3), so it can't be coalesced away by this
+        // purge, by a reclaimer's own SiteObserver::saved() purge (different
+        // uniqueId — no `|fu` suffix), or by another follow-up depth. So even if the
+        // KV-retire/purge race is lost and the route gets re-warmed, the 120s
+        // follow-up evicts it — narrowing the exposure window from "until the next
+        // unrelated write" to "up to ~120s", not eliminating it entirely. Accepted
+        // residual: if Cloudflare's API is degraded long enough for all three
+        // follow-ups (120s/300s/900s) to also fail, nothing further evicts a
+        // re-warmed entry on this path — the same residual every purge on this job
+        // already carries (see failed()); this dispatch adds no new exposure beyond
+        // that. Job-level follow-up mechanics are pinned by
+        // tests/Unit/Jobs/CloudflareCachePurgeJobTest.php.
+        //
+        // Unconditional (not gated on $retireCustomDomain): a hard delete has
         // NO reclaim cooldown (unlike a rename's 14d/90d alias window), so a
         // reclaimer's own SiteObserver::saved() purge races the KV write and must
         // not be the sole defence against serving the previous owner's cached HTML.

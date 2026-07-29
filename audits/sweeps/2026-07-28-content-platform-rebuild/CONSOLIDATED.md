@@ -3813,7 +3813,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 0 complete
 
@@ -3821,7 +3821,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#EDGE-1** · P1 — A hard-deleted user's stale edge cache can survive to serve a different professional who reclaims the same handle
+- [x] **#EDGE-1** · P1 — A hard-deleted user's stale edge cache can survive to serve a different professional who reclaims the same handle
     - **Where:** app/Observers/User/UserObserver.php:161-190 (`deleted()`), app/Services/User/AccountDeletionService.php:787-815 (force-delete + KV retire), app/Observers/Core/SiteObserver.php:25-84 (`saved()`), app/Services/Site/SubdomainAvailabilityService.php:69-74
     - **Affects:** Any professional who claims a handle recently vacated by a hard-deleted account (GDPR purge, staff force-delete, or a moderation-driven deletion); their visitors, who may be served the previous (deleted / possibly moderation-actioned) owner's cached HTML instead of the new owner's page.
     - **Effort:** S (~0.5–1h)

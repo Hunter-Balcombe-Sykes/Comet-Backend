@@ -246,6 +246,28 @@ it('dispatches CloudflareCachePurgeJob with the captured handle snapshot on purg
     });
 });
 
+it('dispatches the purge as a primary (non-follow-up) job, so its unconditional follow-up schedule still fires (EDGE-1)', function () {
+    // This is the actual mitigation for the KV-retire/purge completion-order race
+    // (see the dispatch-site comment in AccountDeletionService::purge()):
+    // CloudflareCachePurgeJob::handle() only schedules its follow-ups when
+    // `! $this->followUp`. If this dispatch were ever changed to pass
+    // followUp: true, the 120s/300s/900s backstop that evicts a re-warmed
+    // cache entry would silently stop firing on the deletion path. Pin the
+    // precondition here; the follow-up scheduling mechanics themselves are
+    // covered by tests/Unit/Jobs/CloudflareCachePurgeJobTest.php.
+    Bus::fake();
+
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    Bus::assertDispatched(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
+        return $job->followUp === false && $job->moderationCaseId === null && $job->bulk === false;
+    });
+});
+
 it('carries the active custom domain through to the edge cache purge job (EDGE-1)', function () {
     Bus::fake();
 
@@ -308,7 +330,17 @@ it('does not dispatch the edge cache purge for a handle-less user (EDGE-1 guard)
     Bus::assertNotDispatched(CloudflareCachePurgeJob::class);
 });
 
-it('enqueues the KV retire before the edge cache purge (EDGE-1 ordering)', function () {
+it('enqueues the KV retire before the edge cache purge, dispatch order only (EDGE-1)', function () {
+    // Queue::fake() records DISPATCH (push) order, not completion order — with
+    // supervisor-1 at maxProcesses=>2 (config/horizon.php, both production and
+    // development), two workers can dequeue these in this order and still
+    // COMPLETE out of order, so this assertion is not proof the KV entry is
+    // retired before the edge cache purge finishes. That narrow race is instead
+    // closed (to ~120s, not eliminated) by CloudflareCachePurgeJob's own
+    // unconditional follow-up schedule — see the dispatch-site comment in
+    // AccountDeletionService::purge() and the follow-up mechanics pinned by
+    // tests/Unit/Jobs/CloudflareCachePurgeJobTest.php. This test only pins the
+    // cheap, genuinely-provable fact: the KV retire is pushed first.
     Queue::fake();
 
     $pro = seedPurgeableUser();
