@@ -7,6 +7,8 @@ use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopifyScraper;
+use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
+use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -458,6 +460,78 @@ it('a manual selection PUT flips a latest-mode brand back to manual', function (
     $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
     expect($brand->selection_mode)->toBe('manual')
         ->and(ShopProduct::where('brand_id', $brand->id)->pluck('product_id')->all())->toBe(['p1']);
+});
+
+// #SEM-1: ShopFetch::fetch() never read selection_mode (a comment's own
+// evidence it never guarded anything) — a scheduled sync wholesale-replaced a
+// hand-picked selection with the store's newest N products. The guard is now
+// products_curated_at, stamped by setProducts(). These three tests run the
+// REAL ShopFetch (resolved from the container) and the REAL ShopCatalog::
+// syncLatest() against modesBrandFor()'s known p1/p2/p3 catalog — proving the
+// product ROWS survive, not just a flag.
+it('a hand-picked selection survives a scheduled ShopFetch run while the global auto-latest is on', function () {
+    $user = shopStorageUser('sem1a');
+    modesBrandFor($user);
+
+    actingAsUser($user)->putJson('/api/platforms/shop/brands/modes-brand/selection', ['productIds' => ['p1']])
+        ->assertOk();
+
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
+    expect($brand->products_curated_at)->not->toBeNull();
+
+    // Global shop_auto_latest defaults ON (no site row = null → treated as on
+    // by ShopFetch's own gate) — the curated brand must still be skipped.
+    expect(fn () => app(ShopFetch::class)->fetch($conn->fresh()))
+        ->toThrow(FetchNotModifiedException::class);
+
+    expect(ShopProduct::where('brand_id', $brand->id)->pluck('product_id')->all())->toBe(['p1']);
+});
+
+it('a non-curated brand still syncs to the newest products on a scheduled ShopFetch run', function () {
+    $user = shopStorageUser('sem1b');
+    modesBrandFor($user);
+
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
+    expect($brand->products_curated_at)->toBeNull();
+
+    // Not mocking ShopCatalog away and asserting the flag instead of the rows
+    // is exactly the failure mode this pins: a fix that (wrongly) blocks every
+    // brand from syncing would pass a flag-only assertion but fail this one.
+    app(ShopFetch::class)->fetch($conn->fresh());
+
+    expect(ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all())
+        ->toBe(['p3', 'p2', 'p1']);
+});
+
+it('selectionMode=latest clears products_curated_at, opting the brand back into scheduled sync', function () {
+    $user = shopStorageUser('sem1c');
+    modesBrandFor($user);
+
+    actingAsUser($user)->putJson('/api/platforms/shop/brands/modes-brand/selection', ['productIds' => ['p1']])
+        ->assertOk();
+    $brand = ShopBrand::where('brand_id', 'modes-brand')->firstOrFail();
+    expect($brand->products_curated_at)->not->toBeNull();
+
+    actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'latest'])
+        ->assertOk();
+    $brand->refresh();
+    expect($brand->products_curated_at)->toBeNull();
+    // updateBrand's own immediate sync already re-synced — ShopCatalog::
+    // syncLatest() preserves the CURRENT selection size (1, from the curated
+    // PUT above) as the count for "how many latest products", so only the
+    // single newest lands, not all three.
+    expect(ShopProduct::where('brand_id', $brand->id)->orderBy('position')->pluck('product_id')->all())
+        ->toBe(['p3']);
+
+    // The opt-back-in proof: the NEXT scheduled fetch() also runs (not
+    // skipped) now that products_curated_at is null again — a curated brand
+    // would have thrown FetchNotModifiedException instead (see the sibling
+    // "survives a scheduled ShopFetch run" test above).
+    $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'shop')->firstOrFail();
+    $result = app(ShopFetch::class)->fetch($conn->fresh());
+    expect($result)->toBe(['storage' => 'relational']);
 });
 
 it('rejects invalid mode values', function () {

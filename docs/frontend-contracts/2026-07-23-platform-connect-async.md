@@ -318,6 +318,15 @@ timeout/backoff shape as `ConnectFetchJob` (45 s timeout, 3 tries, `[5, 20]` bac
 - `connectStatus` and `connectError` appear on the brand object — in `GET /brands`,
   `PATCH /brands/{id}`, and everywhere else a brand is rendered — **only when non-null**. A settled
   brand never carries these keys at all; do not treat their absence as `false`.
+- **`productsCuratedAt` (#SEM-1, new)** appears on the brand object — same everywhere-a-brand-is-rendered
+  rule, **only when non-null** — an ISO-8601 timestamp of the moment the user last hand-picked this
+  brand's products via `PUT /brands/{id}/selection`. Its presence means the scheduled auto-latest sync
+  is now **skipping this brand indefinitely**, even while the account's global auto-latest is on: the
+  picker should surface something like "auto-updates paused — you picked these on {date}" with a way to
+  resume. The only way back to auto-tracking is `PATCH /brands/{id} {"selectionMode":"latest"}`, which
+  clears this field and immediately re-syncs to the store's newest products. **There is currently no
+  dashboard affordance that sends `selectionMode` at all** — until one exists, a curated brand's product
+  data (price/availability/image) will not refresh even though membership won't be clobbered.
 - A **pending** brand is omitted from the public sitepage payload — on its own it cannot cause a Shop
   page to appear, and it will not ship as an empty card once another brand's products already make the
   page live. A **failed** brand is **not** omitted: its content is identical to what a failed homepage

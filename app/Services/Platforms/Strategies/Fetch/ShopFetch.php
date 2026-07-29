@@ -11,13 +11,18 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // Scheduled shop refresh: re-syncs every non-individual store's selection to
 // the store's newest products WHEN the user's GLOBAL auto-latest is on
-// (site.sites.shop_auto_latest — the per-brand selection_mode column is dormant
-// as of 2026-07-08; the one site-level toggle decides for every store). When
-// auto-latest is off, nothing is synced. The connection payload is a static
-// marker (FOUND-25), so content changes live in the child shop_products rows —
-// when any brand actually re-synced we purge the sitepage edge cache explicitly
-// (the observer's payload-dirty gate can never fire for shop), and when
-// nothing changed we signal 304 so the quiet bookkeeping path runs.
+// (site.sites.shop_auto_latest — the one site-level toggle gates every
+// store). Within that, a brand whose product list the user hand-picked
+// (site.shop_brands.products_curated_at IS NOT NULL, stamped by
+// ShopController::setProducts) is skipped — #SEM-1: the guard used to be
+// selection_mode='manual', but that column's default IS 'manual' and
+// addBrand() never sets it, so it could never distinguish "curated" from
+// "never touched". When auto-latest is off, nothing is synced. The
+// connection payload is a static marker (FOUND-25), so content changes live
+// in the child shop_products rows — when any brand actually re-synced we
+// purge the sitepage edge cache explicitly (the observer's payload-dirty
+// gate can never fire for shop), and when nothing changed we signal 304 so
+// the quiet bookkeeping path runs.
 final readonly class ShopFetch implements FetchStrategy
 {
     public function __construct(
@@ -38,9 +43,12 @@ final readonly class ShopFetch implements FetchStrategy
         }
 
         // Auto-latest ON → every non-individual store tracks its newest
-        // products (the per-brand selection_mode is ignored under the global).
+        // products EXCEPT a brand the user hand-curated (#SEM-1) — that
+        // per-brand fact is products_curated_at, not selection_mode (see the
+        // class docblock for why selection_mode can't carry it).
         $latestBrands = $connection->shopBrands()
             ->where('is_individual', false)
+            ->whereNull('products_curated_at')
             ->with('products')
             ->get();
 

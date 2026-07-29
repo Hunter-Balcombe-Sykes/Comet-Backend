@@ -29,6 +29,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $selection_mode NOT NULL in Postgres (default 'manual'), but pre-migration rows and the SQLite test mirror read NULL — toBrandArray() coalesces.
  * @property string|null $link_mode Same NOT-NULL-in-Postgres/nullable-in-tests story as $selection_mode (default 'product').
  * @property string|null $referral_query Same story as $selection_mode (default '').
+ * @property Carbon|null $products_curated_at #SEM-1: NULL = no evidence of human curation (ShopFetch's scheduled resync tracks this brand's newest products); non-NULL = the user hand-picked this brand's products at this instant (ShopController::setProducts) and ShopFetch skips it until selectionMode=latest clears it back to NULL. NOT selection_mode — see ShopFetch's docblock for why that column can't carry this fact.
  * @property Carbon|null $created_at Nullable in Postgres (DEFAULT now(), no NOT NULL) — same as IntegrationConnection.
  * @property Carbon|null $updated_at Nullable in Postgres, same as created_at above.
  */
@@ -68,6 +69,7 @@ class ShopBrand extends BaseModel
         'selection_mode',
         'link_mode',
         'referral_query',
+        'products_curated_at',
     ];
 
     // App-side vocabulary source of truth for connect_status. NULL = settled;
@@ -85,6 +87,7 @@ class ShopBrand extends BaseModel
         'style_analysis' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'products_curated_at' => 'datetime',
     ];
 
     /** @return BelongsTo<IntegrationConnection, $this> */
@@ -163,6 +166,13 @@ class ShopBrand extends BaseModel
         }
         if ($this->connect_error !== null) {
             $brand['connectError'] = $this->connect_error;
+        }
+        // #SEM-1: present only for a curated brand — mirrors the connectStatus/
+        // connectError W9 idiom above, so a non-curated (the overwhelming
+        // majority) brand's body stays byte-identical
+        // (IntegrationContractGoldenMasterTest dark-merges unchanged).
+        if ($this->products_curated_at !== null) {
+            $brand['productsCuratedAt'] = $this->products_curated_at->toIso8601String();
         }
 
         return $brand;

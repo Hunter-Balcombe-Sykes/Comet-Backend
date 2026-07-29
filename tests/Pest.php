@@ -697,6 +697,7 @@ function setupSitesTable(): void
         selection_mode TEXT NULL DEFAULT \'manual\',
         link_mode TEXT NULL DEFAULT \'product\',
         referral_query TEXT NULL DEFAULT \'\',
+        products_curated_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL
     )');

@@ -134,7 +134,7 @@ it('T16b: a cold catalog still scrapes', function () {
     expect($res->json('products.0.productId'))->toBe('p1');
 });
 
-it('T16c: the response body is unchanged — the full ShopBrandResource shape', function () {
+it('T16c: the full ShopBrandResource shape, including the productsCuratedAt stamp this PUT sets', function () {
     $user = shopSelLockUser('lockbody1');
     shopSelLockBrand($user, 'lockbrand');
 
@@ -142,25 +142,54 @@ it('T16c: the response body is unchanged — the full ShopBrandResource shape', 
         ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
     ]));
 
+    $response = actingAsUser($user)->putJson('/api/platforms/shop/brands/lockbrand/selection', ['productIds' => ['p1']])
+        ->assertOk();
+
+    // #SEM-1: setProducts() IS the moment of curation, so this response now
+    // carries productsCuratedAt (conditional key, present only when set —
+    // T16d/T16e's still-uncurated brands never see it). Assert its shape
+    // (ISO-8601 string) via the model rather than pinning an exact timestamp.
+    $brand = ShopBrand::where('brand_id', 'lockbrand')->firstOrFail();
+    expect($brand->products_curated_at)->not->toBeNull();
+
+    $response->assertExactJson([
+        'id' => 'lockbrand',
+        'provider' => 'shopify',
+        'url' => 'https://lockbrand.example.com',
+        'name' => null,
+        'currency' => 'AUD',
+        'favicon' => null,
+        'logo' => null,
+        'discountCode' => '',
+        'selectionMode' => 'manual',
+        'linkMode' => 'product',
+        'referralQuery' => '',
+        'individual' => false,
+        'products' => [
+            ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
+        ],
+        'productsCuratedAt' => $brand->products_curated_at->toIso8601String(),
+    ]);
+});
+
+// #SEM-1: setProducts() is the moment of curation — it must stamp
+// products_curated_at so ShopFetch's scheduled sync skips this brand
+// afterwards (see ShopRelationalStorageTest's ShopFetch-level proof). The
+// wire body gains only that stamp (T16c above) — this only covers the
+// locked write.
+it('T16f: setProducts stamps products_curated_at', function () {
+    $user = shopSelLockUser('lockcurate1');
+    $brand = shopSelLockBrand($user, 'lockbrand');
+    expect($brand->products_curated_at)->toBeNull();
+
+    $this->mock(ShopifyScraper::class, fn ($m) => $m->shouldReceive('fetchProducts')->once()->andReturn([
+        ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
+    ]));
+
     actingAsUser($user)->putJson('/api/platforms/shop/brands/lockbrand/selection', ['productIds' => ['p1']])
-        ->assertOk()
-        ->assertExactJson([
-            'id' => 'lockbrand',
-            'provider' => 'shopify',
-            'url' => 'https://lockbrand.example.com',
-            'name' => null,
-            'currency' => 'AUD',
-            'favicon' => null,
-            'logo' => null,
-            'discountCode' => '',
-            'selectionMode' => 'manual',
-            'linkMode' => 'product',
-            'referralQuery' => '',
-            'individual' => false,
-            'products' => [
-                ['productId' => 'p1', 'title' => 'One', 'url' => 'https://lockbrand.example.com/p1'],
-            ],
-        ]);
+        ->assertOk();
+
+    expect($brand->fresh()->products_curated_at)->not->toBeNull();
 });
 
 it('T16d: a scraper HttpException still surfaces as 502, same body', function () {

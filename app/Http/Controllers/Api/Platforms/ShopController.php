@@ -423,13 +423,15 @@ class ShopController extends ApiController
     // discount code and the referral URL (stored as its parsed query suffix).
     // Every field is optional; only what's present is applied.
     //
-    // selectionMode + linkMode are still ACCEPTED here for backward compatibility
-    // but are DORMANT as of 2026-07-08: both became one GLOBAL site setting
-    // (site.sites.shop_auto_latest / shop_link_mode via /platforms/shop/settings).
-    // The public payload always stamps linkMode from the global, and ShopFetch
-    // gates auto-latest on the global — so a per-brand write to either column is
-    // inert on the wire. The dashboard no longer sends them. (Setting
-    // selectionMode=latest here still triggers a one-off immediate sync, harmless.)
+    // linkMode is still ACCEPTED here for backward compatibility but is DORMANT
+    // as of 2026-07-08: it became one GLOBAL site setting (site.sites.shop_link_mode
+    // via /platforms/shop/settings), and the public payload always stamps linkMode
+    // from the global — so a per-brand write to it is inert on the wire. The
+    // dashboard no longer sends it.
+    //
+    // selectionMode is NOT dormant — #SEM-1: setting it to 'latest' clears
+    // products_curated_at (the opt-BACK-IN path after setProducts() curated the
+    // brand — see that method) and triggers a one-off immediate sync below.
     public function updateBrand(UpdateShopBrandRequest $request, string $id): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -448,6 +450,13 @@ class ShopController extends ApiController
             }
             if (array_key_exists('selectionMode', $validated)) {
                 $updates['selection_mode'] = $validated['selectionMode'];
+                // #SEM-1 opt-back-in: 'latest' un-curates the brand so
+                // ShopFetch's whereNull('products_curated_at') picks it back
+                // up on the next scheduled sync (the immediate sync below
+                // also runs, so the two never race against each other).
+                if ($validated['selectionMode'] === 'latest') {
+                    $updates['products_curated_at'] = null;
+                }
             }
             if (array_key_exists('linkMode', $validated)) {
                 $updates['link_mode'] = $validated['linkMode'];
@@ -696,11 +705,17 @@ class ShopController extends ApiController
                 }
             });
 
-            // A hand-picked selection is a manual choice — leaving latest mode
-            // on would silently overwrite it on the next scheduled sync.
+            // #SEM-1: products_curated_at is what ShopFetch actually reads to
+            // skip this brand on the next scheduled sync (see that class's
+            // docblock) — selection_mode alone can't carry this fact, since
+            // its default IS 'manual' and addBrand() never sets it. Still
+            // write selection_mode too: it stays a truthful dashboard label,
+            // just no longer pretends to be the guard.
+            $updates = ['products_curated_at' => now()];
             if (($brand->selection_mode ?? 'manual') === 'latest') {
-                $brand->update(['selection_mode' => 'manual']);
+                $updates['selection_mode'] = 'manual';
             }
+            $brand->update($updates);
 
             $connection = $this->writeConnection($user, self::MARKER);
             $this->refresher->refresh($connection);
