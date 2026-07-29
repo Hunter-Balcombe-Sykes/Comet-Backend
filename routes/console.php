@@ -441,6 +441,19 @@ Schedule::command('ingest:stranded')
     ->withoutOverlapping(10)
     ->onFailure($reportScheduledFailure('ingest:stranded'));
 
+// Abandoned-claim watchdog (LIFE-18): sweeps ingest.effects claims stuck past
+// EffectLedger::ABANDON_AFTER_SECONDS (900s) to 'abandoned', filing a critical
+// ingest.anomalies row + Nightwatch report per NEW transition — makes a dead billed
+// claim visible without waiting for once() to trip over it lazily on a later call.
+// hourlyAt(47) not bare hourly() per the RV-5 note above (the :00 slot is crowded);
+// 47 dodges every everyTwoMinutes/everyFiveMinutes/everyFifteenMinutes entry here.
+// withoutOverlapping(10) matches ingest:stranded's sibling watchdog.
+Schedule::command('ingest:effects', ['--resolve'])
+    ->hourlyAt(47)
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->onFailure($reportScheduledFailure('ingest:effects'));
+
 // Document sweeper (plan §9): the NET under content_revision bump enforcement — any
 // site whose content moved past its built document gets a queued rebuild within five
 // minutes, whichever write path bumped it (observer, raw seam, projection). Builds are

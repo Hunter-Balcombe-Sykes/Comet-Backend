@@ -34,6 +34,8 @@
 // money moving, not merely "no exception was thrown".
 
 use App\Ingest\Runtime\EffectLedger;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -200,7 +202,7 @@ it('charges an effect exactly once under a REAL N-way fork race on the same dige
                     'cached' => (bool) $verdict['cached'],
                     'result_json' => json_encode($verdict['result']),
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 DB::connection('pgsql')->table('ingest.effect_probe')->insert([
                     'child_idx' => $i,
                     'status' => 'exception',
@@ -255,4 +257,80 @@ it('charges an effect exactly once under a REAL N-way fork race on the same dige
             expect($loser->result_json)->toBe($winners->first()->result_json);
         }
     }
+});
+
+// LIFE-6 / #WHK-3: EffectLedger::once() now catches only UniqueConstraintViolationException
+// around its claim INSERT. These two cases are additive to the pair above — do not touch
+// them — and are the only place the real 23505-vs-not distinction can be proven, since the
+// SQLite mirror (tests/Feature/Ingest/EffectLedgerTest.php) has no independently-committing
+// second connection to race against.
+
+it('a non-unique claim-INSERT failure propagates on real Postgres — never laundered into refused', function () {
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+
+    $digest = hash('sha256', 'race-nonunique-'.Str::uuid());
+
+    $injected = false;
+    DB::listen(function ($query) use ($digest, &$injected) {
+        if ($injected) {
+            return; // fires exactly once — self-unregistering.
+        }
+        if (! str_contains($query->sql, 'ingest') || ! str_contains($query->sql, 'effects')) {
+            return;
+        }
+        if (! in_array($digest, $query->bindings, true)) {
+            return;
+        }
+
+        $injected = true;
+
+        // Drop the table on a SEPARATE connection, between the caller's own
+        // pre-read (clean) and its claim INSERT — a genuine 42P01, never a
+        // unique-constraint conflict.
+        DB::connection('pgsql_second')->statement('DROP TABLE ingest.effects CASCADE');
+    });
+
+    $ledger = new EffectLedger;
+    $calls = 0;
+    $thrown = null;
+
+    try {
+        $ledger->once($digest, 'http', function () use (&$calls) {
+            $calls++;
+
+            return 'nope';
+        });
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->toBeInstanceOf(QueryException::class);
+    expect($thrown)->not->toBeInstanceOf(UniqueConstraintViolationException::class);
+    expect($calls)->toBe(0);
+
+    DB::purge('pgsql_second');
+});
+
+it('a duplicate PRIMARY KEY insert on real Postgres raises UniqueConstraintViolationException', function () {
+    // Locks in the PostgresConnection::isUniqueConstraintError() dependency that
+    // once()'s typed catch relies on — a real 23505, not a string-matched SQLSTATE.
+    $digest = hash('sha256', 'unique-typecheck-'.Str::uuid());
+    $row = [
+        'digest' => $digest,
+        'kind' => 'http',
+        'claimed_at' => now(),
+        'status' => 'claimed',
+        'meta' => json_encode([]),
+    ];
+
+    DB::connection('pgsql')->table('ingest.effects')->insert($row);
+
+    $thrown = null;
+    try {
+        DB::connection('pgsql')->table('ingest.effects')->insert($row);
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->toBeInstanceOf(UniqueConstraintViolationException::class);
 });
