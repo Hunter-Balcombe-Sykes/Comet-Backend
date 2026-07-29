@@ -11,6 +11,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilitySet;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Database\QueryException;
@@ -32,6 +33,8 @@ use Illuminate\Support\Facades\Log;
  */
 class SitepageDataResolverService
 {
+    use EscalatesRepeatedFaults;
+
     /**
      * Section block_type → sitepage page-id. The section block_group covers a
      * subset of the taxonomy; the platform-backed pages route via
@@ -240,21 +243,35 @@ class SitepageDataResolverService
                 // the section's data but the page still advertises itself and renders
                 // empty. Absent/true = shown, explicit false hides — same read as
                 // PublicMenuController. first() (not value()) so the array cast applies.
+                //
+                // LIFE-1: default is `false`, NOT `null` — a legitimate "no active
+                // GB connection" already reads as null via first()'s own miss, so a
+                // bare `null` default made a DB fault indistinguishable from that
+                // case, and absent-means-shown then read the fault as the owner
+                // never having toggled Menu off. That inverted intent: a fault
+                // OVERRODE an explicit "Menu OFF" switch and re-advertised a page
+                // the owner turned off. `false` is never a real return value here
+                // (the query returns a model or null), so it's a safe fault sentinel.
                 $gbConn = $this->safeQuery(
                     fn () => IntegrationConnection::query()
                         ->where('user_id', $userId)
                         ->where('platform', 'google-business')
                         ->where('is_active', true)
                         ->first(['display_settings']),
-                    null,
+                    false,
                     'google_business_connection_display_settings',
                     $site,
                 );
-                $gbDisplay = (array) ($gbConn?->display_settings ?? []);
+                $gbProbeFaulted = $gbConn === false;
+                $gbDisplay = $gbProbeFaulted ? [] : (array) ($gbConn?->display_settings ?? []);
 
                 // A fetched Menu (Google-Business-sourced) → the Menu page, unless
-                // the owner switched the Menu section off.
-                if (($gbDisplay['menu'] ?? true) !== false
+                // the owner switched the Menu section off, or the display-settings
+                // probe itself faulted — fail CLOSED here (unlike this method's
+                // usual fail-open posture): suppress the GB-derived Menu page
+                // rather than risk re-showing a page the owner explicitly hid.
+                if (! $gbProbeFaulted
+                    && ($gbDisplay['menu'] ?? true) !== false
                     && $this->safeQuery(fn () => Menu::query()->where('user_id', $userId)->whereNotNull('last_fetched_at')->exists(), false, 'fetched_menu_exists', $site)) {
                     $present['menu'] = true;
                 }
@@ -360,6 +377,15 @@ class SitepageDataResolverService
      * call sites and the bare event name alone can't say which one faulted or
      * for which site, so every caller passes a distinct label + the site.
      *
+     * LIFE-1: a single blip stays this quiet Log::warning breadcrumb — Nightwatch
+     * never alerts on Log::warning — but a SUSTAINED run of faults escalates to a
+     * real Nightwatch issue via EscalatesRepeatedFaults, so a broken probe on this
+     * public read path finally pages someone instead of silently dropping page
+     * sections forever. `platform_complete_{platform}` labels collapse to one
+     * `platform_complete` escalation bucket (the Log::warning above keeps the full
+     * per-platform label) so a broad platform-registry outage doesn't need 5 faults
+     * PER platform before it's loud.
+     *
      * @template T
      *
      * @param  \Closure(): T  $query
@@ -377,6 +403,13 @@ class SitepageDataResolverService
                 'user_id' => $site?->user_id,
                 'error' => $e->getMessage(),
             ]);
+
+            // Coarse bucket for alerting (cardinality control), fine label above
+            // for diagnosis. Shares the "analytics:fault:" RateLimiter prefix
+            // with the Analytics/FeatureAvailability call sites — a slight
+            // namespace misnomer, not worth a rename (see LIFE-1 plan).
+            $bucket = str_starts_with((string) $probe, 'platform_complete_') ? 'platform_complete' : (string) $probe;
+            self::escalateIfSustained($e, "sitepage_probe_{$bucket}");
 
             return $default;
         }

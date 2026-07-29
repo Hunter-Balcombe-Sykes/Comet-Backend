@@ -7,6 +7,8 @@
 // trait (app/Services/Analytics/Concerns/EscalatesRepeatedFaults.php), wired into
 // AnalyticsCacheService::bumpVersion() and AnalyticsDedupGuard::claim(), depends
 // entirely on that catch block firing — under a swallowing store it is dead code.
+// LIFE-1 (2026-07-28) added a third dependent: SitepageDataResolverService::
+// safeQuery()'s presence-probe escalation on the public sitepage read path.
 //
 // phpunit.xml forces CACHE_STORE=array for the test run itself, so we cannot
 // assert on config('cache.default') at runtime — that would test the harness,
