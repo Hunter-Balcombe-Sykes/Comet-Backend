@@ -177,7 +177,15 @@ class Lander
         $changed = 0;
         $changedKeys = [];
         $changedWinnerIds = [];
-        $stateRows = [];
+        // LIFE-4: split by whether THIS transaction promoted the winner.
+        // $movedStateRows keys are ones we demote/promote below plus
+        // idx_record_versions_one_current provably make ours at commit — the
+        // pointer is ours to write. $unmovedStateRows keys are ones we left
+        // alone (already current); nothing here arbitrated who owns the
+        // pointer for those, so current_version_id must not travel in that
+        // payload (see the upsert below).
+        $movedStateRows = [];
+        $unmovedStateRows = [];
 
         foreach ($winners as $key => $hash) {
             $landedRow = $index["{$key}\0{$hash}"] ?? null;
@@ -193,14 +201,7 @@ class Lander
             $versionId = (int) $landedRow->id;
             $wasCurrent = ((int) $landedRow->is_current_flag) === 1;
 
-            // 3. Only when the CURRENT version actually moved.
-            if (! $wasCurrent) {
-                $changed++;
-                $changedKeys[] = $key;
-                $changedWinnerIds[] = $versionId;
-            }
-
-            $stateRows[] = [
+            $row = [
                 'stream_id' => $streamId,
                 'key' => $key,
                 'current_version_id' => $versionId,
@@ -212,6 +213,16 @@ class Lander
                 'absent_runs' => 0,
                 'tombstoned_at' => null,
             ];
+
+            // 3. Only when the CURRENT version actually moved.
+            if (! $wasCurrent) {
+                $changed++;
+                $changedKeys[] = $key;
+                $changedWinnerIds[] = $versionId;
+                $movedStateRows[] = $row;
+            } else {
+                $unmovedStateRows[] = $row;
+            }
         }
 
         // 4. Demote-then-promote, in that order — STILL two ordered
@@ -238,31 +249,51 @@ class Lander
                 ->update(['is_current' => true]);
         }
 
-        // 5. One multi-row record_state upsert — same conflict/update
-        //    column lists as the per-record path. $stateRows already has at
-        //    most one row per key (built from $winners, which is keyed by
-        //    key), so this is where the (key, doc_hash) de-dup above and the
-        //    key-only de-dup here are both structurally guaranteed rather
-        //    than merely hoped for: a payload with the same (stream_id, key)
-        //    twice is exactly what raises 21000 "ON CONFLICT DO UPDATE
-        //    command cannot affect row a second time" — a hazard batching
-        //    introduces that the per-record path never had, and that DOES
-        //    NOT reproduce under SQLite.
-        DB::table('ingest.record_state')->upsert(
-            $stateRows,
-            ['stream_id', 'key'],
-            ['current_version_id', 'last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']
-        );
+        // 5. Two multi-row record_state upserts, disjoint by key (every key
+        //    in $winners lands in exactly one of $movedStateRows or
+        //    $unmovedStateRows), so both stay 21000-safe for the same reason
+        //    the single payload was: at most one row per key, per payload.
+        //    Keys whose currency THIS transaction moved: the demote/promote
+        //    pair above plus idx_record_versions_one_current make our winner
+        //    provably the is_current row at commit, so the pointer is ours
+        //    to write.
+        if ($movedStateRows !== []) {
+            DB::table('ingest.record_state')->upsert(
+                $movedStateRows,
+                ['stream_id', 'key'],
+                ['current_version_id', 'last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']
+            );
+        }
+
+        // LIFE-4: keys we did NOT promote. $versionId here came from a
+        // SELECT this transaction never fenced — a concurrent lander can
+        // have moved currency since, and there is no one-current index
+        // violation to catch it because we promote nothing. current_version_id
+        // is therefore OMITTED from the update column list: on an existing
+        // row the incumbent pointer (written by whoever actually moved
+        // currency) survives; on a brand-new row the INSERT arm still
+        // supplies it, which is correct because there is no incumbent to
+        // clobber.
+        if ($unmovedStateRows !== []) {
+            DB::table('ingest.record_state')->upsert(
+                $unmovedStateRows,
+                ['stream_id', 'key'],
+                ['last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']
+            );
+        }
 
         return $changed;
     }
 
     /**
-     * Per-record landing — today's original loop, retained VERBATIM. Serves
-     * two roles: the poison-record fallback for landChunk() (isolates one
-     * bad record without costing the rest of the chunk its durable log
-     * entry), and the golden reference the chunked path is diffed against in
-     * tests. Do not "simplify" this to match landChunk() — its value is in
+     * Per-record landing — today's original loop, retained VERBATIM except
+     * the LIFE-4 pointer guard below, which must be identical in both paths
+     * or the chunk=1/chunk=500 parity test and this method's role as
+     * landChunk()'s fallback both diverge. Serves two roles: the
+     * poison-record fallback for landChunk() (isolates one bad record
+     * without costing the rest of the chunk its durable log entry), and the
+     * golden reference the chunked path is diffed against in tests. Do not
+     * otherwise "simplify" this to match landChunk() — its value is in
      * staying exactly what it always was.
      *
      * @param  list<Record>  $records
@@ -331,7 +362,18 @@ class Lander
                         ->update(['is_current' => true]);
                 }
 
-                // 4. record_state upsert — unchanged from before this fix.
+                // 4. record_state upsert. LIFE-4: current_version_id is only
+                //    in the update column list when THIS transaction moved
+                //    currency (! $wasCurrent) — same guard as landChunk(),
+                //    for the same reason: when $wasCurrent, $versionId came
+                //    from a SELECT this transaction never fenced, and there
+                //    is no promote here to arbitrate a concurrent lander's
+                //    pointer write.
+                $updateColumns = ['last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at'];
+                if (! $wasCurrent) {
+                    $updateColumns[] = 'current_version_id';
+                }
+
                 DB::table('ingest.record_state')->upsert([[
                     'stream_id' => $streamId,
                     'key' => $record->key,
@@ -343,7 +385,7 @@ class Lander
                     'absent_since' => null,
                     'absent_runs' => 0,
                     'tombstoned_at' => null,
-                ]], ['stream_id', 'key'], ['current_version_id', 'last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']);
+                ]], ['stream_id', 'key'], $updateColumns);
             });
         }
 
@@ -406,48 +448,70 @@ class Lander
             }
         }
 
-        // Delete-guard: an implausible share vanishing at once is far more
-        // likely to be a login wall than a real bulk deletion.
-        if ($liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= self::GUARD_THRESHOLD && count($dominatedAbsent) >= 5) {
-            DB::table('ingest.streams')->where('id', $streamId)->update(['guard_tripped_at' => now(), 'updated_at' => now()]);
-            DB::table('ingest.anomalies')->insert([
-                'id' => (string) Str::uuid(),
-                'stream_id' => $streamId,
-                'kind' => 'delete_guard',
-                'severity' => 'critical',
-                'summary' => sprintf('%d of %d records vanished in one run — deletion frozen', count($dominatedAbsent), $liveCount),
-                'detail' => json_encode(['absent' => count($dominatedAbsent), 'live' => $liveCount]),
-                'detected_at' => now(),
-            ]);
-
-            return ['tombstoned' => 0, 'guard_tripped' => true];
+        // #WHK-2 residual: a healthy run with nothing dominated-absent opens
+        // no transaction at all. The guard can never trip on zero candidates
+        // (it needs count >= 5), so this is safe to check before the branch
+        // below.
+        if ($dominatedAbsent === []) {
+            return ['tombstoned' => 0, 'guard_tripped' => false];
         }
 
-        // SCALE-5: batched absence/tombstone writes — two statements per
-        // chunk of dominated-absent keys instead of one UPDATE per row.
-        // Order matters: increment absent_runs first, THEN tombstone only
-        // rows that crossed the threshold as a result.
-        $tombstoned = 0;
-        foreach (array_chunk($dominatedAbsent, 500) as $chunk) {
-            $keys = array_map(fn ($row) => $row->key, $chunk);
-
-            DB::table('ingest.record_state')
-                ->where('stream_id', $streamId)
-                ->whereIn('key', $keys)
-                ->update([
-                    'absent_runs' => DB::raw('absent_runs + 1'),
-                    'absent_since' => DB::raw('COALESCE(absent_since, now())'),
+        // #WHK-2 residual: everything from here down is one all-or-nothing
+        // unit. Un-transacted, a crash or statement timeout mid-fold could
+        // leave chunk 1's keys a run closer to tombstoning than chunk 2's,
+        // or leave guard_tripped_at set with no anomaly row explaining it
+        // (or the anomaly filed with the guard never actually tripped) — an
+        // operator-visible inconsistency in the guard's own bookkeeping.
+        // Bounded in practice: the guard trips at 40% of live keys, so a
+        // fold that reaches the write phase below stays well under the
+        // stream's population. NO try/catch in this closure — a caught-and-
+        // recovered failure inside an open Postgres transaction poisons it
+        // with 25P02 (see land()'s catch for the full reasoning); any
+        // failure here must escape and roll the whole fold back.
+        return DB::transaction(function () use ($streamId, $dominatedAbsent, $liveCount) {
+            // Delete-guard: an implausible share vanishing at once is far
+            // more likely to be a login wall than a real bulk deletion.
+            if ($liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= self::GUARD_THRESHOLD && count($dominatedAbsent) >= 5) {
+                DB::table('ingest.streams')->where('id', $streamId)->update(['guard_tripped_at' => now(), 'updated_at' => now()]);
+                DB::table('ingest.anomalies')->insert([
+                    'id' => (string) Str::uuid(),
+                    'stream_id' => $streamId,
+                    'kind' => 'delete_guard',
+                    'severity' => 'critical',
+                    'summary' => sprintf('%d of %d records vanished in one run — deletion frozen', count($dominatedAbsent), $liveCount),
+                    'detail' => json_encode(['absent' => count($dominatedAbsent), 'live' => $liveCount]),
+                    'detected_at' => now(),
                 ]);
 
-            $tombstoned += DB::table('ingest.record_state')
-                ->where('stream_id', $streamId)
-                ->whereIn('key', $keys)
-                ->whereNull('tombstoned_at')
-                ->where('absent_runs', '>=', self::TOMBSTONE_RUNS)
-                ->update(['tombstoned_at' => now()]);
-        }
+                return ['tombstoned' => 0, 'guard_tripped' => true];
+            }
 
-        return ['tombstoned' => $tombstoned, 'guard_tripped' => false];
+            // SCALE-5: batched absence/tombstone writes — two statements per
+            // chunk of dominated-absent keys instead of one UPDATE per row.
+            // Order matters: increment absent_runs first, THEN tombstone
+            // only rows that crossed the threshold as a result.
+            $tombstoned = 0;
+            foreach (array_chunk($dominatedAbsent, 500) as $chunk) {
+                $keys = array_map(fn ($row) => $row->key, $chunk);
+
+                DB::table('ingest.record_state')
+                    ->where('stream_id', $streamId)
+                    ->whereIn('key', $keys)
+                    ->update([
+                        'absent_runs' => DB::raw('absent_runs + 1'),
+                        'absent_since' => DB::raw('COALESCE(absent_since, now())'),
+                    ]);
+
+                $tombstoned += DB::table('ingest.record_state')
+                    ->where('stream_id', $streamId)
+                    ->whereIn('key', $keys)
+                    ->whereNull('tombstoned_at')
+                    ->where('absent_runs', '>=', self::TOMBSTONE_RUNS)
+                    ->update(['tombstoned_at' => now()]);
+            }
+
+            return ['tombstoned' => $tombstoned, 'guard_tripped' => false];
+        });
     }
 
     /**

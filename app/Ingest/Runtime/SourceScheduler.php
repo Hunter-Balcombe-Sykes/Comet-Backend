@@ -189,30 +189,56 @@ class SourceScheduler
     {
         $cutoff = now()->subSeconds(self::STRANDED_AFTER_SECONDS);
 
-        $stranded = DB::table('ingest.sources')
+        $candidates = DB::table('ingest.sources')
             ->whereNotNull('in_flight_since')
             ->where('in_flight_since', '<', $cutoff)
-            ->pluck('id')
-            ->all();
+            ->get(['id', 'in_flight_since', 'in_flight_run_id']);
 
-        foreach ($stranded as $id) {
-            DB::table('ingest.sources')->where('id', $id)->update([
-                'in_flight_since' => null,
-                'in_flight_run_id' => null,
-                'next_attempt_at' => now(),
-                'updated_at' => now(),
-            ]);
+        $released = [];
 
+        foreach ($candidates as $candidate) {
+            // #WHK-1: the SELECT above and this UPDATE are two round trips —
+            // a worker can win claimDue() for this exact source in between
+            // (it had genuinely gone stale, then got legitimately re-claimed).
+            // Re-checking the same predicate here, under the row lock, is
+            // what stops us releasing a run that is actually in progress:
+            // claimDue() writes a fresh in_flight_since, which is NOT
+            // < $cutoff, so this UPDATE matches nothing for that row.
+            $cleared = DB::table('ingest.sources')
+                ->where('id', $candidate->id)
+                ->whereNotNull('in_flight_since')
+                ->where('in_flight_since', '<', $cutoff)
+                ->update([
+                    'in_flight_since' => null,
+                    'in_flight_run_id' => null,
+                    'next_attempt_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            if ($cleared !== 1) {
+                continue; // re-claimed under us — leave the new run's lock alone
+            }
+
+            $released[] = $candidate->id;
+
+            // Filed per ACTUAL release, not per candidate — a source that
+            // was re-claimed between the SELECT and the UPDATE above never
+            // reaches here, so it never pages an operator about a claim that
+            // was never really stranded.
             DB::table('ingest.anomalies')->insert([
                 'id' => (string) Str::uuid(),
-                'source_id' => $id,
+                'source_id' => $candidate->id,
                 'kind' => 'stranded',
                 'severity' => 'warning',
                 'summary' => 'Source claim outlived its run — a worker died holding it',
+                'detail' => json_encode([
+                    'in_flight_run_id' => $candidate->in_flight_run_id,
+                    'in_flight_since' => $candidate->in_flight_since,
+                ]),
                 'detected_at' => now(),
             ]);
         }
 
-        return $stranded;
+        return $released;
     }
 }
