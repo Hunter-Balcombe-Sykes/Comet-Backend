@@ -319,3 +319,30 @@ it('action_events_site_fk exists, is validated, and cascades on delete', functio
     }
     assertCascadeFkConstraintExists('analytics', 'action_events', 'action_events_site_fk');
 });
+
+// ─── site.field_bindings (#TEST-11) ──────────────────────────────────────────
+// WARNING — this entry, like the 21 above it, currently runs in NO lane, and
+// that is worse than "skips on SQLite". Independent review (2026-07-29) proved
+// it by trying this file's own documented escape hatch: phpunit.pg.xml's suite
+// only collects tests/Postgres/, so the postgres-tests job never sees this
+// file; and running it directly with DB_CONNECTION=pgsql against a live
+// Postgres STILL skips, because tests/TestCase.php rewires database.default to
+// in-memory SQLite in setUp() and tests/Pest.php binds everything under
+// tests/Feature to that TestCase regardless of DB_CONNECTION.
+//
+// So do NOT read a green suite as evidence this constraint is applied. The
+// claim that it is live on dev (glncumufgaqcmqhzwrxm) was verified out-of-band
+// by a manual pg_constraint query on 2026-07-29, NOT by this test passing.
+// Real continuous enforcement for #TEST-11 lives in
+// tests/Postgres/FieldBindingsManualPriorityTest.php, which does run.
+//
+// This is a pre-existing, inherited defect affecting all 22 entries — the
+// repo's documented "pgsql-gated tests running in NEITHER lane" hazard — and
+// relocating the file is its own unit, not a rider on #TEST-11.
+
+it('field_bindings_manual_priority constraint exists and is validated', function () {
+    if (! checkConstraintsSuiteIsPostgres()) {
+        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
+    }
+    assertCheckConstraintExists('site', 'field_bindings', 'field_bindings_manual_priority');
+});

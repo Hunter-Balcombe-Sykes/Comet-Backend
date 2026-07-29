@@ -50,9 +50,18 @@ class Resolver
 
         // 3. The user says different — a CUT, applied after every union so far
         //    and recorded so later passes cannot re-merge the pair.
+        //
+        //    The isset() below is a PRE-FILTER, not the load-bearing guard.
+        //    DisjointSet::isSeparated()'s own unknown-element skip is what
+        //    actually prevents a stale decision auto-vivifying a phantom
+        //    singleton, and it is pinned by DisjointSetTest. Deleting this
+        //    line turns nothing red — correctly, because it causes no defect.
+        //    Deleting the one in DisjointSet DOES turn red. Keep that
+        //    asymmetry in mind before "simplifying" either: the guard with no
+        //    test is the redundant one, and the tested one is load-bearing.
         $cuts = [];
         foreach ($decisions as $decision) {
-            if ($decision->verdict === 'different') {
+            if ($decision->verdict === 'different' && isset($byCoord[$decision->left], $byCoord[$decision->right])) {
                 $cuts[] = [$decision->left, $decision->right];
                 $groups->separate($decision->left, $decision->right);
             }
