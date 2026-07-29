@@ -1326,14 +1326,16 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-3** · P1 — `SiteBuildDocumentsCommand` loads all eligible site IDs into memory via unbounded `pluck()`
+- [ ] **SCALE-3** · P3 (re-graded from P1, 2026-07-29, unit-12 review) — `SiteBuildDocumentsCommand` loads all eligible site IDs into memory via `pluck()`; not a memory problem, and the audit's own prescribed fix does not fix anything
     - **Where:** app/Console/Commands/SiteBuildDocumentsCommand.php:50-56
-    - **Affects:** The 5-minute sweeper (`--stale`) and fleet-rebuild runs (`--all`) — at thousands of published sites, both `pluck()` calls materialise every ID into a PHP `Collection`.
-    - **Effort:** S (~0.5–1h)
-    - **What to do:**
-        - Replace `pluck('site_id')` / `pluck('id')` with `->cursor()`, dispatching `BuildSiteDocumentJob` inside the cursor loop; count with an incrementing counter instead of `->count()` on a materialised collection.
-    - **Technical:** `pluck()` calls `get()` internally, loading every matching row before the dispatch loop begins. `--all` is a rare fleet rebuild triggered by a `BUILDER_REVISION` bump but must complete reliably at full site-count scale; `--stale` runs every 5 minutes and normally sees few rows, but a bulk connector-refresh event (plausible now that 21 ingest connectors are live) could spike it.
-    - **Plain English:** The site-builder sweeper asks the database for the full list of sites needing rebuilding and holds that whole list in memory while it works through it. Processing one ID at a time instead avoids holding the entire list at once.
+    - **Affects:** The 5-minute sweeper (`--stale`, normally near-zero rows) and fleet-rebuild runs (`--all`, a rare `BUILDER_REVISION`-bump event).
+    - **Effort:** S (~0.5–1h) — **but do not spend it on `cursor()`.**
+    - **Re-grade rationale:**
+        - **Arithmetic:** one UUID string + `Collection` slot overhead per eligible site ≈ 170 bytes; at 10k sites that is ~1.7 MB. Not a memory finding at pilot scale.
+        - **The prescribed fix is a no-op.** `pdo_pgsql` has no unbuffered query mode — libpq materialises the entire result set client-side at `PQexec` time regardless of whether the caller reads it via `get()`, `pluck()`, or `cursor()`. `cursor()` only avoids re-wrapping rows into a `Collection`; it does not bound memory. Shipping it would look like a fix and change nothing measurable.
+        - **The real cost is the dispatch loop**, not the ID fetch: `foreach ($siteIds as $siteId) { BuildSiteDocumentJob::dispatch(...) }` is up to 10,000 serial Redis round-trips inside a `->withoutOverlapping(10)` scheduled command (`routes/console.php:449-454`) — ~5–50s depending on RTT. That is SCALE-18's `Bus::batch()` territory, not this finding's.
+    - **What to do (if a change is wanted at all):** leave `pluck()`/`SiteBuildDocumentsCommand` alone. If a reviewer insists on belt-and-braces, `chunkById(1000, ..., 'site_id')` is the only real memory-bounding option — **never `cursor()`** — and `$siteIds->count()` at :67 must become an incremented counter, since it is only correct today because the collection is fully materialised.
+    - **Plain English:** The list of sites due for a rebuild is small enough (about 1.7 MB at 10,000 sites) that holding it in memory isn't a real problem, and the fix the audit suggested (`cursor()`) wouldn't actually reduce memory use anyway — Postgres's driver loads the full result either way. The one place a genuine cost lives is dispatching thousands of rebuild jobs one at a time, which is a separate finding (SCALE-18).
     - **Evidence:**
         ```php
         if ($this->option('stale')) {
@@ -1494,14 +1496,17 @@ None.
         ```
     - `[confidence: 0.95]`
 
-- [ ] **SCALE-9** · P1 — `DocumentBuilder` issues one query per displayed item during sitepage composition
+- [ ] **SCALE-9** · P2 (re-graded from P1, 2026-07-29, unit-12 review — N is real and larger than stated, but this is NOT the hottest read path) — `DocumentBuilder` issues one query per displayed item during document composition
     - **Where:** app/Site/Documents/DocumentBuilder.php:171-175, 380-385 (`resolveSection` → `itemPayload`)
-    - **Affects:** Every public sitepage cache miss — the platform's hottest backend read path. A viral hit that triggers a document rebuild runs N individual `content.items` lookups.
+    - **Affects:** `BuildSiteDocumentJob::handle()` (queued, `$timeout = 60`, `$tries = 1`) and the artisan/5-minute-scheduler path in `SiteBuildDocumentsCommand`. **Not the visitor read path** — grep confirms nothing outside `DocumentBuilder` itself and tests reads `site.site_documents`; no controller, route, or resource touches it. The original write-up's "Every public sitepage cache miss… the platform's hottest backend read path" is **false** and is struck.
     - **Effort:** S (~0.5–1h)
-    - **What to do:**
-        - Collect all candidate item IDs from `resolveSection`'s loop, issue a single `DB::table('content.items')->whereIn('id', $ids)->get()->keyBy('id')` before the loop, and look up items in-memory inside the loop instead of calling `itemPayload()` per iteration.
-    - **Technical:** `resolveSection()` gathers up to 200 candidate IDs (already correctly capped by `ruleCandidates()`'s `->limit(200)`), then calls `itemPayload($itemId)` per candidate, which does `DB::table('content.items')->where('id', $itemId)->first()`. A site with several sections × tens of displayed items each turns into dozens of individual primary-key lookups on every cache-miss rebuild — directly on the path a viral traffic spike exercises hardest.
-    - **Plain English:** Building a page pulls in items to display one at a time, sending the database a separate question for each — "get me this one... now this one... now this one" — instead of asking once for the whole list. When a page suddenly gets popular and needs rebuilding, this turns one page load into dozens of extra database round-trips.
+    - **Re-grade rationale — the N is bigger than "dozens":**
+        - `limit_n` is nullable and defaults to `null` for every preset section except `home.actions`, so the `break` at :179 usually never fires — the loop runs the full candidate list, up to `ruleCandidates()`'s 200 cap.
+        - A full preset site has ~13 sections; any pilot creator with a live Instagram/YouTube connector trivially exceeds 200 media/video items, so several sections sit at the 200-item cap.
+        - **Worst case ≈ 2 (compose) + 13×202 (per-section + per-item) + 4 (build envelope) ≈ 2,632 queries** for one `build()`. Typical modest pilot user ≈ 60–150. This is not an N+1 of 20.
+    - **What to do:** bring `resolveSection()`/`itemPayload()` up to the shape `App\Services\Content\SectionTracer::itemsById()` already uses on the same table (`whereIn('id', ...)->get()->keyBy('id')`) — the two drifted from a shared origin; don't invent a new pattern. Keep iterating `$candidateIds` and looking up in the map — do **not** iterate the map itself, which would silently reorder pins-first ordering and dedupe repeated candidate ids. Keep `itemPayload()`'s returned array (`['id','kind','headline']`) byte-identical in key order and shape — it feeds `json_encode($document)`, and any reordering changes `content_hash` fleet-wide, triggering a full version-bump/CDN-purge storm on the next sweeper pass.
+    - **Technical:** the real risk is build-pipeline reliability, not visitor latency: a ~2,600-query build against Supavisor (~1–3ms/round-trip) is 3–8s, survivable alone but degrades sharply under connection-pool pressure during a fleet rebuild; `BuildSiteDocumentJob` has `$tries = 1` (no retry by design), so a timeout leaves the site stale until the 5-minute sweeper re-queues and re-runs the same slow build — a plausible livelock under fleet rebuild, not a latency problem for a waiting visitor.
+    - **Plain English:** Building the one document a page is generated from asks the database for its display items one at a time instead of once for the whole batch — and there can be thousands of these one-at-a-time asks per site, not dozens. But no visitor is ever waiting on this: it only runs in the background job/command that rebuilds a site's page, and the actual risk is that a slow build can time out and never retry, leaving a site looking stale until the next sweep — not that a page loads slowly for someone viewing it.
     - **Evidence:**
         ```php
         foreach ($candidateIds as $itemId) {
@@ -2020,7 +2025,7 @@ None.
 - **SCALE-6 — `ProjectionWriter::projectStream()` unbounded read** · L-effort.
 - **SCALE-7 — `ProjectionWriter::resolveItems()` unbounded read + bind-list overflow** · L-effort.
 - **SCALE-8 — `ProjectionWriter::refreshItemCaches()` per-item query storm** · L-effort.
-- **SCALE-9 — `DocumentBuilder` N+1 on the hottest public-sitepage read path** · hottest backend path; isolate for careful before/after verification even though effort is S.
+- **SCALE-9 — `DocumentBuilder` N+1, build-pipeline reliability (NOT visitor read path — re-graded P2)** · N is larger than originally stated (~2,632 queries worst case); isolate for careful before/after verification even though effort is S.
 - **SCALE-11 — `SiteMedia` force-delete storage I/O** · touches GDPR account-deletion data path; isolate for sign-off.
 - **SCALE-21 — Migration `lock_timeout` hardening** · DB migration.
 
@@ -5000,7 +5005,10 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         # 13+ other Policy classes with no corresponding test file
         ```
 
-- [ ] **#TEST-16** · P1 — The document-build pipeline (`BuildState` CAS protocol + `DocumentBuilder`'s hash-idempotency and 7-operator rule DSL) has no visible unit or feature test
+- [x] **#TEST-16** · STALE (2026-07-29, unit-12 review) — The document-build pipeline (`BuildState` CAS protocol + `DocumentBuilder`'s hash-idempotency and 7-operator rule DSL) has no visible unit or feature test
+
+    **Stale — the safety net already exists.** `tests/Feature/Site/DocumentBuilderTest.php` (build-status/version, hash-idempotency, CAS refusal, concurrent-bump counting, nav-is-pages, `on_empty` hide, exclusions, pin ordering, hand-picked-is-exactly-pins, `limit_n`, `removed_at`), `tests/Feature/Site/DocumentBuilderRuleOpsTest.php` (the 7-operator DSL), `tests/Feature/Site/SiteBuildDocumentsCommandTest.php` (all three command modes + the job), and `tests/Feature/Site/PresetInstantiatorTest.php:167` (end-to-end through the builder) all landed in `c721afc8` (2026-07-28), the same day this audit ran against an older tree. No characterisation-test-first step was needed for unit-12's SCALE-9 fix.
+
     - **Where:** `app/Site/Documents/BuildState.php` (entire class), `app/Site/Documents/DocumentBuilder.php` (entire class, esp. `applyPredicate()`)
     - **Affects:** Every published sitepage document — this is the producer side of the platform's hottest read path (public sitepage resolution feeds directly from `site.site_documents`).
     - **Effort:** L (~1–2d)

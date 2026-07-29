@@ -289,7 +289,10 @@
         # 13+ other Policy classes with no corresponding test file
         ```
 
-- [ ] **#TEST-16** · P1 — The document-build pipeline (`BuildState` CAS protocol + `DocumentBuilder`'s hash-idempotency and 7-operator rule DSL) has no visible unit or feature test
+- [x] **#TEST-16** · STALE (2026-07-29, unit-12 review) — The document-build pipeline (`BuildState` CAS protocol + `DocumentBuilder`'s hash-idempotency and 7-operator rule DSL) has no visible unit or feature test
+
+    **Stale — the safety net already exists.** `tests/Feature/Site/DocumentBuilderTest.php` (build-status/version, hash-idempotency, CAS refusal, concurrent-bump counting, nav-is-pages, `on_empty` hide, exclusions, pin ordering, hand-picked-is-exactly-pins, `limit_n`, `removed_at`), `tests/Feature/Site/DocumentBuilderRuleOpsTest.php` (the 7-operator DSL), `tests/Feature/Site/SiteBuildDocumentsCommandTest.php` (all three command modes + the job), and `tests/Feature/Site/PresetInstantiatorTest.php:167` (end-to-end through the builder) all landed in `c721afc8` (2026-07-28), the same day this audit ran against an older tree. No characterisation-test-first step was needed for unit-12's SCALE-9 fix.
+
     - **Where:** `app/Site/Documents/BuildState.php` (entire class), `app/Site/Documents/DocumentBuilder.php` (entire class, esp. `applyPredicate()`)
     - **Affects:** Every published sitepage document — this is the producer side of the platform's hottest read path (public sitepage resolution feeds directly from `site.site_documents`).
     - **Effort:** L (~1–2d)
