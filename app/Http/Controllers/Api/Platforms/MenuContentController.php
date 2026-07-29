@@ -101,6 +101,110 @@ class MenuContentController extends ApiController
         return $this->touchAndRespond($user, 'menu-manual-category-rename');
     }
 
+    // POST /api/platforms/menu/categories/reorder — persist the user's category
+    // order. `ids` is the full desired order; categories it omits keep their
+    // relative order after the listed ones. Ordering isn't a content edit, so
+    // scraped categories may be reordered too — only their names are synced.
+    public function reorderCategories(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        if ($denied = $this->denyWithoutCapability($user)) {
+            return $denied;
+        }
+
+        $ids = $request->validate([
+            'ids' => ['required', 'array', 'max:500'],
+            'ids.*' => ['string', 'uuid'],
+        ])['ids'];
+
+        $menu = Menu::query()->where('user_id', $user->id)->first();
+        if ($menu === null) {
+            return $this->error('Not found.', 404);
+        }
+
+        $rows = MenuCategory::query()
+            ->where('menu_id', $menu->id)
+            ->orderBy('position')
+            ->get()
+            ->keyBy('id');
+        foreach ($ids as $id) {
+            if (! $rows->has($id)) {
+                return $this->error('Category not found.', 404);
+            }
+        }
+
+        DB::connection('pgsql')->transaction(function () use ($rows, $ids): void {
+            $position = 0;
+            foreach ($ids as $id) {
+                $rows[$id]->update(['position' => $position++]);
+            }
+            foreach ($rows as $rid => $row) {
+                if (! in_array($rid, $ids, true)) {
+                    $row->update(['position' => $position++]);
+                }
+            }
+        });
+
+        return $this->touchAndRespond($user, 'menu-categories-reorder');
+    }
+
+    // POST /api/platforms/menu/items/reorder — persist the dish order WITHIN one
+    // category (pivot positions — the same dish can sit at a different position
+    // in each category it belongs to). `ids` is the full desired order for that
+    // category; members it omits keep their relative order after the listed ones.
+    public function reorderItems(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        if ($denied = $this->denyWithoutCapability($user)) {
+            return $denied;
+        }
+
+        $data = $request->validate([
+            'category_id' => ['required', 'string', 'uuid'],
+            'ids' => ['required', 'array', 'max:500'],
+            'ids.*' => ['string', 'uuid'],
+        ]);
+
+        $category = $this->findCategory($user, $data['category_id']);
+        if ($category === null) {
+            return $this->error('Not found.', 404);
+        }
+
+        $members = DB::connection('pgsql')
+            ->table('site.menu_item_categories')
+            ->where('menu_category_id', $category->id)
+            ->orderBy('position')
+            ->pluck('menu_item_id')
+            ->all();
+        $memberSet = array_flip($members);
+        foreach ($data['ids'] as $id) {
+            if (! array_key_exists($id, $memberSet)) {
+                return $this->error('Item not found in this category.', 404);
+            }
+        }
+
+        DB::connection('pgsql')->transaction(function () use ($category, $members, $data): void {
+            $position = 0;
+            $write = function (string $itemId) use ($category, &$position): void {
+                DB::connection('pgsql')
+                    ->table('site.menu_item_categories')
+                    ->where('menu_category_id', $category->id)
+                    ->where('menu_item_id', $itemId)
+                    ->update(['position' => $position++, 'updated_at' => now()]);
+            };
+            foreach ($data['ids'] as $id) {
+                $write($id);
+            }
+            foreach ($members as $memberId) {
+                if (! in_array($memberId, $data['ids'], true)) {
+                    $write($memberId);
+                }
+            }
+        });
+
+        return $this->touchAndRespond($user, 'menu-items-reorder');
+    }
+
     // DELETE /api/platforms/menu/categories/{category} — delete a manual/scan
     // category. Member dishes are DETACHED; a dish left with no remaining
     // category goes with it (suppressed by name when it wasn't owner-authored,

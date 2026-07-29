@@ -208,3 +208,74 @@ it('aggregates eventbrite + humanitix + custom into one selection', function () 
     expect($events[0]['platform'])->toBe('eventbrite');
     expect($events[1]['platform'])->toBe('events-custom');
 });
+
+// ── Manual reorder (PUT /api/platforms/events/order) ─────────────────────────
+
+function eventsUserWithSite(string $h): User
+{
+    $user = eventsUser($h);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => $h,
+        'is_published' => 1,
+        'settings' => json_encode([]),
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    return $user->fresh();
+}
+
+it('persists a manual event order and serves it ahead of date order', function () {
+    $urls = ['https://www.eventbrite.com/e/first-1', 'https://www.eventbrite.com/e/second-2'];
+    $scraper = Mockery::mock(EventbriteScraper::class);
+    $scraper->shouldReceive('normalizeEventUrl')->andReturnUsing(fn (string $u) => $u);
+    $scraper->shouldReceive('fetchSingleEvent')->with($urls[0])->andReturn(sampleEvent($urls[0], '2099-01-01T10:00:00+10:00'));
+    $scraper->shouldReceive('fetchSingleEvent')->with($urls[1])->andReturn([...sampleEvent($urls[1], '2099-02-01T10:00:00+10:00'), 'name' => 'Later Show']);
+    app()->instance(EventbriteScraper::class, $scraper);
+    $user = eventsUserWithSite('evorder');
+
+    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $urls[0]])->assertOk();
+    $events = actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $urls[1]])->assertOk()->json('selection.events');
+    // Date order: the January event leads.
+    expect($events[0]['name'])->toBe('Cool Show');
+    $ids = array_column($events, 'id');
+
+    // Reverse it manually — the saved order must now win over dates.
+    $reordered = actingAsUser($user)->putJson('/api/platforms/events/order', ['ids' => array_reverse($ids)])
+        ->assertOk()
+        ->json('selection.events');
+    expect(array_column($reordered, 'id'))->toBe(array_reverse($ids));
+
+    // And it sticks on a fresh read.
+    $again = actingAsUser($user)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
+    expect(array_column($again, 'id'))->toBe(array_reverse($ids));
+});
+
+it('keeps unlisted events after the manually ordered ones', function () {
+    $urls = ['https://www.eventbrite.com/e/a-1', 'https://www.eventbrite.com/e/b-2'];
+    $scraper = Mockery::mock(EventbriteScraper::class);
+    $scraper->shouldReceive('normalizeEventUrl')->andReturnUsing(fn (string $u) => $u);
+    $scraper->shouldReceive('fetchSingleEvent')->with($urls[0])->andReturn(sampleEvent($urls[0], '2099-01-01T10:00:00+10:00'));
+    $scraper->shouldReceive('fetchSingleEvent')->with($urls[1])->andReturn(sampleEvent($urls[1], '2099-02-01T10:00:00+10:00'));
+    app()->instance(EventbriteScraper::class, $scraper);
+    $user = eventsUserWithSite('evorder2');
+
+    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $urls[0]])->assertOk();
+    $events = actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $urls[1]])->assertOk()->json('selection.events');
+    $ids = array_column($events, 'id');
+
+    // Order ONLY the later event — it leads, the unlisted one follows.
+    $reordered = actingAsUser($user)->putJson('/api/platforms/events/order', ['ids' => [$ids[1]]])
+        ->assertOk()
+        ->json('selection.events');
+    expect(array_column($reordered, 'id'))->toBe([$ids[1], $ids[0]]);
+});
+
+it('rejects a reorder without a site', function () {
+    $user = eventsUser('evnosite');
+
+    actingAsUser($user)->putJson('/api/platforms/events/order', ['ids' => ['event-x']])
+        ->assertStatus(404);
+});
