@@ -4730,7 +4730,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## Progress
 
-- P1 High: 1 of 17 complete
+- P1 High: 6 of 17 complete  (#TEST-7 and #TEST-9 partially stale — see their entries)
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -4815,7 +4815,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         // self-deadlock under a sync queue connection (phpunit.xml's test default).
         ```
 
-- [ ] **#TEST-5** · P1 — `RunSourceJob`'s claim-release safety net (`finally` block + `failed()` backstop) is untested
+- [x] **#TEST-5** · P1 — `RunSourceJob`'s claim-release safety net (`finally` block + `failed()` backstop) is untested
     - **Where:** `app/Jobs/Ingest/RunSourceJob.php:88-101` (finally), `:103-129` (failed)
     - **Affects:** Every scheduled ingest run — a broken release path strands a source's `in_flight_since` claim, blocking it from being re-fetched until the 2-hour backstop.
     - **Effort:** M (~2–4h)
@@ -4833,7 +4833,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-6** · P1 — `SourceScheduler::claimDue()` mutual-exclusion is proven only sequentially, never under concurrent claimers
+- [x] **#TEST-6** · P1 — `SourceScheduler::claimDue()` mutual-exclusion is proven only sequentially, never under concurrent claimers
     - **Where:** `app/Ingest/Runtime/SourceScheduler.php:114-128`; existing test `tests/Feature/Ingest/SourceSchedulerTest.php` only calls `claimDue()` twice on the *same* instance
     - **Affects:** Every scheduled ingest run — if two Horizon workers can both claim the same source, it gets fetched (and potentially billed) twice concurrently.
     - **Effort:** M (~2–4h)
@@ -4848,7 +4848,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         if ($won === 1) { $claimed[] = ...; }
         ```
 
-- [ ] **#TEST-7** · P1 — `EffectLedger::once()` charge-once claim has no concurrent-dispatch test
+- [x] **#TEST-7** · P1 — `EffectLedger::once()` charge-once claim has no concurrent-dispatch test
+    - **PARTIALLY STALE (2026-07-29):** the abandoned-claim test the finding asks for already existed at `tests/Feature/Ingest/EffectLedgerTest.php:138-160`. Only the concurrent-dispatch half was genuinely missing; added as a deterministic proof in `tests/Postgres/EffectLedgerConcurrencyTest.php` (a committed rival INSERT is injected via `DB::listen` after the caller's pre-read, so the duplicate-key collision is forced every run rather than hoped for). Mutation evidence: `insert()` → `insertOrIgnore()` yields 6 charges instead of 1.
     - **Where:** `app/Ingest/Runtime/EffectLedger.php` (`once()`)
     - **Affects:** All billed ingest effects (Apify actor runs, Places API calls) — the pilot's uncapped-paid-API surface. A race that double-claims double-charges.
     - **Effort:** M (~2–4h)
@@ -4887,7 +4888,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-9** · P1 — `Lander`'s 40% deletion guard (the anti-mass-deletion circuit breaker) has no test in either direction
+- [x] **#TEST-9** · P1 — `Lander`'s 40% deletion guard (the anti-mass-deletion circuit breaker) has no test in either direction
+    - **LARGELY STALE (2026-07-29):** the finding claims no test in EITHER direction; both were already covered at `tests/Feature/Ingest/LanderTest.php:294-380`, along with two `clearGuardIfRecovered()` tests. The genuine residue was BOUNDARY coverage: the pre-existing cases sit at 50% and 30%, so moving the 0.4 threshold, changing `>=` to `>`, or deleting the `count >= 5` clause all stayed green. New cases sit immediately either side of both clauses; independent review confirmed all three mutations now go red while the pre-existing cases stay green under every one of them.
     - **Where:** `app/Ingest/Landing/Lander.php:128-145`
     - **Affects:** Every stream with `mayDelete() === true` — a vendor outage returning zero records for a user with many live items would trip (or fail to trip) this guard with no test proving the threshold math is right.
     - **Effort:** M (~2–4h)
@@ -4905,7 +4907,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-10** · P1 — `RunExecutor::isClaimed()` — the PII-redaction gate for unclaimed accounts — has no test
+- [x] **#TEST-10** · P1 — `RunExecutor::isClaimed()` — the PII-redaction gate for unclaimed accounts — has no test
+    - **PREMISE CORRECTION (2026-07-29):** the finding's 'null-status users' case is unseedable — `core.users.status` is NOT NULL in the prod DDL (`baseline_pilot.sql:1171`) and in the SQLite mirror, so the reachable fail-closed cases are a missing user row and a missing `user_id`. Also fixed a latent fail-open the finding did not name: `Pull::$isClaimed` defaulted to TRUE on a PII gate. Review found the non-`active` half of the status enum unpinned; `suspended`/`disabled`/`pending_deletion` now covered.
     - **Where:** `app/Ingest/Runtime/RunExecutor.php:340-348`
     - **Affects:** Every Google Business listing ingested for a `status='unclaimed'` account — this gate decides whether reviewer names/photos are stripped before storage, directly implementing the CLAUDE.md hard rule that "capability/notification/deletion gates fail-closed" for unclaimed users.
     - **Effort:** S (~0.5–1h)
