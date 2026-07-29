@@ -944,6 +944,16 @@ return [
         // sources; GBP's monthly cadence just re-bills once per window it
         // actually runs in.
         'effect_freshness_seconds' => (int) env('PARTNA_INGEST_EFFECT_FRESHNESS_SECONDS', 604800),
+
+        // Lander::land() chunk size (SCALE-4). Bind-count arithmetic per chunk
+        // (Postgres limit 65,535/statement): record_versions insert = 7 cols
+        // -> 500x7 = 3,500; record_state upsert = 8 cols -> 4,000; the
+        // `key IN` + `doc_hash IN` lists on the resolving SELECT -> ~1,000.
+        // 500 leaves an order of magnitude of headroom. Also bounds memory:
+        // $records is already resident (RunExecutor::drain() materialises it
+        // before land() is called), so the chunk only adds one json_encode
+        // string + hash per record, released between chunks.
+        'land_chunk' => (int) env('PARTNA_INGEST_LAND_CHUNK', 500),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
