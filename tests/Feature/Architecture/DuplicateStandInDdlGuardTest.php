@@ -20,14 +20,31 @@
  *     dead copy was missing ip_address/user_agent/metadata). Fires on ANY same-file duplicate,
  *     identical body or not, since a same-file duplicate is never intentional.
  *
- * (b) SHADOW OF tests/Pest.php — a file other than tests/Pest.php declares, with IF NOT
- *     EXISTS, a qualified name tests/Pest.php ALSO declares, and the normalised bodies DIFFER.
- *     Live example: SubdomainChangeTest.php's setupCoreSchema() calls setupSitesTable(), which
- *     itself calls setupSubdomainAliasesTable() — so the shared, PERMISSIVE
- *     site.site_subdomain_aliases (nullable columns) is created FIRST, and the file's own
- *     STRICTER local copy is a silent no-op. That test believes it runs under NOT NULL columns
- *     and does not. This table set is derived AUTOMATICALLY from whatever tests/Pest.php
- *     declares (99 tables today) — no hand-curated list to keep in sync.
+ * (b) SHADOW OF tests/Pest.php — a file other than tests/Pest.php, and NOT under
+ *     tests/Postgres/ (see SCOPE below), declares, with IF NOT EXISTS, a qualified name
+ *     tests/Pest.php ALSO declares, and the normalised bodies DIFFER. Live example:
+ *     SubdomainChangeTest.php's setupCoreSchema() calls setupSitesTable(), which itself calls
+ *     setupSubdomainAliasesTable() — so the shared, PERMISSIVE site.site_subdomain_aliases
+ *     (nullable columns) is created FIRST, and the file's own STRICTER local copy is a silent
+ *     no-op. That test believes it runs under NOT NULL columns and does not. This table set is
+ *     derived AUTOMATICALLY from whatever tests/Pest.php declares (99 tables today) — no
+ *     hand-curated list to keep in sync.
+ *
+ * SCOPE (finding (b) only): tests/Postgres/ is excluded by path, mirroring
+ * NoLocalCanonicalTableDdlTest's exclusion and for the identical reason. That lane
+ * (phpunit.pg.xml / `composer test:pg`, its own CI job) runs its DDL against a REAL disposable
+ * Postgres database via PostgresTestCase, never against the SQLite stand-in tests/Pest.php
+ * builds — the two can never co-execute in the same test, so a same-named declaration under
+ * tests/Postgres/ is a textual name collision, not a live shadow. This was measured directly:
+ * widening finding (b)'s in-scope table list once produced 7 "shadow" entries across
+ * ItemSlugAllocatorRegressionTest.php, StaffFeatureFlagOverrideEndpointTest.php, and
+ * SubdomainAliasCollisionTest.php, all of which merely declare shared Postgres-lane scaffolding
+ * (core.users, core.partna_staff, core.feature_flags, site.sites) that happens to share a name
+ * with a tests/Pest.php helper — this guard's own fix message ("seed through the shared
+ * setup*Table() helper, or tighten the SHARED one") is actively wrong advice for them, since
+ * tightening the SQLite stand-in's helper has no bearing on a real-Postgres test. Finding (a)
+ * (same-file duplicate) is NOT given this exclusion — a same-file duplicate declaration is a
+ * real bug regardless of which lane the file runs in, so tests/Postgres/ stays in scope there.
  *
  * Deliberately NOT implemented: a runtime-reachability filter (does this file's test actually
  * CALL the tests/Pest.php helper that shadows it?). Measured to cut the finding count roughly
@@ -68,6 +85,8 @@
  *   starts calling a tests/Pest.php helper, its divergent local copies become live shadows and
  *   this guard goes blind to them — check before reusing this exemption elsewhere. They stay
  *   IN SCOPE for (a): that's how the audit.user_deletion_audit duplicate above was caught.
+ * - tests/Postgres/ (by path prefix, not a named list) — excluded from finding (b) ONLY, NOT
+ *   (a), for the reason given in SCOPE above.
  *
  * The baseline is a WORK QUEUE, not a resolution — every entry is a test quietly running
  * against a schema copy it did not write. The $drained STDERR note is the signal to shrink it.
@@ -314,6 +333,9 @@ it("no test file's local stand-in DDL silently shadows a tests/Pest.php declarat
     foreach ($fileDeclarations as $rel => $declarations) {
         if (in_array($rel, $exemptFull, true) || in_array($rel, $exemptWholesaleStandIns, true)) {
             continue;
+        }
+        if (str_starts_with($rel, 'tests/Postgres/')) {
+            continue; // see docblock: tests/Postgres/ can never co-execute with tests/Pest.php's stand-in
         }
         $seenKeys = [];
         foreach ($declarations as $declaration) {
