@@ -1285,9 +1285,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 9 complete
-- P2 Medium: 0 of 12 complete
-- P3 Low: 0 of 6 complete
+- P1 High: 0 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
+- P2 Medium: 1 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED)
+- P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
 
@@ -1496,7 +1496,7 @@ None.
         ```
     - `[confidence: 0.95]`
 
-- [ ] **SCALE-9** · P2 (re-graded from P1, 2026-07-29, unit-12 review — N is real and larger than stated, but this is NOT the hottest read path) — `DocumentBuilder` issues one query per displayed item during document composition
+- [x] **SCALE-9** · P2 (re-graded from P1, 2026-07-29, unit-12 review — N is real and larger than stated, but this is NOT the hottest read path) — `DocumentBuilder` issues one query per displayed item during document composition
     - **Where:** app/Site/Documents/DocumentBuilder.php:171-175, 380-385 (`resolveSection` → `itemPayload`)
     - **Affects:** `BuildSiteDocumentJob::handle()` (queued, `$timeout = 60`, `$tries = 1`) and the artisan/5-minute-scheduler path in `SiteBuildDocumentsCommand`. **Not the visitor read path** — grep confirms nothing outside `DocumentBuilder` itself and tests reads `site.site_documents`; no controller, route, or resource touches it. The original write-up's "Every public sitepage cache miss… the platform's hottest backend read path" is **false** and is struck.
     - **Effort:** S (~0.5–1h)
