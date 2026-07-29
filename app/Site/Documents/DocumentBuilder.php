@@ -168,7 +168,7 @@ class DocumentBuilder
             ? $pinned
             : array_merge($pinned, $this->ruleCandidates($section, $pinned));
 
-        $itemsById = $this->itemsById($candidateIds);
+        $itemsById = $this->itemsById($candidateIds, (string) $section->site_id);
 
         $items = [];
         foreach ($candidateIds as $itemId) {
@@ -195,10 +195,32 @@ class DocumentBuilder
      * and looking up in this map: iterating the map itself would silently
      * reorder pins-first ordering and drop duplicate candidate ids.
      *
+     * SCOPED TO THE SITE'S OWNER, by the same join ruleCandidates() uses. Rule
+     * candidates were already scoped; PINS WERE NOT, and a hand-picked section
+     * consults no rule at all, so its membership was pinned ids and nothing
+     * else. A pin naming a foreign item therefore rendered that item on this
+     * public page. SectionItemController::findItem() is why the API cannot
+     * write one today, but it is not the only writer: ItemMerger repoints pins
+     * by item id, and any DB::table() fix or manual SQL carries no ownership
+     * check (CLAUDE.md: a write path that bypasses Eloquent must invalidate
+     * and validate for itself). This builder renders a public document, so it
+     * scopes for itself rather than trusting every past and future writer.
+     *
+     * An out-of-scope id simply falls out of the map, and resolveSection()
+     * already skips a null lookup WITHOUT spending a limit_n slot.
+     *
+     * Scoped by SUBQUERY rather than by ruleCandidates()' join. A join would
+     * pull a second `id` into the row, and under `select *` the joined table's
+     * id wins — keyBy('id') would key this map by SITE id and every lookup
+     * would miss. Selecting content.items.* to avoid that is not portable:
+     * Laravel quotes it "content"."items".*, and SQLite (the unit lane) cannot
+     * parse a qualified star on an ATTACHed database. The subquery keeps one
+     * round trip, one unambiguous column set, and reads as what it means.
+     *
      * @param  list<string>  $ids
      * @return array<string, object>
      */
-    private function itemsById(array $ids): array
+    private function itemsById(array $ids, string $siteId): array
     {
         if ($ids === []) {
             return [];
@@ -206,6 +228,8 @@ class DocumentBuilder
 
         return DB::table('content.items')
             ->whereIn('id', array_values(array_unique($ids)))
+            ->whereIn('user_id', fn ($q) => $q
+                ->from('site.sites')->select('user_id')->where('id', $siteId))
             ->get()
             ->keyBy('id')
             ->all();

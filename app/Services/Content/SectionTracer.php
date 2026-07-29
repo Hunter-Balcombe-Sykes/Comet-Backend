@@ -142,7 +142,7 @@ final class SectionTracer
         $ordered = array_merge($curation['pinned'], $ruleCandidateIds);
         $excludedOnly = array_diff(array_keys($curation['excluded']), $ordered);
 
-        $items = $this->itemsById(array_merge($ordered, $excludedOnly));
+        $items = $this->itemsById(array_merge($ordered, $excludedOnly), (string) $section->site_id);
 
         $out = [];
         $admitted = 0;
@@ -268,10 +268,16 @@ final class SectionTracer
     }
 
     /**
+     * Owner-scoped exactly as {@see DocumentBuilder::itemsById()} is, and for
+     * the same reason: a pin naming a foreign item must not resolve. This class
+     * mirrors the builder on purpose — a trace that showed an item the live
+     * page refuses to render would send someone hunting the wrong bug, and a
+     * trace is also the one place a foreign headline would be read by a human.
+     *
      * @param  list<string>  $ids
      * @return array<string, object>
      */
-    private function itemsById(array $ids): array
+    private function itemsById(array $ids, string $siteId): array
     {
         if ($ids === []) {
             return [];
@@ -279,6 +285,8 @@ final class SectionTracer
 
         return DB::table('content.items')
             ->whereIn('id', array_values(array_unique($ids)))
+            ->whereIn('user_id', fn ($q) => $q
+                ->from('site.sites')->select('user_id')->where('id', $siteId))
             ->get()
             ->keyBy('id')
             ->all();
