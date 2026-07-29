@@ -4,12 +4,33 @@ use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\ProviderDetector;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
+
+/**
+ * Read the real TLDS alternation off the production constant (never a
+ * hand-copied duplicate, or this drifts silently the moment either list is
+ * edited) and split it into individual suffixes for a per-TLD data provider.
+ * ReflectionClass::getConstant() only reads a value — no private method is
+ * invoked, so this isn't the direct-controller-call / private-method-poke
+ * antipattern this codebase avoids elsewhere.
+ *
+ * @return list<string>
+ */
+function tldsFromConstant(string $class): array
+{
+    $raw = (new ReflectionClass($class))->getConstant('TLDS');
+
+    return array_map(
+        fn (string $tld) => str_replace('\\.', '.', $tld),
+        explode('|', preg_replace('~^\(\?:|\)$~', '', $raw)),
+    );
+}
 
 // ── 2026-07-27 P0 hotfix: open-ended `[a-z.]+$` host suffixes let
 // `brand.<attacker-domain>` pass as the brand. Every pattern is now a closed
@@ -63,6 +84,48 @@ it('rejects spoofed hosts in the platform registry detectors', function () {
         ->and($detector->detectFor('events', 'https://www.eventbrite.com.au/o/organiser-123'))->toBe('eventbrite')
         ->and($detector->detectFor('reservations', 'https://quandoo.phish.net/place/1'))->toBeNull()
         ->and($detector->detectFor('reservations', 'https://www.quandoo.com.au/place/some-place-1234'))->toBe('quandoo');
+});
+
+// ── #TEST-12: per-TLD coverage over the closed enumerations ─────────────────
+//
+// Not busywork: EventbriteScraper::TLDS / OpenTableService::TLDS put `com`
+// BEFORE `com\.au` (etc.) in the alternation, so a multi-label suffix like
+// `.com.au` only matches via PCRE backtracking — the engine tries `com`
+// first, fails the anchor/literal that follows, and backtracks into trying
+// `com\.au` next. An atomic group, a possessive quantifier, or someone
+// "tidying" the alternation into a trie can silently disable that
+// backtracking: every multi-label TLD (`com.au`, `co.uk`, `com.br`, …) then
+// stops matching while the single-label ones (`.com`, `.de`) stay green —
+// exactly the kind of regression a same-shaped negative test can't catch.
+
+it('accepts every TLD enumerated in EventbriteScraper::TLDS via normalizeOrgUrl', function (string $tld) {
+    expect(app(EventbriteScraper::class)->normalizeOrgUrl("https://www.eventbrite.{$tld}/o/some-organiser-123"))
+        ->toBe("https://www.eventbrite.{$tld}/o/some-organiser-123");
+})->with(tldsFromConstant(EventbriteScraper::class));
+
+it('accepts every TLD enumerated in OpenTableService::TLDS via isOpenTableUrl', function (string $tld) {
+    expect(app(OpenTableService::class)->isOpenTableUrl("https://www.opentable.{$tld}/r/some-restaurant"))->toBeTrue();
+})->with(tldsFromConstant(OpenTableService::class));
+
+it('anchors the OpenTable/Eventbrite host checks — a spoof suffix never sneaks past a dropped ^ or $', function () {
+    // Deliberately routed through isOpenTableUrl()/normalizeOrgUrl(), NOT
+    // parseRid()/nameFromUrl() — those two are a DOCUMENTED, non-exploitable
+    // latent gap (unanchored, but every caller gates on isOpenTableUrl()
+    // first) and asserting null through them would be a red test against a
+    // known, filed non-defect, not a real regression guard.
+    $opentable = app(OpenTableService::class);
+    $eventbrite = app(EventbriteScraper::class);
+
+    // Trailing-$ case: the extra ".evil.com" after a real-looking TLD must
+    // still fail the host gate.
+    expect($opentable->isOpenTableUrl('https://opentable.com.evil.com/r/x'))->toBeFalse()
+        // Leading-(^|.)-case: "opentable" as a mid-label substring of another
+        // word must not satisfy the host-boundary anchor.
+        ->and($opentable->isOpenTableUrl('https://notopentable.com/r/x'))->toBeFalse()
+        // "opentable" appearing only in the PATH of an unrelated host must
+        // never register as an OpenTable host.
+        ->and($opentable->isOpenTableUrl('https://evil.com/opentable.com/r/x'))->toBeFalse()
+        ->and($eventbrite->normalizeOrgUrl('https://eventbrite.com.evil.com/o/organiser-123'))->toBeNull();
 });
 
 // ── SafeUrlFetcher own-infrastructure denylist ────────────────────────────────

@@ -25,6 +25,25 @@ use Illuminate\Support\Facades\Log;
 //    key. Best-effort: enrichment failures never block the basic card.
 class GoogleBusinessService extends PlatformScraper
 {
+    /**
+     * Real Google ccTLD suffixes, enumerated — mirrors EventbriteScraper::TLDS /
+     * OpenTableService::TLDS. The previous host gate accepted the OPEN family
+     * `com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2}`, which admits ~2,029 registrable
+     * suffixes (`google.<any 2-letter cc>`, `google.co.<any cc>`,
+     * `google.com.<any cc>`) — `google.tk`, `google.cm`, `google.com.zz` all
+     * passed. Deliberately conservative: an omitted real locale is a visible,
+     * one-line-fix rejection; a wrongly-admitted one is the spoof hole this
+     * closes. Extend with a real Google country domain if one is rejected.
+     *
+     * Entries must be VERIFIED, not guessed by pattern. Review caught a bare
+     * `pe` here on the first pass: `google.pe` does not exist (Peru is
+     * `google.com.pe`), so the gate simultaneously admitted a fabricated host
+     * and rejected the real one. Google's ccTLDs do not follow a derivable
+     * rule — `google.com.au` but `google.de`, `google.co.uk` but `google.fr` —
+     * so each entry has to be checked individually.
+     */
+    private const TLDS = '(?:com|com\.au|com\.br|com\.mx|com\.pe|com\.ar|com\.co|com\.tr|com\.sg|com\.hk|com\.tw|com\.ph|com\.vn|com\.pk|com\.eg|com\.sa|com\.ua|com\.ng|co\.uk|co\.jp|co\.in|co\.nz|co\.za|co\.kr|co\.id|co\.il|de|fr|it|es|nl|ca|ie|pl|pt|se|no|dk|fi|ch|at|be|cz|gr|hu|ro|ru|cl)';
+
     public function __construct(private readonly SafeUrlFetcher $fetcher, private readonly PlacesBudget $budget) {}
 
     /**
@@ -76,10 +95,10 @@ class GoogleBusinessService extends PlatformScraper
     private function parsePlaceUrl(string $url): ?array
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        // Structured Google TLD shapes only (google.com / google.com.au /
-        // google.co.uk / google.de) — an open `[a-z.]+` suffix accepted
+        // Closed Google ccTLD enumeration only (self::TLDS) — the prior open
+        // `com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2}` family accepted
         // `google.<attacker-domain>` as a Maps host.
-        if (! preg_match('~(^|\.)google\.(com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2})$~', $host)) {
+        if (! preg_match('~(^|\.)google\.'.self::TLDS.'$~', $host)) {
             return null;
         }
 

@@ -42,3 +42,21 @@ it('returns null when the host IS a public suffix', function () {
 it('falls back to the implicit star rule for unknown TLDs', function () {
     expect(PublicSuffixList::instance()->registrableDomain('foo.bar.unknowntld'))->toBe('bar.unknowntld');
 });
+
+// #TEST-13: the algorithm above is hand-verified correct against the
+// publicsuffix.org spec; the one real risk is a DATA regression — the
+// vendored resources/psl/public_suffix_list.dat gets dropped, truncated, or
+// replaced with a stale/empty snapshot on a future vendor refresh, and every
+// test above still passes because they're all satisfiable by the implicit
+// `*` fallback rule alone. This reads the SHIPPED file (not a fixture) and
+// pins that the ICANN/private boundary it depends on actually holds: a
+// private-section host (github.io) keeps its whole label as the registrable
+// boundary, while an ICANN-section host collapses to the ordinary eTLD+1.
+// A truncated or corrupted file makes both sides fall through to the same
+// implicit-star answer and this test goes red.
+it('parses the shipped PSL snapshot containing all three rule classes', function () {
+    $psl = PublicSuffixList::instance();
+
+    expect($psl->registrableDomain('acme.github.io'))->toBe('acme.github.io')
+        ->and($psl->registrableDomain('acme.example.com'))->toBe('example.com');
+});
