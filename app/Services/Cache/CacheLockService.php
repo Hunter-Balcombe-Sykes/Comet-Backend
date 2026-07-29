@@ -193,6 +193,34 @@ class CacheLockService
     }
 
     /**
+     * Re-write an entry and its stale twin under a SHORTER TTL, after the build
+     * that produced the value turned out to be degraded (CCH-5).
+     *
+     * rememberLocked() takes its TTL as an argument, so it is fixed before the
+     * callback runs and cannot be lowered once the callback discovers it built
+     * from a fault. Rather than widen that signature for one caller, this
+     * re-writes the same value the caller already holds. Both keys are
+     * rewritten: shortening only the primary would leave the ×10 stale twin
+     * serving the degraded copy for the rest of its window, which is where
+     * most of the observed staleness lived.
+     *
+     * Racing another worker is benign — a worker that also built degraded
+     * shortens too, and one that built cleanly overwrites with good data.
+     *
+     * Deliberately NOT writeWithJitter(): that gives the stale twin a x10
+     * extension, which is right for a good value (SWR wants a long last-known-
+     * good) and exactly wrong for this one. Serving a stale DEGRADED copy is
+     * the defect, so the twin gets the same short life as the primary. Jitter
+     * is still drawn independently per key so a fleet-wide blip does not
+     * expire every shortened entry on the same second.
+     */
+    public function shortenDegraded(string $key, mixed $value, int $ttl): void
+    {
+        Cache::put($key, $value, self::applyJitter($ttl));
+        Cache::put($key.':stale', $value, self::applyJitter($ttl));
+    }
+
+    /**
      * Write $value to $key with jitter and to $staleKey with the stale extension TTL.
      *
      * Jitter is applied only to int TTLs (±20% uniform distribution). DateTimeInterface

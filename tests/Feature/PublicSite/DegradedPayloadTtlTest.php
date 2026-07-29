@@ -1,0 +1,146 @@
+<?php
+
+// #CCH-5. safeQuery() answers a presence probe from a QueryException by
+// returning the caller's default — false for every presence probe, i.e. "this
+// page section does not exist". rememberLocked() then cached that answer under
+// the full payload TTL AND a x10 stale twin, so one second of database trouble
+// hid a live section of a professional's public page for the best part of ten
+// minutes, with only a Log::warning (which Nightwatch does not alert on) to
+// show for it.
+//
+// Probes are faulted the way PresenceProbeLoggingTest does it — by omitting
+// the table the query needs, which is the "missing table in a partial test
+// env" case safeQuery's own docblock describes.
+
+use App\Services\Accounts\AccountCapabilities;
+use App\Services\PublicSite\IndividualProfilePayloadBuilder;
+use App\Services\PublicSite\SitepageDataResolverService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupContentSelectionTable();
+
+    // Same shim IndividualProfileControllerTest builds — the route's payload
+    // build reaches architecture_id and design_kits, neither of which the
+    // SQLite stand-ins carry by default.
+    try {
+        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'staple'");
+    } catch (Throwable) {
+        // Already added by an earlier test in this process.
+    }
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
+        site_id TEXT PRIMARY KEY,
+        color_accent TEXT NULL,
+        color_text TEXT NULL,
+        typography_font_family TEXT NULL
+    )');
+
+    Config::set('partna.throttle.enabled', false);
+    Cache::flush();
+});
+
+/** The primary payload key plus the x10 stale twin rememberLocked writes beside it. */
+function payloadCacheKeys(object $pro): array
+{
+    $key = app(IndividualProfilePayloadBuilder::class)
+        ->cacheKey(strtolower($pro->handle), $pro->site, $pro);
+
+    return [$key, $key.':stale'];
+}
+
+it('does not report degradation when every probe answers from the database', function () {
+    $pro = createTenant('degrade-clean');
+    setupBlocksTable();
+    setupMediaTables();
+    setupServiceCategoriesTable();
+    setupServicesTable();
+
+    $resolver = app(SitepageDataResolverService::class);
+    $resolver->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($resolver->hasDegraded())->toBeFalse();
+});
+
+it('reports degradation when a probe answers from a fault', function () {
+    $pro = createTenant('degrade-faulted');
+    setupBlocksTable();
+    setupMediaTables();
+    // Deliberately no setupServicesTable() — Service::query() faults, and the
+    // probe answers "no services page" from the exception rather than the DB.
+    $resolver = app(SitepageDataResolverService::class);
+    $resolver->presentPageIds($pro->site, AccountCapabilities::for($pro), collect());
+
+    expect($resolver->hasDegraded())->toBeTrue();
+});
+
+it('expires a degraded payload — and its stale twin — within the short TTL', function () {
+    // The defect in one assertion. Both keys must be gone well before the
+    // normal 60s primary / 600s stale window, or the "no services page" answer
+    // a one-second blip produced keeps hiding the section long after the
+    // database recovered.
+    config(['partna.public_profile.cache_ttl_seconds' => 60]);
+    config(['partna.public_profile.degraded_cache_ttl_seconds' => 10]);
+
+    $pro = createTenant('degrade-ttl');
+    setupBlocksTable();
+    setupMediaTables();
+    // No services table — the probe faults, so this build is degraded.
+
+    $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk();
+
+    [$key, $staleKey] = payloadCacheKeys($pro);
+    expect(Cache::get($key))->not->toBeNull();
+
+    // Past the degraded TTL (+ its jitter headroom), inside the normal one.
+    $this->travel(20)->seconds();
+
+    expect(Cache::get($key))->toBeNull()
+        ->and(Cache::get($staleKey))->toBeNull();
+});
+
+it('leaves a clean payload on the full TTL', function () {
+    // The control. Without it, a fix that simply shortened every payload would
+    // pass the test above and quietly cost the cache its whole point.
+    config(['partna.public_profile.cache_ttl_seconds' => 60]);
+    config(['partna.public_profile.degraded_cache_ttl_seconds' => 10]);
+
+    $pro = createTenant('degrade-control');
+    setupBlocksTable();
+    setupMediaTables();
+    setupServiceCategoriesTable();
+    setupServicesTable();
+
+    $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk();
+
+    [$key] = payloadCacheKeys($pro);
+    $this->travel(20)->seconds();
+
+    expect(Cache::get($key))->not->toBeNull();
+});
+
+it('keeps the flag scoped to one build rather than leaking across resolvers', function () {
+    // The flag is only safe to read after a build because this service is
+    // transient. If it were shared, one site's blip would shorten every other
+    // site's cache entry for the rest of the process.
+    $faulted = createTenant('degrade-scope-a');
+    setupBlocksTable();
+    setupMediaTables();
+
+    $first = app(SitepageDataResolverService::class);
+    $first->presentPageIds($faulted->site, AccountCapabilities::for($faulted), collect());
+    expect($first->hasDegraded())->toBeTrue();
+
+    setupServiceCategoriesTable();
+    setupServicesTable();
+
+    $clean = createTenant('degrade-scope-b');
+    $second = app(SitepageDataResolverService::class);
+    $second->presentPageIds($clean->site, AccountCapabilities::for($clean), collect());
+
+    expect($second)->not->toBe($first)
+        ->and($second->hasDegraded())->toBeFalse();
+});

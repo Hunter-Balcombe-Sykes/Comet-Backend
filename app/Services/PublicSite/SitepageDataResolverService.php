@@ -36,6 +36,9 @@ class SitepageDataResolverService
 {
     use EscalatesRepeatedFaults;
 
+    /** Set by safeQuery() when a probe answered from a fault. See hasDegraded(). */
+    private bool $degraded = false;
+
     /**
      * Section block_type → sitepage page-id. The section block_group covers a
      * subset of the taxonomy; the platform-backed pages route via
@@ -412,8 +415,27 @@ class SitepageDataResolverService
             $bucket = str_starts_with((string) $probe, 'platform_complete_') ? 'platform_complete' : (string) $probe;
             self::escalateIfSustained($e, "sitepage_probe_{$bucket}");
 
+            // CCH-5: remember that THIS build answered a probe from a fault
+            // rather than from the database. The default returned below is
+            // false for the presence probes, i.e. "this page section does not
+            // exist" — an answer that must not be cached for the full payload
+            // TTL, or a one-second blip hides a section of someone's live page
+            // for the whole primary+stale window. The caller reads
+            // hasDegraded() and shortens the entry accordingly.
+            $this->degraded = true;
+
             return $default;
         }
+    }
+
+    /**
+     * Did any probe in this build fall back to its default because the query
+     * threw? Request-scoped: this service is transient, so the flag describes
+     * the build that just ran and nothing earlier.
+     */
+    public function hasDegraded(): bool
+    {
+        return $this->degraded;
     }
 
     // ── Curated gallery (Content Selection) ─────────────────────────────

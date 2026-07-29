@@ -1194,6 +1194,8 @@ it('single-flights concurrent requests so only one payload is built', function (
     // and never invokes the callback, so the builder is never reached again.
     $mock = $this->mock(IndividualProfilePayloadBuilder::class);
     $mock->shouldReceive('cacheTtl')->andReturn(300);
+    // CCH-5: the controller asks whether the build it just cached was degraded.
+    $mock->shouldReceive('lastBuildDegraded')->andReturn(false);
     $mock->shouldReceive('build')
         ->once()
         ->andReturn([

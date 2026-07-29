@@ -668,4 +668,29 @@ class IndividualProfilePayloadBuilder
     {
         return max(1, (int) config('partna.public_profile.cache_ttl_seconds', 60));
     }
+
+    /**
+     * Did the build that just ran answer a presence probe from a QueryException
+     * instead of from the database? (CCH-5.)
+     *
+     * False when nothing was built — a cache hit never runs the resolver, so a
+     * served payload is only ever shortened by the request that actually
+     * produced the degraded copy.
+     */
+    public function lastBuildDegraded(): bool
+    {
+        return $this->resolver->hasDegraded();
+    }
+
+    /**
+     * TTL for a payload built while a probe was failing. Short on purpose: it
+     * still gives the single-flight lock something to serve, so a DB wobble
+     * does not turn every in-flight request into its own rebuild, but it lets
+     * the page heal seconds after the database does rather than riding the
+     * full primary+stale window.
+     */
+    public function degradedCacheTtl(): int
+    {
+        return max(1, (int) config('partna.public_profile.degraded_cache_ttl_seconds', 10));
+    }
 }

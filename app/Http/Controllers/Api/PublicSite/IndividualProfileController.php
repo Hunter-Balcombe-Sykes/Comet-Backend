@@ -138,6 +138,18 @@ class IndividualProfileController extends ApiController
             }
         );
 
+        // CCH-5: a presence probe that threw answers "this section does not
+        // exist", and rememberLocked has just cached that answer under the full
+        // payload TTL plus a ×10 stale twin — so one second of DB trouble hid a
+        // page section for the best part of ten minutes, with only a
+        // Log::warning to show for it. Re-write both keys under a short TTL so
+        // the page heals seconds after the database does. Only the request that
+        // actually built the degraded payload gets here; a cache hit never runs
+        // the resolver, so lastBuildDegraded() is false for served copies.
+        if ($payload !== null && $this->builder->lastBuildDegraded()) {
+            $this->cache->shortenDegraded($key, $payload, $this->builder->degradedCacheTtl());
+        }
+
         if ($payload === null) {
             // Resolve cache pointed at a now-deleted row. rememberLocked wrote
             // BOTH the primary resolve key and a longer-lived :stale twin, so

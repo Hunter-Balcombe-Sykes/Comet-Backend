@@ -1145,6 +1145,14 @@ return [
         'slow_request_threshold_ms' => (int) env('SIDEST_PUBLIC_PROFILE_SLOW_REQUEST_THRESHOLD_MS', 1000),
         // 60s edge TTL for the CacheLockService::rememberLocked payload.
         'cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_CACHE_TTL', 60),
+        // CCH-5: TTL for a payload built while a presence probe was throwing.
+        // Those probes fail CLOSED — a QueryException answers "this page
+        // section does not exist" — so caching that answer at the normal TTL
+        // (plus its x10 stale twin) hides a live section for ~10 minutes after
+        // a one-second blip. Short enough to heal promptly, long enough that
+        // the single-flight lock still absorbs a burst rather than letting
+        // every in-flight request rebuild during an outage.
+        'degraded_cache_ttl_seconds' => (int) env('SIDEST_PUBLIC_PROFILE_DEGRADED_CACHE_TTL', 10),
         // Ceiling on the TTL above, checked hourly by AggregateCacheMetricsJob.
         // Deliberately NOT env-tunable: cache_ttl_seconds is, so raising the tap
         // needs no deploy, while raising the limit on the tap needs a reviewed

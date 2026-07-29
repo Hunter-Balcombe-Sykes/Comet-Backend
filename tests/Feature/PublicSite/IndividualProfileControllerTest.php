@@ -26,6 +26,8 @@ function bindProfileCache(array $returns): void
 
     $builder = Mockery::mock(IndividualProfilePayloadBuilder::class);
     $builder->shouldReceive('cacheTtl')->andReturn(60);
+    // CCH-5: the controller asks whether the build it just cached was degraded.
+    $builder->shouldReceive('lastBuildDegraded')->andReturn(false);
     app()->instance(IndividualProfilePayloadBuilder::class, $builder);
 }
 
