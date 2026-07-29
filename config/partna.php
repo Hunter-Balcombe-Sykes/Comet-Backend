@@ -954,6 +954,12 @@ return [
         // before land() is called), so the chunk only adds one json_encode
         // string + hash per record, released between chunks.
         'land_chunk' => (int) env('PARTNA_INGEST_LAND_CHUNK', 500),
+
+        // SCALE-1/SCALE-2: chunkById page size for `ingest:project`'s source
+        // walk. Bounds both the source-list result buffer and the per-chunk
+        // streams pre-fetch. Overridable so tests can shrink it (3) to make
+        // chunk-boundary cases cheap to seed.
+        'projection_source_chunk' => (int) env('INGEST_PROJECTION_SOURCE_CHUNK', 200),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
