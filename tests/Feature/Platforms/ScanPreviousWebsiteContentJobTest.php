@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\ResolveSiteAccentJob;
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
 use App\Jobs\Platforms\WebsiteGalleryScanJob;
@@ -12,6 +13,7 @@ use App\Models\Core\Site\MenuItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Services\Cache\ApifyBudget;
 use App\Services\Design\LogoAutoGrabber;
 use App\Services\Http\MetadataParser;
 use App\Services\Http\SafeUrlFetcher;
@@ -30,6 +32,7 @@ use App\Services\WebsiteScan\WebsiteAccentExtractor;
 use App\Services\WebsiteScan\WebsiteGalleryCandidateExtractor;
 use App\Services\WebsiteScan\WebsiteLogoCandidateExtractor;
 use App\Services\WebsiteScan\WorkplaceContentApplier;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -503,4 +506,46 @@ it('does not dispatch WebsiteGalleryScanJob when the homepage has no gallery-can
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
     Queue::assertNotPushed(WebsiteGalleryScanJob::class);
+});
+
+// ── #JOB-1 stale-premise regression guard ─────────────────────────────────────
+//
+// The audit that flagged #JOB-1 believed a retry re-triggers a paid Instagram
+// scrape. That is NOT reproducible: GoogleBusinessAutoSync::seedInstagram()
+// checks for an existing connection (has()) BEFORE any budget claim, so a
+// second run against the SAME Instagram link finds the placeholder the first
+// run already wrote and short-circuits to a conflict finding instead of a
+// second dispatchInstagram()/tryClaim(). This test converts that currently-
+// implicit protection into an explicit guard, so a future refactor of
+// seedInstagram()'s has() check can't silently re-open the money hole the
+// audit believed was already open.
+
+it('a second scan run does not re-dispatch the paid Instagram scrape — the placeholder connection already exists', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Bus::fake([InstagramConnectJob::class]);
+    [$user, $site] = spwcjUser('spwcjretry-ig', 'business', 'hair-salon'); // non-food: isolates the IG path from the menu branch
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response('<a href="https://instagram.com/fadelab">Follow us</a>', 200)]);
+
+    $budget = new ApifyBudget;
+    $before = $budget->remaining('instagram');
+
+    // Run 1: no existing connection — the real spend path (placeholder write +
+    // InstagramConnectJob dispatch + one budget slot consumed).
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    // Run 2: simulates the retry #JOB-1 used to allow (ScanPreviousWebsiteContentJob's
+    // own $tries=2, now fixed to 1) — same user, same URL, same harvested IG link.
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Bus::assertDispatchedTimes(InstagramConnectJob::class, 1);
+    expect($budget->remaining('instagram'))->toBe($before - 1); // exactly one slot consumed, not two
+
+    // The second run's IG finding is a phantom conflict against the placeholder
+    // this very scan created — documented behaviour (§1.3 of the plan), not a
+    // clean seed.
+    $notification = DB::connection('pgsql')->table('notifications.notifications')
+        ->where('user_id', $user->id)->latest('created_at')->first();
+    expect($notification)->not->toBeNull();
 });

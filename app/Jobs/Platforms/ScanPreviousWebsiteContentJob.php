@@ -54,17 +54,42 @@ use Throwable;
 // seed() level, and the alternative (reinventing a partial, ungated copy of
 // seed()'s social handling to exclude this one branch) reintroduces the
 // capability-bypass bug class this job's own design specifically avoids by
-// calling the real seed() wholesale instead of its private sub-methods.
+// calling the real seed() wholesale instead of its private sub-methods. NOTE
+// for future readers: seedInstagram() (GoogleBusinessAutoSync) guards this
+// with an existing-connection has() check BEFORE any budget claim — a
+// second run of this job finds that placeholder and short-circuits to a
+// (harmless, if confusing) conflict finding rather than a second charge. Do
+// not "simplify away" that has() guard; it is the only thing standing
+// between a re-run and a second Apify bill on this path.
+//
+// NOT auto-retried ($tries = 1, below): a second handle() re-dispatches
+// WebsiteMenuPdfScanJob (Mistral OCR) and WebsiteMenuHtmlScanJob
+// (MenuAiExtractor structuring), both billed and both deliberately
+// $tries = 1 themselves specifically to prevent an automatic re-bill. This
+// job retrying itself was silently defeating that policy — ShouldBeUnique's
+// 300s lock blocks a second concurrent *dispatch*, not a second *attempt* of
+// the same instance, so it never protected against this.
 class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 2;
+    // AI spend downstream (see class docblock): a retry re-dispatches billed
+    // OCR/AI sub-jobs whose own tries = 1 exists to prevent exactly that.
+    // RunSourceJob precedent: "a fetch is not safely re-runnable by the
+    // queue... could double-charge a billed effect".
+    public int $tries = 1;
 
-    /** @var list<int> */
+    /** @var list<int> Moot at one attempt; declared for the job-hygiene policy (JobHygienePolicyTest), matching WebsiteMenuPdfScanJob's idiom. */
     public array $backoff = [30];
 
     public int $timeout = 60;
+
+    // A mid-scan timeout must fail terminally, not retry the fan-out above.
+    // Plain declared property with a declared default (not promoted, not
+    // readonly) so a job enqueued before this property existed restores with
+    // the default instead of fatalling on read — matches
+    // GeneratePreAccountSiteJob's $failOnTimeout.
+    public bool $failOnTimeout = true;
 
     // Matches EnrichLinkCardJob (same directory, same 60s timeout): 300s comfortably
     // exceeds the run itself, leaving queue-wait budget. No default means UniqueLock
@@ -457,6 +482,9 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             'site_id' => $this->siteId,
             'url' => $this->url,
             'error' => $e->getMessage(),
+            // Single-attempt by design (see class docblock) — a Horizon
+            // "Retry failed job" click re-runs the whole billed OCR/AI fan-out.
+            'note' => 'single-attempt job; manual Horizon retry re-bills OCR/AI sub-jobs',
         ]);
     }
 }
