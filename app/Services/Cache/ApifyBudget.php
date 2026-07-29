@@ -11,8 +11,10 @@ use Illuminate\Support\Facades\Cache;
 //
 // TWO caps enforced atomically: a per-actor daily cap AND a global daily cap
 // across all actors. Lives in the cache layer (GS-1) so raw Cache::* stays
-// canonical; atomic Cache::add + increment (never get+put) means two concurrent
-// claims can't both slip past the boundary. Generalises the former
+// canonical. Both counters claim through DailyCounterClaim, which makes each
+// claim a single server-side step and guarantees the counter keeps a TTL on
+// every path — see that class for why the former inline add+increment form
+// leaked TTL-less keys onto a volatile-lru instance. Generalises the former
 // InstagramApifyBudget.
 class ApifyBudget
 {
@@ -21,27 +23,27 @@ class ApifyBudget
      * per-actor or the global daily cap is already reached — the caller skips the
      * scrape (429 on the Instagram manual path; null/[] elsewhere so the prior
      * payload is kept).
+     *
+     * Claims global first, then actor, releasing global if the actor ceiling
+     * denies. Admission is identical to the previous increment-both-then-check
+     * form; the difference is that neither counter can be left without an
+     * expiry, and neither is ever read separately from its own increment.
      */
     public function tryClaim(string $actor): bool
     {
         $actorCap = (int) config("partna.limits.apify.actors.{$actor}", 0);
         $globalCap = (int) config('partna.limits.apify.global_daily_cap');
         $date = now()->format('Y-m-d');
-        $expiry = now()->addDay(); // date-keyed key rotates at midnight; TTL just outlives the day
 
         $globalKey = CacheKeyGenerator::apifyGlobalDailyLimit($date);
         $actorKey = CacheKeyGenerator::apifyActorDailyLimit($actor, $date);
 
-        Cache::add($globalKey, 0, $expiry);
-        Cache::add($actorKey, 0, $expiry);
+        if (! DailyCounterClaim::claim($globalKey, $globalCap)) {
+            return false;
+        }
 
-        $global = Cache::increment($globalKey);
-        $actorCount = Cache::increment($actorKey);
-
-        // Over EITHER ceiling → release both counters and reject.
-        if ($global > $globalCap || $actorCount > $actorCap) {
-            Cache::decrement($globalKey);
-            Cache::decrement($actorKey);
+        if (! DailyCounterClaim::claim($actorKey, $actorCap)) {
+            DailyCounterClaim::release($globalKey);
 
             return false;
         }
