@@ -1285,7 +1285,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
+- P1 High: 4 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
 - P2 Medium: 1 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
@@ -1293,7 +1293,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **SCALE-1** · P1 — `IngestProjectCommand` loads every matching source into memory without chunking
+- [x] **SCALE-1** · P1 — `IngestProjectCommand` loads every matching source into memory without chunking
     - **Where:** app/Console/Commands/IngestProjectCommand.php:31-35
     - **Affects:** Any `ingest:project` run against more than a few hundred sources — the `--rebuild` path, the scheduled projection pass, and ad-hoc operator runs against the newly-shipped 21-connector fleet (per `11c399ab`, `f6112c73`).
     - **Effort:** S (~0.5–1h)
@@ -1311,7 +1311,7 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-2** · P1 — `IngestProjectCommand` issues one `streams` query per source (N+1)
+- [x] **SCALE-2** · P1 — `IngestProjectCommand` issues one `streams` query per source (N+1)
     - **Where:** app/Console/Commands/IngestProjectCommand.php:45-46
     - **Affects:** Every `ingest:project` run — each source triggers a separate round-trip to fetch its streams.
     - **Effort:** S (~0.5–1h)
