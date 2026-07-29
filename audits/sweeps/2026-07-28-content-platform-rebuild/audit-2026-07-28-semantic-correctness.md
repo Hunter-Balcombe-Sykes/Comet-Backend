@@ -24,7 +24,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 1 of 5 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -158,7 +158,7 @@
             self::CanonicalUrl, self::EnclosureUrl => strtolower($value),
         ```
 
-- [ ] **#SEM-6** · P2 — `detectDeviceType`'s bot check is a small subset of the sibling `isBotUserAgent`, so most bot traffic is labelled `desktop`/`mobile` instead of `bot`
+- [x] **#SEM-6** · P2 — `detectDeviceType`'s bot check is a small subset of the sibling `isBotUserAgent`, so most bot traffic is labelled `desktop`/`mobile` instead of `bot`
     - **Where:** app/Http/Controllers/Concerns/DetectsClientInfo.php:88-91 (detectDeviceType) vs :50-66 (isBotUserAgent)
     - **Affects:** Analytics data quality for every request that runs through this trait — page-view/beacon device-type dimensions, and any downstream report or filter that trusts `detectDeviceType()` to flag automated traffic.
     - **Effort:** S (~0.5–1h)

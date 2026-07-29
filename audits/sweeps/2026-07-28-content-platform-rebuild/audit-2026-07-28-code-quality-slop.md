@@ -22,7 +22,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 19 complete
 
 ---
@@ -59,7 +59,7 @@
         }
         ```
 
-- [ ] **#SLOP-2** · P2 — `firstString` copy-pasted across four connectors, and it has already drifted: two lack the numeric fallback the other two have
+- [x] **#SLOP-2** · P2 — `firstString` copy-pasted across four connectors, and it has already drifted: two lack the numeric fallback the other two have
     - **Where:** app/Ingest/Connectors/DoordashMenuConnector.php:148-158, SquareMenuConnector.php:154-164, UberEatsMenuConnector.php:138-148, InstagramConnector.php:258-269
     - **Affects:** Square and Uber Eats menu ingestion — any field where the vendor payload returns a number for what the connector expects as a string.
     - **Effort:** S (~1h)

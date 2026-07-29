@@ -5642,7 +5642,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 19 complete
 
 ---
@@ -5679,7 +5679,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-2** · P2 — `firstString` copy-pasted across four connectors, and it has already drifted: two lack the numeric fallback the other two have
+- [x] **#SLOP-2** · P2 — `firstString` copy-pasted across four connectors, and it has already drifted: two lack the numeric fallback the other two have
     - **Where:** app/Ingest/Connectors/DoordashMenuConnector.php:148-158, SquareMenuConnector.php:154-164, UberEatsMenuConnector.php:138-148, InstagramConnector.php:258-269
     - **Affects:** Square and Uber Eats menu ingestion — any field where the vendor payload returns a number for what the connector expects as a string.
     - **Effort:** S (~1h)
@@ -6197,7 +6197,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 1 of 5 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -6331,7 +6331,7 @@ None.
             self::CanonicalUrl, self::EnclosureUrl => strtolower($value),
         ```
 
-- [ ] **#SEM-6** · P2 — `detectDeviceType`'s bot check is a small subset of the sibling `isBotUserAgent`, so most bot traffic is labelled `desktop`/`mobile` instead of `bot`
+- [x] **#SEM-6** · P2 — `detectDeviceType`'s bot check is a small subset of the sibling `isBotUserAgent`, so most bot traffic is labelled `desktop`/`mobile` instead of `bot`
     - **Where:** app/Http/Controllers/Concerns/DetectsClientInfo.php:88-91 (detectDeviceType) vs :50-66 (isBotUserAgent)
     - **Affects:** Analytics data quality for every request that runs through this trait — page-view/beacon device-type dimensions, and any downstream report or filter that trusts `detectDeviceType()` to flag automated traffic.
     - **Effort:** S (~0.5–1h)
