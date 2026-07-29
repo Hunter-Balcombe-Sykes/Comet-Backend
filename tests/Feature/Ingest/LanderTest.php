@@ -55,6 +55,34 @@ it('lands an unchanged document exactly once — a second identical landing writ
     expect(DB::table('ingest.record_versions')->where('stream_id', 's1')->where('key', 'k1')->count())->toBe(1);
 });
 
+it('reports changed=1 when a document reverts to a previously-seen hash (A -> B -> A)', function () {
+    // The revert bug: insertOrIgnore conflicts on the content-addressed
+    // unique index when landing A again, returning 0 inserted rows. Using
+    // "was anything inserted?" as the changed signal makes this landing
+    // report changed=0, which skips projection (RunExecutor.php:168) and
+    // leaves the public page serving B forever. The correct signal is
+    // "did the CURRENT version move?" — which it did.
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror);
+    $lander = new Lander;
+
+    $first = $lander->land('s1', 'r1', $spec, [new Record('releases', 'k1', ['title' => 'A'])], null);
+    expect($first['changed'])->toBe(1);
+
+    $second = $lander->land('s1', 'r2', $spec, [new Record('releases', 'k1', ['title' => 'B'])], null);
+    expect($second['changed'])->toBe(1);
+
+    $third = $lander->land('s1', 'r3', $spec, [new Record('releases', 'k1', ['title' => 'A'])], null);
+    expect($third['changed'])->toBe(1);
+
+    // Exactly one row is current, and it is hash A's row (the reverted one).
+    $current = DB::table('ingest.record_versions')->where('stream_id', 's1')->where('key', 'k1')->where('is_current', true)->get();
+    expect($current)->toHaveCount(1);
+    expect(json_decode($current[0]->doc, true)['title'])->toBe('A');
+
+    $state = ingestRecordState('s1', 'k1');
+    expect((int) $state->current_version_id)->toBe((int) $current[0]->id);
+});
+
 it('writes a new version for a changed document, demotes the previous one, and points record_state at the new version', function () {
     $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror);
     $lander = new Lander;

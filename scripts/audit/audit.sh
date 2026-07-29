@@ -336,6 +336,7 @@ controllers-user|app/Http/Controllers/Api/User
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content app/Routing
 controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
 media-design|app/Services/Media app/Services/Design app/Services/WebsiteScan
+ingest|app/Ingest
 EOF
         ;;
         migration-safety) cat <<'EOF'

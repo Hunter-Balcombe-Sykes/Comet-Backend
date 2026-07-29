@@ -21,8 +21,8 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 3 complete
-- P2 Medium: 0 of 7 complete
+- P1 High: 3 of 3 complete
+- P2 Medium: 1 of 7 complete
 - P3 Low: 0 of 6 complete
 
 ---
@@ -92,7 +92,7 @@
         );
         ```
 
-- [ ] **DINT-16** · P1 — Reverted content never re-projects: `land()` reports `changed: 0` when a doc returns to a previous version, and projection is gated on that counter
+- [x] **DINT-16** · P1 — Reverted content never re-projects: `land()` reports `changed: 0` when a doc returns to a previous version, and projection is gated on that counter
     - **Where:** app/Ingest/Landing/Lander.php:59-77 · app/Ingest/Runtime/RunExecutor.php:168
     - **Affects:** Every projected surface on the public sitepage — menu items, events, releases, reviews. When a vendor reverts a record to a value it previously held, the public page keeps serving the superseded version indefinitely, until some unrelated change to the same stream forces a projection.
     - **Effort:** S (~0.5–1h)
@@ -239,7 +239,7 @@
         "updated_at" timestamp with time zone DEFAULT "now"(),
         ```
 
-- [ ] **DINT-9** · P2 — `Lander::land()` performs an insert-then-demote-then-select-then-upsert sequence per record with no transaction wrapping it
+- [x] **DINT-9** · P2 — `Lander::land()` performs an insert-then-demote-then-select-then-upsert sequence per record with no transaction wrapping it
     - **Where:** app/Ingest/Landing/Lander.php:53-98
     - **Affects:** Every ingest run — a crash mid-loop can leave `is_current` flags demoted with no corresponding `record_state` update, or a `record_state` row pointing at a version that never got demoted correctly.
     - **Effort:** S (~0.5–1h)

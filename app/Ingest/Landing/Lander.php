@@ -56,45 +56,75 @@ class Lander
             $seenKeys[] = $record->key;
             $seen++;
 
-            // DO NOTHING on conflict: an identical doc is not an event.
-            $inserted = DB::table('ingest.record_versions')->insertOrIgnore([
-                'stream_id' => $streamId,
-                'key' => $record->key,
-                'doc_hash' => $hash,
-                'doc' => json_encode($doc),
-                'first_seen_run' => $runId,
-                'first_seen_at' => now(),
-                'is_current' => true,
-            ]);
+            DB::transaction(function () use ($streamId, $runId, $record, $doc, $hash, &$changed) {
+                // 1. Land the version. is_current is deliberately FALSE here:
+                //    whether this doc is current is decided below, not by
+                //    whether the row was new. DO NOTHING on conflict: an
+                //    identical doc is not an event.
+                DB::table('ingest.record_versions')->insertOrIgnore([
+                    'stream_id' => $streamId,
+                    'key' => $record->key,
+                    'doc_hash' => $hash,
+                    'doc' => json_encode($doc),
+                    'first_seen_run' => $runId,
+                    'first_seen_at' => now(),
+                    'is_current' => false,
+                ]);
 
-            if ($inserted > 0) {
-                $changed++;
-                // Demote the previous current version for this key.
-                DB::table('ingest.record_versions')
+                // 2. ONE round trip resolves both facts: this hash's version
+                //    id, and whether it was ALREADY the current one. `OR
+                //    is_current` pulls the incumbent too, so a landing that
+                //    finds no is_current row at all (first landing, or a key
+                //    desynced by the pre-fix bug) still converges.
+                //    Currency is decided in SQL, not PHP: a plain `->get(['is_current'])`
+                //    round-trips the raw driver value, and pdo_pgsql returns boolean
+                //    columns as the STRINGS 't'/'f' — `(bool) 'f'` is `true` in PHP, so
+                //    casting the column in PHP silently makes every row look current.
+                //    `CASE WHEN ... THEN 1 ELSE 0 END` forces the driver to hand back an
+                //    integer on both Postgres and the SQLite test mirror.
+                $rows = DB::table('ingest.record_versions')
                     ->where('stream_id', $streamId)
                     ->where('key', $record->key)
-                    ->where('doc_hash', '!=', $hash)
-                    ->update(['is_current' => false]);
-            }
+                    ->where(fn ($q) => $q->where('doc_hash', $hash)->orWhere('is_current', true))
+                    ->selectRaw('id, doc_hash, CASE WHEN is_current THEN 1 ELSE 0 END AS is_current_flag')
+                    ->get();
 
-            $versionId = DB::table('ingest.record_versions')
-                ->where('stream_id', $streamId)
-                ->where('key', $record->key)
-                ->where('doc_hash', $hash)
-                ->value('id');
+                $landedRow = $rows->firstWhere('doc_hash', $hash);
+                $versionId = (int) $landedRow->id;
+                $wasCurrent = ((int) $landedRow->is_current_flag) === 1;
 
-            DB::table('ingest.record_state')->upsert([[
-                'stream_id' => $streamId,
-                'key' => $record->key,
-                'current_version_id' => $versionId,
-                'last_seen_run' => $runId,
-                'last_seen_at' => now(),
-                // Reappearance clears absence completely — a key that came
-                // back was never really gone.
-                'absent_since' => null,
-                'absent_runs' => 0,
-                'tombstoned_at' => null,
-            ]], ['stream_id', 'key'], ['current_version_id', 'last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']);
+                // 3. Only when the CURRENT version actually moved.
+                //    Demote-then-promote, in that order — a single UPDATE
+                //    covering both rows can transiently violate the
+                //    one-current partial unique index mid-statement.
+                if (! $wasCurrent) {
+                    $changed++;
+
+                    DB::table('ingest.record_versions')
+                        ->where('stream_id', $streamId)->where('key', $record->key)
+                        ->where('doc_hash', '!=', $hash)->where('is_current', true)
+                        ->update(['is_current' => false]);
+
+                    DB::table('ingest.record_versions')
+                        ->where('stream_id', $streamId)->where('key', $record->key)
+                        ->where('doc_hash', $hash)
+                        ->update(['is_current' => true]);
+                }
+
+                // 4. record_state upsert — unchanged from before this fix.
+                DB::table('ingest.record_state')->upsert([[
+                    'stream_id' => $streamId,
+                    'key' => $record->key,
+                    'current_version_id' => $versionId,
+                    'last_seen_run' => $runId,
+                    'last_seen_at' => now(),
+                    // Reappearance clears absence completely — a key that
+                    // came back was never really gone.
+                    'absent_since' => null,
+                    'absent_runs' => 0,
+                    'tombstoned_at' => null,
+                ]], ['stream_id', 'key'], ['current_version_id', 'last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']);
+            });
         }
 
         $absence = $this->foldAbsence($streamId, $spec, $covered, $seenKeys);
