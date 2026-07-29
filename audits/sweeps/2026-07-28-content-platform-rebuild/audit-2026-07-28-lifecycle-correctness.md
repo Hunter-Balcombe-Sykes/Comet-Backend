@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 10 of 21 complete
+- P2 Medium: 13 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -294,7 +294,7 @@
         dedupeKey: "platform_connection_failed:{$connection->id}:{$episode}",
         ```
 
-- [ ] **LIFE-13** · P2 — `LinkProbeWorker::cascade` swallows `Throwable` from every probe with zero visibility
+- [x] **LIFE-13** · P2 — `LinkProbeWorker::cascade` swallows `Throwable` from every probe with zero visibility
     - **Where:** app/Routing/Probes/LinkProbeWorker.php:138-144
     - **Affects:** Operations debugging — a probe that throws from a real code bug (not a vendor outage) is silently discarded forever, indistinguishable from a legitimate miss.
     - **Effort:** S (~0.5–1h)
@@ -412,7 +412,8 @@
             WHERE ("settled_at" IS NULL);
         ```
 
-- [ ] **LIFE-19** · P2 — No automated alert for `routing.source_intents` stuck `proposed`/`blocked`
+- [x] **LIFE-19** · P2 — No automated alert for `routing.source_intents` stuck `proposed`/`blocked`
+    <!-- the finding's suggested per-row alert was REJECTED as a fatigue trap: every reachable stuck state (below_threshold / conflict / cap_reached) is a user's own inbox question, not an operator page. Implemented as an AGGREGATE alarm instead — 500-row threshold AND 14-day age — with an explicit negative test asserting a handful of stuck intents does NOT page. -->
     - **Where:** supabase/migrations/20260727120000_routing_schema.sql:86-89 (`idx_source_intents_stuck`); routes/console.php (no matching schedule entry)
     - **Affects:** Users whose imported links never resolve into connections — the row sits with no automated notification to staff.
     - **Effort:** S (~0.5–1h)
@@ -428,7 +429,7 @@
             WHERE ("state" IN ('proposed', 'blocked'));
         ```
 
-- [ ] **LIFE-20** · P2 — No automated alert for unresolved `critical` `ingest.anomalies`
+- [x] **LIFE-20** · P2 — No automated alert for unresolved `critical` `ingest.anomalies`
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql (`idx_anomalies_open`); routes/console.php (no matching schedule entry)
     - **Affects:** A tripped delete-guard or schema-drift anomaly (e.g. `Lander`'s `delete_guard` trip in LIFE-3/LIFE-4's file) freezes deletion for a stream and sits unresolved with no page.
     - **Effort:** S (~0.5–1h)

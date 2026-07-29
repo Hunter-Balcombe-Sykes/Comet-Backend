@@ -30,14 +30,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 8 complete
+- P2 Medium: 8 of 8 complete
 - P3 Low: 0 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **OBS-1** · P2 — `RoutingCorpusCommand` writes the generated test corpus without checking for filesystem errors
+- [x] **OBS-1** · P2 — `RoutingCorpusCommand` writes the generated test corpus without checking for filesystem errors
     - **Where:** app/Console/Commands/RoutingCorpusCommand.php:94-104
     - **Affects:** `tests/Fixtures/Routing/corpus-generated.php` — a silent write failure (disk full, permission error) produces a truncated/empty fixture that the test suite then runs against, either passing vacuously or failing with confusing errors instead of a clear tooling error.
     - **Effort:** S (~0.5–1h)
@@ -57,7 +57,7 @@
         $this->info('Wrote '.count($cases).' cases to '.$path);
         ```
 
-- [ ] **OBS-2** · P2 — `IngestDispatchCommand` always exits 0 even when every claimed source fails to dispatch
+- [x] **OBS-2** · P2 — `IngestDispatchCommand` always exits 0 even when every claimed source fails to dispatch
     - **Where:** app/Console/Commands/IngestDispatchCommand.php:38-64
     - **Affects:** Cron/scheduler monitoring of the `ingest:dispatch` tick — a run where every claimed source throws (Redis outage, job-construction bug) reports the same "success" as a clean tick.
     - **Effort:** S (~0.5–1h)
@@ -86,7 +86,8 @@
         }
         ```
 
-- [ ] **OBS-3** · P2 — `EventbriteScraper` silently discards failed event-detail fetches with zero log visibility
+- [x] **OBS-3** · P2 — `EventbriteScraper` silently discards failed event-detail fetches with zero log visibility
+    <!-- deliberately scoped as breadcrumb-only, with rationale: routine third-party fetch noise is not alert-worthy under the house rule (Nightwatch alerts on exceptions and slow jobs ONLY). Recorded here so the tick is not mistaken for a throw/report fix. Same for OBS-4. -->
     - **Where:** app/Services/Platforms/EventbriteScraper.php:92-100
     - **Affects:** Event-card freshness on a professional's sitepage when Eventbrite is intermittently slow/unreachable for some of an organiser's events; support has no breadcrumb to answer "why are some of my events missing?"
     - **Effort:** S (~0.5–1h)
@@ -108,7 +109,7 @@
             }
         ```
 
-- [ ] **OBS-4** · P2 — `ScanPreviousWebsiteContentJob` returns silently when the previous-website fetch fails
+- [x] **OBS-4** · P2 — `ScanPreviousWebsiteContentJob` returns silently when the previous-website fetch fails
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:129-133
     - **Affects:** Users whose previous-website scan yields nothing — about-text, contact email, menu, link-harvesting, logo, gallery, and font/accent evidence are all gated behind this single fetch. Support has no log entry to diagnose "why didn't my old site's content come across?"
     - **Effort:** S (~0.5–1h)
@@ -125,7 +126,7 @@
         }
         ```
 
-- [ ] **OBS-5** · P2 — `LinkProbeWorker`'s probe cascade masks a per-platform outage as a clean "no match"
+- [x] **OBS-5** · P2 — `LinkProbeWorker`'s probe cascade masks a per-platform outage as a clean "no match"
     - **Where:** app/Routing/Probes/LinkProbeWorker.php:138-144
     - **Affects:** All storefront-detection probe runs. A sustained failure of one probe (a platform endpoint moved, started blocking) makes every URL that probe would have matched look like "not a shop," with zero visibility into which probe is broken.
     - **Effort:** S (~0.5h)
@@ -143,7 +144,8 @@
         }
         ```
 
-- [ ] **OBS-6** · P2 — Horizon `waits` config missing entries for four worker lanes, leaving their backlog invisible
+- [x] **OBS-6** · P2 — Horizon `waits` config missing entries for four worker lanes, leaving their backlog invisible
+    <!-- ALSO corrected a claim the finding did not make: under `balance => false` Horizon emits ONE COMPOSITE wait-time key per SUPERVISOR (connection:q1,q2,...), not one per queue — verified against vendor/laravel/horizon Supervisor::createSingleProcessPool, RedisSupervisorRepository::update and ProcessPool::queue. So 11 of the 12 pre-existing `waits` entries were INERT config, and an unkeyed lane silently defaulted to 60s. Four composite keys now replace them, derived from config/horizon.php by tests/Unit/Jobs/HorizonQueueCoverageTest so a future queue addition fails loudly instead of going dead. HORIZON_NOTIFICATION_* left UNSET, so delivery blast radius is zero until an operator opts in. -->
     - **Where:** config/horizon.php:53-67 (waits array), :134 (`supervisor-1` queue list), :231 (`supervisor-ingest` queue list)
     - **Affects:** Operations — `ingest`, `cloudflare_bulk`, `platform_refresh`, and `platform_connect` all have active supervisor lanes (confirmed at lines 134 and 231) but no corresponding `waits` threshold, so a stalled worker on any of them accumulates backlog with no Horizon long-wait notification.
     - **Effort:** S (~0.5–1h)
@@ -171,7 +173,7 @@
         ],
         ```
 
-- [ ] **OBS-7** · P2 — Unknown ingest connector message type is only logged, never thrown — Nightwatch never fires
+- [x] **OBS-7** · P2 — Unknown ingest connector message type is only logged, never thrown — Nightwatch never fires
     - **Where:** app/Ingest/Runtime/RunExecutor.php:204-217 (match arm at :216)
     - **Affects:** The ingest pipeline (fleet of §11 connectors, per `694906b7`/`11c399ab`) — a connector yielding an unexpected message type has its message silently dropped instead of surfacing as a bug.
     - **Effort:** S (~0.5–1h)
@@ -193,7 +195,7 @@
             };
         ```
 
-- [ ] **OBS-8** · P2 — `CatalogCompileCommand` reports success after a silent artefact-write failure
+- [x] **OBS-8** · P2 — `CatalogCompileCommand` reports success after a silent artefact-write failure
     - **Where:** app/Console/Commands/CatalogCompileCommand.php:169-174
     - **Affects:** The compiled routing/catalog artifact (`bootstrap/catalog/compiled.php`) that production routing reads at runtime — a partial or empty write corrupts the routing catalog with no visible failure at compile time; the digest mismatch in `--check` mode only catches it on the *next* commit's CI run, after a bad artifact may already have been deployed.
     - **Effort:** S (~0.5–1h)

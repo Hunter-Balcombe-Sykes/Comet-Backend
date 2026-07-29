@@ -268,7 +268,7 @@
 
 ## P2 — Should fix
 
-- [ ] **SCALE-10** · P2 — Four active Horizon queues have no long-wait notification thresholds
+- [x] **SCALE-10** · P2 — Four active Horizon queues have no long-wait notification thresholds
     - **Where:** config/horizon.php:53-67 (the `waits` array) vs. the queue lists at lines 134 (`supervisor-1`) and 231 (`supervisor-ingest`)
     - **Affects:** Operators monitoring queue health; no alert fires when `platform_refresh`, `platform_connect`, `cloudflare_bulk`, or `ingest` back up.
     - **Effort:** S (~0.5–1h)
