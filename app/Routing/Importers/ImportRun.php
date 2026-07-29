@@ -33,7 +33,10 @@ class ImportRun
             'id' => $id,
             'user_id' => $userId,
             'kind' => $kind,
-            'source_url' => SecretParams::redactUrl($sourceUrl),
+            // #PRIV-5: minimiseUrl(), not redactUrl() — source_url is Scope
+            // B (routing.import_runs), a non-secret PII carrier. No
+            // uniqueness constraint rides on this column's exact text.
+            'source_url' => SecretParams::minimiseUrl($sourceUrl),
             'started_at' => now(),
             'created_at' => now(),
         ]);

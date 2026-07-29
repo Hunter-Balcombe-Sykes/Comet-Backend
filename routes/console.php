@@ -80,6 +80,35 @@ Schedule::command('partna:analytics:purge-raw-events')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('purge-raw-events'));
 
+// #PRIV-3: daily hard-delete of third-party reviewer PII (author_name,
+// author_photo_url, verbatim text) on content.f_review rows whose review is
+// no longer carried by any LIVE content.source_items row — i.e. the reviewer
+// deleted it upstream, or the record was tombstoned. Account-close erasure is
+// already handled by the item_id/source_id CASCADE chain to core.users; this
+// is the live-account path that cascade never reaches.
+// Grace window (default 14d) absorbs a transient zero-record ingest run.
+// 03:05 UTC — between the raw-events purge (03:00) and sessions:reconcile (03:10).
+Schedule::command('content:prune-orphaned-review-pii')
+    ->dailyAt('03:05')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('content:prune-orphaned-review-pii'));
+
+// #PRIV-4: weekly thinning of site.site_documents. Each build inserts a full
+// page snapshot (display name, handle, bio, social links, addresses) as JSONB;
+// the CAS hash gate suppresses byte-identical rebuilds but not distinct ones,
+// and site:build-documents --stale runs every five minutes. Only the newest
+// version per (site_id, channel) is ever read (DocumentBuilder::build()) —
+// older versions have no consumer at all, so keeping 3 is rollback headroom.
+// Sunday 05:20 UTC — 10 min clear of media:gc-orphaned-platform-media (05:10).
+Schedule::command('site:prune-document-versions')
+    ->weeklyOn(0, '05:20')
+    ->onOneServer()
+    ->withoutOverlapping(120)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('site:prune-document-versions'));
+
 // Recompute content popularity scores from raw events (pages + scored items).
 // Reads only section_views / link_clicks / item_views.
 //

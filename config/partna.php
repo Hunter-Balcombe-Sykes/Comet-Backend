@@ -960,6 +960,14 @@ return [
         // streams pre-fetch. Overridable so tests can shrink it (3) to make
         // chunk-boundary cases cheap to seed.
         'projection_source_chunk' => (int) env('INGEST_PROJECTION_SOURCE_CHUNK', 200),
+
+        // #PRIV-3: grace window before an ORPHANED reviewer-PII row is deleted.
+        // "Orphaned" = no live content.source_items row still carries the
+        // (item_id, source_id) pair, i.e. the review is gone from the platform.
+        // 14 days is slack for a transient projection failure (a run that fetched
+        // zero records would otherwise retire every source_item and erase real
+        // reviews that come back on the next successful run).
+        'review_pii_orphan_grace_days' => (int) env('PARTNA_REVIEW_PII_ORPHAN_GRACE_DAYS', 14),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
@@ -1702,6 +1710,16 @@ return [
     | different failures: a runaway import (global), one abusive account
     | (per user), one 200-link page eating a whole day's allowance (per run).
     */
+    // #PRIV-4: site.site_documents retention. Only the newest version per
+    // (site_id, channel) is ever read (DocumentBuilder::build()); older versions
+    // have no consumer at all. keep_versions is rollback headroom for a bad
+    // build, min_age_days stops the prune racing a build that is mid-flight.
+    'documents' => [
+        'keep_versions' => (int) env('PARTNA_SITE_DOCUMENT_KEEP_VERSIONS', 3),
+        'min_age_days' => (int) env('PARTNA_SITE_DOCUMENT_MIN_AGE_DAYS', 7),
+        'prune_batch_size' => (int) env('PARTNA_SITE_DOCUMENT_PRUNE_BATCH_SIZE', 500),
+    ],
+
     'routing' => [
         'probe' => [
             // Probes one worker run may spend. Deliberately small: a page with

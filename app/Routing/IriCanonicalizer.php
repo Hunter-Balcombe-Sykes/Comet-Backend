@@ -31,9 +31,17 @@ class IriCanonicalizer
         'fromview', 'view', 'mode', 'sa', 'ved', 'usp', 'sc', 'nd',
     ];
 
-    /** Tracking params stripped everywhere. DENYLIST ONLY — never an allowlist:
-     *  identity params (rid, v, owner, studioid, accountid, venueid…) must survive. */
-    private const TRACKING_PARAMS = [
+    /**
+     * Tracking params stripped everywhere. DENYLIST ONLY — never an allowlist:
+     * identity params (rid, v, owner, studioid, accountid, venueid…) must survive.
+     *
+     * Public (#PRIV-5): mirrored verbatim into
+     * SecretParams::TRACKING_PARAMS_MIRROR so content.* URL columns — which
+     * have no canonicaliser in front of them — get the same tracking-param
+     * minimisation this class already applies to routing.* canonical_url.
+     * SecretParamsPiiTest asserts the two lists cannot drift apart.
+     */
+    public const TRACKING_PARAMS = [
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
         'utm_name', 'utm_cid', 'utm_reader', 'utm_social', 'utm_brand',
         'fbclid', 'gclid', 'dclid', 'gbraid', 'wbraid', 'msclkid', 'twclid', 'ttclid',

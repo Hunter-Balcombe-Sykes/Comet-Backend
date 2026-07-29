@@ -10,6 +10,7 @@ use App\Content\Identity\Resolver;
 use App\Content\Identity\SourceItem;
 use App\Content\Values\Contribution;
 use App\Content\Values\ValueResolver;
+use App\Routing\SecretParams;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -47,6 +48,23 @@ class ProjectionWriter
         'f_review' => ['author_name', 'author_photo_url', 'rating', 'text', 'reviewed_at'],
         'f_channel' => ['handle', 'followers', 'avatar_url', 'is_live', 'verified'],
         'f_file' => ['file_url', 'mime_type', 'size_bytes', 'page_count'],
+    ];
+
+    /**
+     * #PRIV-5: columns whose value is a URL and must be minimised
+     * (SecretParams::minimiseUrl()) before it is persisted. Facet-qualified
+     * (not bare column names) because `url` means different things on
+     * different facets. Anything not listed here is written verbatim — a
+     * denylist of URL-bearing columns, deliberately, so a new non-URL column
+     * cannot be silently mangled by it.
+     */
+    private const URL_COLUMNS = [
+        'f_link' => ['url', 'canonical_url'],
+        'f_playable' => ['stream_url', 'preview_url'],
+        'f_authored' => ['creator_url'],
+        'f_file' => ['file_url'],
+        'f_review' => ['author_photo_url'],
+        'f_channel' => ['avatar_url'],
     ];
 
     public function __construct(
@@ -596,6 +614,9 @@ class ProjectionWriter
         $row = [];
         foreach ($columns as $column => $value) {
             if (in_array($column, $allowed, true)) {
+                if (is_string($value) && in_array($column, self::URL_COLUMNS[$facet] ?? [], true)) {
+                    $value = SecretParams::minimiseUrl($value);
+                }
                 $row[$column] = is_array($value) ? json_encode($value) : $value;
             }
         }
@@ -654,7 +675,7 @@ class ProjectionWriter
                 'currency' => $offer['currency'] ?? null,
                 'qualifier' => (string) ($offer['qualifier'] ?? 'exact'),
                 'amount_max_minor' => $offer['amount_max_minor'] ?? null,
-                'url' => $offer['url'] ?? null,
+                'url' => SecretParams::minimiseUrl($offer['url'] ?? null),
                 'updated_at' => now(),
             ]);
         }
@@ -684,7 +705,15 @@ class ProjectionWriter
     private function ensureMediaAsset(string $itemId, array $entry): ?string
     {
         $userId = DB::table('content.items')->where('id', $itemId)->value('user_id');
-        $url = isset($entry['url']) && is_string($entry['url']) && $entry['url'] !== '' ? $entry['url'] : null;
+        // #PRIV-5: minimise BEFORE the fingerprint is computed, so the
+        // fingerprint and the stored source_url derive from the same string
+        // — the fingerprint is the UNIQUE (user_id, fingerprint) dedupe key,
+        // and a fingerprint computed from the raw URL while a minimised URL
+        // is stored would let a re-run mint a second row for the same image.
+        $url = isset($entry['url']) && is_string($entry['url']) && $entry['url'] !== ''
+            ? SecretParams::minimiseUrl($entry['url'])
+            : null;
+        $url = ($url === '' ? null : $url); // minimiseUrl fails closed to ''
         $ref = isset($entry['ref']) && is_string($entry['ref']) && $entry['ref'] !== '' ? $entry['ref'] : null;
 
         $fingerprint = $url ?? $ref;

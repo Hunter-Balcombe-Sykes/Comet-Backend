@@ -41,6 +41,14 @@ class DataExportPayloadBuilder
      * before projection). `effects.meta` is the same content plus billing
      * internals. The subject's own catalog is `content.*` below, which IS
      * exported.
+     *
+     * #PRIV-4: `site.site_documents` is also deliberately NOT exported here.
+     * It is a derived projection — every field in it (display name, handle,
+     * bio, social links, addresses) is already exported from its own source
+     * table above. Exporting it too would duplicate the subject's own data
+     * under a second name. It has no Eloquent model, so this coverage guard
+     * (which is model-driven) is structurally blind to the table; this note
+     * is the record of that decision, not an oversight.
      */
     public const COVERED_PII_TABLES = [
         'core.users',
@@ -543,8 +551,9 @@ class DataExportPayloadBuilder
      * Visitor analytics: page visits to the user's site. Fingerprint columns
      * (ip_hash, visitor_id, session_id, user_agent) are excluded — they identify
      * the *visitor*, a third party, not the site owner who is the DSAR subject.
-     * latitude/longitude are included: coarse (city-level) geo the owner already
-     * sees on their own analytics dashboard, not a fingerprint.
+     * latitude/longitude are included: rounded to 4dp (~11m, PRIV-9) at ingest
+     * in DetectsClientInfo::parseCoordinate() — a geo-IP/PoP estimate the owner
+     * already sees on their own analytics dashboard, not a visitor fingerprint.
      */
     private function streamAnalyticsSiteVisits(string $userId): Generator
     {
