@@ -5,6 +5,7 @@ namespace App\Services\Brand;
 use App\Jobs\Brand\IngestBrandAssetJob;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
+use App\Routing\SecretParams;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -201,7 +202,12 @@ class BrandAssetPipeline
             'id' => $id,
             'user_id' => $userId,
             'fingerprint' => $fingerprint,
-            'source_url' => $sourceUrl,
+            // #PRIV-5: fingerprint above is a content hash of the decoded
+            // image bytes, NOT derived from $sourceUrl — unlike
+            // ProjectionWriter::ensureMediaAsset(), minimising the stored
+            // URL here cannot re-mint this row or collide the UNIQUE
+            // (user_id, fingerprint) key.
+            'source_url' => SecretParams::minimiseUrl($sourceUrl),
             'storage_path' => $path,
             'mime_type' => 'image/webp',
             'width' => $variant['width'],

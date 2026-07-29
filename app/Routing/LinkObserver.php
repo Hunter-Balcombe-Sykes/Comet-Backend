@@ -33,7 +33,12 @@ class LinkObserver
                 'observed_at' => now(),
                 'source' => $context->origin,
                 'import_run_id' => $context->importRunId,
-                'raw_url' => Str::limit(SecretParams::redactUrl($iri->raw) ?? '', 2000, ''),
+                // #PRIV-5: minimiseUrl(), not redactUrl() — raw_url is Scope
+                // B (routing.link_observations), a non-secret PII carrier
+                // (?utm_content=jane%40example.com survives redactUrl() but
+                // not the wider isMinimisable() predicate). No uniqueness
+                // constraint rides on this column's exact text.
+                'raw_url' => Str::limit(SecretParams::minimiseUrl($iri->raw) ?? '', 2000, ''),
                 'canonical_url' => $iri->canonical,
                 'registrable_key' => $iri->registrableKey,
                 'evidence' => json_encode($this->evidence($iri, $projection)),

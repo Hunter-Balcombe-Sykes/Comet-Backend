@@ -105,6 +105,61 @@ final class SecretParams
     private const MAX_LENGTH = 8192;
 
     /**
+     * Query params that carry DIRECT contact PII, matched BY SEGMENT like
+     * SECRET_SEGMENTS (#PRIV-5). Segment equality is what lets `user_email`
+     * and `contactPhone` match while `mailbox` (one segment, not `mail`) and
+     * `telemetry` (not `tel`) do not — the same anti-false-positive
+     * discipline as isSecret().
+     */
+    private const PII_SEGMENTS = [
+        'email', 'emails', 'mail', 'emailaddress',
+        'phone', 'mobile', 'tel', 'msisdn',
+    ];
+
+    /**
+     * Third-party tracking identifiers. EXACT-NAME matched (opaque vendor
+     * names, not compound words), verbatim mirror of
+     * IriCanonicalizer::TRACKING_PARAMS — pinned together by
+     * SecretParamsPiiTest so the two lists cannot drift. PRESENTATION_PARAMS
+     * is deliberately NOT included here: hl/lang/format/src carry no PII and
+     * are frequently load-bearing on a CDN URL.
+     */
+    private const TRACKING_PARAMS_MIRROR = [
+        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
+        'utm_name', 'utm_cid', 'utm_reader', 'utm_social', 'utm_brand',
+        'fbclid', 'gclid', 'dclid', 'gbraid', 'wbraid', 'msclkid', 'twclid', 'ttclid',
+        'igshid', 'igsh', 'ref_src', 'ref_url', 'si', 'feature', 'mc_cid', 'mc_eid',
+        '_ga', '_gl', 'yclid', 'scid', 'trk', 'trkCampaign', 'sc_campaign', 'sc_channel',
+        'epik', 'hsa_acc', 'hsa_cam', 'hsa_grp', 'hsa_ad', 'hsCtaTracking',
+    ];
+
+    /**
+     * isSecret(), plus the direct-PII and third-party-tracking tiers
+     * (#PRIV-5). Wider than isSecret() on purpose — this predicate feeds
+     * minimiseUrl(), used only on content.* URL columns that have no
+     * canonicaliser stripping tracking params ahead of them, never on the
+     * routing.* identity columns isSecret()/redactUrl() protect.
+     */
+    public static function isMinimisable(string $key, string $value): bool
+    {
+        if (self::isSecret($key, $value)) {
+            return true;
+        }
+
+        if (in_array(strtolower($key), self::TRACKING_PARAMS_MIRROR, true)) {
+            return true;
+        }
+
+        foreach (self::segments($key) as $segment) {
+            if (in_array($segment, self::PII_SEGMENTS, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Redacts secret-bearing query/fragment param VALUES in place, keeping
      * the keys — dropping the pair entirely would destroy `raw_url`'s reason
      * to exist (`routing:reproject` re-canonicalises it to replay historical
@@ -117,6 +172,41 @@ final class SecretParams
      * flow uses and which `parse_url`-based logic would never see.
      */
     public static function redactUrl(?string $url): ?string
+    {
+        return self::redactWith($url, self::isSecret(...));
+    }
+
+    /**
+     * redactUrl()'s disposition (value replaced in place, key kept) applied
+     * to the WIDER isMinimisable() predicate (#PRIV-5). In-place, not
+     * dropped, for the same reason redactUrl() is: a dropped pair needs
+     * separator repair (`?&b=2`, a trailing `&`), and every repair bug
+     * produces a URL that looks valid and is not. `?utm_content=[redacted]`
+     * still resolves; the PII is gone.
+     *
+     * Scope: content.* URL columns only (ProjectionWriter, BrandAssetPipeline)
+     * plus the three Scope-B routing.* call sites that are already IDENTITY
+     * fallbacks with no uniqueness constraint riding on the exact text
+     * (LinkObserver, ImportRun, LinkInBioImporter). Never
+     * SourceReconciler/RoutingController — both write the identifier column
+     * of a live UNIQUE partial index, and widening what gets redacted there
+     * would change the uniqueness slot.
+     */
+    public static function minimiseUrl(?string $url): ?string
+    {
+        return self::redactWith($url, self::isMinimisable(...));
+    }
+
+    /**
+     * Shared implementation behind redactUrl()/minimiseUrl() — the null
+     * guard, the 8 KB MAX_LENGTH guard, the pair-scanning regex, and the
+     * `?? ''` fail-closed return all live here ONCE. A second hand-copied
+     * regex is exactly how the `?? $url` fail-open bug (see the PCRE-error
+     * note below) comes back on the next call site.
+     *
+     * @param  callable(string, string): bool  $shouldRedact
+     */
+    private static function redactWith(?string $url, callable $shouldRedact): ?string
     {
         if ($url === null) {
             return null;
@@ -136,10 +226,10 @@ final class SecretParams
         // tests/Unit/Platforms/GenericShopScraperTest.php ("fix-round P4").
         return preg_replace_callback(
             '/([?&#])([^=&#\s]+)=([^&#\s]*)/',
-            static function (array $m): string {
+            static function (array $m) use ($shouldRedact): string {
                 [, $separator, $key, $value] = $m;
 
-                return self::isSecret($key, $value)
+                return $shouldRedact($key, $value)
                     ? $separator.$key.'=[redacted]'
                     : $m[0];
             },

@@ -112,7 +112,10 @@ class LinkInBioImporter
             observations: $observations,
             intents: $tally['connected'] + $tally['suggested'],
             errorClass: $fetched === 0 ? 'fetch_failed' : null,
-            detail: $tally + ['pages' => array_map(SecretParams::redactUrl(...), $pages), 'pages_unavailable' => $unavailable],
+            // #PRIV-5: minimiseUrl(), not redactUrl() — detail->pages is
+            // Scope B (routing.import_runs.detail), a non-secret PII
+            // carrier. No uniqueness constraint rides on this column.
+            detail: $tally + ['pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable],
         );
 
         return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable] + $tally;

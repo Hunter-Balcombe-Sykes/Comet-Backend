@@ -63,6 +63,20 @@ class AccountDeletionService
      * SQLite cannot.
      * `ingest.effects` is the second exception and is purged explicitly below
      * (SET NULL, not cascade).
+     *
+     * #PRIV-3: reviewer PII on `content.f_review` (author_name, author_photo_url,
+     * text) belongs to a THIRD-PARTY reviewer, not the account holder cascading
+     * through this list — so a reviewer-initiated erasure request (their own
+     * APP 12/13 / GDPR Art. 15/17 request) can't ride account deletion at all.
+     * `idx_f_review_author_lookup` (lower(author_name), partial WHERE NOT NULL,
+     * migration `20260729160001`) is that request's lookup path: staff answer
+     * "what do you hold about me" with an indexed equality scan and a manual
+     * DELETE — there is deliberately no self-service endpoint pre-pilot. The
+     * scheduled `content:prune-orphaned-review-pii` command (paired with this
+     * docblock the same way `moderation:prune-resolved-signal-pii` pairs with
+     * `purgeCaseSignalPii()` below) covers the separate live-account case: a
+     * review the reviewer deleted upstream, on a connection that is still
+     * connected, which no cascade here would ever reach.
      */
     public const PURGED_PII_TABLES = [
         'core.users',                          // forceDelete() — the subject row
