@@ -944,6 +944,12 @@ return [
         // sources; GBP's monthly cadence just re-bills once per window it
         // actually runs in.
         'effect_freshness_seconds' => (int) env('PARTNA_INGEST_EFFECT_FRESHNESS_SECONDS', 604800),
+
+        // SCALE-1/SCALE-2: chunkById page size for `ingest:project`'s source
+        // walk. Bounds both the source-list result buffer and the per-chunk
+        // streams pre-fetch. Overridable so tests can shrink it (3) to make
+        // chunk-boundary cases cheap to seed.
+        'projection_source_chunk' => (int) env('INGEST_PROJECTION_SOURCE_CHUNK', 200),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).

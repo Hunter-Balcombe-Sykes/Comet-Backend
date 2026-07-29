@@ -28,73 +28,103 @@ class IngestProjectCommand extends Command
 
     public function handle(ProjectionWriter $writer): int
     {
-        $sources = DB::table('ingest.sources')
+        $totals = ['streams' => 0, 'projected' => 0, 'removed' => 0, 'skipped' => 0, 'failed' => 0];
+        $seen = 0;
+        $chunkSize = (int) config('partna.ingest.projection_source_chunk', 200);
+
+        // chunkById(id), NOT ->get()/cursor(): pdo_pgsql has no unbuffered
+        // fetch mode, so cursor() would still buffer the whole result set in
+        // libpq while pinning one open result set for the entire multi-hour
+        // run. chunkById bounds both.
+        //
+        // Deliberately NO ->orderBy('created_at') here (there was one; it was
+        // removed). chunkById()'s forPageAfterId() only strips orders on the
+        // `id` column (Builder::removeExistingOrdersFor), so a surviving
+        // `created_at` order would sort BEFORE the appended `orderBy('id')`,
+        // making the emitted SQL `ORDER BY created_at ASC, id ASC` while the
+        // keyset predicate is `WHERE id > ?`. That predicate does not
+        // partition a result set ordered primarily by a different column —
+        // rows whose id sorts below the cursor but whose created_at sorts
+        // later are skipped permanently, with no error. Cross-source merge
+        // resolution is priority-based (ProjectionWriter::projectStream), not
+        // arrival-order-based, so walking by id instead of created_at changes
+        // nothing observable except console line order.
+        DB::table('ingest.sources')
             ->when($this->option('user'), fn ($q, $user) => $q->where('user_id', $user))
             ->when($this->option('source'), fn ($q, $id) => $q->where('id', $id))
-            ->orderBy('created_at')
-            ->get();
+            ->chunkById($chunkSize, function ($sources) use ($writer, &$totals, &$seen): void {
+                $seen += $sources->count();
 
-        if ($sources->isEmpty()) {
+                // Streams pre-fetch is scoped to THIS chunk, not all matching
+                // sources — a global whereIn over every source id would
+                // reintroduce the unbounded load this chunking exists to
+                // remove. Kills the N+1 (one query per chunk instead of one
+                // per source) without re-materialising the whole table.
+                $streamsBySource = DB::table('ingest.streams')
+                    ->whereIn('source_id', $sources->pluck('id')->all())
+                    ->get(['id', 'source_id', 'stream_name'])
+                    ->groupBy('source_id');
+
+                foreach ($sources as $source) {
+                    $streams = $streamsBySource->get($source->id, collect());
+
+                    foreach ($streams as $stream) {
+                        if (! ProjectorRegistry::has((string) $source->source_key, (string) $stream->stream_name)) {
+                            continue;
+                        }
+
+                        if ($this->option('dry-run')) {
+                            $count = DB::table('ingest.record_state')
+                                ->where('stream_id', $stream->id)
+                                ->whereNull('tombstoned_at')
+                                ->count();
+                            $this->line("would project: {$source->source_key}/{$stream->stream_name} ({$count} live records)");
+                            $totals['streams']++;
+                            $totals['projected'] += $count;
+
+                            continue;
+                        }
+
+                        if ($this->option('rebuild')) {
+                            $this->dropDerivedRows($source->connection_id !== null ? (string) $source->connection_id : null, (string) $stream->id);
+                        }
+
+                        try {
+                            $result = $writer->projectStream((array) $source, (string) $stream->id, (string) $stream->stream_name);
+                        } catch (Throwable $e) {
+                            report($e);
+                            $totals['failed']++;
+                            $this->error("failed: {$source->source_key}/{$stream->stream_name} — {$e->getMessage()}");
+
+                            continue;
+                        }
+
+                        $totals['streams']++;
+                        if ($result['status'] === 'skipped') {
+                            $totals['skipped']++;
+                            $this->line("skipped: {$source->source_key}/{$stream->stream_name} ({$result['reason']})");
+
+                            continue;
+                        }
+
+                        $totals['projected'] += $result['projected'] ?? 0;
+                        $totals['removed'] += $result['removed'] ?? 0;
+                        $this->line(sprintf(
+                            'projected: %s/%s — %d record(s) into %d item(s), %d retired',
+                            $source->source_key,
+                            $stream->stream_name,
+                            $result['projected'] ?? 0,
+                            $result['items'] ?? 0,
+                            $result['removed'] ?? 0,
+                        ));
+                    }
+                }
+            });
+
+        if ($seen === 0) {
             $this->info('No ingest sources match.');
 
             return self::SUCCESS;
-        }
-
-        $totals = ['streams' => 0, 'projected' => 0, 'removed' => 0, 'skipped' => 0, 'failed' => 0];
-
-        foreach ($sources as $source) {
-            $streams = DB::table('ingest.streams')->where('source_id', $source->id)->get(['id', 'stream_name']);
-
-            foreach ($streams as $stream) {
-                if (! ProjectorRegistry::has((string) $source->source_key, (string) $stream->stream_name)) {
-                    continue;
-                }
-
-                if ($this->option('dry-run')) {
-                    $count = DB::table('ingest.record_state')
-                        ->where('stream_id', $stream->id)
-                        ->whereNull('tombstoned_at')
-                        ->count();
-                    $this->line("would project: {$source->source_key}/{$stream->stream_name} ({$count} live records)");
-                    $totals['streams']++;
-                    $totals['projected'] += $count;
-
-                    continue;
-                }
-
-                if ($this->option('rebuild')) {
-                    $this->dropDerivedRows((string) $source->id, (string) $stream->id);
-                }
-
-                try {
-                    $result = $writer->projectStream((array) $source, (string) $stream->id, (string) $stream->stream_name);
-                } catch (Throwable $e) {
-                    report($e);
-                    $totals['failed']++;
-                    $this->error("failed: {$source->source_key}/{$stream->stream_name} — {$e->getMessage()}");
-
-                    continue;
-                }
-
-                $totals['streams']++;
-                if ($result['status'] === 'skipped') {
-                    $totals['skipped']++;
-                    $this->line("skipped: {$source->source_key}/{$stream->stream_name} ({$result['reason']})");
-
-                    continue;
-                }
-
-                $totals['projected'] += $result['projected'] ?? 0;
-                $totals['removed'] += $result['removed'] ?? 0;
-                $this->line(sprintf(
-                    'projected: %s/%s — %d record(s) into %d item(s), %d retired',
-                    $source->source_key,
-                    $stream->stream_name,
-                    $result['projected'] ?? 0,
-                    $result['items'] ?? 0,
-                    $result['removed'] ?? 0,
-                ));
-            }
         }
 
         $this->table(['streams', 'records projected', 'retired', 'skipped', 'failed'], [[
@@ -108,10 +138,13 @@ class IngestProjectCommand extends Command
      * Remove what projection alone derived for this stream's source-items so
      * a changed projector re-emits from scratch. Everything dropped here is
      * re-derivable from the record log; nothing user-owned is touched.
+     *
+     * Takes the connection id directly — the caller already has it on the
+     * `ingest.sources` row it's iterating, so re-querying it here (as this
+     * used to) was a redundant per-stream N+1 under --rebuild.
      */
-    private function dropDerivedRows(string $ingestSourceId, string $streamId): void
+    private function dropDerivedRows(?string $connectionId, string $streamId): void
     {
-        $connectionId = DB::table('ingest.sources')->where('id', $ingestSourceId)->value('connection_id');
         if ($connectionId === null) {
             return;
         }

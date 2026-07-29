@@ -262,3 +262,95 @@ it('ingest:project --dry-run writes nothing', function () {
 
     expect(DB::table('content.items')->count())->toBe(0);
 });
+
+// SCALE-1/SCALE-2: ingest:project walks ingest.sources via chunkById instead
+// of a single ->get(), and pre-fetches each chunk's streams with one grouped
+// query instead of one ingest.streams query per source. These four cases pin
+// that walk closed: set equality (not counts — a skip+duplicate pair would
+// cancel out under a count), the exact-multiple terminating page, idempotence
+// across a chunk boundary, and the streams-query count itself.
+
+/** Seed $count bandcamp sources for one user, each with a distinct doc/URL so none merge via identity resolution. */
+function projectableBandcampFleet(int $count, string $userId): array
+{
+    $recordKeys = [];
+    for ($i = 0; $i < $count; $i++) {
+        $key = "album/fleet-{$i}";
+        projectableBandcamp([
+            $key => bandcampDoc("Fleet {$i}", "https://fleet{$i}.bandcamp.com/album/{$i}"),
+        ], $userId);
+        $recordKeys[] = $key;
+    }
+
+    return $recordKeys;
+}
+
+/** @return array<int, string> record_key set for a user's content.source_items, via the content.sources join (no user_id column on source_items itself). */
+function projectedRecordKeys(string $userId): array
+{
+    return DB::table('content.source_items')
+        ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
+        ->where('content.sources.user_id', $userId)
+        ->pluck('content.source_items.record_key')
+        ->all();
+}
+
+it('crosses two chunk boundaries: 7 sources at chunk size 3 project every source exactly once', function () {
+    config(['partna.ingest.projection_source_chunk' => 3]);
+    $userId = createTenant('chunk7-'.Str::lower(Str::random(6)))->id;
+    $expectedKeys = projectableBandcampFleet(7, $userId);
+
+    $this->artisan('ingest:project', ['--user' => $userId])->assertSuccessful();
+
+    // Set equality, not a count: a skipped source and a duplicated one would
+    // cancel out under count(), leaving the defect invisible.
+    expect(projectedRecordKeys($userId))->toEqualCanonicalizing($expectedKeys);
+});
+
+it('exact multiple: 6 sources at chunk size 3 project every source exactly once (terminating-page off-by-one)', function () {
+    config(['partna.ingest.projection_source_chunk' => 3]);
+    $userId = createTenant('chunk6-'.Str::lower(Str::random(6)))->id;
+    $expectedKeys = projectableBandcampFleet(6, $userId);
+
+    $this->artisan('ingest:project', ['--user' => $userId])->assertSuccessful();
+
+    expect(projectedRecordKeys($userId))->toEqualCanonicalizing($expectedKeys);
+});
+
+it('is idempotent across a chunk boundary: running twice yields identical row counts', function () {
+    config(['partna.ingest.projection_source_chunk' => 3]);
+    $userId = createTenant('chunkidem-'.Str::lower(Str::random(6)))->id;
+    projectableBandcampFleet(7, $userId);
+
+    $this->artisan('ingest:project', ['--user' => $userId])->assertSuccessful();
+    $firstCount = count(projectedRecordKeys($userId));
+
+    $this->artisan('ingest:project', ['--user' => $userId])->assertSuccessful();
+    $secondCount = count(projectedRecordKeys($userId));
+
+    expect($secondCount)->toBe($firstCount);
+});
+
+it('pre-fetches streams once per chunk, not once per source', function () {
+    config(['partna.ingest.projection_source_chunk' => 3]);
+    $userId = createTenant('chunkqc-'.Str::lower(Str::random(6)))->id;
+    projectableBandcampFleet(7, $userId);
+
+    DB::connection('pgsql')->enableQueryLog();
+
+    $this->artisan('ingest:project', ['--user' => $userId])->assertSuccessful();
+
+    // ceil(7/3) = 3 chunks — assert only the narrow ingest.streams query
+    // subset, never a total query count, so this survives unrelated changes
+    // inside ProjectionWriter. Grammar wraps schema/table separately
+    // (`"ingest"."streams"`), so match both quoted parts rather than the
+    // unquoted dotted form.
+    $streamsQueries = array_filter(
+        DB::connection('pgsql')->getQueryLog(),
+        fn ($q) => str_contains($q['query'], '"ingest"') && str_contains($q['query'], '"streams"')
+    );
+
+    expect($streamsQueries)->toHaveCount(3);
+
+    DB::connection('pgsql')->disableQueryLog();
+});

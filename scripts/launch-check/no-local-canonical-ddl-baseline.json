@@ -7,6 +7,7 @@
     "tests/Feature/User/DataExport/DataExportTestCase.php",
     "tests/Postgres/BrandAssetPipelineTest.php",
     "tests/Postgres/IngestCascadeDeletionTest.php",
+    "tests/Postgres/IngestProjectChunkingTest.php",
     "tests/Postgres/ItemSlugAllocatorRegressionTest.php",
     "tests/Postgres/ItemTombstoneBackfillTest.php",
     "tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php",
