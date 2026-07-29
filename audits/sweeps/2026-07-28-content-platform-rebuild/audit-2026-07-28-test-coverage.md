@@ -12,7 +12,7 @@
 
 ## Progress
 
-- P1 High: 9 of 17 complete  (several partially stale — see individual entries)
+- P1 High: 11 of 17 complete  (several partially stale — see individual entries)
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -210,7 +210,8 @@
         }
         ```
 
-- [ ] **#TEST-11** · P1 — `field_bindings_manual_priority` CHECK constraint — the single-point-of-failure for "manual always wins" — has no invariant test
+- [x] **#TEST-11** · P1 — `field_bindings_manual_priority` CHECK constraint — the single-point-of-failure for "manual always wins" — has no invariant test
+    - **HOLDS; two audit instructions were wrong (2026-07-29):** SQLite DOES enforce CHECK constraints (`tests/Pest.php` already mirrors this one), and the migration-text exemplar is `ConstraintVocabularyLockstepTest.php`, not `WriteDesignKitTest.php`. Enforcement proven in `tests/Postgres/FieldBindingsManualPriorityTest.php` against real Postgres — the decisive case (`google_business` at priority 0) is one a grep-based test could never catch. NOTE: the `CheckConstraintsTest` entry added alongside runs in NO lane (see its warning comment) — a pre-existing hazard affecting all 22 entries there, filed separately.
     - **Where:** `supabase/migrations/20260728150000_field_bindings.sql:29-32`
     - **Affects:** Every workplace-identity field resolution for every user — if this constraint silently drops (migration typo, future ALTER), a non-manual source could claim priority 0 and permanently overwrite user-typed fields.
     - **Effort:** S (~0.5–1h)
@@ -260,7 +261,8 @@
             if (isset($this->rules[$candidate])) { $best = $candidate; continue; }
         ```
 
-- [ ] **#TEST-14** · P1 — The content identity engine (`Resolver` + `DisjointSet`) has zero unit tests despite a documented historical bug in the exact code path
+- [x] **#TEST-14** · P1 — The content identity engine (`Resolver` + `DisjointSet`) has zero unit tests despite a documented historical bug in the exact code path
+    - **LARGELY STALE, BUT VERIFYING IT FOUND A REAL BUG (2026-07-29):** `tests/Unit/Content/ResolverTest.php` (17 blocks) and `tests/Feature/Content/IdentityQueueTest.php:215` already covered ~85%, including the C8 invariant and the `separate()` both-argument-orders regression. Re-graded P1/L → P2/S. The value here is the DEFECT: `separate()` recorded a pair before its unknown-element guard and `isSeparated()`'s `find()` auto-vivified it, so a decision naming a deleted coord resurrected it as a phantom singleton group — downstream minting an EMPTY content item for a coord that does not exist. Reachable because decisions have no FK to coords. Fixed and pinned. A second defect (order-dependent cut tie-break, contradicting the class docblock) is filed NOT fixed — pinning it would bless an accident.
     - **Where:** `app/Content/Identity/Resolver.php` (entire class), `app/Content/Identity/DisjointSet.php` (entire class)
     - **Affects:** Every identity merge decision platform-wide — wrong groupings cascade into wrong catalog items and wrong sitepage content for every user.
     - **Effort:** L (~1–2d)
