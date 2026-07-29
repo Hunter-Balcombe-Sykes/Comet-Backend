@@ -4,6 +4,7 @@ namespace App\Services\Cache;
 
 use Illuminate\Cache\RedisStore;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 /**
  * One capped, TTL'd daily counter — the shared mechanism under every spend
@@ -133,7 +134,18 @@ final class DailyCounterClaim
         Cache::add($key, 0, now()->addSeconds($ttlSeconds));
 
         if (Cache::increment($key) > $cap) {
-            Cache::decrement($key);
+            // A failure to hand the counter back must NOT change the verdict.
+            // The claim was over the ceiling either way; all a failed release
+            // costs is one unit of headroom until the key rotates at midnight.
+            // Letting it propagate would turn a precise "cap reached" into
+            // whatever the caller makes of an infrastructure error — for
+            // PlacesBudget, a specific PlatformCapReached became a generic
+            // Unavailable, losing the reason a caller surfaces to the user.
+            try {
+                Cache::decrement($key);
+            } catch (Throwable $e) {
+                report($e);
+            }
 
             return false;
         }

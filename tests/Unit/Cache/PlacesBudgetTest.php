@@ -78,6 +78,15 @@ it('counters are date-scoped: travelling past midnight grants again', function (
 it('fails CLOSED (Unavailable, never Granted) when the cache layer throws', function () {
     Exceptions::fake();
 
+    // Claims route through DailyCounterClaim, which asks the cache for its
+    // resolved STORE before doing anything else — that gate is how it picks the
+    // single-EVAL Redis path over the add+increment fallback. Stub it to the
+    // real (array) store so this test still exercises the fallback path it was
+    // written against; leave it unstubbed and Mockery raises a
+    // BadMethodCallException, which claim() dutifully reports INSTEAD of the
+    // RuntimeException under test.
+    $real = Cache::getFacadeRoot();
+    Cache::shouldReceive('getStore')->andReturnUsing(fn () => $real->getStore());
     Cache::shouldReceive('add')
         ->once()
         ->andThrow(new RuntimeException('redis down'));
@@ -104,6 +113,10 @@ it('degrades (does not throw) when the cache layer fails during the rollback dec
     // double with no container state, and calling through on THAT breaks the
     // add/increment path too (masking this test behind an unrelated Unavailable).
     $real = Cache::getFacadeRoot();
+    // getStore() too — DailyCounterClaim reads it to choose the Redis EVAL path
+    // over the add+increment fallback, and an unstubbed call would surface as a
+    // BadMethodCallException reported in place of the RuntimeException under test.
+    Cache::shouldReceive('getStore')->andReturnUsing(fn () => $real->getStore());
     Cache::shouldReceive('add')->andReturnUsing(fn (...$args) => $real->add(...$args));
     Cache::shouldReceive('increment')->andReturnUsing(fn (...$args) => $real->increment(...$args));
     Cache::shouldReceive('decrement')->andThrow(new RuntimeException('redis down'));
