@@ -464,8 +464,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
-            // Latest-mode product sync — auto-tracks the store's newest products
-            // for brands with selection_mode='latest'; manual brands 304 inside.
+            // Latest-mode product sync — auto-tracks every non-individual
+            // store's newest products when the site's global shop_auto_latest
+            // is on, EXCEPT a brand the user hand-curated (#SEM-1:
+            // shop_brands.products_curated_at IS NOT NULL) — see ShopFetch's
+            // docblock; when there's nothing left to sync it 304s inside.
             $r->get('shop')->fetch(fn () => new ShopFetch(
                 app(ShopCatalog::class),
                 app(IntegrationConnectionCacheRefresher::class),

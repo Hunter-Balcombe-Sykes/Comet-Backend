@@ -52,6 +52,12 @@ class ShopBrandResource extends ApiResource
         if (array_key_exists('connectError', $this->resource)) {
             $data['connectError'] = $this->resource['connectError'];
         }
+        // #SEM-1: same conditional pass-through — present only for a brand the
+        // user hand-curated (ShopBrand::toBrandArray() only sets the key when
+        // non-null), keeping a non-curated brand's body byte-identical.
+        if (array_key_exists('productsCuratedAt', $this->resource)) {
+            $data['productsCuratedAt'] = $this->resource['productsCuratedAt'];
+        }
 
         return $data;
     }

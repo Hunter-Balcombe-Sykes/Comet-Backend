@@ -125,8 +125,11 @@ function shopFetchConnection(User $user, bool $autoLatest): IntegrationConnectio
     ]);
     ShopBrand::create([
         'connection_id' => $conn->id, 'brand_id' => 'sf-brand', 'provider' => 'shopify',
-        // Per-brand selection_mode is 'manual' — under the global it's IGNORED,
-        // so this brand STILL syncs when the global auto-latest is on.
+        // #SEM-1: per-brand selection_mode is 'manual' by DB default and
+        // addBrand() never sets it, so it can't distinguish "curated" from
+        // "never touched". This brand STILL syncs when the global auto-latest
+        // is on because it has no products_curated_at on record — that
+        // column, not selection_mode, is what ShopFetch actually reads.
         'url' => 'https://sf.example', 'selection_mode' => 'manual', 'position' => 0,
     ]);
 
@@ -153,6 +156,23 @@ it('ShopFetch syncs nothing when the global auto-latest is off', function () {
 
     $catalog = Mockery::mock(ShopCatalog::class);
     // Global off → the gate short-circuits before any brand is touched.
+    $catalog->shouldNotReceive('syncLatest');
+    $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
+    $refresher->shouldNotReceive('refresh');
+
+    expect(fn () => (new ShopFetch($catalog, $refresher))->fetch($conn->fresh()))
+        ->toThrow(FetchNotModifiedException::class);
+});
+
+it('ShopFetch skips a brand with products_curated_at set even when the global auto-latest is on', function () {
+    $user = shopSettingsUser('sfcurated');
+    $conn = shopFetchConnection($user, autoLatest: true);
+    ShopBrand::where('connection_id', $conn->id)->where('brand_id', 'sf-brand')
+        ->update(['products_curated_at' => now()]);
+
+    $catalog = Mockery::mock(ShopCatalog::class);
+    // The curated brand is the ONLY brand on this connection — with it
+    // excluded, $latestBrands is empty, so syncLatest/refresh must never fire.
     $catalog->shouldNotReceive('syncLatest');
     $refresher = Mockery::mock(IntegrationConnectionCacheRefresher::class);
     $refresher->shouldNotReceive('refresh');
