@@ -6,10 +6,12 @@ namespace App\Content\Identity;
  * Union-find with support for SEPARATION — the part a textbook disjoint set
  * does not have, and which the user's "these are different" ruling requires.
  *
- * Separation is handled by recording forbidden pairs and rebuilding the
- * affected group without them, rather than by trying to undo a union in
- * place. That keeps the structure honest: a cut is a constraint on the final
- * grouping, not a mutation whose effect depends on when it arrived.
+ * Separation is handled by recording forbidden pairs and detaching one side
+ * of the pair, rather than trying to undo a union in place. Note this is
+ * NOT order-independent: the cut is applied by detaching the non-root side,
+ * so anything joined only through it follows the detached element — which
+ * one of a third, transitively-joined element ends up with depends on which
+ * side won the union that joined it. See FU-1 (2026-07-29).
  */
 class DisjointSet
 {
@@ -88,6 +90,13 @@ class DisjointSet
     private function isSeparated(string $a, string $b): bool
     {
         foreach ($this->separations as [$left, $right]) {
+            // A cut naming an element this run never saw is inert — and
+            // resolving it would auto-vivify the unknown element into
+            // $parent (find(), above), leaking a phantom singleton out of
+            // groups().
+            if (! isset($this->parent[$left]) || ! isset($this->parent[$right])) {
+                continue;
+            }
             $rootLeft = $this->find($left);
             $rootRight = $this->find($right);
             if (($this->find($a) === $rootLeft && $this->find($b) === $rootRight)

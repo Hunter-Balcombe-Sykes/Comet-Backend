@@ -245,3 +245,44 @@ it('canonicalises away vendor decoration before comparing titles', function () {
     // "(Official Video)" is formatting, not identity.
     expect($result->sameItem('yt:1', 'vimeo:1'))->toBeTrue();
 });
+
+// ── Defect A — a stale decision must not resurrect a coord ──────────────────
+
+it('ignores a stored decision naming a coord this run never saw', function () {
+    // a:1 and b:1 share a corroborating (not joining) key so step 4 actually
+    // runs a union() — that union is what triggers DisjointSet's leak, so a
+    // fixture that never unions anything cannot exercise the bug. 'gone:9'
+    // stands in for a coord whose source items were deleted after the
+    // decision was recorded (identity_decisions has no FK to a coord —
+    // content_schema.sql:106-114 — so a stale row like this outlives the
+    // items it named).
+    $result = (new Resolver)->resolve(
+        [
+            idItem('a:1', 'src-a', 'track', [idKey(KeyClass::TitleOnly, 'a sufficiently long title')]),
+            idItem('b:1', 'src-b', 'track', [idKey(KeyClass::TitleOnly, 'a sufficiently long title')]),
+        ],
+        [new Decision('a:1', 'gone:9', 'different')],
+    );
+
+    $flat = array_merge(...$result->groups);
+    sort($flat);
+
+    expect($flat)->toBe(['a:1', 'b:1']);
+});
+
+it('applies a user cut even when the key evidence arrived from the same source', function () {
+    // Reversed relative to the ':68' test above (which puts the union CHILD
+    // second): a:1/b:1 share a joining key, but here the decision names the
+    // union ROOT second — the exact ordering DisjointSet::separate() used to
+    // silently no-op on. This is the unit-lane, DB-free counterpart of
+    // IdentityQueueTest.php:215's "BOTH argument orders" regression.
+    $result = (new Resolver)->resolve(
+        [
+            idItem('a:1', 'src-a', 'track', [idKey(KeyClass::Isrc, 'USRC17607839')]),
+            idItem('b:1', 'src-b', 'track', [idKey(KeyClass::Isrc, 'USRC17607839')]),
+        ],
+        [new Decision('b:1', 'a:1', 'different')],
+    );
+
+    expect($result->sameItem('a:1', 'b:1'))->toBeFalse();
+});
