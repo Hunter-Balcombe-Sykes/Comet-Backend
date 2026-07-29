@@ -40,8 +40,8 @@ use Illuminate\Validation\ValidationException;
  * @property string|null $refresh_etag Raw HTTP ETag from the last conditional fetch (ConditionalContext) — kept verbatim, not parsed.
  * @property string|null $refresh_last_modified Raw HTTP Last-Modified header from the last conditional fetch — kept verbatim, not a Carbon.
  * @property array<string, mixed>|null $display_settings Sparse toggle-key => bool map (absent/null key = toggle default ON); toggle sets declared per-platform on PlatformDescriptor::displayToggles.
- * @property Carbon|null $created_at Nullable in Postgres (no NOT NULL constraint, only a DEFAULT now()) — unlike Site/PreAccountBuild's created_at.
- * @property Carbon|null $updated_at Nullable in Postgres, same as created_at above.
+ * @property Carbon $created_at NOT NULL in Postgres since chk_platform_connections_timestamps_not_null (supabase/migrations/20260729150016-18, DINT-8) — was nullable (DEFAULT now() with no NOT NULL) before that.
+ * @property Carbon $updated_at NOT NULL in Postgres, same migration as created_at above.
  * @property Carbon|null $deleted_at
  * @property-read User|null $user
  * @property-read Collection<int, ShopBrand> $shopBrands
