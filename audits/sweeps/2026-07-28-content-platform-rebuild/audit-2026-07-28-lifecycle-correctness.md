@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 21 complete
+- P2 Medium: 2 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -334,7 +334,7 @@
             }
         ```
 
-- [ ] **LIFE-15** · P2 — `SourceReconciler::upsertIntent` races on intent creation despite an existing UNIQUE index
+- [x] **LIFE-15** · P2 — `SourceReconciler::upsertIntent` races on intent creation despite an existing UNIQUE index
     - **Where:** app/Routing/SourceReconciler.php:115-160
     - **Affects:** Concurrent link-identification for the same user/surface/identifier (a link-in-bio scan re-finding a profile the user is simultaneously pasting directly).
     - **Effort:** S (~0.5–1h)
@@ -357,7 +357,7 @@
         DB::table('routing.source_intents')->insert([...]);
         ```
 
-- [ ] **LIFE-16** · P2 — `SourceReconciler::reconcile` writes the intent and its resulting connection in two non-atomic steps
+- [x] **LIFE-16** · P2 — `SourceReconciler::reconcile` writes the intent and its resulting connection in two non-atomic steps
     - **Where:** app/Routing/SourceReconciler.php:70-82
     - **Affects:** Users whose auto-applied Place intent hits a mid-write failure — the intent row is left `'applied'` with no `connection_id`, and only self-heals if the user re-pastes the same link.
     - **Effort:** M (~2–4h)
