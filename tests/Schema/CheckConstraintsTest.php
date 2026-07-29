@@ -1,23 +1,30 @@
 <?php
 
-// Verifies that DB-level CHECK constraints exist and are enforced on enum-like columns.
-// Strategy: query pg_constraint to assert each constraint is present and validated
-// (rather than inserting bad rows, which would fail on FK constraints before reaching
-// the CHECK on tables with foreign keys). Run against real PostgreSQL only.
+// Verifies that DB-level CHECK constraints exist and are VALIDATED on enum-like
+// columns. Strategy: query pg_constraint for each constraint rather than inserting
+// bad rows, which on tables with foreign keys would fail on the FK before ever
+// reaching the CHECK.
 //
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter CheckConstraintsTest
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every one of its 22 assertions on a helper that asked whether the connection was
+// Postgres. Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory
+// SQLite unconditionally — deliberately, so BaseModel-forced models never dial the
+// real Supabase host — so that helper returned false in every lane, and all 22
+// assertions skipped silently in CI and locally. A file whose own docblock called
+// itself "the safety net for un-applied migrations" was reporting green without
+// ever asking the database a question.
+//
+// It now runs in the applied-schema lane (phpunit.schema.xml / `composer
+// test:schema`, see Tests\SchemaTestCase), against a container that the real
+// supabase/migrations/ set has been applied to by scripts/db/apply-migrations.sh.
+// The per-test skip guards are gone: the base case skips the whole lane when no
+// migrated Postgres is present, so a missing constraint now fails instead of
+// vanishing.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-/**
- * Return true if the current connection is a real PostgreSQL instance.
- * Named with prefix to avoid redeclare collision if other test files define isPostgres().
- */
-function checkConstraintsSuiteIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__DIR__);
 
 /**
  * Assert that a named CHECK constraint exists on the given table and has been validated.
@@ -85,36 +92,24 @@ function assertCascadeFkConstraintExists(string $schema, string $table, string $
 // ─── site.blocks ────────────────────────────────────────────────────────────
 
 it('blocks_group_type_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'blocks', 'blocks_group_type_check');
 });
 
 // ─── site.site_media ────────────────────────────────────────────────────────
 
 it('site_media_pool_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'site_media', 'site_media_pool_check');
 });
 
 // ─── notifications.email_subscriptions ──────────────────────────────────────
 
 it('email_subscriptions_status_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('notifications', 'email_subscriptions', 'email_subscriptions_status_check');
 });
 
 // ─── core.partna_staff ──────────────────────────────────────────────────────
 
 it('partna_staff_role_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('core', 'partna_staff', 'partna_staff_role_check');
 });
 
@@ -128,16 +123,10 @@ it('partna_staff_role_check constraint exists and is validated', function () {
 // feature_flag_overrides_scope_xor name no longer exists on real Postgres.
 
 it('feature_flag_overrides_scope_set constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('core', 'feature_flag_overrides', 'feature_flag_overrides_scope_set');
 });
 
 it('legacy feature_flag_overrides_scope_xor constraint has been dropped', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
 
     $row = DB::selectOne(
         "SELECT 1 FROM pg_constraint c
@@ -165,9 +154,6 @@ it('legacy feature_flag_overrides_scope_xor constraint has been dropped', functi
 // Postgres; flipped to match the established "has been dropped" pattern.
 
 it('legacy platform_connections_platform_check constraint has been dropped', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
 
     $row = DB::selectOne(
         "SELECT 1 FROM pg_constraint c
@@ -183,9 +169,6 @@ it('legacy platform_connections_platform_check constraint has been dropped', fun
 });
 
 it('platform_connections unique-active partial index exists and is UNIQUE + partial', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
-    }
 
     $row = DB::selectOne(
         'SELECT indexdef FROM pg_indexes
@@ -208,9 +191,6 @@ it('platform_connections unique-active partial index exists and is UNIQUE + part
 // 20260610000000_analytics_v2_clicks_sessions.sql's comment on the column).
 
 it('site_sessions_duration_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('analytics', 'site_sessions', 'site_sessions_duration_check');
 });
 
@@ -222,82 +202,52 @@ it('site_sessions_duration_check constraint exists and is validated', function (
 // ─── site.sites (SCHEMA-5 + SCHEMA-102) ──────────────────────────────────────
 
 it('sites_shop_link_mode_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'sites', 'sites_shop_link_mode_check');
 });
 
 // ─── site.design_kits (DINT-101) ─────────────────────────────────────────────
 
 it('design_kits_typography_tracking_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'design_kits', 'design_kits_typography_tracking_check');
 });
 
 it('design_kits_theme_contrast_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'design_kits', 'design_kits_theme_contrast_check');
 });
 
 // ─── site.shop_brands (SCHEMA-4) ──────────────────────────────────────────────
 
 it('shop_brands_selection_mode_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_selection_mode_check');
 });
 
 it('shop_brands_link_mode_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_link_mode_check');
 });
 
 it('shop_brands_connect_status_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'shop_brands', 'shop_brands_connect_status_check');
 });
 
 // ─── analytics.content_popularity_scores (SCHEMA-2) ──────────────────────────
 
 it('content_popularity_scores_content_type_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('analytics', 'content_popularity_scores', 'content_popularity_scores_content_type_check');
 });
 
 // ─── analytics.item_views (SCHEMA-1) ─────────────────────────────────────────
 
 it('item_views_item_type_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('analytics', 'item_views', 'item_views_item_type_check');
 });
 
 // ─── analytics.item_views / content_popularity_scores site_id FKs (SCHEMA-3) ─
 
 it('item_views_site_fk exists, is validated, and cascades on delete', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCascadeFkConstraintExists('analytics', 'item_views', 'item_views_site_fk');
 });
 
 it('content_popularity_scores_site_fk exists, is validated, and cascades on delete', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCascadeFkConstraintExists('analytics', 'content_popularity_scores', 'content_popularity_scores_site_fk');
 });
 
@@ -307,16 +257,10 @@ it('content_popularity_scores_site_fk exists, is validated, and cascades on dele
 // 20260723090000_create_action_events.sql's header comment.
 
 it('action_events_event_check constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('analytics', 'action_events', 'action_events_event_check');
 });
 
 it('action_events_site_fk exists, is validated, and cascades on delete', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCascadeFkConstraintExists('analytics', 'action_events', 'action_events_site_fk');
 });
 
@@ -341,8 +285,5 @@ it('action_events_site_fk exists, is validated, and cascades on delete', functio
 // relocating the file is its own unit, not a rider on #TEST-11.
 
 it('field_bindings_manual_priority constraint exists and is validated', function () {
-    if (! checkConstraintsSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
     assertCheckConstraintExists('site', 'field_bindings', 'field_bindings_manual_priority');
 });

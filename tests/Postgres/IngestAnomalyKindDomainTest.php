@@ -106,7 +106,7 @@ it('the CHECK domain covers every kind literal written anywhere in app/', functi
         if (! str_contains($src, 'ingest.anomalies')) {
             continue;
         }
-        foreach (explode("ingest.anomalies", $src) as $i => $chunk) {
+        foreach (explode('ingest.anomalies', $src) as $i => $chunk) {
             if ($i === 0) {
                 continue; // text before the first occurrence
             }
@@ -135,7 +135,7 @@ it('the CHECK domain covers every kind literal written anywhere in app/', functi
     expect($rejected)->toBe([], sprintf(
         "These kind literals are written by app/ but REJECTED by anomalies_kind_check:\n  %s\n".
         "Widen the CHECK in supabase/migrations/20260729150004_anomalies_kind_check_not_valid.sql.\n".
-        "Scanned writers: %s",
+        'Scanned writers: %s',
         implode("\n  ", $rejected),
         implode(', ', $written)
     ));

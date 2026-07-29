@@ -80,6 +80,10 @@
             "@php artisan config:clear --ansi",
             "@php artisan test -c phpunit.pg.xml"
         ],
+        "test:schema": [
+            "@php artisan config:clear --ansi",
+            "@php artisan test -c phpunit.schema.xml"
+        ],
         "analyse": [
             "@php vendor/bin/phpstan analyse --memory-limit=2G"
         ],

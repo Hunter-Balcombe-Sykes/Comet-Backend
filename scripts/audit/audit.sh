@@ -345,7 +345,7 @@ EOF
         ;;
         test-prod-parity) cat <<'EOF'
 migrations|supabase/migrations
-models|app/Models app/Enums database/factories tests/Pest.php tests/TestCase.php tests/PostgresTestCase.php
+models|app/Models app/Enums database/factories tests/Pest.php tests/TestCase.php tests/PostgresTestCase.php tests/SchemaTestCase.php
 writers-jobs|app/Jobs app/Observers
 writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 writers-platforms-controllers|app/Http/Controllers/Api/Platforms
@@ -395,7 +395,7 @@ feature-site-staff|tests/Feature/Site tests/Feature/Staff
 feature-notif-moderation|tests/Feature/Notifications tests/Feature/Moderation
 feature-domain|tests/Feature/Cache tests/Feature/PublicSite tests/Feature/Account tests/Feature/Analytics
 feature-domain-b|tests/Feature/Console tests/Feature/FeatureFlags tests/Feature/Design tests/Feature/WebsiteScan
-feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware tests/Postgres
+feature-media-jobs|tests/Feature/Media tests/Feature/Mail tests/Feature/Documents tests/Feature/Jobs tests/Feature/Services tests/Feature/Database tests/Feature/Auth tests/Feature/Bootstrap tests/Feature/Gallery tests/Feature/Content tests/Feature/Observers tests/Feature/Commands tests/Feature/Middleware tests/Postgres tests/Schema
 feature-misc-tail|tests/Feature/Webhooks tests/Feature/Feedback tests/Feature/Validation tests/Feature/Subdomain tests/Feature/Architecture tests/Feature/Enquiry tests/Feature/Export tests/Feature/Core tests/Feature/SoftDelete tests/Feature/Boot tests/Feature/Requests tests/Feature/Newsletter tests/Feature/Internal tests/Feature/Customers tests/Feature/CustomerLeads tests/Feature/Accounts tests/Feature/PreAccount tests/Feature/EarlyAccess tests/Feature/Onboarding tests/Feature/Health tests/Feature/Queue tests/Feature/Cors tests/Feature/Policies tests/Feature/Resources tests/Integration tests/Helpers
 feature-platforms|tests/Feature/Platforms
 feature-catalog-routing|tests/Feature/Catalog tests/Feature/Routing tests/Feature/Brand tests/fixtures/Routing

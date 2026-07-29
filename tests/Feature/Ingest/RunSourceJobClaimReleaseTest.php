@@ -104,7 +104,7 @@ it('failed() releases the claim when handle()\'s finally never ran (a hard kill 
     expect($row->in_flight_run_id)->toBeNull();
     expect((int) $row->consecutive_failures)->toBe(1);
 
-    Log::shouldHaveReceived('error')->once()->with('ingest.run_source.job_failed', \Mockery::type('array'));
+    Log::shouldHaveReceived('error')->once()->with('ingest.run_source.job_failed', Mockery::type('array'));
 });
 
 it('failed() is a no-op when finally already released the claim — consecutive_failures does not double-count (the finding\'s exact scenario)', function () {

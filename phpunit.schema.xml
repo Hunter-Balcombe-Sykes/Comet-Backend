@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Dedicated PHPUnit config for the APPLIED-SCHEMA lane
+    (tests/Schema/, driven by tests/SchemaTestCase.php).
+
+    Separate from phpunit.pg.xml because the two lanes want opposite databases.
+    The Postgres lane's tests CREATE and DROP the tables they need, so they must
+    run against a database the migrations have NOT been applied to. This lane
+    interrogates the schema those migrations produce, so it must run against one
+    where they HAVE. Sharing a database would have each lane fighting the other's
+    setup; sharing a config would hide that they disagree.
+
+    Deliberately does NOT set DB_CONNECTION / DB_DATABASE / DB_HOST / etc: the
+    whole point of this lane is to run against a REAL Postgres server, whose
+    location varies by caller (a local docker container in dev, the CI
+    services: postgres container, or a wire-up developer's own instance).
+    Those must come from the real environment — `composer test:schema` /
+    `./vendor/bin/pest -c phpunit.schema.xml` inherits DB_CONNECTION=pgsql plus
+    DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD (and DB_SSLMODE=disable
+    for a local/CI container with no SSL configured) from the shell/CI job env.
+    Every other <env> below is copied verbatim from phpunit.xml.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Schema">
+            <directory>tests/Schema</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <ini name="memory_limit" value="512M"/>
+        <env name="APIFY_TOKEN" value=""/>
+        <env name="APP_ENV" value="testing"/>
+        <!-- Pinned like every other env below: without it APP_DEBUG falls through
+             to the developer's own .env, so exception-body assertions pass locally
+             (debug=true leaks the real message) and fail in CI, which copies
+             .env.example (debug=false). false is the deployed-env value — tests
+             must assert the contract real users get. See #P2-30 in bootstrap/app.php. -->
+        <env name="APP_DEBUG" value="false"/>
+        <env name="APP_KEY" value="base64:QEdDiuqdtYmnzFhIZQIIvBjGq6q0H8rMPBn2BEQ7Qss="/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="MAIL_FROM_ADDRESS" value="hello@partna.au"/>
+        <env name="MAIL_FROM_NAME" value="Partna"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="MEDIA_DISK_URL" value="https://test-media.partna.local"/>
+        <env name="AWS_URL" value="https://test-s3.partna.local"/>
+    </php>
+</phpunit>

@@ -146,7 +146,7 @@ it('never double-claims a source across 8 concurrent processes, and claims all o
                         'run_id' => $runId,
                     ]);
                 }
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 // Surface as a claim_probe row with a sentinel source_id so
                 // the parent can see something went wrong rather than a
                 // silently missing child (a bare fatal here would otherwise

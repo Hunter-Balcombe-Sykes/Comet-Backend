@@ -359,6 +359,84 @@ jobs:
       - name: Run Postgres regression lane
         run: composer test:pg
 
+  # Applied-schema lane. Distinct from postgres-tests above: THAT job runs
+  # against a bare container whose tests provision their own tables, because it
+  # tests Postgres BEHAVIOUR. This one applies the real supabase/migrations/ set
+  # and then asks pg_constraint whether the CHECK constraints and FKs those
+  # migrations are supposed to create actually exist and are actually VALIDATED.
+  #
+  # It exists because tests/Schema/CheckConstraintsTest.php ran in NO lane at
+  # all. It sat in tests/Feature gating itself on "is this connection Postgres?",
+  # and Tests\TestCase::setUp() repoints 'pgsql' at in-memory SQLite
+  # unconditionally — so all 22 assertions skipped silently, forever, while the
+  # file described itself as the safety net for un-applied migrations.
+  #
+  # The apply step is load-bearing beyond the tests: a from-zero apply of every
+  # migration is itself a thing CLAUDE.md warns can silently break, so a
+  # migration that cannot be applied to an empty database now fails a build the
+  # day it lands rather than at the next fresh-environment cutover.
+  schema-tests:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: partna_test
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      # Service container has no SSL; config/database.php defaults to 'require'.
+      DB_SSLMODE: disable
+      # Preconditions are MANDATORY here. Without this the lane would skip when
+      # the apply step failed and the build would stay green — reproducing the
+      # exact false-safety-net this job was created to remove.
+      SCHEMA_LANE_REQUIRED: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: partna_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: partna_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_pgsql, pgsql, redis
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy env
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply every migration from zero
+        run: scripts/db/apply-migrations.sh
+
+      - name: Run applied-schema lane
+        run: composer test:schema
+
   # The schema-drift gate lives in the Feature suite, which `composer test` runs
   # AFTER the Unit suite. A single unrelated Unit-suite fatal would abort the run
   # before the gate ever executes — silently disabling the guardrail. Running it

@@ -17,27 +17,18 @@ use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupContentSelectionTable();
-
-    // Same shim IndividualProfileControllerTest builds — the route's payload
-    // build reaches architecture_id and design_kits, neither of which the
-    // SQLite stand-ins carry by default.
-    try {
-        DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'staple'");
-    } catch (Throwable) {
-        // Already added by an earlier test in this process.
-    }
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
-        site_id TEXT PRIMARY KEY,
-        color_accent TEXT NULL,
-        color_text TEXT NULL,
-        typography_font_family TEXT NULL
-    )');
+    // Shared helpers, not local DDL: setupSitesTable() already carries
+    // architecture_id, and design_kits has its own helper. Building either by
+    // hand here would put a second, drifting copy of a canonical tenant table
+    // in the suite — which NoLocalCanonicalTableDdlTest exists to stop, because
+    // SchemaDriftGuardTest cannot see a locally-built table and a
+    // prod-violating seed would pass green.
+    setupDesignKitsTable();
 
     Config::set('partna.throttle.enabled', false);
     Cache::flush();
