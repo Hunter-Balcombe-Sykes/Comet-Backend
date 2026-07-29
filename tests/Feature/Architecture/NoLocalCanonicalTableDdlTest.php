@@ -1,16 +1,39 @@
 <?php
 
 /**
- * Coverage-hole guard: no test file may build its OWN table-creation DDL for a canonical
- * tenant table (core.users, site.sites, site.platform_connections, site.menus,
- * site.design_kits). Such local DDL is invisible to SchemaDriftGuardTest — that gate only
- * introspects the shared setup*Table() helpers in tests/Pest.php — so a local, permissive
- * copy can seed a prod-violating row and still pass CI green (this is how a null resource_id
- * slipped past the T3 drift tightening). The shared helpers are the single source of truth
- * for these tables' schema.
+ * Coverage-hole guard: no SQLite-lane test file may build its OWN table-creation DDL for a
+ * canonical tenant/content table. Such local DDL is invisible to SchemaDriftGuardTest — that
+ * gate only introspects the SQLite stand-in (SqliteIntrospector over the 'pgsql' alias that
+ * tests/TestCase.php:21-33 repoints at in-memory SQLite) via the shared setup*Table() helpers
+ * in tests/Pest.php — so a local, permissive copy can seed a prod-violating row and still pass
+ * CI green (this is how a null resource_id slipped past the T3 drift tightening). The shared
+ * helpers are the single source of truth for these tables' schema.
  *
- * Pre-existing offenders are grandfathered in the allowlist JSON below; this guard only fails
- * on a NEW file that introduces local canonical DDL. To (re)generate the allowlist:
+ * SCOPE: tests/Postgres/ is deliberately excluded from this scan, by path, not just by luck.
+ * That lane (phpunit.pg.xml / `composer test:pg`, its own CI job — .github/workflows/ci.yml)
+ * runs its DDL against a REAL disposable Postgres database (see PostgresTestCase), never
+ * against the SQLite stand-in this guard exists to protect — SchemaDriftGuardTest has no
+ * jurisdiction there. Widening the table list once (to cover new content-platform tables)
+ * measured that EVERY new offender introduced by the wider list lived under tests/Postgres/,
+ * and at least one is a pure false positive with no textual fix: SourceIntentDomainTest.php
+ * never creates routing.source_intents (its only CREATE TABLE is
+ * routing.source_intent_scratch) — it merely matches a docblock comment and a
+ * RuntimeException message that mention the real table name. The prescribed remedy ("seed via
+ * the shared setup*Table() helpers") is also inapplicable there: those helpers emit
+ * SQLite-flavoured DDL (`id TEXT PRIMARY KEY NOT NULL`), and telling a Postgres-lane author to
+ * call them is telling them to break their test. If a tests/Postgres file creating a
+ * prod-named table without referencing supabase/migrations becomes a real problem, the answer
+ * is a NEW, lane-appropriate guard with its own baseline and remedy text — NOT widening this
+ * one back out.
+ *
+ * The path exclusion is held honest by a companion assertion below: every file under
+ * tests/Postgres/ must opt into that lane via `uses(PostgresTestCase::class)`. That closes the
+ * obvious dodge ("move the local DDL into tests/Postgres/ to escape the scan") — the only way
+ * into the excluded directory is opting into a lane `composer test` never runs.
+ *
+ * Pre-existing offenders (within scope) are grandfathered in the allowlist JSON below; this
+ * guard only fails on a NEW file that introduces local canonical DDL. To (re)generate the
+ * allowlist:
  *   NO_LOCAL_DDL_BASELINE=1 php artisan test --filter=NoLocalCanonicalTableDdlTest
  * Preferred fix for a flagged file: seed via the shared setup*Table() helpers instead.
  */
@@ -19,10 +42,14 @@ const NO_LOCAL_DDL_BASELINE_PATH = __DIR__.'/../../../scripts/launch-check/no-lo
 it('no test file builds local DDL for a canonical tenant table (or is baselined)', function () {
     $testsDir = dirname(__DIR__, 2); // repo/tests, from tests/Feature/Architecture
 
-    // Canonical tenant tables. Their bare names are unique in this schema, so the guard
-    // matches with or without a schema prefix. The DDL keywords are assembled from parts so
-    // this guard's own source can never satisfy the pattern (it holds itself to the rule).
-    $tables = ['users', 'sites', 'platform_connections', 'menus', 'design_kits'];
+    // Canonical tenant/content tables. Their bare names are unique in this schema, so the
+    // guard matches with or without a schema prefix. The DDL keywords are assembled from parts
+    // so this guard's own source can never satisfy the pattern (it holds itself to the rule).
+    $tables = [
+        'users', 'sites', 'platform_connections', 'menus', 'design_kits',
+        'items', 'sections', 'effects', 'anomalies', 'source_intents',
+        'source_items', 'item_merges', 'section_items',
+    ];
     $pattern = '/'.'CREATE'.'\s+'.'TABLE'.'\s+(?:IF\s+NOT\s+EXISTS\s+)?'
         .'(?:"?[a-z_]+"?\.)?"?('.implode('|', $tables).')"?\b/i';
 
@@ -44,6 +71,9 @@ it('no test file builds local DDL for a canonical tenant table (or is baselined)
         }
         $rel = 'tests/'.str_replace('\\', '/', ltrim(substr($file->getPathname(), strlen($testsDir)), '/\\'));
         if (in_array($rel, $exempt, true)) {
+            continue;
+        }
+        if (str_starts_with($rel, 'tests/Postgres/')) {
             continue;
         }
         if (preg_match($pattern, file_get_contents($file->getPathname()))) {
@@ -81,4 +111,34 @@ it('no test file builds local DDL for a canonical tenant table (or is baselined)
         fwrite(STDERR, "\n[no-local-ddl] ".count($drained).' allowlisted file(s) no longer build local canonical'.
             " DDL — regenerate the allowlist to lock them out.\n");
     }
+});
+
+it('every tests/Postgres file opts into the real-Postgres lane (anti-dodge for the path exclusion above)', function () {
+    $testsDir = dirname(__DIR__, 2); // repo/tests, from tests/Feature/Architecture
+    $postgresDir = $testsDir.'/Postgres';
+
+    $offenders = [];
+    $rii = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($postgresDir, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($rii as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+        $contents = file_get_contents($file->getPathname());
+        if (! str_contains($contents, 'PostgresTestCase::class')) {
+            $offenders[] = 'tests/Postgres/'.str_replace('\\', '/', ltrim(
+                substr($file->getPathname(), strlen($postgresDir)), '/\\'
+            ));
+        }
+    }
+    sort($offenders);
+
+    expect($offenders)->toBe([], sprintf(
+        "File(s) under tests/Postgres/ do not opt into the real-Postgres lane via\n".
+        "uses(PostgresTestCase::class) — the guard above excludes this directory BY PATH from\n".
+        "the canonical-table scan, so a file that lands here without actually running under\n".
+        "PostgresTestCase would dodge the scan while still executing on the SQLite stand-in:\n  %s",
+        implode("\n  ", $offenders)
+    ));
 });
