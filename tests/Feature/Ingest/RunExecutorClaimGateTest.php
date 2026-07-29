@@ -147,6 +147,26 @@ it('keeps when_unclaimed fields intact for a claimed (active) account — a perm
     expect($stored['safe_field'])->toBe('always here');
 });
 
+// The other three statuses in users_status_check (baseline_pilot.sql:1171:
+// active | suspended | disabled | pending_deletion | unclaimed). 'unclaimed'
+// is the ONLY pre-consent state — a suspended or pending-deletion account was
+// claimed by a real person who consented at claim time, so suspending them
+// must not retroactively start stripping attribution from their listing.
+// Without this case the whole non-'active' half of the enum is unpinned:
+// narrowing isClaimed() to `$status === 'active'` leaves every other test in
+// this file green while silently changing behaviour for three of five states.
+it('treats every claimed status as claimed, not just active', function (string $status) {
+    $userId = createTenant('claimgate-'.$status.'-'.Str::lower(Str::random(6)), ['status' => $status])->id;
+    $source = claimGateSource(['user_id' => $userId]);
+
+    app(RunExecutor::class)->execute($source, claimGateConnector(claimGateDoc()), claimGateManifest(), 'manual');
+
+    $stored = claimGateStoredDocFor($source['id']);
+
+    expect($stored['reviewer_name'])->toBe('Jane Reviewer');
+    expect($stored['reviews'][0]['author'])->toBe('Bob Author');
+})->with(['suspended', 'disabled', 'pending_deletion']);
+
 it('fails CLOSED (redacts) when user_id points at a UUID with no core.users row at all', function () {
     $source = claimGateSource(['user_id' => (string) Str::uuid()]);
 
