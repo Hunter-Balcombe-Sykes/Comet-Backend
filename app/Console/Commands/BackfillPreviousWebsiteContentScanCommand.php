@@ -12,9 +12,14 @@ use Illuminate\Console\Command;
  * previous_website-changed trigger (Task A4.11) only fires for a change
  * going forward — it does not retroactively scan the existing install base.
  *
- * Idempotent — safe to re-run (ScanPreviousWebsiteContentJob is ShouldBeUnique
- * per user, and every write it makes downstream is fill-if-empty, so a repeat
- * scan for an already-scanned site is a harmless no-op, not a duplicate).
+ * Idempotent in the sense that every write ScanPreviousWebsiteContentJob makes
+ * is fill-if-empty — a repeat scan for an already-scanned site never produces
+ * duplicate rows. It is NOT a harmless no-op, though: a re-run re-dispatches
+ * WebsiteMenuPdfScanJob for every site with a menu-relevant PDF and re-bills
+ * Mistral OCR (and MenuAiExtractor for any HTML-menu fallback), same as a
+ * fresh scan would. This is the operator's fleet-wide re-scan escape hatch —
+ * budget accordingly. ScanPreviousWebsiteContentJob is also ShouldBeUnique
+ * per user (300s), so a duplicate dispatch within that window is blocked.
  *
  * Rate-limited via a delay spread across the affected population so this
  * doesn't spike the 'scraping' queue on a large install base.
@@ -52,7 +57,7 @@ class BackfillPreviousWebsiteContentScanCommand extends Command
         $this->info("{$rows->count()} workplace(s) with a previous_website to scan.");
 
         if ($dryRun) {
-            $this->info('DRY RUN — no jobs dispatched.');
+            $this->info('DRY RUN — no jobs dispatched. Note: a real run re-bills Mistral OCR / MenuAiExtractor for every site with a menu-relevant PDF or HTML menu, even ones already scanned.');
 
             return self::SUCCESS;
         }
