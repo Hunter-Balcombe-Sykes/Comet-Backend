@@ -16,6 +16,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Fields;
 use App\Ingest\Support\MenuRecords;
 
 /**
@@ -74,8 +75,8 @@ class UberEatsMenuConnector implements Connector
 
         $records = MenuRecords::flatten(
             $this->categories($store),
-            storeName: $this->firstString($store, ['title', 'shopName']),
-            currency: $this->firstString($store, ['currencyCode']) ?? 'AUD',
+            storeName: Fields::firstString($store, ['title', 'shopName']),
+            currency: Fields::firstString($store, ['currencyCode']) ?? 'AUD',
         );
 
         if ($records === []) {
@@ -105,11 +106,11 @@ class UberEatsMenuConnector implements Connector
             if (! is_array($item)) {
                 continue;
             }
-            $name = $this->firstString($item, ['name']);
+            $name = Fields::firstString($item, ['name']);
             if ($name === null) {
                 continue;
             }
-            $section = $this->firstString($item, ['section']) ?? 'Menu';
+            $section = Fields::firstString($item, ['section']) ?? 'Menu';
             if (! isset($bySection[$section])) {
                 $bySection[$section] = [];
                 $order[] = $section;
@@ -119,10 +120,10 @@ class UberEatsMenuConnector implements Connector
             $bySection[$section][] = [
                 'externalId' => null,
                 'name' => $name,
-                'description' => $this->firstString($item, ['description']),
+                'description' => Fields::firstString($item, ['description']),
                 'price' => is_numeric($price) ? round((float) $price, 2) : null,
-                'currency' => $this->firstString($item, ['currency']),
-                'image' => $this->firstString($item, ['imageUrl']),
+                'currency' => Fields::firstString($item, ['currency']),
+                'image' => Fields::firstString($item, ['imageUrl']),
             ];
         }
 
@@ -132,18 +133,5 @@ class UberEatsMenuConnector implements Connector
         }
 
         return $out;
-    }
-
-    /** @param list<string> $keys */
-    private function firstString(array $item, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            $value = $item[$key] ?? null;
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
-        }
-
-        return null;
     }
 }

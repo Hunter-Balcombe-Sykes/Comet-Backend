@@ -16,6 +16,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Fields;
 use App\Ingest\Support\MenuRecords;
 
 /**
@@ -84,8 +85,8 @@ class DoordashMenuConnector implements Connector
 
         $records = MenuRecords::flatten(
             $this->categories($store),
-            storeName: $this->firstString($store, ['name']),
-            currency: $this->firstString($store, ['currency']) ?? 'AUD',
+            storeName: Fields::firstString($store, ['name']),
+            currency: Fields::firstString($store, ['currency']) ?? 'AUD',
         );
 
         if ($records === []) {
@@ -116,17 +117,17 @@ class DoordashMenuConnector implements Connector
                 }
                 $cents = $item['price_cents'] ?? null;
                 $items[] = [
-                    'externalId' => $this->firstString($item, ['item_id']),
-                    'name' => $this->firstString($item, ['name']),
-                    'description' => $this->firstString($item, ['description']),
+                    'externalId' => Fields::firstString($item, ['item_id']),
+                    'name' => Fields::firstString($item, ['name']),
+                    'description' => Fields::firstString($item, ['description']),
                     'price' => is_numeric($cents)
                         ? round(((int) $cents) / 100, 2)
                         : $this->parseDisplayPrice($item['price_display'] ?? null),
-                    'image' => $this->firstString($item, ['image_url']),
+                    'image' => Fields::firstString($item, ['image_url']),
                 ];
             }
             $out[] = [
-                'name' => $this->firstString($category, ['category_name', 'name']) ?? 'Menu',
+                'name' => Fields::firstString($category, ['category_name', 'name']) ?? 'Menu',
                 'items' => $items,
             ];
         }
@@ -139,22 +140,6 @@ class DoordashMenuConnector implements Connector
     {
         if (is_string($value) && preg_match('~([0-9]+(?:\.[0-9]+)?)~', str_replace(',', '', $value), $m) === 1) {
             return round((float) $m[1], 2);
-        }
-
-        return null;
-    }
-
-    /** @param list<string> $keys */
-    private function firstString(array $item, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            $value = $item[$key] ?? null;
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
-            if (is_numeric($value)) {
-                return (string) $value;
-            }
         }
 
         return null;
