@@ -19,7 +19,7 @@ use Illuminate\Support\Carbon;
  *
  * @property string $id
  * @property string $section_id FK → site.sections.id.
- * @property string $item_id content.items.id (no FK: content lives in another schema).
+ * @property string $item_id content.items.id — FK `section_items_item_id_fk` ON DELETE CASCADE (supabase/migrations/20260729150007, DINT-4); a cross-schema FK, contra the previous claim here that Postgres can't express one.
  * @property string $state pinned|excluded
  * @property float|null $sort_key
  * @property Carbon $created_at
