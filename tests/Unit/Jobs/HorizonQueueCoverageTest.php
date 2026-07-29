@@ -591,3 +591,70 @@ it('exempts the follow-up purge from that rule on purpose, because a stale lock 
     expect($followUp->uniqueFor)->toBeLessThan($followUp->timeout)
         ->and($followUp->uniqueFor)->toBeLessThan((int) min(config('partna.cache.purge_followup_schedule', [120])));
 });
+
+// ---------------------------------------------------------------------------
+// OBS-6 / SCALE-10 — Horizon's `waits` long-wait notification config.
+//
+// Under `balance => false` (every supervisor here except supervisor-ingest),
+// Supervisor::createSingleProcessPool() registers ONE wait-time key per
+// SUPERVISOR — connection + the comma-joined queue list — not one per queue.
+// A key with no `waits` entry is not "unmonitored", it silently defaults to
+// 60s (Listeners/MonitorWaitTimes.php:52-55). This test derives the key set
+// Horizon will ACTUALLY emit from this file's own supervisor definitions, so
+// it is the guard against the composite-key brittleness the fix depends on:
+// appending one queue name to any `balance => false` supervisor's `queue`
+// array silently changes the key that supervisor emits, and this test fails
+// the moment `waits` no longer has an entry for it.
+// ---------------------------------------------------------------------------
+
+it('every wait-time key Horizon will actually emit has an explicit waits entry', function () {
+    $horizon = require base_path('config/horizon.php');
+    $waits = $horizon['waits'];
+
+    $missing = [];
+    foreach ($horizon['defaults'] as $supervisor) {
+        $connection = $supervisor['connection'];
+        $queues = (array) $supervisor['queue'];
+        // balance => 'simple' | 'auto' pools one worker set PER queue
+        // (SupervisorOptions::balancing()); balance => false drains the
+        // whole comma-joined list as one pool, hence one composite key.
+        $balancing = in_array($supervisor['balance'] ?? false, ['simple', 'auto'], true);
+
+        $liveKeys = $balancing
+            ? array_map(fn ($queue) => "{$connection}:{$queue}", $queues)
+            : ["{$connection}:".implode(',', $queues)];
+
+        foreach ($liveKeys as $key) {
+            if (! array_key_exists($key, $waits)) {
+                $missing[] = $key;
+            }
+        }
+    }
+
+    expect($missing)->toBeEmpty(
+        "Horizon will emit a wait-time key with no threshold, silently defaulting to the accidental 60s ceiling:\n - "
+        .implode("\n - ", $missing)
+    );
+});
+
+it('the four Unit F wait-time thresholds have the expected values', function () {
+    $horizon = require base_path('config/horizon.php');
+    $waits = $horizon['waits'];
+
+    // Exact equality, not a range — so a "tidy up" pass can't silently loosen
+    // one of these back toward the accidental-60s failure mode.
+    expect($waits['redis:moderation_high,default,cloudflare,cache-warm,analytics,images,streaming,platform_refresh,platform_connect,cloudflare_bulk'])->toBe(900)
+        ->and($waits['redis:ingest'])->toBe(1800)
+        ->and($waits['redis:notifications,mail'])->toBe(300)
+        ->and($waits['redis_scraping:scraping,gdpr'])->toBe(3600)
+        // Unchanged from before Unit F — the one key that was already correct.
+        ->and($waits['redis_video:videos'])->toBe(300);
+});
+
+it('no waits entry is 0 — a 0 threshold disables monitoring for that key entirely', function () {
+    $horizon = require base_path('config/horizon.php');
+
+    foreach ($horizon['waits'] as $key => $value) {
+        expect($value)->not->toBe(0, "waits.{$key} is 0 — MonitorWaitTimes treats 0 as \"never notify\", switching the mechanism off for that lane");
+    }
+});

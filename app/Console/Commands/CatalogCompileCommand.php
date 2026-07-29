@@ -6,7 +6,9 @@ use App\Catalog\Brand;
 use App\Catalog\CapabilityManifest;
 use App\Catalog\Hosts;
 use App\Catalog\Surface;
+use App\Exceptions\Support\ArtefactWriteException;
 use App\Routing\Rulepack;
+use App\Support\AtomicArtefactWriter;
 use Illuminate\Console\Command;
 
 /**
@@ -166,12 +168,18 @@ class CatalogCompileCommand extends Command
             $path = $out;
         }
 
-        if (! is_dir(dirname($path))) {
-            mkdir(dirname($path), 0755, true);
+        try {
+            AtomicArtefactWriter::write($path, $artefact);
+        } catch (ArtefactWriteException $e) {
+            // OBS-8: the write's success was previously never checked, so a
+            // disk-full or permission failure looked like a clean compile.
+            // Not report()ed — this command isn't scheduled (routing:corpus
+            // and catalog:compile run from a dev laptop or CI, which already
+            // observes stderr + a non-zero exit).
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
         }
-        $tmp = $path.'.tmp';
-        file_put_contents($tmp, $artefact);
-        rename($tmp, $path);
 
         $this->info(sprintf(
             'Compiled %d brand(s), %d surface(s), %d detector(s) → %s',

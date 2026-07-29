@@ -154,6 +154,18 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         $response = $fetcher->tryFetch($this->url);
         $html = is_array($response) && $response['status'] === 200 ? (string) $response['body'] : '';
         if ($html === '') {
+            // OBS-4: breadcrumb only, deliberately — a one-off fetch failure
+            // is routine internet weather. The observed status distinguishes
+            // a permanently-blocking WAF/403 from a blip; that pattern is a
+            // log query's job, not an exception's (Nightwatch alerts on
+            // exceptions, not log queries).
+            Log::warning('platforms.previous_website_scan_empty', [
+                'user_id' => $this->userId,
+                'site_id' => $this->siteId,
+                'url' => $this->url,
+                'status' => is_array($response) ? $response['status'] : null,
+            ]);
+
             return;
         }
         $baseUrl = $response['finalUrl'] ?? $this->url;

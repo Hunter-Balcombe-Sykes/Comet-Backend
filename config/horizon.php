@@ -50,7 +50,96 @@ return [
         'slack_channel' => env('HORIZON_NOTIFICATION_SLACK_CHANNEL'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | OBS-6 / SCALE-10 — the keys below are the ones Horizon ACTUALLY emits
+    |--------------------------------------------------------------------------
+    |
+    | Verified against laravel/horizon in vendor/: under `balance => false`
+    | (every lane here except supervisor-ingest), Supervisor::createSingleProcessPool()
+    | registers ONE wait-time key per SUPERVISOR — the connection plus the
+    | comma-joined queue list — not one key per queue. MonitorWaitTimes
+    | compares `config("horizon.waits.{$key}")`, and a key with no entry
+    | defaults to 60s (Listeners/MonitorWaitTimes.php:52-55), so an
+    | un-keyed lane isn't "unmonitored", it's silently thresholded at 60s —
+    | a single long purge job blows through that on any ordinary afternoon.
+    |
+    | The entries below are the composite keys the five supervisors in
+    | `defaults` (above) actually emit today. Do NOT add a per-queue key for
+    | any queue inside supervisor-1/-mail/-long/-videos — it can never match.
+    | Guarded by HorizonQueueCoverageTest's "every wait-time key Horizon will
+    | actually emit has an explicit waits entry" case, which derives the live
+    | key set from this file's own supervisor definitions. A composite key is
+    | the comma-joined queue array verbatim, so appending a queue to any
+    | `defaults.*.queue` array silently changes the key that test derives —
+    | that is deliberate: the test fails loudly instead of this threshold
+    | quietly going dead.
+    |
+    | Thresholds are sized against ROUTINE projected drain time for each
+    | lane (sum(readyNow(q) * avgRuntime(q)) / processes — WaitTimeCalculator,
+    | not oldest-job-age), not round numbers, so ordinary load never fires
+    | them (Unit F, OBS-6/SCALE-10, plan §3).
+    |
+    | Nothing is DELIVERED from any of this until HORIZON_NOTIFICATION_EMAIL
+    | or HORIZON_NOTIFICATION_SLACK_WEBHOOK is set (see AppServiceProvider,
+    | ~:317-323) — both are unset here and in .env.example on purpose, so
+    | merging this block has zero blast radius until an operator turns the
+    | channel on deliberately after reading a week of Horizon's Metrics tab.
+    |
+    */
     'waits' => [
+        // Lane 1 — supervisor-1 (balance=>false, 2 procs in prod/dev): covers
+        // platform_refresh/platform_connect/cloudflare_bulk (OBS-6's named
+        // queues), which sit at the bottom of this strict-priority list and
+        // are the first to starve. 900s = 15min: a 180s Cloudflare purge plus
+        // a batch of image jobs projects well under this on routine load
+        // (integrations:refresh's staggered dispatch keeps delayed jobs out
+        // of readyNow entirely); a lane that can't clear in a quarter of
+        // integrations:refresh's hourly cadence has already failed a user-
+        // visible connect spinner.
+        'redis:moderation_high,default,cloudflare,cache-warm,analytics,images,streaming,platform_refresh,platform_connect,cloudflare_bulk' => 900,
+
+        // Lane 2 — supervisor-ingest (balance=>'auto', 1 proc): the one lane
+        // where a per-queue key is legitimate. 1800s = 2x ingest:dispatch's
+        // 15min cadence — one tick's work must clear before the tick-after-
+        // next or the lane is genuinely compounding. Below
+        // SourceScheduler::STRANDED_AFTER_SECONDS (7200) so this fires before
+        // ingest:stranded starts filing anomalies; the two signals nest
+        // instead of duplicating.
+        'redis:ingest' => 1800,
+
+        // Lane 3 — supervisor-mail (balance=>false, 2 procs in prod/dev),
+        // RV-12's latency-sensitive transactional split. 300s = 5min: past
+        // this a magic-link or confirmation email is late enough to already
+        // be a support ticket. Was previously unkeyed (accidental 60s
+        // default) — 60s would page on every SendStaffBroadcastEmailsJob
+        // coordinator run (a legitimate ~2min across 2 procs).
+        'redis:notifications,mail' => 300,
+
+        // Lane 4 — supervisor-long (balance=>false, 1 proc): scraping/gdpr,
+        // 600s-job tier. Was previously unkeyed (accidental 60s default),
+        // close to absurd for this lane — two queued 600s scrapes alone
+        // project 1200s and would have paged every 5 minutes forever on an
+        // ordinary Monday. 3600s = 60min is the point one worker genuinely
+        // can't absorb its own dispatch rate, clear of the 660s retry_after
+        // tier this lane is built around.
+        'redis_scraping:scraping,gdpr' => 3600,
+
+        // Lane 5 — supervisor-videos: single-queue supervisor, so the
+        // comma-join is a no-op and this key already matched what Horizon
+        // emits. Unchanged.
+        'redis_video:videos' => 300,
+
+        // ── Inert while every supervisor above stays `balance => false` ──
+        // These per-queue keys can NEVER match today: MonitorWaitTimes reads
+        // back exactly the composite key each supervisor registers (see the
+        // block comment above), and none of supervisor-1/-mail/-long emits
+        // a key this granular. Retained (not deleted) only so a future
+        // `balance` change doesn't have to re-derive this from scratch — and
+        // deliberately NOT fixed by switching supervisor-1 to simple/auto:
+        // that raises maxProcesses to one-per-queue (ten workers on
+        // supervisor-1 alone), which is the exact 2026-07-22 dev OOM loop
+        // this file's "Worker Lanes" docblock exists to prevent.
         'redis:moderation_high' => 30,
         'redis:notifications' => 60,
         'redis:default' => 60,
@@ -61,9 +150,7 @@ return [
         'redis:streaming' => 120,
         'redis:mail' => 120,
         'redis_scraping:scraping' => 300,
-        // gdpr is consumed via the redis_scraping connection (supervisor-long).
         'redis_scraping:gdpr' => 600,
-        'redis_video:videos' => 300,
     ],
 
     'trim' => [
