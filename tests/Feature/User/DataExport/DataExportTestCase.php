@@ -566,19 +566,6 @@ class DataExportTestCase
             typography_font_family TEXT
         )');
 
-        $conn->statement('CREATE TABLE IF NOT EXISTS audit.user_deletion_audit (
-            id TEXT PRIMARY KEY,
-            user_id TEXT,
-            professional_handle_snapshot TEXT,
-            professional_email_snapshot TEXT,
-            event TEXT,
-            actor_type TEXT,
-            actor_id TEXT,
-            actor_handle_snapshot TEXT,
-            reason TEXT,
-            created_at TEXT
-        )');
-
         // PRIV-3: live platform connections (Instagram, Shopify, Fresha, etc.).
         // Mirrors the real table's columns including the internal refresh
         // machinery (last_refresh_error, consecutive_failures, apify_status,
