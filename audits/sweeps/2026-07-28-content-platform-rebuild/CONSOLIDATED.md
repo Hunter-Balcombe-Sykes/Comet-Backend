@@ -1285,7 +1285,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 4 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
+- P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
 - P2 Medium: 1 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
@@ -1410,7 +1410,7 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-6** · P1 — `ProjectionWriter::projectStream()` loads every current record for a stream into memory
+- [x] **SCALE-6** · P1 — `ProjectionWriter::projectStream()` loads every current record for a stream into memory
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:80-87
     - **Affects:** Every `ingest:project` run. A stream with a large volume of current records (a long-running YouTube channel, a large menu, a multi-year event archive) materialises all rows plus their JSONB `doc` column into PHP memory, and this runs synchronously inside `supervisor-ingest`'s single worker.
     - **Effort:** L (~1–2d)
@@ -1431,7 +1431,7 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-7** · P1 — `ProjectionWriter::resolveItems()` loads all of a user's source items unbounded, and feeds a PHP-materialised ID array into `whereIn` twice
+- [x] **SCALE-7** · P1 — `ProjectionWriter::resolveItems()` loads all of a user's source items unbounded, and feeds a PHP-materialised ID array into `whereIn` twice
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:294-357
     - **Affects:** Every projection run. A user with many connected platforms, each contributing thousands of historical items, produces an unbounded `->get()` plus two `whereIn(..., $rows->pluck('id')->all())` calls whose bind-list grows linearly with the user's total item count.
     - **Effort:** L (~1–2d)
@@ -1461,7 +1461,7 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-8** · P1 — `ProjectionWriter::refreshItemCaches()` issues ~19 queries per item on every projection run
+- [x] **SCALE-8** · P1 — `ProjectionWriter::refreshItemCaches()` issues ~19 queries per item on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:656-691
     - **Affects:** Every projection run that touches items — not an edge case. After resolving items, this method executes one `f_text` join, 13 singleton-facet `exists()` checks, and 4 collection-table `exists()` checks per item, plus one UPDATE.
     - **Effort:** L (~1–2d)
