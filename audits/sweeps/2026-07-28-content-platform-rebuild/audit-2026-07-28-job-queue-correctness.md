@@ -30,7 +30,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 2 complete
 
@@ -38,7 +38,8 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#JOB-1** · P1 — Website-content scan job re-triggers a paid Instagram scrape and duplicate sub-job dispatch on retry
+- [x] **#JOB-1** · P1 — Website-content scan job re-triggers a paid Instagram scrape and duplicate sub-job dispatch on retry
+    - **PREMISE CORRECTED (2026-07-29):** the named paid Instagram scrape is NOT re-triggered — `GoogleBusinessAutoSync::seedInstagram()` checks `has()` for an existing connection before `dispatchInstagram()` claims the Apify budget, so attempt 2 spends nothing. The live defect is the re-dispatch of `WebsiteMenuPdfScanJob` (Mistral OCR) and `WebsiteMenuHtmlScanJob` (MenuAiExtractor), both billed and both carrying `$tries = 1` precisely to avoid re-billing. Fixed on that basis; a regression guard now pins the Instagram charge-once behaviour.
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:62-65, :233-236, :252, :265, :316-317, :334-336
     - **Affects:** Any user whose `previous_website` is set/changed. A retry after the first attempt fails (timeout, transient fetch error, exception anywhere after the sub-job dispatch points) re-runs the whole scan, redispatching PDF/HTML/gallery scan jobs a second time and re-invoking `GoogleBusinessAutoSync::seed()`, which is documented in this same file as capable of triggering a real, budget-metered Apify Instagram scrape.
     - **Effort:** M (~2–4h)
