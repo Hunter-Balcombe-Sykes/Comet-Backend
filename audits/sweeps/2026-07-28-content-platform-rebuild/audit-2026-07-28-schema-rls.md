@@ -20,14 +20,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCHEMA-1** · P2 — `content.source_items.kind` has no CHECK constraint while sibling column `content.items.kind` does
+- [x] **SCHEMA-1** · P2 — `content.source_items.kind` has no CHECK constraint while sibling column `content.items.kind` does
     - **Where:** supabase/migrations/20260727140000_content_schema.sql:78 (vs. `content.items.kind` at line 43)
     - **Affects:** The identity-resolution and item-projection pipeline — a projector bug writing a kind value outside the 14-value domain lands in `source_items` unconstrained, then propagates into `content.items` when the resolver copies it across, at which point the (constrained) `items.kind` CHECK would only catch it at the *second* write, not the first.
     - **Effort:** S (~0.5–1h)
@@ -48,7 +48,7 @@
         )),
         ```
 
-- [ ] **SCHEMA-2** · P2 — `ingest.effects.kind` documents a closed 4-value set in a comment but has no CHECK constraint
+- [x] **SCHEMA-2** · P2 — `ingest.effects.kind` documents a closed 4-value set in a comment but has no CHECK constraint
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql:162
     - **Affects:** The charge-once billing ledger (`ingest.effects`) — this table is the sole guard against double-billing a paid effect (Apify actor run, external API call) on job retry; an unconstrained `kind` weakens auditability of the one table this subsystem depends on for cost correctness (recent commit `694906b7` was specifically fixing billed-effect replay correctness in this area).
     - **Effort:** S (~0.5–1h)
@@ -62,7 +62,7 @@
         "kind" text NOT NULL,                    -- http | actor | api | ai
         ```
 
-- [ ] **SCHEMA-3** · P2 — `ingest.anomalies.kind` documents a closed 5-value set in a comment but has no CHECK constraint
+- [x] **SCHEMA-3** · P2 — `ingest.anomalies.kind` documents a closed 5-value set in a comment but has no CHECK constraint
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql:184
     - **Affects:** The human-triage queue for ingest anomalies (delete-guard trips, schema drift, stranded runs) — an invalid `kind` would silently produce a triage-queue row that staff tooling filtering/grouping by `kind` doesn't recognise, potentially hiding a real anomaly from the queue view.
     - **Effort:** S (~0.5–1h)

@@ -2095,14 +2095,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **SCHEMA-1** · P2 — `content.source_items.kind` has no CHECK constraint while sibling column `content.items.kind` does
+- [x] **SCHEMA-1** · P2 — `content.source_items.kind` has no CHECK constraint while sibling column `content.items.kind` does
     - **Where:** supabase/migrations/20260727140000_content_schema.sql:78 (vs. `content.items.kind` at line 43)
     - **Affects:** The identity-resolution and item-projection pipeline — a projector bug writing a kind value outside the 14-value domain lands in `source_items` unconstrained, then propagates into `content.items` when the resolver copies it across, at which point the (constrained) `items.kind` CHECK would only catch it at the *second* write, not the first.
     - **Effort:** S (~0.5–1h)
@@ -2123,7 +2123,7 @@ None.
         )),
         ```
 
-- [ ] **SCHEMA-2** · P2 — `ingest.effects.kind` documents a closed 4-value set in a comment but has no CHECK constraint
+- [x] **SCHEMA-2** · P2 — `ingest.effects.kind` documents a closed 4-value set in a comment but has no CHECK constraint
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql:162
     - **Affects:** The charge-once billing ledger (`ingest.effects`) — this table is the sole guard against double-billing a paid effect (Apify actor run, external API call) on job retry; an unconstrained `kind` weakens auditability of the one table this subsystem depends on for cost correctness (recent commit `694906b7` was specifically fixing billed-effect replay correctness in this area).
     - **Effort:** S (~0.5–1h)
@@ -2137,7 +2137,7 @@ None.
         "kind" text NOT NULL,                    -- http | actor | api | ai
         ```
 
-- [ ] **SCHEMA-3** · P2 — `ingest.anomalies.kind` documents a closed 5-value set in a comment but has no CHECK constraint
+- [x] **SCHEMA-3** · P2 — `ingest.anomalies.kind` documents a closed 5-value set in a comment but has no CHECK constraint
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql:184
     - **Affects:** The human-triage queue for ingest anomalies (delete-guard trips, schema drift, stranded runs) — an invalid `kind` would silently produce a triage-queue row that staff tooling filtering/grouping by `kind` doesn't recognise, potentially hiding a real anomaly from the queue view.
     - **Effort:** S (~0.5–1h)
@@ -2601,7 +2601,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 1 of 7 complete
+- P2 Medium: 7 of 7 complete
 - P3 Low: 0 of 6 complete
 
 ---
@@ -2713,7 +2713,8 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **DINT-3** · P2 — `content.item_merges.kept_item_id` / `discarded_item_id` carry no FK to `content.items`
+- [x] **DINT-3** · P2 — `content.item_merges.kept_item_id` / `discarded_item_id` carry no FK to `content.items`
+    <!-- premise holds, but the audit's PRESCRIBED REMEDY was rejected on inspection: ItemMerger.php:58 inserts the item_merges audit row and :76 deletes the discarded content.items row IN THE SAME TRANSACTION, so an ON DELETE SET NULL FK would null the ledger on write — destroying the audit trail the FK was meant to protect. Resolved by 20260729150019_item_merges_no_fk_rationale.sql (COMMENT ON COLUMN recording the reasoning) plus tests/Postgres/ItemMergeAuditSurvivalTest.php. NO FK added, deliberately. -->
     - **Where:** supabase/migrations/20260727140000_content_schema.sql:135-143
     - **Affects:** The merge audit trail — once either item is deleted, the history row silently points at nothing.
     - **Effort:** S (~0.5–1h)
@@ -2733,7 +2734,7 @@ None.
         );
         ```
 
-- [ ] **DINT-4** · P2 — `site.section_items.item_id` has no FK to `content.items`, across a schema boundary the model docblock treats as a hard blocker
+- [x] **DINT-4** · P2 — `site.section_items.item_id` has no FK to `content.items`, across a schema boundary the model docblock treats as a hard blocker
     - **Where:** supabase/migrations/20260727150000_sections_and_documents.sql:70-79; app/Models/Core/Site/SectionItem.php:22
     - **Affects:** Any curated pin/exclude whose referenced item is hard-deleted outside `ItemMerger::foldInto()` (which does correctly repoint these rows today) — a future purge job or manual cleanup would silently orphan curation rows.
     - **Effort:** S (~0.5–1h)
@@ -2752,7 +2753,7 @@ None.
         );
         ```
 
-- [ ] **DINT-5** · P2 — `content.source_items.kind` has no CHECK constraint while `content.items.kind` (the very next table) does
+- [x] **DINT-5** · P2 — `content.source_items.kind` has no CHECK constraint while `content.items.kind` (the very next table) does
     - **Where:** supabase/migrations/20260727140000_content_schema.sql:43-46, 78
     - **Affects:** Content ingestion — a projector bug can write a `source_items.kind` value the rest of the system's 14-value vocabulary doesn't recognize.
     - **Effort:** S (~0.5–1h)
@@ -2771,7 +2772,7 @@ None.
         "kind" text NOT NULL,
         ```
 
-- [ ] **DINT-6** · P2 — `ingest.sources` unique constraint `(connection_id, source_key)` is bypassable when `connection_id` is NULL
+- [x] **DINT-6** · P2 — `ingest.sources` unique constraint `(connection_id, source_key)` is bypassable when `connection_id` is NULL
     - **Where:** supabase/migrations/20260727130000_ingest_schema.sql:17-18, 44
     - **Affects:** Ingest scheduling — duplicate source rows for the same logical source cause duplicate fetches and conflicting stream state.
     - **Effort:** S (~0.5–1h)
@@ -2786,7 +2787,7 @@ None.
         CONSTRAINT "sources_unique_per_connection" UNIQUE ("connection_id", "source_key")
         ```
 
-- [ ] **DINT-7** · P2 — `site.sections` stores both `page_id` and `site_id` independently, with nothing enforcing they agree
+- [x] **DINT-7** · P2 — `site.sections` stores both `page_id` and `site_id` independently, with nothing enforcing they agree
     - **Where:** supabase/migrations/20260727150000_sections_and_documents.sql:34-37
     - **Affects:** Any query or authorization check that reads `sections.site_id` directly instead of joining through `pages` — a mismatched row would silently produce wrong results for whichever path is taken.
     - **Effort:** M (~2–4h)
@@ -2804,7 +2805,7 @@ None.
         );
         ```
 
-- [ ] **DINT-8** · P2 — `site.platform_connections.created_at`/`updated_at` have a DEFAULT but no NOT NULL, unlike every other table in the baseline
+- [x] **DINT-8** · P2 — `site.platform_connections.created_at`/`updated_at` have a DEFAULT but no NOT NULL, unlike every other table in the baseline
     - **Where:** supabase/migrations/20260726000000_baseline_pilot.sql:1853-1854; app/Models/Core/Site/IntegrationConnection.php:43-44
     - **Affects:** Every query sorting or filtering by connection age — a row with an explicit-NULL timestamp (bypassing the DEFAULT) sorts unpredictably and is invisible to range filters; the model's own `scopeStrandedPending` already carries a `whereNotNull('updated_at')` guard specifically because of this.
     - **Effort:** S (~0.5–1h)
