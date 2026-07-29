@@ -11,6 +11,7 @@
     "tests/Postgres/ItemSlugAllocatorRegressionTest.php",
     "tests/Postgres/ItemTombstoneBackfillTest.php",
     "tests/Postgres/ProjectionWriterBatchingTest.php",
+    "tests/Postgres/SourceReconcilerAtomicityTest.php",
     "tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php",
     "tests/Postgres/SubdomainAliasCollisionTest.php"
 ]

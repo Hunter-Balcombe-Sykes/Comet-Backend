@@ -53,17 +53,17 @@ beforeEach(function () {
     $pg->statement('CREATE SCHEMA IF NOT EXISTS core');
     $pg->statement('CREATE SCHEMA IF NOT EXISTS routing');
 
-    // Idiom from tests/Postgres/ItemSlugAllocatorRegressionTest.php: IF NOT
-    // EXISTS so a fuller core.users left behind by a sibling Postgres test
-    // file is not disturbed — this test only ever needs `id`.
-    $pg->statement('CREATE TABLE IF NOT EXISTS core.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
-
+    // user_id is a bare uuid with no core.users table and no FK. Building a
+    // local core.users here would be invisible to SchemaDriftGuardTest, which
+    // only introspects the shared setup*Table() helpers — NoLocalCanonicalTableDdlTest
+    // exists to stop exactly that. Nothing under test touches the FK: this
+    // proves the idx_source_intents_live race, not referential integrity.
     $pg->statement('DROP TABLE IF EXISTS routing.source_intents CASCADE');
 
     // Verbatim shape from supabase/migrations/20260727120000_routing_schema.sql:51-83.
     $pg->statement('CREATE TABLE routing.source_intents (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id uuid NOT NULL REFERENCES core.users (id) ON DELETE CASCADE,
+        user_id uuid NOT NULL,
         surface_key text NOT NULL,
         routing_class text NOT NULL,
         identifier text NOT NULL,
@@ -94,7 +94,6 @@ beforeEach(function () {
         WHERE (state IN (\'proposed\', \'applied\', \'blocked\'))');
 
     $this->userId = (string) Str::uuid();
-    $pg->table('core.users')->insert(['id' => $this->userId]);
 });
 
 afterAll(function () {

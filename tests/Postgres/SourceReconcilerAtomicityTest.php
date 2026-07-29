@@ -16,7 +16,7 @@
 // not a mock), and asserts the transaction takes the intent write down with
 // it — zero rows, not a dangling `applied` one.
 //
-// Self-provisioned schema (core.users, routing.source_intents with the real
+// Self-provisioned schema (routing.source_intents with the real
 // idx_source_intents_live, routing.item_tombstones, and the poisoned
 // site.platform_connections), same idiom as the other tests in this
 // directory. Runs only against Postgres: SQLite does not abort a whole
@@ -44,7 +44,10 @@ beforeEach(function () {
     $pg->statement('CREATE SCHEMA IF NOT EXISTS routing');
     $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
 
-    $pg->statement('CREATE TABLE IF NOT EXISTS core.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
+    // user_id is a bare uuid with no core.users table and no FK: a local
+    // core.users would be invisible to SchemaDriftGuardTest, which only
+    // introspects the shared setup*Table() helpers. Nothing here tests
+    // referential integrity — this proves the reconcile transaction rolls back.
 
     $pg->statement('DROP TABLE IF EXISTS routing.source_intents CASCADE');
     $pg->statement('DROP TABLE IF EXISTS routing.item_tombstones CASCADE');
@@ -53,7 +56,7 @@ beforeEach(function () {
     // Verbatim shape from supabase/migrations/20260727120000_routing_schema.sql:51-83.
     $pg->statement('CREATE TABLE routing.source_intents (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id uuid NOT NULL REFERENCES core.users (id) ON DELETE CASCADE,
+        user_id uuid NOT NULL,
         surface_key text NOT NULL,
         routing_class text NOT NULL,
         identifier text NOT NULL,
@@ -85,7 +88,7 @@ beforeEach(function () {
 
     $pg->statement('CREATE TABLE routing.item_tombstones (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id uuid NOT NULL REFERENCES core.users (id) ON DELETE CASCADE,
+        user_id uuid NOT NULL,
         source_ref text NOT NULL,
         scope text NOT NULL DEFAULT \'this_source\',
         reason text,
@@ -100,6 +103,13 @@ beforeEach(function () {
     // (id IS NULL is true on an empty table -> count() = 0, cap never
     // reached) but rejects every INSERT (HasUuids always sets a real id
     // before insert -> id IS NULL is false -> 23514).
+    // ALLOWLISTED in scripts/launch-check/no-local-canonical-ddl-baseline.json.
+    // This is the guard's "genuinely needs a bespoke table" case, not an evasion:
+    // the whole point of this table is that it REJECTS every INSERT
+    // (CONSTRAINT reject_all) so applyIntent() fails mid-transaction and the
+    // rollback can be observed. No shared setup*Table() helper can express a
+    // table designed to fail — a faithful platform_connections would make this
+    // test prove nothing.
     $pg->statement('CREATE TABLE site.platform_connections (
         id uuid,
         user_id uuid NOT NULL,
@@ -118,7 +128,6 @@ beforeEach(function () {
     )');
 
     $this->userId = (string) Str::uuid();
-    $pg->table('core.users')->insert(['id' => $this->userId]);
 });
 
 afterAll(function () {
