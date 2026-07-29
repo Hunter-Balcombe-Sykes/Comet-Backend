@@ -5,6 +5,7 @@ namespace App\Routing\Probes;
 use App\Catalog\CatalogIntegrityCheck;
 use App\Routing\Iri;
 use App\Services\Http\FetchBudget;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -139,7 +140,24 @@ class LinkProbeWorker
             // outage must never abort the cascade before the others answer.
             try {
                 $hit = $probe->attempt($iri);
-            } catch (Throwable) {
+            } catch (Throwable $e) {
+                // The cascade's continue-on-throw is deliberate and PRESERVED
+                // (see the comment above): one platform's outage must never
+                // abort the cascade. What changes is that a throw is no
+                // longer SILENT. Probe::attempt()'s contract (Probe.php:29-30)
+                // is "must never throw for an unreachable host — an outage is
+                // a miss", and SafeUrlFetcher::tryFetch honours it by
+                // returning null. So a Throwable escaping attempt() is a
+                // CONTRACT VIOLATION — a defect, not weather — and a silent
+                // defect zeroes that probe's hit rate forever.
+                report($e);
+                Log::warning('routing.probe.threw', [
+                    'probe' => $probe->name(),
+                    'surface_key' => $probe->surfaceKey(),
+                    'host' => $iri->host,
+                    'error' => $e->getMessage(),
+                ]);
+
                 continue;
             }
 

@@ -968,6 +968,16 @@ return [
         // zero records would otherwise retire every source_item and erase real
         // reviews that come back on the next successful run).
         'review_pii_orphan_grace_days' => (int) env('PARTNA_REVIEW_PII_ORPHAN_GRACE_DAYS', 14),
+
+        'anomalies' => [
+            // LIFE-20. How long a critical anomaly may sit unresolved before
+            // it pages. 120 min is deliberately > one full ingest re-run
+            // cycle at the default min_interval_secs (3600) plus the 15-min
+            // dispatcher granularity, so a delete_guard trip that
+            // Lander::clearGuardIfRecovered() clears on the very next
+            // successful run never pages at all.
+            'critical_alert_after_minutes' => (int) env('PARTNA_INGEST_ANOMALY_ALERT_AFTER_MINUTES', 120),
+        ],
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
@@ -1732,6 +1742,16 @@ return [
             // How long a URL keeps its answer, hit or miss. A miss that isn't
             // cached is a URL re-probed on every scan of the same page.
             'cooldown_minutes' => (int) env('PARTNA_ROUTING_PROBE_COOLDOWN_MINUTES', 720),
+        ],
+
+        'intents' => [
+            // LIFE-19. A stuck intent is a question waiting on a USER (see
+            // SuggestionsController::index), so this is a BACKLOG alarm, not
+            // a per-row one — it fires when the inbox is filling faster than
+            // users empty it, which is an engineering fault, not user
+            // procrastination.
+            'stuck_age_days' => (int) env('PARTNA_ROUTING_STUCK_INTENT_AGE_DAYS', 14),
+            'stuck_alert_threshold' => (int) env('PARTNA_ROUTING_STUCK_INTENT_THRESHOLD', 500),
         ],
     ],
 

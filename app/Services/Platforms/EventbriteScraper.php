@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 // Scrapes an Eventbrite organiser's upcoming events with no auth. The organiser
 // page (/o/<slug>-<id>) lists its event links; each event page carries a JSON-LD
@@ -88,10 +89,26 @@ class EventbriteScraper extends PlatformScraper
         $responses = $this->fetcher->fetchMany($batch, $headers);
 
         // Parse each returned body's JSON-LD (CPU-bound; done sequentially).
+        // OBS-3: breadcrumb only, deliberately — a single third-party page
+        // failing to fetch is routine, expected, and already handled by
+        // graceful degradation (a partial event list beats none). This is
+        // the actionable-as-a-pattern-not-an-instance case the house rule
+        // carves out: Nightwatch alerts on exceptions, not log queries, and
+        // the pattern here is exactly a log query's job.
         $events = [];
         foreach ($batch as $url) {
             $res = $responses[$url] ?? null;
             if ($res === null) {
+                Log::warning('eventbrite.event_detail_unavailable', ['organiser_url' => $orgUrl, 'url' => $url]);
+
+                continue;
+            }
+            if ($res['status'] !== 200) {
+                // Otherwise this vanishes silently inside parseEvent()'s own
+                // status check — surfaced here, with the status, so a
+                // permanently-blocking case is distinguishable from a blip.
+                Log::warning('eventbrite.event_detail_unavailable', ['organiser_url' => $orgUrl, 'url' => $url, 'status' => $res['status']]);
+
                 continue;
             }
             $event = $this->parseEvent($res, $url);

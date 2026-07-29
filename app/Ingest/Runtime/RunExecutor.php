@@ -2,6 +2,7 @@
 
 namespace App\Ingest\Runtime;
 
+use App\Exceptions\Ingest\UnknownConnectorMessageException;
 use App\Ingest\Landing\Lander;
 use App\Ingest\Manifest\Manifest;
 use App\Ingest\Message\Bookmark;
@@ -14,7 +15,6 @@ use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -213,7 +213,14 @@ class RunExecutor
                 $message instanceof Note => $out['notes'][] = $message,
                 $message instanceof Deferred => $out['deferred'] = $message,
                 $message instanceof Unavailable => $out['unavailable'] = $message,
-                default => Log::warning('ingest.unknown_message', ['class' => $message::class]),
+                // OBS-7: this used to Log::warning and silently keep draining
+                // — invisible to Nightwatch, and an incomplete-looking drain
+                // (a message type dropped, not landed) is exactly the shape
+                // that should abort the stream rather than continue as if
+                // nothing happened, matching the Deferred/Unavailable break
+                // two lines below. The outer catch in execute() reports this,
+                // marks the stream 'error', and lets sibling streams finish.
+                default => throw new UnknownConnectorMessageException($message::class, $connector::class),
             };
 
             // A Deferred or Unavailable ends the stream: nothing after it can

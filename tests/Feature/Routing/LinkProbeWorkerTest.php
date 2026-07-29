@@ -11,10 +11,12 @@
 
 use App\Routing\Iri;
 use App\Routing\IriCanonicalizer;
+use App\Routing\Probes\BigCartelStorefrontProbe;
 use App\Routing\Probes\LinkProbeWorker;
 use App\Routing\Probes\ProbeBudget;
 use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -296,6 +298,39 @@ it('treats a probe that throws as a probe that missed', function () {
     $outcome = probeWorker()->probe(probeIri('https://example.com'), 'user-throw');
 
     expect($outcome->outcome)->toBe('miss');
+});
+
+// OBS-5 / LIFE-13: Probe::attempt() must NEVER throw for an unreachable host
+// (an outage is a miss, per its own contract) — so a Throwable escaping it is
+// a DEFECT, not weather, and used to be silently swallowed by a bare
+// `catch (Throwable)`. It now reports, while the miss/continue behaviour
+// above is UNCHANGED (that test still passes red-green as-is).
+it('reports the exception when a probe violates its no-throw contract, in addition to still treating it as a miss', function () {
+    Exceptions::fake();
+    Http::fake(fn () => throw new RuntimeException('connection reset'));
+
+    probeWorker()->probe(probeIri('https://example.com'), 'user-throw');
+
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+it('a throwing probe does not stop a LATER probe in the cascade from matching', function () {
+    // BigCartel (first in the cascade) is forced to throw; Shopify (second)
+    // still gets its turn and matches — proving `continue` semantics survived
+    // the fix, not just the "ends up a miss" outcome.
+    Exceptions::fake();
+    $this->mock(BigCartelStorefrontProbe::class, function ($mock) {
+        $mock->shouldReceive('attempt')->andThrow(new RuntimeException('bigcartel outage'));
+        $mock->shouldReceive('name')->andReturn('bigcartel_store_json');
+        $mock->shouldReceive('surfaceKey')->andReturn('bigcartel.store');
+    });
+    shopifyMetaResponds();
+
+    $outcome = probeWorker()->probe(probeIri('https://example.com'), 'user-cascade');
+
+    expect($outcome->isMatch())->toBeTrue()
+        ->and($outcome->surfaceKey)->toBe('shopify.store');
+    Exceptions::assertReportedCount(1);
 });
 
 // ── The projection hand-off ──────────────────────────────────────────────────

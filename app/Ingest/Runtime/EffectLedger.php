@@ -205,6 +205,13 @@ class EffectLedger
                 'cost_tag' => $row->cost_tag,
                 'cost_units' => $row->cost_units,
                 'claimed_at' => $row->claimed_at,
+                // LIFE-20: this row is filed AND report()ed in the same
+                // breath (see the report() below), so the ingest:anomalies
+                // sweep must not page it a second time. Stamping alerted_at
+                // here is the whole handshake — the sweep's rule is "no
+                // alerted_at means nobody has paged for this yet", with no
+                // per-kind exclusion list to keep in sync.
+                'alerted_at' => now()->toISOString(),
             ]),
             'detected_at' => now(),
         ]);

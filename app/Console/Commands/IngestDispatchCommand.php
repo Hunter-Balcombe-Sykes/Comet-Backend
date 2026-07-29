@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Exceptions\Ingest\IngestDispatchStalledException;
 use App\Ingest\Runtime\SourceScheduler;
 use App\Jobs\Ingest\RunSourceJob;
 use Illuminate\Console\Command;
@@ -35,6 +36,8 @@ class IngestDispatchCommand extends Command
 
         $claimed = $scheduler->claimDue($limit, $tickId);
 
+        $failures = 0;
+
         foreach ($claimed as $source) {
             try {
                 if ($sync) {
@@ -46,6 +49,7 @@ class IngestDispatchCommand extends Command
                 // A --sync run executes inline, so a bad row can throw here.
                 // One failure must not abort the rest of the tick's batch —
                 // RunSourceJob's own finally already released this row's claim.
+                $failures++;
                 report($e);
                 Log::error('ingest.dispatch.source_failed', [
                     'source_id' => $source['id'],
@@ -56,11 +60,28 @@ class IngestDispatchCommand extends Command
         }
 
         $this->info(sprintf(
-            'Ingest dispatch: claimed %d source(s), %s.',
+            'Ingest dispatch: claimed %d source(s), %d failed, %s.',
             count($claimed),
+            $failures,
             $sync ? 'ran inline' : "queued to 'ingest'"
         ));
 
-        return self::SUCCESS;
+        // OBS-2: this used to always return SUCCESS, so a tick that claimed
+        // work and dispatched none of it looked identical to a clean run.
+        // Partial failure (some sources ok) adds no aggregate report — the
+        // per-source report() above already fired once per failure and is
+        // the actionable signal; an aggregate here would just duplicate it.
+        // Total failure (every claimed source failed) is a DIFFERENT
+        // incident — the tick achieved nothing — and is not derivable from N
+        // identical per-source issues, so it gets its own exception.
+        if ($claimed === [] || $failures === 0) {
+            return self::SUCCESS;
+        }
+
+        if ($failures === count($claimed)) {
+            report(new IngestDispatchStalledException(count($claimed)));
+        }
+
+        return self::FAILURE;
     }
 }

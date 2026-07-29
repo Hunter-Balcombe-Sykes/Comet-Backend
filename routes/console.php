@@ -483,6 +483,39 @@ Schedule::command('ingest:effects', ['--resolve'])
     ->withoutOverlapping(10)
     ->onFailure($reportScheduledFailure('ingest:effects'));
 
+// LIFE-20: hourly alarm for `ingest.anomalies` rows that are severity='critical',
+// still unresolved, and older than the age gate. The anomalies table is the
+// system's explicit "a human must look at this" queue, and a DB queue reaches
+// nobody on its own — report() is what pages (see CheckPlatformRefreshBacklogCommand).
+// Alerts ONCE per row via a `detail.alerted_at` stamp, and skips rows whose
+// detector already reported at detection time (EffectLedger::markAbandoned).
+// hourlyAt(53) per the RV-5 note above: :00 is crowded, and 53 is odd and not
+// divisible by 5, so it dodges every everyTwoMinutes / everyFiveMinutes /
+// everyFifteenMinutes / hourly entry in this file, and does not collide with
+// integrations:refresh (:23) or ingest:effects (:47).
+// withoutOverlapping(10) matches its ingest:stranded / ingest:effects siblings.
+Schedule::command('ingest:anomalies')
+    ->hourlyAt(53)
+    ->onOneServer()
+    ->withoutOverlapping(10)
+    ->onFailure($reportScheduledFailure('ingest:anomalies'));
+
+// LIFE-19: daily backlog alarm for routing.source_intents stuck proposed/blocked
+// past the age gate (drives idx_source_intents_stuck, whose own comment names it
+// the "staff stuck-intents view feed"). DAILY, not hourly: this alarm carries no
+// per-row dedupe state, so while the condition persists it pages once per run —
+// daily caps that at one page a day, where hourly would be 24. The 14-day age
+// gate means a 24h detection latency is immaterial.
+// 06:20 UTC: clear of the crowded 03:xx daily sweep block and the 04:xx Sunday
+// weeklies. The RV-5 minute-dodge above is an HOURLY-cadence concern (11 entries
+// colliding at :00 every hour); a once-a-day task can collide at most once a day.
+Schedule::command('routing:stuck-intents')
+    ->dailyAt('06:20')
+    ->onOneServer()
+    ->withoutOverlapping(30) // 30min lock — one indexed COUNT(*); completes in ms.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('routing:stuck-intents'));
+
 // Document sweeper (plan §9): the NET under content_revision bump enforcement — any
 // site whose content moved past its built document gets a queued rebuild within five
 // minutes, whichever write path bumped it (observer, raw seam, projection). Builds are
