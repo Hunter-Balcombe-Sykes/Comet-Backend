@@ -80,6 +80,57 @@ const HOT_TABLES = ['site.design_kits', 'site.sites', 'site.blocks', 'core.users
 
 const MIGRATIONS_DIR = 'supabase/migrations';
 
+/**
+ * Extract the contiguous run of comment-only (and blank) lines starting at a
+ * disable-file marker, stopping at the first line that is neither blank, a
+ * `--` line comment, nor inside an unterminated `/* ... *\/` block comment.
+ *
+ * Used by the G3 disable-file justification check so a keyword match inside
+ * real SQL (a CHECK constraint, a string literal) can never satisfy it — only
+ * prose in the marker's own comment header counts. A fixed character window
+ * over raw SQL (the prior implementation) let `'no reason given'` inside a
+ * CHECK constraint's string literal satisfy the check; anchoring to the
+ * comment prefix closes that hole regardless of how long the header prose runs.
+ */
+function commentPrefixAfter(string $raw, int $offset): string
+{
+    $lines = explode("\n", substr($raw, $offset));
+    $prefix = [];
+    $inBlockComment = false;
+
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+
+        if ($inBlockComment) {
+            $prefix[] = $line;
+            if (str_contains($line, '*/')) {
+                $inBlockComment = false;
+            }
+
+            continue;
+        }
+
+        if ($trimmed === '' || str_starts_with($trimmed, '--')) {
+            $prefix[] = $line;
+
+            continue;
+        }
+
+        if (str_starts_with($trimmed, '/*')) {
+            $prefix[] = $line;
+            if (! str_contains($line, '*/')) {
+                $inBlockComment = true;
+            }
+
+            continue;
+        }
+
+        break;
+    }
+
+    return implode("\n", $prefix);
+}
+
 $errors = [];
 
 if (! is_dir(MIGRATIONS_DIR)) {
@@ -107,14 +158,18 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
     // CONCURRENTLY, or FKs on empty columns added in the same migration).
     // Usage: add  -- guard:no-unsafe-migrations:disable-file  anywhere in the file.
     //
-    // G3 (audit Unit H): the marker must be followed, on its own line or within
-    // the next ~2000 characters (this repo's real disable-file headers run up to
-    // ~1650 chars before their first BEGIN;), by prose explaining WHY. A blanket
-    // opt-out with no stated reason is indistinguishable from an opt-out nobody
-    // thought about. "reason\w*" (not "reason\b") also catches "reasoning".
-    if (preg_match('/--\s*guard:no-unsafe-migrations:disable-file\b(.*)$/im', $raw, $dm, PREG_OFFSET_CAPTURE)) {
-        $tail = substr($raw, $dm[0][1], 2000);
-        if (! preg_match('/\b(justification|because|why|reason\w*|rationale)\b/i', $tail)) {
+    // G3 (audit Unit H): the marker must be followed by prose explaining WHY,
+    // anchored to the CONTIGUOUS comment-only prefix that follows it (`--`
+    // comment lines / blank lines / `/* ... */` block comments), stopping at
+    // the first real SQL line — not a fixed character window over raw SQL,
+    // which let an incidental keyword hit inside a CHECK constraint or string
+    // literal (e.g. `'no reason given'`) satisfy the check (audit Unit H
+    // adversarial repro). A blanket opt-out with no stated reason is
+    // indistinguishable from an opt-out nobody thought about. "reason\w*"
+    // (not "reason\b") also catches "reasoning".
+    if (preg_match('/--\s*guard:no-unsafe-migrations:disable-file\b/im', $raw, $dm, PREG_OFFSET_CAPTURE)) {
+        $prefix = commentPrefixAfter($raw, $dm[0][1]);
+        if (! preg_match('/\b(justification|because|why|reason\w*|rationale)\b/i', $prefix)) {
             $errors[] = "$basename: guard:no-unsafe-migrations:disable-file with no written justification.\n"
                 .'  Follow the marker with a dated justification comment explaining what deviates and why.';
         }
