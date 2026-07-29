@@ -13,12 +13,21 @@
 -- is needed. The domain below is the union of the documented set and the
 -- values the code actually writes.
 --
--- Written today:  delete_guard (app/Ingest/Landing/Lander.php:416)
---                 shape        (app/Ingest/Runtime/RunExecutor.php:128)
---                 stranded     (app/Ingest/Runtime/SourceScheduler.php:209)
---                 projection   (app/Ingest/Runtime/RunExecutor.php:180)
+-- Written today:  delete_guard     (app/Ingest/Landing/Lander.php:479)
+--                 shape            (app/Ingest/Runtime/RunExecutor.php:128)
+--                 stranded         (app/Ingest/Runtime/SourceScheduler.php:231)
+--                 projection       (app/Ingest/Runtime/RunExecutor.php:180)
+--                 effect_abandoned (app/Ingest/Runtime/EffectLedger.php:199)
 -- Reserved, unwritten: drift, schema (kept -- they are the delete-guard and
 -- schema-drift escalations the file's own header contemplates).
+--
+-- 'effect_abandoned' was added AFTER this migration was first drafted, by the
+-- charge-once unit (LIFE-18/#WHK-4), on a sibling branch. This file's own
+-- branch could not see that writer, so the first draft's domain omitted it.
+-- Left as-is, the union of the two branches would have thrown 23514 on the
+-- first billed effect abandoned by a dead worker -- i.e. the alerting path
+-- added to make that failure visible would itself fail, on the money path.
+-- Enumerate the writers against the MERGED tree, not one branch's view of it.
 --
 -- The stale comment cannot be fixed in place (20260727130000 is already
 -- applied to dev), so it is superseded by the COMMENT ON COLUMN below --
@@ -32,11 +41,12 @@ SET LOCAL statement_timeout = '30s';
 
 ALTER TABLE "ingest"."anomalies"
     ADD CONSTRAINT "anomalies_kind_check" CHECK ("kind" IN (
-        'delete_guard', 'shape', 'drift', 'stranded', 'schema', 'projection'
+        'delete_guard', 'shape', 'drift', 'stranded', 'schema', 'projection',
+        'effect_abandoned'
     )) NOT VALID;
 
 COMMENT ON COLUMN "ingest"."anomalies"."kind" IS
-    'Closed domain, enforced by anomalies_kind_check: delete_guard | shape | drift | stranded | schema | projection. '
+    'Closed domain, enforced by anomalies_kind_check: delete_guard | shape | drift | stranded | schema | projection | effect_abandoned. '
     'Supersedes the stale 5-value comment in 20260727130000_ingest_schema.sql:184, which omitted the '
     '''projection'' value RunExecutor.php:180 has always written. Adding a value requires widening the CHECK.';
 

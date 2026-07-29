@@ -53,15 +53,18 @@ function applyAlterFromMigrationFile(string $filename): void
 }
 
 it('accepts every kind literal the app actually writes', function (string $kind) {
-    // delete_guard: app/Ingest/Landing/Lander.php:416
-    // shape:        app/Ingest/Runtime/RunExecutor.php:128
-    // stranded:     app/Ingest/Runtime/SourceScheduler.php:209
-    // projection:   app/Ingest/Runtime/RunExecutor.php:180 — pinned by
-    //               tests/Feature/Ingest/RunExecutorProjectionTest.php:101
+    // delete_guard:     app/Ingest/Landing/Lander.php:479
+    // shape:            app/Ingest/Runtime/RunExecutor.php:128
+    // stranded:         app/Ingest/Runtime/SourceScheduler.php:231
+    // projection:       app/Ingest/Runtime/RunExecutor.php:180 — pinned by
+    //                   tests/Feature/Ingest/RunExecutorProjectionTest.php:101
+    // effect_abandoned: app/Ingest/Runtime/EffectLedger.php:199
+    // This list is hand-maintained and WILL drift — the source-derived test at
+    // the bottom of this file is what actually catches a new writer.
     DB::connection('pgsql')->table('ingest.anomalies')->insert(['kind' => $kind]);
 
     expect(DB::connection('pgsql')->table('ingest.anomalies')->where('kind', $kind)->exists())->toBeTrue();
-})->with(['delete_guard', 'shape', 'stranded', 'projection']);
+})->with(['delete_guard', 'shape', 'stranded', 'projection', 'effect_abandoned']);
 
 it('accepts the two reserved-but-unwritten values', function (string $kind) {
     DB::connection('pgsql')->table('ingest.anomalies')->insert(['kind' => $kind]);
@@ -79,4 +82,61 @@ it('rejects a kind outside the domain', function () {
 
     expect($thrown)->not->toBeNull();
     expect($thrown->getCode())->toBe('23514');
+});
+
+// The guard that matters. The dataset above is hand-written, so it drifts the
+// moment someone adds an anomaly writer on a branch that cannot see this file —
+// which is exactly how 'effect_abandoned' came within one merge of shipping a
+// 23514 on the charge-once path. This derives the writers from the source, so a
+// new one that is not in the CHECK fails here instead of in production.
+it('the CHECK domain covers every kind literal written anywhere in app/', function () {
+    $appDir = dirname(__DIR__, 2).'/app';
+    $written = [];
+
+    $rii = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($appDir, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($rii as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+        $src = file_get_contents($file->getPathname());
+        // Only inspect files that actually write to the anomalies table, then
+        // take the 'kind' => '<literal>' pairs that follow each insert site.
+        if (! str_contains($src, 'ingest.anomalies')) {
+            continue;
+        }
+        foreach (explode("ingest.anomalies", $src) as $i => $chunk) {
+            if ($i === 0) {
+                continue; // text before the first occurrence
+            }
+            $window = substr($chunk, 0, 800);
+            if (preg_match_all("/'kind'\\s*=>\\s*'([a-z_]+)'/", $window, $m)) {
+                foreach ($m[1] as $lit) {
+                    $written[$lit] = true;
+                }
+            }
+        }
+    }
+
+    $written = array_keys($written);
+    sort($written);
+    expect($written)->not->toBeEmpty('found no anomaly kind writers — the scan is broken, not the code');
+
+    $rejected = [];
+    foreach ($written as $kind) {
+        try {
+            DB::connection('pgsql')->table('ingest.anomalies')->insert(['kind' => $kind]);
+        } catch (QueryException) {
+            $rejected[] = $kind;
+        }
+    }
+
+    expect($rejected)->toBe([], sprintf(
+        "These kind literals are written by app/ but REJECTED by anomalies_kind_check:\n  %s\n".
+        "Widen the CHECK in supabase/migrations/20260729150004_anomalies_kind_check_not_valid.sql.\n".
+        "Scanned writers: %s",
+        implode("\n  ", $rejected),
+        implode(', ', $written)
+    ));
 });
