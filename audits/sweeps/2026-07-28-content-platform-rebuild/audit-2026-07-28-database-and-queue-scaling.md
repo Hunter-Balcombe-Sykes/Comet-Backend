@@ -578,7 +578,7 @@
         ```
     - `[confidence: 0.8]`
 
-- [ ] **SCALE-21** · P2 — Migration's bulk UPDATE on `site.platform_connections` has no `lock_timeout` or batching
+- [x] **SCALE-21** · P2 — Migration's bulk UPDATE on `site.platform_connections` has no `lock_timeout` or batching
     - **Where:** supabase/migrations/20260728100000_retire_pinterest.sql:20-25
     - **Affects:** All reads/writes to `site.platform_connections` while this migration applies.
     - **Effort:** S (~0.5–1h)

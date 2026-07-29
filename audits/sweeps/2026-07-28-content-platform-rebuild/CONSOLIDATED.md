@@ -1881,7 +1881,7 @@ None.
         ```
     - `[confidence: 0.8]`
 
-- [ ] **SCALE-21** · P2 — Migration's bulk UPDATE on `site.platform_connections` has no `lock_timeout` or batching
+- [x] **SCALE-21** · P2 — Migration's bulk UPDATE on `site.platform_connections` has no `lock_timeout` or batching
     - **Where:** supabase/migrations/20260728100000_retire_pinterest.sql:20-25
     - **Affects:** All reads/writes to `site.platform_connections` while this migration applies.
     - **Effort:** S (~0.5–1h)
@@ -4325,14 +4325,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#MIG-1** · P2 — Three full-table `UPDATE` backfills on `site.platform_connections` lack idempotency guards
+- [x] **#MIG-1** · P2 — Three full-table `UPDATE` backfills on `site.platform_connections` lack idempotency guards
     - **Where:** supabase/migrations/20260727110000_connections_surface_key.sql:65-183
     - **Affects:** Anyone who manually re-runs the backfill portion of this migration outside the normal `supabase_migrations` tracking (e.g. a dev reset that replays statements piecemeal, or a future engineer copy-pasting the pattern). The first and third `UPDATE`s have no `WHERE` guard, so a re-run overwrites any row a human or later code path already corrected.
     - **Effort:** S (~0.5–1h)
@@ -4361,7 +4361,7 @@ None.
             ELSE 'link' END;
         ```
 
-- [ ] **#MIG-2** · P2 — `ADD CONSTRAINT ... CHECK` and two `SET NOT NULL` statements on `site.platform_connections` skip the `NOT VALID` split
+- [x] **#MIG-2** · P2 — `ADD CONSTRAINT ... CHECK` and two `SET NOT NULL` statements on `site.platform_connections` skip the `NOT VALID` split
     - **Where:** supabase/migrations/20260727110000_connections_surface_key.sql:185-189
     - **Affects:** `site.platform_connections` — a real, populated table (created in the `20260726000000` baseline, not a brand-new one), though not one of the project's four formally-designated hot tables (`site.design_kits`, `site.sites`, `site.blocks`, `core.users` — `scripts/guard-no-unsafe-migrations.php`'s `HOT_TABLES` const). Currently zero rows on production (`core.users = 0`, per `CLAUDE.md`), so today's lock exposure is nil; the pattern matters for the next table this shape gets copied onto once prod carries real customers.
     - **Effort:** S (~0.5–1h)
@@ -4379,7 +4379,8 @@ None.
             CHECK ("routing_class" IN ('social', 'content', 'events', 'shop', 'booking', 'reservations', 'ordering', 'link', 'ignore'));
         ```
 
-- [ ] **#MIG-3** · P2 — Six sequential `CREATE`/`DROP INDEX` statements on `site.platform_connections` without `CONCURRENTLY`
+- [x] **#MIG-3** · P2 — Six sequential `CREATE`/`DROP INDEX` statements on `site.platform_connections` without `CONCURRENTLY`
+    <!-- ALSO closed a hole the finding did not name: scripts/guard-no-unsafe-migrations.php's Checks 1, 5 and 7 used [\w.]+/preg_quote patterns that cannot cross a double quote, and every identifier in this codebase's DDL is quoted — so those checks matched NOTHING and the guard had been passing CI while inspecting nothing. Repaired (quote-normalisation + a new Check 9 for GENERATED..STORED + a justification requirement on disable-file markers), with before/after proof on the original unsafe content. The justification check itself failed its first review — it scanned raw SQL, so an incidental 'reason' in a string literal satisfied it — and was re-fixed to anchor on comment prose only, then re-reviewed against 7 adversarial inputs. -->
     - **Where:** supabase/migrations/20260727110000_connections_surface_key.sql:192-207
     - **Affects:** Same table as MIG-2 — real but non-hot, zero rows in prod today.
     - **Effort:** M (~2–4h)
@@ -4406,7 +4407,7 @@ None.
             WHERE ("is_primary" AND "deleted_at" IS NULL);
         ```
 
-- [ ] **#MIG-4** · P2 — `DROP COLUMN` + `ADD COLUMN ... GENERATED ... STORED` rewrites `site.platform_connections` under a pattern the guard script doesn't check for at all
+- [x] **#MIG-4** · P2 — `DROP COLUMN` + `ADD COLUMN ... GENERATED ... STORED` rewrites `site.platform_connections` under a pattern the guard script doesn't check for at all
     - **Where:** supabase/migrations/20260727110000_connections_surface_key.sql:211-229
     - **Affects:** Same table again — real but non-hot, zero rows in prod today.
     - **Effort:** M (~2–4h)
