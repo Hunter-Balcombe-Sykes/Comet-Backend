@@ -24,14 +24,15 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#PARITY-1** · P2 — `site.sections`, `site.section_items`, `content.items`, and `routing.source_intents` CHECK constraints are absent from the SQLite test mirror — every current write path happens to be defended elsewhere, but nothing would catch a regression
+- [x] **#PARITY-1** · P2 — `site.sections`, `site.section_items`, `content.items`, and `routing.source_intents` CHECK constraints are absent from the SQLite test mirror — every current write path happens to be defended elsewhere, but nothing would catch a regression
+    <!-- ALSO closed the reason #PARITY-1 was possible. tests/Feature/Architecture/SchemaDriftGuardTest.php could never have caught it: scripts/launch-check/refresh-schema-snapshot.php's SCHEMAS const omitted content/ingest/routing/catalog (so three of the four tables were invisible), the snapshot was stale at latest_migration 20260724150957 (pre-dating the whole content-platform rebuild), helper discovery via get_defined_functions() picked up seven test-file-local setup* helpers making the comparison surface vary by invocation, and ddlCoversCheck() credited a CHECK as covered on a shared VALUE LITERAL (on_empty and stale_display both contain 'hide'). G1/G3/G4 fixed the scope, determinism and matching; G2 adds a snapshot-staleness assertion, left INERT behind SCHEMA_SNAPSHOT_STALENESS_GATE because refreshing needs dev credentials the run did not have. Also found and fixed a SECOND unreported instance: setupContentTables() and setupContentCurationTables() both declared content.sources and content.identity_decisions, and the duplicates had LOST their CHECKs — five test files ran unprotected. -->
     - **Where:** `tests/Pest.php` `setupSectionsTables()` (~L2014, ~L2038), `setupContentTables()`/`setupSectionsTables()` (~L1985), `setupRoutingTables()` (~L2452) — compared against `supabase/migrations/20260727150000_sections_and_documents.sql` (§`site.sections`, §`site.section_items`), `supabase/migrations/20260727140000_content_schema.sql` (§`content.items`), `supabase/migrations/20260727120000_routing_schema.sql` (§`routing.source_intents`)
     - **Affects:** Any future write path to these four tables — a new admin/staff tool, a bulk-fix script, a new projector, or a regression in the existing Form Request rules — would ship green through `composer test` and 500 on Postgres.
     - **Effort:** S (~0.5–1h) — mechanical: add the CHECK clauses to the four SQLite `CREATE TABLE` statements
