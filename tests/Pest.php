@@ -632,23 +632,20 @@ function setupSitesTable(): void
         display_settings TEXT NULL,
         canonical_key TEXT NULL,
         resource_kind TEXT NULL CHECK (resource_kind IS NULL OR resource_kind IN (\'event\',\'link\')),
-        -- #PARITY-1 §3c item 14 DECLINED (deviation from the Unit I plan,
-        -- confirmed empirically, not assumed): the plan\'s premise was "no
-        -- test passes explicit null" for these two columns, which is false.
-        -- tests/Feature/Platforms/DueForRefreshScopeTest.php:88 writes
-        -- `->update([\'updated_at\' => null])` (no model save(), so no
-        -- re-stamp) specifically to prove scopeStrandedPending() treats an
-        -- unprovable-stale row as not-stranded — a defensive branch, not a
-        -- data state any app code writes. A bare NOT NULL here reds that
-        -- test with SQLSTATE 19 (verified). Postgres will enforce NOT NULL
-        -- once 20260729150016..150018 actually applies (a DEFAULT never
-        -- fires on an explicit NULL, so this write would ALSO fail live) —
-        -- but SQLite has no NOT VALID/backfill-then-validate two-step, so
-        -- there is no way to keep this defensive test green AND add the
-        -- constraint here. Left nullable; see the matching comment at
-        -- DueForRefreshScopeTest.php:88.
-        created_at TEXT NULL,
-        updated_at TEXT NULL,
+        -- #PARITY-1: 20260729150016..150018 sets created_at/updated_at NOT
+        -- NULL in Postgres. Mirrored here instead of left nullable — the
+        -- earlier DECLINED note (this comment used to live here) rested on
+        -- DueForRefreshScopeTest.php:88\'s explicit
+        -- `->update([\'updated_at\' => null])`, but that write is now
+        -- unreachable in prod too (the migration forbids it), so keeping the
+        -- stand-in permissive was mirroring a state that no longer exists.
+        -- See tests/Feature/Platforms/DueForRefreshScopeTest.php and
+        -- tests/Postgres/PlatformConnectionsTimestampsNotNullTest.php for
+        -- where that test\'s coverage moved. DEFAULT is required: several
+        -- insert sites across the suite legitimately omit both columns,
+        -- relying on the same DEFAULT now() Postgres declares.
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         deleted_at TEXT NULL
     )');
 
