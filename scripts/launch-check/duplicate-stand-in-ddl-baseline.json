@@ -43,12 +43,5 @@
     "shadow:tests/Helpers/EnquiryInboxTestHelpers.php:notifications.notifications",
     "shadow:tests/Helpers/EnquiryInboxTestHelpers.php:site.blocks",
     "shadow:tests/Helpers/EnquiryInboxTestHelpers.php:site.customers",
-    "shadow:tests/Helpers/EnquiryInboxTestHelpers.php:site.enquiries",
-    "shadow:tests/Postgres/ItemSlugAllocatorRegressionTest.php:core.users",
-    "shadow:tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php:core.feature_flag_overrides",
-    "shadow:tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php:core.feature_flags",
-    "shadow:tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php:core.partna_staff",
-    "shadow:tests/Postgres/StaffFeatureFlagOverrideEndpointTest.php:core.users",
-    "shadow:tests/Postgres/SubdomainAliasCollisionTest.php:core.users",
-    "shadow:tests/Postgres/SubdomainAliasCollisionTest.php:site.sites"
+    "shadow:tests/Helpers/EnquiryInboxTestHelpers.php:site.enquiries"
 ]
