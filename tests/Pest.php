@@ -3187,7 +3187,16 @@ function setupEmailSuppressionsTable(): void
  */
 function setupContentCurationTables(): void
 {
-    setupSectionsTables();
+    // setupContentTables() already declares every content.* table this
+    // function used to duplicate (sources, source_items, identity_decisions,
+    // identity_candidates, item_anchors, item_merges, manual_overrides,
+    // collections, collection_items) — and does so WITH the CHECK
+    // constraints those duplicate copies lacked (#PARITY-1 §2: the curation
+    // lane was silently running against unchecked stand-ins). It also calls
+    // setupSectionsTables(), so no coverage is lost by switching the base
+    // call. section_groups and item_slugs below are the only tables genuinely
+    // unique to the curation lane.
+    setupContentTables();
     $pg = DB::connection('pgsql');
 
     $pg->statement('CREATE TABLE IF NOT EXISTS site.section_groups (
@@ -3200,86 +3209,6 @@ function setupContentCurationTables(): void
         UNIQUE (section_id, group_key)
     )');
 
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        connection_id TEXT NULL,
-        import_run_id TEXT NULL,
-        label TEXT NULL,
-        priority INTEGER NOT NULL DEFAULT 100,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
-        id TEXT PRIMARY KEY NOT NULL,
-        source_id TEXT NOT NULL,
-        coord TEXT NOT NULL,
-        stream_id TEXT NULL,
-        record_key TEXT NULL,
-        item_id TEXT NULL,
-        kind TEXT NOT NULL,
-        projector_version INTEGER NOT NULL DEFAULT 1,
-        first_seen_at TEXT NOT NULL,
-        last_seen_at TEXT NOT NULL,
-        removed_at TEXT NULL,
-        UNIQUE (source_id, coord)
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.identity_decisions (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        verdict TEXT NOT NULL,
-        left_coord TEXT NOT NULL,
-        right_coord TEXT NOT NULL,
-        decided_at TEXT NOT NULL,
-        decided_by TEXT NULL,
-        UNIQUE (user_id, left_coord, right_coord)
-    )');
-
-    $pg->statement("CREATE TABLE IF NOT EXISTS content.identity_candidates (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        left_item_id TEXT NOT NULL,
-        right_item_id TEXT NOT NULL,
-        score INTEGER NOT NULL,
-        evidence TEXT NOT NULL DEFAULT '{}',
-        dismissed_at TEXT NULL,
-        created_at TEXT NOT NULL,
-        UNIQUE (user_id, left_item_id, right_item_id)
-    )");
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.item_anchors (
-        coord TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        bound_at TEXT NOT NULL,
-        superseded_by TEXT NULL,
-        PRIMARY KEY (user_id, coord)
-    )');
-
-    $pg->statement("CREATE TABLE IF NOT EXISTS content.item_merges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        kept_item_id TEXT NULL,
-        discarded_item_id TEXT NULL,
-        reason TEXT NOT NULL,
-        detail TEXT NOT NULL DEFAULT '{}',
-        merged_at TEXT NOT NULL
-    )");
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.manual_overrides (
-        id TEXT PRIMARY KEY NOT NULL,
-        item_id TEXT NOT NULL,
-        facet TEXT NOT NULL,
-        column_name TEXT NOT NULL,
-        value TEXT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE (item_id, facet, column_name)
-    )');
-
     $pg->statement('CREATE TABLE IF NOT EXISTS content.item_slugs (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
@@ -3288,26 +3217,6 @@ function setupContentCurationTables(): void
         is_current INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         UNIQUE (user_id, slug)
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.collections (
-        id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL,
-        parent_id TEXT NULL,
-        label TEXT NOT NULL,
-        kind TEXT NULL,
-        position INTEGER NOT NULL DEFAULT 0,
-        is_user_created INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )');
-
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.collection_items (
-        collection_id TEXT NOT NULL,
-        item_id TEXT NOT NULL,
-        source_id TEXT NULL,
-        position INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (collection_id, item_id)
     )');
 }
 
