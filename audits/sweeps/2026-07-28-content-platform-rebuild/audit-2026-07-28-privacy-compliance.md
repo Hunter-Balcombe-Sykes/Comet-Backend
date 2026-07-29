@@ -19,7 +19,7 @@
 
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -91,7 +91,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#PRIV-3** · P2 — `content.f_review` stores third-party reviewer PII with no independent retention bound or reviewer-initiated erasure path
+- [x] **#PRIV-3** · P2 — `content.f_review` stores third-party reviewer PII with no independent retention bound or reviewer-initiated erasure path
     - **Where:** `supabase/migrations/20260727140000_content_schema.sql:307-317` (`content.f_review`)
     - **Affects:** Reviewers on Google/other platforms whose name, photo, and written review are landed into a professional's content catalog. Account deletion correctly cascades this data away (verified: `item_id`/`source_id` both `ON DELETE CASCADE` through `content.items`/`content.sources` → `core.users`), but for as long as the connection stays active, there is no TTL on stale reviews and no mechanism for a reviewer to have their own entry found and redacted independently of the professional's account lifecycle.
     - **Effort:** M (~2–4h)
@@ -115,7 +115,7 @@
         );
         ```
 
-- [ ] **#PRIV-4** · P2 — `site.site_documents` accumulates unbounded PII-bearing page-version snapshots with no retention rule while a site is active
+- [x] **#PRIV-4** · P2 — `site.site_documents` accumulates unbounded PII-bearing page-version snapshots with no retention rule while a site is active
     - **Where:** `supabase/migrations/20260727150000_sections_and_documents.sql` (`site.site_documents`)
     - **Affects:** Every account holder whose site is edited repeatedly — each build inserts a new full-page snapshot (name, handle, bio, social links, addresses) with no cap. Deletion-on-account-close is fine (`site_id` is `ON DELETE CASCADE` from `site.sites`), so this is a live-account hygiene gap, not an erasure gap.
     - **Effort:** M (~2–4h)
@@ -136,7 +136,7 @@
         );
         ```
 
-- [ ] **#PRIV-5** · P2 — Full URLs including query strings are stored verbatim across the new routing/content schemas, with no stripping of embedded PII (tokens, emails in tracking params)
+- [x] **#PRIV-5** · P2 — Full URLs including query strings are stored verbatim across the new routing/content schemas, with no stripping of embedded PII (tokens, emails in tracking params)
     - **Where:** `routing.link_observations.raw_url`, `routing.source_intents.canonical_url` (`20260727120000_routing_schema.sql:17-18,57`); `routing.import_runs.source_url` (`:111`); `content.f_link.url`/`canonical_url`, `content.offers.url`, `content.f_file.file_url`, `content.media_assets.source_url` (`20260727140000_content_schema.sql`)
     - **Affects:** Account holders whose pasted or connector-fetched URLs carry query-string PII (email in a UTM param, an identity token in a signed URL); this data is retained indefinitely (or per the long `link_observations` partition window) with no stripping.
     - **Effort:** L (~1–2d)
@@ -154,7 +154,8 @@
         "source_url" text,
         ```
 
-- [ ] **#PRIV-6** · P2 — Analytics stores per-visit lat/lon coordinates as distinct rows rather than a pre-aggregated city centroid
+- [x] **#PRIV-6** · P2 — Analytics stores per-visit lat/lon coordinates as distinct rows rather than a pre-aggregated city centroid
+    <!-- premise NO LONGER HOLDS. The finding asserts no write-time rounding exists, 'confirmed via grep' — but it checked PostgresEventWriter and AnalyticsEventSanitizer, not the producer. DetectsClientInfo.php:213 has rounded to 4dp (~11m) since a PRIOR audit's PRIV-9, with an explanatory comment. Retention is also bounded (analytics.site_visits purged at 90d by PurgeRawAnalyticsEvents). Resolved as a documentation correction only: the stale 'coarse (city-level)' comment at DataExportPayloadBuilder.php:546 now states the real precision. Reducing 4dp -> 2dp was considered and REJECTED here — it would overturn a prior audit's deliberate, shipped decision, which is an owner call, not an audit-fix call. -->
     - **Where:** `app/Services/Analytics/AnalyticsQueryService.php:514-530` (`cities()`)
     - **Affects:** Visitors whose edge-resolved geolocation is captured per visit in `analytics.site_visits.latitude`/`longitude`.
     - **Effort:** M (~2–4h)
