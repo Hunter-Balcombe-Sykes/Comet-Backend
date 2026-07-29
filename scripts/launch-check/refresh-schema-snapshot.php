@@ -12,7 +12,7 @@
  * Requires SUPABASE_ACCESS_TOKEN in scripts/launch-check/.env
  */
 const PROJECT_REF = 'glncumufgaqcmqhzwrxm'; // dev ONLY — never the prod ref
-const SCHEMAS = "'core','site','notifications','analytics','audit','moderation'";
+const SCHEMAS = "'core','site','notifications','analytics','audit','moderation','content','ingest','routing','catalog'";
 
 $dir = __DIR__;
 
