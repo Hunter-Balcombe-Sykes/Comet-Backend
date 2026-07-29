@@ -10,6 +10,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PublicSite\Actions\ActionVocabulary;
+use App\Support\UrlSafety;
 use Illuminate\Support\Collection;
 
 /**
@@ -456,23 +457,12 @@ class SiteActionsService
 
     /**
      * Emit-path href gate: return the trimmed URL only when its scheme is
-     * http/https, else null. Parses the scheme (fail-closed — a missing/
-     * malformed scheme, javascript:, data:, or a relative/scheme-less URL all
-     * return null) so no non-navigational URL can land in the payload as a
-     * button href, regardless of which writer populated the source.
+     * http/https, else null. Delegates to UrlSafety so this surface and
+     * SitepageDataResolverService's gate cannot drift apart (#API-1).
      */
     private function safeHref(mixed $url): ?string
     {
-        if (! is_string($url)) {
-            return null;
-        }
-        $url = trim($url);
-        if ($url === '') {
-            return null;
-        }
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-
-        return ($scheme === 'http' || $scheme === 'https') ? $url : null;
+        return UrlSafety::safeHref($url);
     }
 
     // ── Ordering settings ───────────────────────────────────────────────

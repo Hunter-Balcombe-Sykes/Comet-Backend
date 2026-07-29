@@ -95,6 +95,20 @@ it('covers every placeable detector in the catalog', function () {
     expect($uncovered)->toBe([], count($uncovered).' detector(s) have no corpus case — run `php artisan routing:corpus`:'.PHP_EOL.implode(PHP_EOL, $uncovered));
 });
 
+// #SEM-4 — not added to corpus-generated.php: that file is machine-generated
+// ("do not edit by hand", enforced by the --check test below) from one case
+// per catalog detector against bare hostnames, and www-prefixed variants
+// aren't part of that generation. Drives the real projector pipeline
+// directly instead, proving www.acme.myshopify.com now projects to the same
+// Shopify surface + tenant identifier the bare form does.
+it('#SEM-4: a www-prefixed tenant host projects to the Shopify surface with the tenant identifier', function () {
+    $projection = corpusProjector()->project(corpusCanonicalizer()->canonicalize('https://www.acme.myshopify.com/products/thing'));
+
+    expect($projection->matched())->toBeTrue()
+        ->and($projection->surfaceKey)->toBe('shopify.store')
+        ->and($projection->identifier)->toBe('acme');
+});
+
 it('keeps the generated corpus in step with the catalog', function () {
     // Guards the stale-fixture failure mode: definitions change, corpus does
     // not, and the suite keeps asserting yesterday's rules.

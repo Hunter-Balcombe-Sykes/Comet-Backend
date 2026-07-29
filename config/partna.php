@@ -2132,7 +2132,7 @@ return [
     'bot_protection' => [
         'driver' => env('BOT_PROTECTION_DRIVER', 'null'),       // null | turnstile | hcaptcha | fake
         'mode' => env('BOT_PROTECTION_MODE', 'off'),          // off | shadow | enforce
-        'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', true),
+        'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', false),
 
         'enforce_timeout_ms' => 3000, // SCALE-1: evaluated, kept — see VerifyBotToken::handle()
         'shadow_timeout_ms' => 500,

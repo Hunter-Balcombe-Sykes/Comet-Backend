@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Concerns;
 
+use App\Support\UrlSafety;
+
 // Shared helpers for Store/Update/DestroyLinkBlockRequest: settings.note
 // trimming, the SubstituteBindings route-id normalization workaround, and the
 // http/https scheme allowlist (XSS/exfiltration defense — see #SLOP-6).
@@ -42,11 +44,11 @@ trait LinkBlockRequestHelpers
     /**
      * Reject schemes other than http/https for custom links. Blocks
      * javascript:, data:, file:, ftp:, and similar XSS / exfiltration vectors.
+     * Delegates to UrlSafety so the write-path allowlist and the emit-path
+     * gate cannot drift apart (#API-1).
      */
     private function isAllowedScheme(string $url): bool
     {
-        $scheme = parse_url($url, PHP_URL_SCHEME);
-
-        return is_string($scheme) && in_array(strtolower($scheme), ['http', 'https'], true);
+        return UrlSafety::isAllowedScheme($url);
     }
 }
