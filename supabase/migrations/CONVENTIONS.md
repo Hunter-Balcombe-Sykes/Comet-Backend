@@ -247,6 +247,28 @@ where there is no live traffic to contend for the lock (audit `migrations-early/
 
 ---
 
+## 9. `GENERATED ... STORED` columns on a pre-existing table
+
+`ADD COLUMN ... GENERATED ALWAYS AS (...) STORED` forces a full heap rewrite under
+`ACCESS EXCLUSIVE` — the generated value has to be materialised into every existing tuple.
+There is no online variant (`VIRTUAL` generated columns don't exist before PostgreSQL 18).
+Put it in its own migration file so the lock window covers nothing else, and bound it:
+
+```sql
+BEGIN;
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '60s';
+ALTER TABLE commerce.orders ADD COLUMN region_label text
+    GENERATED ALWAYS AS (upper(region)) STORED;
+COMMIT;
+```
+
+**Enforced** by `scripts/guard-no-unsafe-migrations.php` **Check 9** for files timestamped after
+`20260726000000`. Exempt when the table is created in the same file. **Canonical example**:
+`20260727110004_connections_platform_generated_alias.sql` (audit Unit H / #MIG-4).
+
+---
+
 ## Summary cheat sheet
 
 | Operation | Unsafe | Safe |
@@ -261,3 +283,4 @@ where there is no live traffic to contend for the lock (audit `migrations-early/
 | Drop index (hot table) | `DROP INDEX` | `DROP INDEX CONCURRENTLY IF EXISTS` (own file, no transaction) (see §1) |
 | Drop function/trigger | Unqualified `DROP FUNCTION foo` | Schema-qualified `DROP FUNCTION schema.foo()` (see §7) |
 | Bundle VALIDATE with ADD | `ADD … NOT VALID; VALIDATE;` one txn | `COMMIT` between them — VALIDATE in its own txn/file (see §2) |
+| Add STORED generated column | `ADD COLUMN … GENERATED … STORED` | own file + `BEGIN` + `SET LOCAL lock_timeout`/`statement_timeout` (see §9) |

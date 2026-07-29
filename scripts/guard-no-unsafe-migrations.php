@@ -3,7 +3,7 @@
 /**
  * Guard: no unsafe migration patterns (Master Pattern 20).
  *
- * Fails on eight patterns that cause lock-induced downtime (or a failed from-zero apply):
+ * Fails on nine patterns that cause lock-induced downtime (or a failed from-zero apply):
  *   1. CREATE INDEX without CONCURRENTLY
  *   2. ADD CONSTRAINT ... FOREIGN KEY without NOT VALID
  *   3. ADD CONSTRAINT ... CHECK without NOT VALID
@@ -12,6 +12,7 @@
  *   6. more than one statement in a file that contains a CONCURRENTLY statement (pipeline/25001)
  *   7. DROP INDEX without CONCURRENTLY on a HOT_TABLES table
  *   8. VALIDATE CONSTRAINT in the same transaction as its ADD CONSTRAINT ... NOT VALID
+ *   9. ADD COLUMN ... GENERATED ... STORED on a pre-existing table without a bounded transaction
  *
  * Migrations with timestamps <= GRANDFATHERED_CUTOFF are skipped — they ran safely on
  * empty tables before this convention was established (2026-05-14, timestamp 20260514100000).
@@ -19,6 +20,14 @@
  *
  * Check 5 has its own, later boundary (TIMEOUT_GUARD_CUTOFF) since it shipped well
  * after GRANDFATHERED_CUTOFF — see the constant's comment for why.
+ *
+ * Every table/index identifier in this repo's migrations is double-quoted
+ * ("site"."platform_connections"). Checks 1, 5 and 7 match identifiers with
+ * [\w.]+ / a preg_quote'd literal, neither of which can cross a `"` — before
+ * the quote-normalisation pass below, those three checks were structurally
+ * blind to every file in the tree (audit Unit H / #MIG-3: a file with four
+ * plain CREATE INDEX statements and three plain DROP INDEX statements produced
+ * zero matches on either check).
  *
  * See supabase/migrations/CONVENTIONS.md for the safe alternatives.
  */
@@ -57,12 +66,70 @@ const DROP_INDEX_GUARD_CUTOFF = '20260722000000';
 // files on a clean tree; only NEW files must defer VALIDATE to a separate transaction.
 const VALIDATE_TXN_GUARD_CUTOFF = '20260722000000';
 
+// Check 9 (ADD COLUMN ... GENERATED ... STORED) shipped 2026-07-29. Its own
+// boundary starts just after the collapsed baseline: the baseline contains no
+// GENERATED ALWAYS AS at all (verified), and the only file in the tree using
+// the pattern is 20260727110004, which satisfies the BEGIN + lock_timeout
+// requirement below. At this cutoff the check flags 0 files on a clean tree.
+const GENERATED_STORED_GUARD_CUTOFF = '20260726000000';
+
 // Tables served by live traffic. The first three are named in
 // docs/migration-guidelines.md §Lock and statement timeouts; core.users is added
 // because it is read on every authenticated request.
 const HOT_TABLES = ['site.design_kits', 'site.sites', 'site.blocks', 'core.users'];
 
 const MIGRATIONS_DIR = 'supabase/migrations';
+
+/**
+ * Extract the contiguous run of comment-only (and blank) lines starting at a
+ * disable-file marker, stopping at the first line that is neither blank, a
+ * `--` line comment, nor inside an unterminated `/* ... *\/` block comment.
+ *
+ * Used by the G3 disable-file justification check so a keyword match inside
+ * real SQL (a CHECK constraint, a string literal) can never satisfy it — only
+ * prose in the marker's own comment header counts. A fixed character window
+ * over raw SQL (the prior implementation) let `'no reason given'` inside a
+ * CHECK constraint's string literal satisfy the check; anchoring to the
+ * comment prefix closes that hole regardless of how long the header prose runs.
+ */
+function commentPrefixAfter(string $raw, int $offset): string
+{
+    $lines = explode("\n", substr($raw, $offset));
+    $prefix = [];
+    $inBlockComment = false;
+
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+
+        if ($inBlockComment) {
+            $prefix[] = $line;
+            if (str_contains($line, '*/')) {
+                $inBlockComment = false;
+            }
+
+            continue;
+        }
+
+        if ($trimmed === '' || str_starts_with($trimmed, '--')) {
+            $prefix[] = $line;
+
+            continue;
+        }
+
+        if (str_starts_with($trimmed, '/*')) {
+            $prefix[] = $line;
+            if (! str_contains($line, '*/')) {
+                $inBlockComment = true;
+            }
+
+            continue;
+        }
+
+        break;
+    }
+
+    return implode("\n", $prefix);
+}
 
 $errors = [];
 
@@ -90,12 +157,41 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
     // safe-lock conventions (e.g., transactional CREATE INDEX that can't use
     // CONCURRENTLY, or FKs on empty columns added in the same migration).
     // Usage: add  -- guard:no-unsafe-migrations:disable-file  anywhere in the file.
-    if (preg_match('/--\s*guard:no-unsafe-migrations:disable-file\b/i', $raw)) {
+    //
+    // G3 (audit Unit H): the marker must be followed by prose explaining WHY,
+    // anchored to the CONTIGUOUS comment-only prefix that follows it (`--`
+    // comment lines / blank lines / `/* ... */` block comments), stopping at
+    // the first real SQL line — not a fixed character window over raw SQL,
+    // which let an incidental keyword hit inside a CHECK constraint or string
+    // literal (e.g. `'no reason given'`) satisfy the check (audit Unit H
+    // adversarial repro). A blanket opt-out with no stated reason is
+    // indistinguishable from an opt-out nobody thought about. "reason\w*"
+    // (not "reason\b") also catches "reasoning".
+    if (preg_match('/--\s*guard:no-unsafe-migrations:disable-file\b/im', $raw, $dm, PREG_OFFSET_CAPTURE)) {
+        $prefix = commentPrefixAfter($raw, $dm[0][1]);
+        if (! preg_match('/\b(justification|because|why|reason\w*|rationale)\b/i', $prefix)) {
+            $errors[] = "$basename: guard:no-unsafe-migrations:disable-file with no written justification.\n"
+                .'  Follow the marker with a dated justification comment explaining what deviates and why.';
+        }
+
         continue;
     }
 
     // Strip single-line SQL comments so patterns inside comments don't false-positive.
     $content = preg_replace('/--[^\n]*/', '', $raw);
+
+    // G1 (audit Unit H / #MIG-3): normalise quoted identifiers before the
+    // identifier-matching checks. Every migration in this repo writes
+    // "site"."platform_connections", but Checks 1, 5 and 7 match table/index
+    // names with [\w.]+ or a preg_quote'd literal, neither of which can cross a
+    // double quote. Before this normalisation those three checks were dead
+    // against every file in the tree: a file with four plain CREATE INDEX
+    // statements and three plain DROP INDEX statements produced zero matches on
+    // either check. This strips the quotes (not the identifiers), so
+    // "site"."platform_connections" becomes site.platform_connections for
+    // matching purposes only — $raw (unquoted-preserving) is still used for the
+    // disable-file probe above.
+    $content = preg_replace('/"([A-Za-z_][A-Za-z0-9_$]*)"/', '$1', $content);
 
     // ── Check 1: CREATE INDEX without CONCURRENTLY ────────────────────────────
     // Matches CREATE INDEX and CREATE UNIQUE INDEX but not CREATE INDEX CONCURRENTLY.
@@ -127,7 +223,10 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
             // Also exempt indexes on a column that was ADD COLUMN-ed in this same migration.
             // New columns are always empty at index time — no lock contention possible.
             // Extract the indexed column from the index definition (first word after the table).
-            $idxBody = substr($raw, strpos($raw, $match[0]));
+            // G1: slice from $content (quote-normalised), not $raw — $match[0] was matched
+            // against $content, so its text (and any offset within it) no longer exists
+            // verbatim in $raw once identifiers are quoted.
+            $idxBody = substr($content, strpos($content, $match[0]));
             if (preg_match('/ON\s+[\w.]+\s*\(([^)]+)\)/i', $idxBody, $colMatch)) {
                 $indexedCol = trim(explode(',', $colMatch[1])[0]);
                 $indexedCol = preg_replace('/\s+.*/', '', $indexedCol); // strip ASC/DESC
@@ -362,6 +461,54 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
                         .'  See: supabase/migrations/CONVENTIONS.md §2';
                     break; // one error per file is enough
                 }
+            }
+        }
+    }
+
+    // ── Check 9: ADD COLUMN ... GENERATED ... STORED without a bounded transaction ─
+    // A STORED generated column must be materialised into every existing tuple, so
+    // ADD COLUMN rewrites the whole heap while holding ACCESS EXCLUSIVE. There is no
+    // online variant. Two things make it survivable: put it in its OWN file so the
+    // lock window covers nothing else, and BOUND it so a blocked lock aborts fast.
+    // Exempt when the table is created in the same file (nothing to rewrite).
+    if ($m[1] > GENERATED_STORED_GUARD_CUTOFF) {
+        if (preg_match_all(
+            '/\bADD\s+COLUMN\b(?:\s+IF\s+NOT\s+EXISTS)?[^;]*?\bGENERATED\b[^;]*?\bSTORED\b/is',
+            $content,
+            $genMatches,
+            PREG_OFFSET_CAPTURE,
+        )) {
+            foreach ($genMatches[0] as $gm) {
+                // Which table? Walk back to the nearest ALTER TABLE before this ADD COLUMN.
+                $before = substr($content, 0, $gm[1]);
+                $table = null;
+                if (preg_match_all('/\bALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)/i', $before, $atMatches)) {
+                    $table = end($atMatches[1]);
+                }
+
+                if ($table !== null && preg_match(
+                    '/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'.preg_quote($table, '/').'\b/i',
+                    $content,
+                ) === 1) {
+                    continue; // table created in this file — empty, no rewrite cost
+                }
+
+                $hasTimeout = preg_match('/\bSET\s+LOCAL\s+lock_timeout\b/i', $content) === 1;
+                $hasTxn = preg_match('/^\s*BEGIN\s*;/im', $content) === 1;
+                if ($hasTimeout && $hasTxn) {
+                    continue;
+                }
+
+                $errors[] = "$basename: ADD COLUMN ... GENERATED ... STORED on pre-existing table `".($table ?? '?')."`.\n"
+                    ."  A STORED generated column rewrites the entire heap under ACCESS EXCLUSIVE.\n"
+                    ."  Put it in its OWN migration file and bound the lock:\n"
+                    ."    BEGIN;\n"
+                    ."    SET LOCAL lock_timeout      = '2s';\n"
+                    ."    SET LOCAL statement_timeout = '60s';\n"
+                    ."    ALTER TABLE ... ADD COLUMN ... GENERATED ALWAYS AS (...) STORED;\n"
+                    ."    COMMIT;\n"
+                    .'  See: supabase/migrations/CONVENTIONS.md §8';
+                break;
             }
         }
     }

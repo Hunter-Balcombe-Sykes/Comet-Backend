@@ -393,3 +393,38 @@ it('Check 8 grandfathers a pre-cutoff bundled VALIDATE', function () {
 
     expect($r['exit'])->toBe(0, "Files on/before VALIDATE_TXN_GUARD_CUTOFF are grandfathered; output:\n{$r['output']}");
 });
+
+// ─── G3 (audit Unit H): disable-file marker needs COMMENT-PROSE justification ──
+// Reuses guardRunAgainstFixture() defined above. G3 anchors the justification
+// search to the contiguous comment-only prefix after the marker (`--` lines /
+// blank lines), stopping at the first real SQL line -- not a fixed character
+// window over raw SQL. A fixed window let an incidental keyword hit inside a
+// CHECK constraint's string literal (e.g. `'no reason given'`) satisfy the
+// check; this is the adversarial repro that motivated the fix.
+
+it('G3 rejects a disable-file marker whose only keyword hit sits inside SQL, not comment prose', function () {
+    $r = guardRunAgainstFixture(
+        '20260722140000_g3_adversarial.sql',
+        "-- guard:no-unsafe-migrations:disable-file\n".
+        "ALTER TABLE routing.source_intents\n".
+        "    ADD CONSTRAINT chk_reason_present CHECK (block_reason IS NOT NULL OR state = 'no reason given');\n".
+        "ALTER TABLE site.platform_connections ALTER COLUMN surface_key SET NOT NULL;\n".
+        "CREATE INDEX idx_adversarial ON site.platform_connections (surface_key);\n"
+    );
+
+    expect($r['exit'])->toBe(1, "Expected the guard to FAIL -- the only 'reason' hit sits inside a string literal in the SQL body, not comment prose; output:\n{$r['output']}")
+        ->and($r['output'])->toContain('guard:no-unsafe-migrations:disable-file with no written justification');
+});
+
+it('G3 accepts a disable-file marker followed by genuine comment prose stating a rationale', function () {
+    $r = guardRunAgainstFixture(
+        '20260722140000_g3_genuine.sql',
+        "-- guard:no-unsafe-migrations:disable-file\n".
+        "-- Rationale: this table is empty at migration time (created earlier in\n".
+        "-- this same deploy window), so the safe-lock conventions don't apply.\n".
+        "ALTER TABLE site.platform_connections ALTER COLUMN surface_key SET NOT NULL;\n".
+        "CREATE INDEX idx_genuine ON site.platform_connections (surface_key);\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Expected the guard to PASS -- the marker is followed by genuine comment prose stating a rationale; output:\n{$r['output']}");
+});
