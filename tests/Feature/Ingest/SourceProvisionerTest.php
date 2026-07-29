@@ -311,6 +311,26 @@ it('reports each sync outcome by name so the backfill command can count them', f
         ->and($provisioner->sync($inactive->fresh()))->toBe(['status' => 'deactivated', 'source_key' => 'bandcamp'])
         ->and($provisioner->sync($trashed->fresh()))->toBe(['status' => 'retired', 'source_key' => 'bandcamp'])
         ->and($provisioner->sync($fresh))->toBe(['status' => 'created', 'source_key' => 'bandcamp']);
+
+    // 'updated' and 'unchanged' — the last two statuses. Review caught
+    // 'updated' missing; writing it surfaced that 'unchanged' was unpinned
+    // too. A contract test enumerating five of seven states is worse than
+    // none, because the enumeration itself implies completeness.
+    //
+    // Reaching 'updated' needs care: IntegrationConnectionObserver calls
+    // sync() on save(), so simply moving the payload URL and then calling
+    // sync() by hand returns 'unchanged' — the observer already did the
+    // update. Staling the stored identifier directly is what forces the
+    // `$existing->identifier !== $identifier` branch deterministically.
+    DB::table('ingest.sources')
+        ->where('connection_id', $fresh->id)
+        ->update(['identifier' => 'stale-identifier']);
+
+    expect($provisioner->sync($fresh->fresh()))->toBe(['status' => 'updated', 'source_key' => 'bandcamp'])
+        // Immediately re-syncing the same row now changes nothing — which is
+        // the 'unchanged' arm, and also proves the update above really did
+        // converge rather than rewriting on every call.
+        ->and($provisioner->sync($fresh->fresh()))->toBe(['status' => 'unchanged', 'source_key' => 'bandcamp']);
 });
 
 it('creates billed-connector sources unscheduled until their effect drivers exist', function () {
