@@ -45,3 +45,13 @@ it('never presents an opaque id as a username', function () {
 
     expect($payload)->not->toHaveKey('username');
 });
+
+it('never emits an empty username for a handle surface with no resolved identity', function () {
+    // The sitepage reads `username` when present, so an empty-string username
+    // is worse than an absent one — it renders a blank label instead of
+    // falling back to the URL.
+    $payload = ConnectionPayload::forWrite('https://instagram.com/', '', 'handle', 'link_in_bio');
+
+    expect($payload)->not->toHaveKey('username');
+    expect($payload['url'])->toBe('https://instagram.com/');
+});
