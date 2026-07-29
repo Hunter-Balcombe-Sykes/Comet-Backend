@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\ConnectResolver;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
@@ -38,7 +39,37 @@ function ytRssFeedBody(array $videoIds): string
     return '<feed><author><name>Test Channel</name></author>'.$entries.'</feed>';
 }
 
-it('lets the wall-clock budget reach the thumbnail-probe pool, not just the channel-page/RSS fetches', function () {
+/**
+ * FetchBudget on a clock the test drives, so nothing here depends on how long
+ * real work takes.
+ *
+ * The previous version of this test set a 100ms budget and slept 150ms inside
+ * the Http::fake. That asserted three real fetches finish within 100ms of REAL
+ * time — true on a quiet laptop, false on a loaded CI runner, where the budget
+ * expires before the thumbnail phase even starts and ZERO probes fire instead
+ * of one. Advancing the clock explicitly keeps the property under test (the
+ * budget reaches the thumbnail pool) and drops the property that was never
+ * intended (the machine is fast).
+ */
+function ytFakeBudget(): FetchBudget
+{
+    return new class extends FetchBudget
+    {
+        public float $clock = 0.0;
+
+        public function advance(float $seconds): void
+        {
+            $this->clock += $seconds;
+        }
+
+        protected function nowSeconds(): float
+        {
+            return $this->clock;
+        }
+    };
+}
+
+it('lets the budget reach the thumbnail-probe pool, not just the channel-page/RSS fetches', function () {
     // Against the FIRST cut of this unit's fix (budget wired into
     // SafeUrlFetcher only), YoutubeThumbnailResolver::pooledHead() had no
     // FetchBudget dependency at all and used a raw, unbounded Http::pool() —
@@ -50,16 +81,20 @@ it('lets the wall-clock budget reach the thumbnail-probe pool, not just the chan
     // strictly BETWEEN rounds rather than needing to beat one big batch.
     config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
 
-    $videoIds = ['vid1', 'vid2', 'vid3'];
+    // Shared instance, exactly as the scoped container binding provides — the
+    // whole point of the fix is that ConnectResolver and
+    // YoutubeThumbnailResolver see the SAME budget.
+    $budget = ytFakeBudget();
+    app()->instance(FetchBudget::class, $budget);
 
-    Http::fake(function ($request) {
+    Http::fake(function ($request) use ($budget) {
         $url = $request->url();
 
         if (str_contains($url, 'i.ytimg.com')) {
-            // Slower than the 100ms budget above — only the FIRST probe (the
-            // only one that fires before round 2's budget check trips) pays
-            // this cost; rounds 2 and 3 must never be sent at all.
-            usleep(150_000);
+            // The first probe "costs" more than the whole budget. Rounds 2 and
+            // 3 must therefore never be sent. Deterministic: the clock only
+            // moves because this line moves it.
+            $budget->advance(0.15);
 
             return Http::response('', 200);
         }
@@ -98,4 +133,39 @@ it('lets the wall-clock budget reach the thumbnail-probe pool, not just the chan
     // budget cut the pooledHead() loop short on round 2.
     expect(Http::recorded(fn ($request) => str_contains($request->url(), 'i.ytimg.com'))->count())->toBe(1);
     Http::assertSentCount(3); // channel page + RSS feed + 1 thumbnail probe
+});
+
+it('fires every thumbnail probe when the budget is never exhausted', function () {
+    // The control the old test could not safely have: with the clock frozen,
+    // "one probe" above is provably the budget cutting the loop short, not the
+    // pool quietly stopping for some other reason. Same wiring, clock never
+    // advanced, all three probes go out.
+    config()->set('partna.http_fetch.connect_budget_seconds', 0.1);
+    config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
+
+    app()->instance(FetchBudget::class, ytFakeBudget());
+
+    Http::fake(function ($request) {
+        $url = $request->url();
+
+        if (str_contains($url, 'i.ytimg.com')) {
+            return Http::response('', 200);
+        }
+        if (str_contains($url, '/feeds/videos.xml')) {
+            return Http::response(ytRssFeedBody(['vid1', 'vid2', 'vid3']), 200);
+        }
+        if (str_contains($url, 'youtube.com/@')) {
+            return Http::response(ytChannelPageBody(), 200);
+        }
+
+        return Http::response('', 404);
+    });
+
+    $descriptor = PlatformDescriptor::make('youtube')->label('YouTube')
+        ->connect(app(YoutubeConnect::class), 'Enter your YouTube channel.');
+
+    $result = app(ConnectResolver::class)->resolve($descriptor, 'somehandle')->result;
+
+    expect($result->failed())->toBeFalse()
+        ->and(Http::recorded(fn ($request) => str_contains($request->url(), 'i.ytimg.com'))->count())->toBe(3);
 });

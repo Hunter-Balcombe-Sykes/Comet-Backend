@@ -68,7 +68,7 @@ class FetchBudget
      */
     public function open(float $seconds, callable $work): mixed
     {
-        $this->deadlineAt = hrtime(true) / 1e9 + $seconds;
+        $this->deadlineAt = $this->nowSeconds() + $seconds;
 
         try {
             return $work();
@@ -106,7 +106,30 @@ class FetchBudget
      */
     public function remaining(): ?float
     {
-        return $this->deadlineAt === null ? null : $this->deadlineAt - hrtime(true) / 1e9;
+        return $this->deadlineAt === null ? null : $this->deadlineAt - $this->nowSeconds();
+    }
+
+    /**
+     * The monotonic clock, as a seam.
+     *
+     * hrtime(true) (not microtime()) because it is monotonic: a system clock
+     * adjustment mid-request cannot move it backwards and falsely extend or
+     * shrink the budget. It is a protected method rather than an inline call so
+     * a test can subclass and drive it.
+     *
+     * That seam is not cosmetic. The regression test for "the budget reaches
+     * the thumbnail-probe pool, not just the SafeUrlFetcher legs" previously
+     * set a 100ms budget and slept 150ms inside an Http::fake, then asserted
+     * that exactly one probe fired. It was really asserting that three real
+     * fetches complete in under 100ms of REAL time — true on a quiet laptop,
+     * false on a loaded CI runner, where the budget expires before the
+     * thumbnail phase starts and zero probes fire. That is a genuine CI flake
+     * on wall-clock timing, and no amount of widening the margin removes it;
+     * only removing wall-clock from the assertion does.
+     */
+    protected function nowSeconds(): float
+    {
+        return hrtime(true) / 1e9;
     }
 
     /** True once a deadline is open AND has passed. False when no budget is set at all. */
