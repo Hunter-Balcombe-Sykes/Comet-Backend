@@ -4730,7 +4730,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## Progress
 
-- P1 High: 11 of 17 complete  (several partially stale — see individual entries)
+- P1 High: 14 of 17 complete  (several partially stale — see individual entries)
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -4781,7 +4781,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-3** · P1 — `SourceProvisioner::sync()` and its 22-platform `identifierFor()` dispatch have no visible test coverage
+- [x] **#TEST-3** · P1 — `SourceProvisioner::sync()` and its 22-platform `identifierFor()` dispatch have no visible test coverage
+    - **LARGELY STALE (2026-07-29):** `tests/Feature/Ingest/SourceProvisionerTest.php` already existed (landed `f6e63942`, pre-dating the audit) covering ALL 21 `identifierFor()` arms and 6 of 7 `sync()` branches. Re-graded P1/L → P2/S. Residue added: the identifier-unchanged update branch, `sync()`'s 7-state return contract, and 8 malformed/spoof negatives. Verifying it also found a production defect the audit never named — `freshaSlug()` was the only UNANCHORED URL extractor in the class, so `https://evil.example/?next=fresha.com/a/rival-salon` matched. Anchored, keeping an optional locale group so legacy `/en-au/a/` rows still provision.
     - **Where:** `app/Ingest/SourceProvisioner.php:45-102` (sync), `:164-221` (identifierFor)
     - **Affects:** Every platform connector's ability to enter the ingest scheduling pipeline — this is the sole seam between `IntegrationConnection` and `ingest.sources`.
     - **Effort:** L (~1–2d)
@@ -4799,7 +4800,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         // Update ONLY identity + activation — scheduling state belongs to the scheduler
         ```
 
-- [ ] **#TEST-4** · P1 — Deferred-connect self-deadlock prevention (lock released before job dispatch) is untested in two controllers
+- [x] **#TEST-4** · P1 — Deferred-connect self-deadlock prevention (lock released before job dispatch) is untested in two controllers
+    - **HOLDS — and the audit's prescribed assertion was WRONG (2026-07-29):** it suggests `Queue::fake()` + `assertPushed` to prove the job dispatches outside the lock, but under a faked queue the job never contends for the lock, so it passes identically whether the dispatch is inside or outside the closure. Two such assertions already existed in `DeferredConnectTest` — which is why this looked covered while being unproven. Replaced with a `Queue::before()` probe that itself takes the same lock key; review confirmed the probe genuinely fires and that both controllers go red when the dispatch moves back inside.
     - **Where:** `app/Http/Controllers/Api/Platforms/GenericPlatformController.php` (`connectDeferred`), `app/Http/Controllers/Api/Platforms/InstagramController.php` (`connect`)
     - **Affects:** Every deferred-connect platform (Bandcamp, Spotify, YouTube Music, SoundCloud, Apple, Gumroad, TikTok, Instagram) — a regression that moves the job dispatch back inside the lock closure hangs every concurrent connect request under the test suite's default sync queue driver, and stacks real users behind a ~110s scrape in production.
     - **Effort:** M (~2–4h)
@@ -5037,7 +5039,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-17** · P1 — `ConnectionPayload::forWrite()` has no test guarding the exact contract whose absence already caused a real production incident
+- [x] **#TEST-17** · P1 — `ConnectionPayload::forWrite()` has no test guarding the exact contract whose absence already caused a real production incident
+    - **STALE (2026-07-29):** `tests/Unit/Routing/ConnectionPayloadTest.php` already covered url/source/handle/composite/opaque. Exactly one conjunct was unpinned (`$identifier !== ''`); one XS test added. Re-graded P1/S → P3/XS.
     - **Where:** `app/Routing/ConnectionPayload.php` (entire class)
     - **Affects:** Every sitepage render for a handle-identity platform connection — the class's own docblock states a missing `username` key "survives every backend test and then renders an empty page," and that this already happened across 20 showcase accounts.
     - **Effort:** S (~0.5–1h)
