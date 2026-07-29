@@ -379,6 +379,130 @@ it('clearGuardIfRecovered clears the guard and resolves the anomaly once no abse
     expect($anomaly->resolved_by)->toBe('system');
 });
 
+// ── Delete-guard boundary coverage (residual for #TEST-9) ───────────────────
+//
+// #TEST-9 as filed by the audit claimed the guard "has no test in EITHER
+// direction". That premise is stale — false in both directions already: the
+// trip test above (50%, count 10) and the two clearGuardIfRecovered tests
+// above cover the trip/freeze/recover paths; the SCALE-5 test further below
+// (30%, count 100) covers the no-trip path. What none of the existing cases
+// do is sit AT the boundary — 50% and 30% both sit comfortably away from the
+// 40% line. The four cases below are chosen so that each one kills exactly
+// one specific off-by-one mutation of the guard's condition
+// (`$liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= self::GUARD_THRESHOLD && count($dominatedAbsent) >= 5`)
+// while the current suite (including these new cases) stays green. 8/20 and
+// 4/10 both reduce to 2/5, so PHP's float division lands on the exact same
+// double as the 0.4 literal — no float-equality flake.
+
+it('trips the guard at EXACTLY the 40% ratio boundary (8 of 20 vanish) — kills >= 0.4 -> > 0.4', function () {
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 20) as $i) {
+        $records[] = new Record('releases', "k{$i}", ['seq' => $i]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, null);
+
+    // 8 of 20 live keys vanish: ratio exactly 0.4, count 8 >= 5.
+    $survivors = array_slice($records, 0, 12);
+    $result = $lander->land('s1', 'r2', $spec, $survivors, new Covered('releases', Coverage::exhaustive()));
+
+    expect($result['guard_tripped'])->toBeTrue();
+    expect($result['tombstoned'])->toBe(0);
+    expect(DB::table('ingest.streams')->where('id', 's1')->value('guard_tripped_at'))->not->toBeNull();
+    expect(DB::table('ingest.anomalies')->where('stream_id', 's1')->where('kind', 'delete_guard')->count())->toBe(1);
+
+    // The guard intercepts BEFORE per-row accrual — vanished keys stay untouched.
+    foreach (range(13, 20) as $i) {
+        $state = ingestRecordState('s1', "k{$i}");
+        expect((int) $state->absent_runs)->toBe(0);
+        expect($state->tombstoned_at)->toBeNull();
+    }
+});
+
+it('does NOT trip just below the ratio boundary (7 of 20 vanish, 35%) and every vanished key accrues absence — kills >= 0.4 -> >= 0.3', function () {
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 20) as $i) {
+        $records[] = new Record('releases', "k{$i}", ['seq' => $i]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, null);
+
+    // 7 of 20 live keys vanish: ratio 0.35, strictly below 0.4.
+    $survivors = array_slice($records, 0, 13);
+    $result = $lander->land('s1', 'r2', $spec, $survivors, new Covered('releases', Coverage::exhaustive()));
+
+    expect($result['guard_tripped'])->toBeFalse();
+    expect($result['tombstoned'])->toBe(0);
+    expect(DB::table('ingest.streams')->where('id', 's1')->value('guard_tripped_at'))->toBeNull();
+    expect(DB::table('ingest.anomalies')->where('stream_id', 's1')->where('kind', 'delete_guard')->count())->toBe(0);
+
+    // Normal tombstoning bookkeeping proceeded — a permanently-tripped breaker
+    // cannot pass this half of the assertion.
+    foreach (range(14, 20) as $i) {
+        $state = ingestRecordState('s1', "k{$i}");
+        expect((int) $state->absent_runs)->toBe(1);
+    }
+});
+
+it('does NOT trip at the ratio boundary when the absolute count is below 5 (4 of 10 vanish, 40%) — kills the count >= 5 clause', function () {
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 10) as $i) {
+        $records[] = new Record('releases', "k{$i}", ['seq' => $i]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, null);
+
+    // 4 of 10 live keys vanish: ratio exactly 0.4, but count 4 is below 5.
+    $survivors = array_slice($records, 0, 6);
+    $result = $lander->land('s1', 'r2', $spec, $survivors, new Covered('releases', Coverage::exhaustive()));
+
+    expect($result['guard_tripped'])->toBeFalse();
+    expect($result['tombstoned'])->toBe(0);
+    expect(DB::table('ingest.streams')->where('id', 's1')->value('guard_tripped_at'))->toBeNull();
+    expect(DB::table('ingest.anomalies')->where('stream_id', 's1')->where('kind', 'delete_guard')->count())->toBe(0);
+
+    foreach (range(7, 10) as $i) {
+        $state = ingestRecordState('s1', "k{$i}");
+        expect((int) $state->absent_runs)->toBe(1);
+    }
+});
+
+it('trips at the count=5 boundary above the ratio threshold (5 of 12 vanish) — kills >= 5 -> > 5', function () {
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 12) as $i) {
+        $records[] = new Record('releases', "k{$i}", ['seq' => $i]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, null);
+
+    // 5 of 12 live keys vanish: ratio 0.41666…, count exactly 5.
+    $survivors = array_slice($records, 0, 7);
+    $result = $lander->land('s1', 'r2', $spec, $survivors, new Covered('releases', Coverage::exhaustive()));
+
+    expect($result['guard_tripped'])->toBeTrue();
+    expect($result['tombstoned'])->toBe(0);
+    expect(DB::table('ingest.streams')->where('id', 's1')->value('guard_tripped_at'))->not->toBeNull();
+    expect(DB::table('ingest.anomalies')->where('stream_id', 's1')->where('kind', 'delete_guard')->count())->toBe(1);
+
+    foreach (range(8, 12) as $i) {
+        $state = ingestRecordState('s1', "k{$i}");
+        expect((int) $state->absent_runs)->toBe(0);
+        expect($state->tombstoned_at)->toBeNull();
+    }
+});
+
 // ── SCALE-4: batching land() — golden-reference diff ────────────────────────
 
 it('lands an identical multi-run fixture to the same final state whether chunked per-record (chunk=1) or batched (chunk=500)', function () {
