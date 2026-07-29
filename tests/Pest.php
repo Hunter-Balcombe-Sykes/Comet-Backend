@@ -632,6 +632,21 @@ function setupSitesTable(): void
         display_settings TEXT NULL,
         canonical_key TEXT NULL,
         resource_kind TEXT NULL CHECK (resource_kind IS NULL OR resource_kind IN (\'event\',\'link\')),
+        -- #PARITY-1 §3c item 14 DECLINED (deviation from the Unit I plan,
+        -- confirmed empirically, not assumed): the plan\'s premise was "no
+        -- test passes explicit null" for these two columns, which is false.
+        -- tests/Feature/Platforms/DueForRefreshScopeTest.php:88 writes
+        -- `->update([\'updated_at\' => null])` (no model save(), so no
+        -- re-stamp) specifically to prove scopeStrandedPending() treats an
+        -- unprovable-stale row as not-stranded — a defensive branch, not a
+        -- data state any app code writes. A bare NOT NULL here reds that
+        -- test with SQLSTATE 19 (verified). Postgres will enforce NOT NULL
+        -- once 20260729150016..150018 actually applies (a DEFAULT never
+        -- fires on an explicit NULL, so this write would ALSO fail live) —
+        -- but SQLite has no NOT VALID/backfill-then-validate two-step, so
+        -- there is no way to keep this defensive test green AND add the
+        -- constraint here. Left nullable; see the matching comment at
+        -- DueForRefreshScopeTest.php:88.
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
@@ -2007,7 +2022,7 @@ function setupSectionsTables(): void
         key TEXT NOT NULL,
         label TEXT NOT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
-        order_mode TEXT NOT NULL DEFAULT \'manual\',
+        order_mode TEXT NOT NULL DEFAULT \'manual\' CHECK (order_mode IN (\'manual\', \'auto\')),
         is_hidden INTEGER NOT NULL DEFAULT 0,
         capability TEXT NULL,
         preset_key TEXT NULL,
@@ -2060,7 +2075,7 @@ function setupSectionsTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         site_id TEXT NOT NULL,
         version INTEGER NOT NULL,
-        channel TEXT NOT NULL DEFAULT \'live\',
+        channel TEXT NOT NULL DEFAULT \'live\' CHECK (channel IN (\'live\', \'draft\')),
         document TEXT NOT NULL,
         content_hash TEXT NOT NULL,
         builder_revision INTEGER NOT NULL,
@@ -2238,8 +2253,8 @@ function setupContentTables(): void
         'f_text' => 'headline TEXT NULL, body TEXT NULL, summary TEXT NULL',
         'f_link' => 'url TEXT NOT NULL, canonical_url TEXT NULL',
         'f_duration' => 'seconds INTEGER NULL',
-        'f_published' => 'published_from TEXT NULL, published_to TEXT NULL, verbatim TEXT NULL, precision TEXT NULL',
-        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL, starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
+        'f_published' => 'published_from TEXT NULL, published_to TEXT NULL, verbatim TEXT NULL, precision TEXT NULL CHECK (precision IS NULL OR precision IN (\'year\', \'month\', \'day\', \'time\'))',
+        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL CHECK (zone_confidence IS NULL OR zone_confidence IN (\'explicit\', \'inferred\', \'assumed\')), starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
         'f_embed' => 'provider TEXT NOT NULL, embed_key TEXT NOT NULL, variant TEXT NULL',
         'f_playable' => 'stream_url TEXT NULL, preview_url TEXT NULL, is_explicit INTEGER NULL',
         'f_authored' => 'creator TEXT NULL, creator_url TEXT NULL, collaborators TEXT NULL',
@@ -2269,9 +2284,9 @@ function setupContentTables(): void
         mime_type TEXT NULL,
         width INTEGER NULL,
         height INTEGER NULL,
-        dims_confidence TEXT NULL,
+        dims_confidence TEXT NULL CHECK (dims_confidence IS NULL OR dims_confidence IN (\'measured\', \'declared\', \'guessed\')),
         palette TEXT NULL,
-        variant_family TEXT NULL,
+        variant_family TEXT NULL CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash TEXT NULL,
         created_at TEXT NOT NULL,
         UNIQUE (user_id, fingerprint)
@@ -2296,7 +2311,7 @@ function setupContentTables(): void
         variant_label TEXT NULL,
         amount_minor INTEGER NULL,
         currency TEXT NULL,
-        qualifier TEXT NOT NULL DEFAULT \'exact\',
+        qualifier TEXT NOT NULL DEFAULT \'exact\' CHECK (qualifier IN (\'exact\', \'from\', \'upto\', \'range\', \'free\', \'variable\', \'on_request\')),
         amount_max_minor INTEGER NULL,
         url TEXT NULL,
         availability TEXT NULL,
@@ -2501,11 +2516,13 @@ function setupRoutingTables(): void
     attachTestSchemas();
     $pg = DB::connection('pgsql');
 
+    // CHECKs copied verbatim from
+    // supabase/migrations/20260727120000_routing_schema.sql:14-30 (#PARITY-1 Tier 2).
     $pg->statement('CREATE TABLE IF NOT EXISTS routing.link_observations (
         id TEXT NOT NULL,
         user_id TEXT NULL,
         observed_at TEXT NOT NULL,
-        source TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\')),
         import_run_id TEXT NULL,
         raw_url TEXT NOT NULL,
         canonical_url TEXT NULL,
@@ -2513,9 +2530,9 @@ function setupRoutingTables(): void
         evidence TEXT NOT NULL DEFAULT \'{}\',
         detector_id TEXT NULL,
         surface_key TEXT NULL,
-        confidence INTEGER NULL,
+        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         margin INTEGER NULL,
-        verdict TEXT NULL,
+        verdict TEXT NULL CHECK (verdict IS NULL OR verdict IN (\'place\', \'choose\', \'note\', \'hold\', \'reject\')),
         block_reason TEXT NULL,
         catalog_digest TEXT NULL,
         PRIMARY KEY (id, observed_at)
@@ -2560,7 +2577,7 @@ function setupRoutingTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
         source_ref TEXT NOT NULL,
-        scope TEXT NOT NULL DEFAULT \'this_source\',
+        scope TEXT NOT NULL DEFAULT \'this_source\' CHECK (scope IN (\'this_source\', \'any_source\')),
         reason TEXT NULL,
         created_at TEXT NOT NULL
     )');
@@ -2568,11 +2585,11 @@ function setupRoutingTables(): void
     $pg->statement('CREATE TABLE IF NOT EXISTS routing.import_runs (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN (\'website\', \'link_in_bio\', \'bio_harvest\', \'menu_scan\')),
         source_url TEXT NULL,
         started_at TEXT NOT NULL,
         finished_at TEXT NULL,
-        outcome TEXT NULL,
+        outcome TEXT NULL CHECK (outcome IS NULL OR outcome IN (\'ok\', \'partial\', \'unavailable\', \'error\', \'cooldown\', \'budget\')),
         observations_count INTEGER NOT NULL DEFAULT 0,
         intents_count INTEGER NOT NULL DEFAULT 0,
         items_count INTEGER NOT NULL DEFAULT 0,

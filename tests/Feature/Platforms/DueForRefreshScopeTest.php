@@ -84,6 +84,15 @@ it('scopeStrandedPending finds an old pending row but not a fresh one, an ok one
 
     // Can't be proven stale (same reasoning as RefreshController::refreshStatus()'s
     // own stale-pending check), so a NULL updated_at must never count as stranded.
+    //
+    // #PARITY-1: once supabase/migrations/20260729150016..150018 actually
+    // applies, site.platform_connections.updated_at becomes NOT NULL in
+    // Postgres and this exact write would fail there too — this branch then
+    // guards a state unreachable through the app, kept for defence-in-depth
+    // the same way DocumentBuilderTest.php:224's orphan pin is. The SQLite
+    // stand-in deliberately stays nullable on this column (see the comment
+    // at tests/Pest.php's site.platform_connections definition) so this test
+    // keeps exercising it.
     $nullUpdatedAt = ytConn($user, ['last_refresh_status' => 'pending', 'resource_id' => 'youtube-null-updated']);
     IntegrationConnection::query()->where('id', $nullUpdatedAt->id)->update(['updated_at' => null]);
 
