@@ -23,7 +23,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 5 complete
 - P3 Low: 0 of 7 complete
 
@@ -31,7 +31,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEM-1** · P1 — Shop product-picker "manual" guard is inert: the scheduled sync it claims to block only reads a different, global column
+- [x] **#SEM-1** · P1 — Shop product-picker "manual" guard is inert: the scheduled sync it claims to block only reads a different, global column
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php:699-703 (setProducts), cf. docblock at :426-432; app/Services/Platforms/Strategies/Fetch/ShopFetch.php:12-20, 30-41
     - **Affects:** Any user with a connected Shop brand who hand-picks products via the picker (`PUT /api/platforms/shop/brands/{id}/selection`) while the site's global auto-latest toggle is on. Auto-latest defaults ON (`Site::DEFAULT` via `(bool) ($site->shop_auto_latest ?? true)`), so this is the out-of-the-box state for every new connection.
     - **Effort:** M (~2–4h)
