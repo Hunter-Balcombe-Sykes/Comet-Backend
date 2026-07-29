@@ -142,17 +142,15 @@ it('does not lose a cut when the same pair is separated twice', function () {
     expect(dsSorted($set))->toBe(['a', 'b']);
 });
 
-// ── Defect B (FU-1): guarded, non-pinning ───────────────────────────────────
-// The cut tie-break is order-dependent — with a,b,c all mutually unioned and
-// a cut on (a,b), which side 'c' lands on depends on which union rooted
-// first. That contradicts the class docblock's old order-independence claim
-// (corrected above) and is filed as FU-1: fixing it needs recorded union
-// edges, a constraint-respecting rebuild, and a product ruling on the
-// tie-break — out of scope here. This test asserts only the invariant that
-// MUST hold in both orders (the cut pair stays apart, 'c' lands with exactly
-// one of them) and deliberately does NOT assert which one, so it cannot be
-// mistaken for a pin on the current accident.
-it('keeps a cut pair apart no matter which side won the union', function () {
+// ── Defect B (FU-1): RESOLVED — the tie-break is now a ruling, not an accident ──
+// Previously the cut tie-break was order-dependent: with a,b,c all mutually
+// unioned and a cut on (a,b), which side 'c' landed on depended on which union
+// happened to root first, so the two orders below disagreed ({a,c},{b} versus
+// {a},{b,c}). Closing it needed the three things this comment used to list as
+// out of scope: recorded union edges, a constraint-respecting rebuild, and a
+// product ruling. The ruling: THE CONTESTED ELEMENT STAYS WITH THE
+// LEXICOGRAPHICALLY-SMALLER COORDINATE. These tests pin it in both directions.
+it('gives the contested element to the smaller coordinate, whatever the union order', function () {
     $orderOne = new DisjointSet(['a', 'b', 'c']);
     $orderOne->union('a', 'b');
     $orderOne->union('a', 'c');
@@ -165,17 +163,43 @@ it('keeps a cut pair apart no matter which side won the union', function () {
     $orderTwo->union('a', 'c');
     $orderTwo->separate('a', 'b');
 
+    // Both orders now agree, and agree on the ruling: 'a' < 'b', so 'c' stays
+    // with 'a'. The old code produced {a},{b,c} for orderTwo.
     foreach ([$orderOne, $orderTwo] as $set) {
-        expect($set->find('a'))->not->toBe($set->find('b'));
-        $groups = $set->groups();
-        $withC = array_values(array_filter($groups, fn (array $g) => in_array('c', $g, true)));
-        expect($withC)->toHaveCount(1);
-        $hasA = in_array('a', $withC[0], true);
-        $hasB = in_array('b', $withC[0], true);
-        expect($hasA xor $hasB)->toBeTrue();
+        expect(dsSorted($set))->toBe(['a,c', 'b']);
     }
+});
 
-    // FU-1: the two orders currently disagree about which of a/b keeps c
-    // (orderOne -> {a,c},{b}; orderTwo -> {a},{b,c}). That disagreement is
-    // the follow-up, not something this test resolves or blesses.
+it('applies the ruling by coordinate value, not by argument position', function () {
+    // separate() is called with the LARGER coordinate first here. If the
+    // tie-break keyed off argument order rather than value, 'c' would follow
+    // 'b'. Stored decisions arrive with coords sorted, but nothing in the type
+    // guarantees a caller does that, so the ruling must not depend on it.
+    $set = new DisjointSet(['a', 'b', 'c']);
+    $set->union('a', 'c');
+    $set->union('b', 'c');
+    $set->separate('b', 'a');
+
+    expect(dsSorted($set))->toBe(['a,c', 'b']);
+});
+
+it('is unchanged by replaying the same unions in a shuffled order', function () {
+    // The property the ruling exists to give: the grouping is a function of
+    // the SET of unions and cuts, not of the sequence they arrived in.
+    $edges = [['b', 'd'], ['a', 'c'], ['c', 'd'], ['a', 'b']];
+
+    $forward = new DisjointSet(['a', 'b', 'c', 'd']);
+    foreach ($edges as [$x, $y]) {
+        $forward->union($x, $y);
+    }
+    $forward->separate('a', 'd');
+
+    $backward = new DisjointSet(['a', 'b', 'c', 'd']);
+    foreach (array_reverse($edges) as [$x, $y]) {
+        $backward->union($x, $y);
+    }
+    $backward->separate('a', 'd');
+
+    expect(dsSorted($backward))->toBe(dsSorted($forward))
+        ->and($forward->find('a'))->not->toBe($forward->find('d'));
 });

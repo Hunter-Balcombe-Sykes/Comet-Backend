@@ -6,12 +6,26 @@ namespace App\Content\Identity;
  * Union-find with support for SEPARATION — the part a textbook disjoint set
  * does not have, and which the user's "these are different" ruling requires.
  *
- * Separation is handled by recording forbidden pairs and detaching one side
- * of the pair, rather than trying to undo a union in place. Note this is
- * NOT order-independent: the cut is applied by detaching the non-root side,
- * so anything joined only through it follows the detached element — which
- * one of a third, transitively-joined element ends up with depends on which
- * side won the union that joined it. See FU-1 (2026-07-29).
+ * Separation is a CONSTRAINT ON THE FINAL GROUPING, not a mutation whose
+ * effect depends on when it arrived. To keep that true, this class records the
+ * union edges it is given and recomputes the grouping from them whenever a cut
+ * or a new edge lands, skipping any edge that would join a forbidden pair. An
+ * in-place "undo the union" cannot be correct: by the time a cut arrives, the
+ * information about which edges built the group is gone, so the split has to
+ * guess — and the old implementation's guess was whichever argument happened
+ * not to be the union root, an accident of arrival order no caller controls.
+ *
+ * THE TIE-BREAK IS A RULING, NOT AN ACCIDENT (FU-1, settled 2026-07-29). When
+ * a cut splits a group, an element joined to both sides could go either way.
+ * It stays with the LEXICOGRAPHICALLY-SMALLER coordinate. That falls out of
+ * replaying edges in canonical (sorted) order rather than arrival order, which
+ * is also what makes the grouping a pure function of the SET of unions and
+ * cuts — replay the same decisions shuffled and the answer is identical.
+ * Stored decisions already arrive with coords sorted, so this matches what the
+ * data mostly did anyway; the point is that it no longer DEPENDS on that.
+ *
+ * Rebuilds are deferred to the next read, so a batch of unions costs one
+ * rebuild rather than one per edge.
  */
 class DisjointSet
 {
@@ -20,6 +34,17 @@ class DisjointSet
 
     /** @var list<array{0: string, 1: string}> */
     private array $separations = [];
+
+    /**
+     * Every union this set has been given, each normalised to [smaller,
+     * larger] and deduplicated. This is the input a rebuild replays; without
+     * it a cut would have nothing to recompute from.
+     *
+     * @var list<array{0: string, 1: string}>
+     */
+    private array $unions = [];
+
+    private bool $dirty = false;
 
     /** @param list<string> $elements */
     public function __construct(array $elements)
@@ -31,76 +56,119 @@ class DisjointSet
 
     public function find(string $element): string
     {
+        $this->settle();
+
         if (! isset($this->parent[$element])) {
             $this->parent[$element] = $element;
         }
-        while ($this->parent[$element] !== $element) {
-            $this->parent[$element] = $this->parent[$this->parent[$element]];
-            $element = $this->parent[$element];
-        }
 
-        return $element;
+        return $this->root($element);
     }
 
     public function union(string $a, string $b): void
     {
-        if ($this->isSeparated($a, $b)) {
-            return;
-        }
-        $rootA = $this->find($a);
-        $rootB = $this->find($b);
-        if ($rootA !== $rootB) {
-            $this->parent[$rootB] = $rootA;
+        // Vivify both sides: being named by a union is what makes an element a
+        // member of this run. A SEPARATION does not vivify — see
+        // wouldViolateCut().
+        $this->find($a);
+        $this->find($b);
+
+        $edge = $a < $b ? [$a, $b] : [$b, $a];
+
+        if (! in_array($edge, $this->unions, true)) {
+            $this->unions[] = $edge;
+            $this->dirty = true;
         }
     }
 
     /**
-     * Record that these two must never share a group, and split them apart if
-     * they already do.
+     * Record that these two must never share a group. Takes effect on the next
+     * read, whether or not they are currently joined and whether or not either
+     * is known yet — a cut given before its elements exist still binds if they
+     * later turn up.
      */
     public function separate(string $a, string $b): void
     {
-        $this->separations[] = [$a, $b];
+        $this->separations[] = $a < $b ? [$a, $b] : [$b, $a];
+        $this->dirty = true;
+    }
 
-        if (! isset($this->parent[$a]) || ! isset($this->parent[$b])) {
+    /** @return list<list<string>> */
+    public function groups(): array
+    {
+        $this->settle();
+
+        $groups = [];
+        foreach (array_keys($this->parent) as $element) {
+            $groups[$this->root($element)][] = $element;
+        }
+
+        return array_values(array_map('array_values', $groups));
+    }
+
+    /**
+     * Recompute the grouping from the recorded edges, honouring every cut.
+     *
+     * Edges are replayed in canonical order (sorted, each already normalised
+     * to [smaller, larger]) rather than arrival order. That IS the tie-break:
+     * the smaller coordinate's edges are applied first, so it wins any
+     * contested element, and the outcome stops depending on the sequence the
+     * caller happened to use.
+     */
+    private function settle(): void
+    {
+        if (! $this->dirty) {
             return;
         }
 
-        if ($this->find($a) !== $this->find($b)) {
-            return;
+        // Cleared first: root() and the helpers below must not recurse back
+        // into settle() while it is running.
+        $this->dirty = false;
+
+        foreach (array_keys($this->parent) as $element) {
+            $this->parent[$element] = $element;
         }
 
-        // Re-root whichever argument is NOT the group root. Re-rooting the
-        // root is a no-op, and always re-rooting $b (the old bug) silently
-        // lost the cut whenever $b's side had won the union — an accident of
-        // argument order no caller controls (stored decisions arrive with
-        // coords sorted). Anything transitively joined only through the
-        // detached element follows it.
-        $detach = $this->find($b) === $b ? $a : $b;
-        $this->parent[$detach] = $detach;
+        $edges = $this->unions;
+        sort($edges);
 
-        // If one argument's path ran through the other, one detach pulled
-        // both out together — split the pair itself.
-        if ($this->find($a) === $this->find($b)) {
-            $other = $detach === $b ? $a : $b;
-            $this->parent[$other] = $other;
+        foreach ($edges as [$a, $b]) {
+            if ($this->wouldViolateCut($a, $b)) {
+                continue;
+            }
+
+            $rootA = $this->root($a);
+            $rootB = $this->root($b);
+
+            if ($rootA !== $rootB) {
+                $this->parent[$rootB] = $rootA;
+            }
         }
     }
 
-    private function isSeparated(string $a, string $b): bool
+    /**
+     * Would joining these two components put some separated pair together?
+     *
+     * Deliberately does NOT vivify: a cut naming a coordinate this run never
+     * saw must be ignored, not resurrect that coordinate as a phantom
+     * singleton in groups(). That was a real defect — the old isSeparated()
+     * called find() on stored decisions and auto-created whatever they named.
+     */
+    private function wouldViolateCut(string $a, string $b): bool
     {
+        $rootA = $this->root($a);
+        $rootB = $this->root($b);
+
         foreach ($this->separations as [$left, $right]) {
-            // A cut naming an element this run never saw is inert — and
-            // resolving it would auto-vivify the unknown element into
-            // $parent (find(), above), leaking a phantom singleton out of
-            // groups().
             if (! isset($this->parent[$left]) || ! isset($this->parent[$right])) {
                 continue;
             }
-            $rootLeft = $this->find($left);
-            $rootRight = $this->find($right);
-            if (($this->find($a) === $rootLeft && $this->find($b) === $rootRight)
-                || ($this->find($a) === $rootRight && $this->find($b) === $rootLeft)) {
+
+            $rootLeft = $this->root($left);
+            $rootRight = $this->root($right);
+
+            if (($rootLeft === $rootA && $rootRight === $rootB)
+                || ($rootLeft === $rootB && $rootRight === $rootA)) {
                 return true;
             }
         }
@@ -108,14 +176,14 @@ class DisjointSet
         return false;
     }
 
-    /** @return list<list<string>> */
-    public function groups(): array
+    /** Root lookup with path compression, free of the dirty check find() does. */
+    private function root(string $element): string
     {
-        $groups = [];
-        foreach (array_keys($this->parent) as $element) {
-            $groups[$this->find($element)][] = $element;
+        while ($this->parent[$element] !== $element) {
+            $this->parent[$element] = $this->parent[$this->parent[$element]];
+            $element = $this->parent[$element];
         }
 
-        return array_values(array_map('array_values', $groups));
+        return $element;
     }
 }
