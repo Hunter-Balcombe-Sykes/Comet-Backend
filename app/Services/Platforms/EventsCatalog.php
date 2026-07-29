@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
@@ -11,6 +12,7 @@ use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 // Unified "Tickets & Events" catalogue over the Eventbrite + Humanitix platforms
 // plus a custom-link fallback. A pasted URL is detected (eventbrite / humanitix /
@@ -36,6 +38,14 @@ class EventsCatalog
     private const MAX_ACCOUNTS = 5;   // per platform (mirrors ManagesIntegrationConnection::maxAccounts)
 
     private const MAX_EVENTS = 10;    // per platform (mirrors EventsPlatformController::MAX_STANDALONE_EVENTS)
+
+    // Manual order lives in site settings rather than on connection rows:
+    // account-derived events share ONE connection row, so per-row sort_order
+    // can never order the merged list. The settings key holds the full desired
+    // event-id order; ids it doesn't mention keep the soonest-first fallback.
+    private const ORDER_SETTINGS_KEY = 'events_order';
+
+    private const MAX_ORDER_IDS = 200;
 
     /** @var array<string, array{eventUrl:callable,fetchEvent:callable,accountUrl:callable,fetchAccount:callable}> */
     private readonly array $adapters;
@@ -204,8 +214,66 @@ class EventsCatalog
 
         return [
             'accounts' => $accounts,
-            'events' => $this->sortEvents($this->dropElapsed($events)),
+            'events' => $this->sortEvents($this->dropElapsed($events), $this->orderIndex($user)),
         ];
+    }
+
+    /**
+     * Persist the user's manual event order — the full desired id order, same
+     * contract as CustomLinksController::reorderLinks. Stored via a locked
+     * re-read + merge of site settings (the LIFE-3 rule: two concurrent
+     * writers must not clobber each other's unrelated settings keys).
+     *
+     * @param  list<string>  $ids
+     * @return array{ok:bool, error?:string, status?:int, selection?:?array}
+     */
+    public function reorder(User $user, array $ids): array
+    {
+        $site = $user->site;
+        if ($site === null) {
+            return $this->fail('Site not found.', 404);
+        }
+
+        $ids = array_slice(array_values(array_unique(array_filter(
+            $ids,
+            fn ($id) => is_string($id) && $id !== '' && strlen($id) <= 160,
+        ))), 0, self::MAX_ORDER_IDS);
+
+        DB::connection('pgsql')->transaction(function () use ($site, $ids): void {
+            $fresh = Site::query()->whereKey($site->id)->lockForUpdate()->first();
+            if ($fresh === null) {
+                return;
+            }
+            $settings = is_array($fresh->settings) ? $fresh->settings : [];
+            $settings[self::ORDER_SETTINGS_KEY] = $ids;
+            $fresh->settings = $settings;
+            $fresh->save();
+        });
+
+        // The user's site relation was loaded BEFORE the write above — drop it
+        // so orderIndex() reads the saved order, not the stale snapshot.
+        $user->unsetRelation('site');
+
+        return ['ok' => true, 'selection' => $this->selection($user)];
+    }
+
+    /** @return array<string,int> event id → manual position */
+    private function orderIndex(User $user): array
+    {
+        $settings = $user->site?->settings;
+        $order = is_array($settings) ? ($settings[self::ORDER_SETTINGS_KEY] ?? []) : [];
+        if (! is_array($order)) {
+            return [];
+        }
+
+        $index = [];
+        foreach (array_values($order) as $position => $id) {
+            if (is_string($id)) {
+                $index[$id] = $position;
+            }
+        }
+
+        return $index;
     }
 
     /** Remove one custom (events-custom) event by its id. */
@@ -506,14 +574,30 @@ class EventsCatalog
     }
 
     /**
-     * Soonest first; dateless events (e.g. custom links) sort last.
+     * Manually-ordered events first (their saved positions), then the
+     * soonest-first fallback for anything the order doesn't mention; dateless
+     * events (e.g. custom links) sort last within the fallback.
      *
      * @param  list<array<string,mixed>>  $events
+     * @param  array<string,int>  $orderIndex
      * @return list<array<string,mixed>>
      */
-    private function sortEvents(array $events): array
+    private function sortEvents(array $events, array $orderIndex = []): array
     {
-        usort($events, function (array $a, array $b) {
+        usort($events, function (array $a, array $b) use ($orderIndex) {
+            $aPos = $orderIndex[$a['id'] ?? ''] ?? null;
+            $bPos = $orderIndex[$b['id'] ?? ''] ?? null;
+            if ($aPos !== null || $bPos !== null) {
+                if ($aPos === null) {
+                    return 1;
+                }
+                if ($bPos === null) {
+                    return -1;
+                }
+
+                return $aPos <=> $bPos;
+            }
+
             $aDate = $a['startDate'] ?? '';
             $bDate = $b['startDate'] ?? '';
             if ($aDate === '' || $bDate === '') {

@@ -226,6 +226,7 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::post('/add', [EventsController::class, 'add']);
             Route::get('/selection', [EventsController::class, 'selection']);
+            Route::put('/order', [EventsController::class, 'reorder']);
             Route::delete('/custom/{id}', [EventsController::class, 'removeCustom'])->where('id', '[A-Za-z0-9._-]+');
         });
 
@@ -254,9 +255,11 @@ $registerIntegrationRoutes = function (string $base): void {
             // the whereUuid() convention already used throughout routes/api/staff.php
             // and routes/api/user.php for uuid-typed route params.
             Route::post('/categories', [MenuContentController::class, 'createCategory']);
+            Route::post('/categories/reorder', [MenuContentController::class, 'reorderCategories']);
             Route::patch('/categories/{category}', [MenuContentController::class, 'updateCategory'])->whereUuid('category');
             Route::delete('/categories/{category}', [MenuContentController::class, 'deleteCategory'])->whereUuid('category');
             Route::post('/items', [MenuContentController::class, 'createItem']);
+            Route::post('/items/reorder', [MenuContentController::class, 'reorderItems']);
             // Bulk delete before the {item} routes — 'bulk-delete' must never be
             // captured as an {item} id (whereUuid already prevents it; order is
             // belt-and-braces).

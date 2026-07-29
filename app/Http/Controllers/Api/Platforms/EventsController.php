@@ -63,6 +63,26 @@ class EventsController extends ApiController
         return $this->success(['selection' => $this->catalog->selection($this->currentUser($request))]);
     }
 
+    // PUT /api/platforms/events/order — persist the user's manual event order.
+    // `ids` is the full desired order over the merged selection (account +
+    // standalone + custom events); ids it omits keep the soonest-first
+    // fallback after the listed ones. Same contract as custom links' reorder.
+    public function reorder(Request $request): JsonResponse
+    {
+        $ids = $request->validate([
+            'ids' => ['required', 'array', 'max:200'],
+            'ids.*' => ['string', 'max:160'],
+        ])['ids'];
+
+        $result = $this->catalog->reorder($this->currentUser($request), $ids);
+
+        if (! ($result['ok'] ?? false)) {
+            return $this->error($result['error'] ?? 'Could not reorder events.', $result['status'] ?? 422);
+        }
+
+        return $this->success(['selection' => $result['selection'] ?? null]);
+    }
+
     // DELETE /api/platforms/events/custom/{id} — remove one custom event card.
     public function removeCustom(Request $request, string $id): JsonResponse
     {

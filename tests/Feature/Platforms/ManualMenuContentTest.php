@@ -754,3 +754,62 @@ it('serves a manual-only menu on status and show (owner content is never orphane
     // Owner-authored item — is_manual=true (never omitted/false for a hand-added dish).
     expect($res->json('categories.0.items.0.isManual'))->toBeTrue();
 });
+
+// ── Reorder (categories + items within a category) ───────────────────────────
+
+it('reorders categories, unlisted ones trailing', function () {
+    $user = mmcUser('mreo1');
+    $menu = mmcSeedScraped($user, [
+        'Breakfast' => [['name' => 'Avo']],
+        'Lunch' => [['name' => 'Roll']],
+        'Dinner' => [['name' => 'Braise']],
+    ]);
+    $cats = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->get();
+
+    // Move Dinner first, list only it and Breakfast — Lunch trails.
+    actingAsUser($user)->postJson('/api/platforms/menu/categories/reorder', [
+        'ids' => [$cats[2]->id, $cats[0]->id],
+    ])->assertOk();
+
+    $order = MenuCategory::query()->where('menu_id', $menu->id)->orderBy('position')->pluck('name')->all();
+    expect($order)->toBe(['Dinner', 'Breakfast', 'Lunch']);
+});
+
+it('reorders items within one category via pivot positions', function () {
+    $user = mmcUser('mreo2');
+    $menu = mmcSeedScraped($user, [
+        'Lunch' => [['name' => 'Roll'], ['name' => 'Bowl'], ['name' => 'Pie']],
+    ]);
+    $cat = MenuCategory::query()->where('menu_id', $menu->id)->firstOrFail();
+    $items = $cat->items()->orderByPivot('position')->pluck('site.menu_items.id')->all();
+
+    actingAsUser($user)->postJson('/api/platforms/menu/items/reorder', [
+        'category_id' => $cat->id,
+        'ids' => [$items[2], $items[0]],
+    ])->assertOk();
+
+    $names = $cat->fresh()->items()->orderByPivot('position')->pluck('name')->all();
+    expect($names)->toBe(['Pie', 'Roll', 'Bowl']);
+});
+
+it('404s reordering items with an id outside the category', function () {
+    $user = mmcUser('mreo3');
+    $menu = mmcSeedScraped($user, [
+        'Lunch' => [['name' => 'Roll']],
+        'Dinner' => [['name' => 'Braise']],
+    ]);
+    $lunch = MenuCategory::query()->where('menu_id', $menu->id)->where('name', 'Lunch')->firstOrFail();
+    $braise = MenuItem::query()->where('menu_id', $menu->id)->where('name', 'Braise')->firstOrFail();
+
+    actingAsUser($user)->postJson('/api/platforms/menu/items/reorder', [
+        'category_id' => $lunch->id,
+        'ids' => [$braise->id],
+    ])->assertStatus(404);
+});
+
+it('403s menu reorders without the menu capability', function () {
+    $user = mmcUser('mreo4', 'partna', 'creator');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/categories/reorder', ['ids' => []])
+        ->assertStatus(403);
+});
