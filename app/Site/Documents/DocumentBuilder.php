@@ -268,6 +268,29 @@ class DocumentBuilder
     ];
 
     /**
+     * The rule operators {@see applyPredicate()} actually executes — the
+     * single source of truth for "does this predicate narrow the list?", read
+     * by {@see SectionTracer} so a diagnostic cannot
+     * disagree with the page it is diagnosing. Currently every declared
+     * RuleOperator; ArchitectureSystemConstraintsTest-style coverage lives in
+     * DocumentBuilderRuleOpsTest, which exercises each one against real rows.
+     *
+     * A new RuleOperator case MUST be added here at the same time as its match
+     * arm, or the trace will report it as applied while the builder ignores it.
+     *
+     * @var list<string>
+     */
+    public const EXECUTED_OPERATORS = [
+        'kind_is',
+        'published_within',
+        'has_facet',
+        'from_source',
+        'in_collection',
+        'tagged_with',
+        'has_action',
+    ];
+
+    /**
      * @param  list<string>  $alreadyPinned
      * @return list<string>
      */
@@ -310,6 +333,11 @@ class DocumentBuilder
      */
     private function applyPredicate($query, array $predicate): void
     {
+        // Every arm below is live and covered by DocumentBuilderRuleOpsTest.
+        // SectionTracer reads self::EXECUTED_OPERATORS rather than keeping its
+        // own copy of this list — it kept one, the two drifted, and the trace
+        // spent months telling people five of these seven were "not yet
+        // narrowing the list" while they were narrowing it.
         $values = array_values(array_map('strval', (array) ($predicate['values'] ?? [])));
         $negated = (bool) ($predicate['not'] ?? false);
 

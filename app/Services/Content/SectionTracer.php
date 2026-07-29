@@ -18,19 +18,28 @@ use Illuminate\Support\Facades\DB;
  * diagnostic. Where the builder ignores an operator, this says so in the
  * `gaps` list instead of pretending the predicate was applied.
  *
- * Executed operators today: kind_is, published_within. The other five are
- * declared, validated and narratable but not yet executed — see `gaps`.
+ * Which operators actually execute is read from
+ * {@see DocumentBuilder::EXECUTED_OPERATORS} rather than restated here. This
+ * class used to keep its own list naming only kind_is and published_within,
+ * and the builder grew the other five without it — so the trace reported
+ * has_facet, from_source, in_collection, tagged_with and has_action as
+ * "stored and validated but not yet applied" while they were, in fact,
+ * filtering the live page. A trace that disagrees with the page sends someone
+ * hunting a bug that isn't there, which is the exact failure the mirroring is
+ * supposed to prevent.
  */
 final class SectionTracer
 {
     /** Mirrors DocumentBuilder::ruleCandidates()' own bound. */
     private const CANDIDATE_SCAN_LIMIT = 200;
 
-    /** The operators DocumentBuilder actually executes today. */
-    private const EXECUTED_OPERATORS = [
-        RuleOperator::KindIs->value,
-        RuleOperator::PublishedWithin->value,
-    ];
+    /**
+     * Never restate this list. DocumentBuilder owns it; a private copy here is
+     * exactly what drifted.
+     *
+     * @var list<string>
+     */
+    private const EXECUTED_OPERATORS = DocumentBuilder::EXECUTED_OPERATORS;
 
     /**
      * @return array<string, mixed>
@@ -111,17 +120,25 @@ final class SectionTracer
 
     private function predicateReason(RuleOperator $operator, bool $executed): string
     {
+        // Reachable only for an operator declared in RuleOperator but absent
+        // from DocumentBuilder::EXECUTED_OPERATORS. Every operator is executed
+        // today, so nothing hits this — it is kept deliberately generic so
+        // that the next one added is described correctly by default rather
+        // than by a stale sentence about whichever joins were missing in 2026.
         if (! $executed) {
-            return 'Saved and shown in the rule, but not yet narrowing the list: this condition needs '
-                .'facet, source or tag joins the document builder does not run yet.';
+            return 'Saved and shown in the rule, but not yet narrowing the list: the document builder '
+                .'does not apply this condition when it builds the page.';
         }
 
         return match ($operator) {
-            // Named rather than hidden: the builder filters on last_seen_at,
-            // which is when we last SAW the item, not when it was published.
-            // For a source that re-reports its whole catalogue this is close
-            // enough to be useful and far enough to be worth stating.
-            RuleOperator::PublishedWithin => 'Applied against when the item was last seen, not its published date.',
+            // Named rather than hidden: the builder prefers the item's own
+            // published facet and falls back to FIRST-seen for items nothing
+            // ever dated, so a long-standing item that was only recently
+            // ingested still counts as new. (This used to say "last seen",
+            // conflating the filter with the recency ORDERING, which is the
+            // column last_seen_at actually drives.)
+            RuleOperator::PublishedWithin => 'Applied against the item\'s published date, falling back to when it '
+                .'was first seen for items no source ever dated.',
             default => 'Applied.',
         };
     }

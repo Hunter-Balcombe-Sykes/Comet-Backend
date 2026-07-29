@@ -1,5 +1,7 @@
 <?php
 
+use App\Site\Documents\DocumentBuilder;
+use App\Site\Sections\RuleOperator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -74,8 +76,13 @@ it('says an item fell off the end rather than silently dropping it', function ()
     expect($verdicts)->toBe(['included', 'over_limit']);
 });
 
-it('names the operators the builder does not execute instead of pretending it applied them', function () {
-    // A diagnostic that disagrees with the live page is worse than none.
+it('reports an executed operator as applied rather than inventing a gap', function () {
+    // A diagnostic that disagrees with the live page is worse than none — and
+    // this test used to be the disagreement. It asserted tagged_with was
+    // 'ignored' and raised an unexecuted_operators gap, while
+    // DocumentBuilderRuleOpsTest proved the builder filters on it. The tracer
+    // kept a private list naming only kind_is and published_within, the
+    // builder grew five more operators, and nothing reconciled them.
     $pro = createTenant('trace-gap');
     [, $sectionId] = seedPageWithSection($pro->site->id, [
         'rule' => json_encode(['all' => [
@@ -88,9 +95,34 @@ it('names the operators the builder does not execute instead of pretending it ap
     $byOp = collect($trace['rule']['predicates'])->keyBy('op');
 
     expect($byOp['kind_is']['status'])->toBe('applied')
-        ->and($byOp['tagged_with']['status'])->toBe('ignored')
-        ->and($trace['gaps'][0]['code'])->toBe('unexecuted_operators')
-        ->and($trace['gaps'][0]['detail'])->toContain('tagged_with');
+        ->and($byOp['tagged_with']['status'])->toBe('applied')
+        ->and(array_column($trace['gaps'], 'code'))->not->toContain('unexecuted_operators');
+});
+
+it('keeps every declared operator in step with the builder', function () {
+    // The guard that stops this drifting a third time. A new RuleOperator case
+    // added without a matching applyPredicate() arm fails HERE, where the
+    // decision is made, instead of silently producing a trace that claims an
+    // operator is applied while the page ignores it.
+    $declared = array_map(fn (RuleOperator $op) => $op->value, RuleOperator::cases());
+
+    expect(DocumentBuilder::EXECUTED_OPERATORS)->toEqualCanonicalizing($declared);
+});
+
+it('describes published_within by the column the builder actually filters on', function () {
+    // The same misreport in miniature: the reason string said "when the item
+    // was last seen", conflating the filter with the recency ORDERING.
+    // applyPredicate() filters on the published facet and falls back to
+    // first_seen_at; last_seen_at is what orderBy('recency') uses.
+    $pro = createTenant('trace-published');
+    [, $sectionId] = seedPageWithSection($pro->site->id, [
+        'rule' => json_encode(['all' => [['op' => 'published_within', 'values' => ['30']]]]),
+    ]);
+
+    $reason = traceOf($pro, $sectionId)['rule']['predicates'][0]['reason'];
+
+    expect($reason)->toContain('first seen')
+        ->and($reason)->not->toContain('last seen');
 });
 
 it('consults no rule at all for a hand-picked section', function () {
