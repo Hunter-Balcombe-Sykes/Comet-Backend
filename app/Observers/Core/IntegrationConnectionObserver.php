@@ -32,6 +32,18 @@ use Illuminate\Support\Facades\Log;
 // one purge per handle.
 class IntegrationConnectionObserver
 {
+    // LOAD-BEARING (LIFE-16): App\Routing\SourceReconciler::reconcile() now
+    // wraps the intent write + applyIntent()'s IntegrationConnection::save()
+    // calls + the settle-UPDATE in one DB::transaction (routing.source_intents
+    // must never show `applied` with a NULL connection_id after a mid-write
+    // failure). $afterCommit = true is what keeps every side effect below
+    // (the Cloudflare purge, the `$connection->user?->site?->touch()`
+    // cascade, and syncIngestSource()'s `catch (QueryException)`) OUT of that
+    // transaction — a QueryException caught INSIDE the transaction would
+    // leave the Postgres transaction ABORTED (SQLSTATE 25P02) for every
+    // statement after it. Removing or weakening this flag silently reopens
+    // that trap. Pinned by
+    // tests/Feature/Routing/SourceReconcilerDeferredSideEffectsTest.php.
     public bool $afterCommit = true;
 
     // Defaulted (not just container-resolved) because a couple of tests
