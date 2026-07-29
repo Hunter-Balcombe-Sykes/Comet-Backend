@@ -225,28 +225,34 @@ it("a duplicate claim insert resolves to the winner's verdict", function () {
     expect(DB::table('ingest.effects')->where('digest', $digest)->count())->toBe(1);
 });
 
+// This test does NOT use the DB::listen race-injection idiom above it — a
+// dropped table is the wrong failure shape here. Dropping the table kills the
+// claim INSERT *and* the catch block's re-read identically, so the old
+// version of this test (verified against the pre-fix parent commit by the
+// audit reviewer) passed even with `catch (\Throwable)` still in place: it is
+// the RE-READ throwing (it is not wrapped in any try/catch) that propagates,
+// not the typed catch declining to swallow the INSERT failure. That makes the
+// test pass for a reason unrelated to #WHK-3. A BEFORE INSERT trigger scoped
+// to this one digest instead fails ONLY the claim INSERT — the table stays
+// fully intact and readable, so the re-read genuinely finds nothing (the
+// claim really did fail), which is what lets pre-fix code's old
+// `$row === null ? refused : verdictFor($row)` arm take over and swallow it.
+// RAISE(ABORT, ...) is also deliberately NOT a uniqueness failure:
+// SQLiteConnection::isUniqueConstraintError() pattern-matches the exception
+// MESSAGE, and this message does not match it, so this is genuinely the
+// "anything else" branch #WHK-3 is about, not the PK race #WHK-3 already
+// handles via UniqueConstraintViolationException.
 it('a non-unique DB failure on the claim insert propagates instead of resolving to refused — the #WHK-3 regression test', function () {
     $digest = EffectLedger::digestFor('places_fetch', ['place_id' => 'race-nonunique']);
 
-    $injected = false;
-    DB::listen(function ($query) use ($digest, &$injected) {
-        if ($injected) {
-            return;
-        }
-        if (! str_contains($query->sql, 'ingest') || ! str_contains($query->sql, 'effects')) {
-            return;
-        }
-        if (! in_array($digest, $query->bindings, true)) {
-            return;
-        }
-
-        $injected = true;
-
-        // A failure that has NOTHING to do with the digest's own uniqueness — the
-        // pre-read already ran clean (table existed), but the table vanishes before
-        // once()'s own claim INSERT can run.
-        DB::statement('DROP TABLE ingest.effects');
-    });
+    // SQLite requires a trigger to be defined IN the same (attached) database
+    // as its subject table — `CREATE TRIGGER ingest.foo ... ON effects`, not
+    // `CREATE TRIGGER foo ... ON ingest.effects`.
+    DB::statement(
+        "CREATE TRIGGER ingest.whk3_block_claim_insert BEFORE INSERT ON effects
+         WHEN NEW.digest = '{$digest}'
+         BEGIN SELECT RAISE(ABORT, 'induced non-unique claim-insert failure for #WHK-3 regression test'); END"
+    );
 
     $ledger = new EffectLedger;
     $calls = 0;
@@ -265,6 +271,11 @@ it('a non-unique DB failure on the claim insert propagates instead of resolving 
     expect($thrown)->toBeInstanceOf(QueryException::class);
     expect($thrown)->not->toBeInstanceOf(UniqueConstraintViolationException::class);
     expect($calls)->toBe(0); // never ran, never reached the "refused" laundering #WHK-3 flagged
+
+    // The digest is genuinely absent and the table is untouched — proof the
+    // failure is what it claims to be. Pre-fix code's re-read here would find
+    // nothing and quietly return 'refused' instead of propagating.
+    expect(DB::table('ingest.effects')->where('digest', $digest)->exists())->toBeFalse();
 });
 
 // ── #WHK-4: an abandoned claim is a real signal, not silent breadcrumb noise ─
