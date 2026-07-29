@@ -3,6 +3,7 @@
 use App\Routing\Iri;
 use App\Routing\IriCanonicalizer;
 use App\Routing\PublicSuffixList;
+use App\Routing\SecretParams;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -163,4 +164,23 @@ it('produces a stable canonical string for equivalent inputs', function () {
     $b = iri('https://www.example.com/a/b?a=1&b=2');
 
     expect($a->canonical)->toBe($b->canonical);
+});
+
+// ── #SEC-1: secret-bearing query params never survive canonicalisation ──────
+
+it('drops secret-bearing query params from the canonical form', function () {
+    $i = iri('https://example.com/p?rid=123&token=eyJabc&utm_source=x');
+
+    expect($i->query)->toBe(['rid' => '123'])
+        ->and($i->canonical)->not->toContain('token')
+        ->and($i->canonical)->not->toContain('eyJabc');
+});
+
+it('keeps replay honest — canonicalising a redacted raw_url matches the original canonical', function () {
+    $input = 'https://www.opentable.com.au/restaurant/profile/12345?rid=12345&token=eyJhbGciOiJIUzI1NiJ9.aaa.bbb';
+
+    $original = iri($input)->canonical;
+    $redacted = iri((string) SecretParams::redactUrl($input))->canonical;
+
+    expect($redacted)->toBe($original);
 });

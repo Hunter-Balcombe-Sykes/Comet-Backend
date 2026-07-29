@@ -350,6 +350,9 @@ class IriCanonicalizer
             if (in_array($lower, self::noiseParams(), true)) {
                 continue;
             }
+            if (SecretParams::isSecret((string) $key, (string) $value)) {
+                continue;
+            }
             $out[(string) $key] = (string) $value;
         }
 

@@ -33,7 +33,7 @@ class LinkObserver
                 'observed_at' => now(),
                 'source' => $context->origin,
                 'import_run_id' => $context->importRunId,
-                'raw_url' => Str::limit($iri->raw, 2000, ''),
+                'raw_url' => Str::limit(SecretParams::redactUrl($iri->raw) ?? '', 2000, ''),
                 'canonical_url' => $iri->canonical,
                 'registrable_key' => $iri->registrableKey,
                 'evidence' => json_encode($this->evidence($iri, $projection)),

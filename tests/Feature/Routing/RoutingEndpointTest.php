@@ -275,3 +275,57 @@ it('rejects an empty or oversized url with a clear message', function () {
 it('requires authentication', function () {
     $this->postJson('/api/routing/links', ['url' => 'https://x.com/someone'])->assertStatus(401);
 });
+
+// ── #SEC-1: secret-bearing query params never persist unredacted ────────────
+
+it('redacts a secret-bearing query param everywhere it would otherwise persist, while identity survives', function () {
+    $pro = createTenant('routing-secret');
+
+    $response = actingAsUser($pro)->postJson('/api/routing/links', [
+        'url' => 'https://www.instagram.com/someone?token=eyJhbGciOiJIUzI1NiJ9.aaa.bbb',
+    ]);
+
+    $response->assertStatus(202)
+        ->assertJsonPath('outcome', 'connected')
+        ->assertJsonPath('routedTo.identifier', 'someone');
+
+    expect($response->json('canonicalUrl'))->not->toContain('eyJhbGci');
+
+    $observation = DB::table('routing.link_observations')->first();
+    expect($observation->canonical_url)->not->toContain('eyJhbGci')
+        ->and($observation->raw_url)->not->toContain('eyJhbGci')
+        ->and($observation->raw_url)->toContain('token=[redacted]');
+
+    $intent = DB::table('routing.source_intents')->first();
+    expect($intent->canonical_url)->not->toContain('eyJhbGci');
+
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->first();
+    expect($connection->payload['url'])->not->toContain('eyJhbGci')
+        // Identity survives the redaction (the handle comes off the PATH, not
+        // the secret query param, but it must still be intact end to end).
+        ->and($connection->resource_id)->toBe('someone');
+
+    // Whole-row scan across every table: catches the evidence blob too
+    // (LinkObserver::evidence() only stores query_keys, never values, but
+    // this pins that no value leaked anywhere in the row).
+    expect(json_encode($observation))->not->toContain('eyJhbGci');
+    expect(json_encode($intent))->not->toContain('eyJhbGci');
+    expect(json_encode($connection->payload))->not->toContain('eyJhbGci');
+});
+
+it('redacts a secret-shaped param on the note (custom-link) path while a benign param survives', function () {
+    Queue::fake();
+    $pro = createTenant('routing-secret-note');
+
+    $response = actingAsUser($pro)->postJson('/api/routing/links', [
+        'url' => 'https://joesplumbing.com.au/x?session=abc123&page=2',
+    ]);
+
+    $response->assertStatus(202)->assertJsonPath('outcome', 'link');
+
+    $card = IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'custom')->first();
+    expect($card)->not->toBeNull()
+        ->and($card->payload['url'])->toContain('page=2')
+        ->and($card->payload['url'])->not->toContain('session=abc123')
+        ->and($card->payload['url'])->not->toContain('abc123');
+});

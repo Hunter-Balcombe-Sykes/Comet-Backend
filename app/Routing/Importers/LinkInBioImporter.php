@@ -5,6 +5,7 @@ namespace App\Routing\Importers;
 use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
+use App\Routing\SecretParams;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\WebsiteLinkHarvester;
 
@@ -111,7 +112,7 @@ class LinkInBioImporter
             observations: $observations,
             intents: $tally['connected'] + $tally['suggested'],
             errorClass: $fetched === 0 ? 'fetch_failed' : null,
-            detail: $tally + ['pages' => $pages, 'pages_unavailable' => $unavailable],
+            detail: $tally + ['pages' => array_map(SecretParams::redactUrl(...), $pages), 'pages_unavailable' => $unavailable],
         );
 
         return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable] + $tally;

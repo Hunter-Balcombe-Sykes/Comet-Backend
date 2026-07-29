@@ -197,6 +197,27 @@ it('refuses an unknown run kind rather than writing one the schema rejects', fun
     expect(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('kind'))->toBe('link_in_bio');
 });
 
+it('redacts a secret-shaped param from source_url and from detail.pages (#SEC-1)', function () {
+    $pro = createTenant('bio-secret-url');
+    Http::fake([
+        '*' => Http::response('<html><body><a href="https://www.instagram.com/theartist">IG</a></body></html>', 200),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/one?token=eyJhbGciOiJIUzI1NiJ9.aaa.bbb',
+        'https://example.com/two?page=2',
+    ]);
+
+    $run = DB::table('routing.import_runs')->where('user_id', $pro->id)->first();
+    expect($run->source_url)->toContain('token=[redacted]')
+        ->and($run->source_url)->not->toContain('eyJhbGci');
+
+    $detail = json_decode($run->detail, true);
+    expect($detail['pages'][0])->toContain('token=[redacted]')
+        ->and($detail['pages'][0])->not->toContain('eyJhbGci')
+        ->and($detail['pages'][1])->toContain('page=2');
+});
+
 it('spends one link budget across the whole batch', function () {
     // The cap is the RUN's, not the page's: 20 pages must not buy 20x the
     // routing work a single page gets.

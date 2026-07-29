@@ -89,3 +89,17 @@ it('rejects an unparseable window rather than guessing one', function () {
     expect($exit)->toBe(1)
         ->and(Artisan::output())->toContain('Could not parse');
 });
+
+it('still matches the OpenTable rid detector when raw_url carries an already-redacted secret param (#SEC-1)', function () {
+    // A post-fix row: raw_url has the secret value substituted, never the
+    // query pair dropped — the §b replay guarantee is that redaction alone
+    // must not change what a replay matches.
+    reprojectObservation(
+        'https://opentable.ae/?rid=100000&token=[redacted]',
+        'opentable.reserve',
+    );
+
+    Artisan::call('routing:reproject', ['--since' => '30d']);
+
+    expect(Artisan::output())->toContain('0 reclassified, 0 newly matched, 0 lost, 1 unchanged');
+});

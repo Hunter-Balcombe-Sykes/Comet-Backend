@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Routing\RouteLinkRequest;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
+use App\Routing\SecretParams;
 use App\Services\Platforms\CustomLinkSeeder;
 use Illuminate\Http\JsonResponse;
 
@@ -64,7 +65,10 @@ class RoutingController extends ApiController
         // custom-link write (same row, cap, dedupe, enrichment) so
         // GET /platforms/custom/links and the sitepage pick it up unchanged.
         if ($result['verdict'] === 'note') {
-            $write = $this->links->addManual($user, $result['canonicalUrl'] ?? $url);
+            // redactUrl() fails closed (returns '' on a PCRE engine error), so
+            // this fallback is unreachable for the validated, non-null $url —
+            // but never fall back to the raw, possibly-secret-bearing URL.
+            $write = $this->links->addManual($user, $result['canonicalUrl'] ?? SecretParams::redactUrl($url) ?? '');
 
             if ($write['status'] === 'cap_full') {
                 return $this->error(
