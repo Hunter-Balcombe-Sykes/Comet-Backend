@@ -30,7 +30,8 @@ class DriftComparator
                 continue;
             }
             $ddl = $sqlite->tableDdl($check['schema'], $check['table']) ?? '';
-            if (! $this->ddlCoversCheck($ddl, $check['definition'])) {
+            $columns = $sqlite->columns($check['schema'], $check['table']);
+            if (! $this->ddlCoversCheck($ddl, $check['definition'], $columns)) {
                 $findings[] = "check_missing:{$check['schema']}.{$check['table']}:{$check['name']}";
             }
         }
@@ -41,12 +42,19 @@ class DriftComparator
     }
 
     /**
-     * Heuristic: the SQLite DDL "covers" a Postgres CHECK if it contains any
-     * CHECK clause mentioning at least one identifier referenced by the
-     * Postgres definition. We compare presence, not expression equivalence —
-     * translating Postgres syntax (ANY/ARRAY, ~, ::casts) is out of scope.
+     * Heuristic: the SQLite DDL "covers" a Postgres CHECK if it contains a
+     * CHECK clause mentioning a real COLUMN of the table that the Postgres
+     * definition also references. We compare presence, not expression
+     * equivalence — translating Postgres syntax (ANY/ARRAY, ~, ::casts) is
+     * out of scope.
+     *
+     * @param  string[]  $columns  real column names on the SQLite table (from
+     *                             SqliteIntrospector::columns()) — restricts
+     *                             matching to actual columns, not VALUE
+     *                             LITERALS the naive identifier scan below
+     *                             would otherwise also pick up.
      */
-    private function ddlCoversCheck(string $ddl, string $pgDefinition): bool
+    private function ddlCoversCheck(string $ddl, string $pgDefinition, array $columns): bool
     {
         if (stripos($ddl, 'CHECK') === false) {
             return false;
@@ -54,6 +62,21 @@ class DriftComparator
 
         preg_match_all('/[a-z_][a-z0-9_]*/i', $pgDefinition, $m);
         $identifiers = array_diff(array_unique($m[0]), ['CHECK', 'ANY', 'ARRAY', 'IS', 'NOT', 'NULL', 'AND', 'OR', 'IN', 'text', 'OTHERS', 'true', 'false']);
+
+        // Restrict to identifiers that are ACTUAL columns of this table. The
+        // regex above cannot tell a column name apart from a quoted value
+        // literal in the Postgres definition (e.g. 'hide' in
+        // `on_empty IN ('hide', ...)`), so two CHECKs on different columns
+        // that happen to share a literal value (on_empty / stale_display
+        // both allow 'hide') could otherwise cross-credit each other.
+        $columnLookup = array_flip(array_map('strtolower', $columns));
+        $constrainedColumns = array_values(array_filter($identifiers, fn ($id) => isset($columnLookup[strtolower($id)])));
+        // Fallback for the (currently theoretical) case of a CHECK that
+        // references no real column of its own table — keep the old,
+        // looser behavior rather than silently never matching.
+        if ($constrainedColumns === []) {
+            $constrainedColumns = $identifiers;
+        }
 
         // SQLite DDL has no internal semicolons, so matching must be bounded to
         // a single CHECK(...) clause — not "everything after the first CHECK" —
@@ -63,7 +86,7 @@ class DriftComparator
         preg_match_all('/CHECK\s*\([^()]*(?:\([^()]*\)[^()]*)*\)/is', $ddl, $clauses);
 
         foreach ($clauses[0] as $clause) {
-            foreach ($identifiers as $ident) {
+            foreach ($constrainedColumns as $ident) {
                 if (preg_match('/\b'.preg_quote($ident, '/').'\b/i', $clause)) {
                     return true;
                 }

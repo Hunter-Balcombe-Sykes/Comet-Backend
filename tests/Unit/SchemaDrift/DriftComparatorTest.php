@@ -35,6 +35,11 @@ function fakeSqlite(array $tables): SqliteIntrospector
             return $this->tables["$schema.$table"]['columns'][$column] ?? null;
         }
 
+        public function columns(string $schema, string $table): array
+        {
+            return array_keys($this->tables["$schema.$table"]['columns'] ?? []);
+        }
+
         public function tableDdl(string $schema, string $table): ?string
         {
             return $this->tables["$schema.$table"]['ddl'] ?? null;
@@ -138,6 +143,28 @@ it('passes when a single CHECK clause genuinely covers the identifier', function
     ]);
 
     expect((new DriftComparator)->compare($snapshot, $sqlite))->toBe([]);
+});
+
+it('does not credit a CHECK for one column via an unrelated column that merely shares a literal value', function () {
+    // Cause E regression (#PARITY-1 §6): site.sections.on_empty and
+    // .stale_display both allow the literal 'hide', so the old identifier
+    // scan (which couldn't tell a column name from a quoted value literal)
+    // wrongly credited stale_display's CHECK as "covered" purely because
+    // on_empty's CHECK also happens to mention 'hide' — even though
+    // stale_display itself has no CHECK at all here.
+    $snapshot = fakeSnapshot(checks: [
+        ['schema' => 'site', 'table' => 'sections', 'name' => 'sections_stale_display_check',
+            'definition' => "CHECK ((stale_display = ANY (ARRAY['inherit','show','hide'])))"],
+    ]);
+    $sqlite = fakeSqlite([
+        'site.sections' => [
+            'ddl' => "CREATE TABLE sections (on_empty TEXT CHECK (on_empty IN ('hide','show_message','show_anyway')), stale_display TEXT)",
+            'columns' => ['on_empty' => false, 'stale_display' => false],
+        ],
+    ]);
+
+    expect((new DriftComparator)->compare($snapshot, $sqlite))
+        ->toBe(['check_missing:site.sections:sections_stale_display_check']);
 });
 
 it('sorts findings deterministically', function () {

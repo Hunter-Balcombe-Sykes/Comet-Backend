@@ -20,9 +20,22 @@ const BASELINE_PATH = __DIR__.'/../../../scripts/launch-check/schema-drift-basel
 it('sqlite test schema mirrors dev Postgres constraints (or is baselined)', function () {
     // Build EVERY table the test suite knows how to build. The setup helpers
     // are global no-arg functions in tests/Pest.php named setup*Table/Tables.
+    //
+    // get_defined_functions()['user'] is NOT limited to tests/Pest.php — it
+    // includes every test-file-local `setup*` global PHPUnit has loaded so
+    // far this run (e.g. CustomerRedactTest, StaffSiteControllerTest,
+    // SubdomainChangeTest), so the comparison surface used to vary with load
+    // order (full suite vs --filter vs parallel). tests/Pest.php owns the
+    // shared, canonical stand-in schema this guard exists to check — a
+    // file-local helper is a fixture for ONE test, not a claim about the
+    // schema — so restrict discovery to functions actually declared there.
     foreach (get_defined_functions()['user'] as $fn) {
+        $ref = new ReflectionFunction($fn);
+        if ($ref->getFileName() !== base_path('tests/Pest.php')) {
+            continue;
+        }
         $short = str_contains($fn, '\\') ? substr($fn, strrpos($fn, '\\') + 1) : $fn;
-        if (str_starts_with($short, 'setup') && (new ReflectionFunction($fn))->getNumberOfRequiredParameters() === 0) {
+        if (str_starts_with($short, 'setup') && $ref->getNumberOfRequiredParameters() === 0) {
             $fn();
         }
     }
