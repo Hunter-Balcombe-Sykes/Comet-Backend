@@ -34,6 +34,8 @@
 // money moving, not merely "no exception was thrown".
 
 use App\Ingest\Runtime\EffectLedger;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -200,7 +202,7 @@ it('charges an effect exactly once under a REAL N-way fork race on the same dige
                     'cached' => (bool) $verdict['cached'],
                     'result_json' => json_encode($verdict['result']),
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 DB::connection('pgsql')->table('ingest.effect_probe')->insert([
                     'child_idx' => $i,
                     'status' => 'exception',
@@ -255,4 +257,95 @@ it('charges an effect exactly once under a REAL N-way fork race on the same dige
             expect($loser->result_json)->toBe($winners->first()->result_json);
         }
     }
+});
+
+// LIFE-6 / #WHK-3: EffectLedger::once() now catches only UniqueConstraintViolationException
+// around its claim INSERT. These two cases are additive to the pair above — do not touch
+// them — and are the only place the real 23505-vs-not distinction can be proven, since the
+// SQLite mirror (tests/Feature/Ingest/EffectLedgerTest.php) has no independently-committing
+// second connection to race against.
+
+// This test does NOT use the second-connection DB::listen race-injection idiom
+// above it — a dropped table is the wrong failure shape here. Dropping the
+// table kills the claim INSERT *and* the catch block's re-read identically, so
+// the old version of this test (verified against the pre-fix parent commit by
+// the audit reviewer) passed even with `catch (\Throwable)` still in place: it
+// is the RE-READ throwing (it is not wrapped in any try/catch) that
+// propagates, not the typed catch declining to swallow the INSERT failure.
+// That makes the test pass for a reason unrelated to #WHK-3. A BEFORE INSERT
+// trigger scoped to this one digest instead fails ONLY the claim INSERT — the
+// table stays fully intact and readable, so the re-read genuinely finds
+// nothing (the claim really did fail), which is what lets pre-fix code's old
+// `$row === null ? refused : verdictFor($row)` arm take over and swallow it.
+// RAISE EXCEPTION ... USING ERRCODE = 'P0001' is also deliberately NOT 23505 —
+// PostgresConnection::isUniqueConstraintError() checks the SQLSTATE directly —
+// so this is genuinely the "anything else" branch #WHK-3 is about, not the PK
+// race #WHK-3 already handles via UniqueConstraintViolationException.
+it('a non-unique claim-INSERT failure propagates on real Postgres — never laundered into refused', function () {
+    $digest = hash('sha256', 'race-nonunique-'.Str::uuid());
+    $pg = DB::connection('pgsql');
+
+    $pg->statement("
+        CREATE OR REPLACE FUNCTION ingest.whk3_block_claim_insert() RETURNS trigger AS \$\$
+        BEGIN
+            RAISE EXCEPTION 'induced non-unique claim-insert failure for #WHK-3 regression test' USING ERRCODE = 'P0001';
+        END;
+        \$\$ LANGUAGE plpgsql
+    ");
+    $pg->statement("
+        CREATE TRIGGER whk3_block_claim_insert
+        BEFORE INSERT ON ingest.effects
+        FOR EACH ROW WHEN (NEW.digest = '{$digest}')
+        EXECUTE FUNCTION ingest.whk3_block_claim_insert()
+    ");
+
+    $ledger = new EffectLedger;
+    $calls = 0;
+    $thrown = null;
+
+    try {
+        $ledger->once($digest, 'http', function () use (&$calls) {
+            $calls++;
+
+            return 'nope';
+        });
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->toBeInstanceOf(QueryException::class);
+    expect($thrown)->not->toBeInstanceOf(UniqueConstraintViolationException::class);
+    expect($calls)->toBe(0);
+
+    // The digest is genuinely absent and the table intact — proof the failure
+    // is what it claims to be. Pre-fix code's re-read here would find nothing
+    // and quietly return 'refused' instead of propagating.
+    expect($pg->table('ingest.effects')->where('digest', $digest)->exists())->toBeFalse();
+
+    $pg->statement('DROP TRIGGER IF EXISTS whk3_block_claim_insert ON ingest.effects');
+    $pg->statement('DROP FUNCTION IF EXISTS ingest.whk3_block_claim_insert()');
+});
+
+it('a duplicate PRIMARY KEY insert on real Postgres raises UniqueConstraintViolationException', function () {
+    // Locks in the PostgresConnection::isUniqueConstraintError() dependency that
+    // once()'s typed catch relies on — a real 23505, not a string-matched SQLSTATE.
+    $digest = hash('sha256', 'unique-typecheck-'.Str::uuid());
+    $row = [
+        'digest' => $digest,
+        'kind' => 'http',
+        'claimed_at' => now(),
+        'status' => 'claimed',
+        'meta' => json_encode([]),
+    ];
+
+    DB::connection('pgsql')->table('ingest.effects')->insert($row);
+
+    $thrown = null;
+    try {
+        DB::connection('pgsql')->table('ingest.effects')->insert($row);
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->toBeInstanceOf(UniqueConstraintViolationException::class);
 });

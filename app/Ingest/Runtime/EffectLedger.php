@@ -2,8 +2,11 @@
 
 namespace App\Ingest\Runtime;
 
+use App\Exceptions\Ingest\AbandonedEffectException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Charge-once for billed effects (C6). Every effect that costs money is
@@ -34,6 +37,9 @@ class EffectLedger
 
     /**
      * Run $effect at most once for this digest, ever.
+     *
+     * A lost claim race resolves to the winner's verdict; any other DB failure
+     * propagates.
      *
      * @template T
      *
@@ -72,12 +78,23 @@ class EffectLedger
                 'status' => 'claimed',
                 'meta' => json_encode([]),
             ]);
-        } catch (\Throwable) {
+        } catch (UniqueConstraintViolationException $e) {
+            // Typed catch handles only 23505 (digest is the PRIMARY KEY) by
+            // construction — no SQLSTATE string-matching. Anything else (deadlock
+            // 40P01, connection loss 08006, not-null, …) propagates untouched to
+            // the job's retry/backoff and to Nightwatch (#WHK-3).
             $row = DB::table('ingest.effects')->where('digest', $digest)->first();
 
-            return $row === null
-                ? ['status' => 'refused', 'result' => null, 'cached' => false]
-                : $this->verdictFor($row);
+            if ($row === null) {
+                // A PK conflict with no row present means the winner's own
+                // transaction rolled back after committing and then vanished —
+                // the claim attempt itself failed, nothing is in flight.
+                // Laundering that into a silent 'refused' is precisely what
+                // #WHK-3 flagged; surface it instead.
+                throw $e;
+            }
+
+            return $this->verdictFor($row);
         }
 
         try {
@@ -142,14 +159,95 @@ class EffectLedger
             // Long-dead claim: mark it so it stops blocking silently and is
             // visible to whoever reconciles spend, but STILL refuse — the
             // vendor may well have charged us for it.
-            DB::table('ingest.effects')->where('digest', $row->digest)->update(['status' => 'abandoned']);
-            Log::warning('ingest.effect.abandoned', ['digest' => $row->digest, 'kind' => $row->kind]);
+            $this->markAbandoned($row);
 
             return ['status' => 'abandoned', 'result' => null, 'cached' => true];
         }
 
         // Freshly claimed by another worker — refuse, do not duplicate.
         return ['status' => 'refused', 'result' => null, 'cached' => true];
+    }
+
+    /**
+     * Flip a claimed-but-unsettled row past the abandon window to 'abandoned', file a
+     * critical `ingest.anomalies` row, and report to Nightwatch (#WHK-4) — but ONLY on
+     * the transition. The conditional UPDATE is the whole of what makes this safe to
+     * alert on: verdictFor() re-checking the same digest, or reconcileAbandoned()
+     * re-selecting it on a later sweep, affects zero rows and stays silent, so a
+     * digest already marked abandoned never files (or pages) a second time.
+     *
+     * @return bool whether THIS call performed the transition
+     */
+    private function markAbandoned(object $row): bool
+    {
+        $affected = DB::table('ingest.effects')
+            ->where('digest', $row->digest)
+            ->where('status', 'claimed')
+            ->whereNull('settled_at')
+            ->update(['status' => 'abandoned']);
+
+        if ($affected === 0) {
+            return false;
+        }
+
+        Log::warning('ingest.effect.abandoned', ['digest' => $row->digest, 'kind' => $row->kind]);
+
+        DB::table('ingest.anomalies')->insert([
+            'id' => (string) Str::uuid(),
+            'source_id' => $row->source_id,
+            'run_id' => $row->run_id,
+            'kind' => 'effect_abandoned',
+            'severity' => 'critical', // money-adjacent — same class as Lander's delete_guard
+            'summary' => sprintf('Billed effect claim abandoned after %ds — vendor may have charged', self::ABANDON_AFTER_SECONDS),
+            'detail' => json_encode([
+                'digest' => $row->digest,
+                'kind' => $row->kind,
+                'cost_tag' => $row->cost_tag,
+                'cost_units' => $row->cost_units,
+                'claimed_at' => $row->claimed_at,
+            ]),
+            'detected_at' => now(),
+        ]);
+
+        // A Log::warning is a breadcrumb and the anomalies row is a DB queue — neither
+        // reaches Nightwatch on its own. report() is the house pattern for exactly this.
+        report(new AbandonedEffectException(1, [$row->digest]));
+
+        return true;
+    }
+
+    /**
+     * Sweep claimed-but-unsettled rows past the abandon window and make them honest
+     * (LIFE-18): flips each to 'abandoned' and files/reports one anomaly per NEW
+     * transition via markAbandoned(), so a dead claim is visible without an operator
+     * having to trip over it lazily via once(). Drives idx_effects_unsettled.
+     *
+     * NEVER sets settled_at, never deletes — the class contract is that an
+     * unknown-charge claim stays refused; this sweep only makes the stuck state
+     * honest and visible. Resolving one is a deliberate act (`ingest:effects --settle`).
+     *
+     * @return list<string> digests newly marked abandoned by this call
+     */
+    public function reconcileAbandoned(?int $olderThanSeconds = null, int $limit = 500): array
+    {
+        $cutoff = now()->subSeconds($olderThanSeconds ?? self::ABANDON_AFTER_SECONDS);
+
+        $candidates = DB::table('ingest.effects')
+            ->whereNull('settled_at')
+            ->where('status', 'claimed')
+            ->where('claimed_at', '<', $cutoff)
+            ->orderBy('claimed_at')
+            ->limit($limit)
+            ->get();
+
+        $abandoned = [];
+        foreach ($candidates as $row) {
+            if ($this->markAbandoned($row)) {
+                $abandoned[] = $row->digest;
+            }
+        }
+
+        return $abandoned;
     }
 
     /**
