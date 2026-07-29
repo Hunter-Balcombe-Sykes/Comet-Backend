@@ -345,15 +345,25 @@ class RunExecutor
      */
     private function recordStreamFailure(string $streamId, string $errorClass): void
     {
-        $failures = (int) DB::table('ingest.streams')->where('id', $streamId)->value('consecutive_failures') + 1;
+        // LIFE-5: atomic bump — a lost increment here silently SHORTENS the
+        // backoff, which is the wrong direction to be wrong in.
+        DB::table('ingest.streams')->where('id', $streamId)->update([
+            'health' => $errorClass === 'budget' ? 'degraded' : 'unavailable',
+            'consecutive_failures' => DB::raw('consecutive_failures + 1'),
+            'updated_at' => now(),
+        ]);
 
+        // suppressed_until derives from the POST-increment count. Read back
+        // rather than compute in SQL: the expression needs POWER() and
+        // INTERVAL, neither of which survives the SQLite mirror the Feature
+        // lane runs on. A concurrent second failure landing between these
+        // statements only makes this read HIGHER, never lower — the only
+        // drift is toward a longer backoff, the safe direction.
+        $failures = (int) DB::table('ingest.streams')->where('id', $streamId)->value('consecutive_failures');
         $backoffMinutes = min(10080, 60 * (2 ** min(7, max(0, $failures - 1))));
 
         DB::table('ingest.streams')->where('id', $streamId)->update([
-            'health' => $errorClass === 'budget' ? 'degraded' : 'unavailable',
-            'consecutive_failures' => $failures,
             'suppressed_until' => $failures >= 3 ? now()->addMinutes($backoffMinutes) : null,
-            'updated_at' => now(),
         ]);
     }
 
