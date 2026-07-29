@@ -1285,7 +1285,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
+- P1 High: 2 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
 - P2 Medium: 1 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
@@ -1350,7 +1350,8 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-4** · P1 — `Lander::land()` issues 4 database round-trips per landed record
+- [x] **SCALE-4** · P1 — `Lander::land()` issues 4 database round-trips per landed record
+    - **EVIDENCE STALE, FINDING OPEN (2026-07-29, unit-9):** the quoted code is pre-Unit-2 and no longer exists. Re-counted against current code: hot path is 3 logical statements but **5 real round-trips** — Unit 2's own table omitted the BEGIN/COMMIT its per-record transaction issues. Fixed by chunked batching (500), demote/promote deliberately kept as two ordered statements because partial unique indexes cannot be DEFERRABLE.
     - **Where:** app/Ingest/Landing/Lander.php:53-98
     - **Affects:** Every ingest run for every stream across the connector fleet. At 1,000 records per run this is 4,000 queries; at a viral-scale replay this scales linearly with record count.
     - **Effort:** L (~1–2d)
@@ -1391,7 +1392,8 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-5** · P1 — `Lander::foldAbsence()` loads every non-tombstoned record for a stream into memory
+- [x] **SCALE-5** · P1 — `Lander::foldAbsence()` loads every non-tombstoned record for a stream into memory
+    - **RE-SCOPED (2026-07-29, unit-9):** the memory claim is overstated — menus never reach `foldAbsence()` (their `orderField` is null) and the streams that do are reverse-chronological feeds capped at 12-20 records/run, so `$live` is hundreds after years, not tens of thousands. The real defect was an **unnamed N+1**: `orderValueFor()` ran one query per live-but-unseen key per run, each pulling a multi-KB `doc` to read one field, and ran BEFORE `dominates()` — so under Exhaustive and Unknown coverage every one was pure waste. Fixed on that basis.
     - **Where:** app/Ingest/Landing/Lander.php:128-131
     - **Affects:** Every ingest run on streams that support deletion. A stream with hundreds of thousands of live records materialises all of them into a PHP collection on every run.
     - **Effort:** L (~1–2d)
