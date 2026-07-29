@@ -7,6 +7,8 @@ use App\Ingest\Message\Covered;
 use App\Ingest\Message\Record;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
 
 /**
  * Turns a connector's Messages into durable rows. Two properties matter more
@@ -46,15 +48,233 @@ class Lander
         ?Covered $covered,
         array $redactions = [],
     ): array {
-        $seen = 0;
-        $changed = 0;
+        // Include duplicates: a run that carries the same key twice really
+        // did see it twice, and $seenKeys is array_flip'ed by foldAbsence()
+        // so the duplicate is harmless there.
+        $seen = count($records);
         $seenKeys = [];
+        foreach ($records as $record) {
+            $seenKeys[] = $record->key;
+        }
+
+        $changed = 0;
+        $chunkSize = max(1, (int) config('partna.ingest.land_chunk', 500));
+
+        foreach (array_chunk($records, $chunkSize) as $chunk) {
+            try {
+                // Fast path (SCALE-4): one chunk transaction lands up to
+                // $chunkSize records in a handful of statements instead of
+                // one round-trip-heavy transaction per record.
+                $changed += DB::transaction(fn () => $this->landChunk($streamId, $runId, $spec, $chunk, $redactions));
+            } catch (Throwable $e) {
+                // A genuine per-record failure can still occur — e.g. a doc
+                // containing a literal NUL byte, rejected by jsonb with
+                // 22P05 (a plausible shape for a scraped caption). That must
+                // not cost the OTHER records in the chunk their durable log
+                // entry (Unit 2's DINT-9 objection to a batch-wide
+                // transaction). By the time we're here the chunk transaction
+                // has already fully rolled back — this catch sits OUTSIDE
+                // DB::transaction(), so no caught-and-recovered failure ever
+                // runs inside an open Postgres transaction, which is what
+                // poisons it with 25P02 (this repo has shipped that savepoint
+                // bug three times; see ItemSlugAllocatorSavepointTest).
+                // Falling back to the per-record path isolates the one bad
+                // record and lands the rest durably, just slower.
+                report($e);
+                $changed += $this->landRecordsIndividually($streamId, $runId, $spec, $chunk, $redactions);
+            }
+        }
+
+        $absence = $this->foldAbsence($streamId, $spec, $covered, $seenKeys);
+
+        return [
+            'seen' => $seen,
+            'changed' => $changed,
+            'tombstoned' => $absence['tombstoned'],
+            'guard_tripped' => $absence['guard_tripped'],
+        ];
+    }
+
+    /**
+     * Batched landing for one chunk (SCALE-4). Must run inside a single
+     * DB::transaction() supplied by the caller, and must stay free of any
+     * try/catch of its own — a caught-and-recovered failure INSIDE an open
+     * Postgres transaction poisons it with 25P02 (see land()'s catch for the
+     * full reasoning). Any failure here is meant to escape and roll the
+     * whole chunk back so the caller's per-record fallback can run clean.
+     *
+     * @param  list<Record>  $records
+     * @return int the number of keys whose CURRENT version moved this chunk
+     */
+    private function landChunk(string $streamId, string $runId, StreamSpec $spec, array $records, array $redactions): int
+    {
+        // Two de-duplications, on two DIFFERENT keys — subtle and load-
+        // bearing. $versionRows is keyed by (key, doc_hash): two different
+        // hashes for the same key in one run are two legitimate durable log
+        // rows, and both must be inserted. $winners is keyed by key alone,
+        // last occurrence wins: record_state has exactly one row per key, so
+        // only the LAST record for a given key in this chunk determines its
+        // final current-version and absence state — exactly what the
+        // per-record loop converges to when it processes the same key twice
+        // in one run.
+        $versionRows = [];
+        $winners = [];
+        $hashesSeen = [];
 
         foreach ($records as $record) {
             $doc = Redactor::apply($record->doc, $redactions);
             $hash = DocHasher::hash($doc, $spec->volatile);
-            $seenKeys[] = $record->key;
-            $seen++;
+
+            $versionRows["{$record->key}\0{$hash}"] = [
+                'stream_id' => $streamId,
+                'key' => $record->key,
+                'doc_hash' => $hash,
+                'doc' => json_encode($doc),
+                'first_seen_run' => $runId,
+                'first_seen_at' => now(),
+                'is_current' => false,
+            ];
+            $hashesSeen[$hash] = true;
+            $winners[$record->key] = $hash;
+        }
+
+        if ($versionRows === []) {
+            return 0;
+        }
+
+        // 1. Land the version. is_current is deliberately FALSE here, same
+        //    as the per-record path — currency is decided below, not by
+        //    whether the row was new. DO NOTHING on conflict: an identical
+        //    doc is not an event. Duplicate (key, doc_hash) pairs WITHIN
+        //    this one multi-row INSERT are harmless under DO NOTHING (unlike
+        //    the record_state upsert below, which uses DO UPDATE).
+        DB::table('ingest.record_versions')->insertOrIgnore(array_values($versionRows));
+
+        // 2. ONE round trip resolves id + currency for every winning
+        //    (key, doc_hash) pair in the chunk. `doc_hash IN (:hashes)` uses
+        //    every distinct hash the chunk carried (a superset of the
+        //    winners') — widening it to only the winners' hashes would save
+        //    nothing once this is already one round trip, and the PHP index
+        //    below is keyed on the (key, doc_hash) pair regardless, so a
+        //    pulled-in non-winner row is simply never looked up.
+        //    `OR is_current` pulls the incumbent too, exactly as the
+        //    per-record path does, so a key with no is_current row at all
+        //    still converges. Keep `CASE WHEN ... THEN 1 ELSE 0 END`
+        //    verbatim — pdo_pgsql returns boolean columns as the STRINGS
+        //    't'/'f', and `(bool) 'f'` is `true` in PHP.
+        $rows = DB::table('ingest.record_versions')
+            ->where('stream_id', $streamId)
+            ->whereIn('key', array_keys($winners))
+            ->where(fn ($q) => $q->whereIn('doc_hash', array_keys($hashesSeen))->orWhere('is_current', true))
+            ->selectRaw('id, key, doc_hash, CASE WHEN is_current THEN 1 ELSE 0 END AS is_current_flag')
+            ->get();
+
+        $index = [];
+        foreach ($rows as $row) {
+            $index["{$row->key}\0{$row->doc_hash}"] = $row;
+        }
+
+        $changed = 0;
+        $changedKeys = [];
+        $changedWinnerIds = [];
+        $stateRows = [];
+
+        foreach ($winners as $key => $hash) {
+            $landedRow = $index["{$key}\0{$hash}"] ?? null;
+
+            if ($landedRow === null) {
+                // Should be structurally impossible — every winner's
+                // (key, doc_hash) pair was just insertOrIgnore'd above and
+                // is queried for by the same pair. Fail loudly rather than
+                // let a null property access fatal somewhere below.
+                throw new RuntimeException("Lander::landChunk could not resolve the landed version row for stream {$streamId}, key {$key} — the winning (key, doc_hash) pair was not returned by the resolving SELECT.");
+            }
+
+            $versionId = (int) $landedRow->id;
+            $wasCurrent = ((int) $landedRow->is_current_flag) === 1;
+
+            // 3. Only when the CURRENT version actually moved.
+            if (! $wasCurrent) {
+                $changed++;
+                $changedKeys[] = $key;
+                $changedWinnerIds[] = $versionId;
+            }
+
+            $stateRows[] = [
+                'stream_id' => $streamId,
+                'key' => $key,
+                'current_version_id' => $versionId,
+                'last_seen_run' => $runId,
+                'last_seen_at' => now(),
+                // Reappearance clears absence completely — a key that came
+                // back was never really gone.
+                'absent_since' => null,
+                'absent_runs' => 0,
+                'tombstoned_at' => null,
+            ];
+        }
+
+        // 4. Demote-then-promote, in that order — STILL two ordered
+        //    statements, only widened from per-key to per-chunk, never
+        //    merged into one `SET is_current = (id = ...)`. For a CHANGED
+        //    key the winner is by definition not current, so demoting every
+        //    is_current row for the changed keys cannot touch a winner; a
+        //    single combined UPDATE could transiently violate
+        //    idx_record_versions_one_current mid-statement, and that partial
+        //    unique index cannot be made DEFERRABLE (only unique
+        //    constraints can be, and those cannot be partial). Skipped
+        //    entirely when nothing changed — a pure unchanged re-land chunk
+        //    costs nothing here.
+        if ($changedKeys !== []) {
+            DB::table('ingest.record_versions')
+                ->where('stream_id', $streamId)
+                ->whereIn('key', $changedKeys)
+                ->where('is_current', true)
+                ->update(['is_current' => false]);
+
+            DB::table('ingest.record_versions')
+                ->where('stream_id', $streamId)
+                ->whereIn('id', $changedWinnerIds)
+                ->update(['is_current' => true]);
+        }
+
+        // 5. One multi-row record_state upsert — same conflict/update
+        //    column lists as the per-record path. $stateRows already has at
+        //    most one row per key (built from $winners, which is keyed by
+        //    key), so this is where the (key, doc_hash) de-dup above and the
+        //    key-only de-dup here are both structurally guaranteed rather
+        //    than merely hoped for: a payload with the same (stream_id, key)
+        //    twice is exactly what raises 21000 "ON CONFLICT DO UPDATE
+        //    command cannot affect row a second time" — a hazard batching
+        //    introduces that the per-record path never had, and that DOES
+        //    NOT reproduce under SQLite.
+        DB::table('ingest.record_state')->upsert(
+            $stateRows,
+            ['stream_id', 'key'],
+            ['current_version_id', 'last_seen_run', 'last_seen_at', 'absent_since', 'absent_runs', 'tombstoned_at']
+        );
+
+        return $changed;
+    }
+
+    /**
+     * Per-record landing — today's original loop, retained VERBATIM. Serves
+     * two roles: the poison-record fallback for landChunk() (isolates one
+     * bad record without costing the rest of the chunk its durable log
+     * entry), and the golden reference the chunked path is diffed against in
+     * tests. Do not "simplify" this to match landChunk() — its value is in
+     * staying exactly what it always was.
+     *
+     * @param  list<Record>  $records
+     * @return int the number of keys whose CURRENT version moved
+     */
+    private function landRecordsIndividually(string $streamId, string $runId, StreamSpec $spec, array $records, array $redactions): int
+    {
+        $changed = 0;
+
+        foreach ($records as $record) {
+            $doc = Redactor::apply($record->doc, $redactions);
+            $hash = DocHasher::hash($doc, $spec->volatile);
 
             DB::transaction(function () use ($streamId, $runId, $record, $doc, $hash, &$changed) {
                 // 1. Land the version. is_current is deliberately FALSE here:
@@ -127,14 +347,7 @@ class Lander
             });
         }
 
-        $absence = $this->foldAbsence($streamId, $spec, $covered, $seenKeys);
-
-        return [
-            'seen' => $seen,
-            'changed' => $changed,
-            'tombstoned' => $absence['tombstoned'],
-            'guard_tripped' => $absence['guard_tripped'],
-        ];
+        return $changed;
     }
 
     /**
@@ -155,27 +368,46 @@ class Lander
             return ['tombstoned' => 0, 'guard_tripped' => true];
         }
 
-        $live = DB::table('ingest.record_state')
+        $coverage = $covered->coverage;
+
+        // SCALE-5: UnknownCoverage can never dominate anything, so nothing
+        // can accrue absence and the guard can't trip — skip record_state
+        // entirely rather than materialising it for no reason.
+        if ($coverage->dominatesNothing()) {
+            return ['tombstoned' => 0, 'guard_tripped' => false];
+        }
+
+        // $liveCount is only needed for the guard ratio — one COUNT(*),
+        // independent of how many candidates come back below.
+        $liveCount = DB::table('ingest.record_state')
             ->where('stream_id', $streamId)
             ->whereNull('tombstoned_at')
-            ->get(['key', 'current_version_id', 'absent_runs']);
+            ->count();
 
-        $seenLookup = array_flip($seenKeys);
+        // SCALE-5: push "not seen this run" into SQL so a healthy exhaustive
+        // re-landing pulls zero candidate rows, instead of materialising
+        // every live key and filtering seen ones out in PHP.
+        $candidates = $this->liveNotSeen($streamId, $seenKeys);
+
         $dominatedAbsent = [];
+        foreach (array_chunk($candidates, 500) as $chunk) {
+            // SCALE-5: one batched order-value read per chunk of candidates,
+            // replacing the old per-key orderValueFor() N+1 (one query per
+            // live-but-unseen key, per run, each pulling a whole doc).
+            $orderValues = $coverage->needsOrderValue()
+                ? $this->orderValuesFor($streamId, array_map(fn ($row) => $row->key, $chunk), $spec)
+                : [];
 
-        foreach ($live as $row) {
-            if (isset($seenLookup[$row->key])) {
-                continue;
-            }
-            $orderValue = $this->orderValueFor($streamId, $row->key, $spec);
-            if ($covered->coverage->dominates($row->key, $orderValue)) {
-                $dominatedAbsent[] = $row;
+            foreach ($chunk as $row) {
+                $orderValue = $orderValues[$row->key] ?? null;
+                if ($coverage->dominates($row->key, $orderValue)) {
+                    $dominatedAbsent[] = $row;
+                }
             }
         }
 
         // Delete-guard: an implausible share vanishing at once is far more
         // likely to be a login wall than a real bulk deletion.
-        $liveCount = $live->count();
         if ($liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= self::GUARD_THRESHOLD && count($dominatedAbsent) >= 5) {
             DB::table('ingest.streams')->where('id', $streamId)->update(['guard_tripped_at' => now(), 'updated_at' => now()]);
             DB::table('ingest.anomalies')->insert([
@@ -191,45 +423,115 @@ class Lander
             return ['tombstoned' => 0, 'guard_tripped' => true];
         }
 
+        // SCALE-5: batched absence/tombstone writes — two statements per
+        // chunk of dominated-absent keys instead of one UPDATE per row.
+        // Order matters: increment absent_runs first, THEN tombstone only
+        // rows that crossed the threshold as a result.
         $tombstoned = 0;
-        foreach ($dominatedAbsent as $row) {
-            $runs = (int) $row->absent_runs + 1;
-            $update = ['absent_runs' => $runs, 'absent_since' => DB::raw('COALESCE(absent_since, now())')];
-
-            if ($runs >= self::TOMBSTONE_RUNS) {
-                $update['tombstoned_at'] = now();
-                $tombstoned++;
-            }
+        foreach (array_chunk($dominatedAbsent, 500) as $chunk) {
+            $keys = array_map(fn ($row) => $row->key, $chunk);
 
             DB::table('ingest.record_state')
                 ->where('stream_id', $streamId)
-                ->where('key', $row->key)
-                ->update($update);
+                ->whereIn('key', $keys)
+                ->update([
+                    'absent_runs' => DB::raw('absent_runs + 1'),
+                    'absent_since' => DB::raw('COALESCE(absent_since, now())'),
+                ]);
+
+            $tombstoned += DB::table('ingest.record_state')
+                ->where('stream_id', $streamId)
+                ->whereIn('key', $keys)
+                ->whereNull('tombstoned_at')
+                ->where('absent_runs', '>=', self::TOMBSTONE_RUNS)
+                ->update(['tombstoned_at' => now()]);
         }
 
         return ['tombstoned' => $tombstoned, 'guard_tripped' => false];
     }
 
-    /** The value Coverage reasons about for this key (its order field). */
-    private function orderValueFor(string $streamId, string $key, StreamSpec $spec): mixed
+    /**
+     * Live (non-tombstoned) record_state keys not seen this run — the
+     * candidate set foldAbsence() must weigh against Coverage.
+     *
+     * @param  list<string>  $seenKeys
+     * @return list<object{key: string, current_version_id: mixed, absent_runs: int}>
+     */
+    private function liveNotSeen(string $streamId, array $seenKeys): array
     {
-        if ($spec->orderField === null) {
-            return null;
+        // whereIn/whereNotIn bind one placeholder per key. Past ~1,000 keys
+        // the bind list itself becomes the cost SCALE-7 names — fall back to
+        // a chunked, key-ordered keyset walk with the seen-filter in PHP.
+        if (count($seenKeys) <= 1000) {
+            return DB::table('ingest.record_state')
+                ->where('stream_id', $streamId)
+                ->whereNull('tombstoned_at')
+                ->whereNotIn('key', $seenKeys)
+                ->get(['key', 'current_version_id', 'absent_runs'])
+                ->all();
         }
 
-        $doc = DB::table('ingest.record_versions')
+        $seenLookup = array_flip($seenKeys);
+        $candidates = [];
+        $lastKey = null;
+
+        while (true) {
+            $page = DB::table('ingest.record_state')
+                ->where('stream_id', $streamId)
+                ->whereNull('tombstoned_at')
+                ->when($lastKey !== null, fn ($q) => $q->where('key', '>', $lastKey))
+                ->orderBy('key')
+                ->limit(500)
+                ->get(['key', 'current_version_id', 'absent_runs']);
+
+            if ($page->isEmpty()) {
+                break;
+            }
+
+            foreach ($page as $row) {
+                if (! isset($seenLookup[$row->key])) {
+                    $candidates[] = $row;
+                }
+            }
+
+            $lastKey = $page->last()->key;
+
+            if ($page->count() < 500) {
+                break;
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Batched replacement for the old per-key orderValueFor() N+1 (SCALE-5):
+     * one query per chunk of candidate keys, not one query per key.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, mixed> order value keyed by record key
+     */
+    private function orderValuesFor(string $streamId, array $keys, StreamSpec $spec): array
+    {
+        if ($spec->orderField === null || $keys === []) {
+            return [];
+        }
+
+        $rows = DB::table('ingest.record_versions')
             ->where('stream_id', $streamId)
-            ->where('key', $key)
+            ->whereIn('key', $keys)
             ->where('is_current', true)
-            ->value('doc');
+            ->get(['key', 'doc']);
 
-        if ($doc === null) {
-            return null;
+        $values = [];
+        foreach ($rows as $row) {
+            // Preserve the driver-handling verbatim: doc may already be an
+            // array (test mirrors) or a JSON string (pdo_pgsql).
+            $decoded = is_string($row->doc) ? json_decode($row->doc, true) : $row->doc;
+            $values[$row->key] = is_array($decoded) ? ($decoded[$spec->orderField] ?? null) : null;
         }
 
-        $decoded = is_string($doc) ? json_decode($doc, true) : $doc;
-
-        return is_array($decoded) ? ($decoded[$spec->orderField] ?? null) : null;
+        return $values;
     }
 
     /**

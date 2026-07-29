@@ -25,12 +25,11 @@
 // case that DOES reproduce (and regress) the `changed` half of the defect
 // under SQLite.
 //
-// UNVERIFIED IN THIS ENVIRONMENT: there is no reachable Postgres here
-// (Docker Desktop paused, no local psql) — this file has not been executed.
-// It is written to the same shape as the other tests/Postgres/*.php files
-// (self-provisioned schema, PostgresTestCase's skip-without-Postgres guard)
-// and must be run for real (`composer test:pg` / phpunit.pg.xml) before it
-// can be trusted.
+// VERIFIED 2026-07-29 (Unit 9, audit-fix/pg-u9): executed against real
+// Postgres via `composer test:pg` BEFORE that unit's Lander.php edits, as its
+// own prerequisite step — passed then, and still passes after the SCALE-4/
+// SCALE-5 batching rewrite (see tests/Postgres/LanderBatchLandingTest.php for
+// the batching-specific Postgres cases this unit added alongside it).
 
 use App\Ingest\Landing\Lander;
 use App\Ingest\Manifest\SourceProfile;

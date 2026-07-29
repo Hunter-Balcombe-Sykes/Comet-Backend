@@ -14,6 +14,26 @@ abstract readonly class Coverage
 {
     abstract public function dominates(string $key, mixed $orderValue): bool;
 
+    /**
+     * Whether this coverage ever consults $orderValue. False lets the caller
+     * skip resolving it entirely (SCALE-5) — Exhaustive ignores it (always
+     * dominates) and Unknown ignores it (never dominates).
+     */
+    public function needsOrderValue(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Whether dominates() can return true for ANY key under this coverage.
+     * True lets the caller short-circuit before reading record_state at all
+     * (SCALE-5) — only Unknown coverage has this property today.
+     */
+    public function dominatesNothing(): bool
+    {
+        return false;
+    }
+
     /** @return array<string, mixed> */
     abstract public function toArray(): array;
 
@@ -59,6 +79,12 @@ final readonly class ExhaustiveCoverage extends Coverage
         return true;
     }
 
+    // dominates() ignores $orderValue entirely — resolving it is pure waste.
+    public function needsOrderValue(): bool
+    {
+        return false;
+    }
+
     public function toArray(): array
     {
         return ['type' => 'exhaustive'];
@@ -75,6 +101,18 @@ final readonly class UnknownCoverage extends Coverage
     public function dominates(string $key, mixed $orderValue): bool
     {
         return false;
+    }
+
+    // Nothing can ever be dominated, so nothing accrues absence — the
+    // caller can return before reading record_state at all.
+    public function needsOrderValue(): bool
+    {
+        return false;
+    }
+
+    public function dominatesNothing(): bool
+    {
+        return true;
     }
 
     public function toArray(): array
