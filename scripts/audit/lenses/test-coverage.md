@@ -43,7 +43,7 @@ Each of the following code paths is foundational to the platform's operation. Th
 ### (3) Policy ability coverage
 
 - Every method on every Policy class (`app/Policies/`: BasePolicy, CasePolicy, CustomerPolicy, DecisionPolicy, EnquiryPolicy, FeatureFlagPolicy, FeedbackPolicy, GdprPolicy, IntegrationConnectionPolicy, NotificationPolicy, PartnaStaffPolicy, ServicePolicy, SitePolicy, UserSelfPolicy) should have at least one test asserting `allowed` and one asserting `denied` for the appropriate actor.
-- Sweep `app/Policies/*.php` — for each `public function` (excluding `BasePolicy` inherited methods), confirm a corresponding `it()` test exists in `tests/Feature/Policies/` or `tests/Feature/<domain>/`.
+- Sweep `app/Policies/*.php` — for each `public function` (excluding `BasePolicy` inherited methods), confirm a corresponding `it()` test exists. **Policy tests live in FOUR places, not one**: `tests/Unit/Policies/` (12 files), `tests/Feature/Security/PolicyEnforcement/` (21), `tests/Feature/Security/TenantIsolation/` (10) and `tests/Feature/Policies/` (1). Searching only the last of those undercounts by ~43 files and manufactures a phantom gap — that is exactly how #TEST-15 was filed on 2026-07-28.
 - `authorizeForUser` calls in controllers without a paired policy test of the gate they invoke.
 - **404-on-not-yours assertion**: per CLAUDE.md, denied-because-not-yours must 404, not 403. Flag policy tests that assert 403 where 404 is the contract.
 - `PolicyCoverageTest.php` sweeps model-to-policy registration; flag any new model in `app/Models/` that would fail this sweep (i.e. lacks a `Gate::policy()` registration or a justified `POLICY_EXEMPT` entry).
@@ -102,6 +102,37 @@ For every finding:
 - Symbol-existence issues (Larastan covers these).
 - Absence of `$backoff` on ShouldQueue jobs (JobHygienePolicyTest.php enforces this in CI — already covered).
 
+## Before filing ANY "has no tests" finding — mandatory check
+
+This lens has a documented history of false positives in ONE direction: it
+claims code is untested when the tests exist somewhere the run's `--scope` did
+not reach. On the 2026-07-28 sweep this produced **six** wrong findings —
+#TEST-16, #TEST-13, #TEST-1, #TEST-3, #TEST-17 and most of #TEST-9 — several
+for classes whose tests were added in the *same commit* as the class itself.
+It has never once over-reported. Assume the gap is yours, not the codebase's.
+
+So, before writing "X has no test coverage":
+
+1. **Search the whole repo, not the scope.** `git grep -Pn "ClassName" -- tests/`
+   (`grep -E` silently ignores `\b` on macOS and returns a false 0-match — use `-P`).
+2. **Check the mirrored unit path.** A production class is conventionally
+   tested at the same sub-path under `tests/Unit/` that it occupies under
+   `app/` — a Routing class under `tests/Unit/Routing`, a Policy under
+   `tests/Unit/Policies`, and so on. The domain scope groups below pair each
+   production directory with its `tests/Feature/` counterpart; where the
+   matching `tests/Unit/` directory is not ALSO listed, it is invisible to that
+   run even though the file exists. That single omission is what produced
+   #TEST-13 (`PublicSuffixList` "has no unit tests" — its test had shipped in
+   the same commit as the class).
+3. **Check `git log --diff-filter=A -- <test path>`.** If the test landed in the
+   same commit as the class, the coverage was never absent and the finding is
+   false at adjudication time, not merely stale.
+4. **State where you looked** in the finding. A coverage claim without a
+   negative search is not evidence.
+
+A false "no tests" finding is expensive twice over: it burns a unit of work to
+disprove, and it trains the reader to distrust real findings.
+
 ## Suggested per-domain scope groups
 
 ### Group A — Critical-path + webhook tests
@@ -118,8 +149,11 @@ For every finding:
 ### Group B — Policy + auth coverage
 ```
 --scope tests/Feature/Policies
+--scope tests/Unit/Policies
 --scope tests/Feature/Auth
+--scope tests/Unit/Auth
 --scope tests/Feature/Security
+--scope tests/Unit/Security
 --scope app/Policies
 --scope app/Http/Middleware/Auth
 ```
@@ -127,7 +161,9 @@ For every finding:
 ### Group C — Resource / Form Request structure
 ```
 --scope tests/Feature/Resources
+--scope tests/Unit/Resources
 --scope tests/Feature/Requests
+--scope tests/Unit/Requests
 --scope app/Http/Resources
 --scope app/Http/Requests
 ```
@@ -135,6 +171,7 @@ For every finding:
 ### Group D — Jobs, analytics, media
 ```
 --scope tests/Feature/Jobs
+--scope tests/Unit/Jobs
 --scope tests/Feature/Queue
 --scope tests/Feature/Analytics
 --scope tests/Feature/Media
@@ -151,6 +188,7 @@ For every finding:
 ### Group F — Platform integration tests (largest surface, heaviest mocking)
 ```
 --scope tests/Feature/Platforms
+--scope tests/Unit/Platforms
 --scope app/Services/Platforms
 --scope app/Http/Controllers/Api/Platforms
 ```
@@ -172,7 +210,9 @@ For every finding:
 ### Group I — Catalog + Routing subsystem (new platform-catalog & link-router)
 ```
 --scope tests/Feature/Catalog
+--scope tests/Unit/Catalog
 --scope tests/Feature/Routing
+--scope tests/Unit/Routing
 --scope tests/Feature/Ingest
 --scope tests/Unit/Ingest
 --scope tests/Unit/Content
