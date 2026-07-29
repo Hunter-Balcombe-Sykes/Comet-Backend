@@ -63,13 +63,17 @@
  *
  * Extraction (regex alone cannot find a body — bodies nest parens: numeric(10,2), CHECK (kind
  * IN ('a','b'))): match the opening keywords with schema-qualification REQUIRED, then scan
- * forward from the matched '(' counting depth to find the matching ')'. The DDL keywords are
- * assembled from parts (mirroring NoLocalCanonicalTableDdlTest) so this guard's own source can
- * never satisfy its own pattern. The balanced-paren scan is naive — it does not skip quoted
- * literals, so an unmatched paren inside one (e.g. a DEFAULT of a single open-paren character)
- * would run the scan to the end of the file. Mitigated, not prevented: two sanity assertions
- * below require tests/Pest.php to still yield >= 95 declarations and every extracted body to
- * stay under 8KB, so a scanner regression fails LOUDLY instead of silently finding nothing.
+ * forward from the matched '(' counting depth to find the matching ')' via
+ * dupStandInFindMatchingCloseParen(). The DDL keywords are assembled from parts (mirroring
+ * NoLocalCanonicalTableDdlTest) so this guard's own source can never satisfy its own pattern.
+ * The balanced-paren scan is comment- and quote-aware: it skips single-quoted literals ('' is
+ * the escaped-quote form) and both comment styles while counting depth, so neither a DEFAULT of
+ * a single open-paren character (`DEFAULT '('`) nor a block comment containing a stray ',' or
+ * '(' desyncs it — both were confirmed live corruption vectors before this guard against them
+ * was added; neither is exercised by any current file (tests/Pest.php's 99 declarations extract
+ * cleanly either way). Mitigated further, not solely relied on: two sanity assertions below
+ * require tests/Pest.php to still yield >= 95 declarations and every extracted body to stay
+ * under 8KB, so a scanner regression fails LOUDLY instead of silently finding nothing.
  *
  * $exempt (repo-relative):
  * - tests/Unit/SchemaDrift/DriftComparatorTest.php — in-memory comparator fixtures, not a real
@@ -107,6 +111,85 @@
 const DUP_STANDIN_BASELINE_PATH = __DIR__.'/../../../scripts/launch-check/duplicate-stand-in-ddl-baseline.json';
 
 /**
+ * Scan $content from $openParenOffset (which must point AT the opening '(') for the matching
+ * close paren, tracking depth. Comment- and quote-aware: a '(' or ')' inside a single-quoted
+ * literal ('' is the escaped-quote form, mirroring dupStandInNormalizeBody's own literal
+ * splitter), a double-dash line comment, or a slash-star block comment does not affect depth —
+ * only raw, live parens do. This closes both known corruption vectors: a DEFAULT of a single
+ * open-paren character (`DEFAULT '('`) and a block comment containing a stray ',' or '(' —
+ * either would otherwise desync the scan from the DDL's real structure. Returns strlen($content)
+ * (i.e. "ran to EOF") if the parens never balance, which the caller treats as a scanner failure
+ * — see dupStandInAssertPestSanity.
+ */
+function dupStandInFindMatchingCloseParen(string $content, int $openParenOffset): int
+{
+    $length = strlen($content);
+    $depth = 0;
+    $pos = $openParenOffset;
+    while ($pos < $length) {
+        $char = $content[$pos];
+
+        if ($char === "'") { // single-quoted literal — '' is an escaped quote, not a terminator
+            $pos++;
+            while ($pos < $length) {
+                if ($content[$pos] === "'") {
+                    if ($pos + 1 < $length && $content[$pos + 1] === "'") {
+                        $pos += 2;
+
+                        continue;
+                    }
+                    $pos++;
+                    break;
+                }
+                $pos++;
+            }
+
+            continue;
+        }
+
+        if ($char === '-' && $pos + 1 < $length && $content[$pos + 1] === '-') { // line comment
+            $pos += 2;
+            while ($pos < $length && $content[$pos] !== "\n") {
+                $pos++;
+            }
+
+            continue;
+        }
+
+        if ($char === '/' && $pos + 1 < $length && $content[$pos + 1] === '*') { // block comment
+            $pos += 2;
+            while ($pos < $length && ! ($content[$pos] === '*' && $pos + 1 < $length && $content[$pos + 1] === '/')) {
+                $pos++;
+            }
+            $pos += 2; // skip the closing */ (harmless past EOF: loop condition re-checks $pos < $length)
+
+            continue;
+        }
+
+        if ($char === '(') {
+            $depth++;
+            $pos++;
+
+            continue;
+        }
+
+        if ($char === ')') {
+            $depth--;
+            if ($depth === 0) {
+                return $pos;
+            }
+            $pos++;
+
+            continue;
+        }
+
+        $pos++;
+    }
+
+    return $length; // never balanced — fallback, see docblock
+}
+
+/**
  * Extract every schema-qualified stand-in declaration from $content, keyed by
  * strtolower('schema.table'), body-only (the balanced parenthesised block, exclusive of the
  * parens themselves). Only declarations guarded by IF NOT EXISTS are returned — see the
@@ -132,21 +215,7 @@ function dupStandInExtractDeclarations(string $content): array
         $fullOffset = $matches[0][$i][1];
         $openParenOffset = $fullOffset + strlen($fullMatch) - 1;
 
-        $depth = 0;
-        $length = strlen($content);
-        $closeParenOffset = $length; // fallback if never balanced — see docblock
-        for ($pos = $openParenOffset; $pos < $length; $pos++) {
-            $char = $content[$pos];
-            if ($char === '(') {
-                $depth++;
-            } elseif ($char === ')') {
-                $depth--;
-                if ($depth === 0) {
-                    $closeParenOffset = $pos;
-                    break;
-                }
-            }
-        }
+        $closeParenOffset = dupStandInFindMatchingCloseParen($content, $openParenOffset);
 
         $declarations[] = [
             'key' => "{$schema}.{$table}",
