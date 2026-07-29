@@ -12,7 +12,7 @@
 
 ## Progress
 
-- P1 High: 6 of 17 complete  (#TEST-7 and #TEST-9 partially stale — see their entries)
+- P1 High: 9 of 17 complete  (several partially stale — see individual entries)
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 9 complete
 
@@ -42,7 +42,8 @@
         }
         ```
 
-- [ ] **#TEST-2** · P1 — `RoutingController::store()` has 5+ distinct outcome branches with no per-branch test coverage
+- [x] **#TEST-2** · P1 — `RoutingController::store()` has 5+ distinct outcome branches with no per-branch test coverage
+    - **PARTLY STALE (2026-07-29):** four of the six outcomes named were already covered in `tests/Feature/Routing/RoutingEndpointTest.php` (connected, review/choose, link_cap_reached, note→link). Only `busy` (423) and `unavailable` (503) were missing; both added against REAL objects. The audit's suggestion to mock `CustomLinkSeeder::addManual()` was rejected — it would have deleted the only thing under test.
     - **Where:** `app/Http/Controllers/Api/Routing/RoutingController.php:36-77`
     - **Affects:** The primary link-adding flow for every user pasting a URL into the dashboard — the newest, least-proven write path in the platform.
     - **Effort:** L (~1–2d)
@@ -225,7 +226,8 @@
         )
         ```
 
-- [ ] **#TEST-12** · P1 — Host-spoofing TLD allowlists (Eventbrite, OpenTable, Google Business) have no negative test locking the closed suffix set shut
+- [x] **#TEST-12** · P1 — Host-spoofing TLD allowlists (Eventbrite, OpenTable, Google Business) have no negative test locking the closed suffix set shut
+    - **PARTLY STALE, AND IT HID A REAL HOLE (2026-07-29):** OpenTable and Eventbrite were already pinned both directions by `tests/Unit/Security/HostSpoofingHotfixTest.php`. Google had zero coverage AND no closed set — its gate was the OPEN family `com(\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2}`, admitting ~2,029 registrable suffixes of which Google owns a few hundred (`google.tk`, `google.cm`, `google.com.zz` all passed). Pinning that would have certified the hole, so the gate was narrowed to a verified 48-entry enumeration first. Review caught a fabricated `pe` in the first cut (`google.pe` does not exist; Peru is `google.com.pe`) — the fix both admitted a fake host and rejected the real one.
     - **Where:** `app/Services/Platforms/EventbriteScraper.php:28`, `app/Services/Platforms/OpenTableService.php:21`, `app/Services/Platforms/GoogleBusinessService.php:89-93`
     - **Affects:** Any auto-connect or paste flow accepting one of these URLs — all three files' own in-line comments confirm each was previously vulnerable to host spoofing (`eventbrite.<attacker-domain>`, `opentable.<attacker-domain>`, `google.<attacker-domain>`) and each fix is a closed TLD/host regex with no regression test.
     - **Effort:** M (~2–4h)
@@ -241,7 +243,8 @@
         private const TLDS = '(?:com|com\.au|com\.mx|co\.uk|co\.th|ca|de|jp|ie|sg|hk|ae|it|es|nl|at)';
         ```
 
-- [ ] **#TEST-13** · P1 — `PublicSuffixList` (the registrable-domain algorithm underpinning all routing security) has no unit tests
+- [x] **#TEST-13** · P1 — `PublicSuffixList` (the registrable-domain algorithm underpinning all routing security) has no unit tests
+    - **REFUTED (2026-07-29):** `tests/Unit/Routing/PublicSuffixListTest.php` was added in `710db104`, the SAME commit as the class, and is an ancestor of the audit commit `57be57d1` — the coverage was never absent. Algorithm hand-traced against the publicsuffix.org spec (exception > wildcard > normal precedence, the exception leftmost-label drop, the suffix+1 slice): CORRECT, no production defect. Third instance of this shape after #TEST-16 and #TEST-1 — the coverage lens does not reach `tests/Unit/Routing/`. Added a PSL data-file regression test instead.
     - **Where:** `app/Routing/PublicSuffixList.php` (entire class)
     - **Affects:** Every URL the link canonicaliser processes — this is the exact mechanism deciding that `opentable.evil.com` belongs to `evil.com`, not `opentable.com`.
     - **Effort:** M (~2–4h)
