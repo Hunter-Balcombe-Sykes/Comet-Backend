@@ -32,6 +32,16 @@ uses(SchemaTestCase::class)->in(__FILE__);
 /**
  * Assert that a BEFORE UPDATE trigger bound to public.set_updated_at() (or any
  * schema-local variant) exists on the given schema.table.
+ *
+ * `action_timing`, NOT `trigger_type`. information_schema.triggers has no
+ * `trigger_type` column in PostgreSQL — the original query raised
+ * SQLSTATE[42703] on every call, so all 7 surviving assertions in this file
+ * were non-functional. Nobody knew, because the file was gated behind
+ * `getDriverName() === 'pgsql'` and that gate is unsatisfiable in the Feature
+ * suite (Tests\TestCase::setUp() repoints the pgsql alias at in-memory SQLite).
+ * The very first real execution — CI's schema-tests lane, 2026-07-30 — surfaced
+ * it. Verified against postgres:16: the column set is `action_timing`
+ * ('BEFORE'|'AFTER'|'INSTEAD OF') + `event_manipulation`.
  */
 function assertUpdatedAtTriggerExists(string $schema, string $table): void
 {
@@ -40,7 +50,7 @@ function assertUpdatedAtTriggerExists(string $schema, string $table): void
            FROM information_schema.triggers
           WHERE event_object_schema = ?
             AND event_object_table  = ?
-            AND trigger_type        = 'BEFORE'
+            AND action_timing       = 'BEFORE'
             AND event_manipulation  = 'UPDATE'
             AND action_statement    ILIKE '%set_updated_at%'
           LIMIT 1",
