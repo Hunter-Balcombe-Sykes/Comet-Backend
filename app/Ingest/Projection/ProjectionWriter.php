@@ -132,15 +132,55 @@ class ProjectionWriter
             }
 
             $coord = "{$sourceKey}:{$accountRef}:{$record->key}";
-            $sourceItemId = $this->upsertSourceItem(
-                contentSourceId: $contentSourceId,
-                coord: $coord,
-                streamId: $streamId,
-                recordKey: (string) $record->key,
-                kind: (string) $projection['kind'],
-                projectorVersion: $projector::version(),
-            );
-            $this->writeIdentityKeys($sourceItemId, $coord, $projection);
+
+            // ONE transaction per record, spanning the source-item upsert AND
+            // its identity-key replace-set (#CACHE-3 brief, 2026-07-31).
+            //
+            // resolveItems() below reads content.identity_keys scoped by
+            // user_id + kind, NOT stream_id — that cross-source union is the
+            // whole point of the identity system, and it is what makes this
+            // window reachable: projecting a SECOND stream, or a concurrent
+            // `ingest:project` (which bypasses SourceScheduler's claim
+            // entirely), reads these very rows while this loop rewrites them.
+            //
+            // Unwrapped there are TWO windows in which a live source item is
+            // visible carrying ZERO identity keys: between the DELETE and the
+            // INSERT in writeIdentityKeys(), and — for a first-sight record —
+            // between the content.source_items INSERT and the first key. The
+            // second is the damaging one, and wrapping only writeIdentityKeys()
+            // would leave it open: a keyless new item resolves as an unrelated
+            // singleton, so createItem() mints a spurious content.items row and
+            // anchors the coord to it, which the next pass then has to merge
+            // away. The user sees a duplicate in the meantime — and if they
+            // curate the loser, mergeInto()'s curation check keeps it forever.
+            //
+            // Per RECORD, not per loop, for the same reason replaceCollections()
+            // wraps per CHUNK: bounded lock duration. lazy(500) pages with
+            // discrete LIMIT/OFFSET queries (BuildsQueries::lazy), not a
+            // server-side cursor, so a transaction opened and committed inside
+            // the body closes before the next page is fetched — but wrapping
+            // the whole loop would pull every page query inside it and pin an
+            // old xmin for the length of the stream.
+            //
+            // $projector->project() stays OUTSIDE (line 126): nothing in here
+            // may be long-running or non-transactional. Two concurrent
+            // `ingest:project` runs on one stream could in principle deadlock
+            // ($attempts defaults to 1), but each transaction locks a single
+            // source item and its keys in a fixed order, so a cycle needs two
+            // writers on the SAME row — accepted, not retried.
+            $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector) {
+                $id = $this->upsertSourceItem(
+                    contentSourceId: $contentSourceId,
+                    coord: $coord,
+                    streamId: $streamId,
+                    recordKey: (string) $record->key,
+                    kind: (string) $projection['kind'],
+                    projectorVersion: $projector::version(),
+                );
+                $this->writeIdentityKeys($id, $coord, $projection);
+
+                return $id;
+            });
 
             $projections[$coord] = $projection;
         }
@@ -258,6 +298,15 @@ class ProjectionWriter
      * record's own coord (joining within the platform); a link URL doubles as
      * CanonicalUrl so the same thing pasted manually or synced from a second
      * platform can union (§5).
+     *
+     * MUST be called inside a transaction that ALSO covers the source item's
+     * own upsert — the DELETE/INSERT pair below is not atomic on its own, and
+     * covering only this method still leaves a first-sight source item visible
+     * with zero keys (see the long note at the call site). projectStream() is
+     * the only caller; keep it that way. Deliberately NOT self-wrapping: a
+     * nested DB::transaction here would add a SAVEPOINT round trip per record
+     * and would silently re-narrow the scope to the window that does not
+     * matter.
      *
      * @param  array<string, mixed>  $projection
      */

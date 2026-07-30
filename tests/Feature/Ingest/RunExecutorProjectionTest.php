@@ -106,6 +106,14 @@ it('records a projection failure as an anomaly without failing the fetch', funct
     $runRow = DB::table('ingest.runs')->where('id', $result['run_id'])->first();
     expect($runRow->outcome)->toBe('degraded');
 
+    // #CACHE-3 brief (2026-07-31): the severity is the whole alarm, and the
+    // assertion above cannot see it — this row sat at 'warning' for months while
+    // IngestAnomaliesCommand filters `->where('severity', 'critical')`, so a
+    // total projection failure was recorded and then never paged anyone.
+    // Counting the row is not the same as proving someone gets woken.
+    expect(DB::table('ingest.anomalies')->where('kind', 'projection')->value('severity'))
+        ->toBe('critical');
+
     // Restore for the suite's shared in-memory schema.
     setupContentTables();
 });

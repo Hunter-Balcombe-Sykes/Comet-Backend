@@ -1,8 +1,19 @@
 # `#CACHE-3` — decision brief: decouple projection from landing?
 
 **Written 2026-07-30 on `audit-fix/tier1-2026-07-30`. No code was written for this item — it is
-Tier 1 item 5, "decision brief only".** `#CACHE-3` stays **open** in `CONSOLIDATED.md` until Josh
-rules; this file is the input to that ruling.
+Tier 1 item 5, "decision brief only".**
+
+> ## ✅ RULED 2026-07-31 — Josh accepted the recommendation below.
+>
+> **Projection stays inside the ingest job. The `Bus::chain` fix is REJECTED outright, not
+> postponed.** `#CACHE-3` is ticked in both `CONSOLIDATED.md` and its source
+> (`audits/sweeps/2026-07-28-content-platform-rebuild/`) as **WONTFIX-as-prescribed** — the box closes
+> the *question*, not the code. Reopen only on one of the named triggers at the foot of this file, and
+> if triggered, design **bounding projection** via the existing `projection_*_chunk` levers first.
+>
+> **The two "worth doing regardless" items were implemented on `audit-fix/cache3-2026-07-31`** — see
+> the Recommendation section. Neither needed this finding; both were incidental discoveries made while
+> verifying it. That is the actual value this brief produced.
 
 **The ask.** `#CACHE-3` proposes moving projection out of the ingest job into a chained job, so the
 ingest job returns sooner. Two shipped invariants were believed to block it. Both do — and the
@@ -117,14 +128,35 @@ lifecycle redesign that must reconstruct two writes from a returned code path, a
 stuck-source window on a lost chain link — trading a bounded, alerting failure (job timeout) for an
 unbounded, quieter one (held claim).
 
-**Two things worth doing regardless — neither requires this finding, and neither is done here:**
+**Two things worth doing regardless — neither requires this finding. ✅ BOTH IMPLEMENTED 2026-07-31
+on `audit-fix/cache3-2026-07-31`:**
 
-1. Raise `RunExecutor.php:188`'s projection anomaly from `warning` to `critical`, so a total
-   projection failure actually pages via the already-scheduled `ingest:anomalies`. Today it writes to
-   a table nobody is woken by.
-2. Wrap `writeIdentityKeys()` (`ProjectionWriter.php:266-287`) in a transaction. It is the one
-   genuinely unguarded delete-then-insert, it is a real hazard for `ingest:project --rebuild` running
-   alongside a live run **today** with no chaining involved, and it is a three-line change.
+1. ✅ Raise the projection anomaly in `RunExecutor` from `warning` to `critical`, so a total
+   projection failure actually pages via the already-scheduled `ingest:anomalies`. It was writing to
+   a table nobody is woken by: `IngestAnomaliesCommand` filters `->where('severity', 'critical')`.
+   `RunExecutorProjectionTest` counted the anomaly row but never asserted its severity — which is
+   exactly how this stayed invisible; that assertion now exists.
+2. ✅ Make `writeIdentityKeys()`'s delete-then-insert atomic. It is the one genuinely unguarded
+   delete-then-insert, and a real hazard for `ingest:project --rebuild` running alongside a live run
+   **today** with no chaining involved.
+
+*(Correction to this brief's own earlier wording: the DELETE and INSERT in `writeIdentityKeys()` have
+only in-memory array building between them — not "a projector call and an upsert", which sit before
+the method is entered. The unguarded window is real but narrower than first described.)*
+
+**⚠️ And a correction that changed the fix.** This brief said "wrap `writeIdentityKeys()` in a
+transaction". That would have been **insufficient**, and in the wrong direction: `upsertSourceItem()`
+commits the `content.source_items` row *before* `writeIdentityKeys()` is entered, so a reader can see
+a committed, live, **keyless** source item through a second window — and that one is the *damaging*
+one. A keyless first-sight item resolves as an unrelated singleton, so `createItem()` mints a
+spurious `content.items` row and anchors the coord to it; the next pass merges it away, but the user
+sees a duplicate meanwhile, and if they curate the loser `mergeInto()`'s curation check keeps it
+permanently. The shipped fix therefore spans **both** calls in one per-record transaction. Pinned by
+a granularity test that fails if anyone re-narrows it.
+
+**Still open after this pass:** `IngestProjectCommand::dropDerivedRows()` drops every identity key for
+a stream up front, unwrapped — a far wider window that `ingest:project --rebuild` still carries.
+Raised 2026-07-31 and deliberately kept out of that commit; see follow-up 5 in `CONSOLIDATED.md`.
 
 **Reopen `#CACHE-3` when any one of these fires:**
 
