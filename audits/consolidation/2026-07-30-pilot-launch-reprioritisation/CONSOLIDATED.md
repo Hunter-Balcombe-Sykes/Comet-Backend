@@ -579,11 +579,52 @@ gate in the Feature suite is unsatisfiable. Those tests reported green having as
   touches the table. 3 grandfather entries removed from `schema-drift-baseline.json` by surgical delete,
   not regeneration. No migration needed — prod was already correct.
 
-Independent review PASS (a first reviewer stalled and was replaced). One defect caught pre-review and
-fixed: the implementer added a `sort()` to `PestSetupHelpers::names()`, which silently reordered the 59
-fixture builders `SchemaDriftGuardTest` *calls*. Verified statically that declaration order ≠ alphabetical
-and that no helper `ALTER`s another's table, so it was harmless today — removed anyway, since a green
-suite could not have distinguished the two versions.
+**Scope addition, approved by Josh mid-run: the same root cause spanned 30 files, not 3.** A grep for all
+`getDriverName()`-vs-`'pgsql'` gate forms outside the two real Postgres lanes returns **30 test files**,
+heaviest in `tests/Feature/Security` (7) and `tests/Feature/Moderation` (6). The 7 security files were
+folded into this unit; the rest are logged below as a follow-up. Folded: `DesignKitsRlsTest`,
+`AdminOnlyWritePoliciesTest`, `FunctionSearchPathTest`, `ModerationSchemaRlsTest`,
+`AnalyticsSessionsRlsTest`, `AuditModerationEventsRlsTest`, `PlatformAndMenuRlsTest` → **80 RLS,
+policy-shape and `search_path`-hardening assertions now have a lane that executes them.**
+
+Unlike unit 1a's files these carry **zero schema rot** — every object they name still exists. What they
+carried instead was a **Pest API misuse that only execution could surface.**
+`vendor/pestphp/pest/src/Mixins/Expectation.php:184` declares `toContain(mixed ...$needles)` — variadic,
+**no message parameter** — while `toBe`, `toBeTrue` and `toBeNull` all take `string $message = ''`. So
+`toContain($needle, "[$policy] must allow staff access.")` asserted the catalog value contained *both*
+strings, the second being an English sentence. **18 sites failed unconditionally; 3 negated ones passed
+vacuously.** All 21 fixed to the single-needle form the executing lanes already use. Six of the seven
+files made the identical mistake — and the one that didn't (`AnalyticsSessionsRlsTest`) simply has no
+`toContain` calls. The error correlates with surface area, not author care: the wrong form is the one
+that reads correctly by analogy, PHP's variadic swallows the extra argument silently, and review cannot
+see it. **An unrun guard does not just fail to catch regressions in the code — it fails to catch them in
+itself.** Corroborating evidence: zero multi-needle `toContain` calls exist in `tests/Postgres/` or
+`tests/Schema/`, the lanes that actually run.
+
+Also repointed `scripts/audit/lenses/schema-rls.md` (CI-enforced — `AuditPipelineIntegrityTest`
+`file_exists()`-checks every backticked `tests/…` token, so the moves would have turned that guard red)
+and `scripts/audit/lenses/test-coverage.md`.
+
+Independent review PASS on both halves (one reviewer stalled and was replaced). Per-file `it()` counts
+preserved exactly across all 7 moves; every `toContain` fix verified to drop the *message* with the
+needle byte-identical — no assertion weakened. One defect caught pre-review and fixed: the implementer
+added a `sort()` to `PestSetupHelpers::names()`, which silently reordered the 59 fixture builders
+`SchemaDriftGuardTest` *calls*. Verified statically that declaration order ≠ alphabetical and that no
+helper `ALTER`s another's table, so it was harmless today — removed anyway, since a green suite could
+not have distinguished the two versions.
+
+**Follow-up logged, not fixed (new findings, out of this bucket's scope):**
+- **23 more files carry the same unsatisfiable `pgsql` gate**, including 6 in `tests/Feature/Moderation`
+  and `tests/Feature/Database/DataExportSchemaParityTest.php` (deliberately deferred — it reflects over
+  `DataExportPayloadBuilder`, which P1-PILOT was rewriting for `PRIV-3`).
+- **53 tables have an `updated_at` column and no DB trigger** (77 with the column, 24 with a trigger),
+  including `site.menus`, `site.pages`, `content.items`, all 13 `content.f_*`. Non-Eloquent write paths
+  won't stamp them. Inverting `UpdatedAtTriggerCoverageTest` to assert this was explicitly rejected as a
+  product decision, not a test fix.
+- **`audit.staff_audit_log` is hand-rolled in 30 test files with no shared helper** — a real prod table
+  entirely outside drift-gate jurisdiction. One `setupStaffAuditLogTable()` would bring all 30 in.
+- **`site.all_site_data` is a `VIEW` in prod but a `TABLE` in a test helper.** The drift machinery has no
+  concept of view-vs-table mismatch.
 
 Suite: `6824 passed`, skipped `145 → 122` (−23: the relocated cases, which only ever skipped). PHPStan
 21 errors, unchanged. `tests/Schema` 24 → 41 cases.
