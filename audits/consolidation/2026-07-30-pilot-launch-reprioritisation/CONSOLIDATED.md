@@ -555,7 +555,7 @@ tracked in their source folders).
 
 **P1-LAUNCH**
 - [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
-- [x] `#SCALE-19` · [ ] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
+- [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
 - [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
 - [ ] `#INH-6` · [ ] `#SEC-4` · [ ] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
 - [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [ ] `#10`

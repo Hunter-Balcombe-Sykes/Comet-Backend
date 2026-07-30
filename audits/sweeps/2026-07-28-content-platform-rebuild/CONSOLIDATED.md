@@ -1328,7 +1328,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 5 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
+- P2 Medium: 6 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1858,7 +1858,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-20** · P2 — `PlacementPolicy::isTombstoned()` issues one EXISTS query per link during batch imports
+- [x] **SCALE-20** · P2 — `PlacementPolicy::isTombstoned()` issues one EXISTS query per link during batch imports
+    - **FIXED 2026-07-30 (P1-LAUNCH) — but NOT as prescribed.** ⚠️ The prescription (have the importers collect all projected `(surfaceKey, identifier)` pairs up front and pass a precomputed lookup into `decide()`) is **impossible as written**: projection happens inside `LinkRoutingService::route()` per link, *after* canonicalisation, so the importers cannot know the pairs before the run. It would need the projector run twice or `route()` split into two phases. Shipped instead: a **single-entry** instance memo on `PlacementPolicy` keyed `"{userId}|{importRunId}"`. The paste path (`importRunId === null`) keeps the original per-call `EXISTS` **unchanged** — no behaviour change on the request path. An import run prefetches every tombstone for the user once and answers the rest of the run from memory, using the same two-ref rule (`surfaceKey`, `surfaceKey:identifier`). Measured **20 → 1** queries for a 20-link import. No `->limit()` by design: a missed tombstone resurrects a link the user explicitly refused (the C8 invariant), and the row count is bounded by the user's own refusals. ⚠️ **Known accepted race, documented in the code with a tripwire.** Review caught that the original correctness argument was incomplete: there are **two** writers to `routing.item_tombstones`, not one. `SourceReconciler::applyIntent()`'s DELETE is gated on `isDirectRequest()` and cannot fire mid-run, but `SuggestionsController::dismiss()` (`:120-127`) does an **ungated** `insertOrIgnore` from its own HTTP endpoint. Because `SourceReconciler::reconcile()` commits each link's intent in its own transaction, and `WebsiteImporter` dedupes by **raw href text** rather than canonical target, a dismissal landing mid-run can be missed by the frozen memo. This **widens** a pre-existing per-link race to run-duration. Accepted because both importers are currently **test-only call sites** (no controller, job or route wires them) and there are zero live users. **TRIPWIRE: if either importer is ever wired into a live request path, this memo needs invalidation or a narrower scope first.** New test `tests/Feature/Routing/ImportTombstonePrefetchTest.php`.
     - **Where:** app/Routing/PlacementPolicy.php:67, 135-146 (`isTombstoned`, called from `decide()`)
     - **Affects:** Website and link-in-bio import runs — one tombstones-table query per routed link.
     - **Effort:** M (~2–4h)
