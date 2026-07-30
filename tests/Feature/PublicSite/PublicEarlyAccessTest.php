@@ -36,6 +36,7 @@ function ovaEarlyAccessPayload(array $overrides = []): array
         'platforms' => ['instagram', 'fresha'],
         'source_type' => 'instagram',
         'source_ref' => 'jess_handle',
+        'form_started_at_ms' => (int) floor(microtime(true) * 1000) - 5000,
     ], $overrides);
 }
 

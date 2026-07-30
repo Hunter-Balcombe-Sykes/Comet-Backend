@@ -3,19 +3,24 @@
 namespace App\Http\Requests\Api\PublicSite;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Http\Requests\Concerns\WithBotProtection;
 use Illuminate\Validation\Rule;
 
 // OV-A: public marketing early-access form. type partna|business; the person
 // names the 2–3 platforms they already use (free text — matched to registry
 // keys later by the invite flow, not validated against it here so the form
 // never fights the visitor). `website` is the honeypot; form_started_at_ms
-// powers the timing check — both mirror PublicWaitlistSignupRequest.
+// powers the timing check — both come from WithBotProtection, which is the
+// canonical source for all four public form endpoints.
 class PublicEarlyAccessSignupRequest extends BaseFormRequest
 {
+    use WithBotProtection;
+
     protected function prepareForValidation(): void
     {
         $this->trimStrings(['email', 'workplace_or_industry']);
         $this->lowercaseStrings(['email']);
+        $this->merge($this->botProtectionPrepare());
     }
 
     public function rules(): array
@@ -34,9 +39,8 @@ class PublicEarlyAccessSignupRequest extends BaseFormRequest
             'source_type' => ['required', 'string', Rule::in(array_keys(config('partna.pre_account.generators', [])))],
             'source_ref' => ['required', 'string', 'max:300'],
 
-            // Bot protection (never surfaced in UI copy).
-            'website' => ['nullable', 'string', 'max:255'],
-            'form_started_at_ms' => ['nullable', 'integer'],
+            // Bot protection (never surfaced in UI copy) — canonical rules in WithBotProtection.
+            ...$this->botProtectionRules(),
         ];
     }
 }
