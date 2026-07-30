@@ -1,30 +1,33 @@
 # Execute prompt — three open items: reviewer PII on the public wire, a P3 tail, a docs triage
 
-> ## ✅ EXECUTED 2026-07-30 — archived, ONE leg still open
+> ## ✅ EXECUTED AND FULLY CLOSED 2026-07-30
 >
-> Kept in `closed/` rather than deleted (the repo's usual fate for a worked plan) because
-> **Unit 1's Decision B is still undecided** and this is the written record of it.
+> All three units resolved. `271-PRIV-2` is now ticked — **both legs settled the same day.**
 >
 > | Unit | Outcome |
 > |---|---|
-> | **1** — reviewer PII | Investigated. **Nested `photos[].authors` leg SHIPPED** @ `31ccf162` — `ThirdPartyPii::stripNested()` runs after `array_intersect_key` in BOTH gates. **Public-wire `reviews`/`reviewSummary` leg STILL OPEN** — see below. |
+> | **1** — reviewer PII | Investigated. **Nested `photos[].authors` leg SHIPPED** @ `31ccf162` — `ThirdPartyPii::stripNested()` runs after `array_intersect_key` in BOTH gates. **Public-wire `reviews`/`reviewSummary` leg DECIDED — kept** (no code change), with a mandatory `LEGAL-2` follow-through. |
 > | **2** — 19 dead `whereNotNull` | **No action**, deliberately. All 19 left in place per CLAUDE.md's "absorb the P3 tail, never schedule it". |
 > | **3** — plans triage | **14 deleted, 4 kept** @ `4e664284`. Kept: `weekly-db-backup` + `worker-static-analysis` (never shipped); `dast-security-implementation` + `k6-load-testing` (shipped as code, but their open boxes are actions on Josh — baseline triage, joint measured run). |
 >
-> **What is still open (Unit 1, Decision B):** whether `reviews` / `reviewSummary` stay on the public
-> sitepage wire. Gated on a question that is NOT answerable from this repo — *does the Astro sitepage
-> actually render `payload.reviews`?* The Astro app is a separate repo, not checked out on this machine
-> (`partna-frontend-main` is `commet-web`, the Next.js dashboard; no `astro.config.*` exists locally).
-> All frontend references to `reviews`/`authorPhoto`/`authorUri` are dashboard-only, which is a strong
-> but **unproven** negative. Audit finding 271-PRIV-2 stays unticked; its folder must not be archived.
+> **Decision B — DECIDED 2026-07-30: `reviews`/`reviewSummary` STAY on the public wire.** Josh's explicit
+> call, taken WITHOUT resolving the Astro render question (which remains unanswered — the Astro app is a
+> separate repo, not checked out on this machine; `partna-frontend-main` is `commet-web`, the Next.js
+> dashboard, and no `astro.config.*` exists locally). Deciding to keep made the render question moot: it
+> only mattered for costing a removal. **No code change — the current behaviour IS the decision.**
 >
-> **Options as framed and decided:** B1 drop `reviews`, keep `reviewSummary`+`rating`+`reviewCount`
-> (recommended, conditional on the render answer) · B2 status quo · B3 drop both · **B4 flipping the
-> `reviews` display-toggle default — REJECTED** (one toggle key covers `reviews`/`reviewSummary`/`rating`/
-> `reviewCount`, so it takes the star rating with it and silently un-publishes for every existing
-> connection) · **B5 redact author name but keep review text — REJECTED** (most likely of all options to
-> breach the Places API terms; `authorAttribution` exists *because* Google requires attribution on
-> displayed reviews).
+> **⚠️ The condition attached to that decision:** publishing third-party reviewer identity is only
+> defensible if the privacy policy discloses it. `LEGAL-2 · P0` in
+> `docs/checklists/launch-readiness-checklist.md` now carries a mandatory sub-item spelling out exactly
+> what must be covered (APP 6 secondary-purpose / second-subject processing), due before the first pilot
+> customer signs. **A generic policy template will not cover this.**
+>
+> **Options as framed, for the record:** B1 drop `reviews`, keep `reviewSummary`+`rating`+`reviewCount` ·
+> **B2 status quo — CHOSEN** · B3 drop both · **B4 flipping the `reviews` display-toggle default —
+> REJECTED** (one toggle key covers `reviews`/`reviewSummary`/`rating`/`reviewCount`, so it takes the star
+> rating with it and silently un-publishes for every existing connection) · **B5 redact author name but
+> keep review text — REJECTED** (most likely of all options to breach the Places API terms;
+> `authorAttribution` exists *because* Google requires attribution on displayed reviews).
 >
 > **Why the nested fix landed at the read boundary:** the two frozen parity tests in
 > `GoogleBusinessDetailsTest` assert `GoogleBusinessFetch` *storage* behaviour, so scrubbing on the way
