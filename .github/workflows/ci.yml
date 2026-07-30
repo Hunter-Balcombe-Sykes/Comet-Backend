@@ -534,3 +534,39 @@ jobs:
 
       - name: Schema-drift gate
         run: php artisan test --filter=SchemaDriftGuardTest
+
+  # Outbound-HTTP guard. Same reasoning as schema-drift above: this lives in the
+  # Feature suite, which `composer test` runs AFTER the Unit suite, so a single
+  # unrelated Unit-suite fatal would abort the run before the gate ever executes
+  # — silently disabling it. `composer test` is also red for unrelated reasons
+  # more often than anyone would like. It still runs there (so a violation is
+  # caught before push); this job guarantees it runs at all.
+  #
+  # No service containers: the guard only reads source files with
+  # token_get_all(), so it needs neither a database nor Redis.
+  # Spec: docs/superpowers/specs/2026-07-30-outbound-http-guard-design.md
+  outbound-http-guard:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP_ENV: testing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_sqlite, sqlite3
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy env
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Outbound HTTP guard (SSRF sanitizer enforcement)
+        run: php artisan test --filter=OutboundHttpGuardTest
