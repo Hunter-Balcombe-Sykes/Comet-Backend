@@ -23,6 +23,9 @@ class GoogleMenuImagesScraper
 {
     private const MAX_IMAGES = 14;
 
+    /** Fallback default for config('partna.limits.apify.run_sync_timeout_seconds') (CFG-9). */
+    private const RUN_SYNC_TIMEOUT_SECONDS = 110;
+
     /**
      * The listing's photo-stream image URLs (bounded), or null on missing
      * token / budget exhaustion / failure — the caller treats null and []
@@ -46,7 +49,7 @@ class GoogleMenuImagesScraper
 
         try {
             $response = Http::withToken($token)
-                ->timeout(110)
+                ->timeout((int) config('partna.limits.apify.run_sync_timeout_seconds', self::RUN_SYNC_TIMEOUT_SECONDS))
                 ->post(
                     'https://api.apify.com/v2/acts/'.config('services.apify.actors.google_places').'/run-sync-get-dataset-items',
                     [

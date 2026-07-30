@@ -3998,7 +3998,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 1 of 19 complete  (+#CFG-8 fixed 2026-07-31 — Places retry policy to config WITH a 1..3 spend clamp; the other 15 non-promoted CFG-* items are WONTFIX by decision, see BACKLOG-TRIAGE.md)
+- P3 Low: 3 of 19 complete  (+#CFG-8 fixed 2026-07-31 — Places retry policy to config WITH a 1..3 spend clamp; +#CFG-9 fixed at ALL THREE run-sync sites, not just the one named; +#CFG-16 all five ingest constants, with EffectLedger's four abandon-window sites collapsed onto one accessor; the other 15 non-promoted CFG-* items are WONTFIX by decision, see BACKLOG-TRIAGE.md)
 
 ---
 
@@ -4118,7 +4118,7 @@ None.
             usleep(200_000);
         ```
 
-- [ ] **#CFG-9** · P3 — `GoogleBusinessApifyScraper` hardcodes a 110s HTTP timeout
+- [x] **#CFG-9** · P3 — `GoogleBusinessApifyScraper` hardcodes a 110s HTTP timeout
     - **Where:** app/Services/Platforms/GoogleBusinessApifyScraper.php:52
     - **Affects:** Adjusting the Apify run-sync wait as latency changes, without a deploy.
     - **Effort:** S (~0.5–1h)
@@ -4211,7 +4211,7 @@ None.
         now()->addMinutes((int) config('partna.routing.probe.cooldown_minutes', self::COOLDOWN_MINUTES)),
         ```
 
-- [ ] **#CFG-16** · P3 — `Lander`/`EffectLedger`/`SourceScheduler` operational constants hardcoded
+- [x] **#CFG-16** · P3 — `Lander`/`EffectLedger`/`SourceScheduler` operational constants hardcoded
     - **Where:** app/Ingest/Landing/Lander.php:27, :35; app/Ingest/Runtime/EffectLedger.php:25; app/Ingest/Runtime/SourceScheduler.php:26, :29
     - **Affects:** On-call ability to tune deletion sensitivity, billed-effect abandonment window, and scheduler fairness during an incident, without a deploy.
     - **Effort:** S (~0.5–1h)

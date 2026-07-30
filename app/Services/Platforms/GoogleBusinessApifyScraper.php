@@ -24,6 +24,9 @@ use Throwable;
 // keys are logged on each run so the shape can be tuned against real data.
 class GoogleBusinessApifyScraper extends PlatformScraper
 {
+    /** Fallback default for config('partna.limits.apify.run_sync_timeout_seconds') (CFG-9). */
+    private const RUN_SYNC_TIMEOUT_SECONDS = 110;
+
     /**
      * Run the actor for one place ID and map its first dataset item onto the
      * enrichment payload keys (menu, reservation, order, booking, socials).
@@ -49,7 +52,7 @@ class GoogleBusinessApifyScraper extends PlatformScraper
 
         try {
             $response = Http::withToken($token)
-                ->timeout(110)
+                ->timeout((int) config('partna.limits.apify.run_sync_timeout_seconds', self::RUN_SYNC_TIMEOUT_SECONDS))
                 ->post(
                     'https://api.apify.com/v2/acts/'.config('services.apify.actors.google_places').'/run-sync-get-dataset-items',
                     $this->input($placeId),

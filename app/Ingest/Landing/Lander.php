@@ -25,15 +25,10 @@ use Throwable;
  */
 class Lander
 {
-    /** Consecutive dominated absences before a key is tombstoned. */
+    /** Fallback default for config('partna.ingest.tombstone_runs') (CFG-16). */
     private const TOMBSTONE_RUNS = 3;
 
-    /**
-     * Share of a stream's live keys that may vanish in one run before the
-     * delete-guard trips. A login wall or a vendor outage looks exactly like
-     * "everything was deleted", so a large drop must stop deletion and ask a
-     * human rather than act.
-     */
+    /** Fallback default for config('partna.ingest.delete_guard_threshold') (CFG-16) — see the (float) warning there. */
     private const GUARD_THRESHOLD = 0.4;
 
     /**
@@ -462,16 +457,22 @@ class Lander
         // or leave guard_tripped_at set with no anomaly row explaining it
         // (or the anomaly filed with the guard never actually tripped) — an
         // operator-visible inconsistency in the guard's own bookkeeping.
-        // Bounded in practice: the guard trips at 40% of live keys, so a
-        // fold that reaches the write phase below stays well under the
-        // stream's population. NO try/catch in this closure — a caught-and-
+        // Bounded in practice: the guard trips at the configured delete_guard_threshold
+        // (40% by default), so a fold that reaches the write phase below stays well
+        // under the stream's population. NO try/catch in this closure — a caught-and-
         // recovered failure inside an open Postgres transaction poisons it
         // with 25P02 (see land()'s catch for the full reasoning); any
         // failure here must escape and roll the whole fold back.
         return DB::transaction(function () use ($streamId, $dominatedAbsent, $liveCount) {
+            // CFG-16: read ONCE per fold. $tombstoneRuns is consumed inside the
+            // array_chunk loop below — reading it there would let one fold apply
+            // two different policies across its chunks.
+            $guardThreshold = (float) config('partna.ingest.delete_guard_threshold', self::GUARD_THRESHOLD);
+            $tombstoneRuns = (int) config('partna.ingest.tombstone_runs', self::TOMBSTONE_RUNS);
+
             // Delete-guard: an implausible share vanishing at once is far
             // more likely to be a login wall than a real bulk deletion.
-            if ($liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= self::GUARD_THRESHOLD && count($dominatedAbsent) >= 5) {
+            if ($liveCount > 0 && (count($dominatedAbsent) / $liveCount) >= $guardThreshold && count($dominatedAbsent) >= 5) {
                 DB::table('ingest.streams')->where('id', $streamId)->update(['guard_tripped_at' => now(), 'updated_at' => now()]);
                 DB::table('ingest.anomalies')->insert([
                     'id' => (string) Str::uuid(),
@@ -506,7 +507,7 @@ class Lander
                     ->where('stream_id', $streamId)
                     ->whereIn('key', $keys)
                     ->whereNull('tombstoned_at')
-                    ->where('absent_runs', '>=', self::TOMBSTONE_RUNS)
+                    ->where('absent_runs', '>=', $tombstoneRuns)
                     ->update(['tombstoned_at' => now()]);
             }
 
