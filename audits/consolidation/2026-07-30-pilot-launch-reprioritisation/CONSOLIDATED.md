@@ -803,7 +803,7 @@ any unit in this bucket.
 - [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
 - [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
 - [ ] `#INH-6` · [ ] `#SEC-4` · [ ] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
-- [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [ ] `#10`
+- [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [x] `#10`
 
 > **P1-LAUNCH** — worked 2026-07-30 on `audit-fix/p1-launch-2026-07-30`, concurrently with P0-LAUNCH.
 >

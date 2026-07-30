@@ -2477,7 +2477,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 1 of 2 complete  (+EDGE-5, verified DEAD 2026-07-30)
 
 ---
 
@@ -2586,7 +2586,9 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **EDGE-5** · P3 — `unclaimedHtml`'s CTA link hardcodes `https://partna.au` regardless of environment (Category 7)
+- [x] **EDGE-5** · P3 — `unclaimedHtml`'s CTA link hardcodes `https://partna.au` regardless of environment (Category 7)
+    - **DEAD 2026-07-30 (P1-LAUNCH) — already fixed as written.** `unclaimedHtml()` derives every domain reference from `${PARTNA_DOMAIN}` (`cloudflare-worker/src/index.js` ~:199, :204, :229), including the CTA `<a href="https://${PARTNA_DOMAIN}">` this finding named. No `partna.au` literal remains in that function. No work done.
+    - **Two follow-ups raised separately, deliberately NOT folded in** (the execute prompt pre-ruled them a different concern): (1) `https://app.partna.au` is still hardcoded in two CSP `frame-ancestors` headers (`:156` shared hardening, `:311` sitepage response) — on a non-prod Worker deploy a staging dashboard origin would be refused framing; (2) `PARTNA_DOMAIN` is itself a compile-time `const PARTNA_DOMAIN = "partna.au"` (`:46`), not read from `env`, so "derive from environment" is still not literally true anywhere in the file — but that is a wider ask than this finding wrote.
     - **Where:** `cloudflare-worker/src/index.js` — `unclaimedHtml()`
     - **Affects:** Anyone viewing the branded 404 on a non-production deploy of this Worker (e.g., the `[env.staging]` target once it's wired up) — the CTA always points at prod.
     - **Effort:** S (~0.5–1h)
