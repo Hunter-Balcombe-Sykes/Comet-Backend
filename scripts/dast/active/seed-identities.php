@@ -12,10 +12,6 @@
 // honours --env=X via Illuminate's own ArgvInput scan, the same mechanism
 // `artisan --env=dast` uses. Writes $OUTDIR/identities.json.
 
-require __DIR__.'/../../../vendor/autoload.php';
-$app = require __DIR__.'/../../../bootstrap/app.php';
-$app->make(Kernel::class)->bootstrap();
-
 use App\Models\Core\Site\Enquiry;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
@@ -23,6 +19,21 @@ use App\Models\Core\User\Customer;
 use App\Models\Core\User\User;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Http;
+
+// The bootstrap MUST sit below the `use` block, not above it. PHP registers
+// namespace imports linearly as it compiles a file, so a `use` declared after a
+// call site does not apply to it — with the bootstrap first, `Kernel::class`
+// compiles to the literal string 'Kernel' and the container dies with
+// "Target class [Kernel] does not exist", killing the whole active lane.
+//
+// That is exactly how 6461cff5 (a PINT-ONLY commit, 2026-07-28) broke this
+// script: Pint rewrote the original fully-qualified
+// `Illuminate\Contracts\Console\Kernel::class` into a short reference plus an
+// import, and placed the import below the call. Nothing caught it because this
+// lane is manual-only. Keep this ordering — it is Pint-stable and correct.
+require __DIR__.'/../../../vendor/autoload.php';
+$app = require __DIR__.'/../../../bootstrap/app.php';
+$app->make(Kernel::class)->bootstrap();
 
 $outdir = null;
 foreach (array_slice($argv, 1) as $arg) {
