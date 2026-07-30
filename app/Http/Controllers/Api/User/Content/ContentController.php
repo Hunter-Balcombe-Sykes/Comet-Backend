@@ -19,6 +19,7 @@ use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\MediaUploadService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
+use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Site\ContentSelectionService;
 use Illuminate\Http\JsonResponse;
@@ -68,6 +69,7 @@ class ContentController extends ApiController
         return $this->success([
             'uploads' => $uploads,
             'googlePhotos' => $this->googlePhotoOptions($pro),
+            'instagramPhotos' => $this->instagramPhotoOptions($pro),
         ]);
     }
 
@@ -285,6 +287,33 @@ class ContentController extends ApiController
             fn (array $p) => ['ref' => $p['ref'], 'url' => $p['photoPicUrl']],
             GoogleBusinessPayload::fromArray($conn->payload)->photos(),
         );
+    }
+
+    /**
+     * The Instagram post images the library offers — every R2-mirrored image
+     * the connection payload carries, referenced by its URL (which doubles as
+     * the ig-photo selection ref). Available whenever Instagram is connected;
+     * unlike the two auto slots this needs no toggle.
+     *
+     * @return list<array{ref: string, url: string}>
+     */
+    private function instagramPhotoOptions(User $pro): array
+    {
+        $conn = $pro->integrationConnections()
+            ->where('platform', Platform::Instagram->value)
+            ->where('is_active', true)
+            ->first();
+
+        if ($conn === null) {
+            return [];
+        }
+
+        $images = InstagramPayload::fromArray($conn->payload)->images;
+
+        return array_values(array_map(
+            fn (string $url) => ['ref' => $url, 'url' => $url],
+            array_filter($images, fn ($url) => is_string($url) && str_starts_with($url, 'https://')),
+        ));
     }
 
     /**

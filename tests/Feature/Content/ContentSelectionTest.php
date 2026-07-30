@@ -742,3 +742,77 @@ it('content_photos and display-section toggles do not clobber each other', funct
     actingAsUser($user)->putJson('/api/content/google-photos', ['enabled' => true])->assertOk();
     expect(IntegrationConnection::query()->find($conn->id)->display_settings)->toBe(['reviews' => false]);
 });
+
+// ── Instagram photos in the library (ig-photo entries) ──────────────────────
+
+it('library returns instagram post images whenever the connection is active', function () {
+    [$user] = contentUserWithSite('igl1');
+    igConnection($user, [
+        'images' => ['https://r2/p1.jpg', 'https://r2/p2.jpg', 'not-a-url'],
+    ]);
+
+    $res = actingAsUser($user)->getJson('/api/content/library')->assertOk();
+
+    // Only https URLs survive; ref doubles as the ig-photo selection ref.
+    $res->assertJsonCount(2, 'instagramPhotos');
+    expect($res->json('instagramPhotos.0'))->toBe(['ref' => 'https://r2/p1.jpg', 'url' => 'https://r2/p1.jpg']);
+});
+
+it('library returns an empty instagramPhotos array without an IG connection', function () {
+    [$user] = contentUserWithSite('igl2');
+
+    actingAsUser($user)->getJson('/api/content/library')
+        ->assertOk()
+        ->assertJsonCount(0, 'instagramPhotos');
+});
+
+it('PUT selection persists an ig-photo entry and resolve() returns it', function () {
+    [$user, $site] = contentUserWithSite('igl3');
+    igConnection($user, ['images' => ['https://r2/p1.jpg', 'https://r2/p2.jpg']]);
+
+    actingAsUser($user)->putJson('/api/content/selection', [
+        'entries' => [
+            ['type' => 'ig-photo', 'ref' => 'https://r2/p2.jpg'],
+        ],
+    ])->assertOk();
+
+    $rows = ContentSelection::query()->where('site_id', $site->id)->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]->entry_type)->toBe('ig-photo');
+    expect($rows[0]->external_ref)->toBe('https://r2/p2.jpg');
+    expect($rows[0]->media_id)->toBeNull();
+
+    $resolved = app(ContentSelectionService::class)->resolve($site);
+    expect($resolved)->toHaveCount(1);
+    expect($resolved[0])->toMatchArray([
+        'kind' => 'image', 'type' => 'ig-photo',
+        'url' => 'https://r2/p2.jpg', 'ref' => 'https://r2/p2.jpg', 'badge' => 'instagram',
+    ]);
+});
+
+it('an ig-photo survives payload rotation (no membership check on resolve)', function () {
+    [$user, $site] = contentUserWithSite('igl4');
+    igConnection($user, ['images' => ['https://r2/newest.jpg']]);
+
+    ContentSelection::forceCreate([
+        'site_id' => $site->id, 'position' => 9,
+        'entry_type' => 'ig-photo', 'external_ref' => 'https://r2/rotated-out.jpg',
+    ]);
+
+    // The connect hook reserved the auto slots too — assert on the ig-photo
+    // row specifically: it renders even though the payload no longer lists it.
+    $resolved = app(ContentSelectionService::class)->resolve($site);
+    $photo = collect($resolved)->firstWhere('type', 'ig-photo');
+    expect($photo)->not->toBeNull();
+    expect($photo['url'])->toBe('https://r2/rotated-out.jpg');
+});
+
+it('PUT selection rejects an ig-photo entry without a ref', function () {
+    [$user] = contentUserWithSite('igl5');
+
+    actingAsUser($user)->putJson('/api/content/selection', [
+        'entries' => [
+            ['type' => 'ig-photo'],
+        ],
+    ])->assertStatus(422);
+});

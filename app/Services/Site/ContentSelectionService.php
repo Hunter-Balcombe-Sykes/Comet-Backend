@@ -126,6 +126,27 @@ class ContentSelectionService
                         'badge' => 'instagram',
                     ];
                     break;
+
+                case ContentSelection::TYPE_IG_PHOTO:
+                    // The ref IS the image URL (R2-mirrored by the Instagram
+                    // scrape, so it outlives payload rotation). No payload
+                    // membership check — a picked photo shouldn't vanish just
+                    // because newer posts pushed it out of the latest-N window.
+                    $ref = (string) $row->external_ref;
+                    if (! str_starts_with($ref, 'https://')) {
+                        break;
+                    }
+                    $resolved[] = [
+                        'id' => (string) $row->id,
+                        // Echoed so the client rebuilds the PUT entry directly.
+                        'ref' => $ref,
+                        'position' => $row->position,
+                        'kind' => 'image',
+                        'type' => ContentSelection::TYPE_IG_PHOTO,
+                        'url' => $ref,
+                        'badge' => 'instagram',
+                    ];
+                    break;
             }
         }
 
@@ -176,9 +197,9 @@ class ContentSelectionService
                     throw new \InvalidArgumentException('An upload entry requires a mediaId.');
                 }
                 $ref = null;
-            } elseif ($type === ContentSelection::TYPE_GOOGLE_PHOTO) {
+            } elseif ($type === ContentSelection::TYPE_GOOGLE_PHOTO || $type === ContentSelection::TYPE_IG_PHOTO) {
                 if (! is_string($ref) || $ref === '') {
-                    throw new \InvalidArgumentException('A google-photo entry requires a ref.');
+                    throw new \InvalidArgumentException("A {$type} entry requires a ref.");
                 }
                 $mediaId = null;
             } else {
