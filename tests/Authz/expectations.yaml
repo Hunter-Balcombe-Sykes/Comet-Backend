@@ -1,0 +1,20 @@
+# Fixture mappings and exemptions for the authorization matrix.
+#
+# THE DEFAULT IS INCLUSION. Every api/ route carrying a {param} is fired
+# cross-tenant. This file exists for two things only:
+#
+#   fixture:  which of identity B's rows to substitute, when reflection could
+#             not work it out from the controller signature.
+#   expect:   exempt  — this route is genuinely not tenant-scoped.
+#             A `reason:` is MANDATORY and must say why. "Not applicable" is not
+#             a reason; name the thing the param actually identifies.
+#
+# Optional `body:` supplies a minimal request body for write routes whose
+# validation would otherwise reject the request with 422 before authorization
+# ran. A 422 is scored as a FAILURE, not a pass — see the spec.
+#
+# Patterns are literal. Globs are deliberately not supported: a glob that
+# quietly captures a route it should not is the exact failure mode this harness
+# exists to prevent.
+#
+# Spec: docs/superpowers/specs/2026-07-30-authz-test-harness-design.md
