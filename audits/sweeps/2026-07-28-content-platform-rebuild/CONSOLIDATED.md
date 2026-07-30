@@ -1328,7 +1328,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 4 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13 and +SCALE-17 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
+- P2 Medium: 5 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1691,7 +1691,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-14** · P2 — `IngestProjectCommand::dropDerivedRows` feeds unbounded `pluck()->all()` arrays into `whereIn` DELETEs
+- [x] **SCALE-14** · P2 — `IngestProjectCommand::dropDerivedRows` feeds unbounded `pluck()->all()` arrays into `whereIn` DELETEs
+    - **FIXED 2026-07-30 (P1-LAUNCH).** `dropDerivedRows()` now chunks its consumers: the `identity_keys` DELETE loops over `array_chunk($sourceItemIds, $chunk)`, and the 4 collection + 14 facet DELETEs sit inside one outer `foreach (array_chunk($itemIds, $chunk))` — 18 statements per chunk instead of 18 unbounded ones. Reuses the existing `config('partna.ingest.projection_write_chunk')` (added by `SCALE-17`); **no second config key**. Added an `$itemIds === []` early return. Measured on the isolating table `content.f_place` with 7 items at chunk 3: **1 → 3 DELETEs** = `ceil(7/3)`, i.e. scaling with chunks, not with n (an accidental per-item loop would read 7). ⚠️ **Test-design note for anyone extending this:** asserting that `offers`/`item_tags` are gone after `--rebuild` proves NOTHING about `dropDerivedRows` — `ProjectionWriter::replaceCollections()` deletes those every run anyway. The load-bearing assertions are on `f_action` (never written by the writer at all) and the upsert-only singleton facets `f_place`/`f_rated`/`f_duration`. Deliberately **no transaction**: one spanning 18×k DELETEs is a worse lock story, and a partial drop is re-derivable from the record log since `--rebuild` re-projects immediately. The correlated-subquery alternative was rejected — it would read a different snapshot, and `projectStream()` rewrites `content.source_items` seconds later. New test `tests/Feature/Ingest/IngestProjectRebuildChunkingTest.php`.
     - **Where:** app/Console/Commands/IngestProjectCommand.php:123-152
     - **Affects:** The `--rebuild` path — a source with a large content-item count produces DELETE queries carrying a proportionally large bound-parameter list.
     - **Effort:** M (~2–4h)

@@ -554,7 +554,7 @@ tracked in their source folders).
 - [ ] `#TEST-2` · [ ] `#TEST-1` · [ ] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
 
 **P1-LAUNCH**
-- [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [ ] `#SCALE-14` · [x] `#SCALE-17`
+- [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
 - [x] `#SCALE-19` · [ ] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
 - [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
 - [ ] `#INH-6` · [ ] `#SEC-4` · [ ] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
