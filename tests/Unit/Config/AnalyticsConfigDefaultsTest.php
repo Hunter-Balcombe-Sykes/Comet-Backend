@@ -21,7 +21,8 @@ it('has the CFG-1 analytics tunables with their pre-change defaults', function (
         ->and(config('partna.analytics.section_dedup_ttl_seconds'))->toBe(300)
         ->and(config('partna.analytics.item_dedup_ttl_seconds'))->toBe(300)
         ->and(config('partna.analytics.purge_batch_size'))->toBe(10_000)
-        ->and(config('partna.analytics.hourly_bucket_max_days'))->toBe(7);
+        ->and(config('partna.analytics.hourly_bucket_max_days'))->toBe(7)
+        ->and(config('partna.analytics.staff_segment_max_users'))->toBe(2000);
 });
 
 it('overriding a tunable takes effect immediately (proves it is read from config, not a copied literal)', function () {

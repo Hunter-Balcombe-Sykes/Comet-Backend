@@ -955,6 +955,16 @@ return [
         // string + hash per record, released between chunks.
         'land_chunk' => (int) env('PARTNA_INGEST_LAND_CHUNK', 500),
 
+        // ProjectionWriter::replaceCollections() chunk size (SCALE-17/#CACHE-2).
+        // Bind-count arithmetic per chunk (Postgres 65,535/statement; SQLite
+        // >=3.32 32,766): item_media insert = 8 cols -> 500x8 = 4,000; offers
+        // = 11 cols -> 5,500; item_tags = 5 cols -> 2,500; the `item_id IN`
+        // list on each of the three DELETEs -> 500. 500 clears both engines'
+        // limits by an order of magnitude. It also bounds the delete+insert
+        // transaction: one chunk's worth of rows is the longest any item is
+        // without its collection rows, and serving reads these tables live.
+        'projection_write_chunk' => (int) env('PARTNA_INGEST_PROJECTION_WRITE_CHUNK', 500),
+
         // SCALE-1/SCALE-2: chunkById page size for `ingest:project`'s source
         // walk. Bounds both the source-list result buffer and the per-chunk
         // streams pre-fetch. Overridable so tests can shrink it (3) to make
@@ -1763,6 +1773,13 @@ return [
             'stuck_age_days' => (int) env('PARTNA_ROUTING_STUCK_INTENT_AGE_DAYS', 14),
             'stuck_alert_threshold' => (int) env('PARTNA_ROUTING_STUCK_INTENT_THRESHOLD', 500),
         ],
+
+        // SLOP-21. A detector regex that won't compile fails closed, which is
+        // indistinguishable from "no match" — so LinkProjector reports it. The
+        // projector runs on every paste, hence a per-detector+field window
+        // rather than one report per request. `catalog:compile` is the real
+        // gate; this covers what bypasses it.
+        'malformed_pattern_report_ttl_seconds' => (int) env('PARTNA_ROUTING_MALFORMED_PATTERN_REPORT_TTL_SECONDS', 3600),
     ],
 
     'video_variants' => [
@@ -2269,6 +2286,12 @@ return [
         // retries on one rate-limit hit) within this many seconds collapse into one
         // analytics.lead_submissions row, keyed by (ip_hash, subdomain).
         'lead_rate_limit_dedup_seconds' => (int) env('PARTNA_ANALYTICS_LEAD_RATE_LIMIT_DEDUP_SECONDS', 10),
+
+        // SCALE-13: hard ceiling on a staff segment's resolved user-id set before it
+        // becomes a whereIn. Above this, Postgres traverses `= ANY(ARRAY[...])` per
+        // candidate row on analytics.site_visits. Chunking is NOT an option — the
+        // aggregates are COUNT(DISTINCT ...), which does not sum across chunks.
+        'staff_segment_max_users' => (int) env('PARTNA_ANALYTICS_STAFF_SEGMENT_MAX_USERS', 2000),
 
         // CFG-1: RecordAnalyticsEventJob hygiene. Typed properties can't call config()
         // in their initialiser, so these are read in the job's constructor instead —

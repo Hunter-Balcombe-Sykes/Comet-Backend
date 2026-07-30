@@ -150,7 +150,7 @@ class ProjectionWriter
         $itemByCoord = [];
         if ($projections !== []) {
             $itemByCoord = $this->resolveItems($userId, $projector::kind());
-            $this->writeFacets($contentSourceId, $projections, $itemByCoord);
+            $this->writeFacets($contentSourceId, $userId, $projections, $itemByCoord);
             $this->refreshItemCaches($userId, array_values(array_unique(array_values($itemByCoord))));
         }
 
@@ -569,7 +569,7 @@ class ProjectionWriter
      * @param  array<string, array<string, mixed>>  $projections  coord => projection
      * @param  array<string, string>  $itemByCoord
      */
-    private function writeFacets(string $contentSourceId, array $projections, array $itemByCoord): void
+    private function writeFacets(string $contentSourceId, string $userId, array $projections, array $itemByCoord): void
     {
         // Group per item so collection facets (media/offers/tags) REPLACE the
         // pair's rows once, then insert every record's contribution — two
@@ -582,9 +582,13 @@ class ProjectionWriter
             }
         }
 
-        foreach ($byItem as $itemId => $group) {
-            $this->replaceCollections($itemId, $contentSourceId, $group);
+        // SCALE-17/#CACHE-2: the batching boundary is HERE, not inside
+        // replaceCollections() — $byItem is the batch. Called once for the
+        // whole run's items; the singleton-facet upserts below stay per
+        // (item, record) because each one targets a different row.
+        $this->replaceCollections($contentSourceId, $userId, $byItem);
 
+        foreach ($byItem as $itemId => $group) {
             foreach ($group as $projection) {
                 $facets = (array) ($projection['facets'] ?? []);
 
@@ -632,84 +636,170 @@ class ProjectionWriter
     }
 
     /**
-     * Collection facets are a set per (item, source): replace wholesale.
+     * Collection facets are a set per (item, source): replace wholesale —
+     * for the WHOLE batch of items at once (SCALE-17/#CACHE-2).
      *
-     * @param  list<array<string, mixed>>  $projections
+     * The old shape was three DELETEs plus one INSERT per row, per item: an
+     * item with 10 images, 2 offers and 3 tags cost 18 statements on its own,
+     * multiplied by every item in the run. Now it is three chunked DELETEs
+     * plus three chunked multi-row INSERTs for the entire batch, and the
+     * media-asset lookup is one bulk resolve instead of two queries per image.
+     *
+     * The DELETE widens from `item_id = ?` to `item_id IN (batch)` on the same
+     * `source_id` predicate — exactly the same row set, issued once.
+     *
+     * @param  array<string, list<array<string, mixed>>>  $byItem  item id => that item's projections
      */
-    private function replaceCollections(string $itemId, string $contentSourceId, array $projections): void
+    private function replaceCollections(string $contentSourceId, string $userId, array $byItem): void
     {
-        $media = [];
-        $offers = [];
-        $tags = [];
-        foreach ($projections as $projection) {
-            $media = array_merge($media, array_values((array) ($projection['media'] ?? [])));
-            $offers = array_merge($offers, array_values((array) ($projection['offers'] ?? [])));
-            $tags = array_merge($tags, array_values((array) ($projection['tags'] ?? [])));
+        if ($byItem === []) {
+            return;
         }
 
-        DB::table('content.item_media')->where('item_id', $itemId)->where('source_id', $contentSourceId)->delete();
-        foreach ($media as $position => $entry) {
-            $assetId = $this->ensureMediaAsset($itemId, (array) $entry);
-            DB::table('content.item_media')->insert([
-                'id' => (string) Str::uuid(),
-                'item_id' => $itemId,
-                'source_id' => $contentSourceId,
-                'asset_id' => $assetId,
-                'role' => (string) (((array) $entry)['role'] ?? 'gallery'),
-                'position' => $position,
-                'alt_text' => ((array) $entry)['alt'] ?? null,
-                'created_at' => now(),
-            ]);
-        }
+        $chunk = $this->writeChunk();
 
-        DB::table('content.offers')->where('item_id', $itemId)->where('source_id', $contentSourceId)->delete();
-        foreach ($offers as $offer) {
-            $offer = (array) $offer;
-            DB::table('content.offers')->insert([
-                'id' => (string) Str::uuid(),
-                'item_id' => $itemId,
-                'source_id' => $contentSourceId,
-                'channel' => $offer['channel'] ?? null,
-                'variant_label' => $offer['variant_label'] ?? null,
-                'amount_minor' => $offer['amount_minor'] ?? null,
-                'currency' => $offer['currency'] ?? null,
-                'qualifier' => (string) ($offer['qualifier'] ?? 'exact'),
-                'amount_max_minor' => $offer['amount_max_minor'] ?? null,
-                'url' => SecretParams::minimiseUrl($offer['url'] ?? null),
-                'updated_at' => now(),
-            ]);
-        }
-
-        DB::table('content.item_tags')->where('item_id', $itemId)->where('source_id', $contentSourceId)->delete();
-        foreach ($tags as $tag) {
-            $tag = (array) $tag;
-            if (! isset($tag['tag']) || $tag['tag'] === '') {
-                continue;
+        // Per-item flatten, preserving the old array_merge order. Positions
+        // are assigned from these list indices below, so they stay 0..n-1
+        // WITHIN an item — a counter running across the batch would silently
+        // reorder every gallery after the first item.
+        $mediaByItem = [];
+        $offersByItem = [];
+        $tagsByItem = [];
+        foreach ($byItem as $itemId => $projections) {
+            $media = [];
+            $offers = [];
+            $tags = [];
+            foreach ($projections as $projection) {
+                $media = array_merge($media, array_values((array) ($projection['media'] ?? [])));
+                $offers = array_merge($offers, array_values((array) ($projection['offers'] ?? [])));
+                $tags = array_merge($tags, array_values((array) ($projection['tags'] ?? [])));
             }
-            DB::table('content.item_tags')->insert([
-                'id' => (string) Str::uuid(),
-                'item_id' => $itemId,
-                'source_id' => $contentSourceId,
-                'tag' => (string) $tag['tag'],
-                'tag_type' => $tag['tag_type'] ?? null,
-            ]);
+            $mediaByItem[(string) $itemId] = $media;
+            $offersByItem[(string) $itemId] = $offers;
+            $tagsByItem[(string) $itemId] = $tags;
+        }
+
+        $assetIdByFingerprint = $this->resolveMediaAssets($userId, $mediaByItem, $chunk);
+
+        $mediaRows = [];
+        foreach ($mediaByItem as $itemId => $entries) {
+            foreach ($entries as $position => $entry) {
+                $entry = (array) $entry;
+                [$fingerprint] = $this->mediaFingerprint($entry);
+                $mediaRows[$itemId][] = [
+                    'id' => (string) Str::uuid(),
+                    'item_id' => $itemId,
+                    'source_id' => $contentSourceId,
+                    // A fingerprint-less entry still gets its item_media row,
+                    // just with no asset behind it — unchanged behaviour.
+                    'asset_id' => $fingerprint === null ? null : ($assetIdByFingerprint[$fingerprint] ?? null),
+                    'role' => (string) ($entry['role'] ?? 'gallery'),
+                    'position' => $position,
+                    'alt_text' => $entry['alt'] ?? null,
+                    'created_at' => now(),
+                ];
+            }
+        }
+
+        $offerRows = [];
+        foreach ($offersByItem as $itemId => $entries) {
+            foreach ($entries as $offer) {
+                $offer = (array) $offer;
+                $offerRows[$itemId][] = [
+                    'id' => (string) Str::uuid(),
+                    'item_id' => $itemId,
+                    'source_id' => $contentSourceId,
+                    'channel' => $offer['channel'] ?? null,
+                    'variant_label' => $offer['variant_label'] ?? null,
+                    'amount_minor' => $offer['amount_minor'] ?? null,
+                    'currency' => $offer['currency'] ?? null,
+                    'qualifier' => (string) ($offer['qualifier'] ?? 'exact'),
+                    'amount_max_minor' => $offer['amount_max_minor'] ?? null,
+                    'url' => SecretParams::minimiseUrl($offer['url'] ?? null),
+                    'updated_at' => now(),
+                ];
+            }
+        }
+
+        $tagRows = [];
+        foreach ($tagsByItem as $itemId => $entries) {
+            foreach ($entries as $tag) {
+                $tag = (array) $tag;
+                if (! isset($tag['tag']) || $tag['tag'] === '') {
+                    continue;
+                }
+                $tagRows[$itemId][] = [
+                    'id' => (string) Str::uuid(),
+                    'item_id' => $itemId,
+                    'source_id' => $contentSourceId,
+                    'tag' => (string) $tag['tag'],
+                    'tag_type' => $tag['tag_type'] ?? null,
+                ];
+            }
+        }
+
+        foreach (array_chunk(array_keys($mediaByItem), $chunk) as $itemIds) {
+            $tables = [
+                'item_media' => $this->rowsFor($mediaRows, $itemIds),
+                'offers' => $this->rowsFor($offerRows, $itemIds),
+                'item_tags' => $this->rowsFor($tagRows, $itemIds),
+            ];
+
+            // Batching widens the window in which an item has no collection
+            // rows from one item to a whole chunk, and serving reads these
+            // tables live — so wrap it. Per CHUNK, not per batch, to keep lock
+            // duration bounded. No caller holds an outer transaction over
+            // projectStream() (RunExecutor and IngestProjectCommand both call
+            // it bare; Lander's transactions close before projection starts),
+            // so this is the outermost one.
+            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk) {
+                foreach ($tables as $table => $rows) {
+                    DB::table("content.{$table}")
+                        ->whereIn('item_id', $itemIds)
+                        ->where('source_id', $contentSourceId)
+                        ->delete();
+
+                    foreach (array_chunk($rows, $chunk) as $rowChunk) {
+                        DB::table("content.{$table}")->insert($rowChunk);
+                    }
+                }
+            });
         }
     }
 
     /**
-     * One asset per distinct image, fingerprinted by its URL (or the vendor's
-     * stable ref when no fetchable URL exists — GBP photo resource names).
+     * @param  array<string, list<array<string, mixed>>>  $rowsByItem
+     * @param  list<string>  $itemIds
+     * @return list<array<string, mixed>>
+     */
+    private function rowsFor(array $rowsByItem, array $itemIds): array
+    {
+        $rows = [];
+        foreach ($itemIds as $itemId) {
+            foreach ($rowsByItem[$itemId] ?? [] as $row) {
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * #PRIV-5: minimise BEFORE the fingerprint is computed, so the fingerprint
+     * and the stored source_url derive from the same string — the fingerprint
+     * is the UNIQUE (user_id, fingerprint) dedupe key, and a fingerprint
+     * computed from the raw URL while a minimised URL is stored would let a
+     * re-run mint a second row for the same image. The vendor's stable ref is
+     * the fallback for images with no fetchable URL (GBP photo resource names).
+     *
+     * ONE implementation, called from both the bulk resolve and the row build
+     * — the two must never disagree about what an entry's fingerprint is.
      *
      * @param  array<string, mixed>  $entry
+     * @return array{0: ?string, 1: ?string} [fingerprint, minimised source url]
      */
-    private function ensureMediaAsset(string $itemId, array $entry): ?string
+    private function mediaFingerprint(array $entry): array
     {
-        $userId = DB::table('content.items')->where('id', $itemId)->value('user_id');
-        // #PRIV-5: minimise BEFORE the fingerprint is computed, so the
-        // fingerprint and the stored source_url derive from the same string
-        // — the fingerprint is the UNIQUE (user_id, fingerprint) dedupe key,
-        // and a fingerprint computed from the raw URL while a minimised URL
-        // is stored would let a re-run mint a second row for the same image.
         $url = isset($entry['url']) && is_string($entry['url']) && $entry['url'] !== ''
             ? SecretParams::minimiseUrl($entry['url'])
             : null;
@@ -717,36 +807,104 @@ class ProjectionWriter
         $ref = isset($entry['ref']) && is_string($entry['ref']) && $entry['ref'] !== '' ? $entry['ref'] : null;
 
         $fingerprint = $url ?? $ref;
-        if ($fingerprint === null || $userId === null) {
-            return null;
+
+        return [$fingerprint === null ? null : 'url-'.sha1($fingerprint), $url];
+    }
+
+    /**
+     * One asset per distinct image, for the whole batch: bulk-resolve the
+     * fingerprints that already exist, mint the rest in one insertOrIgnore,
+     * then re-read the minted set.
+     *
+     * The re-read is not belt-and-braces: insertOrIgnore returns no ids, and
+     * a concurrent projection run for the same user may have won the
+     * UNIQUE (user_id, fingerprint) race — assuming our rows landed would
+     * hand back ids that were never written.
+     *
+     * @param  array<string, list<mixed>>  $mediaByItem
+     * @return array<string, string> fingerprint => media_assets.id
+     */
+    private function resolveMediaAssets(string $userId, array $mediaByItem, int $chunk): array
+    {
+        // Dedupe by fingerprint in PHP first: two carousel frames — or two
+        // items — carrying the same image must mint ONE asset, which the
+        // old SELECT-then-INSERT-per-row path got for free.
+        $entryByFingerprint = [];
+        foreach ($mediaByItem as $entries) {
+            foreach ($entries as $entry) {
+                $entry = (array) $entry;
+                [$fingerprint, $url] = $this->mediaFingerprint($entry);
+                if ($fingerprint !== null && ! isset($entryByFingerprint[$fingerprint])) {
+                    $entryByFingerprint[$fingerprint] = [$entry, $url];
+                }
+            }
         }
-        $fingerprint = 'url-'.sha1($fingerprint);
-
-        $existing = DB::table('content.media_assets')
-            ->where('user_id', $userId)
-            ->where('fingerprint', $fingerprint)
-            ->value('id');
-        if ($existing !== null) {
-            return (string) $existing;
+        if ($entryByFingerprint === []) {
+            return [];
         }
 
-        $id = (string) Str::uuid();
-        DB::table('content.media_assets')->insert([
-            'id' => $id,
-            'user_id' => $userId,
-            'fingerprint' => $fingerprint,
-            'source_url' => $url,
-            'width' => $entry['width'] ?? null,
-            'height' => $entry['height'] ?? null,
-            'dims_confidence' => isset($entry['width']) ? 'declared' : null,
-            'created_at' => now(),
-        ]);
+        $byFingerprint = $this->lookupMediaAssets($userId, array_keys($entryByFingerprint), $chunk);
 
-        return $id;
+        $missing = array_diff_key($entryByFingerprint, $byFingerprint);
+        if ($missing === []) {
+            return $byFingerprint;
+        }
+
+        $rows = [];
+        foreach ($missing as $fingerprint => [$entry, $url]) {
+            $rows[] = [
+                'id' => (string) Str::uuid(),
+                'user_id' => $userId,
+                'fingerprint' => $fingerprint,
+                'source_url' => $url,
+                'width' => $entry['width'] ?? null,
+                'height' => $entry['height'] ?? null,
+                'dims_confidence' => isset($entry['width']) ? 'declared' : null,
+                'created_at' => now(),
+            ];
+        }
+        foreach (array_chunk($rows, $chunk) as $rowChunk) {
+            DB::table('content.media_assets')->insertOrIgnore($rowChunk);
+        }
+
+        return $byFingerprint + $this->lookupMediaAssets($userId, array_keys($missing), $chunk);
+    }
+
+    /**
+     * @param  list<string>  $fingerprints
+     * @return array<string, string> fingerprint => media_assets.id
+     */
+    private function lookupMediaAssets(string $userId, array $fingerprints, int $chunk): array
+    {
+        $found = [];
+        foreach (array_chunk($fingerprints, $chunk) as $batch) {
+            $ids = DB::table('content.media_assets')
+                ->where('user_id', $userId)
+                ->whereIn('fingerprint', $batch)
+                ->pluck('id', 'fingerprint');
+
+            foreach ($ids as $fingerprint => $id) {
+                $found[(string) $fingerprint] = (string) $id;
+            }
+        }
+
+        return $found;
     }
 
     /** Per-chunk batch size for refreshItemCaches()/resolveItems(). Bind lists stay far under Postgres' 65,535 limit at this size. */
     private const BATCH_SIZE = 500;
+
+    /**
+     * SCALE-17/#CACHE-2 write chunk for replaceCollections(). Config-driven so
+     * a test can shrink it to exercise chunk boundaries; falls back to
+     * BATCH_SIZE if the value is missing or nonsensical.
+     */
+    private function writeChunk(): int
+    {
+        $chunk = (int) config('partna.ingest.projection_write_chunk', self::BATCH_SIZE);
+
+        return $chunk > 0 ? $chunk : self::BATCH_SIZE;
+    }
 
     /**
      * Dashboard-only caches (§5): headline via the real per-column resolution

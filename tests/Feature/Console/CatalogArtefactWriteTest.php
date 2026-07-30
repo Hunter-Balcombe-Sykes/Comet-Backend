@@ -9,6 +9,13 @@
 // command is scheduled, so the observer is the terminal already watching
 // stderr + a non-zero exit (a developer laptop or CI), not Nightwatch.
 
+use App\Catalog\Brand;
+use App\Catalog\Detector;
+use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\RoutingClass;
+use App\Catalog\Enums\Shelf;
+use App\Catalog\Surface;
+use App\Catalog\SurfaceBuilder;
 use Illuminate\Support\Facades\File;
 
 /** An 0555 (no-write) directory. Root ignores permission bits, so skip there. */
@@ -82,6 +89,77 @@ it('a failed catalog:compile write does not disturb an existing artefact at that
         expect(File::get($path))->toBe($before, 'rename() was never reached, so the pre-existing artefact must be byte-identical');
     } finally {
         cleanupScratchDir($dir);
+    }
+});
+
+// ── SLOP-21: an uncompilable detector regex must be unshippable ─────────────
+//
+// The command documented itself as "a definition that can't pass doesn't
+// compile, so a bad surface is unshippable rather than discovered in
+// production", but it validated capability names, key uniqueness and contracts
+// and never checked that a regex compiles. A pattern preg_match() refuses to
+// compile makes LinkProjector fail that detector closed for every URL — the
+// surface goes dark, and the only symptom is links quietly not routing.
+//
+// Named (not anonymous) class: the command resolves definitions by class-string
+// out of the manifest. Prefixed, because unnamespaced Pest files share one
+// global symbol table.
+class Slop21BadPatternDefinition
+{
+    public static function brand(): Brand
+    {
+        return Brand::make('slop21', 'SLOP-21 Fixture', 'https://example.test');
+    }
+
+    /** @return list<Surface> */
+    public static function surfaces(): array
+    {
+        return [
+            SurfaceBuilder::for('slop21.bad')
+                ->displayName('SLOP-21 Fixture')
+                ->routing(RoutingClass::Booking)
+                ->shelf(Shelf::Booking)
+                ->identifier(IdentifierKind::Url)
+                ->refreshEvery(0)
+                ->detect(
+                    // Unterminated character class — PCRE refuses to compile it.
+                    Detector::url('example.test')
+                        ->path('#^/x/(?<slug>[a-z0-9#')
+                        ->reject('#[unterminated#'),
+                )
+                ->build(),
+        ];
+    }
+}
+
+it('refuses to compile a detector whose pattern is not a valid regex', function () {
+    // The command reads its manifest through app_path(), so pointing the app
+    // path at a scratch tree swaps in one deliberately-broken definition
+    // without touching app/Catalog/Definitions. Everything else it uses
+    // (CapabilityManifest, Hosts) resolves via __DIR__ or the autoloader.
+    $appPath = storage_path('framework/testing/slop21-app');
+    $outDir = storage_path('framework/testing/slop21-out');
+    File::ensureDirectoryExists($appPath.'/Catalog/Definitions');
+    File::ensureDirectoryExists($outDir);
+    File::put($appPath.'/Catalog/Definitions/_manifest.php', "<?php\n\nreturn ['Slop21BadPatternDefinition'];\n");
+
+    $original = app()->path();
+    $out = $outDir.'/compiled.php';
+
+    try {
+        app()->useAppPath($appPath);
+
+        $this->artisan('catalog:compile', ['--out' => $out])
+            ->expectsOutputToContain('path_pattern is not a valid regex')
+            ->expectsOutputToContain('reject_patterns[0] is not a valid regex')
+            ->assertExitCode(1);
+
+        // The errors gate the write, so a bad pattern cannot reach an artefact.
+        expect(File::exists($out))->toBeFalse('a detector with an uncompilable pattern must not be written');
+    } finally {
+        app()->useAppPath($original);
+        File::deleteDirectory($appPath);
+        File::deleteDirectory($outDir);
     }
 });
 

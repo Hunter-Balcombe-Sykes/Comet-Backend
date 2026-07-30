@@ -1081,14 +1081,15 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 6 complete
+- P2 Medium: 2 of 6 complete  (+#CACHE-1 verified DEAD 2026-07-30 — fixed by 790a0c11; +#CACHE-2 closed by SCALE-17, same code site)
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CACHE-1** · P2 — `refreshItemCaches` runs 18+ per-facet `exists()` queries per item touched in a projection run
+- [x] **#CACHE-1** · P2 — `refreshItemCaches` runs 18+ per-facet `exists()` queries per item touched in a projection run
+    - **DEAD (2026-07-30, P1-LAUNCH).** Already fixed by `790a0c11` before this sweep's evidence was read: `refreshItemCaches` now chunks at `BATCH_SIZE = 500` and resolves all 14 singleton facets + 4 collection tables with one `whereIn(...)->distinct()->pluck()` per batch into an in-memory set — exactly the prescribed fix. Pinned by `tests/Feature/Ingest/ProjectionWriterBatchingTest.php:377`. No work done.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:673-683 (`refreshItemCaches`)
     - **Affects:** Ingest background workers (queue `ingest`) — every content item touched by a projection run (identity resolve/merge, catalog sync) pays 14 singleton-facet + 4 collection `exists()` checks, serialized.
     - **Effort:** S (~0.5–1h)
@@ -1112,7 +1113,8 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#CACHE-2** · P2 — `replaceCollections` deletes and re-inserts media/offers/tags one row at a time per projected item
+- [x] **#CACHE-2** · P2 — `replaceCollections` deletes and re-inserts media/offers/tags one row at a time per projected item
+    - **FIXED 2026-07-30 (P1-LAUNCH).** `#CACHE-2` and `SCALE-17` are the SAME code site; `SCALE-17` strictly contains this one, so both were closed by one fix — see `SCALE-17` for the detail.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:559-605 (`replaceCollections`)
     - **Affects:** Ingest background workers — every item with media, offers, or tags pays a `DELETE` plus one `INSERT` per row per collection on every projection pass, even when the set is unchanged.
     - **Effort:** S (~0.5–1h)
@@ -1326,7 +1328,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 1 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED)
+- P2 Medium: 6 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1661,7 +1663,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-13** · P2 — Staff aggregate analytics queries pass unbounded user-ID arrays into `whereIn`
+- [x] **SCALE-13** · P2 — Staff aggregate analytics queries pass unbounded user-ID arrays into `whereIn`
+    - **FIXED 2026-07-30 (P1-LAUNCH) — but NOT by the prescription above.** ⚠️ **Do not implement this finding's "chunk the ID list into batches of ~500" suggestion; it is mathematically wrong here.** `visitsAggregate`/`clicksAggregate`/`topPages`/`platformClicks` select `COUNT(DISTINCT ...)`, and a distinct count does not sum across chunks — a visitor appearing under two users in different chunks would be double-counted, silently corrupting the staff dashboard's `unique_visitors`/`unique_clickers`. The temp-table-and-JOIN alternative was also rejected: it needs DDL (out of scope) and `CREATE TEMP TABLE` does not survive Supavisor transaction-mode pooling. Shipped instead: `config('partna.analytics.staff_segment_max_users')` (default 2000, `PARTNA_ANALYTICS_STAFF_SEGMENT_MAX_USERS`), enforced as a 422 in `StaffAggregateAnalyticsController::summary()` — the only call site that resolves a segment into an array scope — plus a non-throwing `Log::warning` in `scopedTable()` as defence in depth (it must not throw: `clicksAggregate` catches `QueryException` specifically, so a new exception type would escape its handling and 500 the dashboard). New route-level test `tests/Feature/Staff/StaffAggregateSegmentCapTest.php`. The 422 is a deliberate, user-visible product decision signed off by Josh.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:856-867 (`scopedTable`)
     - **Affects:** Staff aggregate dashboard when a segment filter resolves to a large user-ID set — `visitsAggregate`, `clicksAggregate`, `visitsByBucket`, `clicksByBucket`, `topSections`, `topPages`, `platformClicks`, `sessionsAggregate` all funnel through this method (per its own docblock, deliberately built for staff reuse — "OV-A scope injection").
     - **Effort:** M (~2–4h)
@@ -1688,7 +1691,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-14** · P2 — `IngestProjectCommand::dropDerivedRows` feeds unbounded `pluck()->all()` arrays into `whereIn` DELETEs
+- [x] **SCALE-14** · P2 — `IngestProjectCommand::dropDerivedRows` feeds unbounded `pluck()->all()` arrays into `whereIn` DELETEs
+    - **FIXED 2026-07-30 (P1-LAUNCH).** `dropDerivedRows()` now chunks its consumers: the `identity_keys` DELETE loops over `array_chunk($sourceItemIds, $chunk)`, and the 4 collection + 14 facet DELETEs sit inside one outer `foreach (array_chunk($itemIds, $chunk))` — 18 statements per chunk instead of 18 unbounded ones. Reuses the existing `config('partna.ingest.projection_write_chunk')` (added by `SCALE-17`); **no second config key**. Added an `$itemIds === []` early return. Measured on the isolating table `content.f_place` with 7 items at chunk 3: **1 → 3 DELETEs** = `ceil(7/3)`, i.e. scaling with chunks, not with n (an accidental per-item loop would read 7). ⚠️ **Test-design note for anyone extending this:** asserting that `offers`/`item_tags` are gone after `--rebuild` proves NOTHING about `dropDerivedRows` — `ProjectionWriter::replaceCollections()` deletes those every run anyway. The load-bearing assertions are on `f_action` (never written by the writer at all) and the upsert-only singleton facets `f_place`/`f_rated`/`f_duration`. Deliberately **no transaction**: one spanning 18×k DELETEs is a worse lock story, and a partial drop is re-derivable from the record log since `--rebuild` re-projects immediately. The correlated-subquery alternative was rejected — it would read a different snapshot, and `projectStream()` rewrites `content.source_items` seconds later. New test `tests/Feature/Ingest/IngestProjectRebuildChunkingTest.php`.
     - **Where:** app/Console/Commands/IngestProjectCommand.php:123-152
     - **Affects:** The `--rebuild` path — a source with a large content-item count produces DELETE queries carrying a proportionally large bound-parameter list.
     - **Effort:** M (~2–4h)
@@ -1772,7 +1776,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-17** · P2 — `ProjectionWriter::replaceCollections()` issues per-row INSERTs inside loops for media, offers, and tags
+- [x] **SCALE-17** · P2 — `ProjectionWriter::replaceCollections()` issues per-row INSERTs inside loops for media, offers, and tags
+    - **FIXED 2026-07-30 (P1-LAUNCH) — closes `#CACHE-2` too (same code site).** The batching boundary moved one level up into `writeFacets()`, whose existing `$byItem` map IS the batch: `replaceCollections()` is now called ONCE per stream instead of per item, and takes `(contentSourceId, userId, byItem)`. Per chunk of `config('partna.ingest.projection_write_chunk')` (default 500) it issues 3 `whereIn` DELETEs + 3 chunked multi-row INSERTs inside a `DB::transaction`. `ensureMediaAsset()` is gone: its `#PRIV-5` fingerprint logic was extracted verbatim into `mediaFingerprint()` (ONE implementation, both call sites) and asset resolution is now a bulk SELECT + PHP dedupe-by-fingerprint + chunked `insertOrIgnore` + one re-query of the missing set. Measured: media-bearing slope 21 → **14 queries/item** (the media path now contributes zero per-item queries); steady-state 10-item run 161 → **134**. ⚠️ The transaction is deliberate and was signed off: batching widens the window in which an item has no collection rows from one item to a whole chunk, and projection was previously transaction-free while serving reads live tables — wrapping makes that window strictly SHORTER than before. Verified there is no outer transaction (both `projectStream()` callers are transaction-free; `Lander`'s all close before it is reached), so this is the outermost transaction, not a SAVEPOINT. ⚠️ **`insertOrIgnore` is also a robustness gain:** the old bare `insert()` after a SELECT would throw a unique violation on a lost race and kill the whole `projectStream`.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:548-606
     - **Affects:** Every projection run that produces items with media, offers, or tags — an item with 10 gallery images, 2 offers, and 3 tags is 15 individual INSERTs plus 3 DELETEs, per item.
     - **Effort:** M (~2–4h)
@@ -1821,7 +1826,8 @@ None.
         ```
     - `[confidence: 0.7]`
 
-- [ ] **SCALE-19** · P2 — `SyncFindingsBridge::conflicts()` loads every blocked conflict for a user, unbounded, to find one
+- [x] **SCALE-19** · P2 — `SyncFindingsBridge::conflicts()` loads every blocked conflict for a user, unbounded, to find one
+    - **CLOSED 2026-07-30 (P1-LAUNCH) — reproduces, deliberately not fixed.** The "unbounded growth" premise is false: `idx_source_intents_live` (`supabase/migrations/20260727120000_routing_schema.sql:81`) is UNIQUE on `(user_id, surface_key, identifier)` for states `('proposed','applied','blocked')`, so a blocked conflict cannot duplicate and the set grows only on a genuinely new distinct identifier — single-digit to low-double-digit rows per user, not "every week". `idx_source_intents_inbox` already covers the query shape. ⚠️ The prescribed fix (push the `legacyPlatform` filter into the query) carries a semantic trap: `LegacyPlatformMap::legacyFor()` is `SPECIAL_TO_LEGACY[$key] ?? explode('.', $key, 2)[0]` — a **prefix rule, not a map lookup**. There is no exact SQL equivalent without `split_part` (Postgres-only; unrunnable in the SQLite lane) or materialising `CompiledCatalog::surfaces()`, which would silently change behaviour for any `surface_key` absent from the compiled artefact — and that column is deliberately unconstrained (`20260727110000_connections_surface_key.sql:43`). Adding `->limit()` was also rejected: `conflicts()` feeds `/synced`'s response body and a limit would truncate what the user sees.
     - **Where:** app/Routing/SyncFindingsBridge.php:55-65 (`conflicts`), used by `findConflict()` at line 48-52
     - **Affects:** The Instagram synced-modal endpoint (`GET /platforms/instagram/synced`) and any caller of `findConflict()` — every request materialises the user's full blocked-conflict list.
     - **Effort:** S (~0.5–1h)
@@ -1852,7 +1858,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-20** · P2 — `PlacementPolicy::isTombstoned()` issues one EXISTS query per link during batch imports
+- [x] **SCALE-20** · P2 — `PlacementPolicy::isTombstoned()` issues one EXISTS query per link during batch imports
+    - **FIXED 2026-07-30 (P1-LAUNCH) — but NOT as prescribed.** ⚠️ The prescription (have the importers collect all projected `(surfaceKey, identifier)` pairs up front and pass a precomputed lookup into `decide()`) is **impossible as written**: projection happens inside `LinkRoutingService::route()` per link, *after* canonicalisation, so the importers cannot know the pairs before the run. It would need the projector run twice or `route()` split into two phases. Shipped instead: a **single-entry** instance memo on `PlacementPolicy` keyed `"{userId}|{importRunId}"`. The paste path (`importRunId === null`) keeps the original per-call `EXISTS` **unchanged** — no behaviour change on the request path. An import run prefetches every tombstone for the user once and answers the rest of the run from memory, using the same two-ref rule (`surfaceKey`, `surfaceKey:identifier`). Measured **20 → 1** queries for a 20-link import. No `->limit()` by design: a missed tombstone resurrects a link the user explicitly refused (the C8 invariant), and the row count is bounded by the user's own refusals. ⚠️ **Known accepted race, documented in the code with a tripwire.** Review caught that the original correctness argument was incomplete: there are **two** writers to `routing.item_tombstones`, not one. `SourceReconciler::applyIntent()`'s DELETE is gated on `isDirectRequest()` and cannot fire mid-run, but `SuggestionsController::dismiss()` (`:120-127`) does an **ungated** `insertOrIgnore` from its own HTTP endpoint. Because `SourceReconciler::reconcile()` commits each link's intent in its own transaction, and `WebsiteImporter` dedupes by **raw href text** rather than canonical target, a dismissal landing mid-run can be missed by the frozen memo. This **widens** a pre-existing per-link race to run-duration. Accepted because both importers are currently **test-only call sites** (no controller, job or route wires them) and there are zero live users. **TRIPWIRE: if either importer is ever wired into a live request path, this memo needs invalidation or a narrower scope first.** New test `tests/Feature/Routing/ImportTombstonePrefetchTest.php`.
     - **Where:** app/Routing/PlacementPolicy.php:67, 135-146 (`isTombstoned`, called from `decide()`)
     - **Affects:** Website and link-in-bio import runs — one tombstones-table query per routed link.
     - **Effort:** M (~2–4h)
@@ -3001,7 +3008,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 1 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 1 of 2 complete  (+#JOB-6, verified DEAD 2026-07-30 — duplicate of #WHK-3)
 
 ---
 
@@ -3130,7 +3137,8 @@ None.
         return self::SUCCESS;
         ```
 
-- [ ] **#JOB-6** · P3 — `EffectLedger::once()`'s insert `catch` can mask a non-duplicate-key DB error as a silent `'refused'`
+- [x] **#JOB-6** · P3 — `EffectLedger::once()`'s insert `catch` can mask a non-duplicate-key DB error as a silent `'refused'`
+    - **DEAD 2026-07-30 (P1-LAUNCH) — duplicate of `#WHK-3` (this file, already ticked), fixed in `a9c93bc6`.** Verified in the code: `EffectLedger::once()` catches the **typed** `Illuminate\Database\UniqueConstraintViolationException` (not a `getCode()` string match), re-reads the row, and `throw $e` when the re-read finds nothing — its own comment names `#WHK-3` as the reason. Anything that is not a unique violation (deadlock `40P01`, connection loss `08006`, not-null) propagates untouched. Regression tests exist in **both** lanes: `tests/Feature/Ingest/EffectLedgerTest.php` ("a non-unique DB failure on the claim insert propagates instead of resolving to refused") and `tests/Postgres/EffectLedgerConcurrencyTest.php`. ⚠️ **Note for any future re-raise of this shape:** the prescription's `$e->getCode()` check would have been **unreliable** — Postgres reports SQLSTATE `23505` for a unique violation, but PDO_SQLITE reports the generic `23000` for *every* constraint violation, so a green SQLite test could never have proven the Postgres branch. The typed exception is the portable answer, which is what shipped. No work done.
     - **Where:** app/Ingest/Runtime/EffectLedger.php:63-81
     - **Affects:** Billed effects (actor runs, AI extraction) — in the narrow case where the `insert()` fails for a reason other than the digest's unique-key race (and the immediate re-query then finds no row), the effect is silently skipped with no log and no exception, rather than surfacing as an error.
     - **Effort:** S (~0.5–1h)
@@ -4777,7 +4785,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 ## Progress
 
 - P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 1 of 20 complete
+- P2 Medium: 3 of 20 complete  (+#TEST-30 narrowed, +#TEST-44, both 2026-07-30)
 - P3 Low: 0 of 9 complete
 
 ---
@@ -5259,7 +5267,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         expect($fresh->last_refresh_error)->toBe('We could not load that account. Please try again.');
         ```
 
-- [ ] **#TEST-30** · P2 — `SafeUrlFetcher` — Partna's own SSRF-protection boundary — is mocked with `Mockery::mock()` instead of `Http::fake()` in Shop URL validation tests, bypassing the SSRF guard entirely in CI
+- [x] **#TEST-30** · P2 — `SafeUrlFetcher` — Partna's own SSRF-protection boundary — is mocked with `Mockery::mock()` instead of `Http::fake()` in Shop URL validation tests, bypassing the SSRF guard entirely in CI
+    - **FIXED 2026-07-30 (P1-LAUNCH) — narrowed, and the prescription was WRONG.** ⚠️ **Do NOT convert this file to `Http::fake()` with `.test`/`.invalid`/`.example` domains — it breaks all 8 existing tests.** `SafeUrlFetcher::assertSafe()` does a **real DNS lookup** (`@gethostbynamel`, `@dns_get_record`) *before* any transport and throws on an empty result; `Http::fake()` cannot intercept that because it is not an HTTP call. `.test`, `.invalid` and `*.example` do not resolve — **only `example.com` does** (already documented at `tests/Feature/Platforms/ScanPreviousWebsiteContentJobTest.php:41-45`). The file's host names are also load-bearing on `assertJsonPath('id'/'storeUrl', …)` and its canned responses route by host. ⚠️ The finding's impact claim is also **false at suite level**: `tests/Unit/Http/SafeUrlFetcherTest.php` already covers the allowlist, DNS, redirect limits, byte cap and metadata endpoint (32 tests). The real gap was that **these endpoints** had no SSRF assertion. Shipped: the 8 existing tests and `fakeShopFetcher()` are **byte-unchanged**, plus 3 added tests using the **real** `SafeUrlFetcher` — loopback `127.0.0.1`, cloud-metadata `169.254.169.254`, and own-infrastructure `https://api.partna.au/` (the `deniedHostSuffixes()` branch). All three are **DNS-free by construction**: the suffix check precedes resolution, and literal IPs short-circuit `resolveHost()` via `filter_var(..., FILTER_VALIDATE_IP)`. 🔴 **`Http::assertNothingSent()` is the load-bearing assertion, NOT the 422.** Under a bare `Http::fake()` every unmatched request returns an empty `200`, so a *failed* guard still yields a 422 for the wrong reason. Proven by control probe: `https://example.com/` (which passes `assertSafe`) fires **8** requests and makes `assertNothingSent()` fail. Do not "simplify" that assertion away.
     - **Where:** `tests/Feature/Platforms/ShopUrlValidationTest.php:81-96`
     - **Affects:** All Shop URL validation tests — SSRF allowlist, DNS resolution, redirect limits are all stripped out under this mock.
     - **Effort:** M (~2–4h)
@@ -5392,7 +5401,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
     - **Effort:** M (~2–4h)
     - **What to do:** Add tests for multi-offer minimum selection, `lowPrice`-over-`price` priority within one offer, and currency taken from the first offer that declares it.
 
-- [ ] **#TEST-44** · P2 — `YoutubeFeed::parse()`'s XXE defense (`LIBXML_NONET`, no `LIBXML_NOENT`) has no regression test
+- [x] **#TEST-44** · P2 — `YoutubeFeed::parse()`'s XXE defense (`LIBXML_NONET`, no `LIBXML_NOENT`) has no regression test
+    - **FIXED 2026-07-30 (P1-LAUNCH) — and the docblock it was defending was factually wrong.** New `tests/Unit/Ingest/YoutubeFeedTest.php`: external `SYSTEM` entity dropped (canary `laravel/framework` from `base_path('composer.json')` absent from the whole serialised result), entity bomb returns `null`, plus a control proving a DTD-declaring feed still parses. ⚠️ **The old comment claimed `LIBXML_NOENT` "is what would substitute internal-DTD entities". Measured false** on libxml 2.15.2 / PHP 8.4.19: internal entities are substituted **with or without** the flag. What the flag actually does is enable **external** entity resolution — adding it back makes the `file://` entity readable. So omitting it IS load-bearing, for the opposite reason to the one stated. The bomb is stopped by libxml's max-amplification guard, not by the flag. Docblock corrected. ⚠️ **Test-authoring trap:** `expect(json_encode($records))->not->toContain('laravel/framework')` is **unfalsifiable** — `json_encode` escapes `/` to `\/`. Must use `JSON_UNESCAPED_SLASHES`, with a control asserting the canary IS findable, or the check silently proves nothing. 🐞 **Follow-up found, not fixed (comment-only scope):** `YoutubeFeed::mapEntry()` (`:79-81`) fatals on a feed with **no `xmlns:media`** — `children($mediaNs)->group` returns a non-null *empty* element so the `!== null` guard passes, then `children($mediaNs)` returns null and `->thumbnail` throws `ErrorException`. Reproduced in the real harness. Unreachable today (real feeds declare the namespace) but it turns malformed third-party input into a 500 instead of `thumbnail => null`.
     - **Where:** `app/Ingest/Support/YoutubeFeed.php:30-39`
     - **Affects:** Both YouTube RSS connectors — a future "fix" that adds entity-loading flags to solve an unrelated parse issue would silently reopen an XXE vector.
     - **Effort:** S (~0.5–1h)
@@ -5653,7 +5663,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 3 complete
-- P3 Low: 0 of 19 complete
+- P3 Low: 1 of 19 complete  (+#SLOP-21, promoted and fixed 2026-07-30)
 
 ---
 
@@ -6107,7 +6117,8 @@ None.
         }
         ```
 
-- [ ] **#SLOP-21** · P3 — `@`-suppressed `preg_match` on catalog-authored regex patterns hides malformed patterns instead of surfacing them
+- [x] **#SLOP-21** · P3 — `@`-suppressed `preg_match` on catalog-authored regex patterns hides malformed patterns instead of surfacing them
+    - **FIXED 2026-07-30 (P1-LAUNCH) — NOT as prescribed, and two of this finding's claims are false.** ⚠️ (1) "nothing reports it / no signal at all" is **false**: `tests/Unit/Catalog/CatalogArtefactTest.php`'s *ships only valid, well-formed detectors* already asserts every `path_pattern`, `subdomain_pattern` and `reject_patterns` entry compiles, using the identical `@preg_match` check — a typo'd regex cannot reach production on a normal path. ⚠️ (2) **Do NOT simply remove the `@`.** Proven empirically: with `HandleExceptions` installed, a malformed pattern throws `ErrorException: preg_match(): Compilation failed`, which escapes `score()` → `project()` → `LinkRoutingService::preview()` — the debounced **paste-preview API** — 500ing every paste of an affected URL. And PHPUnit installs its own error handler, so **the suite stays green through that regression**. Shipped instead: (a) `CatalogCompileCommand` now validates that every detector pattern compiles — the real gap, since it previously checked capability names, key uniqueness and contracts but never a regex; (b) the three call sites route through one `matches()` helper keeping the `@` **inside**, with a byte-identical fail-closed verdict plus a throttled `Log::error` + `report(MalformedDetectorPatternException)` (`partna.routing.malformed_pattern_report_ttl_seconds`, default 3600), reported per detector+field with `reject_patterns` indexed so two broken patterns don't mask each other. Three incidental findings: `preg_match` leaves `$matches` **untouched** on a compile failure (only overwrites on 0/1), so reusing one `$m` across the subdomain and path blocks could read the prior pattern's groups — now reset on the false branch; `Cache::add` returns false for a TTL ≤ 0, so the intuitive "`=0` to disable throttling" would have produced **zero** reports forever (floored with `max(1, …)`); and the report triad is `try/catch(Throwable)`-wrapped because a Redis or handler fault would otherwise reintroduce the very 500 this fixes.
     - **Where:** app/Routing/LinkProjector.php:88, 97, 105
     - **Affects:** Developers authoring/maintaining Catalog detector definitions — a typo'd regex in a `reject_patterns`/`subdomain_pattern`/`path_pattern` entry silently fails closed instead of throwing.
     - **Effort:** S (~1h)
