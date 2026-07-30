@@ -59,6 +59,9 @@ In the Supabase dashboard for `glncumufgaqcmqhzwrxm` → Database → Backups:
 - [ ] Where media/object storage lives and whether it's covered by ANY backup story —
       **a DB backup does not include object storage**. If sitepage media would not survive
       a project loss, that's a standalone finding.
+      Setup + the retention constraints: `docs/runbooks/media-backup-setup.md`. Check the
+      mirror actually ran and that `rclone check` passed — a mirror nobody has read back is
+      not a proven backup, which is precisely what F6 recorded about the DB dump.
 
 ## Phase 2 — Restore (start the clock ⏱)
 
