@@ -196,6 +196,10 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // gate never fires for a Shop write, and it watches IntegrationConnection
         // — never ShopBrand — so nothing else will ever purge this settle.
         $refresher->refresh($connection);
+
+        // The settle just stored the fetched favicon/logo — kick off the
+        // best-effort processed mark (background removal + SVG).
+        ProcessShopBrandLogoJob::dispatch((string) $brand->id);
     }
 
     public function failed(Throwable $e): void

@@ -46,6 +46,14 @@ class ShopBrandResource extends ApiResource
         // own optional-key emission — present only while a deferred connect is
         // pending/failed, so a settled brand's body stays byte-identical
         // (dark-merge / IntegrationContractGoldenMasterTest).
+        // Processed logo marks — conditional pass-through, same byte-identity
+        // contract as the W9 keys below.
+        if (array_key_exists('logoMark', $this->resource)) {
+            $data['logoMark'] = $this->resource['logoMark'];
+        }
+        if (array_key_exists('logoMarkSvg', $this->resource)) {
+            $data['logoMarkSvg'] = $this->resource['logoMarkSvg'];
+        }
         if (array_key_exists('connectStatus', $this->resource)) {
             $data['connectStatus'] = $this->resource['connectStatus'];
         }

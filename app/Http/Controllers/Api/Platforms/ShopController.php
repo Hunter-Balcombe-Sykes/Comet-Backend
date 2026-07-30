@@ -14,6 +14,7 @@ use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
+use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
@@ -341,6 +342,10 @@ class ShopController extends ApiController
             $resolved = (new ShopBrandResource($brandRow->fresh('products')->toBrandArray()))->resolve();
 
             if (! $deferred) {
+                // Best-effort mark processing (background removal + SVG) —
+                // the raw favicon/logo stays either way.
+                ProcessShopBrandLogoJob::dispatch((string) $brandRow->id);
+
                 return $this->success($resolved);
             }
 

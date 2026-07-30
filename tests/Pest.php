@@ -699,6 +699,8 @@ function setupSitesTable(): void
         currency TEXT NULL,
         favicon TEXT NULL,
         logo TEXT NULL,
+        logo_mark_url TEXT NULL,
+        logo_mark_svg_url TEXT NULL,
         discount_code TEXT NULL,
         fetch_mode TEXT NULL,
         connect_status TEXT NULL,

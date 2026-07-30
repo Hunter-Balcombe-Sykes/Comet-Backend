@@ -19,6 +19,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $currency
  * @property string|null $favicon
  * @property string|null $logo
+ * @property string|null $logo_mark_url Processed (background-removed) PNG mark — ProcessShopBrandLogoJob's output; NULL until it lands.
+ * @property string|null $logo_mark_svg_url Vectorized SVG mark from the same run; NULL when the processor returned no vector.
  * @property string|null $discount_code
  * @property string|null $fetch_mode
  * @property string|null $connect_status One of 'pending'|'failed', or NULL once settled (shop_brands_connect_status_check).
@@ -59,6 +61,8 @@ class ShopBrand extends BaseModel
         'currency',
         'favicon',
         'logo',
+        'logo_mark_url',
+        'logo_mark_svg_url',
         'discount_code',
         'fetch_mode',
         'connect_status',
@@ -161,6 +165,14 @@ class ShopBrand extends BaseModel
         // clears both back to null on settle) — omitted for the overwhelming
         // majority of (already-settled) rows so this dark-merges byte-identical
         // with the pre-W9 shape (IntegrationContractGoldenMasterTest).
+        // Processed marks: conditional like the W9 keys, so settled rows that
+        // were never processed stay byte-identical with the historical shape.
+        if ($this->logo_mark_url !== null) {
+            $brand['logoMark'] = $this->logo_mark_url;
+        }
+        if ($this->logo_mark_svg_url !== null) {
+            $brand['logoMarkSvg'] = $this->logo_mark_svg_url;
+        }
         if ($this->connect_status !== null) {
             $brand['connectStatus'] = $this->connect_status;
         }
