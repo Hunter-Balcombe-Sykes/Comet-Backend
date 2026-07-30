@@ -198,6 +198,100 @@ it('release() flips health to dead at exactly 10 consecutive failures, not befor
         ->and(DB::table('ingest.sources')->where('id', $idAtTen)->value('consecutive_failures'))->toBe(10);
 });
 
+// ── release('degraded'): OUR bug must not kill the vendor's source ──────────
+//
+// RunExecutor marks a run 'degraded' when the fetch and the landing succeeded
+// but a projection threw (#JOB-4). That is evidence about our code, so it must
+// not accumulate toward the 10-failure 'dead' verdict that scoreDue() excludes
+// permanently and that reconnecting deliberately does not reset.
+
+it('release() with degraded does not increment consecutive_failures', function () {
+    $id = seedSourceForScheduler(['consecutive_failures' => 3]);
+
+    (new SourceScheduler)->release($id, 'degraded', true);
+
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+
+    // Reset, not merely held: the fetch itself succeeded this run.
+    expect((int) $row->consecutive_failures)->toBe(0)
+        ->and($row->in_flight_since)->toBeNull()
+        ->and($row->in_flight_run_id)->toBeNull();
+});
+
+it('ten consecutive degraded releases never mark a source dead and leave it claimable', function () {
+    $id = seedSourceForScheduler();
+    $scheduler = new SourceScheduler;
+
+    for ($i = 0; $i < 10; $i++) {
+        $scheduler->release($id, 'degraded', true);
+    }
+
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+    expect($row->health)->toBe('degraded')
+        ->and($row->health)->not->toBe('dead')
+        ->and((int) $row->consecutive_failures)->toBe(0);
+
+    // Simulate the measured interval elapsing (this file's convention: write
+    // the time state onto the row rather than sleeping) and prove the health
+    // value is not itself an exclusion.
+    DB::table('ingest.sources')->where('id', $id)->update(['next_attempt_at' => now()->subMinute()]);
+
+    $claimed = $scheduler->claimDue(10, 'run-after-degraded');
+    expect($claimed)->toHaveCount(1)
+        ->and($claimed[0]['id'])->toBe($id);
+});
+
+// Pins the per-field decision for 'degraded' so it cannot drift into being
+// incidental: EWMA yes, failure reset yes, measured cadence yes (no backoff),
+// health 'degraded' rather than 'ok' (the fetch is healthy, the derived content
+// is not — stamping 'ok' would claim the projected data is good).
+it('release() with degraded applies the EWMA and the measured interval, and stamps health degraded not ok', function () {
+    $id = seedSourceForScheduler([
+        'change_rate' => 0.5,
+        'consecutive_failures' => 4,
+        'min_interval_secs' => 100,
+        'max_interval_secs' => 100_000,
+    ]);
+    $before = now();
+
+    (new SourceScheduler)->release($id, 'degraded', true);
+
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+
+    // rate = 0.3 * 1.0 + 0.7 * 0.5 = 0.65
+    expect((float) $row->change_rate)->toBe(0.65)
+        ->and((int) $row->consecutive_failures)->toBe(0)
+        ->and($row->health)->toBe('degraded');
+
+    // Measured cadence: max - (max - min) * rate = 100000 - 99900 * 0.65 = 35065.
+    $expectedAt = $before->copy()->addSeconds(35065)->getTimestamp();
+    expect(abs(strtotime((string) $row->next_attempt_at) - $expectedAt))->toBeLessThanOrEqual(2);
+
+    // Explicitly NOT the failure backoff a fifth failure would have produced:
+    // min(100000, 100 * 2^min(6, 5)) = 3200.
+    $backoffAt = $before->copy()->addSeconds(3200)->getTimestamp();
+    expect(abs(strtotime((string) $row->next_attempt_at) - $backoffAt))->toBeGreaterThan(2);
+});
+
+// The counterpart guard: widening $qualifies must not have weakened the real
+// failure path. A source that genuinely cannot be fetched still dies.
+it('ten consecutive unavailable releases still reach dead and stop being claimable', function () {
+    $id = seedSourceForScheduler();
+    $scheduler = new SourceScheduler;
+
+    for ($i = 0; $i < 10; $i++) {
+        $scheduler->release($id, 'unavailable', false);
+    }
+
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+    expect($row->health)->toBe('dead')
+        ->and((int) $row->consecutive_failures)->toBe(10);
+
+    DB::table('ingest.sources')->where('id', $id)->update(['next_attempt_at' => now()->subMinute()]);
+
+    expect($scheduler->claimDue(10, 'run-after-dead'))->toBe([]);
+});
+
 // ── releaseStranded(): the 2h dead-worker backstop ──────────────────────────
 
 it('releaseStranded() releases a claim older than 2h, files a stranded anomaly, and leaves a fresh claim alone', function () {

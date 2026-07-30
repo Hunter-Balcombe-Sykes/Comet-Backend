@@ -134,13 +134,24 @@ class SourceScheduler
             return;
         }
 
-        $qualifies = in_array($outcome, ['ok', 'not_modified'], true);
+        // `degraded` qualifies because the fetch and the landing both SUCCEEDED
+        // — only a projection, i.e. our own code, failed (RunExecutor #JOB-4).
+        // It is evidence about us, not the vendor, so it must never feed
+        // consecutive_failures: ten runs of one projector bug would otherwise
+        // mark a perfectly healthy source `dead`, which scoreDue() excludes
+        // permanently and which reconnecting deliberately does not reset
+        // (SourceProvisioner). The record log is durable, so the fix for a
+        // failed projection is `ingest:project`, not a slower fetch cadence.
+        $qualifies = in_array($outcome, ['ok', 'not_modified', 'degraded'], true);
 
         if ($qualifies) {
             $rate = self::ALPHA * ($changed ? 1.0 : 0.0) + (1 - self::ALPHA) * (float) $source->change_rate;
             $update['change_rate'] = $rate;
             $update['consecutive_failures'] = 0;
-            $update['health'] = 'ok';
+            // Not `ok` for a degraded run: the fetch is healthy but the content
+            // derived from it is stale, and stamping `ok` would claim otherwise.
+            // `degraded` is a non-`dead` health, so the source stays claimable.
+            $update['health'] = $outcome === 'degraded' ? 'degraded' : 'ok';
             $update['next_attempt_at'] = now()->addSeconds($this->intervalFor($source, $rate));
         } else {
             $failures = (int) $source->consecutive_failures + 1;
@@ -168,6 +179,12 @@ class SourceScheduler
         return (int) round($max - ($max - $min) * max(0.0, min(1.0, $rate)));
     }
 
+    /**
+     * Health for a NON-qualifying outcome. `degraded` no longer reaches here
+     * (release() qualifies it), but the arm is kept deliberately: it returns
+     * the same value that branch sets, so a future caller cannot land it in
+     * the `unavailable` default by accident.
+     */
     private function healthFor(string $outcome): string
     {
         return match ($outcome) {

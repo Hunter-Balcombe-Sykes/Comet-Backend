@@ -27,6 +27,7 @@ use Illuminate\Support\Carbon;
  * @property array|null $scan_items
  * @property array|null $suppressed_items
  * @property Carbon|null $last_fetched_at
+ * @property Carbon|null $last_successful_fetch_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -81,6 +82,11 @@ class Menu extends BaseModel
         'last_fetched_at',
         'scan_items',
         'suppressed_items',
+        // NOT fillable: last_successful_fetch_at. Unlike last_fetched_at (which
+        // three call sites legitimately stamp), this column's whole value is that
+        // it has exactly ONE writer — MenuFetchJob's fetch_status='ok' branch,
+        // via forceFill. Leaving it out of $fillable makes an accidental
+        // Menu::create()/update() unable to advance the LIFE-12 episode boundary.
     ];
 
     protected $casts = [
@@ -92,6 +98,7 @@ class Menu extends BaseModel
         // consults this so a suppressed dish is never resurrected.
         'suppressed_items' => 'array',
         'last_fetched_at' => 'datetime',
+        'last_successful_fetch_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',

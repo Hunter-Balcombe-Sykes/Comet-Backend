@@ -457,6 +457,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 'dining_modes' => $store['diningModes'] ?? null,
                 'fetch_status' => 'ok',
                 'last_fetched_at' => $now,
+                // LIFE-12: the ONLY writer of last_successful_fetch_at. It is the
+                // failure-episode boundary for PlatformHealthNotifier::menuScrapeFailed(),
+                // which needs "when did this menu last genuinely succeed" —
+                // last_fetched_at cannot answer that, because manual dish edits
+                // (MenuContentController::resolveMenu), photo-scan applies
+                // (MenuScanApplier::resolveMenu) and this job's own
+                // soft-unavailable branch all advance it without anything
+                // having been fixed. Do not stamp this anywhere else.
+                'last_successful_fetch_at' => $now,
             ])->save();
 
             // Accumulate rows across all categories; items insert first, then the
@@ -934,6 +943,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
         // OV-H: in-app heads-up (non-critical — the menu self-heals via the retry cron).
         // Resolved via the container since failed() gets no dependency injection.
-        app(PlatformHealthNotifier::class)->menuScrapeFailed((string) $this->userId);
+        // LIFE-12: last_successful_fetch_at — NOT last_fetched_at — is the
+        // failure-episode boundary. It advances only from handle()'s
+        // fetch_status='ok' branch, so it stays fixed for the length of an
+        // outage no matter how much the owner edits their menu meanwhile.
+        // See PlatformHealthNotifier::menuScrapeFailed.
+        app(PlatformHealthNotifier::class)->menuScrapeFailed((string) $this->userId, $menu?->last_successful_fetch_at);
     }
 }
