@@ -38,7 +38,7 @@ class CloudflarePurgeService
     //              x 2                                                  = 200 / host
     //   -------------------------------------------------------------------------
     //   (39+200+300+200) x 2 hosts (canonical + optional custom domain)
-    //   + 2 API urls (profile + integrations)                          = 1,480 URLs
+    //   + 4 API urls (profile + integrations + platforms + menu)       = 1,482 URLs
     //   chunked at 30/request (Cloudflare's `files` limit)              =    50 chunks
     //                                                                       (49 gaps)
     //
@@ -168,9 +168,13 @@ class CloudflarePurgeService
      *     in cloudflare-worker/wrangler.toml `[vars]` — bump both together). On a primary MISS
      *     the Worker serves the shadow and refreshes in the background, so without
      *     purging it the first post-mutation visitor still sees stale content.
-     *   • Backend API subrequest (`<app.url>/api/public/profiles/<handle>`), which
-     *     the Astro Worker edge-caches (`cacheTtl: 300`) — stale for up to 5 min
+     *   • Backend API subrequests (`<app.url>/api/public/profiles/<handle>` plus
+     *     `/integrations`, its `/platforms` legacy alias, and `/menu`), which the
+     *     Astro Worker edge-caches (`cacheTtl: 300`) — stale for up to 5 min
      *     otherwise, re-rendering old HTML even after the page keys are evicted.
+     *     All four must be listed: `/integrations` and `/platforms` are the same
+     *     controller behind two routes, and purging one alone leaves the other
+     *     serving the pre-mutation payload.
      *
      * A custom domain (Cloudflare for SaaS) adds the same set under its own host.
      * All sit in one Cloudflare zone; purgeUrls chunks them to the 30-URL limit.
@@ -357,6 +361,17 @@ class CloudflarePurgeService
             // Its own fetch is `cacheTtl: 0`, so this is belt-and-braces — but it
             // guarantees a display-toggle flip never leaves a stale card wire.
             $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/integrations";
+            // `/platforms` is the SAME controller behind a legacy alias route that
+            // stays until the sitepage flips (routes/api.php). Purging only
+            // `/integrations` left the alias serving the pre-mutation payload — so a
+            // privacy-driven removal (a display-toggle flip, or reviewer PII being
+            // stripped) stayed retractable on one path and not the other. Both
+            // aliases must die together or neither is actually purged.
+            $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/platforms";
+            // The menu subrequest (`PublicMenuController`). The per-item detail
+            // pages above are purged on the site host; this is the API wire they
+            // render from, and it was missing for the same reason `/platforms` was.
+            $urls[] = "{$apiBase}/api/public/profiles/{$encodedHandle}/menu";
         }
 
         // cache-edge-reconcile/LIFE-1 residual: surface a catalog approaching the
