@@ -494,6 +494,20 @@ jobs:
       - name: Run applied-schema lane
         run: composer test:schema
 
+      # Authorization matrix (tests/Authz/). Runs against the same migrated
+      # database the step above provisioned — the expensive from-zero apply is
+      # already paid for, so this costs only the requests themselves.
+      #
+      # AUTHZ_LANE_REQUIRED=1 makes a missing precondition a RED build rather
+      # than a silent skip, the same contract SCHEMA_LANE_REQUIRED has and for
+      # the same reason: a lane that stands down quietly when its database is
+      # absent reports green while testing nothing.
+      - name: Run authorization lane
+        if: ${{ !cancelled() }}
+        env:
+          AUTHZ_LANE_REQUIRED: '1'
+        run: composer test:authz
+
   # The schema-drift gate lives in the Feature suite, which `composer test` runs
   # AFTER the Unit suite. A single unrelated Unit-suite fatal would abort the run
   # before the gate ever executes — silently disabling the guardrail. Running it
