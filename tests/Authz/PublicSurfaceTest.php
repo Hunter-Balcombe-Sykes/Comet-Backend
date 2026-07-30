@@ -26,7 +26,7 @@ it('answers 404 and never 403 for an unknown public id', function () {
     $cases = collect(RouteInventory::all())
         ->filter(fn (RouteCase $c) => $c->group() === 'public')
         ->filter(fn (RouteCase $c) => $c->hasParams())
-        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern()))
+        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern(), $c->method))
         ->values();
 
     $failures = [];
@@ -39,7 +39,7 @@ it('answers 404 and never 403 for an unknown public id', function () {
         }
 
         $status = Matrix::isolated(fn () => $this
-            ->json($case->method, '/'.$uri, $expectations->bodyFor($case->pattern()))
+            ->json($case->method, '/'.$uri, $expectations->bodyFor($case->pattern(), $case->method))
             ->getStatusCode());
 
         if ($status === 403) {

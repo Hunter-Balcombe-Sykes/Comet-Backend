@@ -24,7 +24,7 @@ it('refuses identity A access to identity B resources', function () {
     $cases = collect(RouteInventory::all())
         ->filter(fn (RouteCase $c) => in_array($c->group(), ['user', 'platforms'], true))
         ->filter(fn (RouteCase $c) => $c->hasParams())
-        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern()))
+        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern(), $c->method))
         ->values();
 
     $failures = [];
@@ -39,10 +39,12 @@ it('refuses identity A access to identity B resources', function () {
         }
 
         $status = Matrix::isolated(fn () => actingAsUser(Fixtures::identityA())
-            ->json($case->method, $uri, $expectations->bodyFor($case->pattern()))
+            ->json($case->method, $uri, $expectations->bodyFor($case->pattern(), $case->method))
             ->getStatusCode());
 
-        if (($message = Verdict::describe($status, $case)) !== null) {
+        $expected = $expectations->expectedStatus($case->pattern(), $case->method);
+
+        if (($message = Verdict::describe($status, $case, $expected)) !== null) {
             $failures[] = $message;
         }
     }

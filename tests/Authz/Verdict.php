@@ -14,9 +14,9 @@ namespace Tests\Authz;
 final class Verdict
 {
     /** @return string|null null when the response is acceptable */
-    public static function describe(int $status, RouteCase $case): ?string
+    public static function describe(int $status, RouteCase $case, int $expected = 404): ?string
     {
-        if ($status === 404) {
+        if ($status === $expected) {
             return null;
         }
 
@@ -34,8 +34,9 @@ final class Verdict
         };
 
         return sprintf(
-            "AUTHZ %s\n  expected: 404\n  observed: %d\n  reason:   %s\n  fix:      tests/Authz/expectations.yaml",
+            "AUTHZ %s\n  expected: %d\n  observed: %d\n  reason:   %s\n  fix:      tests/Authz/expectations.yaml",
             $case->key(),
+            $expected,
             $status,
             $why,
         );

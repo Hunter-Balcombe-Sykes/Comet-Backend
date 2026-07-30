@@ -59,7 +59,17 @@ final class RouteInventory
     /** @return array<string, string|null> */
     private static function resolveParams(LaravelRoute $route): array
     {
-        $names = $route->parameterNames();
+        // Path params only, read from the URI itself.
+        //
+        // NOT $route->parameterNames(), which also returns DOMAIN params:
+        // six public routes are registered under `{subdomain}.localhost`, so
+        // that method reports a `subdomain` param the matrix can never
+        // substitute into the path. Verified 2026-07-30 — those six sat
+        // permanently in the coverage guard's unclassified list, unresolvable
+        // by any fixture mapping anyone could write.
+        preg_match_all('/\{(\w+)\??\}/', $route->uri(), $matches);
+
+        $names = $matches[1];
 
         if ($names === []) {
             return [];

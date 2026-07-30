@@ -36,6 +36,23 @@ final class Matrix
     public const UNKNOWN_UUID = '00000000-0000-4000-8000-000000000000';
 
     /**
+     * Sentinel for `fixture: { <param>: unknown }`.
+     *
+     * Some params are not a model primary key at all: the platform controllers
+     * resolve `{id}` as a `resource_id` looked up INSIDE rows already scoped to
+     * the caller — `$this->accountRows($user)->firstWhere('resource_id', $id)`.
+     * There is no identity-B row whose PK could be substituted, and the id
+     * space is per-user.
+     *
+     * Those routes still get probed, with an id that matches nothing. That is a
+     * weaker assertion than a true cross-tenant substitution — it proves the
+     * user-scoped lookup returns 404 rather than 500ing or leaking — and it is
+     * declared explicitly rather than hidden behind an exemption, so the
+     * weakness is visible in the diff.
+     */
+    public const UNKNOWN_FIXTURE = 'unknown';
+
+    /**
      * Substitute identity B's row ids into a route pattern.
      *
      * @param  string|null  $fallbackId  used for params with no known fixture; when null, an
@@ -50,7 +67,13 @@ final class Matrix
         $uri = $case->uri;
 
         foreach ($case->params as $param => $model) {
-            $model ??= $expectations->fixtureFor($case->pattern(), $param);
+            $model ??= $expectations->fixtureFor($case->pattern(), $param, $case->method);
+
+            if ($model === self::UNKNOWN_FIXTURE) {
+                $uri = str_replace(['{'.$param.'}', '{'.$param.'?}'], self::UNKNOWN_UUID, $uri);
+
+                continue;
+            }
 
             $id = $model !== null ? Fixtures::idFor($model) : null;
 

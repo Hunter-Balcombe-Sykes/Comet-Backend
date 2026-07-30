@@ -26,7 +26,7 @@ function authzStaffCases(Expectations $expectations): array
 {
     return collect(RouteInventory::all())
         ->filter(fn (RouteCase $c) => $c->group() === 'staff')
-        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern()))
+        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern(), $c->method))
         ->values()
         ->all();
 }
@@ -42,7 +42,7 @@ it('refuses a plain user token on staff routes', function () {
         [$uri] = Matrix::resolveUri($case, $expectations, Matrix::UNKNOWN_UUID);
 
         $status = Matrix::isolated(fn () => actingAsUser(Fixtures::identityA())
-            ->json($case->method, $uri, $expectations->bodyFor($case->pattern()))
+            ->json($case->method, $uri, $expectations->bodyFor($case->pattern(), $case->method))
             ->getStatusCode());
 
         if (! in_array($status, [401, 403, 404], true)) {
@@ -77,7 +77,7 @@ it('refuses staff claims at aal1 on staff routes', function () {
         // staff member who has not completed MFA carries aal1. require.aal2
         // must reject regardless of the staff row.
         $status = Matrix::isolated(fn () => actingAsUser(Fixtures::identityA(), ['aal' => 'aal1', 'amr' => []])
-            ->json($case->method, $uri, $expectations->bodyFor($case->pattern()))
+            ->json($case->method, $uri, $expectations->bodyFor($case->pattern(), $case->method))
             ->getStatusCode());
 
         if (! in_array($status, [401, 403, 404], true)) {

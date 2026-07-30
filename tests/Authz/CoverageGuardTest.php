@@ -3,6 +3,7 @@
 use Tests\Authz\AuthzTestCase;
 use Tests\Authz\Expectations;
 use Tests\Authz\Fixtures;
+use Tests\Authz\Matrix;
 use Tests\Authz\RouteCase;
 use Tests\Authz\RouteInventory;
 
@@ -13,15 +14,23 @@ uses(AuthzTestCase::class);
  * no route escaped the matrix. A new route added to routes/api/*.php lands here
  * first, and cannot be silently omitted.
  */
-it('has a fixture mapping or a written exemption for every param-bearing route', function () {
+it('has a fixture mapping or a written exemption for every cross-tenant route', function () {
     $expectations = Expectations::load();
 
+    // Scoped to the groups CrossTenantTest actually substitutes into. Staff and
+    // public routes are covered by StaffBoundaryTest and PublicSurfaceTest,
+    // which deliberately use an id that matches nothing — reaching the
+    // authorization layer is the whole assertion there, so they need no
+    // fixture. Demanding one would have meant ~19 boilerplate exemptions
+    // saying "not applicable", which is exactly the unreviewable noise the
+    // mandatory-reason rule exists to prevent.
     $unclassified = collect(RouteInventory::all())
+        ->filter(fn (RouteCase $c) => in_array($c->group(), ['user', 'platforms'], true))
         ->filter(fn (RouteCase $c) => $c->hasParams())
-        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern()))
+        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern(), $c->method))
         ->filter(function (RouteCase $c) use ($expectations) {
             foreach ($c->unresolvedParams() as $param) {
-                if ($expectations->fixtureFor($c->pattern(), $param) === null) {
+                if ($expectations->fixtureFor($c->pattern(), $param, $c->method) === null) {
                     return true;
                 }
             }
@@ -70,13 +79,14 @@ it('has a seeded fixture row for every model the matrix substitutes', function (
     $seeded = Fixtures::seededModels();
 
     $missing = collect(RouteInventory::all())
+        ->filter(fn (RouteCase $c) => in_array($c->group(), ['user', 'platforms'], true))
         ->filter(fn (RouteCase $c) => $c->hasParams())
-        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern()))
+        ->reject(fn (RouteCase $c) => $expectations->isExempt($c->pattern(), $c->method))
         ->flatMap(function (RouteCase $c) use ($expectations) {
             $models = [];
 
             foreach ($c->params as $param => $model) {
-                $model ??= $expectations->fixtureFor($c->pattern(), $param);
+                $model ??= $expectations->fixtureFor($c->pattern(), $param, $c->method);
 
                 if ($model !== null) {
                     $models[] = ltrim($model, '\\');
@@ -86,6 +96,7 @@ it('has a seeded fixture row for every model the matrix substitutes', function (
             return $models;
         })
         ->unique()
+        ->reject(fn (string $m) => $m === Matrix::UNKNOWN_FIXTURE)
         ->reject(fn (string $m) => in_array($m, $seeded, true))
         ->sort()
         ->values()

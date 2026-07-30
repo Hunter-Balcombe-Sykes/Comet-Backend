@@ -2,8 +2,13 @@
 
 namespace Tests\Authz;
 
+use App\Models\Core\Feedback;
+use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Page;
+use App\Models\Core\Site\Section;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Customer;
@@ -73,11 +78,27 @@ final class Fixtures
         }
 
         try {
-            self::$a = self::makeUser('authz-a');
-            self::$b = self::makeUser('authz-b');
-            self::$c = self::makeUnclaimed('authz-c');
+            // Locals first, statics last. Assigning self::$b before
+            // seedOwnedBy() means a throw mid-seed leaves $b set, the guard
+            // above short-circuits every later call, and the ids map stays
+            // silently partial — the failure then surfaces as an unrelated
+            // "no fixture for X" much later.
+            $a = self::makeUser('authz-a');
+            $b = self::makeUser('authz-b');
+            $c = self::makeUnclaimed('authz-c');
 
-            self::seedOwnedBy(self::$b);
+            // Identity A needs a site of its own. Site-scoped controllers
+            // resolve the CALLER's site first and return 422 when there isn't
+            // one, so an A with no site never reaches the authorization check
+            // and every site route scores "inconclusive" rather than testing
+            // anything.
+            self::giveSite($a, 'authz-attacker');
+
+            self::seedOwnedBy($b);
+
+            self::$a = $a;
+            self::$b = $b;
+            self::$c = $c;
         } finally {
             if ($reopen) {
                 $connection->beginTransaction();
@@ -176,16 +197,23 @@ final class Fixtures
      * container dies on core_users_handle_lc_unique before a single route is
      * fired.
      */
-    private static function seedOwnedBy(User $user): void
+    private static function giveSite(User $user, string $subdomain): Site
     {
         $site = Site::query()->where('user_id', $user->id)->first();
 
         if (! $site) {
             $site = new Site;
-            $site->subdomain = 'authz-victim';
+            $site->subdomain = $subdomain;
             $site->user()->associate($user);
             $site->save();
         }
+
+        return $site;
+    }
+
+    private static function seedOwnedBy(User $user): void
+    {
+        $site = self::giveSite($user, 'authz-victim');
 
         self::remember(Site::class, $site->id);
 
@@ -258,6 +286,74 @@ final class Fixtures
         }
 
         self::remember(SiteMedia::class, $media->id);
+
+        // A real connection row matters more than most: ConnectionsController@
+        // setPrimary resolves it with an UNSCOPED IntegrationConnection::query()
+        // ->find($connectionId). Sentinelling this route with an unknown id
+        // would make it 404 trivially and hide exactly the shape this harness
+        // exists to catch.
+        $connection = IntegrationConnection::query()->where('user_id', $user->id)->first();
+
+        if (! $connection) {
+            $connection = new IntegrationConnection;
+            $connection->resource_id = 'authz-fixture-resource';
+            $connection->surface_key = 'authz';
+            $connection->routing_class = 'profile';
+            $connection->platform = 'custom';
+            $connection->user()->associate($user);
+            $connection->save();
+        }
+
+        self::remember(IntegrationConnection::class, $connection->id);
+
+        $page = Page::query()->where('site_id', $site->id)->first();
+
+        if (! $page) {
+            $page = new Page;
+            $page->key = 'authz';
+            $page->label = 'Authz';
+            $page->site()->associate($site);
+            $page->save();
+        }
+
+        self::remember(Page::class, $page->id);
+
+        $section = Section::query()->where('site_id', $site->id)->first();
+
+        if (! $section) {
+            $section = new Section;
+            $section->kind = 'richtext';
+            $section->page()->associate($page);
+            $section->site()->associate($site);
+            $section->save();
+        }
+
+        self::remember(Section::class, $section->id);
+
+        $feedback = Feedback::query()->where('user_id', $user->id)->first();
+
+        if (! $feedback) {
+            $feedback = new Feedback;
+            $feedback->kind = 'bug';
+            $feedback->message = 'authz fixture';
+            $feedback->user()->associate($user);
+            $feedback->save();
+        }
+
+        self::remember(Feedback::class, $feedback->id);
+
+        $notification = Notification::query()->where('user_id', $user->id)->first();
+
+        if (! $notification) {
+            $notification = new Notification;
+            $notification->type = 'Info';
+            $notification->title = 'Authz fixture';
+            $notification->body = 'authz fixture';
+            $notification->user()->associate($user);
+            $notification->save();
+        }
+
+        self::remember(Notification::class, $notification->id);
 
         // Identity B is itself the substitutable row for {user} params.
         self::remember(User::class, $user->id);
