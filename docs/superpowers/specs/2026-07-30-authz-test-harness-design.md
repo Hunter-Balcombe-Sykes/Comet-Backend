@@ -120,6 +120,7 @@ distinct base cases; sharing the job avoids paying for migrations twice.
 | `tests/Authz/PublicSurfaceTest.php` | `publicSite.php` + `api.php`: unknown ID → 404, never 403. |
 | `tests/Authz/UnclaimedSweepTest.php` | Provisional user (`status='unclaimed'`, null email) against the authenticated surface; every capability-gated route rejects. |
 | `tests/Authz/CoverageGuardTest.php` | Every route is covered by a rule or exempted with a non-empty reason. |
+| `tests/Authz/CollectionLeakageTest.php` | Added 2026-07-30, not in the original design. The 132 param-free `GET` routes carry no id to substitute, so `CrossTenantTest` cannot reach them; this sweeps them for identity B's ids. Weak by construction (128 of 132 bodies contain no ids — identity A owns only a bare site) and paired with a non-vacuity guard so it cannot pass by every endpoint returning nothing. A tripwire, not proof of scoping. |
 | `tests/Authz/README.md` | How to run the lane locally (it needs a provisioned Postgres and is **not** part of `composer test`), and what to do when it fails — the new-route table below, restated where a developer will look. |
 
 ### Tier 2 additions

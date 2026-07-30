@@ -106,6 +106,32 @@ Two spellings need care —
 `SetShopProductsRequest` validates **`productIds`**, camelCase, and `products`
 is `required|array`, which an *empty* array fails.
 
+## Param-free collection endpoints
+
+`CrossTenantTest` substitutes identity B's id into a path, so it can only reach
+routes with a `{param}`. The other 132 param-free `GET` routes in the user and
+platforms groups ask a different question — *does A's own listing contain B's
+rows?* — and `CollectionLeakageTest` sweeps them for foreign ids.
+
+Read its result narrowly. **128 of the 132 responses contain no ids at all**
+(identity A owns only a bare site, because `Fixtures::seedOwnedBy()` runs for B),
+so for most routes the assertion is a tripwire, not a proof of correct scoping.
+Its first test is a **non-vacuity guard**: it gives A a real page and section and
+proves detection fires, so the sweep cannot stay green by every endpoint
+returning nothing.
+
+If you want a real isolation proof for a specific endpoint, write it in
+`tests/Feature/Security/TenantIsolation/` — that is where the hand-written,
+positive-controlled cases live, and it already covers the pages/sections index.
+
+**Beware the phantom.** The coverage lens cannot see
+`tests/Feature/Security/PolicyEnforcement/` or `TenantIsolation/`, so it reports
+"no cross-tenant test for X" for endpoints that are already tested. That class is
+recorded under "Phantom coverage gaps" in the 2026-07-28 sweep's
+`CONSOLIDATED.md`. Check those two directories before building anything from such
+a finding — and note that `.drafts/` is untracked pre-adjudication output, not the
+adjudicated record.
+
 ## Fixtures persist after a run
 
 Identities are committed outside the per-test transaction so they survive each
