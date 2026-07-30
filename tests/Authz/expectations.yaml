@@ -166,6 +166,16 @@
 # account.', 403) — the food-business gate. That is a role/type restriction,
 # which the project rule explicitly reserves 403 for, and it fires before the
 # row is ever consulted so it leaks nothing.
+#
+# PATCH is here rather than with the write bodies below because supplying a
+# `body:` does not make it answer 404: with validation cleared the request
+# reaches denyWithoutCapability() and is refused there, exactly as its DELETE
+# sibling already is. A PROVEN 403 at a declared gate, not an inconclusive 422.
+- route: "PATCH api/platforms/menu/categories/{category}"
+  expect: 403
+  reason: "Food-business capability gate returns 403 before the row is consulted (MenuContentController); a role restriction, not an existence leak."
+  body: { name: "authz" }                        # UpdateMenuCategoryRequest: name required|string|max:120
+  fixture: { category: unknown }
 - route: "DELETE api/platforms/menu/categories/{category}"
   expect: 403
   reason: "Food-business capability gate returns 403 before the row is consulted (MenuContentController); a role restriction, not an existence leak."
@@ -175,57 +185,57 @@
   reason: "Food-business capability gate returns 403 before the row is consulted (MenuContentController); a role restriction, not an existence leak."
   fixture: { item: unknown }
 
-# ── KNOWN COVERAGE GAP — validation runs before authorization ────────────────
-# These write routes reject an empty body with 422, so the request never reaches
-# the ownership check and the matrix cannot assert 404. No data is disclosed —
-# the caller learns nothing about identity B's row — but authorization on these
-# nine routes is NOT proven by this lane.
+# ── WRITE ROUTES — minimal bodies, so validation cannot pre-empt authorization ─
+# A PATCH/PUT/POST whose FormRequest rejects an empty body answers 422 before
+# the ownership check ever runs, and a 422 is scored INCONCLUSIVE → fail. Each
+# body below is the fewest fields that clear that route's rules — deliberately
+# not a realistic payload — so the 404 that follows is produced by the ownership
+# check and by nothing else.
 #
-# Closing the gap means modelling each route's FormRequest well enough to pass
-# validation. Tracked as follow-up; deliberately declared here rather than
-# silently exempted so the gap is visible in the file and in review.
+# None of these bodies names identity B's data. A body carrying B's ids would
+# make the request pass validation for the wrong reason and prove nothing about
+# who the path segment belongs to.
 - route: "PUT api/site/sections/{section}/items/{item}"
-  expect: 422
-  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { state: excluded }                      # UpsertSectionItemRequest: state required|in:pinned,excluded
   fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
 - route: "POST api/content/identity/candidates/{candidate}/rule"
-  expect: 422
-  reason: "COVERAGE GAP: POST validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { verdict: different }                   # RuleIdentityCandidateRequest: verdict required|in:same,different
   fixture: { candidate: unknown }
+# `value` is `present`, not `required` — an explicit null is the user clearing
+# the field — so the key must appear even though it is null. (facet, column)
+# must be a real FacetRegistry pair or the closure rule fails it.
 - route: "PUT api/content/items/{item}/overrides"
-  expect: 422
-  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { facet: f_text, column: headline, value: null }
   fixture: { item: unknown }
+# category_ids REPLACES the membership set, and the request's after() hook only
+# demands that one of the two keys be PRESENT. An empty list satisfies it
+# without naming any category — least of all one of identity B's.
 - route: "PATCH api/services/{service}/category"
-  expect: 422
-  reason: "COVERAGE GAP: PATCH validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { category_ids: [] }
+
+# /shop and /shopify are one `foreach (['shop', 'shopify'])` alias loop over the
+# same ShopController (routes/api/platforms.php), so both spellings take the
+# identical body. `products` is `required|array`, which an EMPTY array fails, so
+# the minimum is one element satisfying `products.*` => array.
 - route: "POST api/platforms/shop/brands/{id}/catalog"
-  expect: 422
-  reason: "COVERAGE GAP: POST validation rejects an empty body before authorization runs; body not yet modelled."
-  fixture: { id: unknown }
-- route: "PUT api/platforms/shop/brands/{id}/selection"
-  expect: 422
-  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { products: [{}] }
   fixture: { id: unknown }
 - route: "POST api/platforms/shopify/brands/{id}/catalog"
-  expect: 422
-  reason: "COVERAGE GAP: POST validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { products: [{}] }
+  fixture: { id: unknown }
+# productIds — camelCase, and `present`, so an empty list clears it.
+- route: "PUT api/platforms/shop/brands/{id}/selection"
+  body: { productIds: [] }
   fixture: { id: unknown }
 - route: "PUT api/platforms/shopify/brands/{id}/selection"
-  expect: 422
-  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  body: { productIds: [] }
   fixture: { id: unknown }
 
-- route: "PATCH api/platforms/menu/categories/{category}"
-  expect: 422
-  reason: "COVERAGE GAP: PATCH validation rejects an empty body before the food-business gate or the ownership check runs; body not yet modelled."
-  fixture: { category: unknown }
+# Bare-pattern fallbacks for paths whose verbs carry a method-scoped entry
+# above. Without these, the sibling verbs (which answer 404 already) would have
+# no fixture mapping at all.
 - route: "api/platforms/menu/categories/{category}"
   fixture: { category: unknown }
-
-# Bare-pattern fallbacks for the two paths whose WRITE verb is a coverage gap.
-# Without these, the sibling verbs (which behave correctly and answer 404) would
-# have no fixture mapping at all.
 - route: "api/site/sections/{section}/items/{item}"
   fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
 - route: "api/content/items/{item}/overrides"
