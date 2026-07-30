@@ -128,6 +128,10 @@ final class Fixtures
      */
     private static function makeUser(string $handle): User
     {
+        if ($existing = User::query()->where('handle_lc', $handle)->first()) {
+            return $existing;
+        }
+
         $authUserId = (string) Str::uuid();
 
         DB::connection('pgsql')->table('auth.users')->insert([
@@ -150,6 +154,10 @@ final class Fixtures
      */
     private static function makeUnclaimed(string $handle): User
     {
+        if ($existing = User::query()->where('handle_lc', $handle)->first()) {
+            return $existing;
+        }
+
         return User::factory()->create([
             'auth_user_id' => null,
             'handle' => $handle,
@@ -159,52 +167,96 @@ final class Fixtures
         ]);
     }
 
+    /**
+     * Every row is find-or-create, keyed on identity B's ownership.
+     *
+     * Fixtures are committed and deliberately outlive a run, so a second
+     * invocation against the same database must reuse them rather than insert
+     * duplicates — otherwise re-running the lane without recreating the
+     * container dies on core_users_handle_lc_unique before a single route is
+     * fired.
+     */
     private static function seedOwnedBy(User $user): void
     {
-        $site = new Site;
-        $site->subdomain = 'authz-victim';
-        $site->user()->associate($user);
-        $site->save();
+        $site = Site::query()->where('user_id', $user->id)->first();
+
+        if (! $site) {
+            $site = new Site;
+            $site->subdomain = 'authz-victim';
+            $site->user()->associate($user);
+            $site->save();
+        }
+
         self::remember(Site::class, $site->id);
 
-        $customer = new Customer;
-        $customer->user()->associate($user);
-        $customer->save();
+        $customer = Customer::query()->where('user_id', $user->id)->first();
+
+        if (! $customer) {
+            $customer = new Customer;
+            $customer->user()->associate($user);
+            $customer->save();
+        }
+
         self::remember(Customer::class, $customer->id);
 
-        $enquiry = new Enquiry;
-        $enquiry->name = 'Authz Victim';
-        $enquiry->email = 'victim@authz.test';
-        $enquiry->subject = 'authz fixture';
-        $enquiry->message = 'authz fixture';
-        $enquiry->user()->associate($user);
-        $enquiry->site()->associate($site);
-        $enquiry->save();
+        $enquiry = Enquiry::query()->where('user_id', $user->id)->first();
+
+        if (! $enquiry) {
+            $enquiry = new Enquiry;
+            $enquiry->name = 'Authz Victim';
+            $enquiry->email = 'victim@authz.test';
+            $enquiry->subject = 'authz fixture';
+            $enquiry->message = 'authz fixture';
+            $enquiry->user()->associate($user);
+            $enquiry->site()->associate($site);
+            $enquiry->save();
+        }
+
         self::remember(Enquiry::class, $enquiry->id);
 
-        $category = new ServiceCategory;
-        $category->title = 'Authz Category';
-        $category->user()->associate($user);
-        $category->save();
+        $category = ServiceCategory::query()->where('user_id', $user->id)->first();
+
+        if (! $category) {
+            $category = new ServiceCategory;
+            $category->title = 'Authz Category';
+            $category->user()->associate($user);
+            $category->save();
+        }
+
         self::remember(ServiceCategory::class, $category->id);
 
-        $service = new Service;
-        $service->title = 'Authz Service';
-        $service->price_cents = 1000;
-        $service->user()->associate($user);
-        $service->save();
+        $service = Service::query()->where('user_id', $user->id)->first();
+
+        if (! $service) {
+            $service = new Service;
+            $service->title = 'Authz Service';
+            $service->price_cents = 1000;
+            $service->user()->associate($user);
+            $service->save();
+        }
+
         self::remember(Service::class, $service->id);
 
-        $block = new Block;
-        $block->user()->associate($user);
-        $block->site()->associate($site);
-        $block->save();
+        $block = Block::query()->where('user_id', $user->id)->first();
+
+        if (! $block) {
+            $block = new Block;
+            $block->user()->associate($user);
+            $block->site()->associate($site);
+            $block->save();
+        }
+
         self::remember(Block::class, $block->id);
 
-        $media = new SiteMedia;
-        $media->path = 'authz/fixture.webp';
-        $media->site()->associate($site);
-        $media->save();
+        $media = SiteMedia::query()->where('site_id', $site->id)->first();
+
+        if (! $media) {
+            $media = new SiteMedia;
+            $media->path = 'authz/fixture.webp';
+            $media->site()->associate($site);
+            $media->save();
+        }
+
         self::remember(SiteMedia::class, $media->id);
 
         // Identity B is itself the substitutable row for {user} params.
