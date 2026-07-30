@@ -1,0 +1,23 @@
+-- #DINT-1: analytics.action_events has no user_id-leading index, so both
+-- user-scoped paths on it seq-scan. AccountDeletionService::purgeActionEventsPii()
+-- runs `WHERE user_id = ?` DELETE on every hard delete — self-service,
+-- staff-initiated, and the daily PurgeSoftDeleted sweep — and
+-- DataExportPayloadBuilder::streamAnalyticsActionEvents() reads
+-- `WHERE user_id = ? ORDER BY occurred_at` for the DSAR export. There is no FK
+-- to core.users (nullable denormalised column, fail-open write path), so those
+-- two explicit queries are the ONLY erasure/export path for this table.
+--
+-- (user_id, occurred_at) rather than the finding's (user_id) alone: it serves
+-- the bare-equality DELETE identically AND gives the export an index-ordered
+-- scan instead of a sort. It is also the shape every OTHER raw analytics table
+-- already carries (analytics_link_clicks_user_occurred_idx,
+-- analytics_site_visits_user_occurred_idx, section_views_user_occurred_idx,
+-- lead_submissions_prof_time_idx) — action_events and item_views are the only
+-- two that were missed.
+--
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS analytics.action_events_user_occurred_idx;
+--           in its own one-statement file, no BEGIN/COMMIT (CONVENTIONS.md §1).
+--           Consequence: account deletion and DSAR export go back to
+--           seq-scanning the fastest-growing table in the schema (#DINT-1).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_events_user_occurred_idx"
+    ON "analytics"."action_events" ("user_id", "occurred_at");

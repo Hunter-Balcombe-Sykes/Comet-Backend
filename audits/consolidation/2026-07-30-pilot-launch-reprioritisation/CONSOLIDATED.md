@@ -471,7 +471,7 @@ tracked in their source folders).
 | P0-PILOT | 6 / 7 |
 | P1-PILOT | 11 / 12 |
 | P0-LAUNCH | 7 / 7 |
-| P1-LAUNCH | 0 / 27 |
+| P1-LAUNCH | 10 / 27 |
 | DEAD bookkeeping | 0 / 11 |
 
 **P0-PILOT** — worked 2026-07-30 on `audit-fix/p0-pilot-2026-07-30`.
@@ -799,10 +799,10 @@ will go red without stopping anything. Closing that is a repo setting, not code,
 any unit in this bucket.
 
 **P1-LAUNCH**
-- [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
+- [x] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
 - [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
 - [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
-- [ ] `#INH-6` · [ ] `#SEC-4` · [ ] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
+- [ ] `#INH-6` · [ ] `#SEC-4` · [x] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
 - [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [x] `#10`
 
 > **P1-LAUNCH** — worked 2026-07-30 on `audit-fix/p1-launch-2026-07-30`, concurrently with P0-LAUNCH.
@@ -891,11 +891,14 @@ any unit in this bucket.
 > | `CFG-16`, `CFG-8`, `CFG-9` (Unit 7) | Not started. Planned in detail; implementation was stopped before writing anything. ⚠️ `CFG-8` must ship a **1..3 clamp**: `fetchPlaceDetails()` claims a `PlacesBudget` slot *inside* the retry loop, so `max_attempts` is a direct multiplier on billed spend for the only paid API with no vendor cap. `CFG-9` should cover **all three** identical `->timeout(110)` Apify sites (Josh's ruling), not just the one the finding names. |
 > | 3 × `LC-DRILL-*`, `LC-K6`, `LC-RERUN` (Unit 6) | Not started. Hours of operational work, no code. Lowest priority at zero live users. |
 > | `#TEST-41` | Deferral condition ("once P0-LAUNCH merges") is now **met** and it is unblocked, but not done. |
-> | `#CACHE-3` | **Open by decision, escalated to Josh.** Its `Bus::chain` fix regresses `JOB-4`'s degraded-outcome signal (`RunExecutor.php:176-186`) and drops the scheduler claim mid-projection, letting `claimDue()` start a concurrent second pass against a `ProjectionWriter` that is not concurrency-safe against itself. **The open question: decouple projection from landing or not, and if so what replaces those two invariants?** Lifecycle redesign, not scale hygiene. |
+> | `#CACHE-3` | **Open by decision, escalated to Josh.** Its `Bus::chain` fix regresses `JOB-4`'s degraded-outcome signal (`RunExecutor.php:176-186`) and drops the scheduler claim mid-projection, letting `claimDue()` start a concurrent second pass against a `ProjectionWriter` that is not concurrency-safe against itself. **The open question: decouple projection from landing or not, and if so what replaces those two invariants?** Lifecycle redesign, not scale hygiene. → **Decision brief written 2026-07-30: [`CACHE-3-DECISION-BRIEF.md`](./CACHE-3-DECISION-BRIEF.md).** Both blockers verified true (and the degraded signal turns out to be *two* writes, not one — `sources.health` as well as `runs.outcome`). **The throughput premise does not hold:** `supervisor-ingest` runs `maxProcesses => 1`, so chaining reorders work within one worker rather than freeing capacity; dev's 37 real runs mean 3.19s / max 27.0s against a 120s timeout, zero ever `degraded`, and the ingest schema does not exist in production at all. **Recommendation: defer, and reject the `Bus::chain` prescription outright**; if a named trigger fires, bound projection via the existing `projection_*_chunk` levers instead. Still OPEN pending Josh's ruling. |
 >
 > **Follow-ups discovered during the work — none of these came from the audit:**
-> 1. **`YoutubeFeed::mapEntry()` (`:79-81`) fatals on a feed with no `xmlns:media`.** `children($mediaNs)->group` returns a non-null *empty* element so the `!== null` guard passes, then `children($mediaNs)` returns null and line 81 throws. Unreachable today (real YouTube feeds always declare it) but it turns malformed third-party input into a 500 instead of `thumbnail => null`.
-> 2. **`tests/Postgres/ProjectionWriterBatchingTest.php` hardcodes `art_url => null` on all four tests**, so the real-Postgres lane issues **zero** `item_media`/`media_assets` writes. Every Postgres-specific risk `#SCALE-17` introduced — `ON CONFLICT DO NOTHING` vs `INSERT OR IGNORE`, 4,000-bind multi-row inserts, lock behaviour of the widened DELETE inside a transaction — is exercised nowhere. One line in `pwbtDoc` closes it. Now unblocked.
+> 1. ✅ **FIXED 2026-07-30 (Tier 1, `audit-fix/tier1-2026-07-30`).** **`YoutubeFeed::mapEntry()` (`:79-81`) fatals on a feed with no `xmlns:media`.** `children($mediaNs)->group` returns a non-null *empty* element so the `!== null` guard passes, then `children($mediaNs)` returns null and line 81 throws. Unreachable today (real YouTube feeds always declare it) but it turns malformed third-party input into a 500 instead of `thumbnail => null`.
+>    **Fix:** `isset($mediaChildren->group)` — the only form that distinguishes "no media:group" from "a media:group", verified against SimpleXML directly for the undeclared-namespace, empty-`<media:group/>`, non-media-child, and no-thumbnail shapes. The finding's suggested `$mediaGroup !== null && $mediaGroup->children($mediaNs) !== null` also works but is redundant: `children()` on a *real* group node is never null. Three cases added to `tests/Unit/Ingest/YoutubeFeedTest.php`, including a non-vacuity control; mutation-checked (restoring the old guard reproduces `ErrorException: Attempt to read property "thumbnail" on null`).
+> 2. ✅ **FIXED 2026-07-30 (Tier 1, `audit-fix/tier1-2026-07-30`).** **`tests/Postgres/ProjectionWriterBatchingTest.php` hardcodes `art_url => null` on all four tests**, so the real-Postgres lane issues **zero** `item_media`/`media_assets` writes. Every Postgres-specific risk `#SCALE-17` introduced — `ON CONFLICT DO NOTHING` vs `INSERT OR IGNORE`, 4,000-bind multi-row inserts, lock behaviour of the widened DELETE inside a transaction — is exercised nowhere. One line in `pwbtDoc` closes it. Now unblocked.
+>    **Fix:** `pwbtDoc` now derives a distinct `art_url` per URL by default (overridable to share one). The N=200 test gained media assertions — 200 `item_media`, 200 distinct `media_assets`, zero null `asset_id`, `MAX(position) = 0` (which is what would catch a batch-wide position counter) — plus a re-projection pass, the only place the widened `DELETE … WHERE item_id IN (chunk) AND source_id = ?` runs with rows present to delete. A fifth test pins 200 items sharing one image to exactly **one** asset. No existing assertion was weakened. Mutation-checked: forcing `art_url` back to null fails 2 tests with `0 is identical to 200`.
+>    ⚠️ Known residual, deliberately not chased: `insertOrIgnore`'s actual conflict branch is still never hit — the PHP-level fingerprint dedupe plus the `lookupMediaAssets` re-check mean it is only ever called with genuinely-new rows. The tests prove the SQL is valid Postgres and that re-runs don't duplicate assets, **not** a live constraint-violation race. N=200 also stays under the 500 `writeChunk()` default, so multi-chunk crossing is proven on SQLite only.
 > 3. **Worker CSP hardcoding** — `https://app.partna.au` literal at `cloudflare-worker/src/index.js:156` and `:311`; and `PARTNA_DOMAIN` is itself a compile-time `const` (`:46`), not read from `env`. Split out of `#10` deliberately.
 > 4. **`#INH-6`'s other two-thirds** — `cleanString` spans **6** files (not 4), and its two menu copies have divergent *signatures and bodies*, so that half is a behaviour question, not a move. `nextPosition` spans 2.
 >

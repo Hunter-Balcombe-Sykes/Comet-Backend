@@ -58,14 +58,31 @@ class DataExportPayloadBuilder
      * third-party reporter identity on signals filed AGAINST the subject —
      * deliberate, and the same Ring 3 rule as StaffAuditEntry: a reporter who
      * is not the data subject must not be unmasked by the subject's own
-     * Article-15 request. Its two sibling moderation tables are deliberately
-     * NOT listed. `moderation.evidence` is a third-party moderation record
-     * whose reported-user PII lives INSIDE a `payload` JSON column, so this
-     * model-driven guard is structurally blind to it in exactly the way it is
-     * blind to `site.site_documents` above (there the table has no model;
-     * here the columns are not columns) — its erasure is registered in
-     * AccountDeletionService::PURGED_PII_TABLES and is now held to that claim
-     * by the purge-mechanism assertion in DataExportCoverageTest.
+     * Article-15 request.
+     *
+     * #PRIV-13: `moderation.evidence` IS listed, and like case_signals is
+     * exported only PARTIALLY. The row is a third-party moderation record, but
+     * the SUBJECT'S OWN identity is frozen inside it —
+     * EvidenceSnapshotService::snapshotSite() writes handle, display_name and
+     * site_subdomain into `payload` at report time — and Article 15 reaches
+     * that copy like any other. Note what this table is NOT: the PII lives
+     * inside a JSON column, so the model-driven half of the coverage guard is
+     * structurally blind to it in exactly the way it is blind to
+     * `site.site_documents` above (there the table has no model; here the
+     * columns are not columns). streamModerationEvidence() therefore builds
+     * each exported row POSITIVELY from a fixed allowlist rather than emitting
+     * `payload` and filtering it down. That direction is load-bearing, not
+     * stylistic: a filter removes only what its author remembered, so a key
+     * added by a future snapshot strategy (SiteMedia / Block / User are
+     * documented fast-follows) would leak by default; a positive build makes
+     * that structurally impossible. Deliberately withheld: `payload` itself,
+     * `content_hash`, `signal_id` (an FK into moderation.case_signals, whose
+     * reporter_user_id / reporter_email / reporter_ip_hash are exactly the
+     * third-party identity the paragraph above withholds — exporting the
+     * pointer hands the reported party a route into the reporter's record),
+     * and every row whose evidence_type is not `content_snapshot`. Its erasure
+     * is registered in AccountDeletionService::PURGED_PII_TABLES and is held to
+     * that claim by the purge-mechanism assertion in DataExportCoverageTest.
      * `moderation.cases` is not listed because its exported column set
      * carries no PII at all: `reportable_owner_user_id` is only a filter
      * predicate on the query, never an exported column.
@@ -80,6 +97,7 @@ class DataExportPayloadBuilder
         'site.workplaces',
         'notifications.email_subscriptions',
         'moderation.case_signals',
+        'moderation.evidence',
         'audit.data_export_audit',
         'audit.user_deletion_audit',
         'content.sources', 'content.items', 'content.source_items',
@@ -116,7 +134,7 @@ class DataExportPayloadBuilder
      * tests and small-tenant scenarios. It iterates the same generators
      * stream() exposes, so memory usage scales with the largest section.
      *
-     * @return array{metadata: array, profile: array, site: array, early_access: array, pre_account_build: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
+     * @return array{metadata: array, profile: array, site: array, early_access: array, pre_account_build: array, media: array, design_kit: array, integrations: array, analytics: array, customers: array, services: array, service_categories: array, enquiries: array, lead_submissions: array, feedback: array, content_reports: array, moderation_evidence: array, email_subscriptions: array, notifications: array, ui_preferences: array, notification_preferences: array, auth: array, audit: array}
      */
     public function build(string $userId): array
     {
@@ -245,6 +263,13 @@ class DataExportPayloadBuilder
             ['name' => 'lead_submissions', 'kind' => 'rows', 'resolve' => fn () => $this->streamLeadSubmissions($userId)],
             ['name' => 'feedback', 'kind' => 'rows', 'resolve' => fn () => $this->streamFeedback($userId)],
             ['name' => 'content_reports', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentReports($userId, $lookupEmail)],
+            // #PRIV-13: the subject's OWN identity, frozen into a moderation
+            // evidence snapshot at report time. Allowlist-built — see
+            // streamModerationEvidence() and the COVERED_PII_TABLES docblock.
+            // Name is undotted on purpose: DataExportZipWriter treats a dot as
+            // a JSON-group prefix, which would reduce this to the bare,
+            // ambiguous record-count key `evidence`.
+            ['name' => 'moderation_evidence', 'kind' => 'rows', 'resolve' => fn () => $this->streamModerationEvidence($userId)],
             ['name' => 'email_subscriptions', 'kind' => 'rows', 'resolve' => fn () => $this->streamEmailSubscriptions($userId, $lookupEmail)],
             ['name' => 'notifications.messages', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotifications($userId)],
             ['name' => 'notifications.receipts', 'kind' => 'rows', 'resolve' => fn () => $this->streamNotificationReceipts($userId)],
@@ -821,6 +846,60 @@ class DataExportPayloadBuilder
 
         foreach ($this->lazyRows($query) as $row) {
             yield array_merge(['record_type' => 'filed_by_me'], $row);
+        }
+    }
+
+    /**
+     * #PRIV-13: the subject's own identity as FROZEN into a moderation evidence
+     * snapshot (EvidenceSnapshotService::snapshotSite()). Their live handle and
+     * display_name are already exported from core.users; this is the separate,
+     * immutable copy taken when their content was reported, and it is held
+     * about them, so Article 15 reaches it.
+     *
+     * Built POSITIVELY from an allowlist — `payload` is SELECTed only so the
+     * three subject-owned keys can be read out of it, and is never assigned
+     * onto the yielded row. Withheld by construction: `payload` itself,
+     * `content_hash`, and `signal_id` (an FK into moderation.case_signals,
+     * which carries the REPORTER's user id, email and ip hash — exporting the
+     * pointer would hand the reported party a route into a third party's
+     * record). Do not "filter down" a spread here: a filter only removes what
+     * its author remembered, so a key added by a future snapshot strategy would
+     * leak by default.
+     *
+     * evidence_type is pinned to 'content_snapshot'. The CHECK also permits
+     * csam_hash_match (disclosing a hash match to the subject is a
+     * tipping-off risk), upload_metadata and staff_attachment (internal) —
+     * none of which is the subject's own frozen identity.
+     *
+     * The predicate is deliberately IDENTICAL to
+     * AccountDeletionService::purgeReportedUserEvidencePii(): evidence_type +
+     * payload->user_id, with NO join to moderation.cases. Divergence would mean
+     * a row this export discloses is not a row that purge erases, or vice
+     * versa. `where('payload->user_id', ...)` compiles to json_extract() on
+     * SQLite and "payload"->>'user_id' on Postgres — the purge has run this
+     * exact form in production since PRIV-3.
+     */
+    private function streamModerationEvidence(string $userId): Generator
+    {
+        foreach ($this->lazyRows(
+            DB::connection('pgsql')
+                ->table('moderation.evidence')
+                ->select(['id', 'case_id', 'evidence_type', 'payload', 'captured_at'])
+                ->where('evidence_type', 'content_snapshot')
+                ->where('payload->user_id', $userId)
+        ) as $row) {
+            $payload = $this->decodeJsonColumn($row['payload'] ?? null) ?? [];
+
+            // Positive build. Do NOT spread $row or $payload here — see docblock.
+            yield [
+                'id' => $row['id'] ?? null,
+                'case_id' => $row['case_id'] ?? null,
+                'evidence_type' => $row['evidence_type'] ?? null,
+                'captured_at' => $row['captured_at'] ?? null,
+                'handle' => $payload['handle'] ?? null,
+                'display_name' => $payload['display_name'] ?? null,
+                'site_subdomain' => $payload['site_subdomain'] ?? null,
+            ];
         }
     }
 

@@ -391,9 +391,32 @@ function pwbtLand(string $streamId, string $key, array $doc, ?string $firstSeenA
     );
 }
 
-function pwbtDoc(string $title, string $url): array
+/**
+ * `art_url` is populated by DEFAULT, and that default is load-bearing.
+ *
+ * BandcampReleaseProjector.php:44 emits an EMPTY `media` array when art_url is
+ * null, so with it null nothing in this file writes a single content.item_media
+ * or content.media_assets row — and the whole SCALE-17 media path (merged in
+ * 3f24fdf7) goes unexercised on real Postgres, where all its interesting
+ * behaviour lives:
+ *   - insertOrIgnore compiles to ON CONFLICT DO NOTHING here vs INSERT OR
+ *     IGNORE on SQLite, against UNIQUE (user_id, fingerprint);
+ *   - the multi-row content.item_media insert and the chunked
+ *     `item_id IN (...) AND source_id = ?` DELETE run at real bind counts;
+ *   - that DELETE-then-INSERT sits inside DB::transaction, so its lock
+ *     behaviour is only observable against a real server.
+ * The file previously hardcoded null on all four tests and so reported
+ * coverage it did not have.
+ *
+ * The default derives one distinct image per URL. Pass $artUrl explicitly to
+ * make several items share ONE image, which is what exercises the fingerprint
+ * dedupe rather than the mint path.
+ */
+function pwbtDoc(string $title, string $url, ?string $artUrl = null): array
 {
-    return ['title' => $title, 'url' => $url, 'artist' => 'Some Artist', 'release_date' => '2025-05-05', 'art_url' => null, 'type' => 'album'];
+    $artUrl ??= $url.'/art.jpg';
+
+    return ['title' => $title, 'url' => $url, 'artist' => 'Some Artist', 'release_date' => '2025-05-05', 'art_url' => $artUrl, 'type' => 'album'];
 }
 
 it('runs the batched SCALE-6/7/8 queries as valid Postgres against real indexes at N=200', function () {
@@ -410,6 +433,65 @@ it('runs the batched SCALE-6/7/8 queries as valid Postgres against real indexes 
         ->and($result['items'])->toBe(200)
         ->and(DB::connection('pgsql')->table('content.items')->where('user_id', $userId)->count())->toBe(200)
         ->and(DB::connection('pgsql')->table('content.f_text')->count())->toBe(200);
+
+    // ── the SCALE-17 media path, at scale ─────────────────────────────────
+    $pg = DB::connection('pgsql');
+
+    // Each doc carries its own art_url, so every item mints its own asset:
+    // 200 covers, 200 distinct assets, none orphaned.
+    expect($pg->table('content.item_media')->count())->toBe(200)
+        ->and($pg->table('content.media_assets')->where('user_id', $userId)->count())->toBe(200)
+        ->and($pg->table('content.item_media')->whereNull('asset_id')->count())->toBe(0)
+        ->and($pg->table('content.item_media')->where('role', 'cover')->count())->toBe(200)
+        ->and($pg->table('content.item_media')->distinct()->count('asset_id'))->toBe(200);
+
+    // position is assigned from the per-ITEM list index (ProjectionWriter.php
+    // :661-664), so a lone cover is always 0. A counter running across the
+    // BATCH instead — the regression that comment exists to warn about — would
+    // make this 199, and nothing else in the suite would notice.
+    expect((int) $pg->table('content.item_media')->max('position'))->toBe(0);
+
+    // Re-project: this is the only place the widened
+    // `DELETE ... WHERE item_id IN (chunk) AND source_id = ?` runs with rows
+    // actually present to delete. If the delete under-matched, media would
+    // double to 400; if it over-matched, assets would be orphaned.
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    expect($pg->table('content.item_media')->count())->toBe(200)
+        ->and($pg->table('content.item_media')->whereNull('asset_id')->count())->toBe(0)
+        // Assets are content-addressed by fingerprint, so a re-run must reuse
+        // them, not mint a second set — that is ON CONFLICT DO NOTHING doing
+        // its job on Postgres.
+        ->and($pg->table('content.media_assets')->where('user_id', $userId)->count())->toBe(200);
+});
+
+it('mints ONE media_asset for 200 items sharing an image — insertOrIgnore as ON CONFLICT DO NOTHING', function () {
+    [$userId, , $source, $streamId] = pwbtFixture('5');
+
+    // Every release reuses the same cover art. resolveMediaAssets() dedupes by
+    // fingerprint in PHP first, then leans on UNIQUE (user_id, fingerprint) —
+    // which is the constraint whose violation-handling differs by driver, and
+    // therefore the thing a SQLite lane cannot prove.
+    $sharedArt = 'https://shared.bandcamp.com/art/one.jpg';
+    for ($i = 0; $i < 200; $i++) {
+        pwbtLand($streamId, "shared-{$i}", pwbtDoc("Shared {$i}", "https://shared.bandcamp.com/album/item-{$i}", $sharedArt));
+    }
+
+    $result = app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $pg = DB::connection('pgsql');
+    $assetIds = $pg->table('content.item_media')->distinct()->pluck('asset_id');
+
+    expect($result['items'])->toBe(200)
+        ->and($pg->table('content.item_media')->count())->toBe(200)
+        ->and($pg->table('content.media_assets')->where('user_id', $userId)->count())->toBe(1)
+        ->and($assetIds)->toHaveCount(1)
+        ->and($assetIds->first())->not->toBeNull();
+
+    // The minimised source_url is stored alongside the fingerprint and the two
+    // must derive from the same string (#PRIV-5) — assert the row we actually
+    // landed, not just that a row exists.
+    expect($pg->table('content.media_assets')->where('user_id', $userId)->value('source_url'))->toBe($sharedArt);
 });
 
 it('issues zero narrow content.items updates on a steady-state (second, unchanged) run — the jsonb parity trap', function () {

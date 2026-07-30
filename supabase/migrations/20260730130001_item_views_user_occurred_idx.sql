@@ -1,0 +1,21 @@
+-- #DINT-1, second half: analytics.item_views has the identical gap to
+-- analytics.action_events (20260730130000) — same denormalised nullable
+-- user_id, no FK, same two query shapes.
+-- AccountDeletionService::purgeItemViewsPii() runs `WHERE user_id = ?` DELETE;
+-- DataExportPayloadBuilder::streamAnalyticsItemViews() reads
+-- `WHERE user_id = ? ORDER BY occurred_at`. The table's three existing indexes
+-- (item_views_occurred_at_idx, item_views_site_item_idx,
+-- item_views_site_occurred_idx) all lead with site_id or occurred_at, so
+-- neither query can use any of them under the leftmost-prefix rule.
+--
+-- Separate file, not appended to 20260730130000: a CONCURRENTLY statement must
+-- be ALONE in its file — the CLI pipelines any multi-statement file into one
+-- implicit transaction and CONCURRENTLY cannot run there (SQLSTATE 25001).
+-- CONVENTIONS.md §1; scripts/guard-no-unsafe-migrations.php Check 6.
+--
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS analytics.item_views_user_occurred_idx;
+--           in its own one-statement file, no BEGIN/COMMIT (CONVENTIONS.md §1).
+--           Consequence: account deletion and DSAR export go back to
+--           seq-scanning analytics.item_views (#DINT-1).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "item_views_user_occurred_idx"
+    ON "analytics"."item_views" ("user_id", "occurred_at");

@@ -553,6 +553,22 @@ class DataExportTestCase
             created_at TEXT
         )');
 
+        // moderation.evidence — #PRIV-13: streamModerationEvidence() reads the
+        // subject's own frozen handle/display_name/site_subdomain out of
+        // payload. Every caller that drains the builder walks every section, so
+        // without this stub they all fail with "no such table". Body is
+        // byte-identical to AccountDeletionTestCase.php's copy so the shadow
+        // guard stays quiet if its exemption is ever narrowed.
+        $conn->statement("CREATE TABLE IF NOT EXISTS moderation.evidence (
+            id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL,
+            signal_id TEXT NULL,
+            evidence_type TEXT NOT NULL DEFAULT 'content_snapshot',
+            payload TEXT NOT NULL DEFAULT '{}',
+            content_hash TEXT NULL,
+            captured_at TEXT NULL
+        )");
+
         // Per-site design kit (1:1 with site.sites). All var columns NULLABLE.
         // typography_font_heading/typography_font_body DROPPED by
         // 20260603000001_drop_orphan_design_kit_typography_cols.sql — not present

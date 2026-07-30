@@ -75,10 +75,17 @@ final class YoutubeFeed
             }
         }
 
+        // isset(), not `!== null`: children() on an UNDECLARED namespace returns a
+        // non-null but EMPTY SimpleXMLElement, so ->group off it is also non-null
+        // and a null-check passes — then ->children($mediaNs) on that empty node
+        // returns null and reading ->thumbnail warns, which Laravel's handler
+        // upgrades to a fatal ErrorException. isset() is the only form that tells
+        // "no media:group" apart from "a media:group". An EMPTY <media:group/> is
+        // fine either way: children() on a real node always returns an element.
         $thumbnail = null;
-        $mediaGroup = $entry->children($mediaNs)->group;
-        if ($mediaGroup !== null) {
-            foreach ($mediaGroup->children($mediaNs)->thumbnail as $thumb) {
+        $mediaChildren = $entry->children($mediaNs);
+        if (isset($mediaChildren->group)) {
+            foreach ($mediaChildren->group->children($mediaNs)->thumbnail as $thumb) {
                 $url = (string) $thumb->attributes()->url;
                 if ($url !== '') {
                     $thumbnail = $url;

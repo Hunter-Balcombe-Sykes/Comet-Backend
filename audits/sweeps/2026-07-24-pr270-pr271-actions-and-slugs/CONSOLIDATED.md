@@ -219,13 +219,14 @@ Verified against live code on 2026-07-25:
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **DINT-1** · P3 — `analytics.action_events` has no index on `user_id`, forcing a sequential scan on every GDPR purge
+- [x] **DINT-1** · P3 — `analytics.action_events` has no index on `user_id`, forcing a sequential scan on every GDPR purge
+    - **Resolved 2026-07-30** (`audit-fix/tier1-2026-07-30`). Premise re-verified against the current schema: the cited migrations no longer exist (collapsed into the 2026-07-26 baseline), but the gap is real — neither `analytics.action_events` nor `analytics.item_views` has `user_id` as the leading column of any index. **Shipped `(user_id, occurred_at)`, not the prescribed `(user_id)`:** the real call sites are `purgeActionEventsPii()`/`purgeItemViewsPii()` (bare-equality DELETE) *and* `DataExportPayloadBuilder::streamAnalytics*()` (`WHERE user_id = ? ORDER BY occurred_at`), so the composite serves the DELETE identically and gives the DSAR export an index-ordered scan instead of a sort. It is also the shape every *other* raw analytics table already carries — these two were the only outliers. Two files (`20260730130000`, `20260730130001`), one `CREATE INDEX CONCURRENTLY` each, both with `-- ROLLBACK:` notes; registered in `tests/Schema/IndexCoverageTest.php`. **Not applied to any database** — Josh sequences the push.
     - **Where:** `supabase/migrations/20260723090000_create_action_events.sql:31,52-61`; `app/Services/User/AccountDeletionService.php:1139-1154` (`purgeActionEventsPii`)
     - **Affects:** Account-deletion latency and DB load. `AccountDeletionService::purgeActionEventsPii()` runs `WHERE user_id = ?` on every hard-delete (self-service, staff-initiated, and the daily `PurgeSoftDeleted` sweep). Neither existing index has `user_id` as a leftmost column, so this delete is a sequential scan; on the write-heavy analytics-ingest path (per project scale notes) this table is expected to grow fastest of any in the schema.
     - **Effort:** S (~0.5–1h)
