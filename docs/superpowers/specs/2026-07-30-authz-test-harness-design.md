@@ -51,6 +51,21 @@ Related open gap, deliberately out of scope here: there is no taint analysis
 - `Origin`/`Referer` forgery (SEC-1) is **already covered** by 11 assertions in
   `tests/Feature/Security/TenantIsolation/PublicAnalyticsIdorTest.php`. Not
   re-implemented here.
+- **The unclaimed capability sweep is withdrawn.** It was specified on a false
+  premise, discovered during implementation on 2026-07-30 and recorded here so
+  nobody re-proposes it: `LoadCurrentUser` resolves the caller via
+  `getByAuthId($uid)`, i.e. by `core.users.auth_user_id`. Provisional users have
+  `auth_user_id = null`, so **no JWT can ever resolve to an unclaimed user** —
+  the middleware rejects before any controller runs. `actingAsUser()` injects
+  the user object directly and bypasses that middleware, which is the only
+  reason the sweep executed at all. Run against 384 authenticated routes it
+  reported 129 "failures" including `GET /api/ping` and `GET /api/me`,
+  describing a state production cannot reach. Exempting 129 routes to make it
+  green would have been precisely the anti-pattern this design forbids.
+
+  What would be worth testing instead — a *claimed* user whose account is
+  suspended or disabled, or capability gating across account types — is a
+  different premise needing its own design. It is not a variant of this one.
 
 ## Architecture
 

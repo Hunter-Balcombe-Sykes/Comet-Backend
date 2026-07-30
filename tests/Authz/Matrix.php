@@ -26,6 +26,16 @@ use Throwable;
 final class Matrix
 {
     /**
+     * A syntactically valid uuid that matches no row. Used where reaching the
+     * authorization layer is what matters, not what the id points at.
+     *
+     * A class const rather than a file-level one in a test file: unnamespaced
+     * Pest files share a global symbol table, and a second file declaring the
+     * same name is a fatal that aborts the whole run.
+     */
+    public const UNKNOWN_UUID = '00000000-0000-4000-8000-000000000000';
+
+    /**
      * Substitute identity B's row ids into a route pattern.
      *
      * @param  string|null  $fallbackId  used for params with no known fixture; when null, an

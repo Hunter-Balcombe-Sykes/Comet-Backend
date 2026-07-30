@@ -40,12 +40,16 @@ it('refuses identity A access to identity B resources', function () {
 
         $status = Matrix::isolated(fn () => actingAsUser(Fixtures::identityA())
             ->json($case->method, $uri, $expectations->bodyFor($case->pattern()))
-            ->status());
+            ->getStatusCode());
 
         if (($message = Verdict::describe($status, $case)) !== null) {
             $failures[] = $message;
         }
     }
 
-    expect($failures)->toBe([], Matrix::report($failures, $cases->count(), 'Cross-tenant matrix'));
+    if ($failures !== []) {
+        $this->fail(Matrix::report($failures, $cases->count(), 'Cross-tenant matrix'));
+    }
+
+    expect($failures)->toBe([]);
 });
