@@ -185,8 +185,15 @@ jobs:
           #   - RecordScheduledTaskHeartbeat — scheduler liveness beacon; key is the class const prefix + a normalized TASK name (taskKey()), carries no tenant identity at all
           #   - ProbeBudget                 — atomic Cache::add SETNX counter init (+increment/decrement), keys via CacheKeyGenerator::routingProbe{Global,User}Daily(); same shape as AnalyticsDedupGuard/RefreshController. The docblock at :24 also matches the grep
           #   - ProbeGate                   — probe-answer memo incl. negative results, key via CacheKeyGenerator::routingProbeUrl($url) — content-addressed by URL (same shape as YoutubeThumbnailResolver/AppleSearch/MenuApifyScraper)
+          #
+          # -P (PCRE), not -E. The pattern needs \b at both ends — leading, so
+          # MyCache::put doesn't match; trailing, so Cache::adder doesn't. BSD
+          # regcomp (macOS) does not support \b in ERE and silently matches
+          # nothing, so `-E` made this guard report a clean pass locally no
+          # matter what was written, while the same command on the glibc runner
+          # found 50 lines. -P behaves identically on both.
           set +e
-          BAD=$(git grep -n -E '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
+          BAD=$(git grep -n -P '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
             'app/' \
             ':!app/Services/Cache/' \
             ':!app/Http/Controllers/Api/Webhooks/' \
@@ -217,7 +224,16 @@ jobs:
             ':!app/Listeners/RecordScheduledTaskHeartbeat.php' \
             ':!app/Routing/Probes/ProbeBudget.php' \
             ':!app/Routing/Probes/ProbeGate.php')
+          RC=$?
           set -e
+          # git grep: 0 = matches found, 1 = none, >1 = the scan itself failed
+          # (bad pathspec, git built without PCRE, ...). `set +e` above turns any
+          # such failure into an empty $BAD and a green "no raw Cache:: calls" —
+          # a guard that reports success precisely when it did not run. Fail loud.
+          if [ "$RC" -gt 1 ]; then
+            echo "::error::git grep exited $RC — the GS-1 scan did NOT run. This is not a pass."
+            exit 1
+          fi
           if [ -n "$BAD" ]; then
             echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."
             echo "$BAD"

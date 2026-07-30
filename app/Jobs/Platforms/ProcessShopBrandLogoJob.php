@@ -3,6 +3,7 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\ShopBrand;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\Exceptions\LogoProcessorException;
 use App\Services\Media\LogoProcessorClient;
 use App\Services\Media\MediaDiskResolver;
@@ -11,9 +12,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * Run a connected store's logo through the logo processor (background removal
@@ -42,7 +43,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
 
     public function __construct(public readonly string $brandRowId) {}
 
-    public function handle(LogoProcessorClient $client): void
+    public function handle(LogoProcessorClient $client, SafeUrlFetcher $fetcher): void
     {
         if (! (bool) config('partna.logo_removal.store_enabled', false)) {
             return;
@@ -59,25 +60,31 @@ class ProcessShopBrandLogoJob implements ShouldQueue
             return;
         }
 
-        try {
-            $response = Http::timeout(30)->withHeaders([
-                'User-Agent' => 'PartnaBot/1.0 (+https://partna.au)',
-            ])->get($source);
-        } catch (\Throwable $e) {
+        // SSRF: $source is NOT trusted. PlatformScraper::favicon()/logo() lift the
+        // href straight out of a <link rel="icon"> in scraped HTML, so a store the
+        // visitor controls can point this at 169.254.169.254 or any internal host.
+        // SafeUrlFetcher is the house guard for exactly this — public-IP-only, and
+        // it re-validates every redirect hop. Never call Http::get() here.
+        $response = $fetcher->tryFetch($source, [
+            'User-Agent' => 'PartnaBot/1.0 (+https://partna.au)',
+        ]);
+
+        if ($response === null) {
             Log::info('shop.brand_logo.fetch_failed', [
                 'brand_row_id' => $brand->id,
-                'error' => $e->getMessage(),
+                'source' => $source,
             ]);
 
             return;
         }
 
-        $bytes = (string) $response->body();
-        if (! $response->successful() || $bytes === '' || strlen($bytes) > 10 * 1024 * 1024) {
+        $bytes = (string) $response['body'];
+        $status = (int) $response['status'];
+        if ($status < 200 || $status >= 300 || $bytes === '' || strlen($bytes) > 10 * 1024 * 1024) {
             return;
         }
 
-        $mime = (string) ($response->header('Content-Type') ?: 'image/png');
+        $mime = (string) ($response['contentType'] ?: 'image/png');
         $mime = trim(explode(';', $mime)[0]) ?: 'image/png';
 
         try {
@@ -111,6 +118,20 @@ class ProcessShopBrandLogoJob implements ShouldQueue
         ShopBrand::whereKey($brand->id)->update([
             'logo_mark_url' => $disk->url($pngPath),
             'logo_mark_svg_url' => $svgUrl,
+        ]);
+    }
+
+    // R3-OBS-6: exists so Nightwatch sees a permanent failure at all — every
+    // in-band failure above returns quietly, so without this a job that dies
+    // after its retries is silent. Deliberately changes no state: the raw
+    // logo/favicon columns are untouched, so the dashboard simply keeps
+    // rendering the unprocessed mark, which is this job's designed fallback.
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::warning('shop.brand_logo.job_failed', [
+            'brand_row_id' => $this->brandRowId,
+            'error' => $e->getMessage(),
         ]);
     }
 }
