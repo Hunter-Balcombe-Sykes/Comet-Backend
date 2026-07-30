@@ -21,6 +21,7 @@ it('creates a dark early-access build and links the signup on first signup', fun
         'email' => 'lead@example.com', 'type' => 'partna',
         'platforms' => ['instagram', 'tiktok'],
         'source_type' => 'instagram', 'source_ref' => 'ea_handle',
+        'form_started_at_ms' => (int) floor(microtime(true) * 1000) - 5000,
     ])->assertOk();
 
     $signup = EarlyAccessSignup::firstOrFail();
@@ -43,6 +44,7 @@ it('still captures the lead and persists the submitted source when the handle is
         'email' => 'lead-bad-handle@example.com', 'type' => 'partna',
         'platforms' => ['instagram', 'tiktok'],
         'source_type' => 'instagram', 'source_ref' => 'has spaces!',
+        'form_started_at_ms' => (int) floor(microtime(true) * 1000) - 5000,
     ])->assertOk();
 
     $signup = EarlyAccessSignup::firstOrFail();
@@ -75,6 +77,7 @@ it('does not link the signup when the source ref collides with an existing non-e
         'email' => 'collide@example.com', 'type' => 'partna',
         'platforms' => ['instagram', 'tiktok'],
         'source_type' => 'instagram', 'source_ref' => 'collidehandle',
+        'form_started_at_ms' => (int) floor(microtime(true) * 1000) - 5000,
     ])->assertOk();
 
     $signup = EarlyAccessSignup::where('email_lc', 'collide@example.com')->firstOrFail();

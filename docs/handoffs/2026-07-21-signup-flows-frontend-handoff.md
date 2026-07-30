@@ -44,7 +44,7 @@ The **claim page is the same** for all flows — it's keyed on the site's subdom
   "source_type": "instagram",       // REQUIRED — "instagram" | "google_business"
   "source_ref": "theirhandle",      // REQUIRED — the IG handle (no @) OR a Google place_id
   "website": "",                    // honeypot — leave empty/hidden (bot trap)
-  "form_started_at_ms": 1721540000000  // optional timing anti-bot signal
+  "form_started_at_ms": 1721540000000  // REQUIRED — epoch ms when the form rendered (timing anti-bot signal)
 }
 ```
 

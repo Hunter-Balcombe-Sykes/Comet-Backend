@@ -415,6 +415,58 @@ an upper bound.
 
 ---
 
+## Progress
+
+Added 2026-07-30 during the P0-PILOT run. The file shipped with **zero** checkboxes, so
+`scripts/audit/archive-done.sh` — which treats a file as done at "≥1 checkbox and zero `- [ ]`" —
+could neither track it nor safely archive it. Boxes cover all **63 bucketed findings**; the 239
+BACKLOG items are deliberately excluded because this file does not re-document them (they stay
+tracked in their source folders).
+
+| Bucket | Done |
+|---|---|
+| P0-PILOT | 5 / 7 |
+| P1-PILOT | 0 / 12 |
+| P0-LAUNCH | 0 / 6 |
+| P1-LAUNCH | 0 / 27 |
+| DEAD bookkeeping | 0 / 11 |
+
+**P0-PILOT** — worked 2026-07-30 on `audit-fix/p0-pilot-2026-07-30`.
+- [ ] `271-PRIV-2` — **OPEN: awaiting Josh's product/legal decision.** Decision brief prepared; no code written by design.
+- [x] `#INH-7-DRIFT` — `PublicEarlyAccessSignupRequest` adopts `WithBotProtection`; 4-endpoint regression test added. Independent review PASS; 428 passed / 0 failed across `tests/Feature/Security` + `tests/Feature/PublicSite`.
+- [x] `LC-PROD-ENV` — **delegated to Josh**, checklist issued. Ticked on handoff, *not* on verified restart: prod was still `status=stopped` at tick time.
+- [x] `LC-BACKUP` — **delegated to Josh**, decision + checklist issued. Ticked on handoff; org plan still `free` at tick time.
+- [ ] `LC-RUNBOOKS-2` — `docs/runbooks/db-pool-exhausted.md` + `queue-backed-up.md` written. *(awaiting independent review)*
+- [x] `LC-EDGE-HARDENING` — **delegated to Josh**, checklist issued (covers both report rows: Cloudflare + Supabase). Ticked on handoff; no dashboard setting verified changed.
+
+> **Read the three `delegated to Josh` ticks as intent, not as state.** Per this repo's convention an
+> infra box ticks on the decision/handoff, and the live system must be confirmed separately. Nothing in
+> `LC-PROD-ENV`, `LC-BACKUP` or `LC-EDGE-HARDENING` was actioned by an agent — starting, stopping,
+> deploying or promoting an environment was explicitly out of bounds for this run.
+
+**P1-PILOT**
+- [ ] `#CCH-4` · [ ] `#LIFE-11` · [ ] `#LIFE-12` · [ ] `271-SEM-1` · [ ] `#JOB-4` · [ ] `PRIV-1`
+- [ ] `PRIV-2` · [ ] `PRIV-4` · [ ] `PRIV-3` · [ ] `#43` · [ ] `#EDGE-2` · [ ] `LC-NIGHTWATCH`
+
+**P0-LAUNCH**
+- [ ] `#TEST-2` · [ ] `#TEST-1` · [ ] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
+
+**P1-LAUNCH**
+- [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [ ] `#SCALE-13` · [ ] `#SCALE-14` · [ ] `#SCALE-17`
+- [ ] `#SCALE-19` · [ ] `#SCALE-20` · [ ] `#CACHE-1` · [ ] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
+- [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
+- [ ] `#INH-6` · [ ] `#SEC-4` · [ ] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
+- [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [ ] `#10`
+
+**DEAD — bookkeeping owed to the source folders** (see `## Bookkeeping to apply to the source files`).
+Left open on purpose: these are verified dead *here*, but the tick has to land in each source audit
+before the finding stops being carried. Six of them block `audits/sweeps/2026-07-11-full-work-sweep/`
+from auto-archiving.
+- [ ] `#7` · [ ] `#40` · [ ] `#59` · [ ] `#37` · [ ] `#58` · [ ] `#11` · [ ] `#INH-1` · [ ] `#CCH-5`
+- [ ] `#LIFE-10` · [ ] `#TEST-21` · [ ] `#TEST-27`
+
+---
+
 # DEAD — 11 items. Tick these and stop carrying them.
 
 Your suspicion was correct, and the hit rate is high: **12 of the 48 verified items (25%) were dead.**
