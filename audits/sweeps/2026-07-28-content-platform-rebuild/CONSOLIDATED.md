@@ -1081,7 +1081,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 2 of 6 complete  (+#CACHE-1 verified DEAD 2026-07-30 — fixed by 790a0c11; +#CACHE-2 closed by SCALE-17, same code site)
+- P2 Medium: 3 of 6 complete  (+#CACHE-1 verified DEAD 2026-07-30 — fixed by 790a0c11; +#CACHE-2 closed by SCALE-17, same code site; +#CACHE-3 dispositioned WONTFIX 2026-07-31 — see the decision brief)
 - P3 Low: 0 of 1 complete
 
 ---
@@ -1141,7 +1141,12 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#CACHE-3** · P2 — Projection runs synchronously inside the same ingest job as landing, with no chunking for large streams
+- [x] **#CACHE-3** · P2 — Projection runs synchronously inside the same ingest job as landing, with no chunking for large streams
+    - **DISPOSITIONED 2026-07-31 — WONTFIX as prescribed. This box closes the QUESTION, not the code:** projection stays inside the ingest job and the `Bus::chain` fix is **rejected outright**, not postponed. Full reasoning: `audits/consolidation/2026-07-30-pilot-launch-reprioritisation/CACHE-3-DECISION-BRIEF.md`.
+    - **Why.** The premise is throughput, and the throughput gain is **zero**: `supervisor-ingest` runs `maxProcesses => 1` in prod, dev *and* local (`config/horizon.php`, with `:367` forbidding a raise before a box resize), so chaining splits one job into two on the *same single worker* rather than freeing capacity. Measured on dev's live `ingest.runs`: **37 runs, mean 3.19s, max 27.0s** against `RunSourceJob`'s `$timeout = 120` — 4.4× headroom at the observed worst case, and **zero runs have ever ended `degraded`**. Production `core.users` = 0 and the `ingest`/`content` schemas do not exist there at all.
+    - **What it would cost.** Both blocking invariants were verified true, and one is worse than the finding states: the degraded-outcome signal is **two writes, not one** — `RunExecutor` sets `runs.outcome`, *and* `RunSourceJob` feeds that outcome into `SourceScheduler::release()`, which stamps `sources.health`. Chaining must reconstruct both from a code path that has already returned. Separately, `claimDue()` has **no lease TTL and no `FOR UPDATE SKIP LOCKED`** — the only expiry is `releaseStranded()` at 2h plus an hourly sweep — so a dropped chain link means a **3h stuck source**. That trades a bounded, alerting failure (job timeout) for an unbounded, quieter one.
+    - **Reopen triggers (any one):** `supervisor-ingest` `maxProcesses` rises above 1; a real `RunSourceJob` timeout appears; or `max(records_changed)` on a single run exceeds ~400 (observed peak 141 at 27s). If triggered, design **bounding projection** first via the existing `projection_write_chunk` / `projection_source_chunk` levers — the finding's own title says "no chunking for large streams" — not decoupling it from landing.
+    - **Two incidental defects the brief surfaced were fixed in the same pass**, neither of which needed this finding: the projection anomaly now files at `severity => 'critical'` (`IngestAnomaliesCommand` filters on `critical`, so it was writing to a table nobody was woken by), and `ProjectionWriter::writeIdentityKeys()`'s delete-then-insert is now atomic — a live hazard for `ingest:project --rebuild` running alongside a real run today, with no chaining involved.
     - **Where:** app/Ingest/Runtime/RunExecutor.php:168-186 (`execute`); called from app/Jobs/Ingest/RunSourceJob.php ($timeout = 120, queue `ingest`)
     - **Affects:** Ingest queue throughput — a source with many changed records (a large YouTube channel, a big menu sync) occupies one `ingest`-queue worker for the full land+project duration before it can pick up the next claimed source.
     - **Effort:** M (~2–4h)

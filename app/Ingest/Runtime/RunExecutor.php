@@ -185,7 +185,16 @@ class RunExecutor
                         'source_id' => $source['id'],
                         'run_id' => $runId,
                         'kind' => 'projection',
-                        'severity' => 'warning',
+                        // 'critical', not 'warning' (#CACHE-3 brief, 2026-07-31):
+                        // IngestAnomaliesCommand filters `->where('severity',
+                        // 'critical')`, so a 'warning' row is written to a table
+                        // nobody is ever woken by — the landing silently keeps
+                        // succeeding while the derived content it feeds is stale.
+                        // Nothing auto-resolves these rows, and the command stamps
+                        // detail.alerted_at, so this pages ONCE per failure rather
+                        // than once per sweep. Safe to raise: dev has recorded zero
+                        // degraded runs ever, so this adds no standing noise.
+                        'severity' => 'critical',
                         'summary' => 'Projection failed after a successful landing: '.mb_substr($e->getMessage(), 0, 300),
                         'detected_at' => now(),
                     ]);
