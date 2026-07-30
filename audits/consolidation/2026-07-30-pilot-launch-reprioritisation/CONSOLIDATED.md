@@ -844,6 +844,65 @@ any unit in this bucket.
 > 422 above it, plus a non-throwing defence-in-depth warning in `scopedTable()`. The 422 is a deliberate,
 > user-visible product decision signed off by Josh — nobody hits it today at 0 live users.
 
+> ### P1-LAUNCH run STOPPED EARLY 2026-07-30 — deliberate, on Josh's call
+>
+> Branch `audit-fix/p1-launch-2026-07-30`, 9 commits, **9 of 34 findings dispositioned.** The run was
+> stopped mid-bucket, not abandoned: the remaining findings are listed below with why each is still open.
+>
+> **Why it stopped.** `CLAUDE.md`'s own policy says it: *"Never run a 'clear the backlog' campaign …
+> under `fix-flow.md` the verify→plan→implement→review overhead exceeds a sub-hour fix. **Disposition
+> beats execution.**"* This bucket is 34 mostly-P2/P3 findings and this file's own prompt calls it *"the
+> largest bucket and the least urgent."* It was being executed at P0 rigour — three agent rounds per unit
+> plus a ~450s full suite per commit. The value did not justify the burn.
+>
+> **What the finished work was actually worth** — of 9 dispositioned, **4 changed anything real:**
+> `#SCALE-17` (removed a genuine crash path: the old `insert()`-after-`SELECT` threw a unique violation
+> on a lost race and killed the whole `projectStream`), `#SLOP-21` (found that `CatalogCompileCommand`
+> never validated a regex compiles), `#SCALE-13` (value was *catching that the prescribed fix was
+> mathematically invalid*, not shipping it), and the off-audit fix that greened `development`'s 12 red
+> tests. The other five were disposition — already done, or premise false.
+>
+> 🔴 **The headline finding of this run is about the audit process, not the code.** Of 13 findings
+> examined, **only 3 were implementable exactly as written.** Four were already fixed or duplicates
+> (`#CACHE-1`, `#10`, `#JOB-6`, and `#TEST-9`'s CI half). One premise was false (`#SCALE-19`). And
+> **five carried prescriptions that were wrong in ways that would have shipped bugs:**
+> - `#SCALE-13` — "chunk the user-id list" is invalid: the aggregates are `COUNT(DISTINCT …)`, which does
+>   not sum across chunks. Following it would have silently corrupted the staff dashboard.
+> - `#SCALE-20` — "collect all projected pairs up front" is impossible: projection happens inside
+>   `route()`, per link, after canonicalisation.
+> - `#SLOP-21` — "remove the `@`" would have 500'd the live paste-preview API, **and the suite would have
+>   stayed green** (PHPUnit installs its own error handler).
+> - `#TEST-30` — the prescribed RFC 2606 domains would have broken all 8 tests in its own target file
+>   (`assertSafe()` does a real DNS lookup `Http::fake()` cannot intercept; only `example.com` resolves).
+> - `#JOB-6` — the prescribed `$e->getCode()` check is not portable (`23505` on Postgres vs a generic
+>   `23000` on SQLite).
+>
+> **Verifying the premise catches the stale ones; only reading the proposed fix catches these.** The
+> audit pipeline's `adjudicate` stage should be treated as a hypothesis, never a work order.
+>
+> **Still open, with reasons:**
+>
+> | Findings | Why still open |
+> |---|---|
+> | `DINT-1`, `271-PRIV-1`, `#3` (Unit 2) | Signed off, not started. Genuinely worth doing — two missing analytics indexes, cheap and real. **Highest-value remaining work.** |
+> | `#SCALE-11` (Unit 3) | Standalone/GDPR deletion path. Not started. Needs its own isolated review. |
+> | `#TEST-9`, `271-TEST-1`, `#TEST-49`, `#TEST-50`, `#38` (Unit 4) | Not started. ⚠️ `#TEST-9` is now **half-closed upstream**: P0-LAUNCH moved `ArchitectureSystemConstraintsTest` into the real applied-schema lane (`tests/Schema/`), so the "doesn't run in CI" half is done. The `site.themes` half is still open and is now **unblocked** (that file has no owner since P0-LAUNCH merged). `CLAUDE.md:228`'s claim that the rule is "pinned by `ArchitectureSystemConstraintsTest`" remains **false** and still needs correcting. |
+> | `#9`, `#SEC-4`, `#INH-6` (Unit 5) | Not started. `#9` is a **real GDPR gap** (DSAR omits the subject's own frozen `handle`/`display_name`) and is the second-highest-value item left. `#SEC-4` guards a *hypothetical* future edit — the finding itself concedes today's insert is safe. `#INH-6` is a refactor of three byte-identical functions (re-verified byte-identical 2026-07-30, so a safe consolidation, **not** a bug). |
+> | `CFG-16`, `CFG-8`, `CFG-9` (Unit 7) | Not started. Planned in detail; implementation was stopped before writing anything. ⚠️ `CFG-8` must ship a **1..3 clamp**: `fetchPlaceDetails()` claims a `PlacesBudget` slot *inside* the retry loop, so `max_attempts` is a direct multiplier on billed spend for the only paid API with no vendor cap. `CFG-9` should cover **all three** identical `->timeout(110)` Apify sites (Josh's ruling), not just the one the finding names. |
+> | 3 × `LC-DRILL-*`, `LC-K6`, `LC-RERUN` (Unit 6) | Not started. Hours of operational work, no code. Lowest priority at zero live users. |
+> | `#TEST-41` | Deferral condition ("once P0-LAUNCH merges") is now **met** and it is unblocked, but not done. |
+> | `#CACHE-3` | **Open by decision, escalated to Josh.** Its `Bus::chain` fix regresses `JOB-4`'s degraded-outcome signal (`RunExecutor.php:176-186`) and drops the scheduler claim mid-projection, letting `claimDue()` start a concurrent second pass against a `ProjectionWriter` that is not concurrency-safe against itself. **The open question: decouple projection from landing or not, and if so what replaces those two invariants?** Lifecycle redesign, not scale hygiene. |
+>
+> **Follow-ups discovered during the work — none of these came from the audit:**
+> 1. **`YoutubeFeed::mapEntry()` (`:79-81`) fatals on a feed with no `xmlns:media`.** `children($mediaNs)->group` returns a non-null *empty* element so the `!== null` guard passes, then `children($mediaNs)` returns null and line 81 throws. Unreachable today (real YouTube feeds always declare it) but it turns malformed third-party input into a 500 instead of `thumbnail => null`.
+> 2. **`tests/Postgres/ProjectionWriterBatchingTest.php` hardcodes `art_url => null` on all four tests**, so the real-Postgres lane issues **zero** `item_media`/`media_assets` writes. Every Postgres-specific risk `#SCALE-17` introduced — `ON CONFLICT DO NOTHING` vs `INSERT OR IGNORE`, 4,000-bind multi-row inserts, lock behaviour of the widened DELETE inside a transaction — is exercised nowhere. One line in `pwbtDoc` closes it. Now unblocked.
+> 3. **Worker CSP hardcoding** — `https://app.partna.au` literal at `cloudflare-worker/src/index.js:156` and `:311`; and `PARTNA_DOMAIN` is itself a compile-time `const` (`:46`), not read from `env`. Split out of `#10` deliberately.
+> 4. **`#INH-6`'s other two-thirds** — `cleanString` spans **6** files (not 4), and its two menu copies have divergent *signatures and bodies*, so that half is a behaviour question, not a move. `nextPosition` spans 2.
+>
+> **Process notes worth keeping:**
+> - **Two `php artisan test` runs in one worktree interfere.** `Storage::fake('media')` resolves to a fixed path and Redis session sets are process-global, so concurrent runs produce phantom failures in unrelated tests (`ReconcileTrackedSessionsCommandTest`, `VideoVariantServicePurgeTest`). Driver pinning in `phpunit.xml` protects across worktrees, **not within one.**
+> - **The promoted findings tick only in their source audit.** `#SLOP-21`, `CFG-*`, `TEST-30/44`, `#JOB-6` have no checkbox in this file — their appearances here and in `BACKLOG-TRIAGE.md` are prose. So this file's `## Progress` P1-LAUNCH count tops out at 27, never 34.
+
 **DEAD — bookkeeping owed to the source folders** (see `## Bookkeeping to apply to the source files`).
 Left open on purpose: these are verified dead *here*, but the tick has to land in each source audit
 before the finding stops being carried. Six of them block `audits/sweeps/2026-07-11-full-work-sweep/`

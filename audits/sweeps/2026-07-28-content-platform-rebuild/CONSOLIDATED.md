@@ -3008,7 +3008,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 1 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 1 of 2 complete  (+#JOB-6, verified DEAD 2026-07-30 — duplicate of #WHK-3)
 
 ---
 
@@ -3137,7 +3137,8 @@ None.
         return self::SUCCESS;
         ```
 
-- [ ] **#JOB-6** · P3 — `EffectLedger::once()`'s insert `catch` can mask a non-duplicate-key DB error as a silent `'refused'`
+- [x] **#JOB-6** · P3 — `EffectLedger::once()`'s insert `catch` can mask a non-duplicate-key DB error as a silent `'refused'`
+    - **DEAD 2026-07-30 (P1-LAUNCH) — duplicate of `#WHK-3` (this file, already ticked), fixed in `a9c93bc6`.** Verified in the code: `EffectLedger::once()` catches the **typed** `Illuminate\Database\UniqueConstraintViolationException` (not a `getCode()` string match), re-reads the row, and `throw $e` when the re-read finds nothing — its own comment names `#WHK-3` as the reason. Anything that is not a unique violation (deadlock `40P01`, connection loss `08006`, not-null) propagates untouched. Regression tests exist in **both** lanes: `tests/Feature/Ingest/EffectLedgerTest.php` ("a non-unique DB failure on the claim insert propagates instead of resolving to refused") and `tests/Postgres/EffectLedgerConcurrencyTest.php`. ⚠️ **Note for any future re-raise of this shape:** the prescription's `$e->getCode()` check would have been **unreliable** — Postgres reports SQLSTATE `23505` for a unique violation, but PDO_SQLITE reports the generic `23000` for *every* constraint violation, so a green SQLite test could never have proven the Postgres branch. The typed exception is the portable answer, which is what shipped. No work done.
     - **Where:** app/Ingest/Runtime/EffectLedger.php:63-81
     - **Affects:** Billed effects (actor runs, AI extraction) — in the narrow case where the `insert()` fails for a reason other than the digest's unique-key race (and the immediate re-query then finds no row), the effect is silently skipped with no log and no exception, rather than surfacing as an error.
     - **Effort:** S (~0.5–1h)
@@ -4784,7 +4785,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 ## Progress
 
 - P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 1 of 20 complete
+- P2 Medium: 3 of 20 complete  (+#TEST-30 narrowed, +#TEST-44, both 2026-07-30)
 - P3 Low: 0 of 9 complete
 
 ---
@@ -5266,7 +5267,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         expect($fresh->last_refresh_error)->toBe('We could not load that account. Please try again.');
         ```
 
-- [ ] **#TEST-30** · P2 — `SafeUrlFetcher` — Partna's own SSRF-protection boundary — is mocked with `Mockery::mock()` instead of `Http::fake()` in Shop URL validation tests, bypassing the SSRF guard entirely in CI
+- [x] **#TEST-30** · P2 — `SafeUrlFetcher` — Partna's own SSRF-protection boundary — is mocked with `Mockery::mock()` instead of `Http::fake()` in Shop URL validation tests, bypassing the SSRF guard entirely in CI
+    - **FIXED 2026-07-30 (P1-LAUNCH) — narrowed, and the prescription was WRONG.** ⚠️ **Do NOT convert this file to `Http::fake()` with `.test`/`.invalid`/`.example` domains — it breaks all 8 existing tests.** `SafeUrlFetcher::assertSafe()` does a **real DNS lookup** (`@gethostbynamel`, `@dns_get_record`) *before* any transport and throws on an empty result; `Http::fake()` cannot intercept that because it is not an HTTP call. `.test`, `.invalid` and `*.example` do not resolve — **only `example.com` does** (already documented at `tests/Feature/Platforms/ScanPreviousWebsiteContentJobTest.php:41-45`). The file's host names are also load-bearing on `assertJsonPath('id'/'storeUrl', …)` and its canned responses route by host. ⚠️ The finding's impact claim is also **false at suite level**: `tests/Unit/Http/SafeUrlFetcherTest.php` already covers the allowlist, DNS, redirect limits, byte cap and metadata endpoint (32 tests). The real gap was that **these endpoints** had no SSRF assertion. Shipped: the 8 existing tests and `fakeShopFetcher()` are **byte-unchanged**, plus 3 added tests using the **real** `SafeUrlFetcher` — loopback `127.0.0.1`, cloud-metadata `169.254.169.254`, and own-infrastructure `https://api.partna.au/` (the `deniedHostSuffixes()` branch). All three are **DNS-free by construction**: the suffix check precedes resolution, and literal IPs short-circuit `resolveHost()` via `filter_var(..., FILTER_VALIDATE_IP)`. 🔴 **`Http::assertNothingSent()` is the load-bearing assertion, NOT the 422.** Under a bare `Http::fake()` every unmatched request returns an empty `200`, so a *failed* guard still yields a 422 for the wrong reason. Proven by control probe: `https://example.com/` (which passes `assertSafe`) fires **8** requests and makes `assertNothingSent()` fail. Do not "simplify" that assertion away.
     - **Where:** `tests/Feature/Platforms/ShopUrlValidationTest.php:81-96`
     - **Affects:** All Shop URL validation tests — SSRF allowlist, DNS resolution, redirect limits are all stripped out under this mock.
     - **Effort:** M (~2–4h)
@@ -5399,7 +5401,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
     - **Effort:** M (~2–4h)
     - **What to do:** Add tests for multi-offer minimum selection, `lowPrice`-over-`price` priority within one offer, and currency taken from the first offer that declares it.
 
-- [ ] **#TEST-44** · P2 — `YoutubeFeed::parse()`'s XXE defense (`LIBXML_NONET`, no `LIBXML_NOENT`) has no regression test
+- [x] **#TEST-44** · P2 — `YoutubeFeed::parse()`'s XXE defense (`LIBXML_NONET`, no `LIBXML_NOENT`) has no regression test
+    - **FIXED 2026-07-30 (P1-LAUNCH) — and the docblock it was defending was factually wrong.** New `tests/Unit/Ingest/YoutubeFeedTest.php`: external `SYSTEM` entity dropped (canary `laravel/framework` from `base_path('composer.json')` absent from the whole serialised result), entity bomb returns `null`, plus a control proving a DTD-declaring feed still parses. ⚠️ **The old comment claimed `LIBXML_NOENT` "is what would substitute internal-DTD entities". Measured false** on libxml 2.15.2 / PHP 8.4.19: internal entities are substituted **with or without** the flag. What the flag actually does is enable **external** entity resolution — adding it back makes the `file://` entity readable. So omitting it IS load-bearing, for the opposite reason to the one stated. The bomb is stopped by libxml's max-amplification guard, not by the flag. Docblock corrected. ⚠️ **Test-authoring trap:** `expect(json_encode($records))->not->toContain('laravel/framework')` is **unfalsifiable** — `json_encode` escapes `/` to `\/`. Must use `JSON_UNESCAPED_SLASHES`, with a control asserting the canary IS findable, or the check silently proves nothing. 🐞 **Follow-up found, not fixed (comment-only scope):** `YoutubeFeed::mapEntry()` (`:79-81`) fatals on a feed with **no `xmlns:media`** — `children($mediaNs)->group` returns a non-null *empty* element so the `!== null` guard passes, then `children($mediaNs)` returns null and `->thumbnail` throws `ErrorException`. Reproduced in the real harness. Unreachable today (real feeds declare the namespace) but it turns malformed third-party input into a 500 instead of `thumbnail => null`.
     - **Where:** `app/Ingest/Support/YoutubeFeed.php:30-39`
     - **Affects:** Both YouTube RSS connectors — a future "fix" that adds entity-loading flags to solve an unrelated parse issue would silently reopen an XXE vector.
     - **Effort:** S (~0.5–1h)
