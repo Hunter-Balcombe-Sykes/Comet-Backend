@@ -32,6 +32,10 @@ list. The narrative + rationale live in `production-cutover.md`; **this is the t
 - [ ] **Seed reference/bootstrap data** the app needs on a fresh DB (platform/feature config, any bootstrap
       rows). Task-4 census note: old prod held only `billing.plans`(5) + `site.themes`(3) — both vestigial
       under the standalone schema; seed only what the *current* baseline actually requires.
+      **2026-07-26: 3 of 4 rows seeded** — Josh's `core.partna_staff` admin row + both
+      `core.feature_availability` disabled rows. Outstanding: Tobias's staff row (blocked on his prod
+      auth signup — the FK is NOT NULL) and the Phase-4 end-to-end verify (no TOTP factor yet).
+      Full log: `production-cutover.md` Phase-1 "Seed the bootstrap rows".
 - [ ] `migrate --force` stays **OFF** (schema is Supabase-side; the Laravel-migration guard forbids it anyway).
 
 ## B. Supabase dashboard — Auth hooks + config (NOT carried by the DB dump or env vars)

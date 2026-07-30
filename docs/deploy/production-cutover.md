@@ -316,6 +316,14 @@ reset in place** (keeps `DB_USERNAME=app_backend.edplucmvkcnokyygxqsb` and the e
       humans to receive a confirmation email and enrol TOTP on prod, so do it days earlier if possible.
       **Straddles two phases:** the prompt's Tasks 0–4 (DB only, no running app) belong here; its Task 5
       end-to-end verify calls `api.partna.au` and therefore defers to **Phase 4**.
+      - **2026-07-26 outcome — Tasks 0–4 run as `postgres`, 3 of 4 rows in.** Task 0 preconditions all
+        passed; Task 4 negatives still 0 after. Seeded: `core.partna_staff` 1 row (Josh, `admin`, bound to
+        the pre-existing prod `auth.users` row) + `core.feature_availability` 2 rows (`integration.strava`,
+        `integration.skool`, global `disabled`, `created_by` = Josh's staff id).
+      - **Why the 4th row is un-seedable:** `core.partna_staff.auth_user_id` is NOT NULL with an FK to
+        `auth.users`, so Tobias's row cannot exist until he signs up on prod. Not a defect — seed it then.
+      - **Task 5 stays deferred to Phase 4** — no verified TOTP factor exists on prod, so `RequireAal2`
+        401s every staff route. **This checkbox therefore stays OPEN** until both land.
 
 ---
 
