@@ -285,6 +285,7 @@ EOF
         scaling-antipatterns) cat <<'EOF'
 write-paths|app/Services/Analytics app/Jobs/Analytics app/Services/Notifications app/Jobs/Notifications app/Notifications app/Observers app/Jobs/Cache app/Jobs/Cloudflare
 read-surface|app/Services/Cache app/Http/Resources app/Http/Controllers/Api/Staff app/Http/Controllers/Api/User/Analytics
+ingest-fanout|app/Ingest/Projection app/Ingest/Runtime app/Content
 EOF
         ;;
         database-and-queue-scaling) cat <<'EOF'
@@ -295,6 +296,8 @@ platforms|app/Services/Platforms
 console-controllers-user|app/Console app/Http/Controllers/Api/User
 controllers-public-staff|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
+ingest-projection|app/Ingest/Projection app/Ingest/Landing app/Content
+routing-site|app/Routing app/Site
 migrations|supabase/migrations
 EOF
         ;;
@@ -322,10 +325,12 @@ hot-reads-platforms|app/Services/Platforms
 hot-reads-controllers-user|app/Http/Controllers/Api/User app/Http/Resources
 hot-reads-controllers-public|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal app/Http/Middleware
 hot-reads-controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
+hot-reads-routing-probes|app/Routing/Probes app/Content app/Site
 EOF
         ;;
         webhook-idempotency) cat <<'EOF'
 callbacks|app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal app/Services/Webhooks app/Http/Middleware routes
+ingest-replay|app/Ingest/Landing app/Ingest/Runtime app/Ingest/Message
 EOF
         ;;
         transaction-boundaries) cat <<'EOF'
@@ -334,6 +339,7 @@ vendor-jobs|app/Services/Cloudflare app/Services/Streaming app/Services/Http app
 platforms|app/Services/Platforms
 controllers-user|app/Http/Controllers/Api/User
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content app/Routing
+ingest-content-site|app/Ingest app/Content app/Site
 controllers-staff-console|app/Http/Controllers/Api/Staff app/Console
 media-design|app/Services/Media app/Services/Design app/Services/WebsiteScan
 ingest|app/Ingest
@@ -350,6 +356,8 @@ writers-jobs|app/Jobs app/Observers
 writers-controllers|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 writers-platforms-controllers|app/Http/Controllers/Api/Platforms
 writers-catalog-routing-controllers|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
+writers-ingest-landing|app/Ingest/Landing app/Ingest/Projection app/Content
+writers-routing-site|app/Routing app/Site
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
@@ -362,11 +370,14 @@ user-api|app/Http/Resources app/Http/Controllers/Api/User app/Http/Controllers/A
 public-staff-api|app/Http/Controllers/Api/PublicSite app/Http/Controllers/Api/Staff app/Http/Controllers/Api/Internal
 platforms-api|app/Http/Controllers/Api/Platforms
 catalog-routing-api|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content
+catalog-content-payloads|app/Catalog/Contracts app/Catalog/Enums app/Content app/Site
 payload-services|app/Services/PublicSite app/Services/Site app/Services/Analytics
 EOF
         ;;
         configuration-hygiene) cat <<'EOF'
 config-files|config .env.example routes bootstrap/app.php bootstrap/providers.php .github/workflows deploy
+consumers-catalog|app/Catalog/Contracts app/Catalog/Enums bootstrap/catalog
+consumers-ingest-routing|app/Ingest app/Routing
 consumers-jobs|app/Jobs
 consumers-console-mw|app/Console app/Http/Middleware
 services-platforms|app/Services/Platforms app/Services/Brand
@@ -408,12 +419,15 @@ EOF
 schema|supabase/migrations
 enums-factories|app/Enums database/factories
 models-gdpr|app/Models app/Observers app/Jobs/Gdpr app/Services/User
+content-identity|app/Content app/Services/Content
+ingest-ledger|app/Ingest/Landing app/Ingest/Projection app/Ingest/Message
 EOF
         ;;
         job-queue-correctness) cat <<'EOF'
 jobs|app/Jobs config/horizon.php config/queue.php
 console|app/Console
 mail|app/Mail
+ingest-runtime|app/Ingest/Runtime app/Ingest/Manifest app/Ingest/Support
 EOF
         ;;
         observability) cat <<'EOF'
@@ -421,6 +435,8 @@ jobs|app/Jobs config/queue.php config/horizon.php
 console-hooks|app/Console app/Listeners app/Exceptions app/Services/Webhooks app/Http/Controllers/Api/Webhooks app/Http/Controllers/Api/Internal app/Http/Controllers/Api/HealthController.php app/Http/Middleware/Logging
 vendor-services|app/Services/Cloudflare app/Services/Streaming app/Services/Media app/Services/Moderation app/Services/Audit
 vendor-platforms|app/Services/Platforms
+ingest-runtime|app/Ingest/Runtime app/Ingest/Projection app/Ingest/Support
+routing-probes|app/Routing app/Content app/Site
 EOF
         ;;
         edge-worker) cat <<'EOF'
@@ -432,6 +448,7 @@ rights-machinery|app/Jobs/Gdpr app/Jobs/Account app/Services/User app/Models app
 collection-retention|app/Services/Analytics app/Jobs/Analytics app/Services/Moderation app/Services/Notifications app/Services/Audit app/Http/Middleware/Logging config/partna.php routes/console.php
 console-mail|app/Console app/Mail
 edge-processors|app/Jobs/Cloudflare app/Services/Cloudflare
+ingest-third-party|app/Ingest/Connectors app/Ingest/Landing app/Content
 schema-pii|supabase/migrations
 EOF
         ;;
@@ -483,6 +500,8 @@ platforms-services|app/Services/Platforms
 schema-migrations|supabase/migrations
 models-config|app/Models config/partna.php
 catalog|app/Catalog
+ingest|app/Ingest
+routing-content|app/Routing app/Content app/Site
 integration-cross-cutting|app/Jobs/Platforms app/Services/Notifications app/Jobs/Notifications app/Services/Accounts app/Services/FeatureFlags
 controllers-user|app/Http/Controllers/Api/User app/Http/Controllers/Api/Internal app/Http/Controllers/Api/Webhooks
 controllers-catalog-routing|app/Http/Controllers/Api/Catalog app/Http/Controllers/Api/Routing app/Http/Controllers/Api/Site app/Http/Controllers/Api/Content

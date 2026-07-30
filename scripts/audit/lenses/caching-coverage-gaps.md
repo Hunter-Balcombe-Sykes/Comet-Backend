@@ -150,6 +150,12 @@ For every finding:
 --scope app/Services/Cloudflare
 ```
 
+### Group D — Routing probe cache + content reads
+```
+--scope app/Routing/Probes
+--scope app/Content
+--scope app/Site
+```
 ## Exhaustiveness directive
 
 Walk every file in scope. For each expensive read, apply the three-part bar

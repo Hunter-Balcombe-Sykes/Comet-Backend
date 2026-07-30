@@ -169,6 +169,12 @@ For every finding:
 --scope app/Routing
 ```
 
+### Group G — Ingest / content / site mutations
+```
+--scope app/Ingest
+--scope app/Content
+--scope app/Site
+```
 ## Exhaustiveness directive
 
 `rg -n "DB::transaction|DB::beginTransaction"` returns every candidate site; inspect each one and emit a finding for every gold-standard property the block fails to satisfy. Three services each dispatching a job inside a transaction = three findings (`TXN-1`, `TXN-2`, `TXN-3`), not one consolidated finding. A single transaction with both an `Http::` call AND a `Cache::put` inside is two findings. Walk every observer file; bare `dispatch(...)` without `DB::afterCommit` is a finding regardless of whether you can prove a current rollback path triggers it — the rollback path will exist eventually, and the bug surfaces silently. The adjudicator dedupes and re-tiers; **under-reporting is the failure mode**. The cost of these bugs in production is hours of state reconciliation; the cost of an over-flagged finding is one line in an audit.

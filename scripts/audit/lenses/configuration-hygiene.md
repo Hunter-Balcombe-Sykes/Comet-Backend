@@ -99,6 +99,14 @@ For every finding:
 --scope deploy
 ```
 
+### Group F — Catalog / ingest / routing config consumers
+```
+--scope app/Catalog/Contracts
+--scope app/Catalog/Enums
+--scope bootstrap/catalog
+--scope app/Ingest
+--scope app/Routing
+```
 ## Exhaustiveness directive
 
 Every `env()` call in any file outside `config/` is a finding. Grep the entire `app/` directory for `env(` before concluding — do not rely on spot-checks. Every config key in `config/services.php` and `config/partna.php` must be cross-referenced against `.env.example`.

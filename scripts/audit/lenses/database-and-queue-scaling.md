@@ -149,6 +149,14 @@ For every finding:
 --scope supabase/migrations
 ```
 
+### Group F — Ingest projection + routing/site writes
+```
+--scope app/Ingest/Projection
+--scope app/Ingest/Landing
+--scope app/Content
+--scope app/Routing
+--scope app/Site
+```
 ## Exhaustiveness directive
 
 Walk every file in the run's `--scope`. Emit a finding for every distinct quotable instance. If three jobs each lack `$timeout`, that is three findings; if a single file has both an N+1 and an unbounded `->get()`, that is two findings. The adjudicator dedupes. **Under-reporting is the failure mode to avoid.**

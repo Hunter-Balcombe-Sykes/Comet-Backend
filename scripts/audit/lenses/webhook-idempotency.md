@@ -143,6 +143,12 @@ For every finding:
 --scope routes/api.php
 ```
 
+### Group F — Ingest effect replay / billed-effect ledger
+```
+--scope app/Ingest/Landing
+--scope app/Ingest/Runtime
+--scope app/Ingest/Message
+```
 ## Exhaustiveness directive
 
 Walk every controller method that receives a POST from an external or semi-trusted sender. Every `Route::post(...)` in `routes/api.php` that maps to a hook controller or an internal write is a candidate path. Trace from route → middleware stack → controller → action/dispatch → job/mail → side-effect, and emit a finding for every gold-standard property the path fails to satisfy. A single controller missing both idempotency-anchor reversal AND silent-200 risk is two findings. The adjudicator dedupes and re-tiers — **under-reporting is the failure mode**. Be ruthless: hook bugs are how auth events get double-processed or auth emails get permanently dropped.

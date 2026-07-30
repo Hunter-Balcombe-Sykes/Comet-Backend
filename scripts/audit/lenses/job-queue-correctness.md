@@ -110,6 +110,12 @@ For every finding:
 --scope app/Jobs/Account
 ```
 
+### Group E — Ingest run dispatcher / executor
+```
+--scope app/Ingest/Runtime
+--scope app/Ingest/Manifest
+--scope app/Ingest/Support
+```
 ## Exhaustiveness directive
 
 Walk every job file. Every `catch` block in `handle()` is a candidate for a missing `$this->fail()` finding. Every job with `$tries > 1` that writes to the DB, calls a vendor API, or has irreversible side effects is a candidate for an idempotency finding. Every job that operates on a per-user or per-site resource is a candidate for a `ShouldBeUnique` gap. Do not assume correctness — prove it by reading the code. Three jobs each missing an idempotency guard = three findings (`JOB-1`, `JOB-2`, `JOB-3`), not one consolidated finding. The adjudicator dedupes and re-tiers — **under-reporting is the failure mode**.

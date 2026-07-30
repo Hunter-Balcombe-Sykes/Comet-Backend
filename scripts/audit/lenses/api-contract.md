@@ -90,6 +90,13 @@ For every finding:
 --scope app/Services/Site
 ```
 
+### Group D — Catalog contracts + content/section wire shapes
+```
+--scope app/Catalog/Contracts
+--scope app/Catalog/Enums
+--scope app/Content
+--scope app/Site
+```
 ## Exhaustiveness directive
 
 Every controller action that returns data is a candidate. Every Resource class used on more than one endpoint surface (User vs Staff vs PublicSite) must be examined for field audience confusion. Do not assume `$this->when(...)` is present without reading the `toArray` implementation. Pay special attention to `IndividualProfileResource` and `UserPublicResource` — these are the highest-risk classes for PII leakage to unauthenticated visitors.

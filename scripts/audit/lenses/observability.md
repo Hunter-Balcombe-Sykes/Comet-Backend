@@ -129,6 +129,15 @@ For every finding:
 --scope config/horizon.php
 ```
 
+### Group F — Ingest runtime + routing probes
+```
+--scope app/Ingest/Runtime
+--scope app/Ingest/Projection
+--scope app/Ingest/Support
+--scope app/Routing
+--scope app/Content
+--scope app/Site
+```
 ## Exhaustiveness directive
 
 Walk every job file. Every `try/catch` in a `handle()` method is a candidate finding. Every inbound callback controller that returns 200 must be traced through to confirm the processing path cannot silently fail. Every critical state transition (account deletion, handle rename, moderation decision) must have a verifiable audit trail write and a verifiable failure path that surfaces to Nightwatch. Under-reporting here means production incidents with no paper trail — a moderation suspension that silently failed is a safety gap, a KV sync that silently failed is a routing outage.

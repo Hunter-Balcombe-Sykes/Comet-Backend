@@ -123,6 +123,14 @@ For every finding:
 --scope app/Http/Controllers/Api/Routing
 ```
 
+### Group E — Ingest / routing / site constraint-bound writes
+```
+--scope app/Ingest/Landing
+--scope app/Ingest/Projection
+--scope app/Content
+--scope app/Routing
+--scope app/Site
+```
 ## Exhaustiveness directive
 
 Walk every `NOT NULL`-without-default, every `CHECK` / enum / domain, every `REFERENCES`, and every `TIMESTAMPTZ` / `uuid` / `jsonb` column in `supabase/migrations/`. For each, find the write paths that populate it. A write that never sets a NOT-NULL-no-default column, or writes a literal outside a CHECK set, or references an unguaranteed FK, is a finding — **but only if you can quote the DDL that proves it.** Prefer a four-line proof from real migration SQL over any speculation about "what the schema probably enforces." Under-reporting a green-CI prod 500 is the failure this lens exists to prevent; hallucinating a constraint that isn't in the repo is the failure that discredits it.

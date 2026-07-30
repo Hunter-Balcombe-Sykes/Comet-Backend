@@ -149,6 +149,14 @@ For every finding:
 --scope supabase/migrations
 ```
 
+### Group F — Content identity + ingest landing ledger
+```
+--scope app/Content
+--scope app/Services/Content
+--scope app/Ingest/Landing
+--scope app/Ingest/Projection
+--scope app/Ingest/Message
+```
 ## Exhaustiveness directive
 
 Walk every migration and every model in scope. Every `belongsTo` is a candidate for a missing FK finding. Every `updateOrCreate` / `firstOrCreate` is a candidate for a missing unique constraint. Every soft-deletable model's eager-loaded relationships must be checked for the `whereNull` guard. Every new PII column since 2026-05-22 must be traced to its export and deletion wiring. **The data layer is where silent corruption lives; under-reporting compounds.**

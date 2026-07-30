@@ -119,6 +119,12 @@ For every finding:
 --scope supabase/migrations
 ```
 
+### Group D — Third-party data landed by connectors
+```
+--scope app/Ingest/Connectors
+--scope app/Ingest/Landing
+--scope app/Content
+```
 ## Exhaustiveness directive
 
 Build the inventory first, then audit the four ledgers (export / delete / expire / share) against it — do not sample. Every PII column and JSONB key gets a verdict in all four; emit a finding for each gap you can quote. A PII store that is missing from export AND deletion AND retention is three findings collapsed into one P1 with all three gaps named. **Under-reporting here is deferred legal risk: the gap doesn't hurt until the first deletion request or breach notice, and then it's unfixable retroactively.**
