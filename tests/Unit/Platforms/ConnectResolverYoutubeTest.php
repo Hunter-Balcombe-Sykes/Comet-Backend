@@ -20,6 +20,12 @@ uses(TestCase::class)->in(__FILE__);
 // "externalId":"UC…" extraction regex.
 const YT_CHANNEL_ID = 'UCabcdefghijklmnopqrstuv';
 
+// The three videos the faked RSS feed advertises. These must be real-shaped
+// video ids — exactly 11 chars of [A-Za-z0-9_-] — or
+// YoutubeThumbnailResolver::bestForMany() drops them at VIDEO_ID_PATTERN and
+// no i.ytimg.com probe is ever issued, which is the whole thing under test.
+const YT_VIDEO_IDS = ['vid00000001', 'vid00000002', 'vid00000003'];
+
 function ytChannelPageBody(): string
 {
     return '<html><script>var x={"externalId":"'.YT_CHANNEL_ID.'"};</script></html>';
@@ -100,7 +106,7 @@ it('lets the budget reach the thumbnail-probe pool, not just the channel-page/RS
         }
 
         if (str_contains($url, '/feeds/videos.xml')) {
-            return Http::response(ytRssFeedBody(['vid1', 'vid2', 'vid3']), 200);
+            return Http::response(ytRssFeedBody(YT_VIDEO_IDS), 200);
         }
 
         if (str_contains($url, 'youtube.com/@')) {
@@ -152,7 +158,7 @@ it('fires every thumbnail probe when the budget is never exhausted', function ()
             return Http::response('', 200);
         }
         if (str_contains($url, '/feeds/videos.xml')) {
-            return Http::response(ytRssFeedBody(['vid1', 'vid2', 'vid3']), 200);
+            return Http::response(ytRssFeedBody(YT_VIDEO_IDS), 200);
         }
         if (str_contains($url, 'youtube.com/@')) {
             return Http::response(ytChannelPageBody(), 200);

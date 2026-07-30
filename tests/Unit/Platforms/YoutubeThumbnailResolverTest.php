@@ -10,6 +10,12 @@ use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
 
+// Every fixture id below MUST be a real-shaped YouTube video id — exactly 11
+// chars of [A-Za-z0-9_-] — or bestForMany() drops it at VIDEO_ID_PATTERN before
+// any cache read or probe is issued, and the test asserts against data that
+// cannot occur. Each id keeps its old name as a prefix and is padded out to 11;
+// the padding carries no meaning, the prefix does.
+
 beforeEach(function () {
     // Verdicts are cached for 30 days — flush so each test starts cold and a
     // cache-hit assertion in one test can't be satisfied by another's write.
@@ -21,9 +27,9 @@ it('uses maxresdefault when the maxres probe returns 200', function () {
         'i.ytimg.com/vi/*/maxresdefault.jpg' => Http::response('', 200),
     ]);
 
-    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['abc123']);
+    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['abc123AAAAA']);
 
-    expect($map['abc123'])->toBe('https://i.ytimg.com/vi/abc123/maxresdefault.jpg');
+    expect($map['abc123AAAAA'])->toBe('https://i.ytimg.com/vi/abc123AAAAA/maxresdefault.jpg');
 });
 
 it('falls back to hqdefault when the maxres probe 404s', function () {
@@ -31,9 +37,9 @@ it('falls back to hqdefault when the maxres probe 404s', function () {
         'i.ytimg.com/vi/*/maxresdefault.jpg' => Http::response('', 404),
     ]);
 
-    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['old456']);
+    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['old456BBBBB']);
 
-    expect($map['old456'])->toBe('https://i.ytimg.com/vi/old456/hqdefault.jpg');
+    expect($map['old456BBBBB'])->toBe('https://i.ytimg.com/vi/old456BBBBB/hqdefault.jpg');
 });
 
 it('caches the verdict so a second resolve of the same id makes no new HTTP call', function () {
@@ -43,11 +49,11 @@ it('caches the verdict so a second resolve of the same id makes no new HTTP call
 
     $resolver = app(YoutubeThumbnailResolver::class);
 
-    $first = $resolver->bestForMany(['cached789']);
-    $second = $resolver->bestForMany(['cached789']);
+    $first = $resolver->bestForMany(['cached789CC']);
+    $second = $resolver->bestForMany(['cached789CC']);
 
-    expect($first['cached789'])->toBe('https://i.ytimg.com/vi/cached789/maxresdefault.jpg')
-        ->and($second['cached789'])->toBe($first['cached789']);
+    expect($first['cached789CC'])->toBe('https://i.ytimg.com/vi/cached789CC/maxresdefault.jpg')
+        ->and($second['cached789CC'])->toBe($first['cached789CC']);
 
     // Only the first resolve probed; the second was served entirely from cache.
     Http::assertSentCount(1);
@@ -55,14 +61,14 @@ it('caches the verdict so a second resolve of the same id makes no new HTTP call
 
 it('maps each id correctly in a mixed batch of maxres-present and maxres-absent videos', function () {
     Http::fake([
-        'i.ytimg.com/vi/hasmax/maxresdefault.jpg' => Http::response('', 200),
-        'i.ytimg.com/vi/nomax/maxresdefault.jpg' => Http::response('', 404),
+        'i.ytimg.com/vi/hasmaxDDDDD/maxresdefault.jpg' => Http::response('', 200),
+        'i.ytimg.com/vi/nomaxEEEEEE/maxresdefault.jpg' => Http::response('', 404),
     ]);
 
-    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['hasmax', 'nomax']);
+    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['hasmaxDDDDD', 'nomaxEEEEEE']);
 
-    expect($map['hasmax'])->toBe('https://i.ytimg.com/vi/hasmax/maxresdefault.jpg')
-        ->and($map['nomax'])->toBe('https://i.ytimg.com/vi/nomax/hqdefault.jpg');
+    expect($map['hasmaxDDDDD'])->toBe('https://i.ytimg.com/vi/hasmaxDDDDD/maxresdefault.jpg')
+        ->and($map['nomaxEEEEEE'])->toBe('https://i.ytimg.com/vi/nomaxEEEEEE/hqdefault.jpg');
 });
 
 it('returns an empty array for empty input without making any HTTP call', function () {
@@ -79,10 +85,11 @@ it('returns an entry for every requested id and dedupes repeated ids', function 
         'i.ytimg.com/vi/*/maxresdefault.jpg' => Http::response('', 200),
     ]);
 
-    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['dup', 'dup', 'other']);
+    // 'dupFFFFFFFF' is passed twice on purpose — that repetition IS the dedup case.
+    $map = app(YoutubeThumbnailResolver::class)->bestForMany(['dupFFFFFFFF', 'dupFFFFFFFF', 'otherGGGGGG']);
 
-    expect($map)->toHaveKeys(['dup', 'other'])
-        ->and($map['dup'])->toBe('https://i.ytimg.com/vi/dup/maxresdefault.jpg');
+    expect($map)->toHaveKeys(['dupFFFFFFFF', 'otherGGGGGG'])
+        ->and($map['dupFFFFFFFF'])->toBe('https://i.ytimg.com/vi/dupFFFFFFFF/maxresdefault.jpg');
 
     // Deduped: two distinct ids ⇒ exactly two probes, not three.
     Http::assertSentCount(2);
@@ -94,7 +101,7 @@ it('caches hq verdicts with a short recheck TTL, not the 30-day maxres TTL', fun
 
     Cache::spy();
 
-    app(YoutubeThumbnailResolver::class)->bestForMany(['ttl-hq-1']);
+    app(YoutubeThumbnailResolver::class)->bestForMany(['ttl-hq-1HHH']);
 
     // 21600s × [0.8, 1.2] = [17280, 25920] — well under 30 days (2,592,000s).
     Cache::shouldHaveReceived('put')->withArgs(
@@ -108,7 +115,7 @@ it('caches maxres verdicts with the long CACHE_DAYS TTL', function () {
 
     Cache::spy();
 
-    app(YoutubeThumbnailResolver::class)->bestForMany(['ttl-max-1']);
+    app(YoutubeThumbnailResolver::class)->bestForMany(['ttl-max-1II']);
 
     // 30 × 86400 × [0.8, 1.2] = [2,073,600, 3,110,400].
     Cache::shouldHaveReceived('put')->withArgs(
@@ -137,14 +144,14 @@ it('degrades un-probed ids to hqdefault instead of throwing when the budget runs
     });
 
     $out = app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
-        ->bestForMany(['probed-a', 'skipped-b', 'skipped-c']));
+        ->bestForMany(['probed-aJJJ', 'skipped-bKK', 'skipped-cLL']));
 
     // Every id still gets a usable (hqdefault) URL — never null, never throws.
-    expect($out['probed-a'])->toBe('https://i.ytimg.com/vi/probed-a/hqdefault.jpg')
-        ->and($out['skipped-b'])->toBe('https://i.ytimg.com/vi/skipped-b/hqdefault.jpg')
-        ->and($out['skipped-c'])->toBe('https://i.ytimg.com/vi/skipped-c/hqdefault.jpg');
+    expect($out['probed-aJJJ'])->toBe('https://i.ytimg.com/vi/probed-aJJJ/hqdefault.jpg')
+        ->and($out['skipped-bKK'])->toBe('https://i.ytimg.com/vi/skipped-bKK/hqdefault.jpg')
+        ->and($out['skipped-cLL'])->toBe('https://i.ytimg.com/vi/skipped-cLL/hqdefault.jpg');
 
-    Http::assertSentCount(1); // only round 1 (probed-a) ever fired
+    Http::assertSentCount(1); // only round 1 (probed-aJJJ) ever fired
 });
 
 it('caches a genuinely-probed non-200 verdict but NOT an id the budget skipped entirely', function () {
@@ -164,11 +171,11 @@ it('caches a genuinely-probed non-200 verdict but NOT an id the budget skipped e
     });
 
     app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
-        ->bestForMany(['probed-a', 'skipped-b', 'skipped-c']));
+        ->bestForMany(['probed-aJJJ', 'skipped-bKK', 'skipped-cLL']));
 
-    expect(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('probed-a')))->toBe('hq')
-        ->and(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('skipped-b')))->toBeNull()
-        ->and(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('skipped-c')))->toBeNull();
+    expect(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('probed-aJJJ')))->toBe('hq')
+        ->and(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('skipped-bKK')))->toBeNull()
+        ->and(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('skipped-cLL')))->toBeNull();
 });
 
 it('logs once (not per skipped id) when the budget runs out mid-pool', function () {
@@ -182,7 +189,7 @@ it('logs once (not per skipped id) when the budget runs out mid-pool', function 
     });
 
     app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
-        ->bestForMany(['probed-a', 'skipped-b', 'skipped-c']));
+        ->bestForMany(['probed-aJJJ', 'skipped-bKK', 'skipped-cLL']));
 
     Log::shouldHaveReceived('warning')
         ->once()
