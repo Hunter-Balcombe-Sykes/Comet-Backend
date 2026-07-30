@@ -1081,7 +1081,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 6 complete  (+#CACHE-1, verified DEAD 2026-07-30 — fixed by 790a0c11)
+- P2 Medium: 2 of 6 complete  (+#CACHE-1 verified DEAD 2026-07-30 — fixed by 790a0c11; +#CACHE-2 closed by SCALE-17, same code site)
 - P3 Low: 0 of 1 complete
 
 ---
@@ -1113,7 +1113,8 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#CACHE-2** · P2 — `replaceCollections` deletes and re-inserts media/offers/tags one row at a time per projected item
+- [x] **#CACHE-2** · P2 — `replaceCollections` deletes and re-inserts media/offers/tags one row at a time per projected item
+    - **FIXED 2026-07-30 (P1-LAUNCH).** `#CACHE-2` and `SCALE-17` are the SAME code site; `SCALE-17` strictly contains this one, so both were closed by one fix — see `SCALE-17` for the detail.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:559-605 (`replaceCollections`)
     - **Affects:** Ingest background workers — every item with media, offers, or tags pays a `DELETE` plus one `INSERT` per row per collection on every projection pass, even when the set is unchanged.
     - **Effort:** S (~0.5–1h)
@@ -1327,7 +1328,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 3 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13 fixed and +SCALE-19 closed-no-fix, 2026-07-30)
+- P2 Medium: 4 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13 and +SCALE-17 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1774,7 +1775,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-17** · P2 — `ProjectionWriter::replaceCollections()` issues per-row INSERTs inside loops for media, offers, and tags
+- [x] **SCALE-17** · P2 — `ProjectionWriter::replaceCollections()` issues per-row INSERTs inside loops for media, offers, and tags
+    - **FIXED 2026-07-30 (P1-LAUNCH) — closes `#CACHE-2` too (same code site).** The batching boundary moved one level up into `writeFacets()`, whose existing `$byItem` map IS the batch: `replaceCollections()` is now called ONCE per stream instead of per item, and takes `(contentSourceId, userId, byItem)`. Per chunk of `config('partna.ingest.projection_write_chunk')` (default 500) it issues 3 `whereIn` DELETEs + 3 chunked multi-row INSERTs inside a `DB::transaction`. `ensureMediaAsset()` is gone: its `#PRIV-5` fingerprint logic was extracted verbatim into `mediaFingerprint()` (ONE implementation, both call sites) and asset resolution is now a bulk SELECT + PHP dedupe-by-fingerprint + chunked `insertOrIgnore` + one re-query of the missing set. Measured: media-bearing slope 21 → **14 queries/item** (the media path now contributes zero per-item queries); steady-state 10-item run 161 → **134**. ⚠️ The transaction is deliberate and was signed off: batching widens the window in which an item has no collection rows from one item to a whole chunk, and projection was previously transaction-free while serving reads live tables — wrapping makes that window strictly SHORTER than before. Verified there is no outer transaction (both `projectStream()` callers are transaction-free; `Lander`'s all close before it is reached), so this is the outermost transaction, not a SAVEPOINT. ⚠️ **`insertOrIgnore` is also a robustness gain:** the old bare `insert()` after a SELECT would throw a unique violation on a lost race and kill the whole `projectStream`.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:548-606
     - **Affects:** Every projection run that produces items with media, offers, or tags — an item with 10 gallery images, 2 offers, and 3 tags is 15 individual INSERTs plus 3 DELETEs, per item.
     - **Effort:** M (~2–4h)

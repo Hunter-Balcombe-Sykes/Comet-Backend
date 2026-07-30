@@ -955,6 +955,16 @@ return [
         // string + hash per record, released between chunks.
         'land_chunk' => (int) env('PARTNA_INGEST_LAND_CHUNK', 500),
 
+        // ProjectionWriter::replaceCollections() chunk size (SCALE-17/#CACHE-2).
+        // Bind-count arithmetic per chunk (Postgres 65,535/statement; SQLite
+        // >=3.32 32,766): item_media insert = 8 cols -> 500x8 = 4,000; offers
+        // = 11 cols -> 5,500; item_tags = 5 cols -> 2,500; the `item_id IN`
+        // list on each of the three DELETEs -> 500. 500 clears both engines'
+        // limits by an order of magnitude. It also bounds the delete+insert
+        // transaction: one chunk's worth of rows is the longest any item is
+        // without its collection rows, and serving reads these tables live.
+        'projection_write_chunk' => (int) env('PARTNA_INGEST_PROJECTION_WRITE_CHUNK', 500),
+
         // SCALE-1/SCALE-2: chunkById page size for `ingest:project`'s source
         // walk. Bounds both the source-list result buffer and the per-chunk
         // streams pre-fetch. Overridable so tests can shrink it (3) to make
