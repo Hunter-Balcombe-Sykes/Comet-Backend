@@ -14,6 +14,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * Run a connected store's logo through the logo processor (background removal
@@ -63,7 +64,7 @@ class ProcessShopBrandLogoJob implements ShouldQueue
             $response = Http::timeout(30)->withHeaders([
                 'User-Agent' => 'PartnaBot/1.0 (+https://partna.au)',
             ])->get($source);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::info('shop.brand_logo.fetch_failed', [
                 'brand_row_id' => $brand->id,
                 'error' => $e->getMessage(),
@@ -111,6 +112,20 @@ class ProcessShopBrandLogoJob implements ShouldQueue
         ShopBrand::whereKey($brand->id)->update([
             'logo_mark_url' => $disk->url($pngPath),
             'logo_mark_svg_url' => $svgUrl,
+        ]);
+    }
+
+    // R3-OBS-6: exists so Nightwatch sees a permanent failure at all — every
+    // in-band failure above returns quietly, so without this a job that dies
+    // after its retries is silent. Deliberately changes no state: the raw
+    // logo/favicon columns are untouched, so the dashboard simply keeps
+    // rendering the unprocessed mark, which is this job's designed fallback.
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::warning('shop.brand_logo.job_failed', [
+            'brand_row_id' => $this->brandRowId,
+            'error' => $e->getMessage(),
         ]);
     }
 }
