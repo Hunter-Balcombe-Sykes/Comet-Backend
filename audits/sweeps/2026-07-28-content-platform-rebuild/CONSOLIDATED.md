@@ -5660,7 +5660,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 3 complete
-- P3 Low: 0 of 19 complete
+- P3 Low: 1 of 19 complete  (+#SLOP-21, promoted and fixed 2026-07-30)
 
 ---
 
@@ -6114,7 +6114,8 @@ None.
         }
         ```
 
-- [ ] **#SLOP-21** · P3 — `@`-suppressed `preg_match` on catalog-authored regex patterns hides malformed patterns instead of surfacing them
+- [x] **#SLOP-21** · P3 — `@`-suppressed `preg_match` on catalog-authored regex patterns hides malformed patterns instead of surfacing them
+    - **FIXED 2026-07-30 (P1-LAUNCH) — NOT as prescribed, and two of this finding's claims are false.** ⚠️ (1) "nothing reports it / no signal at all" is **false**: `tests/Unit/Catalog/CatalogArtefactTest.php`'s *ships only valid, well-formed detectors* already asserts every `path_pattern`, `subdomain_pattern` and `reject_patterns` entry compiles, using the identical `@preg_match` check — a typo'd regex cannot reach production on a normal path. ⚠️ (2) **Do NOT simply remove the `@`.** Proven empirically: with `HandleExceptions` installed, a malformed pattern throws `ErrorException: preg_match(): Compilation failed`, which escapes `score()` → `project()` → `LinkRoutingService::preview()` — the debounced **paste-preview API** — 500ing every paste of an affected URL. And PHPUnit installs its own error handler, so **the suite stays green through that regression**. Shipped instead: (a) `CatalogCompileCommand` now validates that every detector pattern compiles — the real gap, since it previously checked capability names, key uniqueness and contracts but never a regex; (b) the three call sites route through one `matches()` helper keeping the `@` **inside**, with a byte-identical fail-closed verdict plus a throttled `Log::error` + `report(MalformedDetectorPatternException)` (`partna.routing.malformed_pattern_report_ttl_seconds`, default 3600), reported per detector+field with `reject_patterns` indexed so two broken patterns don't mask each other. Three incidental findings: `preg_match` leaves `$matches` **untouched** on a compile failure (only overwrites on 0/1), so reusing one `$m` across the subdomain and path blocks could read the prior pattern's groups — now reset on the false branch; `Cache::add` returns false for a TTL ≤ 0, so the intuitive "`=0` to disable throttling" would have produced **zero** reports forever (floored with `max(1, …)`); and the report triad is `try/catch(Throwable)`-wrapped because a Redis or handler fault would otherwise reintroduce the very 500 this fixes.
     - **Where:** app/Routing/LinkProjector.php:88, 97, 105
     - **Affects:** Developers authoring/maintaining Catalog detector definitions — a typo'd regex in a `reject_patterns`/`subdomain_pattern`/`path_pattern` entry silently fails closed instead of throwing.
     - **Effort:** S (~1h)

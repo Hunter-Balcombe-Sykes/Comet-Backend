@@ -1773,6 +1773,13 @@ return [
             'stuck_age_days' => (int) env('PARTNA_ROUTING_STUCK_INTENT_AGE_DAYS', 14),
             'stuck_alert_threshold' => (int) env('PARTNA_ROUTING_STUCK_INTENT_THRESHOLD', 500),
         ],
+
+        // SLOP-21. A detector regex that won't compile fails closed, which is
+        // indistinguishable from "no match" — so LinkProjector reports it. The
+        // projector runs on every paste, hence a per-detector+field window
+        // rather than one report per request. `catalog:compile` is the real
+        // gate; this covers what bypasses it.
+        'malformed_pattern_report_ttl_seconds' => (int) env('PARTNA_ROUTING_MALFORMED_PATTERN_REPORT_TTL_SECONDS', 3600),
     ],
 
     'video_variants' => [
