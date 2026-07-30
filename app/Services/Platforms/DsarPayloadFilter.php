@@ -36,9 +36,16 @@ final class DsarPayloadFilter
      * ALLOWLIST carries them — personal data about a third party (a
      * reviewer, an event organiser, a venue), not about the account holder.
      *
+     * Nothing in this class READS this at runtime: the removal was applied by
+     * hand when each DSAR_ALLOWLIST entry was authored, so this is the
+     * published derivation rule rather than an internal — public for the same
+     * reason WITHHELD_DISCLOSURE above is. What keeps it honest is
+     * DsarAllowlistCoverageTest, which asserts no allowlist entry ever carries
+     * one of these keys; that test is the enforcement, not this declaration.
+     *
      * @var list<string>
      */
-    private const THIRD_PARTY_KEYS = ['reviews', 'reviewSummary', 'organiser', 'venue'];
+    public const THIRD_PARTY_KEYS = ['reviews', 'reviewSummary', 'organiser', 'venue'];
 
     /**
      * Per-platform allowlist of payload keys included in a DSAR export.

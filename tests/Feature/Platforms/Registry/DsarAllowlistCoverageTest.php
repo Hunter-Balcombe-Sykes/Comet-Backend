@@ -56,6 +56,67 @@ it('proves the guard can fail: an unregistered platform key IS reported', functi
     expect($reportedPlatforms)->toBe(['totally-unregistered']);
 });
 
+// #PRIV-2, the other half: the coverage tests above prove every platform HAS an
+// allowlist. These two prove the allowlists EXCLUDE the right things.
+//
+// THIRD_PARTY_KEYS documents the derivation rule ("copy the public allowlist,
+// then remove these") but nothing executes it — the removal was done by hand
+// when each entry was authored. That makes the rule true today and unenforced
+// tomorrow: nothing stops a new platform entry from copying `reviews` straight
+// in. These tests are what turn the constant from a comment into a guard, which
+// is why it is read here directly rather than via reflection.
+it('no DSAR allowlist entry contains a third-party key', function () {
+    $reflection = new ReflectionClass(DsarPayloadFilter::class);
+    $allowlist = $reflection->getConstant('DSAR_ALLOWLIST');
+
+    $leaks = [];
+    foreach ($allowlist as $platform => $keys) {
+        $hit = array_values(array_intersect($keys, DsarPayloadFilter::THIRD_PARTY_KEYS));
+        if ($hit !== []) {
+            $leaks[$platform] = $hit;
+        }
+    }
+
+    expect($leaks)->toBe([], 'DSAR allowlist(s) carry personal data about a THIRD PARTY (a reviewer, an '
+        ."event organiser, a venue) into a data-subject export:\n  - "
+        .implode("\n  - ", array_map(
+            fn ($p, $k) => "{$p}: ".implode(', ', $k),
+            array_keys($leaks),
+            $leaks
+        )));
+});
+
+// The behavioural proof, not just the shape one: a stored payload carrying every
+// third-party key must come out of filter() without them.
+it('strips third-party keys from a real export payload', function () {
+    $filtered = DsarPayloadFilter::filter('google-business', [
+        'name' => 'Some Salon',
+        'rating' => 4.7,
+        'reviewCount' => 128,
+        'reviews' => [['author' => 'Jane Doe', 'authorPhoto' => 'https://…', 'text' => 'Great cut']],
+        'reviewSummary' => ['text' => ['text' => 'Customers praise the staff']],
+    ]);
+
+    expect($filtered)->not->toHaveKey('reviews')
+        ->and($filtered)->not->toHaveKey('reviewSummary')
+        // The account holder's OWN data survives — this is an Article 15 export,
+        // so over-stripping is a failure too.
+        ->and($filtered)->toHaveKey('name')
+        ->and($filtered['rating'])->toBe(4.7)
+        ->and($filtered['reviewCount'])->toBe(128);
+
+    $event = DsarPayloadFilter::filter('eventbrite', [
+        'name' => 'Launch Night',
+        'location' => 'Melbourne',
+        'organiser' => ['name' => 'Someone Else', 'url' => 'https://…'],
+        'venue' => ['name' => 'A Venue', 'address' => '1 Example St'],
+    ]);
+
+    expect($event)->not->toHaveKey('organiser')
+        ->and($event)->not->toHaveKey('venue')
+        ->and($event)->toHaveKey('location');
+});
+
 it('every DsarPayloadFilter allowlist entry resolves to a currently-registered platform', function () {
     // The inverse check — a stale entry for a retired platform key is
     // harmless but worth catching so the const doesn't accumulate dead keys.

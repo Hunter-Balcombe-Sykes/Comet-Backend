@@ -157,7 +157,7 @@ trait DefersBespokeConnect
             // NOT write the row, so a merely-slow (not dead) worker can still
             // land its real 'ok' write afterwards and the next poll reports
             // 'ready'.
-            if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
+            if ($row->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
                 return $this->success(['status' => 'failed', 'error' => FetchUnavailableException::STALE_CONNECT_ERROR]);
             }
 

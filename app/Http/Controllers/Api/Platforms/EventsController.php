@@ -76,11 +76,16 @@ class EventsController extends ApiController
 
         $result = $this->catalog->reorder($this->currentUser($request), $ids);
 
-        if (! ($result['ok'] ?? false)) {
-            return $this->error($result['error'] ?? 'Could not reorder events.', $result['status'] ?? 422);
+        // No `??` defaults here: reorder()'s return is a discriminated union
+        // (ok:true+selection | ok:false+error+status), so the analyser proves
+        // each key present in its own branch. Adding a fallback back would not
+        // be defensive, it would be unreachable — and it is what made this
+        // block report as *NEVER*. Widen the union, not the call site.
+        if (! $result['ok']) {
+            return $this->error($result['error'], $result['status']);
         }
 
-        return $this->success(['selection' => $result['selection'] ?? null]);
+        return $this->success(['selection' => $result['selection']]);
     }
 
     // DELETE /api/platforms/events/custom/{id} — remove one custom event card.
