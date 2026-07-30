@@ -51,9 +51,10 @@ const PARTNA_DOMAIN = "partna.au";
 // update this set (or wire a build step that generates it from the PHP config).
 // @sync tests/Feature/Subdomain/ReservedSubdomainWorkerSyncTest.php (EDGE-2)
 // parses THIS literal array out of this file and diffs it against
-// config('partna.reserved_subdomains') on every test run — the only automated
-// guard against these two lists drifting, since cloudflare-worker/ has no JS
-// test harness of its own. A change to either side goes red until mirrored.
+// config('partna.reserved_subdomains') on every test run — still the only
+// automated guard against these two lists drifting: cloudflare-worker/test/ now
+// has a Miniflare suite, but it runs in workerd with no access to Laravel config,
+// so it can never see this mirror. A change to either side goes red until mirrored.
 const RESERVED = new Set([
   // --- Platform infrastructure / DNS ---
   "www", "api", "admin", "app", "apps", "staff", "dashboard",
@@ -188,16 +189,19 @@ function staleShadowKey(cacheKey) {
 // lives here so KV misses stay a pure edge response — no service-binding or
 // backend hop for enumeration traffic. With a plausible subdomain the copy
 // offers the address (growth surface); without one it's the generic miss.
+// Domain references read PARTNA_DOMAIN rather than repeating the literal — one
+// place to change. That const is still a flat literal (EDGE-3, see its comment):
+// this is de-duplication, NOT environment-awareness.
 function unclaimedHtml(subdomain) {
   const safe =
     typeof subdomain === "string" && /^[a-z0-9-]{1,63}$/.test(subdomain) ? subdomain : null;
   const headline = safe
-    ? `${safe}.partna.au isn&#8217;t claimed yet`
+    ? `${safe}.${PARTNA_DOMAIN} isn&#8217;t claimed yet`
     : "No Partna profile here";
   const subline = safe
     ? "This address is still available. Partna gives you a professional website that keeps itself current from the platforms you already use."
     : "The address you tried to visit doesn&#8217;t match a Partna account.";
-  const cta = safe ? "Claim this address" : "Go to partna.au";
+  const cta = safe ? "Claim this address" : `Go to ${PARTNA_DOMAIN}`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -222,7 +226,7 @@ a { display: inline-block; margin-top: 8px; color: #1a1a1a; text-decoration: und
     <p class="eyebrow">Partna</p>
     <h1>${headline}</h1>
     <p>${subline}</p>
-    <a href="https://partna.au">${cta}</a>
+    <a href="https://${PARTNA_DOMAIN}">${cta}</a>
   </main>
 </body>
 </html>`;

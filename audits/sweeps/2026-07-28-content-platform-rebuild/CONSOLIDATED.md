@@ -412,7 +412,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 13 of 21 complete
+- P2 Medium: 15 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -642,7 +642,7 @@ tests originally scoped.
         app(ContentSelectionService::class)->setInstagramAuto($site, true);
         ```
 
-- [ ] **LIFE-11** · P2 — `IntegrationConnectionObserver::cleanupMirroredMedia` is the only best-effort side-effect method in the class without a try/catch
+- [x] **LIFE-11** · P2 — `IntegrationConnectionObserver::cleanupMirroredMedia` is the only best-effort side-effect method in the class without a try/catch
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:447-455, 538-544
     - **Affects:** Instagram disconnect flow — a malformed/null payload throws out of `deleted()`, skipping the subsequent `retireEventSlugsOnDelete()` and `syncIngestSource()` calls for that same disconnect.
     - **Effort:** S (~0.5–1h)
@@ -661,7 +661,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-12** · P2 — `PlatformHealthNotifier::menuScrapeFailed` dedupe key has no failure-episode boundary
+- [x] **LIFE-12** · P2 — `PlatformHealthNotifier::menuScrapeFailed` dedupe key has no failure-episode boundary
     - **Where:** app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php:65-78
     - **Affects:** Any user whose menu scrape fails, recovers, then fails again within the 14-day `content_scrape` retention window — only the first episode notifies.
     - **Effort:** S (~0.5–1h)
@@ -2191,7 +2191,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 1 of 5 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -2270,7 +2270,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
         }
         ```
 
-- [ ] **#CCH-4** · P2 — `IntegrationConnectionObserver::deleted()` and `restored()` don't roll the site's Redis profile-cache key forward for completeness-gated platforms
+- [x] **#CCH-4** · P2 — `IntegrationConnectionObserver::deleted()` and `restored()` don't roll the site's Redis profile-cache key forward for completeness-gated platforms
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:447-455 (`deleted()`), app/Observers/Core/IntegrationConnectionObserver.php:519-530 (`restored()`) — write sites. Read site: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:122-139 (`public.profile:{handle}:{ts}` key, `$ts` sourced from `site.updated_at`).
     - **Affects:** Individual professionals' public sitepage cache — disconnecting or restoring a completeness-gated integration (Fresha and similar) purges the Cloudflare edge cache but leaves the application-level Redis payload cache keyed off the pre-change `site.updated_at`, so it still reflects the old connection state until an unrelated site write or TTL expiry rotates it.
     - **Effort:** S (~0.5–1h)
@@ -3000,7 +3000,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -3079,7 +3079,7 @@ None.
         ) {}
         ```
 
-- [ ] **#JOB-4** · P2 — Ingest run outcome stays `ok` even when every projection for the run failed
+- [x] **#JOB-4** · P2 — Ingest run outcome stays `ok` even when every projection for the run failed
     - **Where:** app/Ingest/Runtime/RunExecutor.php:168-186
     - **Affects:** Operators and anyone querying `ingest.runs` directly — a run where every stream lands successfully but every projection throws is recorded with `outcome = 'ok'`, even though the landed data stays unprojected (invisible to product surfaces) until a manual `ingest:project` sweep.
     - **Effort:** S (~0.5–1h)
@@ -3866,7 +3866,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -3923,7 +3923,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#EDGE-2** · P2 — `cloudflare-worker/README.md` describes an obsolete brand/affiliate architecture that no longer matches the Worker's actual KV contract
+- [x] **#EDGE-2** · P2 — `cloudflare-worker/README.md` describes an obsolete brand/affiliate architecture that no longer matches the Worker's actual KV contract
     - **Where:** cloudflare-worker/README.md:1-9, 92-106
     - **Affects:** Any engineer following this README during setup, DNS reprovisioning, or incident response for the Worker that fronts 100% of public sitepage traffic — the Worker has no test suite and no Nightwatch, so this README is one of the few written references for how it's supposed to behave.
     - **Effort:** S (~0.5–1h)

@@ -119,7 +119,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII); PRIV-2 reduces UA to family/major version.
             'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
             'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'utm_source' => $e->utmSource,
@@ -129,9 +129,25 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'region_code' => $e->regionCode,
             'city' => $e->city,
             'device_type' => $e->deviceType,
-            'latitude' => $e->latitude,
-            'longitude' => $e->longitude,
+            // PRIV-1: round to config('partna.analytics.location_precision_decimals') at
+            // the persistence boundary — see roundCoordinate() docblock.
+            'latitude' => $this->roundCoordinate($e->latitude),
+            'longitude' => $this->roundCoordinate($e->longitude),
         ];
+    }
+
+    /**
+     * PRIV-1: round a visitor coordinate to config('partna.analytics.location_precision_decimals')
+     * (default 2dp, ≈1.1km) — enough for city/region analytics, not enough to locate a
+     * person. Null passes through unchanged (never coerced to 0.0).
+     */
+    private function roundCoordinate(?float $value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return round($value, (int) config('partna.analytics.location_precision_decimals', 2));
     }
 
     /** @param  array<string, Block>  $blocks */
@@ -191,7 +207,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII); PRIV-2 reduces UA to family/major version.
             'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
             'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'utm_source' => $e->utmSource,
@@ -240,7 +256,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII); PRIV-2 reduces UA to family/major version.
             'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
             'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'utm_source' => $e->utmSource,
@@ -281,7 +297,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII); PRIV-2 reduces UA to family/major version.
             'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
             'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'country_code' => $e->countryCode,
@@ -316,7 +332,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             'session_id' => $e->sessionId,
             'visitor_id' => $e->visitorId,
             'ip_hash' => $e->ipHash,
-            // PRIV-5/6: strip referrer query strings (UTM-embedded PII) and cap UA.
+            // PRIV-5/6: strip referrer query strings (UTM-embedded PII); PRIV-2 reduces UA to family/major version.
             'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
             'referrer' => AnalyticsEventSanitizer::referrer($e->referrer),
             'country_code' => $e->countryCode,

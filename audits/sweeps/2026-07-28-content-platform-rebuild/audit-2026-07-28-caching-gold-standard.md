@@ -24,7 +24,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 1 of 5 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -103,7 +103,7 @@
         }
         ```
 
-- [ ] **#CCH-4** · P2 — `IntegrationConnectionObserver::deleted()` and `restored()` don't roll the site's Redis profile-cache key forward for completeness-gated platforms
+- [x] **#CCH-4** · P2 — `IntegrationConnectionObserver::deleted()` and `restored()` don't roll the site's Redis profile-cache key forward for completeness-gated platforms
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:447-455 (`deleted()`), app/Observers/Core/IntegrationConnectionObserver.php:519-530 (`restored()`) — write sites. Read site: app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:122-139 (`public.profile:{handle}:{ts}` key, `$ts` sourced from `site.updated_at`).
     - **Affects:** Individual professionals' public sitepage cache — disconnecting or restoring a completeness-gated integration (Fresha and similar) purges the Cloudflare edge cache but leaves the application-level Redis payload cache keyed off the pre-change `site.updated_at`, so it still reflects the old connection state until an unrelated site write or TTL expiry rotates it.
     - **Effort:** S (~0.5–1h)

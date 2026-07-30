@@ -31,7 +31,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -110,7 +110,7 @@
         ) {}
         ```
 
-- [ ] **#JOB-4** · P2 — Ingest run outcome stays `ok` even when every projection for the run failed
+- [x] **#JOB-4** · P2 — Ingest run outcome stays `ok` even when every projection for the run failed
     - **Where:** app/Ingest/Runtime/RunExecutor.php:168-186
     - **Affects:** Operators and anyone querying `ingest.runs` directly — a run where every stream lands successfully but every projection throws is recorded with `outcome = 'ok'`, even though the landed data stays unprojected (invisible to product surfaces) until a manual `ingest:project` sweep.
     - **Effort:** S (~0.5–1h)

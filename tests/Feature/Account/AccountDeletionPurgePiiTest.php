@@ -181,6 +181,122 @@ it('nulls out reporter_user_id, reporter_email and reason_details on case_signal
         ->and($signal->signal_source)->toBe('content_report');
 });
 
+/*
+| PRIV-3 (D2): the case_signals rows production ACTUALLY writes.
+|
+| ContentReportService::submit() is the only CaseSignal writer in the codebase
+| and its forceCreate() array has no reporter_user_id key — the /v1/public/report
+| route is unauthenticated, so there is nobody to attribute. Every production
+| signal therefore has reporter_user_id IS NULL, and the reporter_user_id-keyed
+| predicate the test above exercises matches zero rows in the real world. The
+| reporter_email column is the only link back to a person, and it is what these
+| tests key on.
+|
+| The test above is deliberately KEPT: it still pins the reporter_user_id leg
+| for any future authenticated report path.
+*/
+
+it('erases reporter PII on the anonymous, email-only signal shape production actually writes (PRIV-3)', function () {
+    $originalEmail = 'priv3-anon@example.com';
+    $user = seedPurgePiiUser($originalEmail);
+    $signalId = (string) Str::uuid();
+
+    // Exactly what ContentReportService::submit() writes: no reporter_user_id.
+    DB::connection('pgsql')->table('moderation.case_signals')->insert([
+        'id' => $signalId,
+        'case_id' => (string) Str::uuid(),
+        'signal_source' => 'content_report',
+        'signal_data' => '{"details":"I am Jane Doe of 12 Smith St and they doxxed me."}',
+        'reporter_user_id' => null,
+        'reporter_email' => $originalEmail,
+        'reason_code' => 'spam',
+        'reason_details' => 'They published my home address.',
+        'created_at' => now()->toIso8601String(),
+    ]);
+
+    $professional = User::find($user['id']);
+    $result = app(AccountDeletionService::class)->purge($professional);
+
+    expect($result)->toBeTrue();
+
+    $signal = DB::connection('pgsql')->table('moderation.case_signals')
+        ->where('id', $signalId)->first();
+
+    // Row survives (it is moderation evidence) but every reporter-identifying
+    // column is erased, matched via the deletion-audit email snapshot.
+    expect($signal)->not->toBeNull()
+        ->and($signal->reporter_email)->toBeNull()
+        ->and($signal->reason_details)->toBeNull()
+        ->and($signal->signal_data)->toBe('{}')
+        // Non-PII evidence columns retained for Trust & Safety analytics.
+        ->and($signal->reason_code)->toBe('spam')
+        ->and($signal->signal_source)->toBe('content_report');
+});
+
+it('matches a legacy mixed-case reporter_email on the anonymous shape (PRIV-3 / SEM-1)', function () {
+    // SEM-1: reporter_email is normalised on write today, but rows written before
+    // that fix retain their original casing. The export path already folds with
+    // lower(trim(...)); erasure must fold identically or it under-erases exactly
+    // the rows the export over-discloses.
+    $originalEmail = 'priv3.mixed@example.com';
+    $user = seedPurgePiiUser($originalEmail);
+    $signalId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('moderation.case_signals')->insert([
+        'id' => $signalId,
+        'case_id' => (string) Str::uuid(),
+        'signal_source' => 'content_report',
+        'signal_data' => '{"details":"legacy verbatim payload"}',
+        'reporter_user_id' => null,
+        'reporter_email' => '  PRIV3.Mixed@Example.COM ',
+        'reason_code' => 'spam',
+        'reason_details' => 'legacy freetext',
+        'created_at' => now()->toIso8601String(),
+    ]);
+
+    $professional = User::find($user['id']);
+    app(AccountDeletionService::class)->purge($professional);
+
+    $signal = DB::connection('pgsql')->table('moderation.case_signals')
+        ->where('id', $signalId)->first();
+
+    expect($signal)->not->toBeNull()
+        ->and($signal->reporter_email)->toBeNull()
+        ->and($signal->reason_details)->toBeNull()
+        ->and($signal->signal_data)->toBe('{}');
+});
+
+it('leaves another reporter signal byte-identical — the email predicate cannot widen (PRIV-3)', function () {
+    $user = seedPurgePiiUser('priv3-narrow@example.com');
+    $otherSignalId = (string) Str::uuid();
+
+    // A different anonymous reporter. The orWhere leg is grouped inside its own
+    // closure precisely so it cannot escape the UPDATE's scope and take this row
+    // (or, with a null lookup email, every row) with it.
+    DB::connection('pgsql')->table('moderation.case_signals')->insert([
+        'id' => $otherSignalId,
+        'case_id' => (string) Str::uuid(),
+        'signal_source' => 'content_report',
+        'signal_data' => '{"details":"someone else\'s verbatim words"}',
+        'reporter_user_id' => null,
+        'reporter_email' => 'unrelated-reporter@example.com',
+        'reason_code' => 'harassment',
+        'reason_details' => 'Unrelated third-party report.',
+        'created_at' => now()->toIso8601String(),
+    ]);
+
+    $before = DB::connection('pgsql')->table('moderation.case_signals')
+        ->where('id', $otherSignalId)->first();
+
+    $professional = User::find($user['id']);
+    app(AccountDeletionService::class)->purge($professional);
+
+    $after = DB::connection('pgsql')->table('moderation.case_signals')
+        ->where('id', $otherSignalId)->first();
+
+    expect($after)->toEqual($before);
+});
+
 it('deletes global email subscriptions matched by email_lc (P2-12)', function () {
     $user = seedPurgePiiUser('p212@example.com');
     $emailLc = 'p212@example.com';

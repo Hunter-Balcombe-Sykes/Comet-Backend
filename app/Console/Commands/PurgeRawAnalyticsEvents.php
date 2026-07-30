@@ -7,14 +7,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // V2: Deletes raw analytics events older than retention window (min 30 days).
+// PRIV-4: also purges stale analytics.content_popularity_scores rows on their OWN
+// retention window — see DERIVED_TABLES below.
 class PurgeRawAnalyticsEvents extends Command
 {
     protected $signature = 'partna:analytics:purge-raw-events
-                            {--days= : Retain events newer than N days (default from config, minimum 30)}
+                            {--days= : Retain raw events newer than N days (default from config, minimum 30)}
                             {--dry-run : Report row counts without deleting}';
 
-    protected $description = 'Delete raw analytics event rows older than the retention window. '
-        .'Runs in batches to avoid long-running transactions.';
+    protected $description = 'Delete raw analytics event rows and stale derived content_popularity_scores '
+        .'rows older than their retention windows. Runs in batches to avoid long-running transactions.';
 
     private const TABLES = [
         'analytics.link_clicks' => 'occurred_at',
@@ -27,6 +29,17 @@ class PurgeRawAnalyticsEvents extends Command
         'analytics.site_sessions' => 'last_seen_at',
     ];
 
+    // PRIV-4: content_popularity_scores is a DERIVED scores table (ComputeContentPopularityScores
+    // upserts a row per site/content-key every run), not a raw event log — it ages on
+    // computed_at (there is no occurred_at column) and uses its OWN retention config/floor
+    // (scoresRetentionDays()), independent of --days and analytics_raw_event_retention_days.
+    // A dormant site (no raw events in the last hour) is never rescanned by that command's
+    // own recency window, so without this its rows would sit forever at their last
+    // computed_at with no other purge path.
+    private const DERIVED_TABLES = [
+        'analytics.content_popularity_scores' => 'computed_at',
+    ];
+
     public function handle(): int
     {
         $days = $this->retentionDays();
@@ -35,7 +48,14 @@ class PurgeRawAnalyticsEvents extends Command
             return self::FAILURE;
         }
 
+        $scoresDays = $this->scoresRetentionDays();
+
+        if ($scoresDays === null) {
+            return self::FAILURE;
+        }
+
         $cutoff = now()->subDays($days)->toImmutable();
+        $scoresCutoff = now()->subDays($scoresDays)->toImmutable();
         $dryRun = (bool) $this->option('dry-run');
 
         $this->line(sprintf(
@@ -56,6 +76,22 @@ class PurgeRawAnalyticsEvents extends Command
             $totalDeleted += $deleted;
         }
 
+        $this->line(sprintf(
+            '%s stale content_popularity_scores rows older than %d days (cutoff: %s).',
+            $dryRun ? '[DRY RUN] Would delete' : 'Purging',
+            $scoresDays,
+            $scoresCutoff->toDateTimeString()
+        ));
+
+        foreach (self::DERIVED_TABLES as $table => $tsColumn) {
+            $deleted = $dryRun
+                ? $this->countEligible($table, $tsColumn, $scoresCutoff)
+                : $this->purgeBatched($table, $tsColumn, $scoresCutoff);
+
+            $this->line(sprintf('  %-45s %s %d rows', $table, $dryRun ? 'eligible:' : 'deleted:', $deleted));
+            $totalDeleted += $deleted;
+        }
+
         $this->info(sprintf(
             '%s %d total rows.',
             $dryRun ? 'Would delete' : 'Deleted',
@@ -66,6 +102,8 @@ class PurgeRawAnalyticsEvents extends Command
             'dry_run' => $dryRun,
             'days' => $days,
             'cutoff' => $cutoff->toIso8601String(),
+            'content_popularity_scores_days' => $scoresDays,
+            'content_popularity_scores_cutoff' => $scoresCutoff->toIso8601String(),
             'total_rows' => $totalDeleted,
         ]);
 
@@ -81,6 +119,25 @@ class PurgeRawAnalyticsEvents extends Command
             $this->error(sprintf(
                 'Retention window must be at least 30 days (got %d). '
                 .'Set ANALYTICS_RAW_EVENT_RETENTION_DAYS or pass --days=N.',
+                $days
+            ));
+
+            return null;
+        }
+
+        return $days;
+    }
+
+    // PRIV-4: content_popularity_scores' own retention window — independent of --days,
+    // which only overrides the raw-event tables above.
+    private function scoresRetentionDays(): ?int
+    {
+        $days = (int) config('partna.analytics.content_popularity_scores_retention_days', 180);
+
+        if ($days < 30) {
+            $this->error(sprintf(
+                'content_popularity_scores retention window must be at least 30 days (got %d). '
+                .'Set PARTNA_ANALYTICS_CONTENT_POPULARITY_SCORES_RETENTION_DAYS.',
                 $days
             ));
 

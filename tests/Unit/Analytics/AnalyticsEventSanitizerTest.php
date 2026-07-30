@@ -18,12 +18,29 @@ it('caps the referrer at 512 characters', function () {
     expect(strlen(AnalyticsEventSanitizer::referrer($long)))->toBeLessThanOrEqual(512);
 });
 
-it('caps the user agent at 256 characters (PRIV-6)', function () {
-    expect(strlen(AnalyticsEventSanitizer::userAgent(str_repeat('U', 400))))->toBe(256);
+it('reduces a realistic Chrome UA to family + major version (PRIV-2)', function () {
+    $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
+    expect(AnalyticsEventSanitizer::userAgent($ua))->toBe('Chrome/141');
 });
 
-it('leaves a short user agent unchanged and returns null for empty', function () {
-    expect(AnalyticsEventSanitizer::userAgent('Mozilla/5.0 (Macintosh)'))->toBe('Mozilla/5.0 (Macintosh)');
+it('reduces Edge, Firefox, and Safari UAs to family + major version, preferring the more specific token', function () {
+    $edge = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+        .'Chrome/141.0.0.0 Safari/537.36 Edg/141.0.3537.85';
+    $firefox = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0';
+    $safari = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+        .'(KHTML, like Gecko) Version/17.4 Safari/605.1.15';
+
+    // Edge/Chromium and Chrome's own UA both embed "Chrome/..." — Edge must win, not Chrome.
+    expect(AnalyticsEventSanitizer::userAgent($edge))->toBe('Edge/141');
+    expect(AnalyticsEventSanitizer::userAgent($firefox))->toBe('Firefox/133');
+    // Safari's true version is the "Version/" token, not the "Safari/" WebKit build number.
+    expect(AnalyticsEventSanitizer::userAgent($safari))->toBe('Safari/17');
+});
+
+it('falls back to Other for an unrecognised user agent and returns null for empty', function () {
+    expect(AnalyticsEventSanitizer::userAgent('SomeWeirdClient/3.2'))->toBe('Other');
     expect(AnalyticsEventSanitizer::userAgent(null))->toBeNull();
     expect(AnalyticsEventSanitizer::userAgent(''))->toBeNull();
 });

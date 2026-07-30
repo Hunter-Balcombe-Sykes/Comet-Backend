@@ -290,14 +290,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
+- P2 Medium: 4 of 4 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **PRIV-1** · P2 — Visitor lat/long stored as raw double-precision with no truncation
+- [x] **PRIV-1** · P2 — Visitor lat/long stored as raw double-precision with no truncation
     - **Where:** app/Services/Analytics/AnalyticsEvent.php:75-76; app/Services/Analytics/Writers/PostgresEventWriter.php:132-133; supabase/migrations/20260707020000_site_visits_lat_lon.sql:12-14
     - **Affects:** Every visitor whose page load resolves an edge-geolocated coordinate pair; the value is retained in `analytics.site_visits` for the full 90-day raw-event retention window.
     - **Effort:** S (~0.5–1h)
@@ -324,7 +324,7 @@ None.
             ADD COLUMN IF NOT EXISTS longitude double precision;
         ```
 
-- [ ] **PRIV-2** · P2 — User-Agent sanitizer only length-caps, doesn't reduce to browser family — full fingerprint persists across 5 analytics tables
+- [x] **PRIV-2** · P2 — User-Agent sanitizer only length-caps, doesn't reduce to browser family — full fingerprint persists across 5 analytics tables
     - **Where:** app/Services/Analytics/AnalyticsEventSanitizer.php:46-58; app/Services/Analytics/Writers/PostgresEventWriter.php:123, 195, 244, 285, 320; supabase/migrations/20260723090000_create_action_events.sql:39
     - **Affects:** Every visitor to every Partna sitepage — their browser/OS/device fingerprint lands in `site_visits`, `link_clicks`, `section_views`, `item_views`, and `action_events`, all for up to the 90-day raw retention window.
     - **Effort:** S (~1h)
@@ -350,7 +350,7 @@ None.
         'user_agent' => AnalyticsEventSanitizer::userAgent($e->userAgent),
         ```
 
-- [ ] **PRIV-3** · P2 — Moderation PII erasure (`purgeCaseSignalPii`, `purgeReportedUserEvidencePii`) runs on every account deletion but is untracked by the export/erasure coverage guard
+- [x] **PRIV-3** · P2 — Moderation PII erasure (`purgeCaseSignalPii`, `purgeReportedUserEvidencePii`) runs on every account deletion but is untracked by the export/erasure coverage guard
     - **Where:** app/Services/User/AccountDeletionService.php:50-57 (`PURGED_PII_TABLES`), :746-747 (calls in `purge()`), :951-972 (`purgeCaseSignalPii`), :991-1028 (`purgeReportedUserEvidencePii`); tests/Feature/Security/DataExportCoverageTest.php:178-187 (erasure-completeness guard)
     - **Affects:** Reporters and reported users whose PII lives in `moderation.case_signals`/`moderation.evidence` — a future refactor to either purge method would ship with no automated failure.
     - **Effort:** M (~2–4h)
@@ -376,7 +376,7 @@ None.
         $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
         ```
 
-- [ ] **PRIV-4** · P2 — `analytics.content_popularity_scores` has no time-bound retention — only a score-threshold fade-out that can retain rows indefinitely
+- [x] **PRIV-4** · P2 — `analytics.content_popularity_scores` has no time-bound retention — only a score-threshold fade-out that can retain rows indefinitely
     - **Where:** app/Console/Commands/PurgeRawAnalyticsEvents.php:19-28 (`TABLES` list omits this table); app/Console/Commands/ComputeContentPopularityScores.php:549-555 (fade-out-only deletion)
     - **Affects:** Every site whose `content_popularity_scores` rows maintain even faint recurring engagement — derived behavioural data tied to a `site_id` accumulates with no maximum age.
     - **Effort:** S (~0.5–1h)
@@ -1437,14 +1437,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#271-SEM-1** · P2 — `ensureCurrent`'s no-op guard conflates a collision suffix with a name that itself ends in digits, silently skipping legitimate slug renames
+- [x] **#271-SEM-1** · P2 — `ensureCurrent`'s no-op guard conflates a collision suffix with a name that itself ends in digits, silently skipping legitimate slug renames
     - **Where:** app/Services/Site/ItemSlugAllocator.php:32-37 (guard), :192-195 (`stripSuffix` helper)
     - **Affects:** Any professional renaming a menu item (via `MenuItemObserver::updated()`, gated on `wasChanged('name')`) whose *previous* title slugifies to something ending in `-<digits>` (e.g. "Fish Tacos 2", "Combo Meal 3") and whose new title drops that trailing number — the public sitepage menu-item URL keeps the stale numbered slug instead of updating.
     - **Effort:** M (~2–4h)

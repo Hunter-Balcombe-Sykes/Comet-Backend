@@ -5,11 +5,13 @@
 | Worker preview-bypass guard
 |--------------------------------------------------------------------------
 | The dashboard live preview appends ?preview=1 and depends on serveIndividual()
-| routing it straight to origin — no cache read, no cache write. cloudflare-worker/
-| has no JS test harness, so this PHP test parses the source, exactly as
-| ReservedSubdomainWorkerSyncTest does for the RESERVED set. Losing the param
-| from the bypass would silently return the preview to a 24h-TTL edge entry and
-| reintroduce the symptom this whole change set exists to remove.
+| routing it straight to origin — no cache read, no cache write. cloudflare-worker/test/
+| now covers the bypass behaviourally (cache.test.mjs), but this PHP test parses the
+| source for the exact param list, exactly as ReservedSubdomainWorkerSyncTest does for
+| the RESERVED set — the JS suite asserts the params it knows about, so only a source
+| parse catches one being quietly dropped from the condition. Losing a param from the
+| bypass would silently return the preview to a 24h-TTL edge entry and reintroduce the
+| symptom this whole change set exists to remove.
 */
 
 it('keeps preview in the serveIndividual bypass condition', function () {

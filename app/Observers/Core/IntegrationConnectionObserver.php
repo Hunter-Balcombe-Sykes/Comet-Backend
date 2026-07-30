@@ -461,6 +461,19 @@ class IntegrationConnectionObserver
         // Disconnect drops this integration's contributions; affected columns
         // re-resolve to the next-best source / manual / default.
         $this->refresher->refresh($connection);
+
+        // Roll site.updated_at (same hasCompletenessPredicate() gate and
+        // reasoning as saved() above) so the public.profile:{handle}:{ts}
+        // cache key rotates on disconnect too — otherwise a completeness-
+        // gated platform (fresha, shop) can keep advertising page presence
+        // from the now-gone connection until something unrelated touches the
+        // site. Placed right after refresh() — refresher->refresh() never
+        // throws (catches internally) — and BEFORE the best-effort cleanup
+        // calls below, so a failure in any of them can never skip this.
+        if (app(PlatformRegistry::class)->get($connection->platform)?->hasCompletenessPredicate()) {
+            $connection->user?->site?->touch();
+        }
+
         $this->cleanupMirroredMedia($connection);
         $this->retireEventSlugsOnDelete($connection);
         $this->syncIngestSource($connection);
@@ -531,6 +544,14 @@ class IntegrationConnectionObserver
     public function restored(IntegrationConnection $connection): void
     {
         $this->refresher->refresh($connection);
+
+        // Same hasCompletenessPredicate() touch as deleted()/saved() — a
+        // restore can bring page presence back for a completeness-gated
+        // platform, so the profile cache key must roll here too.
+        if (app(PlatformRegistry::class)->get($connection->platform)?->hasCompletenessPredicate()) {
+            $connection->user?->site?->touch();
+        }
+
         $this->syncIngestSource($connection);
 
         // deleted() HARD-deletes the slug rows (a retired row would still squat
@@ -546,12 +567,24 @@ class IntegrationConnectionObserver
      * (CONS-21). Soft-delete is the disconnect signal and there is no
      * restore-with-images flow, so cleaning now — rather than waiting for the
      * 30-day hard-delete purge — is safe and frees storage immediately.
+     *
+     * Best-effort — a failure here (a bad payload parse, a dispatch failure)
+     * must never break the rest of deleted()'s disconnect cleanup.
      */
     private function cleanupMirroredMedia(IntegrationConnection $connection): void
     {
-        $folder = InstagramPayload::fromArray($connection->payload)->folder;
-        if ($connection->platform === Platform::Instagram->value && $folder) {
-            DeleteMirroredMediaJob::dispatch($folder);
+        try {
+            $folder = InstagramPayload::fromArray($connection->payload)->folder;
+            if ($connection->platform === Platform::Instagram->value && $folder) {
+                DeleteMirroredMediaJob::dispatch($folder);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('IntegrationConnectionObserver mirrored-media disconnect cleanup failed', [
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 }

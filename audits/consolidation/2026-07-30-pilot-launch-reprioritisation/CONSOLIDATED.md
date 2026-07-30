@@ -46,7 +46,7 @@ root. Default order — **P0-PILOT → P1-PILOT → P0-LAUNCH → P1-LAUNCH**.
 | P1-PILOT | P1-LAUNCH | Collision |
 |---|---|---|
 | `JOB-4` — `RunExecutor.php:168-186` | `CACHE-3` — `RunExecutor.php:168-186` | **same method**, same lines |
-| `PRIV-3` — DSAR erasure coverage | `#9` — evidence snapshot export | **`#9` is a subset of `PRIV-3`** — `PRIV-3`'s fix text already prescribes the `streamEvidence()` section `#9` asks for. Expect P1-PILOT to close both. |
+| `PRIV-3` — DSAR erasure coverage | `#9` — evidence snapshot export | ~~**`#9` is a subset of `PRIV-3`**~~ — **this prediction was WRONG; `#9` is still open.** The P1-PILOT run (2026-07-30) deliberately did NOT add a `streamEvidence()` export section: `moderation.evidence`'s PII lives in a `payload` JSON column and an export section over it would have leaked third-party moderation context to the reported party. `PRIV-3` closed the *erasure*-coverage half only. `#9` — surfacing the subject's **own** captured handle/display_name in their DSAR — remains unstarted P1-LAUNCH work. |
 | `#43` + `#EDGE-2` + `#10` | `#10` — `src/index.js` | `#10` is listed in **both** buckets (Prompt 2 authorises it opportunistically). It belongs to whichever session reaches `cloudflare-worker/` first. |
 
 ⚠️ Never run `LC-K6` (P1-LAUNCH unit 6) in the same window as `LC-NIGHTWATCH` (P1-PILOT unit 6) — both
@@ -459,7 +459,7 @@ tracked in their source folders).
 | Bucket | Done |
 |---|---|
 | P0-PILOT | 6 / 7 |
-| P1-PILOT | 0 / 12 |
+| P1-PILOT | 11 / 12 |
 | P0-LAUNCH | 0 / 6 |
 | P1-LAUNCH | 0 / 27 |
 | DEAD bookkeeping | 0 / 11 |
@@ -480,9 +480,75 @@ tracked in their source folders).
 > `LC-PROD-ENV`, `LC-BACKUP` or `LC-EDGE-HARDENING` was actioned by an agent — starting, stopping,
 > deploying or promoting an environment was explicitly out of bounds for this run.
 
-**P1-PILOT**
-- [ ] `#CCH-4` · [ ] `#LIFE-11` · [ ] `#LIFE-12` · [ ] `271-SEM-1` · [ ] `#JOB-4` · [ ] `PRIV-1`
-- [ ] `PRIV-2` · [ ] `PRIV-4` · [ ] `PRIV-3` · [ ] `#43` · [ ] `#EDGE-2` · [ ] `LC-NIGHTWATCH`
+**P1-PILOT** — worked 2026-07-30 on `audit-fix/p1-pilot-2026-07-30` (isolated worktree, 7 commits).
+- [x] `#CCH-4` · [x] `#LIFE-11` · [x] `#LIFE-12` · [x] `271-SEM-1` · [x] `#JOB-4` · [x] `PRIV-1`
+- [x] `PRIV-2` · [x] `PRIV-4` · [x] `PRIV-3` · [x] `#43` · [x] `#EDGE-2` · [ ] `LC-NIGHTWATCH`
+
+> Every unit got plan → implement → **independent** review. Two units failed first review and
+> were re-implemented; one of those needed a second review round. Reviewers were given the two
+> highest-risk lines by name and asked for *positive* evidence rather than absence of concern —
+> which is how the `PRIV-3` UPDATE predicate got checked by dumping its generated SQL
+> (`where ("reporter_user_id" = ? or lower(trim(reporter_email)) = ?)`, correctly parenthesised,
+> OR leg omitted entirely on a null email) rather than by reading it.
+>
+> **`LC-NIGHTWATCH` is the one left open, deliberately.** Capture is proven — a `QueryException`
+> landed on dev unprompted as Nightwatch issue **#370** on 2026-07-30. The finding is about
+> *delivery*, and nothing an agent can read confirms an email or Slack message arrived.
+> **Trap for whoever runs it:** Nightwatch fingerprints by exception class + location, not
+> message, so a second probe of the same class folds into the same issue and will NOT re-fire a
+> new-issue alert — each attempt needs a distinct class. Also, a `report()` from `tinker` lands
+> as a **command**-source exception; if the alert rule is request-scoped, nothing fires even
+> though capture works, and *that* is the finding.
+>
+> **Three things the findings did not describe, all surfaced by verifying the premise first:**
+>
+> 1. **`PRIV-3` sat on a live erasure no-op.** `purgeCaseSignalPii()` filtered on
+>    `reporter_user_id`, but `ContentReportService::submit()` — the only `CaseSignal` writer —
+>    never populates it, and that route is unauthenticated. The column is always NULL in
+>    production, so the reporter-PII erasure had **never fired**. The existing test was green
+>    only because its fixture hand-inserts a row shape no production path produces. Fixed. The
+>    new guard now asserts every `PURGED_PII_TABLES` entry names a method that is actually
+>    *invoked inside* `purge()` — the gap was never a missing list, it was that nothing checked
+>    the list against live code.
+> 2. **`#LIFE-12`'s prescribed fix was net-harmful.** "Copy `connectionRefreshFailing`'s episode
+>    pattern" works only because `last_refreshed_at` has ONE writer.
+>    `site.menus.last_fetched_at` has three — `MenuFetchJob` (including its soft-unavailable
+>    branch), `MenuContentController::resolveMenu()` (every manual dish edit) and
+>    `MenuScanApplier::resolveMenu()` (every photo-scan apply) — so keying on it re-notifies on
+>    every failure that follows any manual edit. Needed a new single-writer column:
+>    `20260730120000_menus_last_successful_fetch_at.sql`, **applied to dev and the
+>    `schema_migrations` ledger realigned.** Prod untouched.
+> 3. **`#JOB-4` woke a dormant consumer.** `'degraded'` sat in `worse()`'s rank map but was never
+>    produced. Emitting it sent runs down `SourceScheduler::release()`'s failure branch →
+>    `consecutive_failures` → `health='dead'` at 10 → permanently excluded by `scoreDue()`, with
+>    reconnect deliberately not resetting scheduler health. A bug in our *own* projector could
+>    have retired a healthy vendor source forever. `$qualifies` now admits `'degraded'` with a
+>    per-field carve-out (EWMA applied, failures reset, measured interval — but `health` set to
+>    `'degraded'`, not `'ok'`, since the derived content is not good).
+>
+> **`271-SEM-1` needed no migration.** The collision-vs-name-digits discriminator is derivable at
+> runtime; a stored column would have been *worse*, because existing rows are ambiguous by
+> construction so an honest backfill must run the same walk anyway — and
+> `base_slug = base(current name)` would have cemented the bug permanently on already-broken
+> rows. Its public-URL consequence has an external dependency worth recording: item-slug 301s are
+> the **pages app's** job via the `aliases` array, and `partna-pages` does not exist yet (both
+> local frontends are Next.js dashboards with no public item route). So `aliases` is currently an
+> unfulfilled contract; the fix is still strictly better, since before it a stale slug was served
+> forever with no alias row at all.
+>
+> **`#10` is PARTIAL and deliberately NOT ticked** (it is P1-LAUNCH regardless). The three
+> hardcoded literals in `unclaimedHtml()` now read `PARTNA_DOMAIN`, which is behaviour-neutral,
+> but the finding's actual complaint — "regardless of environment" — is unfixed, because
+> `PARTNA_DOMAIN` is itself a deliberate flat literal (EDGE-3: the Worker has no `env()`).
+>
+> **`PRIV-1`'s premise was partly stale:** coordinates were never stored at full double precision
+> — `DetectsClientInfo::parseCoordinate()` already rounded to 4dp at ingest. The 2dp cut at the
+> persistence boundary was kept anyway, and review found it is *not* redundant:
+> `DataExportPayloadBuilder::streamAnalyticsSiteVisits()` streams those columns into a GDPR
+> export with no rounding of its own.
+>
+> **`#9` was predicted to close as a side effect of `PRIV-3`. It did not** — see the corrected
+> collision table above. It remains unstarted P1-LAUNCH work.
 
 **P0-LAUNCH**
 - [ ] `#TEST-2` · [ ] `#TEST-1` · [ ] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`

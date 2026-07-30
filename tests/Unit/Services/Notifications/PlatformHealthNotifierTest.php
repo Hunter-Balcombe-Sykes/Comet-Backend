@@ -117,11 +117,54 @@ it('LIFE-9: fires a SECOND critical notification for a genuine new failure episo
 });
 
 it('publishes a non-critical content_scrape warning on menu scrape failure', function () {
-    app(PlatformHealthNotifier::class)->menuScrapeFailed('pro-1');
+    app(PlatformHealthNotifier::class)->menuScrapeFailed('pro-1', null);
 
     $row = DB::table('notifications.notifications')->where('category', 'content_scrape')->first();
 
     expect($row)->not->toBeNull();
     expect((int) $row->critical)->toBe(0);         // transient → in-app only
     expect($row->ends_at)->not->toBeNull();        // auto-expires
+});
+
+it('still dedupes repeated menu-scrape failures WITHIN a single episode', function () {
+    // Same last_successful_fetch_at on both calls simulates two terminal failures
+    // inside one ongoing episode — only MenuFetchJob's fetch_status='ok' branch
+    // advances that column, so this is exactly what real repeated failures look
+    // like (failed() only flips fetch_status).
+    $episodeStart = now()->subDay();
+    $notifier = app(PlatformHealthNotifier::class);
+
+    $notifier->menuScrapeFailed('pro-1', $episodeStart);
+    $notifier->menuScrapeFailed('pro-1', $episodeStart);
+
+    expect(DB::table('notifications.notifications')->where('category', 'content_scrape')->count())->toBe(1);
+});
+
+it('LIFE-12: fires a SECOND content_scrape notification for a genuine new failure episode after recovery', function () {
+    $notifier = app(PlatformHealthNotifier::class);
+
+    // Episode 1: the menu has never successfully fetched (last_successful_fetch_at null).
+    $notifier->menuScrapeFailed('pro-1', null);
+
+    $episode1 = DB::table('notifications.notifications')->where('category', 'content_scrape')->get();
+    expect($episode1)->toHaveCount(1);
+
+    // Recovery: a successful scrape bumps last_successful_fetch_at
+    // (MenuFetchJob::handle, the 'ok' branch — its only writer). Recovery itself
+    // never calls the notifier, so nothing should be inserted by this step alone.
+    $recoveredAt = now();
+    expect(DB::table('notifications.notifications')->where('category', 'content_scrape')->count())->toBe(1);
+
+    // Episode 2: the SAME user's menu fails again after recovering. Against the
+    // pre-fix user-lifetime dedupe key this would collapse into the episode-1
+    // row (still count 1) and the user is never told about the new failure —
+    // that is the bug this test proves fixed.
+    $notifier->menuScrapeFailed('pro-1', $recoveredAt);
+
+    $rows = DB::table('notifications.notifications')->where('category', 'content_scrape')->get();
+    expect($rows)->toHaveCount(2);
+
+    $episode2 = $rows->firstWhere('dedupe_key', '!=', $episode1->first()->dedupe_key);
+    expect($episode2)->not->toBeNull();
+    expect((int) $episode2->critical)->toBe(0);
 });

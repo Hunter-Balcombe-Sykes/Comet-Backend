@@ -320,6 +320,47 @@ jobs:
         # Checkpoint caught 2 critical CVEs here 2026-07-19.
         run: npm audit --audit-level=high
 
+  # Cloudflare Worker test lane (cloudflare-worker/test/, vitest + the Miniflare
+  # programmatic API). The Worker is the public wire for 100% of
+  # <handle>.partna.au traffic and had zero tests before 2026-07-30.
+  #
+  # Its own job, NOT a step appended to supply-chain: that job has a `schedule`
+  # trigger, `fetch-depth: 0`, and on scheduled runs checks out `development`
+  # regardless of ref — all wrong for a code test, which must run against the ref
+  # under review.
+  #
+  # No `paths:` filter, deliberately. A path-filtered required check does not run
+  # at all when the filter misses, and GitHub renders a skipped required check as
+  # green — the guard would silently stop guarding.
+  worker-tests:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # 22, not the 20 used by supply-chain: both miniflare and wrangler
+          # declare `engines: node >= 22`, so the suite cannot run on 20.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare-worker/package-lock.json
+
+      - name: Install dependencies
+        working-directory: cloudflare-worker
+        run: npm ci
+
+      - name: Worker tests (vitest + Miniflare)
+        working-directory: cloudflare-worker
+        # Runs the real src/index.js inside workerd. No network egress: the
+        # harness stubs both the PARTNA_PAGES service binding and, critically,
+        # `outboundService` — without the latter, passThrough()'s plain fetch()
+        # would make real requests to https://api.partna.au from CI.
+        run: npm test
+
   # Real-Postgres regression lane (tests/Postgres/, see tests/PostgresTestCase.php).
   # `composer test` never reaches these — the Postgres-gated sentinels there
   # (e.g. ItemSlugAllocatorRegressionTest, guarding the SQLSTATE 25P02

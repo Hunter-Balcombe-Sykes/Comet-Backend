@@ -96,9 +96,15 @@ it('records a projection failure as an anomaly without failing the fetch', funct
 
     $result = app(RunExecutor::class)->execute($source, new BandcampConnector, BandcampConnector::manifest(), 'manual');
 
-    expect($result['outcome'])->toBe('ok')
+    // JOB-4: landing succeeded (the record versions are there) but the only
+    // projection threw, so the run must NOT report 'ok' — that would hide a
+    // total projection failure from anyone watching outcomes.
+    expect($result['outcome'])->toBe('degraded')
         ->and(DB::table('ingest.record_versions')->count())->toBe(1)
         ->and(DB::table('ingest.anomalies')->where('kind', 'projection')->count())->toBe(1);
+
+    $runRow = DB::table('ingest.runs')->where('id', $result['run_id'])->first();
+    expect($runRow->outcome)->toBe('degraded');
 
     // Restore for the suite's shared in-memory schema.
     setupContentTables();

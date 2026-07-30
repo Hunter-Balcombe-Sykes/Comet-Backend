@@ -17,7 +17,22 @@ class AnalyticsEventSanitizer
 {
     public const REFERRER_MAX_LENGTH = 512;
 
-    public const USER_AGENT_MAX_LENGTH = 256;
+    /**
+     * PRIV-2: family => detection pattern, checked IN ORDER — capture group 1 is the
+     * major version. Edge and Opera UAs also embed "Chrome/...", and every WebKit UA
+     * (including Chrome's) embeds "Safari/...", so the more specific tokens must be
+     * matched first or they'd be misclassified as Chrome/Safari. Safari's true version
+     * is the "Version/" token, not the "Safari/" WebKit-build number.
+     *
+     * @var array<string, string>
+     */
+    private const UA_FAMILY_PATTERNS = [
+        'Edge' => '/\bEdg(?:e|A|iOS)?\/(\d+)/',
+        'Opera' => '/\b(?:OPR|Opera)\/(\d+)/',
+        'Chrome' => '/\b(?:Chrome|CriOS)\/(\d+)/',
+        'Firefox' => '/\b(?:Firefox|FxiOS)\/(\d+)/',
+        'Safari' => '/\bVersion\/(\d+)(?:\.\d+)*.*\bSafari\//',
+    ];
 
     /**
      * Strip the query string + fragment from a referrer URL and cap its length.
@@ -43,10 +58,13 @@ class AnalyticsEventSanitizer
     }
 
     /**
-     * Cap the User-Agent at 256 chars — long enough for every legitimate browser
-     * family + version, short enough to drop the appended comment blocks that
-     * inflate the fingerprint. device_type is derived separately, so the raw UA
-     * adds no dashboard value beyond this. Returns null for an empty UA.
+     * PRIV-2: reduce the User-Agent to "<Family>/<major version>" (e.g. "Chrome/141"),
+     * discarding the OS/device/engine-build tail that makes a full UA string a strong
+     * cross-site fingerprint. device_type is derived separately from the RAW UA at
+     * ingest — DetectsClientInfo::detectDeviceType() runs on $request->userAgent()
+     * BEFORE this sanitiser is applied, and nothing downstream re-parses the STORED
+     * string — so reducing what's persisted here doesn't touch device/OS detection.
+     * Returns null for a missing/empty UA, 'Other' for a UA that matches no known family.
      */
     public static function userAgent(?string $userAgent): ?string
     {
@@ -54,6 +72,12 @@ class AnalyticsEventSanitizer
             return null;
         }
 
-        return Str::limit($userAgent, self::USER_AGENT_MAX_LENGTH, '');
+        foreach (self::UA_FAMILY_PATTERNS as $family => $pattern) {
+            if (preg_match($pattern, $userAgent, $m) === 1) {
+                return $family.'/'.$m[1];
+            }
+        }
+
+        return 'Other';
     }
 }
