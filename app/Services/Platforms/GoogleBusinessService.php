@@ -178,9 +178,16 @@ class GoogleBusinessService extends PlatformScraper
     // query syntax into the request — see the check in resolvePhotoUrls().
     private const PHOTO_REF_PATTERN = '#^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$#';
 
-    // Preserves the previous ->retry(2, 200) semantics: at most 2 attempts, the
-    // second only after a transport-level failure on the first.
+    // Fallback default for config('partna.limits.places.details_max_attempts')
+    // (CFG-8) — preserves the previous ->retry(2, 200) semantics: at most 2
+    // attempts, the second only after a transport-level failure on the first.
+    // Clamped 1..3 at both the config file and the read site below, because
+    // each attempt claims its own PlacesBudget slot — this number is a direct
+    // multiplier on billed Places spend, not just a resilience knob.
     private const DETAILS_MAX_ATTEMPTS = 2;
+
+    // Fallback default for config('partna.limits.places.details_retry_delay_microseconds').
+    private const DETAILS_RETRY_DELAY_US = 200_000;
 
     /**
      * Fetch Place Details (New) for a place ID and map the response onto
@@ -206,8 +213,14 @@ class GoogleBusinessService extends PlatformScraper
             return null;
         }
 
+        // Re-clamped here (not just in config/partna.php) so a runtime
+        // config()->set() — an on-call knob, a test — can never push the
+        // per-fetch billed-attempt count past 3.
+        $maxAttempts = max(1, min(3, (int) config('partna.limits.places.details_max_attempts', self::DETAILS_MAX_ATTEMPTS)));
+        $retryDelayUs = (int) config('partna.limits.places.details_retry_delay_microseconds', self::DETAILS_RETRY_DELAY_US);
+
         $res = null;
-        for ($attempt = 1; $attempt <= self::DETAILS_MAX_ATTEMPTS; $attempt++) {
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $claim = $this->budget->claim('details', $userId);
             if ($claim !== PlacesClaim::Granted) {
                 throw new PlacesBudgetExhaustedException('details', $claim, $placeId);
@@ -222,8 +235,8 @@ class GoogleBusinessService extends PlatformScraper
                     ->get('https://places.googleapis.com/v1/places/'.rawurlencode($placeId));
                 break;
             } catch (\Throwable $e) {
-                if ($attempt < self::DETAILS_MAX_ATTEMPTS) {
-                    usleep(200_000);
+                if ($attempt < $maxAttempts) {
+                    usleep($retryDelayUs);
 
                     continue;
                 }

@@ -6,6 +6,7 @@ use App\Models\Core\User\User;
 use App\Services\Cache\PlacesClaim;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -409,6 +410,59 @@ it('self-heals full reviewer data on the first refresh after claim (PRIV-1)', fu
     $healed = (new GoogleBusinessFetch($service))->fetch($connection);
     expect($healed['reviews'])->toHaveCount(1)
         ->and($healed['photos'][0]['authors'])->toBe(['A Reviewer']);
+});
+
+// ── CFG-8: retry attempts are clamped so they can't multiply billed spend ────
+
+// NOTE (matches the sibling lesson in PlacesBudgetGateTest's "transport retry"
+// test): Http::assertSentCount can't prove attempt counts here — a fake stub
+// that THROWS synchronously never reaches the recorder Laravel's fake harness
+// uses, so a details_max_attempts run that throws on every attempt would look
+// like zero requests sent regardless of how many times the loop actually ran.
+// An explicit counter closure is what actually proves the loop bound, same as
+// gate4's "transport retry" test above.
+
+it('makes exactly one attempt when details_max_attempts is 1 (CFG-8)', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    config()->set('partna.limits.places.details_retry_delay_microseconds', 0); // never actually sleep in the suite
+    config()->set('partna.limits.places.details_max_attempts', 1);
+    $attempts = 0;
+    Http::fake([
+        'places.googleapis.com/v1/places/*' => function () use (&$attempts) {
+            $attempts++;
+
+            throw new ConnectionException('boom');
+        },
+    ]);
+    $user = gbDetailsUser('gbd11');
+
+    $result = app(GoogleBusinessService::class)->fetchPlaceDetails('ChIJclamplow', (string) $user->id);
+
+    expect($result)->toBeNull();
+    expect($attempts)->toBe(1);
+});
+
+it('clamps the details retry attempt count to 3 even when config is set far higher (CFG-8)', function () {
+    config(['services.google_maps.server_api_key' => 'server-key']);
+    config()->set('partna.limits.places.details_retry_delay_microseconds', 0); // never actually sleep in the suite
+    // Bypasses the config-file clamp on purpose (config()->set skips the
+    // max(1, min(3, …)) in config/partna.php) — proving the read-site clamp
+    // in fetchPlaceDetails() is what actually holds the line, not the file.
+    config()->set('partna.limits.places.details_max_attempts', 99);
+    $attempts = 0;
+    Http::fake([
+        'places.googleapis.com/v1/places/*' => function () use (&$attempts) {
+            $attempts++;
+
+            throw new ConnectionException('boom');
+        },
+    ]);
+    $user = gbDetailsUser('gbd12');
+
+    $result = app(GoogleBusinessService::class)->fetchPlaceDetails('ChIJclamphigh', (string) $user->id);
+
+    expect($result)->toBeNull();
+    expect($attempts)->toBe(3);
 });
 
 // ── Public allowlist ─────────────────────────────────────────────────────────

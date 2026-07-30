@@ -325,6 +325,13 @@ return [
                 'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 200),
                 'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 400),
             ],
+
+            // CFG-8: Place Details retry policy. NOTE — attempts MULTIPLY billed spend: every
+            // attempt claims its own PlacesBudget slot (see fetchPlaceDetails), so raising this
+            // raises per-fetch cost. Clamped 1..3 so an on-call knob can never become a spend
+            // multiplier.
+            'details_max_attempts' => max(1, min(3, (int) env('PARTNA_PLACES_DETAILS_MAX_ATTEMPTS', 2))),
+            'details_retry_delay_microseconds' => (int) env('PARTNA_PLACES_DETAILS_RETRY_DELAY_US', 200_000),
         ],
 
         // CFG-3 (user-api audit): dashboard list endpoint pagination / query-limit

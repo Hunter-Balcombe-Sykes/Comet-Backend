@@ -3998,7 +3998,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 19 complete
+- P3 Low: 1 of 19 complete  (+#CFG-8 fixed 2026-07-31 — Places retry policy to config WITH a 1..3 spend clamp; the other 15 non-promoted CFG-* items are WONTFIX by decision, see BACKLOG-TRIAGE.md)
 
 ---
 
@@ -4103,7 +4103,7 @@ None.
         private const CUSTOM_LABEL_MAX = 80;
         ```
 
-- [ ] **#CFG-8** · P3 — `GoogleBusinessService` hardcodes Places API retry count and backoff delay
+- [x] **#CFG-8** · P3 — `GoogleBusinessService` hardcodes Places API retry count and backoff delay
     - **Where:** app/Services/Platforms/GoogleBusinessService.php:124, :167
     - **Affects:** Resilience tuning during a flaky Google Places API period.
     - **Effort:** S (~0.5–1h)
