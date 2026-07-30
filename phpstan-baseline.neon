@@ -2677,30 +2677,6 @@ parameters:
 			path: app/Services/Segments/SegmentResolver.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ContentSelection\:\:\$entry_type\.$#'
-			identifier: property.notFound
-			count: 5
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ContentSelection\:\:\$external_ref\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ContentSelection\:\:\$media_id\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Core\\Site\\ContentSelection\:\:\$position\.$#'
-			identifier: property.notFound
-			count: 4
-			path: app/Services/Site/ContentSelectionService.php
-
-		-
 			message: '#^Offset ''type'' on array\{type\: string, mediaId\?\: string\|null, ref\?\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
