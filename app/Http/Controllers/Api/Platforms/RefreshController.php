@@ -136,11 +136,10 @@ class RefreshController extends ApiController
         // the worker died or ScheduledRefresh swallowed a
         // LockTimeoutException without writing a terminal status (see
         // PlatformRefresher/ScheduledRefresh) — treat it as no-longer-blocking
-        // rather than poll forever. A null updated_at can't be proven stale,
-        // so it stays 'pending'.
+        // rather than poll forever.
         $stillPending = $rows->contains(
             fn (IntegrationConnection $row) => $row->last_refresh_status === 'pending'
-                && ($row->updated_at === null || $row->updated_at->gt(now()->subMinutes(StrandedPendingWindow::MINUTES)))
+                && $row->updated_at->gt(now()->subMinutes(StrandedPendingWindow::MINUTES))
         );
 
         if ($stillPending) {

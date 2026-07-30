@@ -101,9 +101,7 @@ class GcOrphanedPlatformMediaCommand extends Command
                         return;
                     }
 
-                    if ($connection->created_at !== null) {
-                        $live['platforms/instagram/'.$connection->created_at->timestamp] = true;
-                    }
+                    $live['platforms/instagram/'.$connection->created_at->timestamp] = true;
 
                     $stored = InstagramPayload::fromArray($connection->payload)->folder;
                     if (is_string($stored) && $stored !== '') {

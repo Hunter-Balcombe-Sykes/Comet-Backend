@@ -224,8 +224,13 @@ class EventsCatalog
      * re-read + merge of site settings (the LIFE-3 rule: two concurrent
      * writers must not clobber each other's unrelated settings keys).
      *
-     * @param  list<string>  $ids
-     * @return array{ok:bool, error?:string, status?:int, selection?:?array}
+     * $ids is list<mixed>, NOT list<string>: it arrives straight from the
+     * request body. `ids.*  => string` only holds if the validator actually
+     * ran, and this is a public service method — the is_string() filter below
+     * is the load-bearing check, not a formality. Do not narrow this back.
+     *
+     * @param  list<mixed>  $ids
+     * @return array{ok:true, selection:?array}|array{ok:false, error:string, status:int}
      */
     public function reorder(User $user, array $ids): array
     {

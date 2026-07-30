@@ -37,9 +37,13 @@ root. Default order — **P0-PILOT → P1-PILOT → P0-LAUNCH → P1-LAUNCH**.
 
 | Pair | Safe? | Why |
 |---|---|---|
-| P1-PILOT ∥ **P0-LAUNCH** | ✅ **yes** | No shared function bodies. Two soft overlaps to declare in the P0-LAUNCH prompt: `tests/Feature/Security/DataExportCoverageTest.php` (P1-PILOT owns it for `PRIV-3`), and comment-level conflicts on `supabase/migrations/*.sql` from `LC-ROLLBACK`. |
-| P1-PILOT ∥ **P1-LAUNCH** | ❌ **no** | Three hard collisions — see below. |
-| P0-LAUNCH ∥ P1-LAUNCH | ⚠️ partial | `#TEST-41` (P1-LAUNCH unit 4) edits `tests/Postgres/*`, which `#TEST-1`/`#TEST-2` are re-wiring. Sequence unit 4 after P0-LAUNCH merges. |
+| P0-LAUNCH ∥ **P1-LAUNCH** | ✅ **yes, minus one item** | 🔴 **Exclude `#TEST-41`** — it edits `tests/Postgres/*` while `#TEST-1`/`#TEST-2` re-wire the schema-drift gate over those same files, from opposite ends. Everything else is disjoint. Paste-ready prompt: [`EXECUTE-P1-LAUNCH-CONCURRENT.md`](./EXECUTE-P1-LAUNCH-CONCURRENT.md). |
+| ~~P1-PILOT ∥ P0-LAUNCH~~ | *historical* | Ran concurrently. P1-PILOT merged at `91f8064c`. |
+| ~~P1-PILOT ∥ P1-LAUNCH~~ | *historical* | Was ❌ on three hard collisions; **moot now that P1-PILOT has merged**. Two of the three still matter as *verification* items — see below. |
+
+⚠️ **Any session branching after 2026-07-30 must base off `91f8064c` or later.** `e4b9f573` predates
+both the audit-triage merge (`c0088c9f`) and the P1-PILOT merge (`91f8064c`); on that base you will
+re-do work that already exists, and conflict on `tests/Pest.php` and `.github/workflows/ci.yml`.
 
 **P1-LAUNCH ↔ P1-PILOT hard collisions — do not run these together:**
 
@@ -299,7 +303,13 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 
 ---
 
-### Prompt 4 — P1-LAUNCH (27 findings, 6 units)
+### Prompt 4 — P1-LAUNCH (34 findings, 8 units)
+
+> 📎 **Running this alongside a live P0-LAUNCH session? Use
+> [`EXECUTE-P1-LAUNCH-CONCURRENT.md`](./EXECUTE-P1-LAUNCH-CONCURRENT.md) instead of the prompt below.**
+> It folds in the 7 promoted findings as two new units, excludes `#TEST-41`, carries the P0-LAUNCH file
+> ownership table and conflict pre-flight, and flags the four findings whose premise changed when
+> P1-PILOT merged (`#9`, `#10`, `CFG-16`, `INH-6`).
 
 > Work the **P1-LAUNCH** bucket of
 > `audits/consolidation/2026-07-30-pilot-launch-reprioritisation/CONSOLIDATED.md`.
