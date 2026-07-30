@@ -18,7 +18,9 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\User;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 // The bootstrap MUST sit below the `use` block, not above it. PHP registers
 // namespace imports linearly as it compiles a file, so a `use` declared after a
@@ -139,9 +141,155 @@ function seedIdentity(string $label): array
     ];
 }
 
+/**
+ * Tier 2 fixture: a staff identity. Staff-ness is the core.partna_staff row
+ * ALONE (reference: staff access model) — the core.users row exists only so
+ * LoadCurrentUser can resolve a caller for the non-staff control route the
+ * probe hits first (/api/me).
+ *
+ * core.partna_staff keys on auth_user_id and has NO user_id column — verified
+ * against supabase/migrations/20260726000000_baseline_pilot.sql:1000.
+ *
+ * auth_user_id and status are NOT in User::$fillable (verified 2026-07-30);
+ * mass assignment would silently drop them, so both are assigned directly —
+ * same discipline as seedIdentity() above.
+ */
+function seedStaffIdentity(string $label): array
+{
+    $email = "dast-staff-{$label}@example.invalid";
+    $password = 'dast-seed-'.bin2hex(random_bytes(12));
+    $authUserId = createAuthUser($email, $password);
+
+    $user = new User([
+        'handle' => "dast-staff-{$label}",
+        'handle_lc' => "dast-staff-{$label}",
+        'display_name' => "DAST Staff {$label}",
+        'first_name' => 'DAST',
+        'last_name' => 'STAFF',
+        'account_type' => 'partna',
+        'primary_email' => $email,
+    ]);
+    $user->auth_user_id = $authUserId;
+    $user->save();
+
+    DB::connection('pgsql')->table('core.partna_staff')->insert([
+        'id' => (string) Str::uuid(),
+        'auth_user_id' => $authUserId,
+        'role' => 'admin',
+        'primary_email' => $email,
+        'name' => "DAST Staff {$label}",
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    return [
+        'email' => $email,
+        'password' => $password,
+        'auth_user_id' => $authUserId,
+        'user_id' => $user->id,
+        'role' => 'admin',
+    ];
+}
+
+/**
+ * Tier 2 fixture: a pool of claimants. A claimant is an auth user with NO
+ * core.users row — ClaimSiteService::claim() throws ACCOUNT_EXISTS the moment
+ * User::where('auth_user_id', $uid)->exists() is true, so seedIdentity() is
+ * deliberately NOT reused here.
+ *
+ * Distinct uids also keep each claimant in its own throttle:claim bucket (the
+ * limiter keys on 'claim:'.$supabase_uid — AppServiceProvider.php:754), which
+ * is what lets N of them run concurrently without 429s.
+ *
+ * @return list<array{email: string, password: string, auth_user_id: string}>
+ */
+function seedClaimants(int $count): array
+{
+    $out = [];
+    for ($i = 0; $i < $count; $i++) {
+        $email = "dast-claimant-{$i}@example.invalid";
+        $password = 'dast-seed-'.bin2hex(random_bytes(12));
+        $out[] = [
+            'email' => $email,
+            'password' => $password,
+            'auth_user_id' => createAuthUser($email, $password),
+        ];
+    }
+
+    return $out;
+}
+
+/**
+ * Tier 2 fixture: one unclaimed, published, FIRST-COME build.
+ *
+ * contact_email is left NULL on purpose — that is the branch in
+ * ClaimSiteService::claim() which skips the email gate and makes the row
+ * claimable by any verified email. With the gate active only one email could
+ * ever win and the race would be untestable.
+ *
+ * status='unclaimed' is assigned directly (not fillable) because
+ * claim() rejects anything else with ALREADY_CLAIMED before the race even
+ * starts. site.sites and core.pre_account_builds are written with raw inserts
+ * so no observer fires: SiteObserver dispatches Cloudflare purge / KV sync
+ * jobs, and QUEUE_CONNECTION=sync in .env.dast would run them inline.
+ *
+ * source_type / built_via / build_state values are constrained by CHECKs in
+ * the baseline migration (lines 1036-1038).
+ */
+function seedFirstComeBuild(string $label): array
+{
+    $subdomain = "dast-firstcome-{$label}";
+
+    $user = new User([
+        'handle' => $subdomain,
+        'handle_lc' => $subdomain,
+        'display_name' => "DAST FirstCome {$label}",
+        'first_name' => 'DAST',
+        'last_name' => 'FIRSTCOME',
+        'account_type' => 'partna',
+    ]);
+    $user->auth_user_id = null;
+    $user->primary_email = null;
+    $user->status = 'unclaimed';
+    $user->save();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'subdomain' => $subdomain,
+        'is_published' => true,
+        'settings' => json_encode([]),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $buildId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.pre_account_builds')->insert([
+        'id' => $buildId,
+        'user_id' => $user->id,
+        'source_type' => 'instagram',
+        'source_ref' => $subdomain,
+        'source_ref_lc' => $subdomain,
+        'built_via' => 'signup',
+        'build_state' => 'ready',
+        'contact_email' => null,     // ← first-come. Do not set.
+        'auto_invite' => false,      // no outreach from a test fixture
+        'expires_at' => now()->addDays(30),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    return ['subdomain' => $subdomain, 'user_id' => $user->id, 'build_id' => $buildId];
+}
+
+// CLAIM_RACE_N = 8 — enough contention to make a lock failure obvious without
+// straining a laptop.
 $identities = [
     'A' => seedIdentity('a'),
     'B' => seedIdentity('b'),
+    'staff' => seedStaffIdentity('a'),
+    'claimants' => seedClaimants(8),
+    'firstComeBuild' => seedFirstComeBuild('a'),
 ];
 
 file_put_contents("$outdir/identities.json", json_encode($identities, JSON_PRETTY_PRINT));
