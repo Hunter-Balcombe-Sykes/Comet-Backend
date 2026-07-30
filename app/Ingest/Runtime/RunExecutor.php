@@ -171,6 +171,13 @@ class RunExecutor
                     $this->projections->projectStream($source, $streamId, $streamName);
                 } catch (\Throwable $e) {
                     report($e);
+                    // JOB-4: a projection failure must move the run outcome off 'ok' —
+                    // the landing succeeded but the derived content it feeds did not,
+                    // so 'ok' would silently hide it. 'degraded' (worse() rank 4) is
+                    // between budget_skipped and unavailable: worse than an
+                    // unexceptional run, but not as bad as a stream that failed to
+                    // land or fetch at all.
+                    $worstOutcome = $this->worse($worstOutcome, 'degraded');
                     $notes[] = ['code' => 'projection_error', 'message' => $e->getMessage()];
                     DB::table('ingest.anomalies')->insert([
                         'id' => (string) Str::uuid(),

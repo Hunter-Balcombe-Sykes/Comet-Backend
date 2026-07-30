@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\User\User;
+use App\Services\Moderation\EvidenceSnapshotService;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -209,6 +210,132 @@ it('does not touch moderation case/signal/decision rows — case stays decidable
     $case = DB::connection('pgsql')->table('moderation.cases')->where('id', $caseId)->first();
     expect($case)->not->toBeNull();
     expect($case->status)->toBe('open');
+});
+
+/*
+| PRIV-3 (D1): every test above hand-seeds the payload via seedEvidenceRow(),
+| which means they assert against a FIXTURE of what snapshotSite() writes, not
+| against snapshotSite() itself. Add a PII key to the real writer and all five
+| stay green while erasure silently becomes incomplete — the fixture simply
+| never contains the new key.
+|
+| This test closes that by going the other way round: seed the SUBJECT with
+| distinctive sentinel strings on every user/site field the snapshot could
+| plausibly reach, capture through the REAL EvidenceSnapshotService, purge, then
+| assert no sentinel survives anywhere in the stored payload. Value-based, not
+| key-based, so it is agnostic to which key a future writer adds.
+|
+| Scope limit: capture()'s match has exactly one arm today ('Site' =>
+| snapshotSite()); every other target type throws. A new arm (SiteMedia / Block
+| / User) is a new PII surface this test does NOT cover — it needs its own
+| sentinel case here, alongside a redaction path in
+| AccountDeletionService::purgeReportedUserEvidencePii().
+|
+| Not sentinelled deliberately: block_type. It flows into payload.block_types
+| and is RETAINED by design (non-PII, needed for case integrity), so a sentinel
+| there would assert the opposite of the intended behaviour.
+| `bio` is absent for a different reason — there is no bio column anywhere in
+| the schema (the purge docblock used to claim snapshotSite() wrote one).
+*/
+
+/**
+ * Seed a purge-eligible user + site + block where every field snapshotSite()
+ * could read carries a unique, greppable sentinel. Returns [userId, siteId,
+ * sentinels].
+ *
+ * @return array{0: string, 1: string, 2: list<string>}
+ */
+function seedSnapshotSentinelSubject(): array
+{
+    $userId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $authId = (string) Str::uuid();
+    $tag = substr($userId, 0, 8);
+
+    $handle = "zzsentinelhandle{$tag}";
+    $displayName = "ZZ-SENTINEL-DISPLAYNAME-{$tag}";
+    $subdomain = "zzsentinelsubdomain{$tag}";
+    $primaryEmail = "zz-sentinel-primary-{$tag}@example.test";
+    $publicContactEmail = "zz-sentinel-public-{$tag}@example.test";
+    $firstName = "ZZ-SENTINEL-FIRSTNAME-{$tag}";
+    $lastName = "ZZ-SENTINEL-LASTNAME-{$tag}";
+    $phone = "+61400{$tag}";
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $userId,
+        'auth_user_id' => $authId,
+        'handle' => $handle,
+        'handle_lc' => $handle,
+        'display_name' => $displayName,
+        'first_name' => $firstName,
+        'last_name' => $lastName,
+        'phone' => $phone,
+        'primary_email' => $primaryEmail,
+        'public_contact_email' => $publicContactEmail,
+        'status' => 'pending_deletion',
+        'deletion_confirmed_at' => now()->subDays(31)->toIso8601String(),
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
+    ]);
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $userId,
+        'subdomain' => $subdomain,
+        'is_published' => 1,
+        'settings' => '{}',
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
+    ]);
+
+    // block_type stays realistic on purpose — see the header comment.
+    DB::connection('pgsql')->table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'site_id' => $siteId,
+        'block_group' => 'content',
+        'block_type' => 'gallery',
+        'settings' => '{}',
+        'sort_order' => 0,
+        'created_at' => now()->toIso8601String(),
+        'updated_at' => now()->toIso8601String(),
+    ]);
+
+    return [$userId, $siteId, [
+        $handle, $displayName, $subdomain, $primaryEmail,
+        $publicContactEmail, $firstName, $lastName, $phone,
+    ]];
+}
+
+it('leaves no snapshot sentinel anywhere in the evidence payload after purge (PRIV-3)', function () {
+    [$userId, $siteId, $sentinels] = seedSnapshotSentinelSubject();
+    $caseId = seedModerationCase();
+
+    // The REAL writer — not seedEvidenceRow(). Whatever snapshotSite() puts in
+    // the payload today is what gets tested, including keys added tomorrow.
+    $evidence = app(EvidenceSnapshotService::class)->capture($caseId, 'Site', $siteId, null);
+
+    // Sanity: the capture actually picked the sentinels up, so a green result
+    // below means "redacted", never "nothing was there in the first place".
+    $captured = json_encode($evidence->payload, JSON_THROW_ON_ERROR);
+    expect($captured)->toContain($sentinels[0]);
+
+    $professional = User::find($userId);
+    expect(app(AccountDeletionService::class)->purge($professional))->toBeTrue();
+
+    $row = DB::connection('pgsql')->table('moderation.evidence')->where('id', $evidence->id)->first();
+    expect($row)->not->toBeNull();
+
+    // Re-encode rather than inspecting keys: a future writer could nest PII
+    // under a new key, an array, or a different name entirely.
+    $stored = json_encode(json_decode($row->payload, true), JSON_THROW_ON_ERROR);
+
+    $survivors = array_values(array_filter(
+        $sentinels,
+        fn (string $sentinel) => str_contains($stored, $sentinel),
+    ));
+
+    expect($survivors)->toBe([], "Reported-user PII survived the evidence purge:\n  - ".implode("\n  - ", $survivors)."\n\nEvidenceSnapshotService::snapshotSite() now writes a field that AccountDeletionService::purgeReportedUserEvidencePii() does not redact. Add the new key to that method's redaction list (and to its docblock).\n\nStored payload: {$stored}");
 });
 
 it('logs an error and still completes forceDelete when evidence scrub throws (PRIV-4)', function () {

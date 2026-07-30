@@ -17,6 +17,13 @@ use Throwable;
 // what SiteProvisioningService does). Uses -2-first (fish-tacos, fish-tacos-2),
 // matching the pages-app fallback loop and the user-approved scheme — distinct
 // from the subdomain allocator's -1-first convention (left unchanged).
+//
+// Trailing digits in a stored slug are NOT a reliable collision marker: `table-9`
+// is what "Table 9" slugifies to at n=1, indistinguishable by shape from the -9
+// a collision would have minted. Deciding "is this slug still right?" therefore
+// needs the registry, not a regex — see ensureCurrent()/canonicalSlug(). Anyone
+// later writing an allocator for `content.item_slugs` (same table shape, no
+// allocator today) inherits the same trap.
 class ItemSlugAllocator
 {
     public const TYPE_EVENT = 'event';
@@ -33,9 +40,23 @@ class ItemSlugAllocator
         $base = $this->base($name, $itemKey);
         $current = $this->currentRow($userId, $itemType, $itemKey);
 
-        // Same base as the live slug (ignoring any -N suffix) → no-op.
-        if ($current !== null && $this->stripSuffix($current->slug) === $base) {
-            return $current->slug;
+        // No-op iff the live slug is the one allocateSlug() would land on for this
+        // base right now. The old test — "strip a trailing -N and compare bases" —
+        // could not tell a collision suffix from digits that are part of the name:
+        // "Table 9" mints `table-9` at n=1, so renaming it to "Table" looked like a
+        // no-op and the item kept serving the stale public slug.
+        if ($current !== null) {
+            $live = (string) $current->slug;
+            if ($live === $base) {
+                return $live;
+            }
+            $n = $this->collisionSuffix($live, $base);
+            // Not `base-<N>` at all → genuine rename. A suffix allocateSlug() could
+            // never mint (leading zero, < 2, > its 200-iteration ceiling) → the digits
+            // came from the name, so re-mint. Both cost zero extra queries.
+            if ($n !== null && $this->canonicalSlug($userId, $itemType, $itemKey, $base, $n) === $live) {
+                return $live;
+            }
         }
 
         // Rename-back: this item already owns a retired row for this base → reactivate it
@@ -150,9 +171,13 @@ class ItemSlugAllocator
             $name = (string) $name;
             $live = $currentByKey[$itemKey] ?? null;
 
-            // Already on the right base (suffix included) → ensureCurrent would
-            // no-op anyway; skip the round trip.
-            if ($live !== null && $this->stripSuffix($live) === $this->base($name, $itemKey)) {
+            // EXACT match only. The old lenient skip ("same base ignoring any -N")
+            // swallowed the stale-slug case before ensureCurrent could see it, so
+            // fixing that guard alone left the whole menu-rebuild path unfixed.
+            // Cost of the strictness: two extra queries per *suffixed* item per
+            // rebuild — both returning "no change" — which on a 300-dish menu is a
+            // handful of items, not 300.
+            if ($live !== null && $live === $this->base($name, $itemKey)) {
                 continue;
             }
 
@@ -326,8 +351,80 @@ class ItemSlugAllocator
             ->update(['is_current' => false]);
     }
 
-    private function stripSuffix(string $slug): string
+    /**
+     * Read `$slug` as `$base-<N>` and return N, or null if it isn't that shape or
+     * carries an N that allocateSlug() could never have minted.
+     *
+     * Rejects a leading zero (`table-09` is name-derived — the loop formats N with
+     * no padding) and N < 2 (this allocator is -2-first: n=1 stores the bare base).
+     * N > 200 is likewise unmintable, allocateSlug()'s loop stopping there — and
+     * rejecting it also bounds canonicalSlug()'s candidate list, so "Table 999999"
+     * cannot build a million-element whereIn.
+     *
+     * Plain string ops, not a preg_quote'd regex: the base is arbitrary
+     * slugified text and a hand-built pattern is the easier thing to get wrong.
+     */
+    private function collisionSuffix(string $slug, string $base): ?int
     {
-        return preg_replace('/-\d+$/', '', $slug);
+        $prefix = $base.'-';
+        if (! str_starts_with($slug, $prefix)) {
+            return null;
+        }
+        $digits = substr($slug, strlen($prefix));
+        if ($digits === '' || ! ctype_digit($digits) || $digits[0] === '0') {
+            return null;
+        }
+        $n = (int) $digits;
+
+        return ($n >= 2 && $n <= 200) ? $n : null;
+    }
+
+    /**
+     * Which of `$base`, `$base-2` … `$base-$upTo` would allocateSlug() land on for
+     * this item right now? Null when every candidate is held by someone else.
+     *
+     * ONE bounded SELECT (≤200 exact slugs, straight down the (user_id, slug)
+     * unique index) replaying allocateSlug()'s walk. Two things it must get right:
+     *
+     * - Availability is keyed on (user_id, slug) ONLY, because item_slugs_unique_slug
+     *   is non-partial and NOT scoped by item_type — events and menu items share one
+     *   slug namespace per profile. Adding `where('item_type', …)` here would let a
+     *   menu item conclude an event's slug is free, and the authoritative
+     *   insertOrIgnore would then disagree with this walk.
+     * - Ownership is (user_id, item_type, item_key): a row this very item already
+     *   holds — current or retired — does not block it.
+     *
+     * Advisory only. Nothing downstream trusts the answer: insertUnique()'s
+     * insertOrIgnore remains the race-safe allocator of record. And this is a plain
+     * SELECT, so it cannot abort a caller's Postgres transaction (25P02) — see
+     * insertUnique()'s note and tests/Postgres/ItemSlugAllocatorSavepointTest.php.
+     */
+    private function canonicalSlug(string $userId, string $itemType, string $itemKey, string $base, int $upTo): ?string
+    {
+        $candidates = [$base];
+        for ($n = 2; $n <= $upTo; $n++) {
+            $candidates[] = $base.'-'.$n;
+        }
+
+        /** @var array<string, bool> $mine slug => owned by this item */
+        $mine = [];
+        $rows = DB::connection('pgsql')->table(self::TABLE)
+            ->where('user_id', $userId)
+            ->whereIn('slug', $candidates)
+            ->get(['slug', 'item_type', 'item_key']);
+        foreach ($rows as $row) {
+            $mine[(string) $row->slug] = (string) $row->item_type === $itemType
+                && (string) $row->item_key === $itemKey;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (! array_key_exists($candidate, $mine) || $mine[$candidate]) {
+                return $candidate;
+            }
+        }
+
+        // Every candidate is squatted by another item — fall through to the normal
+        // mint path so insertUnique() raises its existing RuntimeException.
+        return null;
     }
 }

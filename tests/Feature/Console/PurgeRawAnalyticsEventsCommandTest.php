@@ -16,6 +16,7 @@ beforeEach(function () {
     setupSectionViewsTable();
     setupItemViewsTable();
     setupActionEventsTable();
+    setupContentPopularityScoresTable();
 
     // No shared Pest.php helper for this table — mirrors the minimal DDL used by
     // tests/Feature/Middleware/LogLeadRateLimitsTest.php.
@@ -155,4 +156,64 @@ it('dry-run reports the eligible row count per table without deleting', function
         ->assertExitCode(0);
 
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(2);
+});
+
+// PRIV-4 — content_popularity_scores had no time-bound retention at all; it's now
+// purged in the same command on its own config-driven window, keyed on computed_at
+// (there is no occurred_at column on this derived-scores table).
+
+function seedScoreRow(string $computedAt): void
+{
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => (string) Str::uuid(),
+        'content_type' => 'page',
+        'content_key' => 'home',
+        'score' => 1.0,
+        'rank' => 1,
+        'computed_at' => $computedAt,
+    ]);
+}
+
+it('defaults the content_popularity_scores retention to 180 days', function () {
+    expect(config('partna.analytics.content_popularity_scores_retention_days'))->toBe(180);
+});
+
+it('purges content_popularity_scores rows older than their own retention window, independent of --days', function () {
+    // A raw-event --days override must NOT change the scores cutoff — proves the two
+    // windows are genuinely independent, not --days silently governing both.
+    config(['partna.analytics.content_popularity_scores_retention_days' => 200]);
+
+    $old = now()->subDays(210)->toDateTimeString();
+    $fresh = now()->subDays(190)->toDateTimeString();
+    seedScoreRow($old);
+    seedScoreRow($fresh);
+
+    $this->artisan('partna:analytics:purge-raw-events', ['--days' => 30])->assertExitCode(0);
+
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')->count())->toBe(1)
+        ->and(DB::connection('pgsql')->table('analytics.content_popularity_scores')->value('computed_at'))->toBe($fresh);
+});
+
+it('dry-run reports eligible content_popularity_scores rows without deleting them', function () {
+    config(['partna.analytics.content_popularity_scores_retention_days' => 30]);
+    seedScoreRow(now()->subDays(40)->toDateTimeString());
+
+    $this->artisan('partna:analytics:purge-raw-events', ['--dry-run' => true])
+        ->expectsOutputToContain('analytics.content_popularity_scores')
+        ->assertExitCode(0);
+
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')->count())->toBe(1);
+});
+
+it('rejects a content_popularity_scores retention below the 30-day floor and exits with a failure code', function () {
+    config(['partna.analytics.content_popularity_scores_retention_days' => 29]);
+    seedScoreRow(now()->subDays(40)->toDateTimeString());
+
+    $this->artisan('partna:analytics:purge-raw-events')
+        ->expectsOutputToContain('content_popularity_scores retention window must be at least 30 days (got 29)')
+        ->assertExitCode(1);
+
+    // The guard rejects before any table is touched, including the raw ones.
+    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')->count())->toBe(1);
 });

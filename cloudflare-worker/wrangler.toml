@@ -2,9 +2,8 @@ name = "partna-subdomain-router"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
-# Runs on every *.partna.au request. Specific subdomain DNS records (e.g.,
-# brand CNAMEs to shops.myshopify.com) and a wildcard *.partna.au record
-# both flow through this Worker.
+# Runs on every request in the partna.au zone. Both the wildcard *.partna.au DNS
+# record and any specific subdomain record flow through this Worker.
 # `*/*` (not `*.partna.au/*`) is required so the Worker runs on Cloudflare-for-SaaS
 # custom hostnames too: Worker Routes see that traffic as the CUSTOMER's hostname
 # (e.g. tuesdae.co), not the fallback origin, so only a zone-wide wildcard catches
@@ -25,8 +24,10 @@ STALE_SHADOW_TTL_S = 604_800
 
 # KV namespace holding the subdomain routing table — this is the PRODUCTION
 # namespace (used by the default/production deploy).
-# Replace `id` with the namespace ID from `wrangler kv:namespace create`.
-# `preview_id` is used during `wrangler dev`; create with `--preview`.
+# Both ids are real and committed — nothing to create for an existing checkout.
+# A new namespace comes from `wrangler kv namespace create` (wrangler 4 dropped
+# the `kv:namespace` colon form). `preview_id` is only used by
+# `wrangler dev --remote`; plain `wrangler dev` simulates KV locally.
 [[kv_namespaces]]
 binding = "SUBDOMAIN_KV"
 id = "ce726607804d41a296d6da150b0c537f"

@@ -41,6 +41,29 @@ it('is idempotent across re-sync (stable hex → same slug, no new rows)', funct
     expect(eventSlug('hexccc'))->toBe('sold-out-show');
 });
 
+it('does not churn an event legitimately parked on a -N suffix across re-syncs', function () {
+    // 271-SEM-1 churn guard. syncEvents() calls ensureCurrent() for EVERY event on
+    // EVERY connection save with no change gate, so a no-op rule that only accepted
+    // the bare base would walk hexbbb up -3, -4, -5… once per save, burning a fresh
+    // public URL each time and retiring the last one.
+    $events = [
+        ['id' => 'hexaaa', 'name' => 'Gig Night'],
+        ['id' => 'hexbbb', 'name' => 'Gig Night'],
+    ];
+
+    $this->sync->syncEvents('user-1', $events);
+    expect(eventSlug('hexaaa'))->toBe('gig-night');
+    expect(eventSlug('hexbbb'))->toBe('gig-night-2');
+
+    $this->sync->syncEvents('user-1', $events);
+    $this->sync->syncEvents('user-1', $events);
+    $this->sync->syncEvents('user-1', $events);
+
+    expect(eventSlug('hexaaa'))->toBe('gig-night');
+    expect(eventSlug('hexbbb'))->toBe('gig-night-2');
+    expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(2);
+});
+
 it('skips malformed entries (missing id/name, or a non-array element)', function () {
     $this->sync->syncEvents('user-1', [
         ['name' => 'No Id'],

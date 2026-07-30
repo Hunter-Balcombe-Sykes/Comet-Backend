@@ -6,12 +6,13 @@
 |--------------------------------------------------------------------------
 | config('partna.reserved_subdomains') and cloudflare-worker/src/index.js's
 | `RESERVED` Set encode the SAME list twice, by hand — the Worker is plain JS
-| with no build-time link to Laravel config and no JS test harness of its own
-| (cloudflare-worker/ has zero test files), so this is the ONLY automated
-| cross-check between the two. A subdomain reserved on one side but not the
-| other either lets someone claim a route the Worker treats as infrastructure
-| (KV entry never checked, 404s forever) or silently 404s a subdomain PHP
-| still thinks is free.
+| with no build-time link to Laravel config. cloudflare-worker/test/ now has its
+| own Miniflare/vitest suite, but it runs the Worker inside workerd with no access
+| to Laravel config, so it structurally CANNOT see this mirror: this test remains
+| the ONLY automated cross-check between the two. A subdomain reserved on one side
+| but not the other either lets someone claim a route the Worker treats as
+| infrastructure (KV entry never checked, 404s forever) or silently 404s a
+| subdomain PHP still thinks is free.
 |
 | This test does NOT hand-maintain a third copy of the list — it parses the
 | literal array straight out of the Worker source file and diffs it against

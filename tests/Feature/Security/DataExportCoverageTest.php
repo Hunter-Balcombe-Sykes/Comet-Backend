@@ -59,11 +59,19 @@ const EXPORT_EXEMPT = [
  *
  * When a model gains a new raw-PII column, add its exact name here rather
  * than switching to a substring match.
+ *
+ * PRIV-3: `reporter_email` (moderation.case_signals / CaseSignal — the only
+ * model carrying it) was missing, so the one raw email column belonging to a
+ * THIRD PARTY rather than the account holder was the one the sweep could not
+ * see. Adding a marker only became safe once moderation.case_signals was in
+ * COVERED_PII_TABLES — the detector below turns red the moment a marker
+ * matches an uncovered table, which is the ordering constraint, not a
+ * coincidence.
  */
 const PII_MARKERS = [
     'email', 'email_lc', 'consent_ip_hash',
     'primary_email', 'public_contact_email', 'reply_email',
-    'contact_email', 'recipient_email',
+    'contact_email', 'recipient_email', 'reporter_email',
     'professional_email_snapshot',
     'staff_email_snapshot', 'impersonator_email_snapshot',
 ];
@@ -194,6 +202,93 @@ it('every exported PII table has an erasure path or a documented retention', fun
     ));
 
     expect($unaccounted)->toBe([], "Exported PII tables with no erasure path:\n  - ".implode("\n  - ", $unaccounted)."\n\nEvery table in COVERED_PII_TABLES must be one of:\n  - purged explicitly -> add a purge*() call in AccountDeletionService::purge() and list it in PURGED_PII_TABLES\n  - erased by FK cascade -> add to CASCADE_ERASED in this test, naming the cascading parent\n  - deliberately retained -> add to RETAINED_BY_DESIGN in this test with the legal/architectural reason");
+});
+
+/*
+| PRIV-3: the erasure register above only asserts that a table is NAMED in
+| PURGED_PII_TABLES. It cannot tell a real purge from a stale claim — the
+| constant is a hand-maintained list of strings, so a purge method that is
+| renamed, deleted, or quietly dropped out of purge()'s call list leaves the
+| register still asserting coverage that no longer runs. That is the exact
+| failure mode this pair of constants + the test below closes: every entry must
+| name the method(s) that erase it, and each of those methods must still exist
+| AND still be called from inside purge() itself.
+*/
+
+/**
+ * PURGED_PII_TABLES entry => the AccountDeletionService method(s) that erase it.
+ *
+ * Kept set-equal to PURGED_PII_TABLES by assertion (i) below, so neither list
+ * can grow or shrink without the other.
+ *
+ * @var array<string, list<string>>
+ */
+const PURGE_MECHANISMS = [
+    'core.users' => ['forceDelete'],
+    'core.early_access_signups' => ['purgeEarlyAccessSignup'],
+    'core.feedback' => ['purgeFeedbackRows'],
+    'notifications.email_subscriptions' => ['purgeGlobalEmailSubscriptions', 'purgeCrossTenantSubscriptions'],
+    'analytics.item_views' => ['purgeItemViewsPii'],
+    'analytics.action_events' => ['purgeActionEventsPii'],
+    'ingest.effects' => ['purgeIngestEffects'],
+    'moderation.case_signals' => ['purgeCaseSignalPii'],
+    'moderation.evidence' => ['purgeReportedUserEvidencePii'],
+];
+
+it('every PURGED_PII_TABLES entry names a purge method that exists and is still called by purge()', function () {
+    // (i) The two registers describe the same set of tables.
+    $registered = AccountDeletionService::PURGED_PII_TABLES;
+    $mechanised = array_keys(PURGE_MECHANISMS);
+    sort($registered);
+    sort($mechanised);
+
+    expect($mechanised)->toBe($registered, "PURGE_MECHANISMS and AccountDeletionService::PURGED_PII_TABLES disagree.\n  PURGED_PII_TABLES: ".implode(', ', $registered)."\n  PURGE_MECHANISMS:  ".implode(', ', $mechanised)."\n\nAdd the missing table => [method] line to PURGE_MECHANISMS in tests/Feature/Security/DataExportCoverageTest.php, or remove the stale one. Every erasure claim must name the code that honours it.");
+
+    // Read purge()'s own body once — assertion (iii) checks each method is
+    // called from THERE, not merely defined somewhere on the class.
+    $purge = new ReflectionMethod(AccountDeletionService::class, 'purge');
+    $lines = file($purge->getFileName());
+    $purgeBody = implode('', array_slice(
+        $lines,
+        $purge->getStartLine() - 1,
+        $purge->getEndLine() - $purge->getStartLine() + 1,
+    ));
+
+    $reflection = new ReflectionClass(AccountDeletionService::class);
+    $missingMethods = [];
+    $uncalled = [];
+
+    foreach (PURGE_MECHANISMS as $table => $methods) {
+        foreach ($methods as $method) {
+            // (ii) core.users is the deletion subject itself — erased by
+            // $professional->forceDelete(), an Eloquent call on the model rather
+            // than a method on this service. Exempt from the hasMethod() check
+            // for the same reason it is exempt from the builder-reference check
+            // above: it is reached through Eloquent, not through a named local.
+            if ($table === 'core.users') {
+                expect(str_contains($purgeBody, '->forceDelete('))->toBeTrue(
+                    'PURGE_MECHANISMS claims core.users is erased by forceDelete, but AccountDeletionService::purge() no longer calls ->forceDelete(). Restore the call, or update the core.users line in PURGE_MECHANISMS in tests/Feature/Security/DataExportCoverageTest.php.'
+                );
+
+                continue;
+            }
+
+            if (! $reflection->hasMethod($method)) {
+                $missingMethods[] = "{$table} => {$method}()";
+
+                continue;
+            }
+
+            // (iii) The one with teeth: defined-but-never-called is still a gap.
+            if (! str_contains($purgeBody, '$this->'.$method.'(')) {
+                $uncalled[] = "{$table} => {$method}()";
+            }
+        }
+    }
+
+    expect($missingMethods)->toBe([], "PURGE_MECHANISMS names methods that do not exist on AccountDeletionService:\n  - ".implode("\n  - ", $missingMethods)."\n\nThe method was renamed or removed. Fix the name in PURGE_MECHANISMS in tests/Feature/Security/DataExportCoverageTest.php, or restore the method — but do not just delete the line: the table is still in PURGED_PII_TABLES, so something must erase it.");
+
+    expect($uncalled)->toBe([], "PURGE_MECHANISMS names methods that exist but are NEVER CALLED from AccountDeletionService::purge():\n  - ".implode("\n  - ", $uncalled)."\n\nThe method is dead code and the table's erasure claim in PURGED_PII_TABLES is a lie. Either add the \$this->method(...) call back into purge(), or remove the table from PURGED_PII_TABLES and account for it in CASCADE_ERASED / RETAINED_BY_DESIGN in this file.");
 });
 
 it('every EXPORT_EXEMPT entry resolves to a real model class', function () {

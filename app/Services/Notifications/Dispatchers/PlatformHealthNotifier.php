@@ -4,6 +4,7 @@ namespace App\Services\Notifications\Dispatchers;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Notifications\NotificationPublisher;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
@@ -61,16 +62,36 @@ class PlatformHealthNotifier
     /**
      * Terminal menu-scrape failure (all retries exhausted). Non-critical: the menu
      * self-heals via the retry cron, so this is an in-app heads-up, not an email.
+     *
+     * LIFE-12: mirrors connectionRefreshFailing()'s LIFE-9 fix above — the dedupe
+     * key must be scoped to the current failure EPISODE, not the user's whole
+     * lifetime, or a user who recovers and then fails again is never told the
+     * second time.
+     *
+     * The boundary marker is `site.menus.last_successful_fetch_at`, which has
+     * exactly ONE writer: MenuFetchJob's fetch_status='ok' branch. Do NOT
+     * "simplify" this to `last_fetched_at` — that column has THREE writers, and
+     * only one of them means a scrape succeeded:
+     *   1. MenuFetchJob — the 'ok' branch, but ALSO the soft-unavailable branch
+     *      (nothing usable from any platform), which is a failure, not a recovery;
+     *   2. MenuContentController::resolveMenu() — every manual dish add/edit;
+     *   3. MenuScanApplier::resolveMenu() — every menu-photo scan apply.
+     * Keying on it means an owner curating their menu during an outage advances
+     * the episode with nothing fixed, and gets re-notified on the next failure.
+     * (last_fetched_at legitimately keeps all three writers — public menu
+     * visibility gates on it being non-null; it is just not a recovery signal.)
      */
-    public function menuScrapeFailed(string $userId): void
+    public function menuScrapeFailed(string $userId, ?Carbon $lastSuccessfulFetchAt): void
     {
+        $episode = $lastSuccessfulFetchAt?->toISOString() ?? 'never';
+
         $this->safePublish(
             userId: $userId,
             frontendType: 'Warning',
             category: 'content_scrape',
             title: "We couldn't update your menu",
             body: "Your latest menu couldn't be fetched from your provider. We'll keep retrying automatically — if it persists, check your online-ordering link.",
-            dedupeKey: "content_scrape:menu_failed:{$userId}",
+            dedupeKey: "content_scrape:menu_failed:{$userId}:{$episode}",
             ctaUrl: '/account/platforms',
             critical: false,
             retentionConfigKey: 'content_scrape',

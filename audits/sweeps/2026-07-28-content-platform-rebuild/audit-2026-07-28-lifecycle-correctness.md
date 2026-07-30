@@ -29,7 +29,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 13 of 21 complete
+- P2 Medium: 15 of 21 complete
 - P3 Low: 0 of 10 complete
 
 ---
@@ -259,7 +259,7 @@
         app(ContentSelectionService::class)->setInstagramAuto($site, true);
         ```
 
-- [ ] **LIFE-11** · P2 — `IntegrationConnectionObserver::cleanupMirroredMedia` is the only best-effort side-effect method in the class without a try/catch
+- [x] **LIFE-11** · P2 — `IntegrationConnectionObserver::cleanupMirroredMedia` is the only best-effort side-effect method in the class without a try/catch
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:447-455, 538-544
     - **Affects:** Instagram disconnect flow — a malformed/null payload throws out of `deleted()`, skipping the subsequent `retireEventSlugsOnDelete()` and `syncIngestSource()` calls for that same disconnect.
     - **Effort:** S (~0.5–1h)
@@ -278,7 +278,7 @@
         }
         ```
 
-- [ ] **LIFE-12** · P2 — `PlatformHealthNotifier::menuScrapeFailed` dedupe key has no failure-episode boundary
+- [x] **LIFE-12** · P2 — `PlatformHealthNotifier::menuScrapeFailed` dedupe key has no failure-episode boundary
     - **Where:** app/Services/Notifications/Dispatchers/PlatformHealthNotifier.php:65-78
     - **Affects:** Any user whose menu scrape fails, recovers, then fails again within the 14-day `content_scrape` retention window — only the first episode notifies.
     - **Effort:** S (~0.5–1h)

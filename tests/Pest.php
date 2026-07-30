@@ -736,7 +736,8 @@ function setupSitesTable(): void
     // + 20260717210000 (menus.scan_items)
     // + 20260718000000 (menu_items.is_manual, menus.suppressed_items)
     // + 20260721090000 (multi-category: menu_item_categories pivot; menu_items
-    //   loses category_id + position — they live per-membership on the pivot).
+    //   loses category_id + position — they live per-membership on the pivot)
+    // + 20260730120000 (menus.last_successful_fetch_at — LIFE-12 episode boundary).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menus (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
@@ -753,6 +754,7 @@ function setupSitesTable(): void
         scan_items TEXT NULL,
         suppressed_items TEXT NULL,
         last_fetched_at TEXT NULL,
+        last_successful_fetch_at TEXT NULL,
         created_at TEXT NULL,
         updated_at TEXT NULL,
         deleted_at TEXT NULL
@@ -772,6 +774,11 @@ function setupSitesTable(): void
     }
     try {
         DB::connection('pgsql')->statement('ALTER TABLE site.menus ADD COLUMN suppressed_items TEXT NULL');
+    } catch (Throwable $e) {
+        // already exists — ignore
+    }
+    try {
+        DB::connection('pgsql')->statement('ALTER TABLE site.menus ADD COLUMN last_successful_fetch_at TEXT NULL');
     } catch (Throwable $e) {
         // already exists — ignore
     }

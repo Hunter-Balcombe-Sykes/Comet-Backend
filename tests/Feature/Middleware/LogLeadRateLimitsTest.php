@@ -109,14 +109,17 @@ it('caps the Referer at 512 characters', function () {
     expect(strlen($row->referrer))->toBeLessThanOrEqual(512);
 });
 
-it('caps the stored user_agent at 256 characters (PRIV-6)', function () {
+it('reduces the stored user_agent to family/major-version (PRIV-2)', function () {
+    $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
     $this->middleware->terminate(
-        makeLeadRequest(['server' => ['HTTP_USER_AGENT' => str_repeat('U', 400)]]),
+        makeLeadRequest(['server' => ['HTTP_USER_AGENT' => $chromeUa]]),
         new IlluminateResponse('throttled', 429)
     );
 
     $row = DB::connection('pgsql')->table('analytics.lead_submissions')->first();
-    expect(strlen($row->user_agent))->toBe(256);
+    expect($row->user_agent)->toBe('Chrome/141');
 });
 
 it('stores null for a missing or unparseable Referer', function () {

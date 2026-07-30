@@ -10,10 +10,19 @@ use Illuminate\Support\Facades\Log;
  * DINT-6: Erase reporter PII on case_signals whose parent case has been resolved
  * for longer than the retention window — covering NON-account reporters.
  *
- * Background: AccountDeletionService::purgeCaseSignalPii() handles the account-reporter
- * path (reporter_user_id = deleted account) at deletion time. That path is silent for
- * anonymous reporters (reporter_user_id IS NULL) — they have no deletion event, so their
- * reporter_email / reason_details / signal_data accumulate indefinitely after a case closes.
+ * Background: AccountDeletionService::purgeCaseSignalPii() handles the deletion-time path.
+ * This docblock previously claimed that path was "silent for anonymous reporters
+ * (reporter_user_id IS NULL)" — the opposite of reality on both halves. Since
+ * ContentReportService::submit() never writes reporter_user_id (the /v1/public/report
+ * route is unauthenticated), EVERY signal is anonymous by that definition; and since
+ * PRIV-3 that purge also matches on lower(trim(reporter_email)) against the deletion
+ * audit's email snapshot, so it reaches an anonymous reporter whenever that reporter
+ * happens to hold a Partna account being deleted.
+ *
+ * What that purge genuinely cannot reach is a reporter who has NO account to delete —
+ * there is no deletion event to hang the erasure off, so their reporter_email /
+ * reason_details / signal_data would accumulate indefinitely after a case closes. That
+ * is this command's job: time-based retention, keyed off the case, not off a person.
  *
  * This command erases the same PII column set as purgeCaseSignalPii(), keyed off the
  * PARENT case's resolved_at rather than a user deletion event:

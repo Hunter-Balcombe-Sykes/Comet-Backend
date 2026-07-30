@@ -19,14 +19,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SEM-1** · P2 — `ensureCurrent`'s no-op guard conflates a collision suffix with a name that itself ends in digits, silently skipping legitimate slug renames
+- [x] **#SEM-1** · P2 — `ensureCurrent`'s no-op guard conflates a collision suffix with a name that itself ends in digits, silently skipping legitimate slug renames
     - **Where:** app/Services/Site/ItemSlugAllocator.php:32-37 (guard), :192-195 (`stripSuffix` helper)
     - **Affects:** Any professional renaming a menu item (via `MenuItemObserver::updated()`, gated on `wasChanged('name')`) whose *previous* title slugifies to something ending in `-<digits>` (e.g. "Fish Tacos 2", "Combo Meal 3") and whose new title drops that trailing number — the public sitepage menu-item URL keeps the stale numbered slug instead of updating.
     - **Effort:** M (~2–4h)

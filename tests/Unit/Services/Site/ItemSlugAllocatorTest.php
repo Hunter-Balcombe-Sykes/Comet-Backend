@@ -22,6 +22,22 @@ function currentSlug(string $user, string $type, string $key): ?string
         ->where('item_key', $key)->where('is_current', 1)->value('slug');
 }
 
+/**
+ * The INSERT/UPDATE/DELETE statements in a captured query log. The no-op guard is
+ * allowed to SELECT (it consults the registry rather than pattern-matching the
+ * slug); what it must never do is write.
+ *
+ * @param  list<array{query: string}>  $queries
+ * @return list<string>
+ */
+function writesIn(array $queries): array
+{
+    return array_values(array_map(
+        fn ($q) => $q['query'],
+        array_filter($queries, fn ($q) => preg_match('~^\s*(insert|update|delete)~i', $q['query']) === 1)
+    ));
+}
+
 it('mints a bare slug from the name', function () {
     $slug = $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Margherita Pizza');
     expect($slug)->toBe('margherita-pizza');
@@ -290,11 +306,17 @@ it('ensureCurrentMany() keeps a live -N suffix instead of re-minting the bare ba
     $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
     expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos-2');
 
+    DB::enableQueryLog();
     $this->alloc->ensureCurrentMany($this->u, 'menu_item', ['k1' => 'Fish Tacos', 'k2' => 'Fish Tacos']);
+    $queries = DB::getQueryLog();
+    DB::disableQueryLog();
 
     expect(currentSlug($this->u, 'menu_item', 'k1'))->toBe('fish-tacos');
     expect(currentSlug($this->u, 'menu_item', 'k2'))->toBe('fish-tacos-2');
     expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(2);
+    // k2 no longer short-circuits in the prefilter (it isn't on the bare base), so
+    // it pays a couple of extra SELECTs — but it must still write NOTHING.
+    expect(writesIn($queries))->toBe([]);
 });
 
 it('ensureCurrentMany() re-slugs a renamed item and keeps the old slug as a redirect', function () {
@@ -309,4 +331,121 @@ it('ensureCurrentMany() re-slugs a renamed item and keeps the old slug as a redi
 it('ensureCurrentMany() no-ops on an empty map', function () {
     $this->alloc->ensureCurrentMany($this->u, 'menu_item', []);
     expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(0);
+});
+
+// ── 271-SEM-1: name digits are not a collision suffix ─────────────────
+// The no-op guard used to strip a trailing `-N` and compare bases, which cannot
+// distinguish `table-9` minted for "Table 9" from the `-9` a collision would
+// have produced. The guard now asks the registry which slug allocateSlug() would
+// land on for the current base, so "is this still right?" is answered by data.
+
+it('re-slugs an item whose name digits looked like a collision suffix', function () {
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Table 9'))->toBe('table-9');
+
+    // Before the fix this returned `table-9` and the item served a stale URL forever.
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Table'))->toBe('table');
+    expect(currentSlug($this->u, 'menu_item', 'k1'))->toBe('table');
+
+    // The old slug survives as a retired row and is published as a redirect source.
+    $rows = DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'k1')->pluck('is_current', 'slug');
+    expect((int) $rows['table-9'])->toBe(0)->and((int) $rows['table'])->toBe(1);
+    expect($this->alloc->lookupCurrent($this->u, 'menu_item', ['k1'])['k1']['aliases'])
+        ->toEqualCanonicalizing(['table-9', 'k1']);
+});
+
+it('keeps a genuine collision suffix as a no-op, writing nothing', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos-2');
+
+    DB::enableQueryLog();
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos-2');
+    $queries = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect(writesIn($queries))->toBe([]);
+    expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(2);
+});
+
+it('does not churn a suffixed slug across repeated unchanged saves', function () {
+    // An "exact match only" guard would mint -3, -4, -5 here — and EventSlugSync
+    // calls ensureCurrent for every event on every connection save.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos');
+
+    foreach (range(1, 3) as $ignored) {
+        expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos-2');
+    }
+
+    expect(currentSlug($this->u, 'menu_item', 'k2'))->toBe('fish-tacos-2');
+    expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(2);
+});
+
+it('keeps a suffixed slug when the sibling holding the base is only retired', function () {
+    // item_slugs_unique_slug is NON-partial, so k1's retired `fish-tacos` still
+    // squats the base and k2 must stay on -2.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Beef Tacos');
+
+    DB::enableQueryLog();
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos-2');
+    $queries = DB::getQueryLog();
+    DB::disableQueryLog();
+
+    expect(writesIn($queries))->toBe([]);
+});
+
+it('treats the slug namespace as cross-type when deciding a suffix is still right', function () {
+    // item_slugs_unique_slug is (user_id, slug) — NOT scoped by item_type. If the
+    // availability walk added `where item_type = ...` the menu item would think
+    // `fish-tacos` was free and re-mint itself onto -3.
+    expect($this->alloc->ensureCurrent($this->u, 'event', 'e1', 'Fish Tacos'))->toBe('fish-tacos');
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos'))->toBe('fish-tacos-2');
+
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos'))->toBe('fish-tacos-2');
+    expect(DB::connection('pgsql')->table('site.item_slugs')->count())->toBe(2);
+});
+
+it('re-slugs to the first free suffix when the bare base is taken by a sibling', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Table');
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Table 9'))->toBe('table-9');
+
+    // Not `table-9` (stale) and not `table` (k1 has it) — the next free suffix.
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Table'))->toBe('table-2');
+    expect(currentSlug($this->u, 'menu_item', 'k1'))->toBe('table');
+});
+
+it('re-slugs past suffix shapes allocateSlug could never have minted', function () {
+    // Leading zero: the -N loop formats N unpadded, so `-09` is name-derived.
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Table 09'))->toBe('table-09');
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Table'))->toBe('table');
+
+    // Past allocateSlug()'s 200-iteration ceiling — also what bounds the walk's
+    // candidate list, so a name like "Table 999999" can't build a huge whereIn.
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Table 500'))->toBe('table-500');
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Table'))->toBe('table-2');
+});
+
+it('ensureCurrentMany() re-slugs a stale name-digit slug on the rebuild path', function () {
+    // The batch prefilter used to skip this key before ensureCurrent ever ran, so
+    // fixing only the single-item guard left every menu rebuild unfixed.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Table 9');
+
+    $this->alloc->ensureCurrentMany($this->u, 'menu_item', ['k1' => 'Table']);
+
+    expect(currentSlug($this->u, 'menu_item', 'k1'))->toBe('table');
+});
+
+it('normalises a suffixed slug back to the base once the colliding sibling is deleted', function () {
+    // DELIBERATE behaviour change: with k1 gone the base is genuinely free, so the
+    // walk says `fish-tacos` and k2 moves onto it. The -2 stays as a redirect, so
+    // no public URL breaks. Pinned here so it stays a decision, not a surprise.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Fish Tacos');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos');
+
+    $this->alloc->forget($this->u, 'menu_item', 'k1');
+
+    expect($this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Fish Tacos'))->toBe('fish-tacos');
+    $rows = DB::connection('pgsql')->table('site.item_slugs')->where('item_key', 'k2')->pluck('is_current', 'slug');
+    expect((int) $rows['fish-tacos'])->toBe(1)->and((int) $rows['fish-tacos-2'])->toBe(0);
 });
