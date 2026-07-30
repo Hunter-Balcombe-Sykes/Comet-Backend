@@ -37,6 +37,31 @@ class SecureHeaders
     {
         self::applyCors($response, $request);
 
+        // Suppress PHP's X-Powered-By version banner (ZAP passive rule 10037,
+        // CWE-497 — it hands an attacker the exact PHP patch level to match
+        // against known CVEs). Two things about this are load-bearing:
+        //
+        //   1. It MUST be header_remove(), not $response->headers->remove().
+        //      PHP's SAPI injects this header itself when expose_php=On; it
+        //      never enters Symfony's HeaderBag, so removing it there strips a
+        //      header that was never present. Verified 2026-07-31 against a live
+        //      `artisan serve`: the HeaderBag removal left the banner intact.
+        //   2. It lives in apply(), not handle(), so BOTH call sites are covered
+        //      — an exception that propagates past middleware is rendered by the
+        //      closure in bootstrap/app.php, which calls apply() directly.
+        //
+        // Belt-and-braces against server config: the real remedy is expose_php=Off
+        // in php.ini, which is not ours to set on Laravel Cloud. This makes the
+        // app correct regardless of how the runtime is configured.
+        //
+        // No PHPUnit guard is possible — a SAPI-level header is invisible to a
+        // Symfony Response object and headers_list() is empty under the CLI SAPI.
+        // The regression guard is the DAST active lane: ZAP rule 10037 reappears
+        // in audits/dast/<date>/REPORT.md if this stops working.
+        if (! headers_sent()) {
+            header_remove('X-Powered-By');
+        }
+
         $set = static function (string $name, string $value) use ($response): void {
             if (! $response->headers->has($name)) {
                 $response->headers->set($name, $value);
