@@ -35,8 +35,13 @@ and the slug residuals (merged `91d11ccf`) — but most of what remains is genui
 bookkeeping. The open items are dominated by test-coverage findings that were never in either run's scope.
 Verified against live code on 2026-07-25:
 
-- `271-PRIV-2` (Google reviewer PII) — **open by decision**, not oversight. Josh chose 2026-07-24 to keep
-  current behaviour and revisit before the pilot. This folder must not be archived while it stands.
+- `271-PRIV-2` (Google reviewer PII) — **RESOLVED 2026-07-30, both legs.** The nested `photos[].authors`
+  leak (found 2026-07-30, not in the original write-up) was FIXED @ `31ccf162`; the public-wire
+  `reviews`/`reviewSummary` leg was **DECIDED — kept**, as a deliberate product choice. Carries a
+  mandatory follow-through on `LEGAL-2 · P0` (privacy policy must disclose the second-subject
+  processing) before the first pilot customer. See the finding body for the full rationale.
+  *(Superseded: "open by decision" per Josh's 2026-07-24 call to revisit before the pilot — that revisit
+  happened on 2026-07-30.)*
 - `#TEST-2` — **still open, confirmed.** `CheckConstraintsTest` / `IndexCoverageTest` guard on
   `DB::connection()->getDriverName() === 'pgsql'`; the suite runs SQLite, so they still never execute in CI.
 - `#TEST-9` / `271-TEST-1` (no invariant test that `site.themes` stays dropped) — **still open, confirmed**:
@@ -1220,7 +1225,13 @@ None.
           'Per-profile human-readable URL slug registry for public sitepage detail items (events + menu items). is_current=false rows are retired slugs kept as 301 redirect targets. Owned by App\Services\Site\ItemSlugAllocator.';
         ```
 
-- [ ] **271-PRIV-2** · P2 — Google Business reviewer PII (name, photo, review text) is republished on the public CDN-cached sitepage by default for every claimed connection, while the identical data is deliberately stripped for provisional (pre-claim) builds
+- [x] **271-PRIV-2** · P2 — Google Business reviewer PII (name, photo, review text) is republished on the public CDN-cached sitepage by default for every claimed connection, while the identical data is deliberately stripped for provisional (pre-claim) builds
+    - **✅ RESOLVED 2026-07-30 — DECIDED, split into two legs. This box closes the question, not the code.**
+        - **Leg 1 — nested `photos[].authors`: FIXED** @ `31ccf162`. Not part of the original finding; discovered 2026-07-30. `photos` is allowlisted on BOTH the public wire and the DSAR export, and both filters are a top-level `array_intersect_key` that never inspects nested keys, so Google contributor display names rode through inside each photo element. Reproduced on both surfaces, then closed by `App\Services\Platforms\ThirdPartyPii::stripNested()`, applied AFTER the intersect in `PublicIntegrationConnectionResource::filterPayload()` and `DsarPayloadFilter::filter()`. Guarded by a route-level test in `PublicIntegrationAllowlistTest` and a nested case in `DsarAllowlistCoverageTest` (the pre-existing tests there compare top-level key NAMES and structurally could not catch it).
+        - **Leg 2 — `reviews`/`reviewSummary` on the public wire: KEPT, by Josh's explicit decision 2026-07-30.** Reviewer name, photo, profile link and verbatim text remain published on claimed connections. This is now a deliberate product choice, not an oversight. **The `reviews` toggle default is deliberately NOT flipped** — contrary to this finding's own "What to do", because `DisplaySettingsFilter::SUPPRESSIONS` maps one toggle key to `['reviews','reviewSummary','rating','reviewCount']`, so flipping it would also strip the star rating and review count, and default-ON semantics mean no connection has ever stored `reviews: true` — every existing site would silently lose its rating.
+        - **Redacting the author while keeping review text was considered and REJECTED** — `authorAttribution` exists because the Google Places terms require attribution on displayed reviews, making that the option most likely to breach them.
+        - **⚠️ CARRIES AN OBLIGATION:** the third "What to do" bullet below (document the data-flow as a second-subject processing relationship) is now **mandatory, not optional**, and is tracked on `LEGAL-2 · P0` in `docs/checklists/launch-readiness-checklist.md` — due before the first pilot customer signs. Keeping the data is only defensible if the privacy policy says so.
+        - **The DSAR leg was already closed** separately (`bc6b5134`): `DsarPayloadFilter::THIRD_PARTY_KEYS` strips `reviews`/`reviewSummary` from every export, so this decision affects the PUBLIC WIRE ONLY.
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:128-130 (`reviews` in the public allowlist); app/Services/Platforms/DisplaySettingsFilter.php:31-34,65-67,104 (the `reviews` toggle defaults ON); app/Services/Platforms/Payloads/GoogleBusinessPayload.php:96-127 (`stripThirdPartyPii()`, provisional-only)
     - **Affects:** Third-party Google reviewers — customers of the professional — whose name, profile photo, and review text get served to every unauthenticated visitor of a claimed professional's sitepage, CDN-cached, unless the professional manually opts out
     - **Effort:** M (~2–4h)

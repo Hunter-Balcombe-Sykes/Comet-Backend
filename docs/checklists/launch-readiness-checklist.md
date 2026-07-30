@@ -108,6 +108,17 @@ This is the **business + operational** counterpart to the audit checklists. It c
     - **When:** Before first pilot customer signs
     - **Cost:** $0 (templates) or **$500** (often bundled with ToS package)
     - **Notes:** Iubenda has a free generator. AU Privacy Act applies to any business with >$3M turnover OR any business handling health/credit info. GDPR applies if you have EU users. Both apply for safety; Australian regulatory bar is rising.
+    - **⚠️ MUST COVER — third-party reviewer data on public sitepages (decided 2026-07-30, `271-PRIV-2`).**
+      Josh decided to KEEP Google Business `reviews` on the public wire, so every published sitepage with a
+      GB connection republishes, per review: the reviewer's **display name, profile photo, a permanent link
+      to their Google contributor profile, and their verbatim review text** — CDN-cached, to unauthenticated
+      visitors. These are **third parties** (the professional's customers) who never signed up to Partna.
+      A generic template will NOT cover this. The policy must disclose it explicitly as an **APP 6
+      secondary-purpose / second-subject processing relationship** and state the basis for it. This is the
+      one place where the platform publishes personal data about someone who is not the account holder, and
+      **the decision to keep it is only defensible if the policy says so** — that was the express condition
+      attached to the 2026-07-30 call. (The DSAR export path is unaffected: `DsarPayloadFilter` strips
+      `reviews`/`reviewSummary` from every export, and nested `photos[].authors` was fixed @ `31ccf162`.)
 
 - [ ] **LEGAL-3 · P0** — Acceptable Use Policy
     - **When:** Before first pilot customer signs

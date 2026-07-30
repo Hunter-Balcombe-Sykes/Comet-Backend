@@ -142,6 +142,26 @@ class IngestProjectCommand extends Command
      * Takes the connection id directly — the caller already has it on the
      * `ingest.sources` row it's iterating, so re-querying it here (as this
      * used to) was a redundant per-stream N+1 under --rebuild.
+     *
+     * SCALE-14: the id lists are chunked into the DELETEs rather than passed
+     * whole. A source with 50k source_items used to serialise 50k uuid binds
+     * into each of the 18 DELETEs below (~900k binds per stream, over
+     * Postgres' 65,535-per-statement limit before the memory cost). At the
+     * shared projection_write_chunk of 500 each DELETE carries 500 uuids + 1
+     * source_id, and a chunk is 18 such statements.
+     *
+     * Deliberately NOT a transaction. One wrapping 18 x ceil(n/500) DELETEs
+     * across every facet table is a far worse lock story than the partial-drop
+     * risk it removes, and a mid-loop failure is recoverable: everything
+     * dropped here is re-derivable from the record log, and --rebuild
+     * re-projects this same stream seconds later.
+     *
+     * Rejected: replacing the `item_id IN (...)` lists with a correlated
+     * subquery over content.source_items. It would delete the PHP
+     * materialisation entirely and collapse to one statement per table — but
+     * it also changes the target from "the ids we plucked" to "whatever the
+     * subquery sees now", a different snapshot, and projectStream() rewrites
+     * content.source_items moments later. Chunking is the conservative choice.
      */
     private function dropDerivedRows(?string $connectionId, string $streamId): void
     {
@@ -153,6 +173,11 @@ class IngestProjectCommand extends Command
             return;
         }
 
+        // Same key ProjectionWriter::writeChunk() reads — one knob for every
+        // bind list in the projection stage, not a second one to keep in sync.
+        $chunk = (int) config('partna.ingest.projection_write_chunk', 500);
+        $chunk = $chunk > 0 ? $chunk : 500;
+
         $sourceItemIds = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
             ->where('stream_id', $streamId)
@@ -162,26 +187,37 @@ class IngestProjectCommand extends Command
             return;
         }
 
-        DB::table('content.identity_keys')->whereIn('source_item_id', $sourceItemIds)->delete();
+        foreach (array_chunk($sourceItemIds, $chunk) as $idChunk) {
+            DB::table('content.identity_keys')->whereIn('source_item_id', $idChunk)->delete();
+        }
 
+        // ->values(): unique() preserves the original keys, and while whereIn
+        // and array_chunk both ignore them, a list<string> is what the
+        // annotation elsewhere in this stage promises.
         $itemIds = DB::table('content.source_items')
             ->whereIn('id', $sourceItemIds)
             ->whereNotNull('item_id')
             ->pluck('item_id')
             ->unique()
+            ->values()
             ->all();
-
-        foreach (['item_media', 'offers', 'item_tags', 'f_action'] as $collection) {
-            DB::table("content.{$collection}")
-                ->whereIn('item_id', $itemIds)
-                ->where('source_id', $contentSourceId)
-                ->delete();
+        if ($itemIds === []) {
+            return;
         }
-        foreach (['f_text', 'f_link', 'f_duration', 'f_published', 'f_occurrence', 'f_embed', 'f_playable', 'f_authored', 'f_catalog', 'f_place', 'f_rated', 'f_review', 'f_channel', 'f_file'] as $facet) {
-            DB::table("content.{$facet}")
-                ->whereIn('item_id', $itemIds)
-                ->where('source_id', $contentSourceId)
-                ->delete();
+
+        foreach (array_chunk($itemIds, $chunk) as $idChunk) {
+            foreach (['item_media', 'offers', 'item_tags', 'f_action'] as $collection) {
+                DB::table("content.{$collection}")
+                    ->whereIn('item_id', $idChunk)
+                    ->where('source_id', $contentSourceId)
+                    ->delete();
+            }
+            foreach (['f_text', 'f_link', 'f_duration', 'f_published', 'f_occurrence', 'f_embed', 'f_playable', 'f_authored', 'f_catalog', 'f_place', 'f_rated', 'f_review', 'f_channel', 'f_file'] as $facet) {
+                DB::table("content.{$facet}")
+                    ->whereIn('item_id', $idChunk)
+                    ->where('source_id', $contentSourceId)
+                    ->delete();
+            }
         }
     }
 }

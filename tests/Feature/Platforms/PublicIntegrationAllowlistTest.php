@@ -809,3 +809,44 @@ it('keeps a completed team-mode fresha connection\'s scraped teamMenu (staff dat
     expect($response->getContent())->not->toContain('Jo Smith');
     expect($response->getContent())->not->toContain('Senior Stylist');
 });
+
+// 271-PRIV-2 (nested leg): `photos` is allowlisted for the sitepage background,
+// but each photo carries `authors` — Google CONTRIBUTOR display names, i.e.
+// personal data about people who never signed up to Partna. Both filters are a
+// top-level array_intersect_key, so an allowlisted parent key drags its nested
+// payload through untouched. `reviews` is deliberately NOT asserted here: that
+// is a separate, still-open product decision (271-PRIV-2 public-wire leg).
+it('strips nested Google photo-contributor names from the public wire (271-PRIV-2)', function () {
+    $user = allowlistUser('allowgbphotos');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'google-business',
+        'resource_id' => 'google-business',
+        'payload' => [
+            'name' => 'Ollies Coffee',
+            'rating' => 4.7,
+            'reviewCount' => 42,
+            'photos' => [
+                ['ref' => 'places/X/photos/1', 'widthPx' => 1200, 'heightPx' => 800, 'authors' => ['Ada Contributor', 'Grace Contributor']],
+                ['ref' => 'places/X/photos/2', 'widthPx' => 640, 'heightPx' => 480, 'authors' => ['Ada Contributor']],
+            ],
+        ],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    $response = $this->getJson('/api/public/profiles/allowgbphotos/integrations')->assertOk();
+    $photos = $response->json('data.platforms.google-business.0.payload.photos');
+
+    // The photo itself still renders — only the contributor identity is dropped.
+    expect($photos)->toBe([
+        ['ref' => 'places/X/photos/1', 'widthPx' => 1200, 'heightPx' => 800],
+        ['ref' => 'places/X/photos/2', 'widthPx' => 640, 'heightPx' => 480],
+    ]);
+
+    // Belt-and-suspenders: the names must not ride anywhere else in the body.
+    expect($response->getContent())->not->toContain('authors');
+    expect($response->getContent())->not->toContain('Ada Contributor');
+    expect($response->getContent())->not->toContain('Grace Contributor');
+});

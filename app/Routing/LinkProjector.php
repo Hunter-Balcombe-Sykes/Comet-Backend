@@ -3,12 +3,21 @@
 namespace App\Routing;
 
 use App\Catalog\CompiledCatalog;
+use App\Exceptions\Routing\MalformedDetectorPatternException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Pure projection: f(Iri, Rulepack) → Projection. Cannot fetch, cannot read
  * the database, cannot look at caller context (that is PlacementPolicy's
  * job). Deterministic — the same inputs always yield the same verdict, which
  * is what makes `routing:reproject` a real diff tool.
+ *
+ * Purity is a property of the returned Projection, not of the process: the
+ * malformed-pattern report in matches() is observability only — it cannot
+ * change a verdict, and it cannot throw. See reportMalformedPattern() for the
+ * throttle idiom and its precedents.
  */
 class LinkProjector
 {
@@ -84,8 +93,8 @@ class LinkProjector
             }
         }
 
-        foreach ($detector['reject_patterns'] as $reject) {
-            if (@preg_match($reject, $iri->path) === 1) {
+        foreach ($detector['reject_patterns'] as $i => $reject) {
+            if ($this->matches($reject, $iri->path, $detectorId, "reject_patterns[{$i}]")) {
                 return null;
             }
         }
@@ -94,7 +103,7 @@ class LinkProjector
         $confidence = 40; // a host-only match is weak but real
 
         if ($detector['subdomain_pattern'] !== null) {
-            if ($iri->subdomain === null || @preg_match($detector['subdomain_pattern'], $iri->subdomain, $m) !== 1) {
+            if ($iri->subdomain === null || ! $this->matches($detector['subdomain_pattern'], $iri->subdomain, $detectorId, 'subdomain_pattern', $m)) {
                 return null;
             }
             $captures += $this->namedGroups($m);
@@ -102,7 +111,7 @@ class LinkProjector
         }
 
         if ($detector['path_pattern'] !== null) {
-            if (@preg_match($detector['path_pattern'], $iri->path, $m) !== 1) {
+            if (! $this->matches($detector['path_pattern'], $iri->path, $detectorId, 'path_pattern', $m)) {
                 return null;
             }
             $captures += $this->namedGroups($m);
@@ -155,6 +164,70 @@ class LinkProjector
             'identifier' => $identifier,
             'confidence' => $confidence,
         ];
+    }
+
+    /**
+     * The one place a detector pattern is ever executed. `@` stays INSIDE: with
+     * it removed, HandleExceptions::handleError() turns PCRE's compile warning
+     * into an ErrorException that escapes score() and 500s the paste preview
+     * (LinkRoutingService::preview). So the verdict on an uncompilable pattern
+     * is byte-identical to the pre-SLOP-21 behaviour — fail that detector
+     * closed — but it is now reported instead of silent.
+     *
+     * @param  array<int|string, string>|null  $m  populated exactly as preg_match's third argument
+     *
+     * @param-out array<int|string, string> $m
+     */
+    private function matches(string $pattern, string $subject, string $detectorId, string $field, ?array &$m = null): bool
+    {
+        $result = @preg_match($pattern, $subject, $m);
+
+        if ($result === false) {
+            // preg_match leaves $matches UNTOUCHED on a compile failure (it
+            // only overwrites on 0 or 1), so a caller reusing one $m across two
+            // patterns could read the previous pattern's groups. No caller does
+            // today — every false path returns immediately — but the reset makes
+            // that a property of the wrapper rather than of its callers.
+            $m = [];
+
+            $this->reportMalformedPattern($detectorId, $field, $pattern);
+
+            return false;
+        }
+
+        return $result === 1;
+    }
+
+    /**
+     * Once per detector+field per window. The projector runs on every paste, so
+     * an unthrottled report would turn one bad catalog entry into a Nightwatch
+     * flood. Cache::add is an atomic SETNX — false means we already reported
+     * this pattern inside the window (idiom: LogLeadRateLimits, AnalyticsDedupGuard).
+     */
+    private function reportMalformedPattern(string $detectorId, string $field, string $pattern): void
+    {
+        try {
+            // A non-positive TTL makes Cache::add() return false forever
+            // (Laravel treats it as an already-expired write) — total silence,
+            // the opposite of what "no throttling" means. Floor it.
+            $ttl = max(1, (int) config('partna.routing.malformed_pattern_report_ttl_seconds', 3600));
+
+            if (! Cache::add("routing:malformed-detector:{$detectorId}:{$field}", 1, $ttl)) {
+                return;
+            }
+
+            Log::error('routing.detector.malformed_pattern', [
+                'detector_id' => $detectorId,
+                'field' => $field,
+                'pattern' => $pattern,
+                'catalog_digest' => $this->rulepack->catalogDigest,
+            ]);
+
+            report(new MalformedDetectorPatternException($detectorId, $field, $pattern));
+        } catch (Throwable) {
+            // Observability must never become the fault. A cache outage costs
+            // the signal, never the verdict — and never a 500 on the preview.
+        }
     }
 
     /**

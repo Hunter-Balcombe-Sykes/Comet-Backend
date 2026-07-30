@@ -117,6 +117,31 @@ it('strips third-party keys from a real export payload', function () {
         ->and($event)->toHaveKey('location');
 });
 
+// The NESTED leg of 271-PRIV-2, which the two tests above structurally cannot
+// catch: they compare top-level key NAMES, and `photos` is legitimately
+// allowlisted (the owner is entitled to their own listing photos). But each
+// photo element carries `authors` — Google CONTRIBUTOR display names, personal
+// data about someone who is not the data subject. filter() is a top-level
+// array_intersect_key, so an allowlisted parent drags its nested identity
+// through untouched.
+it('strips nested third-party photo-contributor names from an export payload (271-PRIV-2)', function () {
+    $filtered = DsarPayloadFilter::filter('google-business', [
+        'name' => 'Some Salon',
+        'photos' => [
+            ['ref' => 'places/X/photos/1', 'widthPx' => 1200, 'authors' => ['Ada Contributor', 'Grace Contributor']],
+            ['ref' => 'places/X/photos/2', 'widthPx' => 640],
+        ],
+    ]);
+
+    expect($filtered['photos'][0])->not->toHaveKey('authors')
+        // The account holder's OWN photo data survives — over-stripping fails
+        // Article 15 just as surely as under-stripping breaches a third party.
+        ->and($filtered['photos'][0]['ref'])->toBe('places/X/photos/1')
+        ->and($filtered['photos'][0]['widthPx'])->toBe(1200)
+        // A photo that never had `authors` is passed through unharmed.
+        ->and($filtered['photos'][1])->toBe(['ref' => 'places/X/photos/2', 'widthPx' => 640]);
+});
+
 it('every DsarPayloadFilter allowlist entry resolves to a currently-registered platform', function () {
     // The inverse check — a stale entry for a retired platform key is
     // harmless but worth catching so the const doesn't accumulate dead keys.

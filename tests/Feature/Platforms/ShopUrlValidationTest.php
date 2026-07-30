@@ -4,6 +4,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 // WS-B1: the add-brand and add-product endpoints return DISTINCT, coded 422s
@@ -205,4 +206,66 @@ it('connects a WooCommerce store end-to-end off the real bluelane.co payloads', 
         ->assertJsonPath('products.0.title', 'Pink Lobster Swim Short')
         ->assertJsonPath('products.0.price', '100.00')
         ->assertJsonPath('products.0.currency', 'AUD');
+});
+
+// ── SSRF boundary on these endpoints (TEST-30) ────────────────────────────────
+//
+// Everything above mocks SafeUrlFetcher away, so none of it can show that the
+// SSRF boundary is actually WIRED INTO the shop endpoints. These three use the
+// REAL fetcher. They deliberately do NOT call fakeShopFetcher().
+//
+// Http::assertNothingSent() is the real assertion; the 422 is scaffolding.
+// Under a bare Http::fake() every unmatched request answers an empty 200, so a
+// shop URL that got past the guard still finds no storefront markers and still
+// ends in a 422 — measured: https://example.com/ passes assertSafe(), fires 8
+// requests, and returns 422 `unsupported_store`. Against a real unreachable
+// internal host it would return 422 `store_unreachable`, i.e. exactly what
+// these tests assert. Only "zero requests left the process" distinguishes
+// "assertSafe() refused it" from "the guard broke and the probe simply found
+// nothing". Do not simplify these to a status check.
+//
+// All three inputs are DNS-free by construction, which is why they work where
+// the audit's suggested RFC 2606 domains would not: assertSafe() does a real
+// gethostbynamel()/dns_get_record() that Http::fake() cannot intercept, and
+// .test/.invalid/*.example do not resolve. Literal IPs skip resolveHost()
+// entirely (filter_var FILTER_VALIDATE_IP short-circuits), and the
+// denied-host-suffix check runs before resolution.
+
+it('refuses a loopback store URL at the SSRF boundary, before any HTTP request is made', function () {
+    Http::fake();
+
+    actingAsUser(shopValidationUser('ssrfloop'))
+        ->postJson('/api/platforms/shop/brands', ['url' => 'http://127.0.0.1/'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'store_unreachable')
+        ->assertJsonStructure(['code', 'message']);
+
+    Http::assertNothingSent();
+});
+
+it('refuses the cloud-metadata endpoint as a store URL', function () {
+    // The SSRF payload that actually matters on Laravel Cloud: 169.254.169.254
+    // is instance credentials. Blocked by FILTER_FLAG_NO_RES_RANGE.
+    Http::fake();
+
+    actingAsUser(shopValidationUser('ssrfmeta'))
+        ->postJson('/api/platforms/shop/brands', ['url' => 'http://169.254.169.254/latest/meta-data/'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'store_unreachable');
+
+    Http::assertNothingSent();
+});
+
+it('refuses an own-infrastructure host as a store URL', function () {
+    // Exercises SafeUrlFetcher::deniedHostSuffixes() — the one guard that exists
+    // precisely because our own API/storage/DB hosts resolve to PUBLIC IPs, so
+    // the address-range checks can never catch them.
+    Http::fake();
+
+    actingAsUser(shopValidationUser('ssrfown'))
+        ->postJson('/api/platforms/shop/brands', ['url' => 'https://api.partna.au/'])
+        ->assertStatus(422)
+        ->assertJsonPath('code', 'store_unreachable');
+
+    Http::assertNothingSent();
 });

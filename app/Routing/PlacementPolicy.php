@@ -25,6 +25,17 @@ use Illuminate\Support\Facades\DB;
  */
 class PlacementPolicy
 {
+    /**
+     * Import-run-scoped tombstone memo (SCALE-20). Single entry, replaced
+     * never accumulated: this policy is not container-bound as a singleton
+     * (nothing in app/Providers binds it), but a caller that resolves it once
+     * and reuses it across import runs must not grow this into an unbounded
+     * per-run cache.
+     *
+     * @var array{key: string, refs: array<string, int>}|null
+     */
+    private ?array $tombstoneMemo = null;
+
     public function decide(Projection $projection, RoutingContext $context): Placement
     {
         if (! $projection->matched()) {
@@ -64,7 +75,7 @@ class PlacementPolicy
         // link back — so a direct request wins over the tombstone (owner
         // decision, 2026-07-28). The reconciler deletes the superseded
         // refusal when the re-add actually applies.
-        if ($context->user !== null && ! $context->isDirectRequest() && $this->isTombstoned($context->user, $projection)) {
+        if ($context->user !== null && ! $context->isDirectRequest() && $this->isTombstoned($context->user, $projection, $context)) {
             return Placement::reject('tombstoned', $surfaceKey);
         }
 
@@ -131,17 +142,81 @@ class PlacementPolicy
      * refusal across sources at the ITEM level, which needs identity
      * resolution — that lookup joins in at P4; here, matching the ref itself
      * is the whole rule.
+     *
+     * SCALE-20: a paste (no import run) keeps the original one-EXISTS-call
+     * shape — no behaviour change on the request path. A batch import calls
+     * decide() once per harvested link, and that was one EXISTS query per
+     * link; this branch instead pulls every tombstone for the user ONCE per
+     * import run and answers every subsequent link in that run from memory.
+     *
+     * Two call sites write routing.item_tombstones:
+     *   - SourceReconciler::applyIntent()'s DELETE (SourceReconciler.php
+     *     ~:265-270), gated on $context->isDirectRequest() (origin ===
+     *     'paste') — neither WebsiteImporter nor LinkInBioImporter ever
+     *     build a context with that origin, so this one cannot fire mid-run.
+     *   - SuggestionsController::dismiss()'s insertOrIgnore
+     *     (SuggestionsController.php:120-127) — UNGATED, no RoutingContext
+     *     involved at all, reachable any time from its own HTTP endpoint.
+     *
+     * The memo is frozen at prefetch, so it cannot see a dismissal that
+     * lands after the prefetch but before the run ends. That window is real,
+     * not theoretical: SourceReconciler::reconcile() commits each link's
+     * intent in its own transaction (SourceReconciler.php:90), so an earlier
+     * link's suggestion in an in-progress import() is already committed and
+     * dismissible while the run continues; and WebsiteImporter dedupes by
+     * raw href text, not canonical target (WebsiteImporter.php:70-74), so
+     * two different hrefs on one page that canonicalise to the same
+     * surface/identifier survive dedup as two separate decide() calls in the
+     * same run. Concretely: link A commits a suggestion early in a run: the
+     * user dismisses it in a concurrent request, which inserts a tombstone;
+     * link B, later in the SAME run, was already served by a memo prefetched
+     * before that insert, and is not rejected. Pre-fix, every call ran a
+     * fresh EXISTS, so this race had a negligible per-link window; this memo
+     * widens it to the whole run's duration. It requires BOTH a concurrent
+     * dismiss AND two hrefs canonicalising to one target in the same run —
+     * narrow, not broad.
+     *
+     * Accepted, not fixed with invalidation: as of this fix neither
+     * WebsiteImporter nor LinkInBioImporter is wired into any controller,
+     * job, or route — both are test-only call sites — and there are zero
+     * live users, so the race is unreachable today. TRIPWIRE: if either
+     * importer is ever wired into a live request path, this memo needs
+     * invalidation or a narrower scope before that ships.
      */
-    private function isTombstoned(User $user, Projection $projection): bool
+    private function isTombstoned(User $user, Projection $projection, RoutingContext $context): bool
     {
         $refs = [$projection->surfaceKey];
         if ($projection->identifier !== null) {
             $refs[] = $projection->surfaceKey.':'.$projection->identifier;
         }
 
-        return DB::table('routing.item_tombstones')
-            ->where('user_id', $user->id)
-            ->whereIn('source_ref', $refs)
-            ->exists();
+        if ($context->importRunId === null) {
+            return DB::table('routing.item_tombstones')
+                ->where('user_id', $user->id)
+                ->whereIn('source_ref', $refs)
+                ->exists();
+        }
+
+        $key = $user->id.'|'.$context->importRunId;
+        if ($this->tombstoneMemo === null || $this->tombstoneMemo['key'] !== $key) {
+            // No ->limit(): missing a tombstone here resurrects a link the
+            // user explicitly refused — the exact C8 invariant this method's
+            // caller protects. Row count is bounded by how many links this
+            // ONE user has ever refused, not by the size of the batch being
+            // imported, so pulling the full set is safe.
+            $sourceRefs = DB::table('routing.item_tombstones')
+                ->where('user_id', $user->id)
+                ->pluck('source_ref');
+
+            $this->tombstoneMemo = ['key' => $key, 'refs' => array_flip($sourceRefs->all())];
+        }
+
+        foreach ($refs as $ref) {
+            if (isset($this->tombstoneMemo['refs'][$ref])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
