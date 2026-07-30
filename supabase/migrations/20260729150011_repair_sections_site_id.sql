@@ -11,6 +11,11 @@
 -- IS DISTINCT FROM guard means a re-run matches nothing.
 --
 -- No transaction: backfill outside DDL per CONVENTIONS.md §5.
+--
+-- ROLLBACK: NONE, and none wanted. Overwrites sections.site_id (the
+--           DENORMALISED copy) from site.pages, the source of truth. The
+--           prior mismatched value is not recorded, and restoring it would
+--           break the composite FK 20260729150014 adds.
 
 UPDATE "site"."sections" s
 SET "site_id" = p."site_id",

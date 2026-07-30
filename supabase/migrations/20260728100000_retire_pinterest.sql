@@ -24,6 +24,17 @@
 -- statement wait indefinitely and stall the whole sequential db push. 2s is the
 -- repo's standard (CONVENTIONS.md §8); 30s of statement_timeout is generous for
 -- a predicate-scoped soft delete and fails visibly rather than silently.
+--
+-- ROLLBACK: ONE-WAY IN PRACTICE, two different ways.
+--           (a) platform_connections: nothing records which rows THIS file
+--           soft-deleted, so the only reverse is timestamp guesswork, and
+--           only inside the 30-day PurgeSoftDeleted window:
+--             UPDATE site.platform_connections SET deleted_at = NULL,
+--               is_active = true, updated_at = now()
+--             WHERE surface_key = 'pinterest.profile' AND deleted_at >= '<apply-ts>';
+--           (b) routing.source_intents: NOT recoverable at all -- 'proposed'
+--           and 'blocked' both collapse to 'superseded', so the prior state
+--           is destroyed.
 
 BEGIN;
 SET LOCAL lock_timeout      = '2s';

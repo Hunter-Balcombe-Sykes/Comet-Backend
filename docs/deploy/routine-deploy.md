@@ -229,6 +229,11 @@ scripts/launch-check/runtime-health.sh --env production --target launch
 repaired by writing a forward migration, not by restoring. This is the whole reason schema changes are a
 separate, slower, confirm-first path.
 
+Each file in `supabase/migrations/` carries a `-- ROLLBACK:` header line stating its inverse
+statement, or `NONE` and why (`CONVENTIONS.md` §10). Read the note before writing the forward
+repair — several migrations in the current pending set are genuinely one-way and the note says
+which.
+
 ---
 
 ## Related

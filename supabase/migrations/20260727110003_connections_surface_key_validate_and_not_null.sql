@@ -18,6 +18,13 @@
 --
 -- Idempotent: VALIDATE on an already-valid constraint is a no-op, SET NOT NULL
 -- on an already-NOT NULL column is a no-op, DROP ... IF EXISTS is a no-op.
+--
+-- ROLLBACK: ALTER TABLE site.platform_connections
+--             ALTER COLUMN surface_key   DROP NOT NULL,
+--             ALTER COLUMN routing_class DROP NOT NULL;
+--           The VALIDATE half is NOT independently revertible; a validated
+--           constraint can only be un-validated by dropping it (see
+--           ...110002's ROLLBACK).
 
 BEGIN;
 SET LOCAL lock_timeout      = '2s';

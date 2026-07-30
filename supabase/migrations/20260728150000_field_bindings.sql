@@ -19,6 +19,12 @@
 -- The sector law is NOT expressed here: sector lives on core.users with its
 -- own provenance column and its own rule (manual permanent; first non-Google
 -- source wins), carried verbatim in FieldBindingResolver's sector path.
+--
+-- ROLLBACK: DROP TABLE IF EXISTS site.field_bindings CASCADE;
+--           NOT SAFE ALONE: FieldBindingResolver fails CLOSED on a missing
+--           binding, so every identity write stops until the preset re-seed
+--           runs. Preset rows are re-derivable; user-edited priorities and
+--           manual (priority 0) locks are not.
 
 BEGIN;
 

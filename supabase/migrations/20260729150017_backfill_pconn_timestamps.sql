@@ -17,6 +17,12 @@
 -- public.set_updated_at(). It will stamp updated_at = now() on every row this
 -- statement touches -- which is exactly the value the second UPDATE wants
 -- anyway, and it only ever touches rows that were NULL.
+--
+-- ROLLBACK: NONE for the VALUES. Nothing records which rows were NULL, and
+--           the BEFORE UPDATE trigger set_timestamp_platform_connections
+--           restamped updated_at on every row this touched. Reverting the
+--           NOT NULL attribute is 20260729150018's ROLLBACK; the filled
+--           timestamps stay.
 
 UPDATE "site"."platform_connections"
    SET "created_at" = COALESCE("updated_at", now())

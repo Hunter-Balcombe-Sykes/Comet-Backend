@@ -17,6 +17,13 @@
 -- is enforced against the NEW row image on every UPDATE, so adding
 -- "routing_class IS NOT NULL" before the routing_class backfill would make the
 -- surface_key pass (which leaves routing_class NULL) fail.
+--
+-- ROLLBACK: ALTER TABLE site.platform_connections
+--             DROP CONSTRAINT IF EXISTS platform_connections_routing_class_check,
+--             DROP CONSTRAINT IF EXISTS chk_platform_connections_surface_key_not_null,
+--             DROP CONSTRAINT IF EXISTS chk_platform_connections_routing_class_not_null;
+--           (the two chk_..._not_null scaffolds are already dropped by
+--           ...110003; IF EXISTS makes that a no-op)
 
 BEGIN;
 SET LOCAL lock_timeout      = '2s';

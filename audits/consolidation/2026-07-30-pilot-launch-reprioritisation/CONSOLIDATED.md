@@ -460,7 +460,7 @@ tracked in their source folders).
 |---|---|
 | P0-PILOT | 6 / 7 |
 | P1-PILOT | 11 / 12 |
-| P0-LAUNCH | 3 / 6 |
+| P0-LAUNCH | 4 / 7 |
 | P1-LAUNCH | 0 / 27 |
 | DEAD bookkeeping | 0 / 11 |
 
@@ -551,7 +551,7 @@ tracked in their source folders).
 > collision table above. It remains unstarted P1-LAUNCH work.
 
 **P0-LAUNCH** — worked 2026-07-30 on `audit-fix/p0-launch-2026-07-30`.
-- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
+- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [x] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `#50` · [ ] `LC-DAST`
 
 Unit 1 (`#TEST-2` + `#TEST-1` + `271-PARITY-1`) — one root cause: `tests/TestCase.php:21-33`
 unconditionally repoints the `pgsql` alias at in-memory SQLite, so every `getDriverName() === 'pgsql'`
@@ -612,6 +612,61 @@ added a `sort()` to `PestSetupHelpers::names()`, which silently reordered the 59
 `SchemaDriftGuardTest` *calls*. Verified statically that declaration order ≠ alphabetical and that no
 helper `ALTER`s another's table, so it was harmless today — removed anyway, since a green suite could
 not have distinguished the two versions.
+
+Unit 2 (`LC-ROLLBACK`) — **56 migrations, 43 given a `-- ROLLBACK:` note, 56/56 now compliant.**
+Documentation only, proven mechanically: **zero non-comment lines added and zero lines removed** across
+all 43 files, so not one byte of executable SQL changed. Convention recorded in `CONVENTIONS.md` §10
+(+ cheat-sheet row), `TEMPLATE.sql.example` and `docs/deploy/routine-deploy.md`; enforced by two new
+`it()` blocks in `MigrationTransactionBoundaryTest`.
+
+The audit's own numbers were wrong in both directions and are corrected here: **53 files not 51**
+(then 56 after this branch and the P1-PILOT merge each added migrations), and **9 real notes, not 12** —
+its `grep -liE "revert|rollback"` counted three *prose mentions* as compliant, including one match
+inside a `COMMENT ON COLUMN` string literal. The second new test uses those three as fixtures, pinning
+the exact distinction the grep got wrong.
+
+Convention is `-- ROLLBACK:` (all 9 pre-existing live files); `-- To revert:` is archive-era and the
+matcher accepts both case-insensitively — which is why the two migrations merged from P1-PILOT, using
+lowercase `-- to revert:`, already comply.
+
+The guard test went into `MigrationTransactionBoundaryTest`, **not** `guard-no-unsafe-migrations.php`:
+that script's `-- guard:no-unsafe-migrations:disable-file` marker `continue`s a whole file *before any
+check runs*, and three files carry it including `baseline_pilot.sql`. A lock-safety opt-out must not
+double as a documentation opt-out.
+
+🔴 **The real content of this finding: 13 of the pending migrations have no usable reverse path.**
+- **Irreversible without a restore (8)** — `baseline_pilot`; whole-schema `DROP … CASCADE` on `catalog`,
+  `routing`, `ingest`, `content`; whole-table on `sections_and_documents`; hard `DELETE` in
+  `purge_orphan_ingest_rows` and `purge_orphan_section_items`.
+- **One-way data operations (5)** — `connections_surface_key_backfill`, `retire_pinterest`,
+  `repair_record_versions_current`, `repair_sections_site_id`, `backfill_pconn_timestamps`.
+- (A further 7 `VALIDATE`-only files say NONE, but that is a technicality — Postgres has no
+  "un-validate" and the sibling `_not_valid` file's `DROP CONSTRAINT` removes the constraint entirely.
+  Counted separately so it does not inflate the real risk.)
+
+**Two warrant a decision beyond a comment:** `20260727130000_ingest_schema` creates `ingest.effects`,
+the charge-once money ledger (`cost_tag`/`cost_units`/`claimed_at`/`settled_at`) — a bad apply forcing a
+schema drop destroys the record of vendor spend already incurred, and no backup tier covers it.
+`20260728100000_retire_pinterest` collapses `routing.source_intents.state`: `'proposed'` and `'blocked'`
+both become `'superseded'`, with nothing recording which was which. **Recommendation for Josh, out of
+this unit's scope: a manual `pg_dump` of prod immediately before the first `db push` of this pending
+set, held until the pilot is stable.**
+
+Independent review caught **one blocking defect**, which is the strongest argument for the convention it
+was enforcing. The note on `ingest_schema` claimed CASCADE would drop `content.source_items`' `stream_id`
+FK. **No such FK exists** — `content_schema.sql:82` is a plain nullable `uuid` with only an index; the
+three real FKs to `ingest.streams` are all on `ingest.*` tables, inside the schema being dropped. The
+claim originated in the plan and was transcribed faithfully, and **every mechanical check passed it** —
+comment-only, guard green, suite green, note present and correctly placed. Only reading the claim against
+the DDL could catch it. Corrected to state the truth and pre-empt the wrong inference ("Do not go looking
+for a broken FK to rebuild; there never was one"); re-reviewed PASS. This is exactly the failure the §10
+rule names: *a note claiming revertibility where none exists is worse than no note.*
+
+⚠️ **Bookkeeping caveat:** `LC-ROLLBACK`'s source report (`audits/launch-check/2026-07-26/REPORT.md`) is
+**gitignored** (`.gitignore:64`), so it does not exist in the repo and its box could not be ticked there
+— only here. Also note the action item's exact wording is "every migration since last deploy has a
+**tested** reverse path". This unit closes the *documented* half by mandate; **the tested half remains
+open** and belongs with the PITR/backup item and `docs/runbooks/drills/04-backup-restore.md`.
 
 **Follow-up logged, not fixed (new findings, out of this bucket's scope):**
 - **23 more files carry the same unsatisfiable `pgsql` gate**, including 6 in `tests/Feature/Moderation`
