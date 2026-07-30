@@ -30,8 +30,31 @@ unit touching auth/authorization, money, a DB migration, or graded L/XL.
 ## Execution prompts
 
 Four prompts, one per bucket. Paste the indented block into a **fresh Claude Code session** at the repo
-root. Run them in order — **P0-PILOT → P1-PILOT → P0-LAUNCH → P1-LAUNCH** — and don't run two at once
-(units within a bucket touch overlapping files, and `audit.sh` adjudications are sequential).
+root. Default order — **P0-PILOT → P1-PILOT → P0-LAUNCH → P1-LAUNCH**.
+
+**What can run concurrently** (each in its own worktree; the constraint is file overlap, not the
+`audit.sh` one-at-a-time rule — that governs *scans*, not fix-flow execution):
+
+| Pair | Safe? | Why |
+|---|---|---|
+| P1-PILOT ∥ **P0-LAUNCH** | ✅ **yes** | No shared function bodies. Two soft overlaps to declare in the P0-LAUNCH prompt: `tests/Feature/Security/DataExportCoverageTest.php` (P1-PILOT owns it for `PRIV-3`), and comment-level conflicts on `supabase/migrations/*.sql` from `LC-ROLLBACK`. |
+| P1-PILOT ∥ **P1-LAUNCH** | ❌ **no** | Three hard collisions — see below. |
+| P0-LAUNCH ∥ P1-LAUNCH | ⚠️ partial | `#TEST-41` (P1-LAUNCH unit 4) edits `tests/Postgres/*`, which `#TEST-1`/`#TEST-2` are re-wiring. Sequence unit 4 after P0-LAUNCH merges. |
+
+**P1-LAUNCH ↔ P1-PILOT hard collisions — do not run these together:**
+
+| P1-PILOT | P1-LAUNCH | Collision |
+|---|---|---|
+| `JOB-4` — `RunExecutor.php:168-186` | `CACHE-3` — `RunExecutor.php:168-186` | **same method**, same lines |
+| `PRIV-3` — DSAR erasure coverage | `#9` — evidence snapshot export | **`#9` is a subset of `PRIV-3`** — `PRIV-3`'s fix text already prescribes the `streamEvidence()` section `#9` asks for. Expect P1-PILOT to close both. |
+| `#43` + `#EDGE-2` + `#10` | `#10` — `src/index.js` | `#10` is listed in **both** buckets (Prompt 2 authorises it opportunistically). It belongs to whichever session reaches `cloudflare-worker/` first. |
+
+⚠️ Never run `LC-K6` (P1-LAUNCH unit 6) in the same window as `LC-NIGHTWATCH` (P1-PILOT unit 6) — both
+target dev, and the load run will drown the alert signal you're trying to confirm.
+
+Worktrees isolate the filesystem, so concurrency cannot corrupt a run. The risk is the **semantic merge
+conflict**: two branches edit the same function, both suites go green in isolation, and the breakage
+only appears once merged. Run the suite on the *merged* result, not just on each branch.
 
 This file carries **summaries, not full findings**. Every prompt names the source audit file each ID
 lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real spec.
@@ -199,6 +222,11 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 ---
 
 ### Prompt 3 — P0-LAUNCH (6 findings, 4 units)
+
+> 📎 **Running this alongside a live P1-PILOT session? Use
+> [`EXECUTE-P0-LAUNCH-CONCURRENT.md`](./EXECUTE-P0-LAUNCH-CONCURRENT.md) instead of the prompt below.**
+> Same six findings, plus a file-ownership table, a `git diff`-based conflict pre-flight, and the two
+> known flashpoints (`DataExportCoverageTest.php`, the `site_visits_lat_lon` migration).
 
 > Work the **P0-LAUNCH** bucket of
 > `audits/consolidation/2026-07-30-pilot-launch-reprioritisation/CONSOLIDATED.md`.
@@ -398,14 +426,19 @@ So nothing here carries a priority tag until it was checked against the code as 
 |---|---|---|---|
 | **P0-PILOT** | 7 | 6 | 2× P2, 5× ungraded launch-check |
 | **P1-PILOT** | 12 | 6 | 8× P2, 1× P3, 3× ungraded |
-| **P0-LAUNCH** | 6 | 4 | 2× P1, 2× P2, 2× ungraded |
-| **P1-LAUNCH** | 27 | 6 | 1× P1, 9× P2, 12× P3, 5× ungraded |
-| **BACKLOG** | 239 | — | overwhelmingly P3 hygiene + P2 scale work |
+| **P0-LAUNCH** | 7 | 4 | 2× P1, 2× P2, 2× ungraded, +1 promoted |
+| **P1-LAUNCH** | 34 | 6 | 1× P1, 9× P2, 12× P3, 5× ungraded, +7 promoted |
+| **BACKLOG** | 231 | — | **triaged 2026-07-30** → 96 opportunistic, 135 wontfix |
 | **DEAD** | 11 | — | verified already done or phantom |
 | **Total** | **302** | 22 | |
 
 *Findings* counts individual audit IDs; *units* counts the work packages the execution prompts group
 them into. They differ where several findings share a root cause and one review covers them all.
+
+**Backlog is now dispositioned, not just deferred** — see
+[`BACKLOG-TRIAGE.md`](./BACKLOG-TRIAGE.md). That pass promoted 8 findings (reflected above), closed 135
+as WONTFIX with stated reasons, and marked 96 OPPORTUNISTIC under the standing rule now recorded in
+`CLAUDE.md`. Nothing in the backlog is scheduled work.
 
 **Verification coverage: 48 of 302 items were checked against live code.** That is deliberate, not a
 shortcut — every item that lands in a P0/P1 bucket was verified, plus a 14-item staleness sample of
@@ -599,7 +632,7 @@ the same class of miss as `#INH-7`.
 
 ---
 
-# P0-LAUNCH — 6 findings / 4 units. Pilot's small N hides these; GA will not.
+# P0-LAUNCH — 7 findings / 4 units. Pilot's small N hides these; GA will not.
 
 ### `#TEST-2` · was P1 → **P0-LAUNCH** · constraint/index/trigger tests still don't run in CI
 - **Verified: PARTIAL.** Genuine progress — `CheckConstraintsTest.php` moved to `tests/Schema/` and now
@@ -636,9 +669,17 @@ the same class of miss as `#INH-7`.
 - The DAST tooling shipped to `development` on 2026-07-26, but the **baseline triage still needs you**.
   A DAST run nobody has read is not a completed control.
 
+### `#50` · was P3 → **P0-LAUNCH** · public menu endpoint has no field allowlist *(promoted 2026-07-30)*
+- **Where:** `app/Http/Controllers/Api/PublicSite/PublicMenuController.php`
+- `show()` hand-builds the public menu payload with no Resource class, so an unauthenticated public
+  endpoint has **no allowlist guardrail** — a future internal column reaches the public wire silently.
+- **Why promoted:** identical defect class to `#API-1`, which was already P0-LAUNCH. Grading them
+  differently was an inconsistency in the source audits, not a real distinction. `#API-1` covers shop
+  products; this covers the menu, a core product surface. **Work both in the same unit.**
+
 ---
 
-# P1-LAUNCH — 27 findings / 6 units
+# P1-LAUNCH — 34 findings / 6 units
 
 **Scale and data-growth** — none of these bite at pilot volume; all of them bite at GA:
 - `DINT-1` (P3) — no index on `analytics.action_events(user_id)` or `item_views(user_id)`; every GDPR purge sequential-scans a write-heavy table. **STILL-OPEN.**
@@ -664,6 +705,14 @@ the same class of miss as `#INH-7`.
 - `LC-RERUN` — make re-running launch-check a standing step after every migration push and before every promote. Process, not code.
 - `#10` (P3) — Worker `unclaimedHtml()` hardcodes `https://partna.au` regardless of environment. **STILL-OPEN.** Trivial, and it pairs with `#43`/`#EDGE-2`.
 
+**Promoted from backlog, 2026-07-30** — seven findings the source audits under-graded. Full reasoning in
+[`BACKLOG-TRIAGE.md`](./BACKLOG-TRIAGE.md):
+- `#JOB-6` (was P3) — `EffectLedger::once()` can mask a non-duplicate DB error as a silent `'refused'`, **skipping a billed effect** (actor runs, AI extraction) with no log and no exception.
+- `#SLOP-21` (was P3) — `@`-suppressed `preg_match` on catalog regex in `LinkProjector` (3 sites): a typo'd detector pattern **fails closed silently** and links stop routing.
+- `#TEST-30` (was P2) — `SafeUrlFetcher`, Partna's own **SSRF boundary**, is `Mockery::mock()`ed out of the Shop URL validation tests, stripping allowlist/DNS/redirect checks from all of them. Switch to `Http::fake()`.
+- `#TEST-44` (was P2) — no XXE regression test on `YoutubeFeed::parse()`. Defence is correct today; the risk is a future "fix" reopening it.
+- `#CFG-16` + `#CFG-8` + `#CFG-9` (were P3) — the only `CFG-*` items that are genuine **incident and paid-API knobs**: ingest deletion sensitivity, billed-effect abandonment, scheduler fairness, Places retry/backoff, Apify timeout. One ~1h unit. The other 15 `CFG-*` are WONTFIX.
+
 **Supply chain** (a launch-check verdict row, not a numbered item): `cloudflare-worker` npm still carries
 the same 3 high advisories — `sharp` pinned at 0.34.5 (<0.35.0) via miniflare/wrangler. **Verified
 dev-only dependencies**, never shipped to the edge runtime, so the real risk is low. Bump it when
@@ -671,24 +720,33 @@ convenient; don't gate launch on it.
 
 ---
 
-# BACKLOG — 239 items. Correct to defer.
+# BACKLOG — 231 items. Dispositioned 2026-07-30, not scheduled.
 
-Not re-documented here; they remain in their source files. Composition:
+**Full decision record: [`BACKLOG-TRIAGE.md`](./BACKLOG-TRIAGE.md).** Summary:
+
+| Disposition | Count | Meaning |
+|---|---|---|
+| **WONTFIX** | 135 | Closed permanently with a stated reason. ~34 were disarmed by the audit's own caveats ("no action needed", "already fully backstopped", "the prescribed fix does not fix anything"); ~9 are duplicates or superseded by `LC-ROLLBACK`; ~45 are cosmetic; ~47 are the stale 07-11 P3 tail. |
+| **OPPORTUNISTIC** | 96 | Never scheduled. Fixed in-passing when the file is already open — the standing rule now lives in `CLAUDE.md`. |
+| **PROMOTE** | 8 | Mis-graded. Moved into P0-LAUNCH (1) and P1-LAUNCH (7); counts above already reflect this. |
+
+**Do not batch-execute this list, and do not re-derive it.** Three measured reasons: the 07-11 group has
+a **43% already-fixed rate** (6 of 14 sampled), the test-coverage lens has **eight** confirmed phantoms,
+and under `fix-flow.md` the verify→plan→implement→review overhead exceeds the fix for a sub-hour item.
+Disposition was the cheaper and more honest close.
+
+Composition of what was triaged:
 
 | Group | Count | Character |
 |---|---|---|
-| `#SLOP-*` (07-28) | 21 | Decorative ASCII banners, stale docblocks, duplicated helpers. Zero runtime impact. |
-| `#CFG-*` (07-28) | 19 | Hardcoded constants that "should be config". Genuine hygiene; none is a defect. |
-| `#TEST-*` remainder | ~55 | Coverage gaps on already-correct code. **Treat with suspicion** — this lens produced 2 confirmed phantoms in this run alone. |
-| `#LIFE-*` P3s | ~12 | Select-then-insert races the audit itself marks "already fully backstopped". |
-| `#SEM-*`, `#API-*`, `#MIG-*` | ~25 | Resource-class consistency, lock-timeout comments on new-table migrations. |
-| `#INH-*` remainder | 15 | Inheritance/DRY refactors. **No behaviour change by design** — pure maintainability. |
-| 07-11 P3 remainder | ~45 | 19 days stale. Sampling found **6 of 14 already fixed** — assume ~40% of this group is dead. |
-| Everything else | ~47 | |
-
-**Do not batch-execute this list.** Two reasons, both evidenced above: the 07-11 group is heavily stale,
-and the test-coverage lens over-reports. A run against this backlog should re-verify first, exactly as
-this file did.
+| `#SLOP-*` (07-28) | 21 | Banners and docblocks. 2 promoted/opportunistic (comments that actively mislead), rest WONTFIX. |
+| `#CFG-*` (07-28) | 19 | Hardcoded constants. **3 promoted** (incident + paid-API tunables), 1 opportunistic, 15 WONTFIX. |
+| `#TEST-*` remainder | ~55 | **2 promoted** (SSRF + XXE regression guards). Rest opportunistic, with a mandatory re-verify against the revised lens. |
+| `#LIFE-*` P3s | ~12 | Races the audit marks "already fully backstopped", plus four on code with no production caller. Mostly WONTFIX. |
+| `#SEM-*`, `#API-*`, `#MIG-*` | ~25 | `MIG-*` WONTFIX (superseded by `LC-ROLLBACK`); `SEM-2`/`SEM-3` opportunistic-high. |
+| `#INH-*` remainder | 14 | Opportunistic — **except `INH-4` and `INH-8`**, which are standalone and must not be absorbed casually. |
+| 07-11 P3 remainder | ~47 | Closed en bloc on the 43% dead rate. |
+| Everything else | ~38 | |
 
 ---
 

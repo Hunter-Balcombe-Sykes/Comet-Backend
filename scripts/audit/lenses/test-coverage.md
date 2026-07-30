@@ -76,7 +76,7 @@ Each of the following code paths is foundational to the platform's operation. Th
 
 ### (8) Resource class + Form Request coverage
 
-- Every `Resource` class should have a snapshot test asserting the keys returned (catches accidental PII leaks on refactor). Priority: `IndividualProfileResource`, `UserPublicResource`, `UserStaffResource` — the public/staff split is the highest-risk audience-confusion surface.
+- Every `Resource` class's returned key set should be asserted somewhere (catches accidental PII leaks on refactor). Priority: `IndividualProfileResource`, `UserPublicResource`, `UserStaffResource` — the public/staff split is the highest-risk audience-confusion surface. **"Somewhere" includes a route-level feature test that hits the endpoint and asserts the JSON shape — that is the house pattern and it counts in full.** A dedicated `<Class>Test.php` snapshot is nice to have, not the bar; demand it only as an explicit P3 maintainability suggestion, never as a coverage finding. See mandatory-check step 5.
 - Every `FormRequest` should have a test asserting at least one valid + one invalid payload.
 - Form Requests behind feature-flagged routes need both flagged-on and flagged-off tests.
 
@@ -109,6 +109,9 @@ claims code is untested when the tests exist somewhere the run's `--scope` did
 not reach. On the 2026-07-28 sweep this produced **six** wrong findings —
 #TEST-16, #TEST-13, #TEST-1, #TEST-3, #TEST-17 and most of #TEST-9 — several
 for classes whose tests were added in the *same commit* as the class itself.
+The 2026-07-30 re-verification of that sweep confirmed **two more**, #TEST-21
+and #TEST-27, bringing the tally to **eight**. Those two failed differently
+from the first six and are the reason steps 2b and 5 below exist.
 It has never once over-reported. Assume the gap is yours, not the codebase's.
 
 So, before writing "X has no test coverage":
@@ -124,11 +127,36 @@ So, before writing "X has no test coverage":
    run even though the file exists. That single omission is what produced
    #TEST-13 (`PublicSuffixList` "has no unit tests" — its test had shipped in
    the same commit as the class).
+2b. **Do not assume coverage lives in the directory that mirrors the class.**
+   It frequently lives in the *domain* feature directory instead. Resource
+   classes are the worst offender: `PublicIntegrationConnectionResource` is
+   covered by **seven** test files, every one of them under
+   `tests/Feature/Platforms/` or `tests/Feature/Platforms/Registry/`, and
+   **none** under `tests/Feature/Resources/`. A Group C run reads
+   `app/Http/Resources/` but reaches none of those seven — that is precisely
+   how #TEST-21 was manufactured on 2026-07-28. Group C below has been widened
+   to compensate; do the repo-wide grep anyway.
 3. **Check `git log --diff-filter=A -- <test path>`.** If the test landed in the
    same commit as the class, the coverage was never absent and the finding is
    false at adjudication time, not merely stale.
 4. **State where you looked** in the finding. A coverage claim without a
    negative search is not evidence.
+5. **Search for the behaviour, not just the symbol — and never equate "no
+   dedicated test file" with "no coverage".** A method is covered when its
+   behaviour is asserted, whether or not any test names it. Before filing:
+   - grep the method's **callers** and test those names too. #TEST-27 claimed
+     `GoogleBusinessService::resolvePhotoUrls()`'s budget-claim loop was
+     untested; `resolvePhotoUrls` appears in no test, but the loop is proven
+     through `fetchPlaceDetails()` in `tests/Feature/Platforms/PlacesBudgetGateTest.php`.
+     Grepping the method name alone returns zero and reads as a gap.
+   - for anything reachable over HTTP, grep the **route and endpoint path**.
+     Route-level feature tests are the house pattern for Resources, Form
+     Requests and controllers — they are real coverage, not a lesser substitute.
+   - "no per-branch test", "no snapshot test" and "no file named
+     `<Class>Test.php`" are **style observations, not coverage gaps**. If every
+     branch is exercised somewhere, there is no finding to file. If you want the
+     dedicated file for maintainability reasons, say that plainly and grade it
+     P3 — do not dress it up as missing coverage.
 
 A false "no tests" finding is expensive twice over: it burns a unit of work to
 disprove, and it trains the reader to distrust real findings.
@@ -164,9 +192,26 @@ disprove, and it trains the reader to distrust real findings.
 --scope tests/Unit/Resources
 --scope tests/Feature/Requests
 --scope tests/Unit/Requests
+--scope tests/Feature/Platforms
+--scope tests/Feature/PublicSite
+--scope tests/Feature/Security
 --scope app/Http/Resources
 --scope app/Http/Requests
 ```
+
+⚠️ **The last three test paths are not decoration — they are where Resource and
+Form Request coverage actually lives.** `tests/Feature/Resources/` and
+`tests/Unit/Resources/` exist but hold very little; the real assertions are
+route-level, in the domain feature directories. Running Group C without them
+reads `app/Http/Resources/` against an almost-empty test surface and will
+manufacture phantom gaps — that is the documented cause of #TEST-21.
+
+This makes Group C large. If recall degrades (findings get vague, or the run
+stops citing specific test files), split it rather than dropping scope: run
+`app/Http/Resources` against the four test paths in one pass, then
+`app/Http/Requests` against them in a second. **Never narrow it back to just
+`tests/Feature/Resources` + `tests/Unit/Resources`** — that is the exact
+configuration that produced the false finding.
 
 ### Group D — Jobs, analytics, media
 ```

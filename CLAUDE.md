@@ -171,6 +171,19 @@ Follow `scripts/audit/fix-flow.md`. Branch `audit-fix/<slug>-<date>` off `develo
 
 All checkboxes `[x]` → auto-moves to `audits/archive/`. Run `scripts/audit/archive-done.sh` anytime. Never ask.
 
+### Opportunistic fixes — absorb the P3 tail, never schedule it
+
+**When you have a file open for real work, fix that file's `SLOP-*` / `CFG-*` / cosmetic P3 findings in the same commit.** That is where the low-tier audit backlog is meant to go — absorbed in passing, not run as a campaign. Mention them in the commit body; they need no separate plan, unit, or review.
+
+Bounds — do NOT absorb opportunistically:
+- Anything listed **Standalone — do NOT bundle** in its source audit (locked DB writes, live third-party surfaces). Those get their own branch and review.
+- Anything touching auth, money, a migration, or the public wire — the blocker gate still applies.
+- Files another session owns (check `git worktree list` + the sibling worktree's `git status` before assuming a file is free).
+
+**Never run a "clear the backlog" campaign.** Recall degrades past ~100K tokens, the P3 tail carries a measured ~40% already-fixed rate, and under `fix-flow.md` the verify→plan→implement→review overhead exceeds a sub-hour fix. Disposition beats execution: see `audits/consolidation/2026-07-30-pilot-launch-reprioritisation/BACKLOG-TRIAGE.md` for the WONTFIX / OPPORTUNISTIC / PROMOTE policy and the reasoning behind it.
+
+**A ticked box means "resolved as an open question", not "the code changed."** Closing a finding WONTFIX with a stated reason is a legitimate outcome — leaving it open forever is not, because it blocks auto-archive and makes the audit system read permanently red.
+
 ## Workflow
 
 - Plan mode for non-trivial tasks (3+ steps). Bug → pull Cloud logs FIRST, check Nightwatch.
