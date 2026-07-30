@@ -554,11 +554,50 @@ tracked in their source folders).
 - [ ] `#TEST-2` · [ ] `#TEST-1` · [ ] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
 
 **P1-LAUNCH**
-- [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [ ] `#SCALE-13` · [ ] `#SCALE-14` · [ ] `#SCALE-17`
-- [ ] `#SCALE-19` · [ ] `#SCALE-20` · [ ] `#CACHE-1` · [ ] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
+- [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [ ] `#SCALE-14` · [ ] `#SCALE-17`
+- [x] `#SCALE-19` · [ ] `#SCALE-20` · [x] `#CACHE-1` · [ ] `#CACHE-2` · [ ] `#CACHE-3` · [ ] `#3`
 - [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
 - [ ] `#INH-6` · [ ] `#SEC-4` · [ ] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
 - [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [ ] `#10`
+
+> **P1-LAUNCH** — worked 2026-07-30 on `audit-fix/p1-launch-2026-07-30`, concurrently with P0-LAUNCH.
+>
+> **Unit 1 verification collapsed 8 findings into 4 tickets.** Three closed without code:
+> - **`#CACHE-1` — DEAD.** Commit `790a0c11` ("perf(audit): batch ProjectionWriter's per-item queries —
+>   SCALE-6/7/8") already replaced the per-facet `exists()` loop with exactly the prescribed `whereIn` +
+>   in-memory-set batching (`ProjectionWriter::refreshItemCaches`, `BATCH_SIZE = 500`), and pinned it with
+>   `ProjectionWriterBatchingTest.php:377`. The sweep captured its evidence before that commit landed.
+> - **`#CACHE-2` — folded into `#SCALE-17`.** Same code site (`replaceCollections`), and `#SCALE-17`
+>   strictly contains it. One fix, one commit, one test. Ticked when `#SCALE-17` lands.
+> - **`#SCALE-19` — closed, no fix, by decision.** The premise ("grows unbounded") is false:
+>   `idx_source_intents_live` (`20260727120000_routing_schema.sql:81`) is UNIQUE on
+>   `(user_id, surface_key, identifier)` for the blocked states, so cardinality is single-digit per user,
+>   and `idx_source_intents_inbox` already covers the query shape. The prescribed fix — push the
+>   `legacyPlatform` filter into SQL — has a semantic trap: `LegacyPlatformMap::legacyFor()` is
+>   `SPECIAL_TO_LEGACY[$k] ?? explode('.', $k, 2)[0]`, a **prefix rule, not a lookup**. No exact SQL
+>   equivalent without `split_part` (Postgres-only, unrunnable in the SQLite lane) or materialising
+>   `CompiledCatalog::surfaces()`, which silently changes behaviour for any deliberately-unconstrained
+>   `surface_key` absent from the compiled artefact.
+>
+> **`#CACHE-3` deliberately left OPEN — escalated, not deferred.** Its prescribed `Bus::chain` fix
+> regresses two things that shipped days earlier: (1) **`JOB-4`** (`a32e8cbe`) made
+> `RunExecutor.php:176-186` downgrade a run to `degraded` on projection failure — chaining finalises
+> `ingest.runs.outcome` as `ok` *before* projection runs, silently undoing it; (2) `RunSourceJob`'s
+> `finally` calls `SourceScheduler::release()`, so chaining drops the source claim while projection is
+> still running, letting `claimDue()` start a second land+project pass concurrently — and
+> `ProjectionWriter`'s delete-then-insert is not concurrency-safe against itself on one stream.
+> **The open question for Josh:** decouple projection from landing or not, and if so, what replaces
+> JOB-4's degraded-outcome signal and the claim-held-during-projection invariant? Lifecycle redesign,
+> not scale hygiene.
+>
+> **`#SCALE-13` — fixed, but NOT as the audit prescribed.** The audit's "chunk the ID list into batches
+> of ~500" is **mathematically wrong here** and was rejected: `visitsAggregate`/`clicksAggregate` select
+> `COUNT(DISTINCT ...)`, which does not sum across chunks — a visitor under two users in different
+> chunks would be double-counted, silently corrupting the staff dashboard. The temp-table JOIN variant
+> was also rejected (needs DDL; `CREATE TEMP TABLE` doesn't survive Supavisor transaction-mode pooling).
+> Shipped instead: a 2000-user cap (`partna.analytics.staff_segment_max_users`, env-overridable) with a
+> 422 above it, plus a non-throwing defence-in-depth warning in `scopedTable()`. The 422 is a deliberate,
+> user-visible product decision signed off by Josh — nobody hits it today at 0 live users.
 
 **DEAD — bookkeeping owed to the source folders** (see `## Bookkeeping to apply to the source files`).
 Left open on purpose: these are verified dead *here*, but the tick has to land in each source audit

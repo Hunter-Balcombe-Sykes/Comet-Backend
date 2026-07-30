@@ -2270,6 +2270,12 @@ return [
         // analytics.lead_submissions row, keyed by (ip_hash, subdomain).
         'lead_rate_limit_dedup_seconds' => (int) env('PARTNA_ANALYTICS_LEAD_RATE_LIMIT_DEDUP_SECONDS', 10),
 
+        // SCALE-13: hard ceiling on a staff segment's resolved user-id set before it
+        // becomes a whereIn. Above this, Postgres traverses `= ANY(ARRAY[...])` per
+        // candidate row on analytics.site_visits. Chunking is NOT an option — the
+        // aggregates are COUNT(DISTINCT ...), which does not sum across chunks.
+        'staff_segment_max_users' => (int) env('PARTNA_ANALYTICS_STAFF_SEGMENT_MAX_USERS', 2000),
+
         // CFG-1: RecordAnalyticsEventJob hygiene. Typed properties can't call config()
         // in their initialiser, so these are read in the job's constructor instead —
         // JobHygienePolicyTest only requires the properties to be *declared*, not

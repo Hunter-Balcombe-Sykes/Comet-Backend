@@ -1081,14 +1081,15 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 6 complete
+- P2 Medium: 1 of 6 complete  (+#CACHE-1, verified DEAD 2026-07-30 — fixed by 790a0c11)
 - P3 Low: 0 of 1 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CACHE-1** · P2 — `refreshItemCaches` runs 18+ per-facet `exists()` queries per item touched in a projection run
+- [x] **#CACHE-1** · P2 — `refreshItemCaches` runs 18+ per-facet `exists()` queries per item touched in a projection run
+    - **DEAD (2026-07-30, P1-LAUNCH).** Already fixed by `790a0c11` before this sweep's evidence was read: `refreshItemCaches` now chunks at `BATCH_SIZE = 500` and resolves all 14 singleton facets + 4 collection tables with one `whereIn(...)->distinct()->pluck()` per batch into an in-memory set — exactly the prescribed fix. Pinned by `tests/Feature/Ingest/ProjectionWriterBatchingTest.php:377`. No work done.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:673-683 (`refreshItemCaches`)
     - **Affects:** Ingest background workers (queue `ingest`) — every content item touched by a projection run (identity resolve/merge, catalog sync) pays 14 singleton-facet + 4 collection `exists()` checks, serialized.
     - **Effort:** S (~0.5–1h)
@@ -1326,7 +1327,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 1 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED)
+- P2 Medium: 3 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13 fixed and +SCALE-19 closed-no-fix, 2026-07-30)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1661,7 +1662,8 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-13** · P2 — Staff aggregate analytics queries pass unbounded user-ID arrays into `whereIn`
+- [x] **SCALE-13** · P2 — Staff aggregate analytics queries pass unbounded user-ID arrays into `whereIn`
+    - **FIXED 2026-07-30 (P1-LAUNCH) — but NOT by the prescription above.** ⚠️ **Do not implement this finding's "chunk the ID list into batches of ~500" suggestion; it is mathematically wrong here.** `visitsAggregate`/`clicksAggregate`/`topPages`/`platformClicks` select `COUNT(DISTINCT ...)`, and a distinct count does not sum across chunks — a visitor appearing under two users in different chunks would be double-counted, silently corrupting the staff dashboard's `unique_visitors`/`unique_clickers`. The temp-table-and-JOIN alternative was also rejected: it needs DDL (out of scope) and `CREATE TEMP TABLE` does not survive Supavisor transaction-mode pooling. Shipped instead: `config('partna.analytics.staff_segment_max_users')` (default 2000, `PARTNA_ANALYTICS_STAFF_SEGMENT_MAX_USERS`), enforced as a 422 in `StaffAggregateAnalyticsController::summary()` — the only call site that resolves a segment into an array scope — plus a non-throwing `Log::warning` in `scopedTable()` as defence in depth (it must not throw: `clicksAggregate` catches `QueryException` specifically, so a new exception type would escape its handling and 500 the dashboard). New route-level test `tests/Feature/Staff/StaffAggregateSegmentCapTest.php`. The 422 is a deliberate, user-visible product decision signed off by Josh.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:856-867 (`scopedTable`)
     - **Affects:** Staff aggregate dashboard when a segment filter resolves to a large user-ID set — `visitsAggregate`, `clicksAggregate`, `visitsByBucket`, `clicksByBucket`, `topSections`, `topPages`, `platformClicks`, `sessionsAggregate` all funnel through this method (per its own docblock, deliberately built for staff reuse — "OV-A scope injection").
     - **Effort:** M (~2–4h)
@@ -1821,7 +1823,8 @@ None.
         ```
     - `[confidence: 0.7]`
 
-- [ ] **SCALE-19** · P2 — `SyncFindingsBridge::conflicts()` loads every blocked conflict for a user, unbounded, to find one
+- [x] **SCALE-19** · P2 — `SyncFindingsBridge::conflicts()` loads every blocked conflict for a user, unbounded, to find one
+    - **CLOSED 2026-07-30 (P1-LAUNCH) — reproduces, deliberately not fixed.** The "unbounded growth" premise is false: `idx_source_intents_live` (`supabase/migrations/20260727120000_routing_schema.sql:81`) is UNIQUE on `(user_id, surface_key, identifier)` for states `('proposed','applied','blocked')`, so a blocked conflict cannot duplicate and the set grows only on a genuinely new distinct identifier — single-digit to low-double-digit rows per user, not "every week". `idx_source_intents_inbox` already covers the query shape. ⚠️ The prescribed fix (push the `legacyPlatform` filter into the query) carries a semantic trap: `LegacyPlatformMap::legacyFor()` is `SPECIAL_TO_LEGACY[$key] ?? explode('.', $key, 2)[0]` — a **prefix rule, not a map lookup**. There is no exact SQL equivalent without `split_part` (Postgres-only; unrunnable in the SQLite lane) or materialising `CompiledCatalog::surfaces()`, which would silently change behaviour for any `surface_key` absent from the compiled artefact — and that column is deliberately unconstrained (`20260727110000_connections_surface_key.sql:43`). Adding `->limit()` was also rejected: `conflicts()` feeds `/synced`'s response body and a limit would truncate what the user sees.
     - **Where:** app/Routing/SyncFindingsBridge.php:55-65 (`conflicts`), used by `findConflict()` at line 48-52
     - **Affects:** The Instagram synced-modal endpoint (`GET /platforms/instagram/synced`) and any caller of `findConflict()` — every request materialises the user's full blocked-conflict list.
     - **Effort:** S (~0.5–1h)
