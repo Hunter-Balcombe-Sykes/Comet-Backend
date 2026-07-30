@@ -24,7 +24,7 @@
 use Illuminate\Support\Facades\DB;
 use Tests\SchemaTestCase;
 
-uses(SchemaTestCase::class)->in(__DIR__);
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Assert that a named CHECK constraint exists on the given table and has been validated.

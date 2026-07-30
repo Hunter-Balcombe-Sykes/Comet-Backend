@@ -787,9 +787,9 @@ function setupSitesTable(): void
     )');
 
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_items (
-        id TEXT PRIMARY KEY,
-        menu_id TEXT NULL,
-        name TEXT NULL,
+        id TEXT PRIMARY KEY NOT NULL,
+        menu_id TEXT NOT NULL,
+        name TEXT NOT NULL,
         description TEXT NULL,
         image_url TEXT NULL,
         images TEXT NULL,

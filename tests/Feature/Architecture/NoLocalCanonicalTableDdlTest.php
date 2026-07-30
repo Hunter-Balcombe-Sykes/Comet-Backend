@@ -9,6 +9,16 @@
  * CI green (this is how a null resource_id slipped past the T3 drift tightening). The shared
  * helpers are the single source of truth for these tables' schema.
  *
+ * SCOPE (jurisdiction, not a hand-picked list): "canonical table" means any table a no-arg
+ * setup*() global function DECLARED IN tests/Pest.php builds — exactly the same predicate
+ * SchemaDriftGuardTest already uses to decide which helpers to run, now shared via
+ * Tests\Support\SchemaDrift\PestSetupHelpers so the two gates cannot silently drift apart on
+ * what "canonical" means. This file used to hardcode 13 table names by hand; widening that list
+ * by hand produced heavy false positives (the bare-name regex also matches prose like "create
+ * table" in comments), so instead the ORACLE was inverted to a measurable jurisdiction.
+ * Measured effect of the inversion: 6 offending files under the old 13-name list → ~31 under
+ * PestSetupHelpers::tables(), with zero new false positives.
+ *
  * SCOPE: tests/Postgres/ is deliberately excluded from this scan, by path, not just by luck.
  * That lane (phpunit.pg.xml / `composer test:pg`, its own CI job — .github/workflows/ci.yml)
  * runs its DDL against a REAL disposable Postgres database (see PostgresTestCase), never
@@ -42,6 +52,9 @@
  *   NO_LOCAL_DDL_BASELINE=1 php artisan test --filter=NoLocalCanonicalTableDdlTest
  * Preferred fix for a flagged file: seed via the shared setup*Table() helpers instead.
  */
+
+use Tests\Support\SchemaDrift\PestSetupHelpers;
+
 const NO_LOCAL_DDL_BASELINE_PATH = __DIR__.'/../../../scripts/launch-check/no-local-canonical-ddl-baseline.json';
 
 /**
@@ -224,26 +237,40 @@ function fileHasRealUsesPostgresTestCaseCall(string $contents): bool
 it('no test file builds local DDL for a canonical tenant table (or is baselined)', function () {
     $testsDir = dirname(__DIR__, 2); // repo/tests, from tests/Feature/Architecture
 
-    // Canonical tenant/content tables. Their bare names are unique in this schema, so the
-    // guard matches with or without a schema prefix. The DDL keywords are assembled from parts
-    // so this guard's own source can never satisfy the pattern (it holds itself to the rule).
-    $tables = [
-        'users', 'sites', 'platform_connections', 'menus', 'design_kits',
-        'items', 'sections', 'effects', 'anomalies', 'source_intents',
-        'source_items', 'item_merges', 'section_items',
-    ];
+    // Jurisdiction = every table a setup*() helper in tests/Pest.php builds (see class
+    // docblock). Bare names are matched too (preserves the original 13-name behaviour) because
+    // several local-DDL offenders write an unqualified table-creation statement with no schema
+    // prefix. Bare names collide harmlessly here — multiple schemas can share a bare table name
+    // (e.g. "items") and matching any of them is still correct: SOME setup*() helper claims
+    // that bare name. The DDL keywords are assembled from parts, and this comment deliberately
+    // avoids writing the two keywords adjacently, so this guard's own source can never satisfy
+    // the pattern it scans for (it holds itself to the rule).
+    $helperTables = PestSetupHelpers::tables(); // 'site.menu_items' => 'setupSitesTable'
+    $bareToQualified = [];
+    foreach ($helperTables as $qualified => $helper) {
+        $bare = substr($qualified, strpos($qualified, '.') + 1);
+        $bareToQualified[$bare][] = "{$qualified} ({$helper}())";
+    }
+    $bareNames = array_keys($bareToQualified);
+    sort($bareNames);
     $pattern = '/'.'CREATE'.'\s+'.'TABLE'.'\s+(?:IF\s+NOT\s+EXISTS\s+)?'
-        .'(?:"?[a-z_]+"?\.)?"?('.implode('|', $tables).')"?\b/i';
+        .'(?:"?[a-z_]+"?\.)?"?('.implode('|', $bareNames).')"?\b/i';
 
     // Exempt from the scan (repo-relative). tests/Pest.php owns the canonical shared schema;
     // the comparator test's DDL strings are in-memory fixtures fed to the comparator, not a
-    // real schema the suite ever seeds against.
+    // real schema the suite ever seeds against; tests/Support/SchemaDrift/ is drift-gate
+    // infrastructure (this file's own PestSetupHelpers among it), not a fixture.
     $exempt = [
         'tests/Pest.php',
         'tests/Unit/SchemaDrift/DriftComparatorTest.php',
     ];
+    $exemptPrefixes = [
+        'tests/Postgres/',
+        'tests/Support/SchemaDrift/',
+    ];
 
     $offenders = [];
+    $offenderTables = []; // rel path => matched bare table names, for the failure message
     $rii = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($testsDir, FilesystemIterator::SKIP_DOTS)
     );
@@ -255,11 +282,19 @@ it('no test file builds local DDL for a canonical tenant table (or is baselined)
         if (in_array($rel, $exempt, true)) {
             continue;
         }
-        if (str_starts_with($rel, 'tests/Postgres/')) {
+        $isExemptPrefix = false;
+        foreach ($exemptPrefixes as $prefix) {
+            if (str_starts_with($rel, $prefix)) {
+                $isExemptPrefix = true;
+                break;
+            }
+        }
+        if ($isExemptPrefix) {
             continue;
         }
-        if (preg_match($pattern, file_get_contents($file->getPathname()))) {
+        if (preg_match_all($pattern, file_get_contents($file->getPathname()), $matches)) {
             $offenders[] = $rel;
+            $offenderTables[$rel] = array_values(array_unique(array_map('strtolower', $matches[1])));
         }
     }
     sort($offenders);
@@ -280,13 +315,28 @@ it('no test file builds local DDL for a canonical tenant table (or is baselined)
     $new = array_values(array_diff($offenders, $baseline));
     $drained = array_values(array_diff($baseline, $offenders));
 
+    // Name the specific helper(s) each new offender collides with, so the remedy is
+    // copy-pasteable rather than "go find the right setup*Table() yourself".
+    $newDescribed = array_map(function (string $rel) use ($offenderTables, $bareToQualified) {
+        $tables = $offenderTables[$rel] ?? [];
+        $remedies = [];
+        foreach ($tables as $bare) {
+            foreach ($bareToQualified[$bare] ?? [] as $qualifiedHelper) {
+                $remedies[] = $qualifiedHelper;
+            }
+        }
+        $remedies = array_unique($remedies);
+
+        return $remedies === [] ? $rel : "{$rel} — matches: ".implode(', ', $remedies);
+    }, $new);
+
     expect($new)->toBe([], sprintf(
         "NEW local canonical-table DDL — these test files build their own table for a canonical\n".
         "tenant table, which SchemaDriftGuardTest cannot see (so a prod-violating seed can pass green):\n  %s\n".
-        "Fix: seed through the shared setup*Table() helpers in tests/Pest.php instead of local DDL.\n".
+        "Fix: seed through the shared setup*Table() helper named above instead of local DDL.\n".
         "If a file genuinely needs a bespoke table, regenerate the allowlist:\n".
         '  NO_LOCAL_DDL_BASELINE=1 php artisan test --filter=NoLocalCanonicalTableDdlTest',
-        implode("\n  ", $new)
+        implode("\n  ", $newDescribed)
     ));
 
     if ($drained !== []) {

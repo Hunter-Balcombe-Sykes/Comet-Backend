@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\DB;
 use Tests\Support\SchemaDrift\DriftComparator;
+use Tests\Support\SchemaDrift\PestSetupHelpers;
 use Tests\Support\SchemaDrift\Snapshot;
 use Tests\Support\SchemaDrift\SqliteIntrospector;
 
@@ -29,15 +30,11 @@ it('sqlite test schema mirrors dev Postgres constraints (or is baselined)', func
     // shared, canonical stand-in schema this guard exists to check — a
     // file-local helper is a fixture for ONE test, not a claim about the
     // schema — so restrict discovery to functions actually declared there.
-    foreach (get_defined_functions()['user'] as $fn) {
-        $ref = new ReflectionFunction($fn);
-        if ($ref->getFileName() !== base_path('tests/Pest.php')) {
-            continue;
-        }
-        $short = str_contains($fn, '\\') ? substr($fn, strrpos($fn, '\\') + 1) : $fn;
-        if (str_starts_with($short, 'setup') && $ref->getNumberOfRequiredParameters() === 0) {
-            $fn();
-        }
+    // PestSetupHelpers::names() applies this exact same predicate — shared so
+    // this gate and NoLocalCanonicalTableDdlTest can't drift apart on what
+    // "canonical" means.
+    foreach (PestSetupHelpers::names() as $fn) {
+        $fn();
     }
 
     $findings = (new DriftComparator)->compare(

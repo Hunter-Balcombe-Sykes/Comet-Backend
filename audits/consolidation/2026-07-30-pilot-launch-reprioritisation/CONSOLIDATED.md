@@ -427,7 +427,7 @@ tracked in their source folders).
 |---|---|
 | P0-PILOT | 6 / 7 |
 | P1-PILOT | 0 / 12 |
-| P0-LAUNCH | 0 / 6 |
+| P0-LAUNCH | 3 / 6 |
 | P1-LAUNCH | 0 / 27 |
 | DEAD bookkeeping | 0 / 11 |
 
@@ -451,8 +451,48 @@ tracked in their source folders).
 - [ ] `#CCH-4` · [ ] `#LIFE-11` · [ ] `#LIFE-12` · [ ] `271-SEM-1` · [ ] `#JOB-4` · [ ] `PRIV-1`
 - [ ] `PRIV-2` · [ ] `PRIV-4` · [ ] `PRIV-3` · [ ] `#43` · [ ] `#EDGE-2` · [ ] `LC-NIGHTWATCH`
 
-**P0-LAUNCH**
-- [ ] `#TEST-2` · [ ] `#TEST-1` · [ ] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
+**P0-LAUNCH** — worked 2026-07-30 on `audit-fix/p0-launch-2026-07-30`.
+- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
+
+Unit 1 (`#TEST-2` + `#TEST-1` + `271-PARITY-1`) — one root cause: `tests/TestCase.php:21-33`
+unconditionally repoints the `pgsql` alias at in-memory SQLite, so every `getDriverName() === 'pgsql'`
+gate in the Feature suite is unsatisfiable. Those tests reported green having asked the database nothing.
+- `#TEST-2` — `IndexCoverageTest`, `ArchitectureSystemConstraintsTest`, `UpdatedAtTriggerCoverageTest`
+  moved to `tests/Schema/` (the applied-schema lane, CI job `schema-tests`). **17 assertions that had
+  never executed now run.** No CI-config change was needed — the lane already existed, so this was far
+  cheaper than the L estimate, which predates `5ea53445`. Two things the move exposed: (a) a Pest
+  `uses()->in(__DIR__)` ordering landmine in `CheckConstraintsTest.php:27` that would have thrown
+  "facade root has not been set" / `TestCaseAlreadyInUse` — fixed to `->in(__FILE__)`; (b) **6 of
+  `UpdatedAtTriggerCoverageTest`'s 13 assertions targeted tables that do not exist** (`brand.*` ×4,
+  `commerce.affiliate_product_selections`, `core.gdpr_requests` — the `brand`/`commerce` schemas were
+  removed in the standalone strip-down). Deleted with the reason recorded in-file. An unrun guard does
+  not merely fail to catch regressions in the code; it fails to catch regressions in itself.
+- `#TEST-1` — drift-gate scope inverted rather than widened by hand. Jurisdiction is now "any table a
+  no-arg `setup*` global declared in `tests/Pest.php` builds" (new `Tests\Support\SchemaDrift\PestSetupHelpers`,
+  shared with `SchemaDriftGuardTest` so the two gates cannot disagree about "canonical"). Measured
+  6 → 31 files caught, zero new false positives; the alternative (broadening the hardcoded 13-name
+  list) was rejected as heavily prose-false-positive. **Zero of the 78 files hand-migrated** — baselining
+  is the established mechanism.
+- `271-PARITY-1` — `site.menus.user_id` was already `NOT NULL`. Remaining: `site.menu_items.menu_id`
+  and `.name` tightened in the test seed, plus **`.id`, which the finding did not name** — prod is
+  `"id" uuid NOT NULL` and SQLite does not imply NOT NULL from `PRIMARY KEY` on a non-`INTEGER` column.
+  Verified against `20260726000000_baseline_pilot.sql`, not against a green suite; no later migration
+  touches the table. 3 grandfather entries removed from `schema-drift-baseline.json` by surgical delete,
+  not regeneration. No migration needed — prod was already correct.
+
+Independent review PASS (a first reviewer stalled and was replaced). One defect caught pre-review and
+fixed: the implementer added a `sort()` to `PestSetupHelpers::names()`, which silently reordered the 59
+fixture builders `SchemaDriftGuardTest` *calls*. Verified statically that declaration order ≠ alphabetical
+and that no helper `ALTER`s another's table, so it was harmless today — removed anyway, since a green
+suite could not have distinguished the two versions.
+
+Suite: `6824 passed`, skipped `145 → 122` (−23: the relocated cases, which only ever skipped). PHPStan
+21 errors, unchanged. `tests/Schema` 24 → 41 cases.
+
+⚠️ **The schema lane cannot block a merge.** `development` has **no branch protection and no required
+status checks** (`gh api .../branches/development/protection` → 404). So these 17 newly-live assertions
+will go red without stopping anything. Closing that is a repo setting, not code, and it is cheaper than
+any unit in this bucket.
 
 **P1-LAUNCH**
 - [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [ ] `#SCALE-13` · [ ] `#SCALE-14` · [ ] `#SCALE-17`
