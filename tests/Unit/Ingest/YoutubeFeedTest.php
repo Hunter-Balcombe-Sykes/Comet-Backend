@@ -20,11 +20,16 @@ uses(TestCase::class)->in(__FILE__);
 
 /**
  * A minimal but REALISTIC uploads-feed body with an injectable internal DTD
- * subset. The `xmlns:media` declaration and media:group are not decoration:
- * without them mapEntry() dereferences null at the thumbnail lookup (a
- * separate latent bug, out of scope here), which would turn every case below
- * into a crash instead of an XXE assertion. Real YouTube feeds always declare
- * it, so this matches the wire.
+ * subset. Keep the `xmlns:media` declaration and media:group: real YouTube
+ * feeds always send them, so this matches the wire. (No case here asserts on
+ * the thumbnail — these are XXE tests; the thumbnail cover lives at the bottom
+ * of this file.)
+ *
+ * They used to be load-bearing for a second reason — omitting them made
+ * mapEntry() dereference null at the thumbnail lookup, turning every case
+ * below into a crash instead of an XXE assertion. That bug is fixed (see the
+ * missing-namespace cases at the bottom of this file), so a feed without the
+ * declaration is now merely thumbnail-less rather than fatal.
  */
 function youtubeFeedXxeFeed(string $internalSubset, string $title): string
 {
@@ -95,6 +100,69 @@ it('returns null rather than expanding an entity bomb', function () {
     }
 
     expect(YoutubeFeed::parse(youtubeFeedXxeFeed($subset, '&lol10;')))->toBeNull();
+});
+
+// ── Missing media namespace / missing media:group ─────────────────────────
+//
+// Same hostile-input class as the XXE cases above: a third party sends a body
+// that is well-formed but not shaped like YouTube's, and the parser must
+// degrade to `thumbnail => null` rather than 500. Before the isset() guard in
+// mapEntry(), children() on an undeclared namespace returned a non-null but
+// EMPTY SimpleXMLElement — so the `!== null` check passed, ->children() on it
+// returned null, and reading ->thumbnail raised a warning that Laravel's
+// handler turns into a fatal ErrorException.
+
+/** A well-formed uploads feed whose namespace declarations / media:group are configurable. */
+function youtubeFeedNoMediaNsFeed(bool $declareMediaNs, bool $withGroup): string
+{
+    $mediaXmlns = $declareMediaNs ? ' xmlns:media="http://search.yahoo.com/mrss/"' : '';
+    $group = $withGroup
+        ? '<media:group><media:thumbnail url="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"/></media:group>'
+        : '';
+
+    return <<<XML
+    <?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015"{$mediaXmlns}>
+      <title>Some Channel</title>
+      <entry>
+        <yt:videoId>dQw4w9WgXcQ</yt:videoId>
+        <title>Episode 12</title>
+        <link rel="alternate" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"/>
+        <published>2026-07-01T10:00:00+00:00</published>
+        {$group}
+      </entry>
+    </feed>
+    XML;
+}
+
+it('parses a feed that declares no xmlns:media as thumbnail => null instead of throwing', function () {
+    $records = YoutubeFeed::parse(youtubeFeedNoMediaNsFeed(declareMediaNs: false, withGroup: false));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]['id'])->toBe('dQw4w9WgXcQ')
+        ->and($records[0]['title'])->toBe('Episode 12')
+        ->and($records[0]['url'])->toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+        ->and($records[0]['thumbnail'])->toBeNull();
+});
+
+it('parses an entry with no media:group as thumbnail => null even when xmlns:media IS declared', function () {
+    // The other half of the same guard: the namespace resolves, but this
+    // particular entry carries no group. Distinct code path from the case
+    // above, because $mediaNs comes from getNamespaces() rather than the
+    // hardcoded fallback.
+    $records = YoutubeFeed::parse(youtubeFeedNoMediaNsFeed(declareMediaNs: true, withGroup: false));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]['thumbnail'])->toBeNull();
+});
+
+it('still extracts the thumbnail when media:group IS present — the non-vacuity control', function () {
+    // Without this, both cases above would stay green if thumbnail extraction
+    // were deleted outright, since `null` is also what a no-op returns.
+    $records = YoutubeFeed::parse(youtubeFeedNoMediaNsFeed(declareMediaNs: true, withGroup: true));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]['thumbnail'])->toBe('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
 });
 
 it('still parses a well-formed feed that declares a DTD', function () {

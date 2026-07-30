@@ -2157,7 +2157,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
 - P2 Medium: 5 of 5 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 1 of 4 complete
 
 ---
 
@@ -2412,7 +2412,8 @@ None.
         ]
         ```
 
-- [ ] **PRIV-13** · P3 — Evidence snapshot's captured handle/display_name absent from the GDPR export (deletion side already covered)
+- [x] **PRIV-13** · P3 — Evidence snapshot's captured handle/display_name absent from the GDPR export (deletion side already covered)
+    - **Resolved 2026-07-30** (`audit-fix/tier1-2026-07-30`, tracked as `#9` in the pilot/launch re-prioritisation). ⚠️ An earlier prediction that `PRIV-3` closed this was **wrong** — `PRIV-3` closed the *erasure* half only, and left behind a rationale comment that read like a settled decision not to export. Both are now fixed: `streamModerationEvidence()` exports the subject's **own** frozen `handle`/`display_name`/`site_subdomain` plus `id`/`case_id`/`evidence_type`/`captured_at`, built **positively from a fixed allowlist** (never a spread-then-filter, so a payload key added by a future snapshot strategy cannot leak by default). Withheld by construction: `payload`, `content_hash`, `signal_id` (an FK into `moderation.case_signals`, which carries the reporter's id/email/ip hash), and every row whose `evidence_type` is not `content_snapshot`. Scoped on `payload->user_id` alone with no join to `moderation.cases` — byte-identical to `purgeReportedUserEvidencePii()`, so export and erasure provably cover the same rows. `moderation.evidence` added to `COVERED_PII_TABLES`; the misleading comment rewritten.
     - **Where:** `app/Services/Moderation/EvidenceSnapshotService.php:59-67` and `app/Services/User/DataExport/DataExportPayloadBuilder.php` (no `moderation.evidence` export section)
     - **Affects:** Any user whose site was the subject of a moderation report — their handle and display name are frozen into an immutable evidence row that never surfaces in their own DSAR.
     - **Effort:** S (~0.5–1h)

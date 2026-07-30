@@ -68,3 +68,23 @@ dataset('analyticsPurgeIndexes', [
 it('has a timestamp-leading purge index on each raw analytics table', function (string $table, string $index) {
     assertIndexExists('analytics', $table, $index);
 })->with('analyticsPurgeIndexes');
+
+// ─── analytics erasure/DSAR: user-leading indexes (#DINT-1) ─────────────────
+//
+// analytics.item_views and analytics.action_events are the only two raw
+// analytics tables erased by an explicit `WHERE user_id = ?` DELETE rather than
+// an FK cascade (AccountDeletionService::PURGED_PII_TABLES; both carry a
+// denormalised nullable user_id with no FK to core.users). The DSAR export
+// reads the same two with `WHERE user_id = ? ORDER BY occurred_at`. Every other
+// raw analytics table already carried a (user_id, occurred_at) index; these two
+// were missed until 20260730130000/20260730130001. Keep in lockstep with
+// AccountDeletionService::purgeItemViewsPii()/purgeActionEventsPii().
+
+dataset('analyticsUserScopedIndexes', [
+    'item_views' => ['item_views', 'item_views_user_occurred_idx'],
+    'action_events' => ['action_events', 'action_events_user_occurred_idx'],
+]);
+
+it('has a user-leading erasure index on each explicitly-purged analytics table', function (string $table, string $index) {
+    assertIndexExists('analytics', $table, $index);
+})->with('analyticsUserScopedIndexes');

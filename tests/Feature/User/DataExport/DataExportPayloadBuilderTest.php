@@ -1637,3 +1637,135 @@ it('every section stream() yields resolves to a real key in build() — FOUND-1 
             ->toBeTrue("build() is missing section '{$name}' that stream() yields");
     }
 });
+
+// ─── #PRIV-13: moderation evidence — the subject's own frozen identity ──────
+//
+// No shared helper here on purpose: seedEvidenceRow()/seedEvidencePurgeUser()
+// are already taken globally by AccountDeletionPurgeEvidencePiiTest, and
+// unnamespaced Pest files share ONE symbol table — a redeclaration aborts the
+// whole suite rather than failing a test.
+
+it('#PRIV-13 exports the subject\'s own frozen identity from a content_snapshot, allowlisted', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+    $caseId = (string) Str::uuid();
+    $evidenceId = (string) Str::uuid();
+    $signalId = (string) Str::uuid();
+
+    // display_name carries a SLASH on purpose: it is the control that proves
+    // the JSON_UNESCAPED_SLASHES assertions below can still go red. The
+    // reporter_* keys are sentinels for payload shapes a future snapshot
+    // strategy could add — the positive build must drop them without anyone
+    // having remembered to exclude them.
+    DB::connection('pgsql')->table('moderation.evidence')->insert([
+        'id' => $evidenceId,
+        'case_id' => $caseId,
+        'signal_id' => $signalId,
+        'evidence_type' => 'content_snapshot',
+        'payload' => json_encode([
+            'site_id' => (string) Str::uuid(),
+            'site_subdomain' => 'jsmith',
+            'user_id' => $pro->id,
+            'handle' => 'jsmith',
+            'display_name' => 'John Smith a/k/a JS',
+            'block_count' => 3,
+            'block_types' => ['gallery', 'contact'],
+            'captured_at' => '2026-06-01T00:00:00+00:00',
+            'reporter_handle' => 'https://third-party.example/REPORTER-SENTINEL.jpg',
+            'reporter_note' => 'REPORTER-SENTINEL-NOTE',
+        ], JSON_THROW_ON_ERROR),
+        'content_hash' => 'CONTENT-HASH-SENTINEL',
+        'captured_at' => '2026-06-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload)->toHaveKey('moderation_evidence')
+        ->and($payload['moderation_evidence'])->toHaveCount(1);
+
+    $row = $payload['moderation_evidence'][0];
+
+    // EXACT key set, not "has these keys" — a new key appearing here is a leak.
+    expect(array_keys($row))->toBe([
+        'id', 'case_id', 'evidence_type', 'captured_at',
+        'handle', 'display_name', 'site_subdomain',
+    ]);
+
+    expect($row['id'])->toBe($evidenceId)
+        ->and($row['case_id'])->toBe($caseId)
+        ->and($row['evidence_type'])->toBe('content_snapshot')
+        ->and($row['handle'])->toBe('jsmith')
+        ->and($row['display_name'])->toBe('John Smith a/k/a JS')
+        ->and($row['site_subdomain'])->toBe('jsmith');
+
+    // JSON_UNESCAPED_SLASHES is load-bearing: plain json_encode() writes "\/",
+    // so a not->toContain() on any slash-bearing needle is unfalsifiable.
+    $serialised = json_encode($payload['moderation_evidence'], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+    // Control: a slash-bearing value that IS exported must be findable in this
+    // serialisation. If this fails, every not->toContain() below is vacuous.
+    expect($serialised)->toContain('a/k/a');
+
+    // toContain() is VARIADIC — a second argument is another needle, not a
+    // failure message. Never pass one.
+    expect($serialised)->not->toContain('https://third-party.example/REPORTER-SENTINEL.jpg');
+    expect($serialised)->not->toContain('REPORTER-SENTINEL-NOTE');
+    expect($serialised)->not->toContain('CONTENT-HASH-SENTINEL');
+    expect($serialised)->not->toContain($signalId);
+});
+
+it('#PRIV-13 exports no evidence row whose evidence_type is not content_snapshot', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    // Both non-content_snapshot types that carry real risk: csam_hash_match
+    // disclosure is a law-enforcement tipping-off hazard, staff_attachment is
+    // internal. Neither is the subject's own frozen identity.
+    foreach (['csam_hash_match' => 'CSAM-SENTINEL', 'staff_attachment' => 'STAFF-ATTACHMENT-SENTINEL'] as $type => $sentinel) {
+        DB::connection('pgsql')->table('moderation.evidence')->insert([
+            'id' => (string) Str::uuid(),
+            'case_id' => (string) Str::uuid(),
+            'signal_id' => null,
+            'evidence_type' => $type,
+            'payload' => json_encode(['user_id' => $pro->id, 'handle' => $sentinel], JSON_THROW_ON_ERROR),
+            'content_hash' => null,
+            'captured_at' => '2026-06-01T00:00:00Z',
+        ]);
+    }
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['moderation_evidence'])->toBe([]);
+
+    // Asserted over the WHOLE export, not just the section: these rows must not
+    // surface through any other section either.
+    $serialised = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    expect($serialised)->not->toContain('CSAM-SENTINEL');
+    expect($serialised)->not->toContain('STAFF-ATTACHMENT-SENTINEL');
+});
+
+it('#PRIV-13 exports no evidence row belonging to another user', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    DB::connection('pgsql')->table('moderation.evidence')->insert([
+        'id' => (string) Str::uuid(),
+        'case_id' => (string) Str::uuid(),
+        'signal_id' => null,
+        'evidence_type' => 'content_snapshot',
+        // Scoping is on payload->user_id ALONE, with no join to
+        // moderation.cases — identical to purgeReportedUserEvidencePii(), so
+        // export and erasure provably cover the same row set.
+        'payload' => json_encode([
+            'user_id' => (string) Str::uuid(),
+            'handle' => 'OTHER-USER-SENTINEL',
+            'display_name' => 'Someone Else',
+            'site_subdomain' => 'someone-else',
+        ], JSON_THROW_ON_ERROR),
+        'content_hash' => null,
+        'captured_at' => '2026-06-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['moderation_evidence'])->toBe([]);
+    expect(json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))
+        ->not->toContain('OTHER-USER-SENTINEL');
+});
