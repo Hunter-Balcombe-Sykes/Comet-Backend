@@ -6,6 +6,7 @@ use App\Exceptions\Platforms\MissingPublicAllowlistException;
 use App\Http\Resources\ApiResource;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\DisplaySettingsFilter;
+use App\Services\Platforms\ThirdPartyPii;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -385,9 +386,11 @@ class PublicIntegrationConnectionResource extends ApiResource
             return [];
         }
 
+        // Nested identity survives array_intersect_key (it inspects top-level
+        // keys only), so allowlisted parents like `photos` need a second pass.
         return $this->applyDisplaySettings(
             $platform,
-            array_intersect_key($payload, array_flip($allowed)),
+            ThirdPartyPii::stripNested(array_intersect_key($payload, array_flip($allowed))),
         );
     }
 }
