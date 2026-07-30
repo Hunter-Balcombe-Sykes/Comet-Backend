@@ -239,9 +239,21 @@ class ItemSlugAllocator
         // so the retention window can be re-tuned without a backfill. Compared only
         // inside this SQL WHERE, never read back into PHP — same 't'/'f' PDO-boolean
         // discipline as is_current above.
+        //
+        // Two arms, symmetric with PruneRetiredItemSlugs' two delete predicates:
+        // a properly-retired row serves while retired_at is within the window, and
+        // a STRANDED row (is_current=false, retired_at NULL — see that command's
+        // "adopted" predicate) serves only while created_at is within the window.
+        // Without the second arm's created_at check, a stranded row older than the
+        // window would still be served here as a live 301 alias right up until the
+        // sweep hard-deletes it out from under that traffic.
+        $cutoff = now()->subDays((int) config('partna.item_slugs.retirement_days', 90));
         $allRows = $base()
-            ->where(fn ($q) => $q->whereNull('retired_at')
-                ->orWhere('retired_at', '>', now()->subDays((int) config('partna.item_slugs.retirement_days', 90))))
+            ->where(function ($q) use ($cutoff) {
+                $q->where(function ($q2) use ($cutoff) {
+                    $q2->whereNull('retired_at')->where('created_at', '>', $cutoff);
+                })->orWhere('retired_at', '>', $cutoff);
+            })
             ->get(['item_key', 'slug']);
 
         $map = [];

@@ -54,6 +54,7 @@ beforeEach(function () {
         slug       text NOT NULL,
         is_current boolean NOT NULL DEFAULT true,
         created_at timestamptz NOT NULL DEFAULT now(),
+        retired_at timestamptz NULL,
         CONSTRAINT item_slugs_user_fk FOREIGN KEY (user_id) REFERENCES core.users(id) ON DELETE CASCADE,
         CONSTRAINT item_slugs_type_check CHECK (item_type IN (\'event\',\'menu_item\'))
     )');

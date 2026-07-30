@@ -1023,6 +1023,11 @@ return [
         // Money-adjacent — this same number is printed verbatim into the operator-facing
         // effect_abandoned anomaly summary, so it has exactly one read path
         // (EffectLedger::abandonAfterSeconds()).
+        // Floor: must stay above the longest job that can still be wrapping a billed
+        // effect when this fires — GoogleMenuPhotoScanJob::$timeout = 280s. Lowering
+        // this below 280 would flip a still-running, legitimately billed claim to
+        // "abandoned" mid-flight: a critical money-adjacent anomaly + page for a call
+        // that then settles normally.
         'effect_abandon_after_seconds' => (int) env('PARTNA_INGEST_EFFECT_ABANDON_AFTER_SECONDS', 900),
 
         // CFG-16 (SourceScheduler): EWMA weight — recent behaviour dominates but does not

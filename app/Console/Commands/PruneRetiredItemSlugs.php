@@ -49,9 +49,10 @@ class PruneRetiredItemSlugs extends Command
         // No Cloudflare KV re-sync and no cache purge here, unlike the handle-alias
         // sibling command. Handles/subdomains are routing keys in KV; item slugs
         // are not. And the delete changes nothing observable at the moment it
-        // runs: lookupCurrent()'s active-window predicate already stopped serving
-        // these as 301 aliases in the public payload the instant retired_at (or
-        // created_at, for a stranded row) crossed the same cutoff.
+        // runs: lookupCurrent()'s active-window predicate is deliberately kept
+        // symmetric with both predicates above (retired_at for arm 1, created_at
+        // for the stranded arm 2), so it already stopped serving a row as a 301
+        // alias in the public payload the instant that same cutoff crossed it.
         $pgsql->transaction(function () use ($expiredRetired, $strandedRows) {
             $expiredRetired()->delete();
             $strandedRows()->delete();

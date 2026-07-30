@@ -492,6 +492,40 @@ it('lookupCurrent omits an over-retention alias, includes one inside the window,
     expect($map2['k2']['aliases'])->toEqualCanonicalizing(['prior-name', 'k2']);
 });
 
+it('lookupCurrent omits a stranded alias older than the window but includes one still within it', function () {
+    // Finding 2 (tier2 whole-branch review): a STRANDED row (is_current=false,
+    // retired_at NULL — the shape a crash between insertUnique(..., false) and
+    // promote() leaves behind, see PruneRetiredItemSlugs' "adopted" predicate)
+    // used to be served forever because the old predicate treated retired_at
+    // IS NULL as unconditionally active, never consulting created_at. That made
+    // this arm asymmetric with the prune command's matching delete predicate,
+    // which DOES gate on created_at — so the sweep could hard-delete a row this
+    // method was still handing out as a live 301 alias.
+    config(['partna.item_slugs.retirement_days' => 90]);
+
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Current Name');
+    DB::connection('pgsql')->table('site.item_slugs')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $this->u, 'item_type' => 'menu_item', 'item_key' => 'k1',
+        'slug' => 'stranded-old', 'is_current' => 0, 'retired_at' => null,
+        'created_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+
+    $map = $this->alloc->lookupCurrent($this->u, 'menu_item', ['k1']);
+    expect($map['k1']['aliases'])->toBe(['k1']); // stranded-old dropped, past the window
+
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Current Name Two');
+    DB::connection('pgsql')->table('site.item_slugs')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $this->u, 'item_type' => 'menu_item', 'item_key' => 'k2',
+        'slug' => 'stranded-recent', 'is_current' => 0, 'retired_at' => null,
+        'created_at' => now()->subDays(1)->toDateTimeString(),
+    ]);
+
+    $map2 = $this->alloc->lookupCurrent($this->u, 'menu_item', ['k2']);
+    expect($map2['k2']['aliases'])->toEqualCanonicalizing(['stranded-recent', 'k2']); // still inside the window
+});
+
 it('normalises a suffixed slug back to the base once the colliding sibling is deleted', function () {
     // DELIBERATE behaviour change: with k1 gone the base is genuinely free, so the
     // walk says `fish-tacos` and k2 moves onto it. The -2 stays as a redirect, so
