@@ -1,7 +1,12 @@
 # Authorization invariant test harness
 
 **Date:** 2026-07-30
-**Status:** Approved, not yet implemented
+**Status:** Tier 1 shipped 2026-07-30 — `tests/Authz/` gates the `schema-tests`
+CI job with `AUTHZ_LANE_REQUIRED=1`; every param-bearing route is asserted or
+exempted with a written reason, and the nine write routes that once answered an
+inconclusive 422 now carry a minimal `body:` (`b86c16a2`). **Tier 2 not started**
+— the claim race, the real `aal1` token and JWT tampering are unbuilt, so the
+last success criterion below is unmet. Needs its own plan.
 **Origin:** Pre-pilot security-tooling coverage review (SAST/DAST/IAST/API/pentest/infra)
 **Effort:** ~1 day Tier 1, ~half day Tier 2, plus triage
 
