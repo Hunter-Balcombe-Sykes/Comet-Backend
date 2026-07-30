@@ -31,6 +31,11 @@ provider-portable — it restores onto any Postgres 17 server if we ever leave S
 
 - Backing up R2 object storage (media). A DB dump never includes object storage; media
   DR is a separate, still-open question flagged in drill 04 Phase 1. Out of scope here.
+  **Answered separately 2026-07-30** — `docs/runbooks/media-backup-setup.md` designs it as a
+  sibling weekly workflow in the same `partna-db-backup` repo. It is deliberately NOT folded
+  into this dump: media needs a **30-day** retention cap (the app's own purge window, and
+  erasure deletes R2 objects synchronously), where this dump keeps 90. Copying media on the
+  DB's schedule and retention would retain objects past a user's erasure.
 - PITR / continuous replication. Overkill pre-pilot; the Pro upgrade covers the realistic
   failure modes.
 - Backing up the paused prod Supabase project (`edplucmvkcnokyygxqsb`) — it is

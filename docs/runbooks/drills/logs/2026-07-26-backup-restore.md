@@ -101,6 +101,15 @@ a dump came from — everything else (size, host in an error message) is inferen
 - **F4 — Object storage is not backed up at all.** Sitepage media lives in Cloudflare R2 and
   no backup covers it. A DB restore returns rows pointing at objects that may be gone. Moot
   today (no media in prod), a real gap before customers upload anything.
+  - **2026-07-30 — scoped, plan written, NOT yet implemented:**
+    `docs/runbooks/media-backup-setup.md` carries the ready-to-commit workflow and the
+    dashboard steps. Two things the original finding did not know, both of which raise its
+    priority: measured on dev, **originals are 66% of bytes** (25.43 MB vs 13.12 MB of
+    derivatives) and `documents/` has no derivatives at all — so "it's all regenerable
+    thumbnails" is false. And it is false in practice too: variant jobs are dispatched
+    **only** from the upload flow, so no command exists to re-derive anything.
+    Remaining work is one workflow in `partna-db-backup` plus bucket/token/lifecycle
+    creation in the Cloudflare dashboard — none of it in this repo.
 - **F5 — RTO is not meaningfully measured.** 47s covers a ~0-row database restored into a
   local container. It says nothing about restoring into a fresh Supabase project with real
   data, which is the actual disaster. Re-measure once prod carries data.
