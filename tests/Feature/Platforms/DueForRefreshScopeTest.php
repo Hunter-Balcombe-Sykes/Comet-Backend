@@ -98,12 +98,14 @@ it('scopeStrandedPending finds an old pending row but not a fresh one or an ok o
 // the scope — the state is unreachable through the app. The SQLite stand-in
 // mirrors the same NOT NULL (tests/Pest.php's site.platform_connections
 // definition), so injecting it here would just fail with SQLSTATE 19 instead
-// of exercising anything. The whereNotNull() defensive branch is still
-// covered — at the DB boundary — by
-// tests/Postgres/PlatformConnectionsTimestampsNotNullTest.php, which proves
-// Postgres itself now rejects a null updated_at, i.e. that
-// scopeStrandedPending()'s guard has no live path left to defend but the
-// invariant it assumed is real.
+// of exercising anything. That the DB now rejects the value outright is
+// proven at the boundary by
+// tests/Postgres/PlatformConnectionsTimestampsNotNullTest.php.
+//
+// The whereNotNull() clause itself was REMOVED on 2026-07-30: it never
+// selected differently, because `updated_at < $cutoff` yields NULL (not TRUE)
+// for a NULL row and SQL already excluded it. So there is no defensive branch
+// left to cover here — only the NOT NULL invariant above, which is real.
 
 // CA-SM review fix: a prior revision had this job ALSO bail out on
 // last_refresh_status === 'pending', reasoning that a pending row always
