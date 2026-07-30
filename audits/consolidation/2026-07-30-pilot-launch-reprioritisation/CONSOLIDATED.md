@@ -460,7 +460,7 @@ tracked in their source folders).
 |---|---|
 | P0-PILOT | 6 / 7 |
 | P1-PILOT | 11 / 12 |
-| P0-LAUNCH | 4 / 7 |
+| P0-LAUNCH | 6 / 7 |
 | P1-LAUNCH | 0 / 27 |
 | DEAD bookkeeping | 0 / 11 |
 
@@ -551,7 +551,7 @@ tracked in their source folders).
 > collision table above. It remains unstarted P1-LAUNCH work.
 
 **P0-LAUNCH** — worked 2026-07-30 on `audit-fix/p0-launch-2026-07-30`.
-- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [x] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `#50` · [ ] `LC-DAST`
+- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [x] `LC-ROLLBACK` · [x] `#API-1` · [x] `#50` · [ ] `LC-DAST`
 
 Unit 1 (`#TEST-2` + `#TEST-1` + `271-PARITY-1`) — one root cause: `tests/TestCase.php:21-33`
 unconditionally repoints the `pgsql` alias at in-memory SQLite, so every `getDriverName() === 'pgsql'`
@@ -667,6 +667,59 @@ rule names: *a note claiming revertibility where none exists is worse than no no
 — only here. Also note the action item's exact wording is "every migration since last deploy has a
 **tested** reverse path". This unit closes the *documented* half by mandate; **the tested half remains
 open** and belongs with the PITR/backup item and `docs/runbooks/drills/04-backup-restore.md`.
+
+Unit 3 (`#API-1` + `#50`) — **two findings graded identically that are structurally opposite.**
+
+`#API-1` is a **real defect**: `ShopBrand::toBrandArray()` spreads `ShopProduct.data` verbatim into
+`products` (`ShopBrand.php:129-138`), and `SHOP_BRAND_ALLOWLIST` allowlisted **brand**-level keys only —
+so any key a fetcher adds reaches unauthenticated visitors with **no enforcement point**, unlike every
+other platform in `::ALLOWLIST`, which fails closed. Fixed with a 15-key `SHOP_PRODUCT_ALLOWLIST` and an
+`array_map` through `array_intersect_key`, at the **Resource** not the model — decisive because
+`ShopCatalog::syncLatest()` reads `createdAt` from `toBrandArray()` to sort latest-mode products and
+`ShopController::setProducts()` reads `products` from it for fetch dispatch, so filtering at the model
+would silently degrade internal callers.
+
+🔴 **The audit's own prescribed key list was WRONG** and would have shipped a user-visible regression: it
+omitted `variantId`, `vendor`, `description` and `createdAt`, all live on the wire. Dropping `variantId`
+breaks checkout deep links for every `linkMode: 'checkout'` store. The 15 keys here are the empirical
+union of all five emitters (`Shopify`, `WooCommerce` incl. `productsFromClient`, `Squarespace`,
+`BigCartel`, `GenericShop` JSON-LD + OpenGraph), re-derived independently by the reviewer. All three
+writers were checked for a user-supplied-key path: none exists (`AddShopProductRequest` takes a `url`,
+`SetShopProductsRequest` takes ids; product objects always come from a scraper).
+
+`#50` — **DEAD as graded.** `PublicMenuController::show()` emits every key by hand-written literal: no
+spread, no `Model::toArray()`, no payload pass-through, so the hand-built map **is** an enumerated
+allowlist and a new column cannot reach the wire without a code edit. The promotion rationale ("grading
+them differently was an inconsistency in the source audits, not a real distinction") is factually
+backwards — **the distinction is spread-vs-enumerate and it is real.** Both original source audits said so
+themselves (`#API-9`, `#API-3`: *"Every field shipped today is deliberately curated and non-sensitive —
+this is not a live leak."*). Verified: **zero internal-looking columns are currently public**; all of
+`scan_items`, `suppressed_items` (what the owner deliberately hid), `content_source`, `source_platform`,
+`pickup_source`, `delivery_source`, `is_manual` are withheld, and `MenuPayloadComposer` emits exactly
+those to the *dashboard* — proving the split is deliberate.
+
+**Josh's decision: close `#50` WONTFIX-with-hardening** — an `INTENTIONAL EXCLUSIONS` docblock plus three
+wire-contract tests pinning the exact key set at all four nesting levels. A Resource class and an
+`array_intersect_key` were both **deliberately rejected**: `IndividualProfileResource` (the precedent the
+original audit cited) is itself array-in/hand-written-keys-out, so a Resource would be a **file move, not
+a guardrail**; `array_intersect_key` on a literal is a **tautology** — dead code that reads like a control,
+which is worse than none. And 6 `phpstan-baseline.neon` entries are pinned to that controller with
+`reportUnmatchedIgnoredErrors` unset (defaults true), so moving the mapping would have failed
+`composer analyse`. Following the rule's letter would have made the code less safe than following its
+intent, on a payload that is CDN-cached 15 minutes with no golden master and no frontend contract doc.
+
+**Mutation-tested, because a guard that cannot fail is the thing this whole bucket is about:** deleting
+`'variantId'` fails Test 2; deleting the `array_map` block fails Test 1; and — unprompted — adding
+`isManual` to the menu payload fails two `#50` tests, proving that guardrail is load-bearing rather than
+decorative. Tests: `PublicIntegrationAllowlistTest` 16 → 18, `PublicMenuControllerTest` 10 → 13. Byte-
+identity canaries green (`ShopRelationalStorageTest` 18, `GoldenMaster` 31, `Registry`+`Unit/Platforms`
+426). Suite 6867 passed; PHPStan 21 unchanged with all 6 pinned entries still matched. Independent
+review PASS.
+
+**Also shipped, per Josh's decision:** a required `pg_dump` pre-flight in `docs/deploy/routine-deploy.md`
+for the current pending migration set — 53 migrations pending against prod, 13 with no usable reverse
+path, on a Free plan with no PITR and ~7-day RPO. Every flag traced to the verified invocation in
+`docs/runbooks/drills/04-backup-restore.md`; the pooler hostname is a marked placeholder, not fabricated.
 
 **Follow-up logged, not fixed (new findings, out of this bucket's scope):**
 - **23 more files carry the same unsatisfiable `pgsql` gate**, including 6 in `tests/Feature/Moderation`
