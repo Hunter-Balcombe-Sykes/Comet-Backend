@@ -460,7 +460,7 @@ tracked in their source folders).
 |---|---|
 | P0-PILOT | 6 / 7 |
 | P1-PILOT | 11 / 12 |
-| P0-LAUNCH | 6 / 7 |
+| P0-LAUNCH | 7 / 7 |
 | P1-LAUNCH | 0 / 27 |
 | DEAD bookkeeping | 0 / 11 |
 
@@ -551,7 +551,7 @@ tracked in their source folders).
 > collision table above. It remains unstarted P1-LAUNCH work.
 
 **P0-LAUNCH** — worked 2026-07-30 on `audit-fix/p0-launch-2026-07-30`.
-- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [x] `LC-ROLLBACK` · [x] `#API-1` · [x] `#50` · [ ] `LC-DAST`
+- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [x] `LC-ROLLBACK` · [x] `#API-1` · [x] `#50` · [x] `LC-DAST`
 
 Unit 1 (`#TEST-2` + `#TEST-1` + `271-PARITY-1`) — one root cause: `tests/TestCase.php:21-33`
 unconditionally repoints the `pgsql` alias at in-memory SQLite, so every `getDriverName() === 'pgsql'`
@@ -720,6 +720,52 @@ review PASS.
 for the current pending migration set — 53 migrations pending against prod, 13 with no usable reverse
 path, on a Free plan with no PITR and ~7-day RPO. Every flag traced to the verified invocation in
 `docs/runbooks/drills/04-backup-restore.md`; the pooler hostname is a marked placeholder, not fabricated.
+
+Unit 4 (`LC-DAST`) — full triage in [`LC-DAST-TRIAGE.md`](./LC-DAST-TRIAGE.md). **Read the tick as
+intent, not state.**
+
+**The finding is worse than "untriaged baseline": the control has never run.** One workflow execution
+ever (`30211809194`, 2026-07-26T17:04:24Z), **failed in 10 seconds** on `[dast] ERROR: no target`.
+`gh api .../actions/secrets` → `total_count: 0` — none of the three secrets were ever set. The weekly
+cron (Sun 16:00 UTC) is a guaranteed-red no-op and fires again every week. No `REPORT.md` has ever been
+committed; the 07-26 run artifacts are gone from disk. The tooling itself is real and self-tested (ZAP
+active lane, Nuclei + wcvs edge lane, 7/7 canary self-test) — it simply isn't wired to anything.
+
+9 findings triaged, recovered from the implementation plan's Phase 10 prose since the raw JSON is gone:
+**FIX NOW — none**, nothing exploitable. **FIX BEFORE GA** — P1, no HSTS on `/robots.txt` and
+`/favicon.ico` because static files never enter Laravel so `SecureHeaders` never runs (Cloudflare zone
+toggle, `preload` OFF). **ACCEPT** — P2, CORP absent, but CORS + `default-src 'none'` already close the
+vectors and a blanket `same-origin` would **break the public QR-code SVG embed**; accepted with a
+revisit trigger. **SUPPRESS** — A1, A2, P3, P4, P6, all local-runner artifacts or Cloudflare's own
+`__cf_bm`/`_cfuvid` cookies, verified absent from the deployed host by header fetch. **HOLD** — P5, the
+one disposition reached by inference. **Cannot triage** — P7, a 7th WARN the prose never named; not
+guessed.
+
+🔴 **Two blockers found while reviewing the recommendations, which changed them:**
+1. **Baselining is impossible without a fresh run.** `--update-baseline` appends *that run's own*
+   findings after the scanners execute, and baselines are keyed by scanner-specific stable keys
+   (`template-id@matched-at`, `technique@url`, ZAP alert keys). Those keys do not exist for the six
+   SUPPRESS items. Hand-writing entries would be **worse than an empty baseline** — a key matching no
+   real finding is dead weight *and* reads as "triaged". So items 4 and 5 are **decided, not applied.**
+2. **Partial secret configuration produces NO REPORT AT ALL.** `run.sh` runs the three edge scanners
+   under `set -euo pipefail` *before* the `set +e` guarding `diff-baseline.sh`. Set only
+   `DAST_EDGE_TARGET` and Nuclei does real work, then `wcvs.sh` dies on the missing sitepage target,
+   `run.sh` aborts, and the report block never executes — a successful scan silently discarded. Both
+   secrets or neither.
+
+Also corrected: with `--fail-on high` and empty baselines **all nine findings are already below the
+gate**, so baselining changes report noise, not gating; and P1's real-world value is smaller than it
+first appears, since `SecureHeaders` already pins HSTS with `includeSubDomains` on every PHP response —
+the gap only reaches a client whose *first ever* request is one of those two static files.
+
+To unblock the run: dev Supabase has 12 published sites. ⚠️ **Use `subdomain`, not `handle`** — they
+differ for three rows, so the handle would 404. Recommended `showcase-eats`.
+
+Open on Josh: set both repo secrets and prove the workflow green via `workflow_dispatch`; enable
+Cloudflare HSTS (`preload` OFF, after confirming no HTTP-only subdomain); then re-run both lanes to
+obtain real keys and apply the SUPPRESS set. Two caveats stay open by design and are accepted for
+pilot: the active lane runs as superuser against a local stack so a green result is **not** proof of
+prod RLS, and Cloudflare's WAF can turn a sweep into challenge pages that read as clean.
 
 **Follow-up logged, not fixed (new findings, out of this bucket's scope):**
 - **23 more files carry the same unsatisfiable `pgsql` gate**, including 6 in `tests/Feature/Moderation`
