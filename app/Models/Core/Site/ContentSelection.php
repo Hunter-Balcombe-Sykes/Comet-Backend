@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 //   entry_type='google-photo' → external_ref → a Google photo `ref` (stable name)
 //   entry_type='ig-reel'      → latest Instagram reel  (resolved live; auto slot 1)
 //   entry_type='ig-post'      → latest Instagram post  (resolved live; auto slot 2)
+//   entry_type='ig-photo'     → external_ref → one Instagram post image (its
+//                               R2-mirrored URL), picked from the library
 // The DB CHECK content_selection_ref_shape enforces which of media_id/external_ref
 // is set per entry_type; UNIQUE(site_id, position) enforces 1..15 ordering.
 // Ownership is gated in ContentSelectionPolicy (RLS is off), resolved via site.
@@ -35,7 +37,11 @@ class ContentSelection extends BaseModel
 
     public const TYPE_IG_POST = 'ig-post';
 
-    // The Instagram auto-slot entry types (the two reserved when auto is enabled).
+    public const TYPE_IG_PHOTO = 'ig-photo';
+
+    // The Instagram auto-slot entry types (the two reserved when auto is
+    // enabled). TYPE_IG_PHOTO is deliberately NOT one of these — a picked
+    // post image is an ordinary referenced entry, not a pinned slot.
     public const IG_TYPES = [self::TYPE_IG_REEL, self::TYPE_IG_POST];
 
     public const ALL_TYPES = [
@@ -43,6 +49,7 @@ class ContentSelection extends BaseModel
         self::TYPE_GOOGLE_PHOTO,
         self::TYPE_IG_REEL,
         self::TYPE_IG_POST,
+        self::TYPE_IG_PHOTO,
     ];
 
     // Hard cap on the selection size (DB CHECK position 1..15).
