@@ -100,7 +100,7 @@ it('lets the budget reach the thumbnail-probe pool, not just the channel-page/RS
         }
 
         if (str_contains($url, '/feeds/videos.xml')) {
-            return Http::response(ytRssFeedBody(['vid1', 'vid2', 'vid3']), 200);
+            return Http::response(ytRssFeedBody(['vid1XXXXXXX', 'vid2XXXXXXX', 'vid3XXXXXXX']), 200);
         }
 
         if (str_contains($url, 'youtube.com/@')) {
@@ -152,7 +152,7 @@ it('fires every thumbnail probe when the budget is never exhausted', function ()
             return Http::response('', 200);
         }
         if (str_contains($url, '/feeds/videos.xml')) {
-            return Http::response(ytRssFeedBody(['vid1', 'vid2', 'vid3']), 200);
+            return Http::response(ytRssFeedBody(['vid1XXXXXXX', 'vid2XXXXXXX', 'vid3XXXXXXX']), 200);
         }
         if (str_contains($url, 'youtube.com/@')) {
             return Http::response(ytChannelPageBody(), 200);
