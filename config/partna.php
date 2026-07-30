@@ -1336,7 +1336,9 @@ return [
         // uploaded; this governs auto-grabbed STORE logos. Two switches, not
         // one, so flipping the store path can never change what happens to a
         // file a user handed us themselves.
-        'store_enabled' => (bool) env('PARTNA_LOGO_REMOVAL_STORE_ENABLED', false),
+        // Defaults to the main switch: once the processor is deployed for user
+        // logos it can carry store marks too. Set the env var to split them.
+        'store_enabled' => (bool) env('PARTNA_LOGO_REMOVAL_STORE_ENABLED', env('PARTNA_LOGO_REMOVAL_ENABLED', false)),
         'url' => env('PARTNA_LOGO_PROCESSOR_URL', ''),
         'token' => env('PARTNA_LOGO_PROCESSOR_TOKEN', ''),
         'timeout' => (int) env('PARTNA_LOGO_PROCESSOR_TIMEOUT', 120),
