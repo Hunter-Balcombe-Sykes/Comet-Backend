@@ -49,6 +49,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         echo "port = $(( ${BASH_REMATCH[1]} + OFFSET ))"
     elif [[ "$line" =~ ^project_id\ = ]]; then
         echo 'project_id = "partna-dast"'
+    elif [[ "$line" =~ ^jwt_expiry\ = ]]; then
+        # Tier 2 needs a token that genuinely expires. An expired token cannot
+        # be produced by mutation — changing `exp` invalidates the signature, so
+        # it would be rejected as a forgery and prove nothing distinct from the
+        # flipped-signature probe. Same test-only-override pattern as the
+        # captcha branch below: the committed config.toml is never touched.
+        # active/tier2.sh reads the effective value off a real token and SKIPS
+        # the expiry probe loudly if it is too long to wait out.
+        echo "jwt_expiry = ${DAST_JWT_EXPIRY:-8}"
     elif [[ "$in_captcha_section" -eq 1 && "$line" =~ ^enabled\ = ]]; then
         # Turnstile captcha needs a real Cloudflare secret to verify against
         # (SUPABASE_AUTH_CAPTCHA_SECRET is unset here) — without it, GoTrue's

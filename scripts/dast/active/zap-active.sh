@@ -59,6 +59,13 @@ log "zap-active: target=$TARGET_URL (as seen by ZAP: $ZAP_TARGET_URL)"
 "$HERE/active/seed-endpoints.sh" "$OUTDIR" "$ZAP_TARGET_URL"
 php "$HERE/active/seed-identities.php" --env=dast "$OUTDIR"
 
+# --- Tier 2 auth-layer probes: real tokens through real middleware, and a real
+# concurrent claim race. Runs BEFORE ZAP so a broken auth layer fails the lane
+# fast rather than after a full spider. tier2.sh die()s on any probe failure,
+# and set -e here means that aborts the lane — deliberate: a token the auth
+# layer accepts when it should not is a finding, not a warning.
+bash "$HERE/active/tier2.sh" "$OUTDIR"
+
 EMAIL_A=$(jq -r .A.email "$OUTDIR/identities.json")
 PASS_A=$(jq -r .A.password "$OUTDIR/identities.json")
 EMAIL_B=$(jq -r .B.email "$OUTDIR/identities.json")

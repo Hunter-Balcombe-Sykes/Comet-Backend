@@ -4,9 +4,15 @@
 **Status:** Tier 1 shipped 2026-07-30 — `tests/Authz/` gates the `schema-tests`
 CI job with `AUTHZ_LANE_REQUIRED=1`; every param-bearing route is asserted or
 exempted with a written reason, and the nine write routes that once answered an
-inconclusive 422 now carry a minimal `body:` (`b86c16a2`). **Tier 2 not started**
-— the claim race, the real `aal1` token and JWT tampering are unbuilt, so the
-last success criterion below is unmet. Needs its own plan.
+inconclusive 422 now carry a minimal `body:` (`b86c16a2`). **Tier 2 shipped
+2026-07-30** — `scripts/dast/active/tier2.sh` covers the claim race, a real
+`aal1` staff token against `require.aal2`, and JWT tampering. All success
+criteria met; verified against a live `bring-up.sh` stack (13/13 probes, one
+winner of 8 concurrent claimants, DB state confirmed independently of the HTTP
+codes). Two spec mechanics were wrong and are corrected in the shipped
+implementation: no email-OTP flow is needed (a build with `contact_email IS
+NULL` is first-come), and the race serialises on `lockForUpdate()`, not
+`FOR UPDATE SKIP LOCKED` (that is the prune path).
 **Origin:** Pre-pilot security-tooling coverage review (SAST/DAST/IAST/API/pentest/infra)
 **Effort:** ~1 day Tier 1, ~half day Tier 2, plus triage
 
