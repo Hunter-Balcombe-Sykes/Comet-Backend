@@ -246,7 +246,7 @@ class GenericPlatformController extends ApiController
         // determined — same reasoning ConnectFetchJob's own lock-timeout catch
         // uses this exact sentence for (see that file).
         if ($row->last_refresh_status === 'pending') {
-            if ($row->updated_at !== null && $row->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
+            if ($row->updated_at->lt(now()->subMinutes(StrandedPendingWindow::MINUTES))) {
                 return $this->success(['status' => 'failed', 'error' => "We couldn't save your connection just then — please try again."]);
             }
 

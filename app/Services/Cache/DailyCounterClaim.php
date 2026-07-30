@@ -92,6 +92,12 @@ final class DailyCounterClaim
         // Redis Lua EVAL (the server-side atomicity primitive), not a PHP
         // eval — the script is the fixed literal above, and no interpolated or
         // user-controlled code ever reaches it.
+        //
+        // The arg order below is PhpRedisConnection::eval($script, $numberOfKeys,
+        // ...$arguments), which is what this resolves to at runtime. PHPStan sees
+        // the raw \Redis signature instead and flags three false positives here;
+        // they are stood down in phpstan.neon's ignoreErrors, with the reasoning.
+        // Do NOT reorder these arguments to satisfy an analyser.
         $result = $store->connection()->eval(
             self::CLAIM_SCRIPT, 1, $store->getPrefix().$key, $cap, $ttlSeconds,
         );

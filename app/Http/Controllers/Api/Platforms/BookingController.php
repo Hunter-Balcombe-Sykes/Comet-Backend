@@ -206,7 +206,7 @@ class BookingController extends ApiController
             'complete' => $complete,
             'reason' => $complete ? null : 'awaiting_selection',
             'seededFrom' => $complete ? null : $source,
-            'seededAt' => $complete ? null : $connection->created_at?->toIso8601String(),
+            'seededAt' => $complete ? null : $connection->created_at->toIso8601String(),
         ];
     }
 

@@ -13,5 +13,49 @@ parameters:
     paths:
         - app
 
+    # The ONE standing exception to "fix the cause, don't suppress". Everything
+    # else belongs in phpstan-baseline.neon (regenerable debt) or gets fixed;
+    # these live here because they are a decision, not debt, and a baseline
+    # regeneration must not silently discard the reasoning.
+    #
+    # RedisStore::connection() has no declared return type, so Larastan infers
+    # the raw \Redis client, whose signature is eval(script, args, num_keys).
+    # At runtime it returns Illuminate\Redis\Connections\PhpRedisConnection,
+    # whose signature is eval($script, $numberOfKeys, ...$arguments) — which is
+    # exactly how DailyCounterClaim::claim() calls it. Rewriting the call to
+    # satisfy the analyser would break a working atomic claim path, so the
+    # analyser is wrong about the world here and is told to stand down.
+    ignoreErrors:
+        -
+            message: '#^Method Redis\:\:eval\(\) invoked with 5 parameters, 1\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Services/Cache/DailyCounterClaim.php
+        -
+            message: '#^Parameter \#2 \$args of method Redis\:\:eval\(\) expects array, int given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Services/Cache/DailyCounterClaim.php
+        -
+            message: '#^Parameter \#3 \$num_keys of method Redis\:\:eval\(\) expects int, string given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Services/Cache/DailyCounterClaim.php
+
+        # EventsCatalog::reorder() re-reads site.settings under lockForUpdate and
+        # merges, so that two writers cannot clobber each other's unrelated keys
+        # (LIFE-3). Site::$settings is annotated array<string,mixed> and the column
+        # is jsonb NOT NULL DEFAULT '{}' — but NOT NULL forbids SQL NULL, not
+        # 'null'::jsonb or a scalar, so the annotation is a claim about writers,
+        # not a constraint the DB enforces. If that claim ever drifts, dropping
+        # this is_array() would auto-vivify $settings and silently discard every
+        # other settings key — the exact data loss the method exists to prevent.
+        # The same guard is house style at SiteResource.php:90. Cost: nothing.
+        -
+            message: '#^Call to function is_array\(\) with array<string, mixed> will always evaluate to true\.$#'
+            identifier: function.alreadyNarrowedType
+            count: 1
+            path: app/Services/Platforms/EventsCatalog.php
+
     # Larastan boots the framework to resolve container bindings, config keys,
     # Eloquent magic, and facade roots. Nothing here queries the database.
