@@ -184,6 +184,8 @@ final class DsarPayloadFilter
             return [];
         }
 
-        return array_intersect_key($payload, array_flip($allowed));
+        // Nested identity survives array_intersect_key (it inspects top-level
+        // keys only), so allowlisted parents like `photos` need a second pass.
+        return ThirdPartyPii::stripNested(array_intersect_key($payload, array_flip($allowed)));
     }
 }
