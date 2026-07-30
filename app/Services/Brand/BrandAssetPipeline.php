@@ -204,7 +204,7 @@ class BrandAssetPipeline
             'fingerprint' => $fingerprint,
             // #PRIV-5: fingerprint above is a content hash of the decoded
             // image bytes, NOT derived from $sourceUrl — unlike
-            // ProjectionWriter::ensureMediaAsset(), minimising the stored
+            // ProjectionWriter::mediaFingerprint(), minimising the stored
             // URL here cannot re-mint this row or collide the UNIQUE
             // (user_id, fingerprint) key.
             'source_url' => SecretParams::minimiseUrl($sourceUrl),

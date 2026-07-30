@@ -65,6 +65,19 @@ class StaffAggregateAnalyticsController extends ApiController
             }
 
             $scope = $this->resolver->userIds($segment);
+
+            // SCALE-13: an unbounded segment turns into an unbounded whereIn on
+            // analytics.site_visits. Reject before it reaches AnalyticsQueryService
+            // rather than let it silently degrade query plans.
+            $maxUsers = (int) config('partna.analytics.staff_segment_max_users', 2000);
+            $scopeCount = count($scope);
+            if ($scopeCount > $maxUsers) {
+                return $this->error(
+                    "Segment resolved to {$scopeCount} users, which exceeds the staff analytics limit of {$maxUsers}. Narrow the segment and try again.",
+                    422,
+                );
+            }
+
             $audience = [
                 'scope' => 'segment',
                 'segment_id' => $segment->id,

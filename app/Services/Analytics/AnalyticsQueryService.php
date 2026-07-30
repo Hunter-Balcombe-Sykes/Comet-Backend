@@ -852,6 +852,16 @@ class AnalyticsQueryService
      * keeps the original single-user behaviour for every existing caller.
      * Widened methods: visitsAggregate, clicksAggregate, visitsByBucket,
      * clicksByBucket, topSections, platformClicks, sessionsAggregate.
+     *
+     * SCALE-13: callers MUST cap the array scope at
+     * config('partna.analytics.staff_segment_max_users') before it reaches here
+     * (StaffAggregateAnalyticsController rejects oversized segments with a 422).
+     * An unbounded array becomes an unbounded whereIn on analytics.site_visits.
+     * Chunking is NOT a fix here — visitsAggregate/clicksAggregate select
+     * COUNT(DISTINCT ...), which does not sum across chunks. This method only
+     * logs when the cap is exceeded (defence-in-depth, not enforcement) —
+     * throwing would escape the QueryException handling that clicksAggregate
+     * and friends rely on to degrade gracefully.
      */
     private function scopedTable(string $table, string|array|null $userScope): Builder
     {
@@ -860,6 +870,11 @@ class AnalyticsQueryService
         if (is_string($userScope)) {
             $query->where('user_id', $userScope);
         } elseif (is_array($userScope)) {
+            $maxUsers = (int) config('partna.analytics.staff_segment_max_users', 2000);
+            if (count($userScope) > $maxUsers) {
+                Log::warning('analytics.uncapped_segment_scope', ['count' => count($userScope)]);
+            }
+
             $query->whereIn('user_id', $userScope);
         }
 

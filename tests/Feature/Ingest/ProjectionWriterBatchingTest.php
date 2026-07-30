@@ -72,6 +72,45 @@ function bwtDoc(string $title, string $url, ?string $artist = null): array
     ];
 }
 
+/**
+ * @return array{0: array<string, mixed>, 1: string} ingest.sources row + streamId, for an instagram "media" stream.
+ *
+ * Instagram, not bandcamp, because InstagramMediaProjector is the only
+ * projector that emits MORE THAN ONE media entry per record (a carousel) —
+ * which is what the per-item `position` sequence is about.
+ */
+function bwtInstagramStream(string $userId): array
+{
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'instagram',
+        'resource_id' => 'acct-'.substr(sha1(Str::random(8)), 0, 16),
+        'payload' => ['username' => Str::lower(Str::random(10))],
+        'is_active' => true,
+    ]);
+
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    $streamId = (string) Str::uuid();
+    DB::table('ingest.streams')->insert([
+        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'media',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return [$source, $streamId];
+}
+
+/** @param list<string> $images */
+function bwtLandIg(string $streamId, string $shortcode, array $images): void
+{
+    bwtLand($streamId, $shortcode, [
+        'shortcode' => $shortcode,
+        'url' => "https://www.instagram.com/p/{$shortcode}/",
+        'caption' => "Post {$shortcode}",
+        'taken_at' => '2025-05-05T00:00:00Z',
+        'images' => $images,
+    ]);
+}
+
 /** coord as ProjectionWriter::accountRef() + the coord format at :102 build it, for a resource_id already matching acct-<16hex>. */
 function bwtCoord(string $resourceId, string $key): string
 {
@@ -359,6 +398,11 @@ it('resolves the same-item headline by first_seen_at order, not insertion order 
  *     f_published/f_authored/f_catalog — 5 upserts, one per facet   (5)
  *   - replaceCollections: item_media/offers/item_tags deletes,
  *     unconditional regardless of content                          (3)
+ *     [SCALE-17/#CACHE-2 has since moved these three out of the per-item
+ *     floor into one per-chunk batch, taking the measured first-run slope
+ *     here from ~17 to ~14/item. The threshold below is left at 18 on
+ *     purpose — this test's job is the SCALE-6/7/8 shape, and the tighter
+ *     media-bearing bound lives in its own test further down.]
  * That floor alone is ~13-15/item BEFORE any of the three fixes' code
  * runs at all — measured directly (see the steady-state assertion below).
  *
@@ -381,7 +425,7 @@ it('does not scale query count linearly with item count on a fresh run', functio
         [$source, $streamId] = bwtStream($conn);
 
         // No art_url: BandcampReleaseProjector.media stays empty, so
-        // replaceCollections() never reaches ensureMediaAsset() — keeps the
+        // replaceCollections() has no media entries to resolve at all — keeps the
         // per-item floor to the components enumerated above, nothing more.
         for ($i = 0; $i < $n; $i++) {
             $doc = bwtDoc("Item {$i}", "https://slope.bandcamp.com/album/item-{$i}");
@@ -409,13 +453,219 @@ it('does not scale query count linearly with item count on a fresh run', functio
 });
 
 /**
+ * SCALE-17/#CACHE-2: the slope test above deliberately NULLS art_url, which
+ * keeps the media-asset resolve out of replaceCollections() entirely — so it
+ * cannot see the collection-write N+1 at all. This one populates art_url (a
+ * DISTINCT image per item, so the media_assets write path is real work rather
+ * than a dedupe hit) and asserts the media-bearing slope.
+ *
+ * Pre-fix the per-item cost was the 13-query floor PLUS, per item: 1
+ * content.items user_id lookup + 1 media_assets SELECT + 1 media_assets
+ * INSERT + 1 item_media INSERT. Post-fix all four collapse into the batch,
+ * and so do the three collection DELETEs, leaving only the genuinely
+ * per-record work (source_items / identity_keys / anchors / singleton facet
+ * upserts).
+ */
+it('issues a bounded number of collection writes regardless of item count', function () {
+    $countQueriesFor = function (int $n): int {
+        $userId = createTenant('bwt-mslope-'.Str::lower(Str::random(6)))->id;
+        $conn = bwtConnection($userId, (string) (1000 + $n));
+        [$source, $streamId] = bwtStream($conn);
+
+        // art_url PRESENT and distinct per item — BandcampReleaseProjector
+        // emits one 'cover' media entry per record, so every item carries a
+        // media row backed by its own media_assets row.
+        for ($i = 0; $i < $n; $i++) {
+            $doc = bwtDoc("Item {$i}", "https://mslope.bandcamp.com/album/item-{$i}");
+            $doc['art_url'] = "https://f4.bcbits.com/img/mslope-{$i}.jpg";
+            bwtLand($streamId, "item-{$i}", $doc);
+        }
+
+        $queries = 0;
+        DB::listen(function () use (&$queries) {
+            $queries++;
+        });
+        app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+        return $queries;
+    };
+
+    $queries10 = $countQueriesFor(10);
+    $queries40 = $countQueriesFor(40);
+
+    $slope = ($queries40 - $queries10) / 30;
+    // Measured against the UNBATCHED code: 21/item. Measured post-fix:
+    // exactly 14/item (10-item run 179, 40-item run 599) — the same 14 the
+    // no-media slope above costs, i.e. the media path now contributes nothing
+    // per item. Threshold = measured + 1, deliberately tight: anything looser
+    // stops separating the fixed shape from the pre-fix one.
+    expect($slope)->toBeLessThanOrEqual(15);
+});
+
+/**
+ * SCALE-17/#CACHE-2, the batching trap: item_media.position is 0..n-1 WITHIN
+ * one item. Batching the inserts across items makes it trivially easy to let
+ * one counter run across the whole batch — a query-count assertion would not
+ * notice, and the rendered gallery order would silently change.
+ */
+it('preserves per-item media position and role after batching', function () {
+    $userId = createTenant('bwt-pos-'.Str::lower(Str::random(6)))->id;
+    [$source, $streamId] = bwtInstagramStream($userId);
+
+    bwtLandIg($streamId, 'AAA', ['https://ig.test/a-0.jpg', 'https://ig.test/a-1.jpg', 'https://ig.test/a-2.jpg']);
+    bwtLandIg($streamId, 'BBB', ['https://ig.test/b-0.jpg', 'https://ig.test/b-1.jpg', 'https://ig.test/b-2.jpg']);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
+
+    $items = DB::table('content.items')->where('user_id', $userId)->pluck('id');
+    expect($items)->toHaveCount(2);
+
+    foreach ($items as $itemId) {
+        $rows = DB::table('content.item_media')->where('item_id', $itemId)->orderBy('position')->get(['position', 'role']);
+
+        expect($rows->pluck('position')->all())->toBe([0, 1, 2])
+            ->and($rows->pluck('role')->all())->toBe(['cover', 'gallery', 'gallery']);
+    }
+});
+
+/**
+ * SCALE-17/#CACHE-2: the batched resolve must dedupe by fingerprint IN PHP
+ * before inserting — two items sharing one image URL still mint exactly ONE
+ * content.media_assets row, same as the per-row path's SELECT-then-INSERT did.
+ */
+it('mints one media_asset for the same image used by two items', function () {
+    $userId = createTenant('bwt-dedupe-'.Str::lower(Str::random(6)))->id;
+    [$source, $streamId] = bwtInstagramStream($userId);
+
+    // Same URL on both posts; distinct shortcodes so they stay distinct items.
+    bwtLandIg($streamId, 'CCC', ['https://ig.test/shared.jpg']);
+    bwtLandIg($streamId, 'DDD', ['https://ig.test/shared.jpg']);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
+
+    expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(2)
+        ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBe(1)
+        ->and(DB::table('content.item_media')->whereNotNull('asset_id')->count())->toBe(2);
+});
+
+/**
+ * SCALE-17/#CACHE-2: the chunk loop itself. At the default chunk (500) every
+ * realistic fixture is ONE iteration, so a defect confined to the second and
+ * later chunks — a mis-sliced rowsFor(), positions leaking across the chunk
+ * boundary, a DELETE that skips a chunk's item ids — would never be reached.
+ * Shrinking the config value to 2 over 5 items forces three iterations.
+ *
+ * Deliberately NOT one of the two threshold tests: a shrunk chunk adds ~3
+ * queries per extra chunk, so folding this in would break both absolute
+ * counts. This one asserts correctness only.
+ */
+it('writes every chunk correctly when the write chunk is smaller than the batch', function () {
+    config(['partna.ingest.projection_write_chunk' => 2]);
+
+    $userId = createTenant('bwt-chunk-'.Str::lower(Str::random(6)))->id;
+    [$source, $streamId] = bwtInstagramStream($userId);
+
+    $shortcodes = ['CH1', 'CH2', 'CH3', 'CH4', 'CH5'];
+    foreach ($shortcodes as $shortcode) {
+        bwtLandIg($streamId, $shortcode, [
+            "https://ig.test/{$shortcode}-0.jpg",
+            "https://ig.test/{$shortcode}-1.jpg",
+            "https://ig.test/{$shortcode}-2.jpg",
+        ]);
+    }
+
+    // 5 items at chunk 2 => ceil(5/2) = 3 iterations, each issuing its own
+    // item_media DELETE. Counting those DELETEs is the direct proof the loop
+    // ran more than once — a query total would only prove it indirectly.
+    $mediaDeletes = 0;
+    DB::listen(function ($query) use (&$mediaDeletes) {
+        if (str_contains($query->sql, 'delete from') && str_contains($query->sql, 'item_media')) {
+            $mediaDeletes++;
+        }
+    });
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
+
+    expect($mediaDeletes)->toBe(3);
+
+    $items = DB::table('content.items')->where('user_id', $userId)->pluck('id');
+    expect($items)->toHaveCount(5);
+
+    // Every item across every chunk keeps its own 0..2 sequence and its roles,
+    // and every frame resolved to an asset.
+    foreach ($items as $itemId) {
+        $rows = DB::table('content.item_media')->where('item_id', $itemId)
+            ->orderBy('position')->get(['position', 'role', 'asset_id']);
+
+        expect($rows->pluck('position')->all())->toBe([0, 1, 2])
+            ->and($rows->pluck('role')->all())->toBe(['cover', 'gallery', 'gallery'])
+            ->and($rows->whereNull('asset_id'))->toHaveCount(0);
+    }
+
+    expect(DB::table('content.item_media')->whereIn('item_id', $items)->count())->toBe(15)
+        ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBe(15);
+
+    // Re-run at the same shrunk chunk: each chunk's DELETE must cover exactly
+    // its own item ids, so nothing duplicates and nothing is left behind.
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
+
+    expect(DB::table('content.item_media')->whereIn('item_id', $items)->count())->toBe(15)
+        ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBe(15);
+});
+
+/**
+ * The cross-projection concatenation inside replaceCollections(): two records
+ * resolving to ONE item contribute their media one after the other, so the
+ * item's positions run 0..(a+b-1) across BOTH projections while each
+ * projection keeps its own role sequence. Nothing covered this before — the
+ * position counter has to reset per ITEM, not per projection.
+ */
+it('concatenates media from two records that resolve to one item, numbering positions across both', function () {
+    $userId = createTenant('bwt-merge-'.Str::lower(Str::random(6)))->id;
+    [$source, $streamId] = bwtInstagramStream($userId);
+
+    // first_seen_at ASCENDING so the processing order (and therefore the
+    // concatenation order) is pinned rather than heap-dependent.
+    bwtLandIg($streamId, 'MG1', ['https://ig.test/mg1-0.jpg', 'https://ig.test/mg1-1.jpg']);
+    bwtLandIg($streamId, 'MG2', ['https://ig.test/mg2-0.jpg', 'https://ig.test/mg2-1.jpg', 'https://ig.test/mg2-2.jpg']);
+    DB::table('ingest.record_versions')->where('stream_id', $streamId)->where('key', 'MG1')
+        ->update(['first_seen_at' => '2025-01-01 00:00:00']);
+    DB::table('ingest.record_versions')->where('stream_id', $streamId)->where('key', 'MG2')
+        ->update(['first_seen_at' => '2025-01-01 00:00:01']);
+
+    $accountRef = (string) DB::table('site.platform_connections')
+        ->where('id', $source['connection_id'])->value('resource_id');
+    DB::table('content.identity_decisions')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
+        'left_coord' => "instagram:{$accountRef}:MG1",
+        'right_coord' => "instagram:{$accountRef}:MG2",
+        'decided_at' => now(),
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
+
+    $items = DB::table('content.items')->where('user_id', $userId)->pluck('id');
+    expect($items)->toHaveCount(1);
+
+    $rows = DB::table('content.item_media')->where('item_id', $items[0])
+        ->orderBy('position')->get(['position', 'role']);
+
+    // 2 frames + 3 frames on one item: positions 0..4 with no reset in the
+    // middle, and each projection's own frame 0 keeps its 'cover' role.
+    expect($rows->pluck('position')->all())->toBe([0, 1, 2, 3, 4])
+        ->and($rows->pluck('role')->all())->toBe(['cover', 'gallery', 'cover', 'gallery', 'gallery']);
+});
+
+/**
  * Absolute count on the steady-state (second, unchanged) run — the shape
  * plan §d recommends alongside the slope assertion. Re-running over records
  * that already have items/anchors/facets removes bindGroup's one-time
- * item-creation cost, isolating the legitimately-per-record floor: 13/item
+ * item-creation cost, isolating the legitimately-per-record floor: 10/item
  * (upsertSourceItem 2 + writeIdentityKeys 2 + bindGroup's anchor SELECT only
- * 1 + 5 facet upserts + 3 collection-table deletes), plus a small constant
- * for the now-batched resolveItems()/refreshItemCaches()/bumpSite() calls.
+ * 1 + 5 facet upserts), plus a small constant for the now-batched
+ * resolveItems()/refreshItemCaches()/replaceCollections()/bumpSite() calls.
+ * The three collection-table DELETEs used to sit in that per-item floor;
+ * SCALE-17/#CACHE-2 moved them into replaceCollections()'s per-chunk batch.
  */
 it('pins the steady-state (second, unchanged) run query count', function () {
     $userId = createTenant('bwt-steady-'.Str::lower(Str::random(6)))->id;
@@ -437,9 +687,10 @@ it('pins the steady-state (second, unchanged) run query count', function () {
     });
     $writer->projectStream($source, $streamId, 'releases'); // steady state
 
-    // 10 items x ~13/item legitimate floor + a small constant for the
-    // batched resolveItems()/refreshItemCaches()/bumpSite() calls. Measured
-    // 161 post-fix (vs a pre-fix equivalent north of 600) — threshold set
-    // just above the measured floor, not padded for slack.
-    expect($queries)->toBeLessThanOrEqual(170);
+    // 10 items x ~10/item legitimate floor + a small constant for the
+    // batched resolveItems()/refreshItemCaches()/bumpSite() calls. Was 161
+    // after SCALE-6/7/8; SCALE-17/#CACHE-2 pulled the three per-item
+    // collection DELETEs out into three per-chunk ones, measured 134 —
+    // threshold set just above the measured floor, not padded for slack.
+    expect($queries)->toBeLessThanOrEqual(140);
 });

@@ -10,9 +10,18 @@ use SimpleXMLElement;
  * "releases" strategy reads the SAME uploads feed off the artist's
  * auto-generated "- Topic" channel, so the parse must not fork.
  *
- * XXE guard: LIBXML_NONET stops libxml resolving external entities/DTDs over
- * the network; LIBXML_NOENT is deliberately NOT passed (that flag is what
- * would substitute internal-DTD entities and open an expansion attack).
+ * XXE posture — measured on libxml 2.15.2 / PHP 8.4, pinned by
+ * tests/Unit/Ingest/YoutubeFeedTest.php. Two independent libxml mechanisms
+ * carry it; neither is LIBXML_NOENT:
+ *   - External entities are never resolved. libxml >= 2.9 does not load them
+ *     by default, so a `<!ENTITY x SYSTEM "file://...">` reference is dropped
+ *     rather than read; LIBXML_NONET additionally forbids retrieval over the
+ *     network, covering the http:// variant.
+ *   - Expansion bombs (billion laughs) are refused by libxml's own
+ *     max-amplification guard: the load returns false, so parse() returns null.
+ * Internal-DTD entities ARE substituted here, with or without LIBXML_NOENT —
+ * omitting that flag buys nothing, so do not treat it as load-bearing in
+ * either direction. Only LIBXML_NONET is.
  */
 final class YoutubeFeed
 {

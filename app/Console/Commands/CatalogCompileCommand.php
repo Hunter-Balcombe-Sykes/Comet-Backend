@@ -87,6 +87,22 @@ class CatalogCompileCommand extends Command
 
                         continue;
                     }
+                    // SLOP-21: a pattern that does not compile makes preg_match()
+                    // return false for every subject, which LinkProjector can
+                    // only read as "no match" — the surface goes dark. Catch it
+                    // here, where nothing is written on failure, rather than in
+                    // production. `@` is correct: the job is to COLLECT the
+                    // error, not propagate it.
+                    $patterns = ['subdomain_pattern' => $detector->subdomainPattern, 'path_pattern' => $detector->pathPattern];
+                    foreach ($detector->rejectPatterns as $i => $reject) {
+                        $patterns["reject_patterns[{$i}]"] = $reject;
+                    }
+                    foreach ($patterns as $field => $pattern) {
+                        if ($pattern !== null && @preg_match($pattern, '') === false) {
+                            $errors[] = "detector {$detector->id}: {$field} is not a valid regex ({$pattern})";
+                        }
+                    }
+
                     $detectors[$detector->id] = $detector->toArray();
                 }
 
