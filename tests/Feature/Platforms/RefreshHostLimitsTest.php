@@ -55,7 +55,10 @@ it('chunks the ytimg maxres probes to the configured pool concurrency', function
     // the functional result happens to match on the current unbounded code.
     expect(method_exists(YoutubeThumbnailResolver::class, 'pooledHead'))->toBeTrue();
 
-    $ids = ['aaa', 'bbb', 'ccc', 'ddd', 'eee']; // 5 misses, cap 2 → 3 chunks
+    // 5 misses, cap 2 → 3 chunks. Ids must be REAL shape — 11 chars of
+    // [A-Za-z0-9_-] — or bestForMany() drops them at VIDEO_ID_PATTERN before
+    // any probe is issued. The previous 3-char fixtures could never occur.
+    $ids = ['vid0000000A', 'vid0000000B', 'vid0000000C', 'vid0000000D', 'vid0000000E'];
     $result = app(YoutubeThumbnailResolver::class)->bestForMany($ids);
 
     expect($result)->toHaveCount(5);
