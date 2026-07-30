@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
@@ -119,7 +120,11 @@ it('T1: with the deferred flag empty, addBrand returns the pre-change 200 shape 
             'products' => [],
         ]);
 
-    Bus::assertNothingDispatched();
+    // The synchronous settle legitimately kicks the best-effort logo mark
+    // processing; the point of this assertion is that no async CONNECT job
+    // (ShopBrandConnectJob) fired on the non-deferred path.
+    Bus::assertNotDispatched(ShopBrandConnectJob::class);
+    Bus::assertDispatched(ProcessShopBrandLogoJob::class);
 });
 
 // ── T25 — non-deferrable providers stay synchronous 200s even when the flag is on ──
