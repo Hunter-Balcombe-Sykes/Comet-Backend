@@ -110,6 +110,17 @@
     - **What to do:** Extract a `GuardsAgainstFormSpam` trait with `assertHoneypot()` (`$data['website']` non-empty → fake success) and `assertFormTiming()` (`form_started_at_ms` delta vs `config('partna.form_timing.min_ms'/'max_ms')`, log events `honeypot_hit`/`too_fast`). All 4 controllers use it.
     - **Technical:** All 4 independently implement the identical honeypot + timing checks down to the same log-event names; a divergence would create an inconsistent spam window.
     - **Plain English:** Four public forms each re-implement the same anti-spam checks; sharing them keeps the protection identical everywhere and one place to tune.
+    - **PARTIAL — 2026-07-30, `audit-fix/p0-pilot-2026-07-30`.** The *drift* half of this finding is
+      closed and the box stays open only for the controller refactor above. Verification found a live
+      security gap the audit did not describe: `PublicEarlyAccessSignupRequest` had skipped the existing
+      `WithBotProtection` trait and declared `form_started_at_ms` as `nullable`, so — because the
+      controller gates on `is_int($startedMs)` — omitting the field bypassed the timing check entirely
+      on that one public endpoint. Tracked as `#INH-7-DRIFT` in
+      `audits/consolidation/2026-07-30-pilot-launch-reprioritisation/` (graded **P0-PILOT**) and fixed:
+      the class now uses the trait, with `tests/Feature/Security/PublicFormTimingFieldRequiredTest.php`
+      asserting a field-absent submission is rejected on all four endpoints.
+      **Still open here:** the `GuardsAgainstFormSpam` controller-level extraction. The four controllers'
+      runtime honeypot/timing logic remains byte-identical and duplicated — verified undrifted 2026-07-30.
 
 - [ ] **#INH-8** · P2 — `WriteDesignKitAction` for the transactional design-kit write  · **standalone (DB txn + lock)**
     - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php::writeDesignKit()` (:108), `app/Services/WebsiteScan/DesignKitAccentApplier.php::apply()` (:21).
