@@ -5,11 +5,13 @@
 // (20260726000000_baseline_pilot.sql:1853-1854) — a DEFAULT never fires on an
 // explicit NULL, so both columns were genuinely nullable, which is exactly
 // the gap tests/Feature/Platforms/DueForRefreshScopeTest.php's old
-// null-updated_at case exploited to prove scopeStrandedPending()
-// (app/Models/Core/Site/IntegrationConnection.php:318-325)'s
-// whereNotNull('updated_at') branch. This test binds the REAL migration
-// files (20260729150016/150017/150018), not a hand-copy, so a future
-// rollback of the constraint fails here first.
+// null-updated_at case exploited to prove scopeStrandedPending()'s
+// whereNotNull('updated_at') branch. That clause was removed on 2026-07-30
+// (it never selected differently — `updated_at < $cutoff` is NULL, not TRUE,
+// for a NULL row), so what this file now pins is the DB constraint itself,
+// not a code branch. This test binds the REAL migration files
+// (20260729150016/150017/150018), not a hand-copy, so a future rollback of
+// the constraint fails here first.
 //
 // Property (a) is why tests/Pest.php's SQLite stand-in mirrors the columns
 // as `NOT NULL DEFAULT CURRENT_TIMESTAMP` rather than dropping the default —

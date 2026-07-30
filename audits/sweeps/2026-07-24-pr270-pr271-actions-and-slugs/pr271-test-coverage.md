@@ -147,7 +147,8 @@
         }
         ```
 
-- [ ] **TEST-6** · P2 — No cross-tenant isolation test for the `EventsCatalog` facade endpoints (`/api/platforms/events/add`, `/selection`, `/custom/{id}`)
+- [x] **TEST-6** · P2 — No cross-tenant isolation test for the `EventsCatalog` facade endpoints (`/api/platforms/events/add`, `/selection`, `/custom/{id}`)
+    - **Resolved 2026-07-30** — three isolation tests in `tests/Feature/Platforms/EventsCatalogTest.php`; mutation-verified against unscoped `selection()` and `removeCustom()`. No production change: scoped by construction, as predicted. `/add` deliberately not asserted (writes only to the caller's own connections — no cross-tenant shape). See CONSOLIDATED.md for the full note.
     - **Where:** tests/Feature/Platforms/EventsCatalogTest.php (entire file — every test uses a single user); app/Services/Platforms/EventsCatalog.php
     - **Affects:** Any user attempting to enumerate or delete another user's events through the newer "Tickets & Events" smart-detect facade.
     - **Effort:** M (~2–4h)

@@ -297,9 +297,15 @@ class IntegrationConnection extends BaseModel
      * dueForRefresh() or make the cron touch these rows (see
      * CheckPlatformRefreshBacklogCommand for why remediation is deliberately
      * out of scope here). $cutoff distinguishes "still in flight" from
-     * "abandoned" — a NULL updated_at can't be proven stale, so (matching
-     * RefreshController::refreshStatus()'s identical stale-pending reasoning)
-     * it is treated as still in flight, not stranded.
+     * "abandoned".
+     *
+     * This carried a whereNotNull('updated_at') until 2026-07-30, on the
+     * reasoning that a NULL updated_at can't be proven stale. It never did
+     * anything: `updated_at < $cutoff` is NULL — not TRUE — for a NULL row, so
+     * SQL's three-valued logic already excluded it in both Postgres and the
+     * SQLite mirror. The column is additionally NOT NULL since DINT-8
+     * (20260729150016-18), so the state is unreachable as well as unselectable.
+     * Do not add the guard back; it reads as protection that isn't there.
      *
      * CA-SM review fix: filtered to ->active(), matching scopeDueForRefresh().
      * A row deactivated while still 'pending' (e.g. ReconcilePlatformTakedownJob)
@@ -320,7 +326,6 @@ class IntegrationConnection extends BaseModel
         return $query->active()
             ->where('platform', '!=', 'custom')
             ->where('last_refresh_status', 'pending')
-            ->whereNotNull('updated_at')
             ->where('updated_at', '<', $cutoff);
     }
 }

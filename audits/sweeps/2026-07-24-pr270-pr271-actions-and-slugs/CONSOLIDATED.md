@@ -1841,7 +1841,8 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
         }
         ```
 
-- [ ] **271-TEST-6** · P2 — No cross-tenant isolation test for the `EventsCatalog` facade endpoints (`/api/platforms/events/add`, `/selection`, `/custom/{id}`)
+- [x] **271-TEST-6** · P2 — No cross-tenant isolation test for the `EventsCatalog` facade endpoints (`/api/platforms/events/add`, `/selection`, `/custom/{id}`)
+    - **Resolved 2026-07-30** — three tests added to `tests/Feature/Platforms/EventsCatalogTest.php` per the remediation below (second user via `eventsUser()`, mirroring `PlatformConnectionAuthorizationTest`'s cross-user section): A never lists B's events, A's `DELETE /events/custom/{B_id}` returns 404 **with B's row still present**, and A's reorder using B's ids is a scoped no-op. Both sides carry a positive control, so no assertion can pass on an empty selection. **Mutation-verified**: unscoping `EventsCatalog::selection()` (`$user->integrationConnections()` → `IntegrationConnection::query()`) fails the listing test, and dropping `where('user_id', $user->id)` from `removeCustom()` fails the delete test — these detect the real vulnerability class, not just today's behaviour. No production code changed; the mechanism was already scoped by construction as the technical note predicted. `POST /events/add` is deliberately not asserted: it writes only to the caller's own connections, so no path segment or body field can name another tenant's row, and there is no cross-tenant shape to test. File: 11 → 14 tests; `tests/Feature/Platforms` + `tests/Feature/Security` = 1658 passed.
     - **Where:** tests/Feature/Platforms/EventsCatalogTest.php (entire file — every test uses a single user); app/Services/Platforms/EventsCatalog.php
     - **Affects:** Any user attempting to enumerate or delete another user's events through the newer "Tickets & Events" smart-detect facade.
     - **Effort:** M (~2–4h)

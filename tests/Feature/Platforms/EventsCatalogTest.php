@@ -279,3 +279,110 @@ it('rejects a reorder without a site', function () {
     actingAsUser($user)->putJson('/api/platforms/events/order', ['ids' => ['event-x']])
         ->assertStatus(404);
 });
+
+// ── Cross-tenant isolation (271-TEST-6) ──────────────────────────────────────
+//
+// Every test above this line acts as though one user exists, which is what the
+// finding recorded: the facade had no assertion that user A cannot see or delete
+// user B's events. The mechanism is scoped by construction — selection() reads
+// via $user->integrationConnections(), removeCustom() via
+// where('user_id', $user->id), reorder() writes to $user->site — so these lock
+// in behaviour that is already correct rather than chasing a suspected bug.
+//
+// BOTH SIDES carry a positive control. "A cannot see B's event" is trivially
+// true when A's selection is null, so each assertion below first proves the
+// endpoint returned that identity's OWN event. Without it these would pass on
+// two empty responses and prove nothing.
+//
+// POST /events/add is deliberately absent: it takes a URL and writes to the
+// caller's own connections, so no path segment or body field can name another
+// tenant's row. There is no cross-tenant shape to assert, and inventing one
+// would be a test that looks like coverage without being it.
+
+/** Mock the link scraper so a URL's last path segment becomes the event name. */
+function mockLinkScraperByUrl(): void
+{
+    $link = Mockery::mock(LinkCardScraper::class);
+    $link->shouldReceive('normalizeUrl')->andReturnUsing(fn (string $u) => $u);
+    $link->shouldReceive('snapshotOrMinimal')->andReturnUsing(fn (string $u) => [
+        'url' => $u,
+        'name' => basename(parse_url($u, PHP_URL_PATH) ?: 'event'),
+        'description' => null,
+        'favicon' => null,
+        'logo' => null,
+    ]);
+    app()->instance(LinkCardScraper::class, $link);
+}
+
+it('never lists another user\'s events in the selection', function () {
+    mockLinkScraperByUrl();
+    $a = eventsUser('eviso-a');
+    $b = eventsUser('eviso-b');
+
+    $aUrl = 'https://example.com/a-only';
+    $bUrl = 'https://example.com/b-only';
+    actingAsUser($a)->postJson('/api/platforms/events/add', ['url' => $aUrl])->assertOk();
+    actingAsUser($b)->postJson('/api/platforms/events/add', ['url' => $bUrl])->assertOk();
+
+    // A sees exactly its own. The first expectation is the positive control:
+    // without it, an empty selection would satisfy the second one.
+    $aEvents = actingAsUser($a)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
+    expect(array_column($aEvents, 'name'))->toBe(['a-only'])
+        ->and(array_column($aEvents, 'link'))->not->toContain($bUrl);
+
+    // And symmetrically for B, so neither direction rests on an empty response.
+    $bEvents = actingAsUser($b)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
+    expect(array_column($bEvents, 'name'))->toBe(['b-only'])
+        ->and(array_column($bEvents, 'link'))->not->toContain($aUrl);
+});
+
+it('never removes another user\'s custom event', function () {
+    mockLinkScraperByUrl();
+    $a = eventsUser('evdel-a');
+    $b = eventsUser('evdel-b');
+
+    $aId = actingAsUser($a)->postJson('/api/platforms/events/add', ['url' => 'https://example.com/a-keep'])
+        ->assertOk()->json('selection.events.0.id');
+    $bId = actingAsUser($b)->postJson('/api/platforms/events/add', ['url' => 'https://example.com/b-keep'])
+        ->assertOk()->json('selection.events.0.id');
+    expect($bId)->not->toBeNull()->and($aId)->not->toBe($bId);
+
+    // 404, never 403 — confirming existence is an enumeration oracle.
+    actingAsUser($a)->deleteJson("/api/platforms/events/custom/{$bId}")->assertStatus(404);
+
+    // The half that matters more: a 404 with the delete APPLIED is the worst
+    // outcome available, and it is exactly what an ownership check placed after
+    // the mutation produces. B's row must still be there.
+    expect(IntegrationConnection::query()
+        ->where('user_id', $b->id)
+        ->where('platform', 'events-custom')
+        ->exists())->toBeTrue();
+
+    $bEvents = actingAsUser($b)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
+    expect(array_column($bEvents, 'id'))->toBe([$bId]);
+});
+
+it('never reorders another user\'s events', function () {
+    mockLinkScraperByUrl();
+    $a = eventsUserWithSite('evord-a');
+    $b = eventsUserWithSite('evord-b');
+
+    actingAsUser($b)->postJson('/api/platforms/events/add', ['url' => 'https://example.com/b-one'])->assertOk();
+    $bEvents = actingAsUser($b)->postJson('/api/platforms/events/add', ['url' => 'https://example.com/b-two'])
+        ->assertOk()->json('selection.events');
+    $bIds = array_column($bEvents, 'id');
+    expect($bIds)->toHaveCount(2);
+
+    // B fixes an explicit order, and it takes — the positive control.
+    $bWanted = array_reverse($bIds);
+    $after = actingAsUser($b)->putJson('/api/platforms/events/order', ['ids' => $bWanted])
+        ->assertOk()->json('selection.events');
+    expect(array_column($after, 'id'))->toBe($bWanted);
+
+    // A reorders using B's ids. reorder() writes to the CALLER's site, so this
+    // must be a scoped no-op rather than a write into B's ordering.
+    actingAsUser($a)->putJson('/api/platforms/events/order', ['ids' => $bIds])->assertOk();
+
+    $bAfterA = actingAsUser($b)->getJson('/api/platforms/events/selection')->assertOk()->json('selection.events');
+    expect(array_column($bAfterA, 'id'))->toBe($bWanted);
+});
