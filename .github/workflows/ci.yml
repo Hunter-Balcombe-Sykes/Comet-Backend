@@ -469,6 +469,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Needed by the authorization lane, not the schema lane. phpunit.authz.xml
+      # pins CACHE_STORE/SESSION_DRIVER/QUEUE_CONNECTION to array|sync, so the
+      # only component still reaching for a real Redis is session revocation
+      # (SessionController@destroy -> listSessionsForUser). Without this service
+      # that route answers 500 instead of 404 and the matrix reports an
+      # application defect that is really a missing dependency.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -493,6 +508,20 @@ jobs:
 
       - name: Run applied-schema lane
         run: composer test:schema
+
+      # Authorization matrix (tests/Authz/). Runs against the same migrated
+      # database the step above provisioned — the expensive from-zero apply is
+      # already paid for, so this costs only the requests themselves.
+      #
+      # AUTHZ_LANE_REQUIRED=1 makes a missing precondition a RED build rather
+      # than a silent skip, the same contract SCHEMA_LANE_REQUIRED has and for
+      # the same reason: a lane that stands down quietly when its database is
+      # absent reports green while testing nothing.
+      - name: Run authorization lane
+        if: ${{ !cancelled() }}
+        env:
+          AUTHZ_LANE_REQUIRED: '1'
+        run: composer test:authz
 
   # The schema-drift gate lives in the Feature suite, which `composer test` runs
   # AFTER the Unit suite. A single unrelated Unit-suite fatal would abort the run

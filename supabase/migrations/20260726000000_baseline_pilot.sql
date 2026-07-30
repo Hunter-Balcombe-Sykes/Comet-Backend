@@ -6,6 +6,11 @@
 -- with no BEGIN + SET LOCAL lock_timeout). See docs/deploy/production-cutover.md
 -- "Migration collapse (rationale + method)" and its Phase-0 collapse checkbox, which record
 -- how this file was produced and the parity proofs it passed.
+--
+-- ROLLBACK: NONE. This IS the from-zero schema -- there is no prior state to
+--           return to. A bad apply is recovered by dropping and re-creating the
+--           target project, or by restoring the partna-db-backup R2 dump
+--           (Supabase Free: no PITR, no managed backups; RPO ~7 days).
 
 -- Extensions: a --schema-filtered pg_dump does not emit CREATE EXTENSION.
 -- pg_trgm MUST live in "public": this dump runs with search_path = '' and its trigram

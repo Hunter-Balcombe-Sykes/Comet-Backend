@@ -9,20 +9,27 @@
 // would become world-readable to any authenticated JWT. Added in
 // 20260606030000_moderation_schema_rls.sql.
 //
-// Strategy mirrors tests/Feature/Security/DesignKitsRlsTest.php and
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every assertion on a helper that asked whether the connection was Postgres.
+// Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory SQLite
+// unconditionally — deliberately, so BaseModel-forced models never dial the real
+// Supabase host — so that helper returned false in every lane, and every
+// assertion here skipped silently in CI and locally.
+//
+// Strategy mirrors tests/Schema/DesignKitsRlsTest.php and
 // AdminOnlyWritePoliciesTest.php: introspect pg_class/pg_policies
 // (PostgreSQL-only) rather than exercising RLS, which SQLite cannot enforce.
-// Skips on the default SQLite test driver.
 //
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter ModerationSchemaRlsTest
+// It now runs in the applied-schema lane (phpunit.schema.xml / `composer
+// test:schema`, see Tests\SchemaTestCase), against a container that the real
+// supabase/migrations/ set has been applied to by scripts/db/apply-migrations.sh.
+// The base case skips the whole lane when no migrated Postgres is present, so
+// a dropped/weakened policy now fails instead of vanishing.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-function moderationRlsIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Fetch a named policy on a moderation table with its roles + expressions.
@@ -49,10 +56,6 @@ dataset('moderation_tables', $moderationTables);
 // RLS must be ENABLED and FORCED on every moderation table — without it, a
 // future api.schemas / USAGE grant would expose reporter PII to any JWT.
 it('keeps RLS enabled and forced on every moderation table', function (string $table) {
-    if (! moderationRlsIsPostgres()) {
-        $this->markTestSkipped('pg_class introspection requires PostgreSQL.');
-    }
-
     // Cast to int: PDO_pgsql can return booleans as 't'/'f' strings, and the
     // string 'f' is truthy in PHP — so compare the integer form explicitly.
     $row = DB::selectOne(
@@ -72,41 +75,35 @@ it('keeps RLS enabled and forced on every moderation table', function (string $t
 // Each table must carry exactly the two expected policies: an app_backend FOR
 // ALL policy and a staff-only SELECT policy.
 it('defines the staff-only SELECT policy on every moderation table', function (string $table) {
-    if (! moderationRlsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchModerationPolicy($table, "{$table}_staff_select");
     expect($row)->not->toBeNull("Expected staff SELECT policy on moderation.{$table}.");
     expect($row->cmd)->toBe('SELECT', "[{$table}_staff_select] must be a SELECT policy.");
-    expect($row->roles)->toContain('authenticated', "[{$table}_staff_select] must apply to the authenticated role.");
+    expect($row->roles)->toContain('authenticated');
 
     // The staff gate: membership in partna_staff with an admin/support role.
     // Critically it must NOT be open to all authenticated users.
-    expect($row->qual)->toContain('partna_staff', "[{$table}_staff_select] must gate on partna_staff membership.");
-    expect($row->qual)->toContain('auth.uid()', "[{$table}_staff_select] must bind the staff check to the caller via auth.uid().");
+    expect($row->qual)->toContain('partna_staff');
+    // qual comes from pg_get_expr, which schema-qualifies only what is NOT on
+    // the current search_path. config/database.php's default search_path is
+    // public,core,site,notifications,analytics — 'auth' is absent, so it stays
+    // qualified as 'auth.uid()' here (while 'core.partna_staff' renders bare as
+    // 'partna_staff' below, since 'core' IS on the path). If 'auth' is ever
+    // added to DB_SEARCH_PATH, this assertion fails for a non-reason.
+    expect($row->qual)->toContain('auth.uid()');
 })->with('moderation_tables');
 
 it('defines the app_backend FOR ALL policy on every moderation table', function (string $table) {
-    if (! moderationRlsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchModerationPolicy($table, "{$table}_app_backend_all");
     expect($row)->not->toBeNull("Expected app_backend FOR ALL policy on moderation.{$table}.");
     // pg_policies reports FOR ALL as cmd = 'ALL'.
     expect($row->cmd)->toBe('ALL', "[{$table}_app_backend_all] must be a FOR ALL policy.");
-    expect($row->roles)->toContain('app_backend', "[{$table}_app_backend_all] must apply to the app_backend role.");
+    expect($row->roles)->toContain('app_backend');
 })->with('moderation_tables');
 
 // No moderation policy may be open to anon, or to authenticated without a staff
 // gate — these tables must never be reachable by an end user. This is the exact
 // exposure #P3-16 hardens against.
 it('never exposes moderation data to anon or non-staff authenticated callers', function (string $table) {
-    if (! moderationRlsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $policies = DB::select(
         "SELECT policyname, array_to_string(roles, ',') AS roles, qual
            FROM pg_policies
@@ -115,12 +112,12 @@ it('never exposes moderation data to anon or non-staff authenticated callers', f
     );
 
     foreach ($policies as $p) {
-        expect($p->roles)->not->toContain('anon', "[{$table}.{$p->policyname}] must NOT grant anon access to moderation data.");
+        expect($p->roles)->not->toContain('anon');
 
         // Any policy granting the authenticated role must gate on staff
         // membership — a bare authenticated policy would leak case data.
         if (str_contains((string) $p->roles, 'authenticated')) {
-            expect($p->qual)->toContain('partna_staff', "[{$table}.{$p->policyname}] grants authenticated access without a partna_staff gate.");
+            expect($p->qual)->toContain('partna_staff');
         }
     }
 })->with('moderation_tables');

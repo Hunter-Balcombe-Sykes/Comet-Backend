@@ -20,6 +20,7 @@
 
 -- FILE 1 of 2: <YYYYMMDDHHMMSS>0_add_<thing>.sql
 -- Schema changes: wrap in a transaction for atomicity.
+-- ROLLBACK: <exact inverse statement, or NONE + why -- see CONVENTIONS.md §10>
 
 BEGIN;
 
@@ -55,6 +56,7 @@ COMMIT;
 -- ============================================================
 -- FILE 2 of 2: <YYYYMMDDHHMMSS>1_add_<thing>_indexes.sql
 -- Indexes: NO BEGIN/COMMIT — CONCURRENTLY is not transactional.
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS <schema>.idx_<table>_<column>;
 -- ============================================================
 
 -- ── Indexes ──────────────────────────────────────────────────

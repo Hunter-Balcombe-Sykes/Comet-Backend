@@ -8,6 +8,19 @@
 -- Deletion is never inferred from absence alone (C5): a key is only eligible
 -- once a Coverage window DOMINATES it, and then only after N consecutive
 -- dominated absences, and then only if the delete-guard has not tripped.
+--
+-- ROLLBACK: DROP SCHEMA IF EXISTS ingest CASCADE;
+--           IRREVERSIBLE DATA LOSS, the worst of the schema drops.
+--           ingest.effects is the charge-once MONEY ledger (digest/cost_tag/
+--           cost_units/claimed_at/settled_at): dropping it destroys the
+--           record of vendor spend already incurred. Also takes all 8
+--           record_versions partitions and record_state.
+--           NOT a cascade target, but worth knowing: content.source_items.stream_id
+--           (20260727140000_content_schema.sql:82) is a PLAIN nullable uuid with
+--           only an index -- it is NOT a foreign key to ingest.streams, so CASCADE
+--           drops no constraint there. Those uuids simply become dangling data
+--           pointing at a schema that no longer exists. Do not go looking for a
+--           broken FK to rebuild; there never was one.
 
 CREATE SCHEMA IF NOT EXISTS "ingest";
 

@@ -11,29 +11,24 @@
 // renamed to sites_architecture_id_check by
 // 20260710230000_rename_skeleton_id_to_architecture_id.sql.
 //
-// Uses pg_constraint / information_schema queries (rather than inserting bad rows)
-// so the tests are read-only, require no clean state, and are safe to run against
-// any Supabase environment.
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every assertion on a helper that asked whether the connection was Postgres.
+// Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory SQLite
+// unconditionally, so that helper returned false in every lane and all 3
+// assertions skipped silently in CI and locally.
 //
-// To run against Supabase dev:
-//   DB_CONNECTION=pgsql DB_HOST=... php artisan test --filter ArchitectureSystemConstraintsTest
+// It now runs in the applied-schema lane (phpunit.schema.xml / `composer
+// test:schema`, see Tests\SchemaTestCase), against a container that the real
+// supabase/migrations/ set has been applied to by scripts/db/apply-migrations.sh.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-if (! function_exists('architectureSuiteIsPostgres')) {
-    function architectureSuiteIsPostgres(): bool
-    {
-        return DB::connection()->getDriverName() === 'pgsql';
-    }
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 // ─── 1. architecture_id CHECK constraint ─────────────────────────────────────
 
 it('sites_architecture_id_check constraint exists and is validated', function () {
-    if (! architectureSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-
     $row = DB::selectOne(
         "SELECT convalidated FROM pg_constraint c
           JOIN pg_class t ON c.conrelid = t.oid
@@ -56,10 +51,6 @@ it('sites_architecture_id_check constraint exists and is validated', function ()
 // ─── 2. design_kits → sites CASCADE FK ──────────────────────────────────────
 
 it('design_kits has an ON DELETE CASCADE FK to site.sites', function () {
-    if (! architectureSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-
     $row = DB::selectOne(
         "SELECT c.conname, c.confdeltype
            FROM pg_constraint c
@@ -84,10 +75,6 @@ it('design_kits has an ON DELETE CASCADE FK to site.sites', function () {
 // ─── 3. trg_create_empty_design_kit trigger ──────────────────────────────────
 
 it('trg_create_empty_design_kit AFTER INSERT trigger exists on site.sites', function () {
-    if (! architectureSuiteIsPostgres()) {
-        $this->markTestSkipped('Trigger queries require PostgreSQL.');
-    }
-
     $row = DB::selectOne(
         "SELECT trigger_name
            FROM information_schema.triggers

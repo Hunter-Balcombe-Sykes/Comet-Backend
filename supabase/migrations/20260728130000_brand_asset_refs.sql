@@ -19,6 +19,11 @@
 --
 -- site.site_media remains site chrome (workplace logos). This table never
 -- touches it.
+--
+-- ROLLBACK: DROP TABLE IF EXISTS content.brand_asset_refs CASCADE;
+--           The role→asset mapping is re-derivable by re-running the
+--           brand-asset ingest, but source_url (the DMCA takedown path's
+--           only record of provenance) and attribution are NOT.
 
 BEGIN;
 

@@ -9,6 +9,13 @@
 --       human decisions. Nothing here has a unique index on an identity key
 --       value: two sources claiming the same GTIN is an input to resolution,
 --       never a constraint violation.
+--
+-- ROLLBACK: DROP SCHEMA IF EXISTS content CASCADE;
+--           IRREVERSIBLE DATA LOSS. Every projected item, all 15 facet
+--           tables, media_assets, item_slugs (public URLs), manual_overrides
+--           (per-field user locks), item_merges (append-only audit ledger).
+--           CASCADE also removes content.source_routes (20260727150000) and
+--           content.brand_asset_refs (20260728130000).
 
 CREATE SCHEMA IF NOT EXISTS "content";
 

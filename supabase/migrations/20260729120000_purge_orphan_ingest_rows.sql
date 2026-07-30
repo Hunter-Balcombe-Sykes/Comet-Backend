@@ -8,6 +8,13 @@
 -- Expected to match 0 rows today (the ingest fleet landed 2026-07-27 and prod
 -- carries no customer data). Left in regardless: it is the only thing standing
 -- between a stray orphan and a failed production migration.
+--
+-- ROLLBACK: NONE. Hard DELETE of unreachable ingest.record_versions and
+--           ingest.effects rows. No undo, no PITR (Supabase Free). Expected
+--           to match 0 rows (verified 2026-07-29 -- the ingest fleet landed
+--           2026-07-27, prod core.users = 0). If it ever matches more, that
+--           data is gone; only recovery is the partna-db-backup R2 dump if
+--           fresher than the apply.
 
 DELETE FROM "ingest"."record_versions" rv
 WHERE NOT EXISTS (

@@ -631,7 +631,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 7 complete
 
@@ -639,7 +639,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TEST-1** · P1 — Hand-maintained SQLite fixtures for GDPR export/deletion tests can drift from production schema undetected
+- [x] **#TEST-1** · P1 — Hand-maintained SQLite fixtures for GDPR export/deletion tests can drift from production schema undetected
     - **Where:** tests/Feature/User/DataExport/DataExportTestCase.php:83-100, tests/Feature/User/AccountDeletion/AccountDeletionTestCase.php
     - **Affects:** Every GDPR export / account-deletion feature test. A migration that adds a column referenced by export/purge queries can pass the full suite while the real Postgres query 42703s in production.
     - **Effort:** L (~1–2d)
@@ -660,7 +660,7 @@ None.
         $conn->statement('CREATE TABLE IF NOT EXISTS site.customers (
         ```
 
-- [ ] **#TEST-2** · P1 — `CheckConstraintsTest`/`IndexCoverageTest` (20+ constraint/index assertions) never execute in CI — they're inert on every PR
+- [x] **#TEST-2** · P1 — `CheckConstraintsTest`/`IndexCoverageTest` (20+ constraint/index assertions) never execute in CI — they're inert on every PR
     - **Where:** tests/Feature/Database/CheckConstraintsTest.php (20 tests), tests/Feature/Database/IndexCoverageTest.php, tests/Feature/Database/ArchitectureSystemConstraintsTest.php, tests/Feature/Database/UpdatedAtTriggerCoverageTest.php; .github/workflows/ci.yml
     - **Affects:** Every CHECK constraint, FK-cascade, index, and trigger these files assert exist — including the newly added `action_events_event_check`/`action_events_site_fk`. A migration that drops or weakens any of these constraints passes CI green.
     - **Effort:** L (~1–2d)
@@ -1967,14 +1967,14 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **271-PARITY-1** · P2 — `site.menus.user_id` / `site.menu_items.menu_id` / `site.menu_items.name` are `NOT NULL` in prod but nullable in the SQLite test seed
+- [x] **271-PARITY-1** · P2 — `site.menus.user_id` / `site.menu_items.menu_id` / `site.menu_items.name` are `NOT NULL` in prod but nullable in the SQLite test seed
     - **Where:** tests/Pest.php:669-687 (`site.menus`), tests/Pest.php:718-738 (`site.menu_items`)
     - **Affects:** Test-suite fidelity for the whole menu feature (`MenuContentController`, `MenuScanApplier`, `MenuFetchJob`) — a future write path that forgets `user_id`/`menu_id`/`name` would pass CI green today and 500 on Postgres with `23502 not_null_violation`.
     - **Effort:** S (~0.5–1h)

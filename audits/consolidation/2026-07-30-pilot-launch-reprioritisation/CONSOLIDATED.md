@@ -470,7 +470,7 @@ tracked in their source folders).
 |---|---|
 | P0-PILOT | 6 / 7 |
 | P1-PILOT | 11 / 12 |
-| P0-LAUNCH | 0 / 6 |
+| P0-LAUNCH | 7 / 7 |
 | P1-LAUNCH | 0 / 27 |
 | DEAD bookkeeping | 0 / 11 |
 
@@ -560,8 +560,243 @@ tracked in their source folders).
 > **`#9` was predicted to close as a side effect of `PRIV-3`. It did not** — see the corrected
 > collision table above. It remains unstarted P1-LAUNCH work.
 
-**P0-LAUNCH**
-- [ ] `#TEST-2` · [ ] `#TEST-1` · [ ] `271-PARITY-1` · [ ] `LC-ROLLBACK` · [ ] `#API-1` · [ ] `LC-DAST`
+**P0-LAUNCH** — worked 2026-07-30 on `audit-fix/p0-launch-2026-07-30`.
+- [x] `#TEST-2` · [x] `#TEST-1` · [x] `271-PARITY-1` · [x] `LC-ROLLBACK` · [x] `#API-1` · [x] `#50` · [x] `LC-DAST`
+
+Unit 1 (`#TEST-2` + `#TEST-1` + `271-PARITY-1`) — one root cause: `tests/TestCase.php:21-33`
+unconditionally repoints the `pgsql` alias at in-memory SQLite, so every `getDriverName() === 'pgsql'`
+gate in the Feature suite is unsatisfiable. Those tests reported green having asked the database nothing.
+- `#TEST-2` — `IndexCoverageTest`, `ArchitectureSystemConstraintsTest`, `UpdatedAtTriggerCoverageTest`
+  moved to `tests/Schema/` (the applied-schema lane, CI job `schema-tests`). **17 assertions that had
+  never executed now run.** No CI-config change was needed — the lane already existed, so this was far
+  cheaper than the L estimate, which predates `5ea53445`. Two things the move exposed: (a) a Pest
+  `uses()->in(__DIR__)` ordering landmine in `CheckConstraintsTest.php:27` that would have thrown
+  "facade root has not been set" / `TestCaseAlreadyInUse` — fixed to `->in(__FILE__)`; (b) **6 of
+  `UpdatedAtTriggerCoverageTest`'s 13 assertions targeted tables that do not exist** (`brand.*` ×4,
+  `commerce.affiliate_product_selections`, `core.gdpr_requests` — the `brand`/`commerce` schemas were
+  removed in the standalone strip-down). Deleted with the reason recorded in-file. An unrun guard does
+  not merely fail to catch regressions in the code; it fails to catch regressions in itself.
+- `#TEST-1` — drift-gate scope inverted rather than widened by hand. Jurisdiction is now "any table a
+  no-arg `setup*` global declared in `tests/Pest.php` builds" (new `Tests\Support\SchemaDrift\PestSetupHelpers`,
+  shared with `SchemaDriftGuardTest` so the two gates cannot disagree about "canonical"). Measured
+  6 → 31 files caught, zero new false positives; the alternative (broadening the hardcoded 13-name
+  list) was rejected as heavily prose-false-positive. **Zero of the 78 files hand-migrated** — baselining
+  is the established mechanism.
+- `271-PARITY-1` — `site.menus.user_id` was already `NOT NULL`. Remaining: `site.menu_items.menu_id`
+  and `.name` tightened in the test seed, plus **`.id`, which the finding did not name** — prod is
+  `"id" uuid NOT NULL` and SQLite does not imply NOT NULL from `PRIMARY KEY` on a non-`INTEGER` column.
+  Verified against `20260726000000_baseline_pilot.sql`, not against a green suite; no later migration
+  touches the table. 3 grandfather entries removed from `schema-drift-baseline.json` by surgical delete,
+  not regeneration. No migration needed — prod was already correct.
+
+**Scope addition, approved by Josh mid-run: the same root cause spanned 30 files, not 3.** A grep for all
+`getDriverName()`-vs-`'pgsql'` gate forms outside the two real Postgres lanes returns **30 test files**,
+heaviest in `tests/Feature/Security` (7) and `tests/Feature/Moderation` (6). The 7 security files were
+folded into this unit; the rest are logged below as a follow-up. Folded: `DesignKitsRlsTest`,
+`AdminOnlyWritePoliciesTest`, `FunctionSearchPathTest`, `ModerationSchemaRlsTest`,
+`AnalyticsSessionsRlsTest`, `AuditModerationEventsRlsTest`, `PlatformAndMenuRlsTest` → **80 RLS,
+policy-shape and `search_path`-hardening assertions now have a lane that executes them.**
+
+Unlike unit 1a's files these carry **zero schema rot** — every object they name still exists. What they
+carried instead was a **Pest API misuse that only execution could surface.**
+`vendor/pestphp/pest/src/Mixins/Expectation.php:184` declares `toContain(mixed ...$needles)` — variadic,
+**no message parameter** — while `toBe`, `toBeTrue` and `toBeNull` all take `string $message = ''`. So
+`toContain($needle, "[$policy] must allow staff access.")` asserted the catalog value contained *both*
+strings, the second being an English sentence. **18 sites failed unconditionally; 3 negated ones passed
+vacuously.** All 21 fixed to the single-needle form the executing lanes already use. Six of the seven
+files made the identical mistake — and the one that didn't (`AnalyticsSessionsRlsTest`) simply has no
+`toContain` calls. The error correlates with surface area, not author care: the wrong form is the one
+that reads correctly by analogy, PHP's variadic swallows the extra argument silently, and review cannot
+see it. **An unrun guard does not just fail to catch regressions in the code — it fails to catch them in
+itself.** Corroborating evidence: zero multi-needle `toContain` calls exist in `tests/Postgres/` or
+`tests/Schema/`, the lanes that actually run.
+
+Also repointed `scripts/audit/lenses/schema-rls.md` (CI-enforced — `AuditPipelineIntegrityTest`
+`file_exists()`-checks every backticked `tests/…` token, so the moves would have turned that guard red)
+and `scripts/audit/lenses/test-coverage.md`.
+
+Independent review PASS on both halves (one reviewer stalled and was replaced). Per-file `it()` counts
+preserved exactly across all 7 moves; every `toContain` fix verified to drop the *message* with the
+needle byte-identical — no assertion weakened. One defect caught pre-review and fixed: the implementer
+added a `sort()` to `PestSetupHelpers::names()`, which silently reordered the 59 fixture builders
+`SchemaDriftGuardTest` *calls*. Verified statically that declaration order ≠ alphabetical and that no
+helper `ALTER`s another's table, so it was harmless today — removed anyway, since a green suite could
+not have distinguished the two versions.
+
+Unit 2 (`LC-ROLLBACK`) — **56 migrations, 43 given a `-- ROLLBACK:` note, 56/56 now compliant.**
+Documentation only, proven mechanically: **zero non-comment lines added and zero lines removed** across
+all 43 files, so not one byte of executable SQL changed. Convention recorded in `CONVENTIONS.md` §10
+(+ cheat-sheet row), `TEMPLATE.sql.example` and `docs/deploy/routine-deploy.md`; enforced by two new
+`it()` blocks in `MigrationTransactionBoundaryTest`.
+
+The audit's own numbers were wrong in both directions and are corrected here: **53 files not 51**
+(then 56 after this branch and the P1-PILOT merge each added migrations), and **9 real notes, not 12** —
+its `grep -liE "revert|rollback"` counted three *prose mentions* as compliant, including one match
+inside a `COMMENT ON COLUMN` string literal. The second new test uses those three as fixtures, pinning
+the exact distinction the grep got wrong.
+
+Convention is `-- ROLLBACK:` (all 9 pre-existing live files); `-- To revert:` is archive-era and the
+matcher accepts both case-insensitively — which is why the two migrations merged from P1-PILOT, using
+lowercase `-- to revert:`, already comply.
+
+The guard test went into `MigrationTransactionBoundaryTest`, **not** `guard-no-unsafe-migrations.php`:
+that script's `-- guard:no-unsafe-migrations:disable-file` marker `continue`s a whole file *before any
+check runs*, and three files carry it including `baseline_pilot.sql`. A lock-safety opt-out must not
+double as a documentation opt-out.
+
+🔴 **The real content of this finding: 13 of the pending migrations have no usable reverse path.**
+- **Irreversible without a restore (8)** — `baseline_pilot`; whole-schema `DROP … CASCADE` on `catalog`,
+  `routing`, `ingest`, `content`; whole-table on `sections_and_documents`; hard `DELETE` in
+  `purge_orphan_ingest_rows` and `purge_orphan_section_items`.
+- **One-way data operations (5)** — `connections_surface_key_backfill`, `retire_pinterest`,
+  `repair_record_versions_current`, `repair_sections_site_id`, `backfill_pconn_timestamps`.
+- (A further 7 `VALIDATE`-only files say NONE, but that is a technicality — Postgres has no
+  "un-validate" and the sibling `_not_valid` file's `DROP CONSTRAINT` removes the constraint entirely.
+  Counted separately so it does not inflate the real risk.)
+
+**Two warrant a decision beyond a comment:** `20260727130000_ingest_schema` creates `ingest.effects`,
+the charge-once money ledger (`cost_tag`/`cost_units`/`claimed_at`/`settled_at`) — a bad apply forcing a
+schema drop destroys the record of vendor spend already incurred, and no backup tier covers it.
+`20260728100000_retire_pinterest` collapses `routing.source_intents.state`: `'proposed'` and `'blocked'`
+both become `'superseded'`, with nothing recording which was which. **Recommendation for Josh, out of
+this unit's scope: a manual `pg_dump` of prod immediately before the first `db push` of this pending
+set, held until the pilot is stable.**
+
+Independent review caught **one blocking defect**, which is the strongest argument for the convention it
+was enforcing. The note on `ingest_schema` claimed CASCADE would drop `content.source_items`' `stream_id`
+FK. **No such FK exists** — `content_schema.sql:82` is a plain nullable `uuid` with only an index; the
+three real FKs to `ingest.streams` are all on `ingest.*` tables, inside the schema being dropped. The
+claim originated in the plan and was transcribed faithfully, and **every mechanical check passed it** —
+comment-only, guard green, suite green, note present and correctly placed. Only reading the claim against
+the DDL could catch it. Corrected to state the truth and pre-empt the wrong inference ("Do not go looking
+for a broken FK to rebuild; there never was one"); re-reviewed PASS. This is exactly the failure the §10
+rule names: *a note claiming revertibility where none exists is worse than no note.*
+
+⚠️ **Bookkeeping caveat:** `LC-ROLLBACK`'s source report (`audits/launch-check/2026-07-26/REPORT.md`) is
+**gitignored** (`.gitignore:64`), so it does not exist in the repo and its box could not be ticked there
+— only here. Also note the action item's exact wording is "every migration since last deploy has a
+**tested** reverse path". This unit closes the *documented* half by mandate; **the tested half remains
+open** and belongs with the PITR/backup item and `docs/runbooks/drills/04-backup-restore.md`.
+
+Unit 3 (`#API-1` + `#50`) — **two findings graded identically that are structurally opposite.**
+
+`#API-1` is a **real defect**: `ShopBrand::toBrandArray()` spreads `ShopProduct.data` verbatim into
+`products` (`ShopBrand.php:129-138`), and `SHOP_BRAND_ALLOWLIST` allowlisted **brand**-level keys only —
+so any key a fetcher adds reaches unauthenticated visitors with **no enforcement point**, unlike every
+other platform in `::ALLOWLIST`, which fails closed. Fixed with a 15-key `SHOP_PRODUCT_ALLOWLIST` and an
+`array_map` through `array_intersect_key`, at the **Resource** not the model — decisive because
+`ShopCatalog::syncLatest()` reads `createdAt` from `toBrandArray()` to sort latest-mode products and
+`ShopController::setProducts()` reads `products` from it for fetch dispatch, so filtering at the model
+would silently degrade internal callers.
+
+🔴 **The audit's own prescribed key list was WRONG** and would have shipped a user-visible regression: it
+omitted `variantId`, `vendor`, `description` and `createdAt`, all live on the wire. Dropping `variantId`
+breaks checkout deep links for every `linkMode: 'checkout'` store. The 15 keys here are the empirical
+union of all five emitters (`Shopify`, `WooCommerce` incl. `productsFromClient`, `Squarespace`,
+`BigCartel`, `GenericShop` JSON-LD + OpenGraph), re-derived independently by the reviewer. All three
+writers were checked for a user-supplied-key path: none exists (`AddShopProductRequest` takes a `url`,
+`SetShopProductsRequest` takes ids; product objects always come from a scraper).
+
+`#50` — **DEAD as graded.** `PublicMenuController::show()` emits every key by hand-written literal: no
+spread, no `Model::toArray()`, no payload pass-through, so the hand-built map **is** an enumerated
+allowlist and a new column cannot reach the wire without a code edit. The promotion rationale ("grading
+them differently was an inconsistency in the source audits, not a real distinction") is factually
+backwards — **the distinction is spread-vs-enumerate and it is real.** Both original source audits said so
+themselves (`#API-9`, `#API-3`: *"Every field shipped today is deliberately curated and non-sensitive —
+this is not a live leak."*). Verified: **zero internal-looking columns are currently public**; all of
+`scan_items`, `suppressed_items` (what the owner deliberately hid), `content_source`, `source_platform`,
+`pickup_source`, `delivery_source`, `is_manual` are withheld, and `MenuPayloadComposer` emits exactly
+those to the *dashboard* — proving the split is deliberate.
+
+**Josh's decision: close `#50` WONTFIX-with-hardening** — an `INTENTIONAL EXCLUSIONS` docblock plus three
+wire-contract tests pinning the exact key set at all four nesting levels. A Resource class and an
+`array_intersect_key` were both **deliberately rejected**: `IndividualProfileResource` (the precedent the
+original audit cited) is itself array-in/hand-written-keys-out, so a Resource would be a **file move, not
+a guardrail**; `array_intersect_key` on a literal is a **tautology** — dead code that reads like a control,
+which is worse than none. And 6 `phpstan-baseline.neon` entries are pinned to that controller with
+`reportUnmatchedIgnoredErrors` unset (defaults true), so moving the mapping would have failed
+`composer analyse`. Following the rule's letter would have made the code less safe than following its
+intent, on a payload that is CDN-cached 15 minutes with no golden master and no frontend contract doc.
+
+**Mutation-tested, because a guard that cannot fail is the thing this whole bucket is about:** deleting
+`'variantId'` fails Test 2; deleting the `array_map` block fails Test 1; and — unprompted — adding
+`isManual` to the menu payload fails two `#50` tests, proving that guardrail is load-bearing rather than
+decorative. Tests: `PublicIntegrationAllowlistTest` 16 → 18, `PublicMenuControllerTest` 10 → 13. Byte-
+identity canaries green (`ShopRelationalStorageTest` 18, `GoldenMaster` 31, `Registry`+`Unit/Platforms`
+426). Suite 6867 passed; PHPStan 21 unchanged with all 6 pinned entries still matched. Independent
+review PASS.
+
+**Also shipped, per Josh's decision:** a required `pg_dump` pre-flight in `docs/deploy/routine-deploy.md`
+for the current pending migration set — 53 migrations pending against prod, 13 with no usable reverse
+path, on a Free plan with no PITR and ~7-day RPO. Every flag traced to the verified invocation in
+`docs/runbooks/drills/04-backup-restore.md`; the pooler hostname is a marked placeholder, not fabricated.
+
+Unit 4 (`LC-DAST`) — full triage in [`LC-DAST-TRIAGE.md`](./LC-DAST-TRIAGE.md). **Read the tick as
+intent, not state.**
+
+**The finding is worse than "untriaged baseline": the control has never run.** One workflow execution
+ever (`30211809194`, 2026-07-26T17:04:24Z), **failed in 10 seconds** on `[dast] ERROR: no target`.
+`gh api .../actions/secrets` → `total_count: 0` — none of the three secrets were ever set. The weekly
+cron (Sun 16:00 UTC) is a guaranteed-red no-op and fires again every week. No `REPORT.md` has ever been
+committed; the 07-26 run artifacts are gone from disk. The tooling itself is real and self-tested (ZAP
+active lane, Nuclei + wcvs edge lane, 7/7 canary self-test) — it simply isn't wired to anything.
+
+9 findings triaged, recovered from the implementation plan's Phase 10 prose since the raw JSON is gone:
+**FIX NOW — none**, nothing exploitable. **FIX BEFORE GA** — P1, no HSTS on `/robots.txt` and
+`/favicon.ico` because static files never enter Laravel so `SecureHeaders` never runs (Cloudflare zone
+toggle, `preload` OFF). **ACCEPT** — P2, CORP absent, but CORS + `default-src 'none'` already close the
+vectors and a blanket `same-origin` would **break the public QR-code SVG embed**; accepted with a
+revisit trigger. **SUPPRESS** — A1, A2, P3, P4, P6, all local-runner artifacts or Cloudflare's own
+`__cf_bm`/`_cfuvid` cookies, verified absent from the deployed host by header fetch. **HOLD** — P5, the
+one disposition reached by inference. **Cannot triage** — P7, a 7th WARN the prose never named; not
+guessed.
+
+🔴 **Two blockers found while reviewing the recommendations, which changed them:**
+1. **Baselining is impossible without a fresh run.** `--update-baseline` appends *that run's own*
+   findings after the scanners execute, and baselines are keyed by scanner-specific stable keys
+   (`template-id@matched-at`, `technique@url`, ZAP alert keys). Those keys do not exist for the six
+   SUPPRESS items. Hand-writing entries would be **worse than an empty baseline** — a key matching no
+   real finding is dead weight *and* reads as "triaged". So items 4 and 5 are **decided, not applied.**
+2. **Partial secret configuration produces NO REPORT AT ALL.** `run.sh` runs the three edge scanners
+   under `set -euo pipefail` *before* the `set +e` guarding `diff-baseline.sh`. Set only
+   `DAST_EDGE_TARGET` and Nuclei does real work, then `wcvs.sh` dies on the missing sitepage target,
+   `run.sh` aborts, and the report block never executes — a successful scan silently discarded. Both
+   secrets or neither.
+
+Also corrected: with `--fail-on high` and empty baselines **all nine findings are already below the
+gate**, so baselining changes report noise, not gating; and P1's real-world value is smaller than it
+first appears, since `SecureHeaders` already pins HSTS with `includeSubDomains` on every PHP response —
+the gap only reaches a client whose *first ever* request is one of those two static files.
+
+To unblock the run: dev Supabase has 12 published sites. ⚠️ **Use `subdomain`, not `handle`** — they
+differ for three rows, so the handle would 404. Recommended `showcase-eats`.
+
+Open on Josh: set both repo secrets and prove the workflow green via `workflow_dispatch`; enable
+Cloudflare HSTS (`preload` OFF, after confirming no HTTP-only subdomain); then re-run both lanes to
+obtain real keys and apply the SUPPRESS set. Two caveats stay open by design and are accepted for
+pilot: the active lane runs as superuser against a local stack so a green result is **not** proof of
+prod RLS, and Cloudflare's WAF can turn a sweep into challenge pages that read as clean.
+
+**Follow-up logged, not fixed (new findings, out of this bucket's scope):**
+- **23 more files carry the same unsatisfiable `pgsql` gate**, including 6 in `tests/Feature/Moderation`
+  and `tests/Feature/Database/DataExportSchemaParityTest.php` (deliberately deferred — it reflects over
+  `DataExportPayloadBuilder`, which P1-PILOT was rewriting for `PRIV-3`).
+- **53 tables have an `updated_at` column and no DB trigger** (77 with the column, 24 with a trigger),
+  including `site.menus`, `site.pages`, `content.items`, all 13 `content.f_*`. Non-Eloquent write paths
+  won't stamp them. Inverting `UpdatedAtTriggerCoverageTest` to assert this was explicitly rejected as a
+  product decision, not a test fix.
+- **`audit.staff_audit_log` is hand-rolled in 30 test files with no shared helper** — a real prod table
+  entirely outside drift-gate jurisdiction. One `setupStaffAuditLogTable()` would bring all 30 in.
+- **`site.all_site_data` is a `VIEW` in prod but a `TABLE` in a test helper.** The drift machinery has no
+  concept of view-vs-table mismatch.
+
+Suite: `6824 passed`, skipped `145 → 122` (−23: the relocated cases, which only ever skipped). PHPStan
+21 errors, unchanged. `tests/Schema` 24 → 41 cases.
+
+⚠️ **The schema lane cannot block a merge.** `development` has **no branch protection and no required
+status checks** (`gh api .../branches/development/protection` → 404). So these 17 newly-live assertions
+will go red without stopping anything. Closing that is a repo setting, not code, and it is cheaper than
+any unit in this bucket.
 
 **P1-LAUNCH**
 - [ ] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [ ] `#SCALE-13` · [ ] `#SCALE-14` · [ ] `#SCALE-17`
