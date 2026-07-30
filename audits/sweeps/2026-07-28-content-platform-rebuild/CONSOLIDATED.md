@@ -1328,7 +1328,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 6 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
+- P2 Medium: 7 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30; +SCALE-11 fixed 2026-07-31 — but see its entry: the GDPR framing was WRONG, the hook never fires on the account-deletion path)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1603,7 +1603,7 @@ None.
         ```
     - `[confidence: 0.95]`
 
-- [ ] **SCALE-11** · P2 — `SiteMedia`'s force-delete hook serialises per-file storage I/O
+- [x] **SCALE-11** · P2 — `SiteMedia`'s force-delete hook serialises per-file storage I/O
     - **Where:** app/Models/Core/Site/SiteMedia.php:202-242 (the `forceDeleting` closure)
     - **Affects:** GDPR account deletion (`AccountDeletionService`), admin bulk media purge (`StaffCustomerManagementController`), and the routine 30-day-retention purge (`PurgeSoftDeleted::purgeModel`/`purgeFailedMedia`, which already chunks the DB query at 500 rows but still calls this hook once per row).
     - **Effort:** M (~2–4h)
