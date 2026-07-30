@@ -79,7 +79,7 @@ The docblock currently documents "no TTL" as deliberate. It is rewritten to desc
 
 `tests/Feature/Cache/CacheKeyspaceConstraintsTest.php`
 
-In the established house style (`tests/Feature/Database/ArchitectureSystemConstraintsTest.php`, `PolicyCoverageTest`): scan `app/` for `forever(` and fail with an explicit allowlist array that starts empty.
+In the established house style (`tests/Schema/ArchitectureSystemConstraintsTest.php`, `PolicyCoverageTest`): scan `app/` for `forever(` and fail with an explicit allowlist array that starts empty.
 
 The guard is deliberately narrow. `forever(` is a zero-false-positive grep. The broader rule — "a raw `Redis` write with no paired expiry" — is not statically checkable without flow analysis and would flag every legitimate two-call write in `TokenRevocationService`, `LiveStatusPoller`, and `EnquirySpamBlocklist`. Per the audit-pipeline lesson, a noisy guard gets suppressed and then protects nothing.
 

@@ -269,6 +269,76 @@ COMMIT;
 
 ---
 
+## 10. Every migration states a reverse path
+
+The Supabase org is on the **Free** plan — no PITR, no managed backups. The weekly
+`partna-db-backup` R2 dump is the only backup, so schema RPO is ~7 days
+(`docs/deploy/routine-deploy.md` → Rollback). "Roll forward and hope" is the actual recovery
+strategy, viable only if the person writing the forward repair at 02:00 can read what the
+original file did.
+
+**Safe pattern** — a `-- ROLLBACK:` header line, last in the header comment block, immediately
+before the first `BEGIN;`/first executable statement, separated from the prose above by a bare
+`--` line:
+
+```sql
+-- ROLLBACK: ALTER TABLE site.shop_brands DROP COLUMN IF EXISTS products_curated_at;
+```
+
+Multi-clause reverses continuation-indent under the SQL; caveats go on their own `--` line in
+parentheses:
+
+```sql
+-- ROLLBACK: ALTER TABLE site.platform_connections
+--             ALTER COLUMN created_at DROP NOT NULL,
+--             ALTER COLUMN updated_at DROP NOT NULL;
+```
+
+**Say when there is no reverse.** A note claiming revertibility where none exists is WORSE than no
+note — it invites someone to try it during an incident. Write `-- ROLLBACK: NONE.` plus one line of
+why:
+
+```sql
+-- ROLLBACK: NONE. Hard DELETE of unreachable rows. No undo, no PITR (Supabase
+--           Free). Only recovery is the partna-db-backup R2 dump if fresher
+--           than the apply.
+```
+
+**By operation class:**
+
+| Operation | Reverse |
+|---|---|
+| Additive DDL (`ADD COLUMN`, `ADD TABLE`) | Exact inverse, `IF EXISTS`-guarded |
+| `CREATE INDEX CONCURRENTLY` | `DROP INDEX CONCURRENTLY` in its own one-statement file — §1 applies to the reverse too |
+| `ADD CONSTRAINT ... NOT VALID` | `DROP CONSTRAINT IF EXISTS` |
+| `VALIDATE CONSTRAINT` | NONE — PostgreSQL has no "un-validate"; name the sibling file whose `DROP CONSTRAINT` is the real reverse |
+| `SET NOT NULL` | `DROP NOT NULL` — note that the backfill's values stay |
+| `UPDATE` backfill/repair | Usually NONE — no pre-image is recorded, say so |
+| `INSERT` backfill | Revertible only if the rows carry a marker this file wrote — quote the exact predicate |
+| `DELETE` / `DROP TABLE` | NONE — say what is lost and the real recovery path |
+| Whole-schema `CREATE SCHEMA` | The `DROP SCHEMA ... CASCADE` one-liner, **and** an inventory of what CASCADE destroys — distinguish re-derivable projections from locally accumulated state |
+
+**Scope**: every `.sql` in `supabase/migrations/`, including the baseline. `supabase/migrations-archive/`
+is explicitly **out of scope** — those files pair a `CONCURRENTLY` statement with other DDL/DML and so
+cannot be applied from zero at all (§1); there is no forward apply left for a reverse to undo.
+
+**Do not reproduce a vocabulary `<column> IN (...)` list inside a note.**
+`ConstraintVocabularyLockstepTest` regex-matches the first `<column> IN (...)` in raw,
+un-comment-stripped SQL. Every other consumer of these files (the guard script, this convention's
+own tests) strips `--` comments first — which is also why a note containing DDL text can never trip
+a lint — but that one test does not, so a note reproducing a domain list would shadow a real
+constraint.
+
+**Enforced** by a new test in `tests/Feature/Database/MigrationTransactionBoundaryTest.php`.
+Historical `-- To revert:` (case-insensitive) is accepted as equivalent — nine pre-existing files
+already used that spelling before this convention was written.
+
+**Canonical examples**: `20260729140000_shop_brands_products_curated_at.sql` (one-liner),
+`20260729150018_pconn_timestamps_validate_and_not_null.sql` (multi-clause),
+`20260729120000_purge_orphan_ingest_rows.sql` (honest `NONE`).
+
+---
+
 ## Summary cheat sheet
 
 | Operation | Unsafe | Safe |
@@ -284,3 +354,4 @@ COMMIT;
 | Drop function/trigger | Unqualified `DROP FUNCTION foo` | Schema-qualified `DROP FUNCTION schema.foo()` (see §7) |
 | Bundle VALIDATE with ADD | `ADD … NOT VALID; VALIDATE;` one txn | `COMMIT` between them — VALIDATE in its own txn/file (see §2) |
 | Add STORED generated column | `ADD COLUMN … GENERATED … STORED` | own file + `BEGIN` + `SET LOCAL lock_timeout`/`statement_timeout` (see §9) |
+| Any migration | No stated reverse path | `-- ROLLBACK:` header line — the inverse statement, or NONE + why (see §10) |

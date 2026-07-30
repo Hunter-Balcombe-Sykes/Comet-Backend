@@ -19,6 +19,13 @@
 -- collapse (the baseline dump is scoped to public/core/site/notifications/
 -- analytics/audit only). Re-added here, and separately applied to prod
 -- 2026-07-26, so a from-zero apply on either env carries the fix.
+--
+-- ROLLBACK: DROP SCHEMA IF EXISTS pgrst_exposed_none; -- RESTRICT: must stay empty
+--           AND flip the paired Management API setting back:
+--             PATCH /v1/projects/<ref>/postgrest {"db_schema": ""}
+--           Doing only the DROP is WORSE than not reverting: PostgREST's
+--           schema-cache load starts failing 3F000 again on a capped 32s
+--           backoff, forever.
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';

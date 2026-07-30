@@ -1,9 +1,10 @@
 <?php
 
-// Non-vacuous companion to CheckConstraintsTest's Postgres-only introspection
-// (that file's assertions all markTestSkipped on the default SQLite CI
-// driver, so on their own they prove nothing about what CI actually
-// verifies). This file has NO Postgres guard — it runs for real on SQLite in
+// Non-vacuous companion to CheckConstraintsTest's Postgres-only introspection.
+// That file used to markTestSkipped on the default SQLite CI driver and prove
+// nothing on its own — fixed as of commit 5ea53445, which moved it into the
+// applied-schema lane (tests/Schema/, composer test:schema) where it runs for
+// real. This file has NO Postgres guard — it runs for real on SQLite in
 // every CI run.
 //
 // WHY THIS EXISTS

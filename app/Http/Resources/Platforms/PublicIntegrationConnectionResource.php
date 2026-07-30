@@ -227,13 +227,54 @@ class PublicIntegrationConnectionResource extends ApiResource
      * Public fields of a single shop brand object (FOUND-25: sourced from a
      * ShopBrand::toBrandArray(), not the connection's payload). `provider`
      * (shopify / woocommerce / generic) drives sitepage URL + discount
-     * handling; products pass through verbatim (each carries `url`).
+     * handling. `products` is the one nested collection this list lets
+     * through — each product is then filtered per-key by
+     * SHOP_PRODUCT_ALLOWLIST below (#API-1); a product's `variants[]`
+     * sub-objects still pass through whole, since like every allowlist here
+     * this one filters TOP-LEVEL keys only (same residual as eventbrite's
+     * `next`/`upcoming` event objects).
      * `linkMode` + `referralQuery` ride along so productHref() can build
      * checkout deep links and append the user's referral suffix.
      * `sourceUrl` stays private (re-scrape input); `selectionMode` stays
      * dashboard-only (selection policy, not render data).
      */
     private const SHOP_BRAND_ALLOWLIST = ['id', 'provider', 'url', 'name', 'currency', 'favicon', 'logo', 'discountCode', 'linkMode', 'referralQuery', 'products'];
+
+    /**
+     * #API-1: public fields of a single shop PRODUCT. `ShopProduct.data` is raw
+     * scraper output, so before this existed whatever a fetcher chose to store
+     * reached unauthenticated visitors — the only structure in this class with
+     * no enforcement point. This is the enforcement point: unlike the brand and
+     * platform lists it is NOT a subtraction from a fixed column set, it is what
+     * keeps a future fetcher shape change off a CDN-cached public wire.
+     *
+     * Derived as the UNION of every emitter of that shape: ShopifyScraper
+     * (widest — `createdAt` and `variants` originate there), WooCommerceScraper
+     * (incl. productsFromClient, which mutates values not keys),
+     * SquarespaceScraper, BigCartelScraper, and GenericShopScraper's two paths
+     * (JSON-LD + the OpenGraph fallback that ShopProductSeeder / addProduct
+     * store for an individually-added product). No user-supplied product object
+     * exists — SetShopProductsRequest takes ids, AddShopProductRequest a url.
+     *
+     * `popularityRank` is NOT stored: ShopBrand::toBrandArray() appends it on
+     * the public path, and this filter runs after, so it must be listed.
+     *
+     * `createdAt` is retained deliberately. It is ShopCatalog::syncLatest()'s
+     * latest-mode sort input AND ordinary public storefront data; no doc in this
+     * repo describes the public product contract, so we cannot prove the
+     * sitepage doesn't read it. Installing the enforcement point and narrowing
+     * the contract are two separate changes — only the first is in scope.
+     *
+     * Residual: `variants[]` sub-objects ({id, title, price, available, image})
+     * pass through whole — top-level filtering only, matching the rest of this
+     * class. Widening the variant shape puts new keys on the public wire with no
+     * further gate.
+     */
+    private const SHOP_PRODUCT_ALLOWLIST = [
+        'productId', 'title', 'handle', 'vendor', 'description',
+        'image', 'images', 'price', 'currency', 'variantId',
+        'available', 'url', 'createdAt', 'variants', 'popularityRank',
+    ];
 
     /**
      * @return array{resourceId: ?string, payload: mixed, lastRefreshedAt: ?string}
@@ -289,11 +330,26 @@ class PublicIntegrationConnectionResource extends ApiResource
             // the page). 'failed' is deliberately NOT filtered — a failed
             // brand's content is identical to what today's synchronous path
             // already produces when a homepage fetch fails, so it stays public.
+            // Hoisted: flip once, not once per product.
+            $productKeys = array_flip(self::SHOP_PRODUCT_ALLOWLIST);
+
             return $this->shopBrands
                 ->reject(fn ($b) => $b->connect_status === 'pending')
-                ->mapWithKeys(function ($b) use ($linkMode, $productRanks) {
+                ->mapWithKeys(function ($b) use ($linkMode, $productRanks, $productKeys) {
                     $brand = array_intersect_key(
                         $b->toBrandArray($productRanks), array_flip(self::SHOP_BRAND_ALLOWLIST));
+                    // #API-1: `products` is the ONE nested collection the brand
+                    // allowlist lets through whole. Filter each product to its own
+                    // allowlist so a future fetcher shape change can't put an
+                    // unvetted key on this public, CDN-cached wire without a
+                    // developer adding it above. array_map (not collect()->map())
+                    // preserves keys, so the JSON stays exactly what it is today.
+                    if (is_array($brand['products'] ?? null)) {
+                        $brand['products'] = array_map(
+                            fn ($p) => is_array($p) ? array_intersect_key($p, $productKeys) : [],
+                            $brand['products'],
+                        );
+                    }
                     if ($linkMode !== null) {
                         $brand['linkMode'] = $linkMode;
                     }

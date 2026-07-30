@@ -9,19 +9,26 @@
 // escalation / resolution-hijack vector. The advisor (`function_search_path_mutable`)
 // flags any such function; this sentinel keeps it from regressing.
 //
-// Strategy mirrors tests/Feature/Security/ModerationSchemaRlsTest.php and
-// DesignKitsRlsTest.php: introspect pg_proc.proconfig (PostgreSQL-only) rather
-// than exercising behaviour. Skips on the default SQLite test driver.
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every assertion on a helper that asked whether the connection was Postgres.
+// Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory SQLite
+// unconditionally — deliberately, so BaseModel-forced models never dial the real
+// Supabase host — so that helper returned false in every lane, and every
+// assertion here skipped silently in CI and locally.
 //
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter FunctionSearchPathTest
+// Strategy mirrors tests/Schema/ModerationSchemaRlsTest.php and
+// DesignKitsRlsTest.php: introspect pg_proc.proconfig (PostgreSQL-only) rather
+// than exercising behaviour. It now runs in the applied-schema lane
+// (phpunit.schema.xml / `composer test:schema`, see Tests\SchemaTestCase),
+// against a container that the real supabase/migrations/ set has been applied
+// to by scripts/db/apply-migrations.sh. The base case skips the whole lane
+// when no migrated Postgres is present, so an unpinned search_path now fails
+// instead of vanishing.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-function functionSearchPathIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Fetch a function's proconfig (the array of `key=value` SET clauses) by
@@ -75,18 +82,11 @@ dataset('search_path_functions', array_map(
 // Every hardened function must exist and carry a non-null proconfig that pins
 // search_path — otherwise the function is mutable and the advisor re-fires.
 it('keeps a pinned search_path on every hardened function', function (string $label, string $schema, string $name) {
-    if (! functionSearchPathIsPostgres()) {
-        $this->markTestSkipped('pg_proc introspection requires PostgreSQL.');
-    }
-
     $row = fetchFunctionSearchPathConfig($schema, $name);
 
     expect($row)->not->toBeNull("Function {$label} not found in pg_proc.");
     expect($row->proconfig)->not->toBeNull(
         "{$label} has a NULL proconfig — its search_path is mutable (function_search_path_mutable). Pin it via ALTER FUNCTION ... SET search_path."
     );
-    expect($row->proconfig)->toContain(
-        'search_path',
-        "{$label} has a pinned config but it does not set search_path — the mutable-search_path advisor will still fire."
-    );
+    expect($row->proconfig)->toContain('search_path');
 })->with('search_path_functions');

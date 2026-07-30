@@ -67,7 +67,9 @@ Work down this list. Any "no" is a stop.
 - [ ] **Has it actually run?** Exercise the change on `dev-api.partna.au` and confirm Nightwatch dev is
       clean. Tests run on SQLite; prod is Postgres. CHECK/NOT NULL drift is invisible to a green suite.
 - [ ] **Does it need a prod migration?** If yes, that is a two-step deploy with a `db push --dry-run` in
-      between — give it its own session, not a drive-by at the end of another task.
+      between — give it its own session, not a drive-by at the end of another task. For the **current
+      pending set** it also requires a manual `pg_dump` of prod first (see the pre-flight under Rollback);
+      13 of those migrations have no usable reverse path.
 - [ ] **Is `production` 0 ahead?** The invariant above.
 - [ ] **Is now a sane time?** Prod carries no customer data yet, so blast radius is small — but this will
       stop being true. Once it does, avoid deploying with nobody watching.
@@ -97,7 +99,10 @@ git diff --stat origin/production origin/development
 
 # 2. Migrations FIRST, if any (separate, deliberate, prod-confirmed)
 git diff --name-only origin/production origin/development -- supabase/migrations/
-#   if non-empty:  supabase link --project-ref edplucmvkcnokyygxqsb
+#   if non-empty:  ← REQUIRED for the current pending set: take the manual
+#                    pg_dump first. See "Pre-flight: dump prod before the first
+#                    push of this pending set" under Rollback below.
+#                  supabase link --project-ref edplucmvkcnokyygxqsb
 #                  supabase db push --dry-run     ← read every line
 #                  supabase db push
 
@@ -228,6 +233,64 @@ scripts/launch-check/runtime-health.sh --env production --target launch
 **Schema** — there is no rollback. No PITR, no managed backups, weekly R2 dump only. A bad migration is
 repaired by writing a forward migration, not by restoring. This is the whole reason schema changes are a
 separate, slower, confirm-first path.
+
+Each file in `supabase/migrations/` carries a `-- ROLLBACK:` header line stating its inverse
+statement, or `NONE` and why (`CONVENTIONS.md` §10). Read the note before writing the forward
+repair — several migrations in the current pending set are genuinely one-way and the note says
+which.
+
+### Pre-flight: dump prod before the first push of this pending set
+
+**Required, once, immediately before the first `supabase db push` of the current pending set.** Not a
+standing rule for every deploy — a rule for *this* set, and it stays required until the pilot is stable.
+
+**What:** a manual `pg_dump` of the prod database, taken with nothing else in flight, held on hand (not
+deleted when the push goes green) until the pilot has run without incident.
+
+**Why:** 53 migrations are pending against prod, and 13 of them state no usable reverse path — twelve
+`-- ROLLBACK: NONE` and `20260728100000_retire_pinterest`, whose note reads
+"ONE-WAY IN PRACTICE, two different ways." Two are unrecoverable *in kind*, not merely inconvenient:
+
+| Migration | What a bad apply destroys |
+|---|---|
+| `20260727130000_ingest_schema` | Creates `ingest.effects`, the **charge-once money ledger** (`cost_tag` / `cost_units` / `claimed_at` / `settled_at`). Its own header says it: "dropping it destroys the" record. If a failed apply forces a schema drop, the record of vendor spend already incurred is gone — and the ledger is what stops the same work being paid for twice. |
+| `20260728100000_retire_pinterest` | Collapses `routing.source_intents.state`: `'proposed'` and `'blocked'` both become `'superseded'`, and nothing records which was which. The column's own CHECK lists five distinct states; two of them stop being distinguishable. Not recoverable at all, per the file's ROLLBACK note (b). |
+
+**Context — the dump is the only net.** The Supabase org is on the **Free** plan: no PITR, no managed
+daily backups, and the preferred "restore to a new project" path is a paid-tier feature
+(`docs/runbooks/drills/04-backup-restore.md`). The weekly encrypted dump in
+`Hunter-Balcombe-Sykes/partna-db-backup` is the only backup that exists, so **schema RPO is ~7 days**.
+Between the last weekly run and your push there is nothing, which is exactly the gap this step closes.
+
+**How to take it.** Same invocation and same connection form as the restore drill and the weekly
+workflow — do not invent flags for this:
+
+```bash
+# Connection: the prod project's SESSION pooler string (port 5432), NOT
+# db.<ref>.supabase.co (IPv6-only) and NOT transaction mode — pg_dump needs
+# session-level features (docs/runbooks/db-pool-exhausted.md). Take it from
+# Supabase → project edplucmvkcnokyygxqsb → Connect → Session pooler.
+# Use the project OWNER role (postgres.<ref>), not the backend's
+# app_backend.<ref> — that role holds restricted grants (audit is
+# SELECT/INSERT only) and would dump an incomplete database.
+export PROD_DB_URL='postgresql://postgres.edplucmvkcnokyygxqsb:<pw>@<pooler-host>:5432/postgres'
+
+pg_dump "$PROD_DB_URL" --format=custom --no-owner --no-privileges \
+  -f "partna-prod-preflight-$(date +%Y%m%d-%H%M).dump"
+```
+
+Three things this dump does **not** capture, all of them verified during the 2026-07-26 drill:
+
+- **Roles are cluster-global** — `pg_dump` never carries them. A restore still needs
+  `ALTER ROLE app_backend WITH LOGIN PASSWORD …` (it is `NOLOGIN` by default).
+- **Extensions live outside the dumped schemas**, so they are re-created, not restored.
+- **`pg_dump` omits invalid indexes** (`indisvalid = false`). A `CREATE INDEX CONCURRENTLY` that failed
+  half-way is silently absent from the dump — see `production-cutover.md`.
+
+Use the Postgres **17** client (`pg_dump --version`); an older client fails with a server-version
+mismatch. And when passing the URL via a secret or env file, the value must be the bare URL — the
+first weekly backup run failed because the secret included the `SUPABASE_DB_URL=` prefix and libpq
+parsed it as a conninfo option name.
 
 ---
 

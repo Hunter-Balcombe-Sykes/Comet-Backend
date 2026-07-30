@@ -14,7 +14,10 @@ use Illuminate\Http\Request;
  * SHOP_BRAND_ALLOWLIST).
  *
  * `$this->resource` is one brand ARRAY. `products[]` are scraped product
- * objects passed through verbatim (each carries an absolute `url`).
+ * objects passed through verbatim (each carries an absolute `url`) — this is the
+ * OWNER's dashboard, so verbatim is correct here. Do not assume parity with the
+ * public sibling: since #API-1, PublicIntegrationConnectionResource additionally
+ * filters every product through SHOP_PRODUCT_ALLOWLIST.
  * `provider` defaults to shopify for brands stored before the field existed.
  */
 class ShopBrandResource extends ApiResource

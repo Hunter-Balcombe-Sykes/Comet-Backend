@@ -348,6 +348,188 @@ it('includes retired slugs + the raw uuid in aliases after a rename', function (
     expect($publicItem['aliases'])->toEqualCanonicalizing(['old-name', (string) $item->id]);
 });
 
+// ── #50: the public menu wire contract ────────────────────────────────────
+//
+// This payload is an enumerated allowlist BY CONSTRUCTION — PublicMenuController
+// writes every key as a literal, so a new column cannot reach the wire without a
+// code edit (that is why #50 was closed WONTFIX rather than given an
+// array_intersect_key, which on a literal map is a tautology). What was missing
+// was any pin on the resulting shape: this endpoint is unauthenticated, CDN-
+// cached for 15 minutes by AddPublicCacheHeaders, and has NO golden master and NO
+// frontend contract doc. The three tests below are that pin.
+
+it('pins the exact public menu key set at every nesting level (#50)', function () {
+    // ONE fully-populated menu so every key is non-null and therefore actually
+    // asserted. Read the two failure modes before "fixing" a diff here:
+    //   - a NEW key means you are adding a field to the unauthenticated,
+    //     CDN-cached public wire. Confirm it is not internal (see the
+    //     INTENTIONAL EXCLUSIONS block on PublicMenuController).
+    //   - a MISSING key means you removed a field the Astro sitepage may
+    //     render, and there is no frontend contract doc for this endpoint to
+    //     check against. Verify against partna-frontend before proceeding.
+    setupContentPopularityScoresTable();
+    setupItemSlugsTable();
+    $user = createTenant('pubwire1');
+
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'doordash', 'store_name' => 'Nandos',
+        'currency' => 'AUD', 'fetch_status' => 'ok', 'last_fetched_at' => now(),
+        'logo_url' => 'https://dd/logo.png', 'rating' => 4.5, 'review_count' => 120,
+    ]);
+    MenuPlatformLink::create([
+        'menu_id' => $menu->id, 'platform' => 'doordash',
+        'store_url' => 'https://www.doordash.com/store/nandos-melbourne-876860', 'status' => 'ok',
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Feasts', 'position' => 0, 'source_platform' => 'doordash',
+    ]);
+    $item = MenuItem::create([
+        'menu_id' => $menu->id, 'name' => 'Classic Feast', 'description' => 'Whole chicken.',
+        'image_url' => 'https://dd/feast.jpg',
+        'images' => ['https://dd/feast.jpg', 'https://ue/feast.jpg'],
+        'base_price' => 27.95, 'pickup_price' => 26.0, 'delivery_price' => 29.5,
+        'currency' => 'AUD', 'rating' => 92.0, 'rating_count' => 431,
+        'badges' => [['text' => '#1 Most liked', 'type' => 'popular']],
+        'dd_external_id' => '157588920',
+    ]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+    MenuItemPlatform::create([
+        'menu_item_id' => $item->id, 'platform' => 'doordash',
+        'pickup_price' => 26.0, 'pickup_url' => 'https://www.doordash.com/store/x',
+    ]);
+    MenuItemPlatform::create([
+        'menu_item_id' => $item->id, 'platform' => 'uber-eats',
+        'delivery_price' => 29.5, 'delivery_url' => 'https://www.ubereats.com/store/d',
+    ]);
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        ['id' => (string) Str::uuid(), 'site_id' => $user->site->id, 'content_type' => 'menu_item', 'content_key' => (string) $item->id, 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString()],
+        ['id' => (string) Str::uuid(), 'site_id' => $user->site->id, 'content_type' => 'menu_category', 'content_key' => (string) $category->id, 'score' => 7.0, 'rank' => 1, 'computed_at' => now()->toDateTimeString()],
+    ]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+    $body = $res->json();
+
+    // toEqualCanonicalizing on the KEYS (not assertExactJson) — uuids, ranks and
+    // slugs vary per run, the key set is what the contract is.
+    expect(array_keys($body))->toEqualCanonicalizing(['data']);
+    expect(array_keys($body['data']))->toEqualCanonicalizing(['storeName', 'currency', 'categories']);
+
+    $cat = $body['data']['categories'][0];
+    expect(array_keys($cat))->toEqualCanonicalizing(['name', 'id', 'popularityRank', 'items']);
+
+    $publicItem = $cat['items'][0];
+    expect(array_keys($publicItem))->toEqualCanonicalizing([
+        'id', 'slug', 'aliases', 'name', 'description', 'imageUrl', 'images',
+        'price', 'pickupPrice', 'deliveryPrice', 'currency', 'rating',
+        'ratingCount', 'badges', 'platforms', 'links', 'popularityRank',
+    ]);
+
+    expect(array_keys($publicItem['platforms'][0]))->toEqualCanonicalizing([
+        'platform', 'pickupUrl', 'deliveryUrl', 'pickupPrice', 'deliveryPrice',
+    ]);
+
+    // badges + images are the only structures emitted without their inner keys
+    // enumerated, so their shape is closed at the WRITERS (DoorDashMenuDriver::
+    // badges(), MenuScanApplier::mergeDietaryBadges() → {text, type?}).
+    expect(array_keys($publicItem['badges'][0]))->toBeIn([['text', 'type'], ['text'], ['type']]);
+    expect($publicItem['images'])->toBe(['https://dd/feast.jpg', 'https://ue/feast.jpg']);
+
+    // Every asserted key was genuinely populated — this can't pass on nulls.
+    expect($publicItem['links'])->not->toBeNull();
+    expect($publicItem['popularityRank'])->toBe(1);
+    expect($cat['popularityRank'])->toBe(1);
+    expect($publicItem['slug'])->toBe('classic-feast');
+});
+
+it('never leaks an internal menu column onto the public wire (#50)', function () {
+    // You cannot "inject an unlisted key" into this payload — there is no
+    // key-carrying structure to inject into, which IS the evidence for the
+    // enumerated-allowlist verdict. So: write a unique sentinel into every
+    // internal free-text column and scan the RAW body, which catches a leak at
+    // any nesting depth that a key-walk would miss.
+    //
+    // Deliberately NOT sentinelled: menus.fetch_status and
+    // menu_platform_links.status are CHECK-constrained in Postgres
+    // (menus_fetch_status_check / menu_platform_links_status_check) but NOT in
+    // the SQLite test mirror — a sentinel would pass here and fail prod with
+    // 23514. Same for the numeric/timestamp columns (menus.rating,
+    // menus.review_count, menu_platform_links.synced_at). Those are covered by
+    // the key-set pin in the test above instead.
+    $user = publicMenuUser('pubwire2');
+
+    $menu = Menu::create([
+        'user_id' => $user->id,
+        'store_name' => 'Nandos',
+        'currency' => 'AUD',
+        'fetch_status' => 'ok',
+        'last_fetched_at' => now(),
+        'content_source' => 'INTERNAL-SENTINEL-content-source',
+        'logo_url' => 'INTERNAL-SENTINEL-logo-url',
+        'pickup_platform' => 'INTERNAL-SENTINEL-pickup-platform',
+        'delivery_platform' => 'INTERNAL-SENTINEL-delivery-platform',
+        // What the owner deliberately HID from their sitepage, and the raw scan
+        // transcript — the two most damaging things on this list.
+        'scan_items' => [['name' => 'INTERNAL-SENTINEL-scan-item']],
+        'suppressed_items' => ['INTERNAL-SENTINEL-suppressed-item'],
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Feasts', 'position' => 0,
+        'source_platform' => 'INTERNAL-SENTINEL-source-platform',
+    ]);
+    $item = MenuItem::create([
+        'menu_id' => $menu->id, 'name' => 'Classic Feast', 'base_price' => 27.95,
+        'pickup_source' => 'INTERNAL-SENTINEL-pickup-source',
+        'delivery_source' => 'INTERNAL-SENTINEL-delivery-source',
+        // Boolean — no string to scan for, so assert key-absence below.
+        'is_manual' => true,
+    ]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    // Raw JSON, not the decoded array — a leak nested inside any structure fails.
+    expect($res->getContent())->not->toContain('INTERNAL-SENTINEL-');
+    // Sanity: the response really did render this menu, so the scan above is
+    // not passing on an empty/404 body.
+    expect($res->json('data.categories.0.items.0.name'))->toBe('Classic Feast');
+});
+
+it('keeps the public/dashboard split an invariant: authoring bookkeeping stays dashboard-only (#50)', function () {
+    // MenuPayloadComposer::categories() emits isManual / pickupSource /
+    // deliverySource for the OWNER's dashboard. If someone ever "shares one
+    // Resource between both surfaces", those three get promoted to the public,
+    // CDN-cached wire silently. Both spellings are asserted — the snake_case
+    // column name and the camelCase key the composer actually emits.
+    $user = publicMenuUser('pubwire3');
+
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'doordash', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Feasts', 'position' => 0, 'source_platform' => 'doordash',
+    ]);
+    $item = MenuItem::create([
+        'menu_id' => $menu->id, 'name' => 'Classic Feast', 'base_price' => 27.95,
+        'pickup_source' => 'doordash', 'delivery_source' => 'uber-eats', 'is_manual' => true,
+    ]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+
+    $publicItem = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")
+        ->assertOk()
+        ->json('data.categories.0.items.0');
+
+    expect($publicItem)->not->toHaveKey('is_manual');
+    expect($publicItem)->not->toHaveKey('isManual');
+    expect($publicItem)->not->toHaveKey('pickup_source');
+    expect($publicItem)->not->toHaveKey('pickupSource');
+    expect($publicItem)->not->toHaveKey('delivery_source');
+    expect($publicItem)->not->toHaveKey('deliverySource');
+    // The category's provenance is dashboard-only too.
+    expect($this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->json('data.categories.0'))
+        ->not->toHaveKey('source_platform');
+});
+
 it('degrades to a null slug and id-only aliases when the table exists but this item has no row yet', function () {
     // The table is present (as it always is in production — backend ships
     // the migration first) but this specific item predates the backfill:

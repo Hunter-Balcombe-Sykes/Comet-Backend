@@ -22,6 +22,12 @@
 -- which is what makes the ledger disappear on account deletion.
 --
 -- Pinned by tests/Postgres/ItemMergeAuditSurvivalTest.php.
+--
+-- ROLLBACK: COMMENT ON COLUMN content.item_merges.kept_item_id      IS NULL;
+--           COMMENT ON COLUMN content.item_merges.discarded_item_id IS NULL;
+--           (neither column carried a comment before this file -- verified
+--           against 20260727140000_content_schema.sql, which has no
+--           COMMENT ON at all)
 
 COMMENT ON COLUMN "content"."item_merges"."kept_item_id" IS
     'content.items.id at merge time. DELIBERATELY NO FK (audit DINT-3): item_merges is an append-only '

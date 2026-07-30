@@ -13,6 +13,11 @@
 -- so it is unreachable state, not user data.
 --
 -- No transaction: backfill/DML outside DDL per CONVENTIONS.md §5.
+--
+-- ROLLBACK: NONE. Hard DELETE of orphan site.section_items curation rows
+--           (pins/excludes naming a nonexistent content.items row). Same
+--           reasoning, same non-recovery as 20260729120000. Expected to
+--           match 0 rows (verified 2026-07-29).
 
 DELETE FROM "site"."section_items" si
 WHERE NOT EXISTS (

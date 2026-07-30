@@ -155,7 +155,7 @@ already gone (404 = success) and `auth_user_id` already NULL (guard skips re-del
   via `cloud tinker development`, assert it returns `true`, the audit rows survive with
   `user_id IS NULL`, and the site/media/R2 are gone.
 - Confirm no existing test pins `users_auth_user_id_fkey = CASCADE`.
-- `tests/Feature/Security/FunctionSearchPathTest.php` covers the new function's pinned
+- `tests/Schema/FunctionSearchPathTest.php` covers the new function's pinned
   `search_path = ''`.
 
 ## Migration application (dev)

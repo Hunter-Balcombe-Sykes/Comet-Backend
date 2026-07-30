@@ -14,6 +14,11 @@
 -- Expected to match 0 rows today (the ingest fleet landed 2026-07-27 and
 -- prod carries no customer data). Left in regardless: it is the only thing
 -- standing between historical desync and a failed production migration.
+--
+-- ROLLBACK: NONE, and none wanted. Repairs is_current desync from DINT-16's
+--           revert bug; the prior state was CORRUPT (two is_current=true
+--           rows for one key) and restoring it would break the UNIQUE index
+--           20260729130001 builds. No column records the pre-repair value.
 
 UPDATE "ingest"."record_versions" rv
 SET "is_current" = (rv."id" = rs."current_version_id")

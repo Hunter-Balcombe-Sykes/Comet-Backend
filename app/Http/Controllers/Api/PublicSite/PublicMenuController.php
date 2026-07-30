@@ -22,6 +22,25 @@ use Illuminate\Support\Facades\Log;
  * Public, unauthenticated — consumed by the Astro sitepage to render a
  * business profile's food menu (categories + items scraped from UberEats /
  * DoorDash). Returns 404 when no fetched menu exists for the handle.
+ *
+ * INTENTIONAL EXCLUSIONS — this payload is an enumerated allowlist by
+ * construction (every key is a literal; nothing is spread from a model or a
+ * JSON column wholesale), and PublicMenuControllerTest's wire-contract test
+ * pins the exact key set at all four nesting levels. Deliberately withheld:
+ *   - site.menus:           scan_items, suppressed_items (what the owner hid),
+ *                           content_source, fetch_status, pickup_platform,
+ *                           delivery_platform, dining_modes, logo_url, rating,
+ *                           review_count
+ *   - site.menu_categories: source_platform (provenance — dashboard-only)
+ *   - site.menu_items:      is_manual, pickup_source, delivery_source
+ *                           (internal aggregation + authoring bookkeeping;
+ *                            MenuPayloadComposer emits these, this must not)
+ *   - site.menu_platform_links: status, synced_at (scrape health)
+ * `badges` and `images` are the only structures emitted without their inner
+ * keys enumerated. Both are closed at every writer — badges is normalized to
+ * {text, type?} by DoorDashMenuDriver::badges() and
+ * MenuScanApplier::mergeDietaryBadges(); images is list<string>. Widening
+ * either shape puts new keys on the public wire with no further gate.
  */
 class PublicMenuController extends ApiController
 {

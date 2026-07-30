@@ -29,6 +29,18 @@
 -- ..._user_platform_sort) — PostgreSQL drops any index containing a dropped
 -- column. That is why ...110005-110008 create the replacements AFTER this file,
 -- and why no explicit DROP INDEX statements are needed anywhere in the family.
+--
+-- ROLLBACK: not a one-liner, and a FULL HEAP REWRITE under ACCESS EXCLUSIVE
+--             twice:
+--             ALTER TABLE site.platform_connections DROP COLUMN platform;
+--             ALTER TABLE site.platform_connections ADD COLUMN platform text;
+--             UPDATE site.platform_connections SET platform = <the CASE in this file>;
+--           The per-row VALUES are recoverable -- the CASE is a pure function of
+--           surface_key. What is NOT automatic: this file's DROP COLUMN silently
+--           took the three baseline indexes carrying `platform` with it
+--           (idx_platform_connections_unique_active, ..._canonical,
+--           ..._user_platform_sort). Any revert must rebuild them by hand,
+--           CONCURRENTLY, one statement per file (CONVENTIONS.md §1).
 
 BEGIN;
 SET LOCAL lock_timeout      = '2s';

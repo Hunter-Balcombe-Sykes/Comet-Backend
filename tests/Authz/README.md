@@ -48,7 +48,7 @@ the top of each file.
 |---|---|
 | "could not be resolved to a model … no `fixture:` mapping" | Read your controller; add `fixture: { <param>: <Model FQCN> }` to `expectations.yaml` |
 | "no seeded identity-B row for `<Model>`" | Add it to `Fixtures::seedOwnedBy()` |
-| "inconclusive — validation rejected the request" (422) | Add a minimal `body:`, or declare `expect: 422` with a reason naming the gap |
+| "inconclusive — validation rejected the request" (422) | Add a minimal `body:` that clears the FormRequest. No route currently declares `expect: 422`; doing so is declaring the route untested, so only ever as a last resort with a reason naming the gap |
 | "cross-tenant access" (2xx) | **A bug in your controller**, not in the test |
 | "403 leaks existence" | Return 404 for resources that do not belong to the caller — unless it is a genuine role/capability gate, in which case declare `expect: 403` with a reason |
 
@@ -73,13 +73,38 @@ wins. This matters: `GET api/content/items/{item}/overrides` correctly answers
 must name what the param actually identifies.** Exempting a route to make the
 build green defeats the entire lane.
 
-## Known coverage gap
+## Write routes carry a `body:`
 
-Nine write routes are declared `expect: 422`: validation rejects an empty body
-before authorization runs, so ownership is not proven on them. No data is
-disclosed — the caller learns nothing about identity B's row — but those nine
-are not covered. Closing the gap means modelling each route's FormRequest well
-enough to pass validation. Grep the file for `COVERAGE GAP`.
+Every param-bearing write route reaches authorization. Nine were previously
+declared `expect: 422` — validation rejected an empty body before the ownership
+check ran, so ownership was unproven on them. Each now carries the minimal
+`body:` that clears its FormRequest, and answers the strict default:
+
+| Route | Body | Observed |
+|---|---|---|
+| `PUT api/site/sections/{section}/items/{item}` | `{state: excluded}` | 404 |
+| `POST api/content/identity/candidates/{candidate}/rule` | `{verdict: different}` | 404 |
+| `PUT api/content/items/{item}/overrides` | `{facet, column, value: null}` | 404 |
+| `PATCH api/services/{service}/category` | `{category_ids: []}` | 404 |
+| `POST api/platforms/{shop,shopify}/brands/{id}/catalog` | `{products: [{}]}` | 404 |
+| `PUT api/platforms/{shop,shopify}/brands/{id}/selection` | `{productIds: []}` | 404 |
+| `PATCH api/platforms/menu/categories/{category}` | `{name: "authz"}` | **403** |
+
+The menu `PATCH` is the one that does not become a 404: with validation cleared
+it reaches `denyWithoutCapability()` and is refused by the food-business
+capability gate, exactly as its `DELETE` sibling already was. It is declared
+`expect: 403` alongside that sibling, with the same reason.
+
+Bodies are **minimal by rule** — the fewest fields that clear validation, never
+a realistic payload, and never referencing identity B's data. A body carrying
+B's ids would pass validation for the wrong reason and prove nothing.
+
+Verified 2026-07-30 with a negative control: each route answers 422 on an empty
+body (proving the URI matches and the validator runs) and 404/403 on the body
+above (proving the rejection comes from the ownership check downstream of it).
+Two spellings need care —
+`SetShopProductsRequest` validates **`productIds`**, camelCase, and `products`
+is `required|array`, which an *empty* array fails.
 
 ## Fixtures persist after a run
 

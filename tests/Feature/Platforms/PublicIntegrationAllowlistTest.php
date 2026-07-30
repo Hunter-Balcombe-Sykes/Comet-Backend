@@ -101,8 +101,10 @@ it('applies the per-brand allowlist to the Shopify brand map and strips unknown 
 it('passes each product gallery + per-variant image + variantId through to the public payload', function () {
     // #84: the pages side builds /cart/<variantId>:1 checkout links + swaps the
     // photo per variant. Prove the backend exposes the raw material — full
-    // `images` gallery, and each variant's `id` + `image` — verbatim inside the
-    // allowlisted `products` array (products are NOT per-key filtered).
+    // `images` gallery, and each variant's `id` + `image` — inside the
+    // allowlisted `products` array. Every key asserted below is on
+    // SHOP_PRODUCT_ALLOWLIST (#API-1 added that per-product filter), and each
+    // variant's sub-keys survive because the filter is top-level only.
     $user = allowlistUser('allowvimg');
 
     $conn = IntegrationConnection::create([
@@ -143,6 +145,125 @@ it('passes each product gallery + per-variant image + variantId through to the p
     expect($product['variants'][1]['image'])->toBe('https://cdn.shopify.com/navy.jpg');
     // Brand-level fields the pages side needs to assemble the checkout URL ride along.
     expect($product['url'])->toBe('https://shop.example/products/wool-runner');
+});
+
+// ── #API-1: the per-product allowlist on the public shop wire ─────────────
+//
+// ShopProduct.data is raw scraper output. Before SHOP_PRODUCT_ALLOWLIST the
+// brand allowlist let `products` through WHOLE, so any key a fetcher chose to
+// store reached unauthenticated visitors — and this response is CDN-cached for
+// 15 minutes, so a leak is served to every visitor of that sitepage.
+
+it('strips unlisted keys from each shop product on the public wire (#API-1)', function () {
+    $user = allowlistUser('allowprodfilter');
+
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $brand = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-filter', 'provider' => 'shopify',
+        'url' => 'https://shop.example', 'position' => 0,
+    ]);
+    // The legitimate ShopifyScraper shape PLUS three keys a future fetcher (or a
+    // careless merge) might store. None are on SHOP_PRODUCT_ALLOWLIST.
+    ShopProduct::create([
+        'brand_id' => $brand->id, 'product_id' => '111', 'position' => 0,
+        'data' => [
+            'productId' => '111', 'title' => 'Wool Runner', 'handle' => 'wool-runner',
+            'vendor' => 'Allbirds', 'description' => 'Merino wool.',
+            'image' => 'https://cdn.shopify.com/grey.jpg',
+            'images' => ['https://cdn.shopify.com/grey.jpg'],
+            'price' => '95.00', 'currency' => 'USD', 'variantId' => '201', 'available' => true,
+            'url' => 'https://shop.example/products/wool-runner',
+            'createdAt' => '2026-01-01T00:00:00Z',
+            'variants' => [['id' => '201', 'title' => 'Grey', 'price' => '95.00', 'available' => true, 'image' => 'https://cdn.shopify.com/grey.jpg']],
+            // Wholesale margin, supplier identity and a debug trace — commercially
+            // sensitive and internal. Must never reach the public wire.
+            'internalCostPrice' => '12.50',
+            'supplierId' => 'SUP-9',
+            '__debug' => 'trace',
+        ],
+    ]);
+
+    $response = $this->getJson('/api/public/profiles/allowprodfilter/integrations')->assertOk();
+    $product = $response->json('data.platforms.shop.0.payload.brand-filter.products.0');
+
+    // The unvetted keys are gone.
+    expect($product)->not->toHaveKey('internalCostPrice');
+    expect($product)->not->toHaveKey('supplierId');
+    expect($product)->not->toHaveKey('__debug');
+    // ...and the real product still shipped, so this can't pass by returning [].
+    expect($product['productId'])->toBe('111');
+    expect($product['variantId'])->toBe('201');
+    expect($product['url'])->toBe('https://shop.example/products/wool-runner');
+    expect($product['images'])->toBe(['https://cdn.shopify.com/grey.jpg']);
+    expect($product['variants'])->toHaveCount(1);
+
+    // Belt-and-suspenders (the fresha teamMenu idiom): prove the stripped data
+    // doesn't ride anywhere ELSE in the body, not merely inside this one key.
+    expect($response->getContent())->not->toContain('internalCostPrice');
+    expect($response->getContent())->not->toContain('supplierId');
+    expect($response->getContent())->not->toContain('SUP-9');
+    expect($response->getContent())->not->toContain('12.50');
+    expect($response->getContent())->not->toContain('__debug');
+});
+
+it('keeps every SHOP_PRODUCT_ALLOWLIST key on the public wire (#API-1)', function () {
+    // The other half of the filter: a typo or an accidental deletion in the
+    // constant silently removes a field the sitepage renders. Store all 14
+    // scraper-emitted keys with distinct non-null values and pin the exact key
+    // list. `popularityRank` is 15th because toBrandArray() appends it AFTER the
+    // stored data, and array_intersect_key preserves the stored order.
+    $user = allowlistUser('allowprodkeys');
+
+    $conn = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'shop', 'resource_id' => 'shop',
+        'payload' => ['storage' => 'relational'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+    $brand = ShopBrand::create([
+        'connection_id' => $conn->id, 'brand_id' => 'brand-keys', 'provider' => 'shopify',
+        'url' => 'https://shop.example', 'position' => 0,
+    ]);
+    ShopProduct::create([
+        'brand_id' => $brand->id, 'product_id' => '111', 'position' => 0,
+        'data' => [
+            'productId' => '111',
+            'title' => 'Wool Runner',
+            'handle' => 'wool-runner',
+            'vendor' => 'Allbirds',
+            'description' => 'Merino wool sneaker.',
+            'image' => 'https://cdn.shopify.com/grey.jpg',
+            'images' => ['https://cdn.shopify.com/grey.jpg', 'https://cdn.shopify.com/navy.jpg'],
+            'price' => '95.00',
+            'currency' => 'USD',
+            'variantId' => '201',
+            'available' => true,
+            'url' => 'https://shop.example/products/wool-runner',
+            'createdAt' => '2026-01-01T00:00:00Z',
+            'variants' => [
+                ['id' => '201', 'title' => 'Grey', 'price' => '95.00', 'available' => true, 'image' => 'https://cdn.shopify.com/grey.jpg'],
+                ['id' => '202', 'title' => 'Navy', 'price' => '99.00', 'available' => false, 'image' => 'https://cdn.shopify.com/navy.jpg'],
+            ],
+        ],
+    ]);
+
+    $product = $this->getJson('/api/public/profiles/allowprodkeys/integrations')
+        ->assertOk()
+        ->json('data.platforms.shop.0.payload.brand-keys.products.0');
+
+    expect(array_keys($product))->toBe([
+        'productId', 'title', 'handle', 'vendor', 'description',
+        'image', 'images', 'price', 'currency', 'variantId',
+        'available', 'url', 'createdAt', 'variants', 'popularityRank',
+    ]);
+    // Values survive intact, not just the keys.
+    expect($product['vendor'])->toBe('Allbirds');
+    expect($product['createdAt'])->toBe('2026-01-01T00:00:00Z');
+    // The filter is TOP-LEVEL only: variant sub-objects pass through whole
+    // (same residual as eventbrite's next/upcoming event objects).
+    expect(array_keys($product['variants'][0]))->toBe(['id', 'title', 'price', 'available', 'image']);
+    expect($product['variants'][1]['available'])->toBeFalse();
 });
 
 it('stamps every shop brand linkMode from the GLOBAL site setting', function () {

@@ -11,24 +11,28 @@
 // rather than a FOR ALL policy — mirroring audit.staff_audit_log. A FOR ALL
 // policy here would describe UPDATE/DELETE paths the grants themselves deny.
 //
-// Strategy mirrors ModerationSchemaRlsTest / PlatformAndMenuRlsTest: introspect
-// pg_class + pg_policies (PostgreSQL-only) rather than exercising RLS, which
-// SQLite cannot enforce. Skips on the default SQLite test driver.
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter AuditModerationEventsRlsTest
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every assertion on a helper that asked whether the connection was Postgres.
+// Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory SQLite
+// unconditionally — deliberately, so BaseModel-forced models never dial the real
+// Supabase host — so that helper returned false in every lane, and every
+// assertion here skipped silently in CI and locally.
+//
+// Strategy mirrors tests/Schema/ModerationSchemaRlsTest.php / PlatformAndMenuRlsTest.php:
+// introspect pg_class + pg_policies (PostgreSQL-only) rather than exercising
+// RLS, which SQLite cannot enforce. It now runs in the applied-schema lane
+// (phpunit.schema.xml / `composer test:schema`, see Tests\SchemaTestCase),
+// against a container that the real supabase/migrations/ set has been applied
+// to by scripts/db/apply-migrations.sh. The base case skips the whole lane
+// when no migrated Postgres is present, so a dropped/weakened policy now
+// fails instead of vanishing.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-function auditModerationEventsIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 it('keeps RLS enabled and forced on audit.moderation_events', function () {
-    if (! auditModerationEventsIsPostgres()) {
-        $this->markTestSkipped('pg_class introspection requires PostgreSQL.');
-    }
-
     // Cast to int: PDO_pgsql can return booleans as 't'/'f' strings, and the
     // string 'f' is truthy in PHP — compare the integer form explicitly.
     $row = DB::selectOne(
@@ -51,10 +55,6 @@ dataset('moderation_events_app_backend_policies', [
 ]);
 
 it('has the append-only app_backend policies', function (string $policy, string $cmd) {
-    if (! auditModerationEventsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = DB::selectOne(
         "SELECT cmd, array_to_string(roles, ',') AS roles, qual, with_check
            FROM pg_policies
@@ -64,15 +64,11 @@ it('has the append-only app_backend policies', function (string $policy, string 
 
     expect($row)->not->toBeNull("Policy [{$policy}] not found on audit.moderation_events.");
     expect($row->cmd)->toBe($cmd, "[{$policy}] must be a FOR {$cmd} policy.");
-    expect($row->roles)->toContain('app_backend', "[{$policy}] must grant to the app_backend role.");
+    expect($row->roles)->toContain('app_backend');
 })->with('moderation_events_app_backend_policies');
 
 // No UPDATE/DELETE policy may ever appear — the audit schema is append-only.
 it('never grants an UPDATE or DELETE path on audit.moderation_events', function () {
-    if (! auditModerationEventsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $rows = DB::select(
         "SELECT policyname, cmd
            FROM pg_policies
@@ -85,10 +81,6 @@ it('never grants an UPDATE or DELETE path on audit.moderation_events', function 
 
 // Staff read path must stay role-gated; anon must never appear on any policy.
 it('gates the staff SELECT policy to admin or support staff only', function () {
-    if (! auditModerationEventsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = DB::selectOne(
         "SELECT cmd, array_to_string(roles, ',') AS roles, qual
            FROM pg_policies
@@ -99,8 +91,8 @@ it('gates the staff SELECT policy to admin or support staff only', function () {
     expect($row)->not->toBeNull('Policy [moderation_events_staff_select] not found.');
     expect($row->cmd)->toBe('SELECT', 'The staff policy must be SELECT-only.');
     expect($row->roles)->toContain('authenticated');
-    expect($row->roles)->not->toContain('anon', 'anon must never be granted a moderation audit read path.');
-    expect($row->qual)->toContain('partna_staff', 'The staff SELECT policy must gate on core.partna_staff membership.');
-    expect($row->qual)->toContain('admin', 'The staff SELECT policy must restrict to the admin/support roles.');
-    expect($row->qual)->toContain('support', 'The staff SELECT policy must restrict to the admin/support roles.');
+    expect($row->roles)->not->toContain('anon');
+    expect($row->qual)->toContain('partna_staff');
+    expect($row->qual)->toContain('admin');
+    expect($row->qual)->toContain('support');
 });

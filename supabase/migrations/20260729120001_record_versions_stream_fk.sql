@@ -24,6 +24,12 @@
 -- real ingest.streams row and returns its id, and that id is the only value
 -- Lander::land() ever writes to stream_id. Every existing row already satisfies
 -- this constraint by construction (20260729120000 sweeps any historical stray).
+--
+-- ROLLBACK: ALTER TABLE ingest.record_versions
+--             DROP CONSTRAINT IF EXISTS record_versions_stream_id_fk;
+--           Catalog-only on the parent and all 8 partitions, cheap unlike the
+--           add. The rows 20260729120000 hard-deleted to make the validation
+--           scan pass do NOT come back.
 
 BEGIN;
 SET LOCAL lock_timeout      = '5s';
