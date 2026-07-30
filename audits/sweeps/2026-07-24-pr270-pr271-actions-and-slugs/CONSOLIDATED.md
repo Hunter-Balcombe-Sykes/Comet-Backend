@@ -1191,7 +1191,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
