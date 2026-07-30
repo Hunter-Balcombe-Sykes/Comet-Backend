@@ -4,6 +4,7 @@ use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\User\User;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\LogoProcessorClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -20,6 +21,31 @@ beforeEach(function () {
     config()->set('partna.logo_removal.url', 'https://logo-processor.test');
     config()->set('partna.logo_removal.token', 'test-token');
 });
+
+afterEach(function () {
+    Mockery::close();
+});
+
+// The store-logo fetch goes through SafeUrlFetcher (SSRF guard), never Http::get —
+// $brand->favicon/logo come from scraped HTML and are attacker-controlled. Stub it
+// the way the scraper tests do; pass null to simulate the guard rejecting the URL.
+function logoJobFetcher(?array $response): SafeUrlFetcher
+{
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->andReturn($response);
+
+    return $fetcher;
+}
+
+function logoJobPngResponse(): array
+{
+    return [
+        'status' => 200,
+        'body' => 'rawpngbytes',
+        'finalUrl' => 'https://test-store.example/logo.png',
+        'contentType' => 'image/png',
+    ];
+}
 
 function logoJobUser(string $h): User
 {
@@ -61,7 +87,6 @@ it('stores processed mark urls on the brand row', function () {
     $brand = logoJobBrand(logoJobUser('logojob1'));
 
     Http::fake([
-        'test-store.example/*' => Http::response('rawpngbytes', 200, ['Content-Type' => 'image/png']),
         'logo-processor.test/*' => Http::response([
             'png_transparent' => base64_encode('transparent-png-bytes'),
             'svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
@@ -69,7 +94,8 @@ it('stores processed mark urls on the brand row', function () {
         ]),
     ]);
 
-    (new ProcessShopBrandLogoJob((string) $brand->id))->handle(app(LogoProcessorClient::class));
+    (new ProcessShopBrandLogoJob((string) $brand->id))
+        ->handle(app(LogoProcessorClient::class), logoJobFetcher(logoJobPngResponse()));
 
     $brand->refresh();
     expect($brand->logo_mark_url)->not->toBeNull();
@@ -86,7 +112,11 @@ it('no-ops when the store switch is off', function () {
     $brand = logoJobBrand(logoJobUser('logojob2'));
 
     Http::fake();
-    (new ProcessShopBrandLogoJob((string) $brand->id))->handle(app(LogoProcessorClient::class));
+    // shouldNotReceive: the switch must short-circuit BEFORE any outbound fetch.
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldNotReceive('tryFetch');
+
+    (new ProcessShopBrandLogoJob((string) $brand->id))->handle(app(LogoProcessorClient::class), $fetcher);
 
     Http::assertNothingSent();
     expect($brand->refresh()->logo_mark_url)->toBeNull();
@@ -96,15 +126,34 @@ it('leaves the row untouched when the processor fails', function () {
     $brand = logoJobBrand(logoJobUser('logojob3'));
 
     Http::fake([
-        'test-store.example/*' => Http::response('rawpngbytes', 200, ['Content-Type' => 'image/png']),
         'logo-processor.test/*' => Http::response('nope', 500),
     ]);
 
-    (new ProcessShopBrandLogoJob((string) $brand->id))->handle(app(LogoProcessorClient::class));
+    (new ProcessShopBrandLogoJob((string) $brand->id))
+        ->handle(app(LogoProcessorClient::class), logoJobFetcher(logoJobPngResponse()));
 
     $brand->refresh();
     expect($brand->logo_mark_url)->toBeNull();
     expect($brand->toBrandArray())->not->toHaveKey('logoMark');
+});
+
+// SSRF regression. favicon/logo are lifted verbatim from a <link rel="icon"> in
+// scraped HTML (PlatformScraper::favicon), so a store the visitor controls can
+// aim this at the cloud-metadata endpoint. Uses the REAL SafeUrlFetcher — the
+// literal private IP is rejected on inspection, no DNS and no network needed.
+it('never fetches a private-network logo url (SSRF)', function () {
+    $brand = logoJobBrand(logoJobUser('logojob5'), [
+        'logo' => 'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+        'favicon' => null,
+    ]);
+
+    Http::fake();
+
+    (new ProcessShopBrandLogoJob((string) $brand->id))
+        ->handle(app(LogoProcessorClient::class), app(SafeUrlFetcher::class));
+
+    Http::assertNothingSent();
+    expect($brand->refresh()->logo_mark_url)->toBeNull();
 });
 
 it('settled brands without marks emit no mark keys (byte identity)', function () {
