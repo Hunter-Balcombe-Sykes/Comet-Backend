@@ -26,7 +26,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 1 of 2 complete
 
 ---
 
@@ -131,7 +131,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
 
 ## P3 — Nice to have
 
-- [ ] **#EDGE-4** · P3 — `cloudflare-worker` router has zero automated test coverage
+- [x] **#EDGE-4** · P3 — `cloudflare-worker` router has zero automated test coverage
     - **Where:** cloudflare-worker/ (no test directory alongside `src/index.js`, `wrangler.toml`, `package.json`)
     - **Affects:** Every future change to `index.js` — routing, cache-key logic, alias-redirect validation, security headers — ships with no regression check.
     - **Effort:** M (~2–4h)

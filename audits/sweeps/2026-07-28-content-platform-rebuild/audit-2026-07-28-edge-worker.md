@@ -27,7 +27,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -84,7 +84,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#EDGE-2** · P2 — `cloudflare-worker/README.md` describes an obsolete brand/affiliate architecture that no longer matches the Worker's actual KV contract
+- [x] **#EDGE-2** · P2 — `cloudflare-worker/README.md` describes an obsolete brand/affiliate architecture that no longer matches the Worker's actual KV contract
     - **Where:** cloudflare-worker/README.md:1-9, 92-106
     - **Affects:** Any engineer following this README during setup, DNS reprovisioning, or incident response for the Worker that fronts 100% of public sitepage traffic — the Worker has no test suite and no Nightwatch, so this README is one of the few written references for how it's supposed to behave.
     - **Effort:** S (~0.5–1h)
