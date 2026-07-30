@@ -68,6 +68,17 @@ return [
         'pii_retention_years' => (int) env('PARTNA_AUDIT_PII_RETENTION_YEARS', 7),
     ],
 
+    'item_slugs' => [
+        // 271-PRIV-1: days a retired item slug (site.item_slugs, is_current = false)
+        // keeps serving as a 301 alias before slugs:prune-retired hard-deletes it.
+        // 90 matches handle.redirect_days, but is its OWN key so the two policies can
+        // diverge -- a retired dish/event slug is a weaker claim than a retired
+        // identity handle, and item_slugs_unique_slug is non-partial, so every retired
+        // row squats its name and pushes a future same-named item onto a -N suffix.
+        // Same split-key reasoning as audit.pii_retention_years above.
+        'retirement_days' => (int) env('PARTNA_ITEM_SLUG_RETIREMENT_DAYS', 90),
+    ],
+
     'public_domain' => env(
         'PARTNA_PUBLIC_DOMAIN',
         env(

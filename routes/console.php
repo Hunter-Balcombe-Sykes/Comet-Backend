@@ -218,6 +218,17 @@ Schedule::command('handles:notify-expiry')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('handles-notify-expiry'));
 
+// 271-PRIV-1: item-URL slug lifecycle. Retired slugs (site.item_slugs,
+// is_current = false) serve as 301 aliases for
+// config('partna.item_slugs.retirement_days') days, then this hard-deletes them.
+// 03:35 -- the daily maintenance band is 03:00/03:15/03:20/03:25/03:55; 03:35 is free.
+Schedule::command('slugs:prune-retired')
+    ->dailyAt('03:35')
+    ->onOneServer()
+    ->withoutOverlapping(120) // 2h lock -- matches the sibling alias prune; bounded delete.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('slugs-prune-retired'));
+
 // PRIV-2: enforces config('partna.handle.audit_retention_years') (default 7y) on
 // the append-only audit.handle_change_log table via the SECURITY DEFINER
 // audit.prune_handle_change_log() RPC (app_backend cannot DELETE directly).

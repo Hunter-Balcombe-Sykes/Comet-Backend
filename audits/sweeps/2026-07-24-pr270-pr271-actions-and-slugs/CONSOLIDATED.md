@@ -1191,14 +1191,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete  (+271-PRIV-1 fixed 2026-07-31 — retired_at + backfill migrations AUTHORED NOT APPLIED, slugs:prune-retired scheduled 03:35, 90-day window in config('partna.item_slugs.retirement_days'))
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **271-PRIV-1** · P2 — Retired item-url slugs (`site.item_slugs`) accumulate forever with no retention column or purge job
+- [x] **271-PRIV-1** · P2 — Retired item-url slugs (`site.item_slugs`) accumulate forever with no retention column or purge job
     - **Where:** supabase/migrations/20260724120000_create_item_slugs.sql:31-44; no corresponding entry in routes/console.php
     - **Affects:** Every professional who renames a menu item or synced event more than once — each rename mints a permanent `is_current = false` row derived from the item's name
     - **Effort:** M (~2–4h) — schema change required, see Standalone note below

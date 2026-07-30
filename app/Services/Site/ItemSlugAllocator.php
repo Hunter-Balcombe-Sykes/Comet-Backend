@@ -10,7 +10,9 @@ use Throwable;
 
 // Owns site.item_slugs: the per-profile human-readable URL slug registry for
 // public sitepage detail items (events + menu items). is_current=false rows are
-// retired slugs kept alive as 301 redirect targets.
+// retired slugs kept alive as 301 redirect targets, until retired_at ages past
+// config('partna.item_slugs.retirement_days') and slugs:prune-retired hard-deletes
+// them (271-PRIV-1).
 //
 // Collision handling: insert-or-ignore, retry the next -N suffix when the slug
 // was already taken (see insertUnique() for why NOT catch-and-retry, which is
@@ -229,7 +231,18 @@ class ItemSlugAllocator
             return [];
         }
 
-        $allRows = $base()->get(['item_key', 'slug']);
+        // 271-PRIV-1: the active-alias window. Identical in effect to
+        // UserHandleAlias::scopeActive() (only an ACTIVE alias resolves, so aliases
+        // stop redirecting the moment they lapse, before the daily prune job hard-
+        // deletes the row) but INVERTED in storage: aliases store an absolute
+        // expires_at, item slugs store retired_at and derive the cutoff from config,
+        // so the retention window can be re-tuned without a backfill. Compared only
+        // inside this SQL WHERE, never read back into PHP — same 't'/'f' PDO-boolean
+        // discipline as is_current above.
+        $allRows = $base()
+            ->where(fn ($q) => $q->whereNull('retired_at')
+                ->orWhere('retired_at', '>', now()->subDays((int) config('partna.item_slugs.retirement_days', 90))))
+            ->get(['item_key', 'slug']);
 
         $map = [];
         foreach ($currentByKey as $itemKey => $slug) {
@@ -337,7 +350,13 @@ class ItemSlugAllocator
             DB::connection('pgsql')->table(self::TABLE)
                 ->where('user_id', $userId)->where('item_type', $itemType)
                 ->where('item_key', $itemKey)->where('slug', $slug)
-                ->update(['is_current' => true]);
+                // 271-PRIV-1: clear retired_at back to NULL. This row may have been
+                // retired earlier under a previous rename (ensureCurrent()'s rename-back
+                // path reactivates an owned retired row instead of minting base-3). Without
+                // this, a rename-back leaves the now-LIVE slug still carrying a stale delete
+                // stamp, and the nightly slugs:prune-retired sweep would hard-delete a
+                // currently-serving 301 target / current slug out from under live traffic.
+                ->update(['is_current' => true, 'retired_at' => null]);
         });
 
         return $slug;
@@ -348,7 +367,10 @@ class ItemSlugAllocator
         DB::connection('pgsql')->table(self::TABLE)
             ->where('user_id', $userId)->where('item_type', $itemType)
             ->where('item_key', $itemKey)->where('slug', '!=', $keepSlug)
-            ->update(['is_current' => false]);
+            // 271-PRIV-1: stamp the retirement instant. This is the ONLY writer of
+            // retired_at — slugs:prune-retired reads it to decide when a demoted row
+            // has served its 301 long enough to hard-delete.
+            ->update(['is_current' => false, 'retired_at' => now()]);
     }
 
     /**

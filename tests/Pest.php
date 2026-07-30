@@ -886,7 +886,8 @@ function setupItemSlugsTable(): void
         item_key TEXT NOT NULL,
         slug TEXT NOT NULL,
         is_current INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NULL
+        created_at TEXT NULL,
+        retired_at TEXT NULL
     )');
     // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
     // name (not the table name) — an index must live in the same attached

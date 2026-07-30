@@ -436,6 +436,62 @@ it('ensureCurrentMany() re-slugs a stale name-digit slug on the rebuild path', f
     expect(currentSlug($this->u, 'menu_item', 'k1'))->toBe('table');
 });
 
+// ── 271-PRIV-1: retired_at lifecycle ──────────────────────────────────
+
+it('stamps retired_at on the demoted row and leaves the new current row NULL on rename', function () {
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Old Name');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'New Name');
+
+    $rows = DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_key', 'k1')->pluck('retired_at', 'slug');
+
+    expect($rows['old-name'])->not->toBeNull();
+    expect($rows['new-name'])->toBeNull();
+});
+
+it('clears retired_at back to NULL when a rename-back reactivates a retired row', function () {
+    // 🔴 F6b guard — the single most important assertion in this unit. Without
+    // promote() clearing retired_at, this reactivated slug would still carry a
+    // stale delete stamp and the nightly slugs:prune-retired sweep would
+    // hard-delete a currently-serving slug.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Alpha');   // alpha (current)
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Beta');    // beta (alpha retired, stamped)
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Alpha');   // rename back: alpha reactivated
+
+    $rows = DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_key', 'k1')->pluck('retired_at', 'slug');
+
+    expect($rows['alpha'])->toBeNull();
+    expect($rows['beta'])->not->toBeNull();
+});
+
+it('lookupCurrent omits an over-retention alias, includes one inside the window, and always includes the raw item key', function () {
+    config(['partna.item_slugs.retirement_days' => 90]);
+
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'Old Name');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k1', 'New Name');
+
+    // Manually age the retired row past the window (ensureCurrent stamps "now").
+    DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_key', 'k1')->where('slug', 'old-name')
+        ->update(['retired_at' => now()->subDays(91)->toDateTimeString()]);
+
+    $map = $this->alloc->lookupCurrent($this->u, 'menu_item', ['k1']);
+
+    expect($map['k1']['slug'])->toBe('new-name');
+    expect($map['k1']['aliases'])->toBe(['k1']); // over-retention alias dropped, raw key kept
+
+    // Same setup but retired inside the window — still served.
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Prior Name');
+    $this->alloc->ensureCurrent($this->u, 'menu_item', 'k2', 'Later Name');
+    DB::connection('pgsql')->table('site.item_slugs')
+        ->where('item_key', 'k2')->where('slug', 'prior-name')
+        ->update(['retired_at' => now()->subDays(10)->toDateTimeString()]);
+
+    $map2 = $this->alloc->lookupCurrent($this->u, 'menu_item', ['k2']);
+    expect($map2['k2']['aliases'])->toEqualCanonicalizing(['prior-name', 'k2']);
+});
+
 it('normalises a suffixed slug back to the base once the colliding sibling is deleted', function () {
     // DELIBERATE behaviour change: with k1 gone the base is genuinely free, so the
     // walk says `fish-tacos` and k2 moves onto it. The -2 stays as a redirect, so

@@ -348,6 +348,36 @@ it('includes retired slugs + the raw uuid in aliases after a rename', function (
     expect($publicItem['aliases'])->toEqualCanonicalizing(['old-name', (string) $item->id]);
 });
 
+// 271-PRIV-1: an alias whose retired_at has aged past
+// config('partna.item_slugs.retirement_days') stops appearing in the wire
+// aliases array — ItemSlugAllocator::lookupCurrent()'s active-window predicate
+// removes it before the nightly slugs:prune-retired sweep hard-deletes the row.
+it('drops an over-retention retired slug from aliases, keeping the raw id and in-window aliases', function () {
+    setupItemSlugsTable();
+    $user = publicMenuUser('pubslug4');
+    $menu = Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD',
+        'fetch_status' => 'ok', 'last_fetched_at' => now(),
+    ]);
+    $category = MenuCategory::create([
+        'menu_id' => $menu->id, 'name' => 'Pizzas', 'position' => 0, 'source_platform' => 'uber-eats',
+    ]);
+    $item = MenuItem::create(['menu_id' => $menu->id, 'name' => 'Ancient Name', 'base_price' => 11.0]);
+    $item->categories()->attach($category->id, ['position' => 0]);
+    $item->update(['name' => 'Current Name']);
+
+    // Age the retired row past the retention window.
+    DB::connection('pgsql')->table('site.item_slugs')
+        ->where('user_id', $user->id)->where('slug', 'ancient-name')
+        ->update(['retired_at' => now()->subDays(91)->toDateTimeString()]);
+
+    $res = $this->getJson("/api/public/profiles/{$user->handle_lc}/menu")->assertOk();
+
+    $publicItem = $res->json('data.categories.0.items.0');
+    expect($publicItem['slug'])->toBe('current-name');
+    expect($publicItem['aliases'])->toBe([(string) $item->id]);
+});
+
 // ── #50: the public menu wire contract ────────────────────────────────────
 //
 // This payload is an enumerated allowlist BY CONSTRUCTION — PublicMenuController

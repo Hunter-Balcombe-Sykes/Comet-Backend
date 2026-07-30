@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 // GET /api/public/profiles/{handle}/platforms — event slug + aliases exposure
@@ -72,6 +73,48 @@ it('serves slug + aliases on a standalone event row', function () {
     expect($payload['kind'])->toBe('event');
     expect($payload['slug'])->toBe('comedy-gala');
     expect($payload['aliases'])->toBe(['hexbbb']);
+});
+
+// 271-PRIV-1: an alias whose retired_at has aged past
+// config('partna.item_slugs.retirement_days') stops appearing in the wire
+// aliases array, while one still inside the window keeps showing.
+it('drops an over-retention retired event slug from aliases, keeping an in-window one', function () {
+    setupItemSlugsTable();
+    $user = publicEventUser('evslug6');
+
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'humanitix',
+        'resource_id' => 'event-hexeee',
+        'resource_kind' => 'event',
+        'payload' => ['kind' => 'event', 'id' => 'hexeee', 'name' => 'New Gala Name', 'link' => 'https://events.humanitix.com/new'],
+        'is_active' => true,
+    ]);
+
+    // Simulate a prior retirement for the same event id: an over-retention
+    // row (dropped) and an in-window row (still served) sitting alongside the
+    // observer-minted current slug.
+    DB::connection('pgsql')->table('site.item_slugs')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id, 'item_type' => 'event', 'item_key' => 'hexeee',
+        'slug' => 'ancient-gala', 'is_current' => 0,
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'retired_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+    DB::connection('pgsql')->table('site.item_slugs')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id, 'item_type' => 'event', 'item_key' => 'hexeee',
+        'slug' => 'recent-gala', 'is_current' => 0,
+        'created_at' => now()->subDays(10)->toDateTimeString(),
+        'retired_at' => now()->subDays(10)->toDateTimeString(),
+    ]);
+
+    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
+        ->assertOk()
+        ->json('data.platforms.humanitix.0.payload');
+
+    expect($payload['slug'])->toBe('new-gala-name');
+    expect($payload['aliases'])->toEqualCanonicalizing(['recent-gala', 'hexeee']);
 });
 
 it('serves slug + aliases on an events-custom standalone row', function () {
