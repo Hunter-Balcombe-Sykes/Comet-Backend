@@ -101,6 +101,16 @@ it('--older-than overrides the default abandon window', function () {
     expect(DB::table('ingest.effects')->where('digest', $digest)->value('status'))->toBe('abandoned');
 });
 
+it('--older-than=300 files an anomaly whose summary names the applied window, not the config default (R4/CFG-16)', function () {
+    $digest = seedEffectRow(['claimed_at' => now()->subSeconds(301)->toDateTimeString()]);
+
+    $this->artisan('ingest:effects', ['--resolve' => true, '--older-than' => 300])->assertExitCode(0);
+
+    $anomaly = DB::table('ingest.anomalies')->where('kind', 'effect_abandoned')->first();
+    expect($anomaly)->not->toBeNull();
+    expect($anomaly->summary)->toContain('after 300s');
+});
+
 it('--settle on an unknown digest fails', function () {
     $this->artisan('ingest:effects', ['--settle' => 'no-such-digest'])->assertExitCode(1);
 });

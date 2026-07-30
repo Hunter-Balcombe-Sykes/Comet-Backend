@@ -305,6 +305,31 @@ it('marking a claim abandoned files a critical anomaly and reports to Nightwatch
     Exceptions::assertReported(AbandonedEffectException::class);
 });
 
+it('pins the abandon window to one source: a 61s claim under abandon_after_seconds=60 abandons AND the anomaly says after 60s (CFG-16)', function () {
+    Exceptions::fake();
+    config()->set('partna.ingest.effect_abandon_after_seconds', 60);
+
+    $digest = EffectLedger::digestFor('places_fetch', ['place_id' => 'dead-worker-short-window']);
+    $sourceId = (string) Str::uuid();
+    DB::table('ingest.effects')->insert([
+        'digest' => $digest, 'kind' => 'http', 'source_id' => $sourceId,
+        'claimed_at' => now()->subSeconds(61)->toDateTimeString(),
+        'status' => 'claimed', 'meta' => json_encode([]),
+    ]);
+
+    $verdict = (new EffectLedger)->once($digest, 'http', fn () => 'nope');
+
+    // Proves the COMPARISON read config: 61s is far inside the default 900s
+    // window, so unconverted code would return 'refused' here instead.
+    expect($verdict)->toBe(['status' => 'abandoned', 'result' => null, 'cached' => true]);
+
+    // Proves the SPRINTF read the same source: comparison converted but the
+    // summary left on self:: would read "after 900s" about a 61s claim.
+    $anomaly = DB::table('ingest.anomalies')->where('kind', 'effect_abandoned')->where('source_id', $sourceId)->first();
+    expect($anomaly)->not->toBeNull();
+    expect($anomaly->summary)->toContain('after 60s');
+});
+
 it('a second call on an already-abandoned claim does not file a second anomaly', function () {
     Exceptions::fake();
 

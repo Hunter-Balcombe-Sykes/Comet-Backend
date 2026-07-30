@@ -13,6 +13,9 @@ use Throwable;
 // run-sync-get-dataset-items returns 201 on success, so we accept any 2xx.
 class InstagramScraper extends PlatformScraper
 {
+    /** Fallback default for config('partna.limits.apify.run_sync_timeout_seconds') (CFG-9). */
+    private const RUN_SYNC_TIMEOUT_SECONDS = 110;
+
     // Run the profile scraper, returning the first dataset item (the profile,
     // with latestPosts) or null on any failure / missing token.
     //
@@ -34,7 +37,7 @@ class InstagramScraper extends PlatformScraper
             // resultsLimit key was never one of them (silently ignored). Post
             // pool when enabled: up to 12 per profile.
             $response = Http::withToken($token)
-                ->timeout(110)
+                ->timeout((int) config('partna.limits.apify.run_sync_timeout_seconds', self::RUN_SYNC_TIMEOUT_SECONDS))
                 ->post(
                     'https://api.apify.com/v2/acts/'.config('partna.instagram.actor').'/run-sync-get-dataset-items',
                     ['profiles' => [$username], 'includeRecentPosts' => true],

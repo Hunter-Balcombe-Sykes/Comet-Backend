@@ -192,6 +192,55 @@ it('does not throw when a variant file is already missing from storage', functio
     expect(fn () => $media->forceDelete())->not->toThrow(Throwable::class);
 });
 
+it('attempts delete() for an absent variant file without an exists() pre-check gating it', function () {
+    $siteId = (string) Str::uuid();
+    $mediaId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => (string) Str::uuid(),
+        'subdomain' => 'test-site-no-precheck',
+        'is_published' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => $mediaId,
+        'site_id' => $siteId,
+        'pool' => SiteMedia::POOL_GALLERY,
+        'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
+        'processing_state' => SiteMedia::PROCESSING_STATE_READY,
+        'is_active' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    // Never written to the fake disk — proves delete() fires unconditionally
+    // rather than being gated behind an exists() check.
+    $variantPath = "images/{$mediaId}/never-written.webp";
+    DB::connection('pgsql')->table('site.media_variants')->insert([
+        'id' => (string) Str::uuid(),
+        'media_id' => $mediaId,
+        'variant_key' => 'optimized',
+        'artifact_type' => 'webp',
+        'disk' => 'media',
+        'path' => $variantPath,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    $disk = Mockery::mock(Filesystem::class);
+    $disk->shouldNotReceive('exists');
+    $disk->shouldReceive('delete')->once()->with($variantPath)->andReturn(true);
+    Storage::shouldReceive('disk')->with('media')->andReturn($disk);
+
+    $media = SiteMedia::query()->findOrFail($mediaId);
+
+    expect(fn () => $media->forceDelete())->not->toThrow(Throwable::class);
+});
+
 // ── OBS-3: catch blocks report() before logging, so Nightwatch sees the failure ──
 
 it('reports (but does not throw) when a variant file fails to delete during force-delete', function () {
@@ -236,7 +285,6 @@ it('reports (but does not throw) when a variant file fails to delete during forc
     ]);
 
     $brokenDisk = Mockery::mock(Filesystem::class);
-    $brokenDisk->shouldReceive('exists')->with($variantPath)->andReturn(true);
     $brokenDisk->shouldReceive('delete')->with($variantPath)->andThrow(new RuntimeException('disk exploded'));
     Storage::shouldReceive('disk')->with('media')->andReturn($brokenDisk);
 

@@ -22,10 +22,10 @@ use Illuminate\Support\Str;
  */
 class SourceScheduler
 {
-    /** EWMA weights: recent behaviour dominates but does not erase history. */
+    /** Fallback default for config('partna.ingest.source_change_rate_alpha') (CFG-16). */
     private const ALPHA = 0.3;
 
-    /** A claim older than this is stranded — a worker died holding it. */
+    /** Fallback default for config('partna.ingest.source_stranded_after_seconds') (CFG-16). */
     private const STRANDED_AFTER_SECONDS = 7200;
 
     /**
@@ -145,7 +145,8 @@ class SourceScheduler
         $qualifies = in_array($outcome, ['ok', 'not_modified', 'degraded'], true);
 
         if ($qualifies) {
-            $rate = self::ALPHA * ($changed ? 1.0 : 0.0) + (1 - self::ALPHA) * (float) $source->change_rate;
+            $alpha = (float) config('partna.ingest.source_change_rate_alpha', self::ALPHA);
+            $rate = $alpha * ($changed ? 1.0 : 0.0) + (1 - $alpha) * (float) $source->change_rate;
             $update['change_rate'] = $rate;
             $update['consecutive_failures'] = 0;
             // Not `ok` for a degraded run: the fetch is healthy but the content
@@ -204,7 +205,7 @@ class SourceScheduler
      */
     public function releaseStranded(): array
     {
-        $cutoff = now()->subSeconds(self::STRANDED_AFTER_SECONDS);
+        $cutoff = now()->subSeconds((int) config('partna.ingest.source_stranded_after_seconds', self::STRANDED_AFTER_SECONDS));
 
         $candidates = DB::table('ingest.sources')
             ->whereNotNull('in_flight_since')

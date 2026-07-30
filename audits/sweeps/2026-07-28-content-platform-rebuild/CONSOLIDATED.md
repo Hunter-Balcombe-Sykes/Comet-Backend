@@ -1333,7 +1333,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 6 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30)
+- P2 Medium: 7 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30; +SCALE-11 fixed 2026-07-31 — but see its entry: the GDPR framing was WRONG, the hook never fires on the account-deletion path)
 - P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
 
 ---
@@ -1608,7 +1608,7 @@ None.
         ```
     - `[confidence: 0.95]`
 
-- [ ] **SCALE-11** · P2 — `SiteMedia`'s force-delete hook serialises per-file storage I/O
+- [x] **SCALE-11** · P2 — `SiteMedia`'s force-delete hook serialises per-file storage I/O
     - **Where:** app/Models/Core/Site/SiteMedia.php:202-242 (the `forceDeleting` closure)
     - **Affects:** GDPR account deletion (`AccountDeletionService`), admin bulk media purge (`StaffCustomerManagementController`), and the routine 30-day-retention purge (`PurgeSoftDeleted::purgeModel`/`purgeFailedMedia`, which already chunks the DB query at 500 rows but still calls this hook once per row).
     - **Effort:** M (~2–4h)
@@ -4003,7 +4003,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 19 complete
+- P3 Low: 3 of 19 complete  (+#CFG-8 fixed 2026-07-31 — Places retry policy to config WITH a 1..3 spend clamp; +#CFG-9 fixed at ALL THREE run-sync sites, not just the one named; +#CFG-16 all five ingest constants, with EffectLedger's four abandon-window sites collapsed onto one accessor; the other 15 non-promoted CFG-* items are WONTFIX by decision, see BACKLOG-TRIAGE.md)
 
 ---
 
@@ -4108,7 +4108,7 @@ None.
         private const CUSTOM_LABEL_MAX = 80;
         ```
 
-- [ ] **#CFG-8** · P3 — `GoogleBusinessService` hardcodes Places API retry count and backoff delay
+- [x] **#CFG-8** · P3 — `GoogleBusinessService` hardcodes Places API retry count and backoff delay
     - **Where:** app/Services/Platforms/GoogleBusinessService.php:124, :167
     - **Affects:** Resilience tuning during a flaky Google Places API period.
     - **Effort:** S (~0.5–1h)
@@ -4123,7 +4123,7 @@ None.
             usleep(200_000);
         ```
 
-- [ ] **#CFG-9** · P3 — `GoogleBusinessApifyScraper` hardcodes a 110s HTTP timeout
+- [x] **#CFG-9** · P3 — `GoogleBusinessApifyScraper` hardcodes a 110s HTTP timeout
     - **Where:** app/Services/Platforms/GoogleBusinessApifyScraper.php:52
     - **Affects:** Adjusting the Apify run-sync wait as latency changes, without a deploy.
     - **Effort:** S (~0.5–1h)
@@ -4216,7 +4216,7 @@ None.
         now()->addMinutes((int) config('partna.routing.probe.cooldown_minutes', self::COOLDOWN_MINUTES)),
         ```
 
-- [ ] **#CFG-16** · P3 — `Lander`/`EffectLedger`/`SourceScheduler` operational constants hardcoded
+- [x] **#CFG-16** · P3 — `Lander`/`EffectLedger`/`SourceScheduler` operational constants hardcoded
     - **Where:** app/Ingest/Landing/Lander.php:27, :35; app/Ingest/Runtime/EffectLedger.php:25; app/Ingest/Runtime/SourceScheduler.php:26, :29
     - **Affects:** On-call ability to tune deletion sensitivity, billed-effect abandonment window, and scheduler fairness during an incident, without a deploy.
     - **Effort:** S (~0.5–1h)

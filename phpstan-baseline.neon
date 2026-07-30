@@ -1869,7 +1869,7 @@ parameters:
 		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$path\.$#'
 			identifier: property.notFound
-			count: 3
+			count: 2
 			path: app/Models/Core/Site/SiteMedia.php
 
 		-

@@ -273,6 +273,21 @@ it('release() with degraded applies the EWMA and the measured interval, and stam
     expect(abs(strtotime((string) $row->next_attempt_at) - $backoffAt))->toBeGreaterThan(2);
 });
 
+it('drives change_rate to exactly 1.0 after one changed run when alpha is 1.0 (CFG-16)', function () {
+    config()->set('partna.ingest.source_change_rate_alpha', 1.0);
+    $id = seedSourceForScheduler(['change_rate' => 0.5]);
+
+    (new SourceScheduler)->release($id, 'ok', true);
+
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+
+    // rate = 1.0 * 1.0 + (1 - 1.0) * 0.5 = 1.0, exact in IEEE — under the
+    // default alpha (0.3) this would be 0.65, so this proves the read.
+    expect((float) $row->change_rate)->toBe(1.0)
+        ->and($row->health)->toBe('ok')
+        ->and((int) $row->consecutive_failures)->toBe(0);
+});
+
 // The counterpart guard: widening $qualifies must not have weakened the real
 // failure path. A source that genuinely cannot be fetched still dies.
 it('ten consecutive unavailable releases still reach dead and stop being claimable', function () {

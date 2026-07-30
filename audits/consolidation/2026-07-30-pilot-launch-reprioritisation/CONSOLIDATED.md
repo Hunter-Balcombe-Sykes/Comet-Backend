@@ -323,9 +323,9 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 > | Unit | IDs | Theme | Source |
 > |---|---|---|---|
 > | 1 | `#SCALE-13/14/17/19/20` + `#CACHE-1/2/3` | unbounded `whereIn` + per-row INSERT loops | 07-28 sweep |
-> | 2 | `DINT-1` + `271-PRIV-1` + `#3` | missing indexes + unbounded retention | 07-24 sweep; `#3` → 07-11 |
+> | 2 | `DINT-1` + `271-PRIV-1` + `#SCHEMA-8` | missing indexes + unbounded retention | 07-24 sweep; `#SCHEMA-8` → 07-11 |
 > | 3 | `#SCALE-11` | `SiteMedia` force-delete storage I/O | 07-28 sweep |
-> | 4 | `#TEST-9`/`271-TEST-1` + `#TEST-41` + `#TEST-49` + `#TEST-50` + `#38` | migration invariant guards | 07-24 + 07-28 sweeps |
+> | 4 | `#TEST-9`/`271-TEST-1` + `#TEST-41` + `#TEST-49` + `#TEST-50` + `#DINT-4` | migration invariant guards | 07-24 + 07-28 sweeps |
 > | 5 | `#9` + `#10` + `#SEC-4` + `#INH-6` | residuals | 07-11, 07-28, inheritance |
 > | 6 | `LC-DRILL-worker-kill` + `LC-DRILL-vendor-outage` + `LC-DRILL-redis-down` + `LC-K6` + `LC-RERUN` | operational drills | `audits/launch-check/2026-07-26/REPORT.md` |
 >
@@ -799,9 +799,9 @@ will go red without stopping anything. Closing that is a repo setting, not code,
 any unit in this bucket.
 
 **P1-LAUNCH**
-- [x] `DINT-1` · [ ] `271-PRIV-1` · [ ] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
-- [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [ ] `#3`
-- [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#38`
+- [x] `DINT-1` · [x] `271-PRIV-1` · [x] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
+- [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [ ] `#SCHEMA-8`
+- [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#DINT-4`
 - [ ] `#INH-6` · [ ] `#SEC-4` · [x] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
 - [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [x] `#10`
 
@@ -884,9 +884,9 @@ any unit in this bucket.
 >
 > | Findings | Why still open |
 > |---|---|
-> | `DINT-1`, `271-PRIV-1`, `#3` (Unit 2) | Signed off, not started. Genuinely worth doing — two missing analytics indexes, cheap and real. **Highest-value remaining work.** |
+> | `DINT-1`, `271-PRIV-1`, `#SCHEMA-8` (Unit 2) | Signed off, not started. Genuinely worth doing — two missing analytics indexes, cheap and real. **Highest-value remaining work.** |
 > | `#SCALE-11` (Unit 3) | Standalone/GDPR deletion path. Not started. Needs its own isolated review. |
-> | `#TEST-9`, `271-TEST-1`, `#TEST-49`, `#TEST-50`, `#38` (Unit 4) | Not started. ⚠️ `#TEST-9` is now **half-closed upstream**: P0-LAUNCH moved `ArchitectureSystemConstraintsTest` into the real applied-schema lane (`tests/Schema/`), so the "doesn't run in CI" half is done. The `site.themes` half is still open and is now **unblocked** (that file has no owner since P0-LAUNCH merged). `CLAUDE.md:228`'s claim that the rule is "pinned by `ArchitectureSystemConstraintsTest`" remains **false** and still needs correcting. |
+> | `#TEST-9`, `271-TEST-1`, `#TEST-49`, `#TEST-50`, `#DINT-4` (Unit 4) | Not started. ⚠️ `#TEST-9` is now **half-closed upstream**: P0-LAUNCH moved `ArchitectureSystemConstraintsTest` into the real applied-schema lane (`tests/Schema/`), so the "doesn't run in CI" half is done. The `site.themes` half is still open and is now **unblocked** (that file has no owner since P0-LAUNCH merged). `CLAUDE.md:228`'s claim that the rule is "pinned by `ArchitectureSystemConstraintsTest`" remains **false** and still needs correcting. |
 > | `#9`, `#SEC-4`, `#INH-6` (Unit 5) | Not started. `#9` is a **real GDPR gap** (DSAR omits the subject's own frozen `handle`/`display_name`) and is the second-highest-value item left. `#SEC-4` guards a *hypothetical* future edit — the finding itself concedes today's insert is safe. `#INH-6` is a refactor of three byte-identical functions (re-verified byte-identical 2026-07-30, so a safe consolidation, **not** a bug). |
 > | `CFG-16`, `CFG-8`, `CFG-9` (Unit 7) | Not started. Planned in detail; implementation was stopped before writing anything. ⚠️ `CFG-8` must ship a **1..3 clamp**: `fetchPlaceDetails()` claims a `PlacesBudget` slot *inside* the retry loop, so `max_attempts` is a direct multiplier on billed spend for the only paid API with no vendor cap. `CFG-9` should cover **all three** identical `->timeout(110)` Apify sites (Josh's ruling), not just the one the finding names. |
 > | 3 × `LC-DRILL-*`, `LC-K6`, `LC-RERUN` (Unit 6) | Not started. Hours of operational work, no code. Lowest priority at zero live users. |
@@ -1099,13 +1099,13 @@ the same class of miss as `#INH-7`.
 - `271-PRIV-1` (P2) — retired `site.item_slugs` accumulate forever; no `retired_at`, no purge job. **STILL-OPEN.**
 - `#SCALE-11` (P2) — `SiteMedia` force-delete serialises per-file storage I/O; a heavy user times out their own account deletion. **Touches the GDPR deletion path — isolate for sign-off.**
 - `#SCALE-13/14/17/19/20` + `#CACHE-1/2/3` (all P2) — unbounded `whereIn` arrays and per-row INSERT loops across ingest, projection and staff analytics. Correct to defer; wrong to forget.
-- `#3` (P3) — `analytics.item_views` has no DB-level dedup key, relying entirely on app-side Redis. **STILL-OPEN.**
+- `#SCHEMA-8` (P3) — `analytics.item_views` has no DB-level dedup key, relying entirely on app-side Redis. **STILL-OPEN.**
 
 **Correctness guards:**
 - `#TEST-9` / `271-TEST-1` (P3/P2) — no invariant test that `site.themes` stays dropped. **STILL-OPEN, and worse than recorded:** `ArchitectureSystemConstraintsTest` exists but its three assertions don't cover themes-dropped — *and* it doesn't run in CI (see `#TEST-2`). `CLAUDE.md` currently claims this rule is "pinned" by that test. **It isn't.**
 - `#TEST-41` — `BrandAssetPipelineTest` and `CatalogSyncIdempotenceTest` still hand-copy migration DDL. `ItemTombstoneBackfillTest` is the one file doing it correctly; copy that pattern. **STILL-OPEN.**
 - `#TEST-49` / `#TEST-50` — no invariant test for the `detectors_surface_xor_signal` CHECK, and none asserting the deliberate *absence* of a unique index on `content.identity_keys(key_class, key_value)`. **STILL-OPEN.**
-- `#38` (P3) — `site.menus.dining_modes` JSONB has no `jsonb_typeof = 'array'` CHECK. **STILL-OPEN.**
+- `#DINT-4` (P3) — `site.menus.dining_modes` JSONB has no `jsonb_typeof = 'array'` CHECK. **STILL-OPEN.**
 - `#INH-6` (P1 → P1-LAUNCH) — `normalizeName`/`norm` declared three times with "must stay identical" comments. **Verified NOT drifted today** — all three implementations are still byte-identical, so this is latent risk, not a live bug. That verification is why it drops from P1 rather than rising.
 - `#SEC-4` (P2) — raw insert bypasses `$fillable`. **PARTIAL** — the row keys are a fixed literal set never derived from request input, so there is no live injection path; structural hardening only.
 

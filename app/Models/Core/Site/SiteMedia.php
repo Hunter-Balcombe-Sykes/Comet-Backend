@@ -207,10 +207,11 @@ class SiteMedia extends BaseModel
 
             foreach ($variantPaths as $variant) {
                 try {
-                    $disk = Storage::disk((string) $variant->disk);
-                    if ($disk->exists($variant->path)) {
-                        $disk->delete($variant->path);
-                    }
+                    // No exists() pre-check: on the S3/R2 driver that's a HeadObject
+                    // plus a ListObjectsV2 when absent, and it can itself throw
+                    // (UnableToCheckFileExistence) into this catch, silently skipping
+                    // the delete. DeleteObject on a missing key already succeeds.
+                    Storage::disk((string) $variant->disk)->delete($variant->path);
                 } catch (\Throwable $e) {
                     report($e);
                     Log::warning('Failed to delete variant file during SiteMedia force-delete', [
@@ -226,10 +227,9 @@ class SiteMedia extends BaseModel
             // original always lives on the configured media disk (same as purgeDocumentArtifact).
             if ($media->path) {
                 try {
-                    $mediaDisk = Storage::disk((string) config('partna.media_disk'));
-                    if ($mediaDisk->exists($media->path)) {
-                        $mediaDisk->delete($media->path);
-                    }
+                    // See the variant-loop comment above: exists() is dropped for the
+                    // same reason here.
+                    Storage::disk((string) config('partna.media_disk'))->delete($media->path);
                 } catch (\Throwable $e) {
                     report($e);
                     Log::warning('Failed to delete original file during SiteMedia force-delete', [

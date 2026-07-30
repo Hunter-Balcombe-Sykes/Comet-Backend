@@ -68,6 +68,17 @@ return [
         'pii_retention_years' => (int) env('PARTNA_AUDIT_PII_RETENTION_YEARS', 7),
     ],
 
+    'item_slugs' => [
+        // 271-PRIV-1: days a retired item slug (site.item_slugs, is_current = false)
+        // keeps serving as a 301 alias before slugs:prune-retired hard-deletes it.
+        // 90 matches handle.redirect_days, but is its OWN key so the two policies can
+        // diverge -- a retired dish/event slug is a weaker claim than a retired
+        // identity handle, and item_slugs_unique_slug is non-partial, so every retired
+        // row squats its name and pushes a future same-named item onto a -N suffix.
+        // Same split-key reasoning as audit.pii_retention_years above.
+        'retirement_days' => (int) env('PARTNA_ITEM_SLUG_RETIREMENT_DAYS', 90),
+    ],
+
     'public_domain' => env(
         'PARTNA_PUBLIC_DOMAIN',
         env(
@@ -286,7 +297,8 @@ return [
         // Shared Apify cost ceiling (SCALE-2). Every paid actor (instagram, menu,
         // google-business) claims a slot from ApifyBudget before spending: a
         // per-actor daily cap PLUS a global daily cap so one integration's runaway
-        // can't exhaust the account and starve the others.
+        // can't exhaust the account and starve the others. Also carries the shared
+        // run-sync HTTP timeout (CFG-9).
         'apify' => [
             'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 1000),
             'actors' => [
@@ -295,6 +307,14 @@ return [
                 'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 300),
                 'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
             ],
+
+            // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
+            // until the actor finishes. Raise during an Apify latency incident without a deploy.
+            // Must stay UNDER the calling job's own timeout or the job dies first — the binding
+            // ceiling is GoogleBusinessEnrichJob's $timeout = 130 (GoogleMenuPhotoScanJob 280,
+            // InstagramConnectJob 150). A raise past ~125 turns a slow-Apify incident into a
+            // worker kill mid-billed-effect, which is the state EffectLedger has to refuse.
+            'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 110),
         ],
 
         // AI menu-structuring spend (Mistral OCR + DeepSeek structuring, via
@@ -325,6 +345,13 @@ return [
                 'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 200),
                 'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 400),
             ],
+
+            // CFG-8: Place Details retry policy. NOTE — attempts MULTIPLY billed spend: every
+            // attempt claims its own PlacesBudget slot (see fetchPlaceDetails), so raising this
+            // raises per-fetch cost. Clamped 1..3 so an on-call knob can never become a spend
+            // multiplier.
+            'details_max_attempts' => max(1, min(3, (int) env('PARTNA_PLACES_DETAILS_MAX_ATTEMPTS', 2))),
+            'details_retry_delay_microseconds' => (int) env('PARTNA_PLACES_DETAILS_RETRY_DELAY_US', 200_000),
         ],
 
         // CFG-3 (user-api audit): dashboard list endpoint pagination / query-limit
@@ -978,6 +1005,39 @@ return [
         // zero records would otherwise retire every source_item and erase real
         // reviews that come back on the next successful run).
         'review_pii_orphan_grace_days' => (int) env('PARTNA_REVIEW_PII_ORPHAN_GRACE_DAYS', 14),
+
+        // CFG-16 (Lander): consecutive dominated absences before a key is tombstoned.
+        'tombstone_runs' => (int) env('PARTNA_INGEST_TOMBSTONE_RUNS', 3),
+
+        // CFG-16 (Lander): share of a stream's live keys that may vanish in one run before
+        // the delete-guard trips. A login wall or a vendor outage looks exactly like
+        // "everything was deleted", so a large drop must stop deletion and ask a human
+        // rather than act.
+        // ⚠️ FLOAT, NOT INT. An (int) cast turns 0.4 into 0, the guard then trips on EVERY
+        // run with >= 5 dominated-absent keys, deletion freezes platform-wide and a
+        // critical anomaly is filed per stream. The `count >= 5` floor beside it in
+        // Lander::foldAbsence() is deliberately NOT configurable.
+        'delete_guard_threshold' => (float) env('PARTNA_INGEST_DELETE_GUARD_THRESHOLD', 0.4),
+
+        // CFG-16 (EffectLedger): how long a claimed-but-unsettled effect blocks a retry.
+        // Money-adjacent — this same number is printed verbatim into the operator-facing
+        // effect_abandoned anomaly summary, so it has exactly one read path
+        // (EffectLedger::abandonAfterSeconds()).
+        // Floor: must stay above the longest job that can still be wrapping a billed
+        // effect when this fires — GoogleMenuPhotoScanJob::$timeout = 280s. Lowering
+        // this below 280 would flip a still-running, legitimately billed claim to
+        // "abandoned" mid-flight: a critical money-adjacent anomaly + page for a call
+        // that then settles normally.
+        'effect_abandon_after_seconds' => (int) env('PARTNA_INGEST_EFFECT_ABANDON_AFTER_SECONDS', 900),
+
+        // CFG-16 (SourceScheduler): EWMA weight — recent behaviour dominates but does not
+        // erase history. ⚠️ FLOAT, NOT INT: an (int) cast makes this 0, change_rate then
+        // never moves and every source drifts to its maximum interval forever.
+        'source_change_rate_alpha' => (float) env('PARTNA_INGEST_SOURCE_CHANGE_RATE_ALPHA', 0.3),
+
+        // CFG-16 (SourceScheduler): a claim older than this is stranded — a worker died
+        // holding it.
+        'source_stranded_after_seconds' => (int) env('PARTNA_INGEST_SOURCE_STRANDED_AFTER_SECONDS', 7200),
 
         'anomalies' => [
             // LIFE-20. How long a critical anomaly may sit unresolved before

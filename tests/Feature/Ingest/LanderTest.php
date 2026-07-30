@@ -214,6 +214,24 @@ it('accrues absent_runs under exhaustive coverage but tombstones only on the thi
     expect($state->tombstoned_at)->not->toBeNull();
 });
 
+it('tombstones on the FIRST dominated absence when tombstone_runs is 1 (CFG-16)', function () {
+    config()->set('partna.ingest.tombstone_runs', 1);
+
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    $covered = new Covered('releases', Coverage::exhaustive());
+
+    $lander->land('s1', 'r1', $spec, [new Record('releases', 'k1', ['seq' => 1])], $covered);
+
+    $r2 = $lander->land('s1', 'r2', $spec, [], $covered);
+
+    expect($r2['tombstoned'])->toBe(1);
+    expect($r2['guard_tripped'])->toBeFalse();
+    $state = ingestRecordState('s1', 'k1');
+    expect((int) $state->absent_runs)->toBe(1);
+    expect($state->tombstoned_at)->not->toBeNull();
+});
+
 it('resets absent_runs to zero and clears absent_since when a key reappears', function () {
     $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
     $lander = new Lander;
@@ -500,6 +518,36 @@ it('trips at the count=5 boundary above the ratio threshold (5 of 12 vanish) —
         $state = ingestRecordState('s1', "k{$i}");
         expect((int) $state->absent_runs)->toBe(0);
         expect($state->tombstoned_at)->toBeNull();
+    }
+});
+
+it('trips the delete-guard on a 20% vanish when delete_guard_threshold is 0.2 (CFG-16)', function () {
+    config()->set('partna.ingest.delete_guard_threshold', 0.2);
+
+    $spec = new StreamSpec(name: 'releases', target: 'release', profile: SourceProfile::Mirror, orderField: 'seq');
+    $lander = new Lander;
+    seedIngestStream('s1');
+
+    $records = [];
+    foreach (range(1, 25) as $i) {
+        $records[] = new Record('releases', "k{$i}", ['seq' => $i]);
+    }
+    $lander->land('s1', 'r1', $spec, $records, null);
+
+    // 5 of 25 live keys vanish: ratio exactly 0.2, count 5 >= 5.
+    $survivors = array_slice($records, 0, 20);
+    $result = $lander->land('s1', 'r2', $spec, $survivors, new Covered('releases', Coverage::exhaustive()));
+
+    expect($result['guard_tripped'])->toBeTrue();
+    expect($result['tombstoned'])->toBe(0);
+    expect(DB::table('ingest.streams')->where('id', 's1')->value('guard_tripped_at'))->not->toBeNull();
+    expect(DB::table('ingest.anomalies')->where('stream_id', 's1')->where('kind', 'delete_guard')->count())->toBe(1);
+    $anomaly = DB::table('ingest.anomalies')->where('stream_id', 's1')->where('kind', 'delete_guard')->first();
+    expect($anomaly->severity)->toBe('critical');
+
+    foreach (range(21, 25) as $i) {
+        $state = ingestRecordState('s1', "k{$i}");
+        expect((int) $state->absent_runs)->toBe(0);
     }
 });
 

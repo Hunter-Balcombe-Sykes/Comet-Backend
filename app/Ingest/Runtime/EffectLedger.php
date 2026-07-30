@@ -24,7 +24,7 @@ use Illuminate\Support\Str;
  */
 class EffectLedger
 {
-    /** How long a claimed-but-unsettled effect blocks a retry. */
+    /** Fallback default for config('partna.ingest.effect_abandon_after_seconds') (CFG-16). */
     private const ABANDON_AFTER_SECONDS = 900;
 
     /**
@@ -155,7 +155,7 @@ class EffectLedger
         }
 
         $claimedAt = strtotime((string) $row->claimed_at);
-        if ($claimedAt !== false && (time() - $claimedAt) > self::ABANDON_AFTER_SECONDS) {
+        if ($claimedAt !== false && (time() - $claimedAt) > $this->abandonAfterSeconds()) {
             // Long-dead claim: mark it so it stops blocking silently and is
             // visible to whoever reconciles spend, but STILL refuse — the
             // vendor may well have charged us for it.
@@ -169,6 +169,17 @@ class EffectLedger
     }
 
     /**
+     * CFG-16: the ONE read of the abandon window. The comparison in verdictFor(), the
+     * operator-facing summary in markAbandoned(), and reconcileAbandoned()'s default must
+     * never diverge — a money-adjacent critical anomaly that names a window other than the
+     * one applied misleads the on-call engineer reconciling vendor spend.
+     */
+    private function abandonAfterSeconds(): int
+    {
+        return (int) config('partna.ingest.effect_abandon_after_seconds', self::ABANDON_AFTER_SECONDS);
+    }
+
+    /**
      * Flip a claimed-but-unsettled row past the abandon window to 'abandoned', file a
      * critical `ingest.anomalies` row, and report to Nightwatch (#WHK-4) — but ONLY on
      * the transition. The conditional UPDATE is the whole of what makes this safe to
@@ -176,9 +187,13 @@ class EffectLedger
      * re-selecting it on a later sweep, affects zero rows and stays silent, so a
      * digest already marked abandoned never files (or pages) a second time.
      *
+     * $windowSeconds is the window actually applied by the caller (verdictFor()'s own
+     * abandonAfterSeconds(), or reconcileAbandoned()'s $olderThanSeconds override) — the
+     * anomaly summary must name that window, never silently fall back to the default.
+     *
      * @return bool whether THIS call performed the transition
      */
-    private function markAbandoned(object $row): bool
+    private function markAbandoned(object $row, ?int $windowSeconds = null): bool
     {
         $affected = DB::table('ingest.effects')
             ->where('digest', $row->digest)
@@ -198,7 +213,7 @@ class EffectLedger
             'run_id' => $row->run_id,
             'kind' => 'effect_abandoned',
             'severity' => 'critical', // money-adjacent — same class as Lander's delete_guard
-            'summary' => sprintf('Billed effect claim abandoned after %ds — vendor may have charged', self::ABANDON_AFTER_SECONDS),
+            'summary' => sprintf('Billed effect claim abandoned after %ds — vendor may have charged', $windowSeconds ?? $this->abandonAfterSeconds()),
             'detail' => json_encode([
                 'digest' => $row->digest,
                 'kind' => $row->kind,
@@ -237,7 +252,8 @@ class EffectLedger
      */
     public function reconcileAbandoned(?int $olderThanSeconds = null, int $limit = 500): array
     {
-        $cutoff = now()->subSeconds($olderThanSeconds ?? self::ABANDON_AFTER_SECONDS);
+        $windowSeconds = $olderThanSeconds ?? $this->abandonAfterSeconds();
+        $cutoff = now()->subSeconds($windowSeconds);
 
         $candidates = DB::table('ingest.effects')
             ->whereNull('settled_at')
@@ -249,7 +265,7 @@ class EffectLedger
 
         $abandoned = [];
         foreach ($candidates as $row) {
-            if ($this->markAbandoned($row)) {
+            if ($this->markAbandoned($row, $windowSeconds)) {
                 $abandoned[] = $row->digest;
             }
         }
