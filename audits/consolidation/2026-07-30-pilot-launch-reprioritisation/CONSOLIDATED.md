@@ -425,7 +425,7 @@ tracked in their source folders).
 
 | Bucket | Done |
 |---|---|
-| P0-PILOT | 5 / 7 |
+| P0-PILOT | 6 / 7 |
 | P1-PILOT | 0 / 12 |
 | P0-LAUNCH | 0 / 6 |
 | P1-LAUNCH | 0 / 27 |
@@ -436,9 +436,12 @@ tracked in their source folders).
 - [x] `#INH-7-DRIFT` — `PublicEarlyAccessSignupRequest` adopts `WithBotProtection`; 4-endpoint regression test added. Independent review PASS; 428 passed / 0 failed across `tests/Feature/Security` + `tests/Feature/PublicSite`.
 - [x] `LC-PROD-ENV` — **delegated to Josh**, checklist issued. Ticked on handoff, *not* on verified restart: prod was still `status=stopped` at tick time.
 - [x] `LC-BACKUP` — **delegated to Josh**, decision + checklist issued. Ticked on handoff; org plan still `free` at tick time.
-- [ ] `LC-RUNBOOKS-2` — `docs/runbooks/db-pool-exhausted.md` + `queue-backed-up.md` written. *(awaiting independent review)*
+- [x] `LC-RUNBOOKS-2` — `docs/runbooks/db-pool-exhausted.md` + `queue-backed-up.md` written. Independent review PASS, zero citation drift; the reviewer re-ran the `pg_stat_activity` query live and reproduced the documented 15-idle-connection signature.
 - [x] `LC-EDGE-HARDENING` — **delegated to Josh**, checklist issued (covers both report rows: Cloudflare + Supabase). Ticked on handoff; no dashboard setting verified changed.
 
+> **The three delegated units are written up in `JOSH-OPS-CHECKLIST.md` in this folder** — exact
+> commands, dashboard paths, and every `UNVERIFIED` gap named with the check that would close it.
+>
 > **Read the three `delegated to Josh` ticks as intent, not as state.** Per this repo's convention an
 > infra box ticks on the decision/handoff, and the live system must be confirmed separately. Nothing in
 > `LC-PROD-ENV`, `LC-BACKUP` or `LC-EDGE-HARDENING` was actioned by an agent — starting, stopping,
