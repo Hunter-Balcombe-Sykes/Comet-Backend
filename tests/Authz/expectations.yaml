@@ -1,0 +1,232 @@
+# Fixture mappings and exemptions for the authorization matrix.
+#
+# THE DEFAULT IS INCLUSION. Every api/ route carrying a {param} is fired
+# cross-tenant. This file exists for three things only:
+#
+#   fixture: { p: <Model FQCN> }
+#       Which of identity B's rows to substitute, when reflection could not work
+#       it out from the controller signature. This is the STRONG form — a real
+#       cross-tenant probe.
+#
+#   fixture: { p: unknown }
+#       The param is not a model primary key. The platform controllers resolve
+#       {id} as a `resource_id` looked up INSIDE rows already scoped to the
+#       caller (`$this->accountRows($user)->firstWhere('resource_id', $id)`), so
+#       there is no identity-B PK to substitute and the id space is per-user.
+#       These are still probed, with an id matching nothing. WEAKER than the
+#       strong form: it proves the user-scoped lookup 404s rather than 500ing or
+#       leaking. Declared explicitly so the weakness shows up in a diff.
+#
+#   expect: exempt  +  reason:
+#       The param is not a resource identifier at all (a platform slug, a block
+#       type, an intent key). A `reason:` is MANDATORY and must name what the
+#       param actually identifies. "Not applicable" is not a reason.
+#
+# Optional `body:` supplies a minimal request body for write routes whose
+# validation would otherwise reject with 422 before authorization ran. A 422 is
+# scored as a FAILURE, not a pass.
+#
+# Patterns are literal. Globs are deliberately unsupported: a glob that quietly
+# captures a route it should not is the exact failure mode this harness exists
+# to prevent.
+#
+# Spec: docs/superpowers/specs/2026-07-30-authz-test-harness-design.md
+
+# ── Enquiries — UserEnquiryController scopes by user_id then finds by id ──────
+- route: "api/enquiries/{id}"
+  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
+- route: "api/enquiries/{id}/read"
+  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
+- route: "api/enquiries/{id}/replied"
+  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
+- route: "api/enquiries/{id}/archive"
+  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
+- route: "api/enquiries/{id}/restore"
+  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
+- route: "api/enquiries/{id}/spam"
+  fixture: { id: "App\\Models\\Core\\Site\\Enquiry" }
+
+# ── Routing ──────────────────────────────────────────────────────────────────
+# setPrimary resolves with an UNSCOPED IntegrationConnection::query()->find().
+# Deliberately the strong form: a sentinel here would 404 trivially and hide it.
+- route: "api/routing/connections/{connection}/primary"
+  fixture: { connection: "App\\Models\\Core\\Site\\IntegrationConnection" }
+
+- route: "api/routing/suggestions/{intent}/accept"
+  expect: exempt
+  reason: "{intent} is a routing-intent key from the catalog (e.g. 'book', 'shop'), not a stored row."
+- route: "api/routing/suggestions/{intent}/dismiss"
+  expect: exempt
+  reason: "{intent} is a routing-intent key from the catalog, not a stored row."
+
+# ── Site structure ───────────────────────────────────────────────────────────
+- route: "api/site/pages/{page}"
+  fixture: { page: "App\\Models\\Core\\Site\\Page" }
+- route: "api/site/sections/{section}"
+  fixture: { section: "App\\Models\\Core\\Site\\Section" }
+- route: "api/site/sections/{section}/trace"
+  fixture: { section: "App\\Models\\Core\\Site\\Section" }
+- route: "api/site/sections/{section}/items"
+  fixture: { section: "App\\Models\\Core\\Site\\Section" }
+- route: "api/site/sections/{section}/groups"
+  fixture: { section: "App\\Models\\Core\\Site\\Section" }
+- route: "api/site/sections/{section}/groups/{groupKey}"
+  fixture: { section: "App\\Models\\Core\\Site\\Section", groupKey: unknown }
+- route: "api/site/restyle/{restyle}/undo"
+  fixture: { restyle: unknown }
+
+- route: "api/sections/{blockType}"
+  expect: exempt
+  reason: "{blockType} is a block-type slug (hero, gallery, …); the site is resolved from the caller, not the path."
+
+# ── Content ──────────────────────────────────────────────────────────────────
+- route: "api/content/items/{item}/overrides/{facet}/{column}"
+  fixture: { item: unknown, facet: unknown, column: unknown }
+- route: "api/content/identity/candidates/{candidate}/dismiss"
+  fixture: { candidate: unknown }
+
+# ── Account / session ────────────────────────────────────────────────────────
+- route: "api/account/mfa/factors/{factorId}"
+  expect: exempt
+  reason: "{factorId} is a Supabase GoTrue MFA factor id; no local row exists for it and the call is proxied to Supabase for the authenticated user."
+- route: "api/sessions/{sessionId}"
+  fixture: { sessionId: unknown }
+
+# ── Platform accounts — resource_id inside rows already scoped to the caller ──
+- route: "api/platforms/apple/music/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/apple/podcast/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/bandcamp/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/eventbrite/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/humanitix/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/soundcloud/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/spotify/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/twitch/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/vimeo/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/youtube-music/accounts/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/youtube/accounts/{id}"
+  fixture: { id: unknown }
+
+# ── Platform content rows ────────────────────────────────────────────────────
+- route: "api/platforms/custom/links/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/custom/links/{id}/status"
+  fixture: { id: unknown }
+- route: "api/platforms/eventbrite/events/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/humanitix/events/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/events/custom/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/online-ordering/entries/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/online-ordering/entries/{id}/status"
+  fixture: { id: unknown }
+
+# ── Shop / Shopify — {id} is an external brand_id, {productId} a vendor id ────
+- route: "api/platforms/shop/brands/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/shop/brands/{id}/connect/status"
+  fixture: { id: unknown }
+- route: "api/platforms/shop/brands/{id}/products"
+  fixture: { id: unknown }
+- route: "api/platforms/shop/products/{productId}"
+  fixture: { productId: unknown }
+- route: "api/platforms/shopify/brands/{id}"
+  fixture: { id: unknown }
+- route: "api/platforms/shopify/brands/{id}/connect/status"
+  fixture: { id: unknown }
+- route: "api/platforms/shopify/brands/{id}/products"
+  fixture: { id: unknown }
+- route: "api/platforms/shopify/products/{productId}"
+  fixture: { productId: unknown }
+
+# ── Platform slug, not a row ─────────────────────────────────────────────────
+- route: "api/platforms/{platform}/display-settings"
+  expect: exempt
+  reason: "{platform} is a platform slug from the integrations registry (spotify, menu, …); the connection is resolved from the caller."
+- route: "api/platforms/{platform}/refresh"
+  expect: exempt
+  reason: "{platform} is a platform slug; the connection refreshed is the caller's own."
+- route: "api/platforms/{platform}/refresh/status"
+  expect: exempt
+  reason: "{platform} is a platform slug; the status returned is for the caller's own connection."
+
+# ── Verified capability gate, not an existence leak ──────────────────────────
+# MenuContentController::…  → $this->error('Menu is not available for your
+# account.', 403) — the food-business gate. That is a role/type restriction,
+# which the project rule explicitly reserves 403 for, and it fires before the
+# row is ever consulted so it leaks nothing.
+- route: "DELETE api/platforms/menu/categories/{category}"
+  expect: 403
+  reason: "Food-business capability gate returns 403 before the row is consulted (MenuContentController); a role restriction, not an existence leak."
+  fixture: { category: unknown }
+- route: "api/platforms/menu/items/{item}"
+  expect: 403
+  reason: "Food-business capability gate returns 403 before the row is consulted (MenuContentController); a role restriction, not an existence leak."
+  fixture: { item: unknown }
+
+# ── KNOWN COVERAGE GAP — validation runs before authorization ────────────────
+# These write routes reject an empty body with 422, so the request never reaches
+# the ownership check and the matrix cannot assert 404. No data is disclosed —
+# the caller learns nothing about identity B's row — but authorization on these
+# nine routes is NOT proven by this lane.
+#
+# Closing the gap means modelling each route's FormRequest well enough to pass
+# validation. Tracked as follow-up; deliberately declared here rather than
+# silently exempted so the gap is visible in the file and in review.
+- route: "PUT api/site/sections/{section}/items/{item}"
+  expect: 422
+  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
+- route: "POST api/content/identity/candidates/{candidate}/rule"
+  expect: 422
+  reason: "COVERAGE GAP: POST validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { candidate: unknown }
+- route: "PUT api/content/items/{item}/overrides"
+  expect: 422
+  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { item: unknown }
+- route: "PATCH api/services/{service}/category"
+  expect: 422
+  reason: "COVERAGE GAP: PATCH validation rejects an empty body before authorization runs; body not yet modelled."
+- route: "POST api/platforms/shop/brands/{id}/catalog"
+  expect: 422
+  reason: "COVERAGE GAP: POST validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { id: unknown }
+- route: "PUT api/platforms/shop/brands/{id}/selection"
+  expect: 422
+  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { id: unknown }
+- route: "POST api/platforms/shopify/brands/{id}/catalog"
+  expect: 422
+  reason: "COVERAGE GAP: POST validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { id: unknown }
+- route: "PUT api/platforms/shopify/brands/{id}/selection"
+  expect: 422
+  reason: "COVERAGE GAP: PUT validation rejects an empty body before authorization runs; body not yet modelled."
+  fixture: { id: unknown }
+
+- route: "PATCH api/platforms/menu/categories/{category}"
+  expect: 422
+  reason: "COVERAGE GAP: PATCH validation rejects an empty body before the food-business gate or the ownership check runs; body not yet modelled."
+  fixture: { category: unknown }
+- route: "api/platforms/menu/categories/{category}"
+  fixture: { category: unknown }
+
+# Bare-pattern fallbacks for the two paths whose WRITE verb is a coverage gap.
+# Without these, the sibling verbs (which behave correctly and answer 404) would
+# have no fixture mapping at all.
+- route: "api/site/sections/{section}/items/{item}"
+  fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
+- route: "api/content/items/{item}/overrides"
+  fixture: { item: unknown }

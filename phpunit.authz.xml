@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Dedicated PHPUnit config for the AUTHORIZATION lane (tests/Authz/, driven by
+    tests/Authz/AuthzTestCase.php).
+
+    Shares the applied-migrations database shape with phpunit.schema.xml but is a
+    separate config because the two lanes ask different questions of it: the
+    schema lane interrogates DDL via pg_constraint, this lane exercises HTTP
+    against the routes that schema backs. Sharing a config would blur two
+    distinct base cases; sharing the CI job avoids paying for the migration
+    apply twice.
+
+    Deliberately does NOT set DB_CONNECTION / DB_DATABASE / DB_HOST / etc: like
+    phpunit.schema.xml, this lane must run against a REAL Postgres whose
+    location varies by caller (a local throwaway container in dev, the CI
+    services: postgres container). Those come from the shell/CI job env. Every
+    other <env> below is copied verbatim from phpunit.schema.xml.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Authz">
+            <directory>tests/Authz</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <ini name="memory_limit" value="512M"/>
+        <env name="APIFY_TOKEN" value=""/>
+        <env name="APP_ENV" value="testing"/>
+        <!-- Pinned like phpunit.schema.xml: without it APP_DEBUG falls through to
+             the developer's own .env, so 5xx bodies leak the real message locally
+             and stay generic in CI. false is the deployed-env value. -->
+        <env name="APP_DEBUG" value="false"/>
+        <env name="APP_KEY" value="base64:QEdDiuqdtYmnzFhIZQIIvBjGq6q0H8rMPBn2BEQ7Qss="/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="MAIL_FROM_ADDRESS" value="hello@partna.au"/>
+        <env name="MAIL_FROM_NAME" value="Partna"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="MEDIA_DISK_URL" value="https://test-media.partna.local"/>
+        <env name="AWS_URL" value="https://test-s3.partna.local"/>
+    </php>
+</phpunit>

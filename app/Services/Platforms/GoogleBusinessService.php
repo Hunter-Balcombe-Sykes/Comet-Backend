@@ -173,6 +173,11 @@ class GoogleBusinessService extends PlatformScraper
     // they should reach the sitepage.
     private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
 
+    // Shape of a Places photo resource name, which resolvePhotoUrls() splices
+    // into the media URL. Anything else is refused before it can carry path or
+    // query syntax into the request — see the check in resolvePhotoUrls().
+    private const PHOTO_REF_PATTERN = '#^places/[A-Za-z0-9_-]+/photos/[A-Za-z0-9_-]+$#';
+
     // Preserves the previous ->retry(2, 200) semantics: at most 2 attempts, the
     // second only after a transport-level failure on the first.
     private const DETAILS_MAX_ATTEMPTS = 2;
@@ -456,6 +461,16 @@ class GoogleBusinessService extends PlatformScraper
         foreach ($photos as $index => $photo) {
             if (! empty($photo['url']) || empty($photo['ref'])) {
                 continue; // carry-forward (already has a url) or no ref to resolve — no request, no claim
+            }
+
+            // The ref comes verbatim from the Places payload and is interpolated
+            // into the media URL below. The host is fixed, so this is not SSRF —
+            // but an unexpected ref could still carry '?'/'#'/'..' and reshape the
+            // request. Skip anything that is not the documented places/<id>/photos/<id>
+            // shape. Deliberately BEFORE the budget claim: a malformed ref must not
+            // consume a billed slot.
+            if (preg_match(self::PHOTO_REF_PATTERN, (string) $photo['ref']) !== 1) {
+                continue;
             }
 
             $claim = $this->budget->claim('photos', $userId);

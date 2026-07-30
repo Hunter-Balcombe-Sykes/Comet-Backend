@@ -190,7 +190,9 @@ class YoutubeScraper extends PlatformScraper
         // where available, hqdefault.jpg otherwise. Replaces a per-entry hq guess.
         $thumbnails = $this->thumbnails->bestForMany(array_column($out, 'videoId'));
         foreach ($out as &$entry) {
-            $entry['thumbnail'] = $thumbnails[$entry['videoId']];
+            // bestForMany() omits ids it rejects as malformed (and always has,
+            // for empty ones) — a missing key is "no thumbnail", not a crash.
+            $entry['thumbnail'] = $thumbnails[$entry['videoId']] ?? '';
         }
         unset($entry);
 
