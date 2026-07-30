@@ -49,6 +49,26 @@ class DataExportPayloadBuilder
      * under a second name. It has no Eloquent model, so this coverage guard
      * (which is model-driven) is structurally blind to the table; this note
      * is the record of that decision, not an oversight.
+     *
+     * #PRIV-3: `moderation.case_signals` IS listed, but is exported only
+     * PARTIALLY, and the listing is the honest entry rather than an
+     * overclaim. streamContentReports() emits the signals the subject FILED
+     * (`record_type => 'filed_by_me'`), matched on `reporter_user_id` OR the
+     * `lower(trim(reporter_email))` fallback (SEM-1). What is withheld is
+     * third-party reporter identity on signals filed AGAINST the subject —
+     * deliberate, and the same Ring 3 rule as StaffAuditEntry: a reporter who
+     * is not the data subject must not be unmasked by the subject's own
+     * Article-15 request. Its two sibling moderation tables are deliberately
+     * NOT listed. `moderation.evidence` is a third-party moderation record
+     * whose reported-user PII lives INSIDE a `payload` JSON column, so this
+     * model-driven guard is structurally blind to it in exactly the way it is
+     * blind to `site.site_documents` above (there the table has no model;
+     * here the columns are not columns) — its erasure is registered in
+     * AccountDeletionService::PURGED_PII_TABLES and is now held to that claim
+     * by the purge-mechanism assertion in DataExportCoverageTest.
+     * `moderation.cases` is not listed because its exported column set
+     * carries no PII at all: `reportable_owner_user_id` is only a filter
+     * predicate on the query, never an exported column.
      */
     public const COVERED_PII_TABLES = [
         'core.users',
@@ -59,6 +79,7 @@ class DataExportPayloadBuilder
         'site.enquiries',
         'site.workplaces',
         'notifications.email_subscriptions',
+        'moderation.case_signals',
         'audit.data_export_audit',
         'audit.user_deletion_audit',
         'content.sources', 'content.items', 'content.source_items',

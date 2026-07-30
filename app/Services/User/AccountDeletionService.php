@@ -36,10 +36,39 @@ class AccountDeletionService
     use ResolvesDeletedEmail;
 
     /**
-     * PII tables this service erases by an EXPLICIT keyed delete, because no FK
-     * cascade reaches them — they are joined by email_lc or cleaned per-row, not
-     * by a user_id FK. Read by DataExportCoverageTest: anything exported must
-     * also be erasable, and these are the ones erasure has to do by hand.
+     * PII tables this service erases by an EXPLICIT keyed operation, because no
+     * FK cascade reaches them — they are joined by email_lc or cleaned per-row,
+     * not by a user_id FK. Read by DataExportCoverageTest: anything exported
+     * must also be erasable, and these are the ones erasure has to do by hand.
+     *
+     * "Erases" covers two shapes, not one. Most entries are a DELETE. The two
+     * `moderation.*` entries are an IN-PLACE REDACTION instead — the rows are
+     * moderation evidence and deleting them would destroy the record of a
+     * report we may have to defend, so the PII columns/keys are nulled or
+     * tombstoned and the row survives. Erasure obligation met, evidence intact.
+     *
+     * Why no cascade reaches either moderation table: both links to
+     * `core.users` are ON DELETE SET NULL, not CASCADE —
+     * `case_signals_reporter_user_fk` (baseline_pilot.sql:3756-3757) and
+     * `cases_owner_user_fk` (:3761-3762). So forceDelete() nulls the FK and
+     * leaves the row. `moderation.evidence` is one hop further out: its own
+     * `evidence_case_fk` IS ON DELETE CASCADE, but it cascades from
+     * `moderation.cases`, and that case row is exactly what `cases_owner_user_fk`
+     * preserves — so the cascade never fires for an account deletion.
+     *
+     * `moderation.case_signals` has THREE erasure paths, and they are NOT
+     * interchangeable — each is keyed differently and two of them erase
+     * different column sets:
+     *   1. purgeCaseSignalPii() below — the subject's own account deletion.
+     *      Nulls reporter_email / reason_details / signal_data.
+     *   2. `moderation:prune-resolved-signal-pii` (weekly) — same column set,
+     *      keyed on the PARENT case's resolved_at instead of a deletion event.
+     *      Time-based retention, unrelated to any account.
+     *   3. `moderation:redact-reporter-pii {case_id}` — staff-run, per-CASE,
+     *      for a reporter's own erasure request. Deliberately different column
+     *      set: it clears reporter_email AND reporter_ip_hash (which 1 and 2
+     *      retain for T&S dedup) but leaves reason_details / signal_data.
+     * Changing the column set in 1 means changing 2; 3 is its own contract.
      *
      * core.users is the deletion subject itself (forceDelete), which is what
      * triggers every FK cascade — so it heads the list rather than sitting in
@@ -86,6 +115,8 @@ class AccountDeletionService
         'analytics.item_views',                // purgeItemViewsPii() — user_id is a denormalised column, no FK
         'analytics.action_events',             // purgeActionEventsPii() — same denormalised-column shape as item_views
         'ingest.effects',                      // purgeIngestEffects() — FK is SET NULL (money ledger), not CASCADE
+        'moderation.case_signals',             // purgeCaseSignalPii() — in-place redaction; FK is SET NULL, row is evidence
+        'moderation.evidence',                 // purgeReportedUserEvidencePii() — in-place payload tombstone; no FK to the user at all
     ];
 
     /**
@@ -775,7 +806,7 @@ class AccountDeletionService
         $this->purgeExportZips($professional);           // #P2-08: R2 export ZIPs
         $this->purgeEarlyAccessSignup($professional, $lookupEmail);     // #P2-09: early access signup row
         $this->purgeFeedbackRows($professional);         // #P2-10: feedback (FK is SET NULL, not CASCADE)
-        $this->purgeCaseSignalPii($professional);        // #P2-11: reporter PII on moderation signals
+        $this->purgeCaseSignalPii($professional, $lookupEmail); // #P2-11 + PRIV-3: reporter PII on moderation signals (email leg is the only one production populates)
         $this->purgeReportedUserEvidencePii($professional); // PRIV-4: reported-user PII in evidence payload
         $this->purgeGlobalEmailSubscriptions($professional, $lookupEmail);    // #P2-12: global (user_id IS NULL) subscriptions
         $this->purgeCrossTenantSubscriptions($professional, $lookupEmail); // PRIV-7 Gap 1: other-user-owned rows matching this email
@@ -1033,13 +1064,51 @@ class AccountDeletionService
      * signal_data is the original report payload (e.g. {"details": "..."}), which carries
      * the reporter's verbatim words — reset to an empty object. The non-PII columns
      * (reason_code, signal_source, dedup_hash, case_id) are retained for T&S analytics.
+     *
+     * PRIV-3: the reporter_user_id leg alone erased NOTHING in production.
+     * ContentReportService::submit() is the only CaseSignal writer and its
+     * forceCreate() array has no reporter_user_id key (the /v1/public/report route is
+     * unauthenticated — there is no principal to attribute), so every real row has
+     * reporter_user_id IS NULL and the keyed predicate matched zero rows, always.
+     * reporter_email is the only column that links a signal back to a person, so it is
+     * the leg that has to carry the erasure. $lookupEmail MUST be the
+     * pre-pseudonymisation email from resolveDeletedAccountEmail() — by the time purge()
+     * runs, primary_email is already "deleted+{id}@partna.au". The reporter_user_id leg
+     * is kept for any future authenticated report path.
+     *
+     * The two legs are wrapped in a grouped closure so the orWhere cannot escape into
+     * the UPDATE's top-level WHERE and widen it to every row in the table. The
+     * null/empty-$lookupEmail guard is the same one purgeGlobalEmailSubscriptions makes,
+     * applied to the leg rather than the whole method (an early return here would also
+     * skip the reporter_user_id leg): the orWhereRaw is omitted entirely, so an empty
+     * match can never degrade into a match-everything.
+     *
+     * lower(trim(...)) mirrors DataExportPayloadBuilder::streamContentReports()'s SEM-1
+     * fold exactly, so erasure reaches precisely the legacy mixed-case rows the export
+     * discloses. On Postgres the expression is not sargable against the partial index
+     * `case_signals_reporter_user_idx`, so this is a sequential scan — accepted at pilot
+     * volume for a once-per-user purge, the same trade purgeCrossTenantSubscriptions
+     * already makes. Deliberately NO functional index: the write path normalises on
+     * insert, so this fold exists only for pre-SEM-1 rows and will stop mattering.
+     * (SQLite's lower() is ASCII-only where Postgres' is locale-aware — immaterial for
+     * email addresses, noted so the driver difference isn't rediscovered as a bug.)
      */
-    private function purgeCaseSignalPii(User $professional): void
+    private function purgeCaseSignalPii(User $professional, ?string $lookupEmail): void
     {
+        $emailLc = ($lookupEmail !== null && trim($lookupEmail) !== '')
+            ? mb_strtolower(trim($lookupEmail))
+            : null;
+
         try {
             DB::connection('pgsql')
                 ->table('moderation.case_signals')
-                ->where('reporter_user_id', $professional->id)
+                ->where(function ($q) use ($professional, $emailLc) {
+                    $q->where('reporter_user_id', $professional->id);
+
+                    if ($emailLc !== null) {
+                        $q->orWhereRaw('lower(trim(reporter_email)) = ?', [$emailLc]);
+                    }
+                })
                 ->update([
                     'reporter_user_id' => null,
                     'reporter_email' => null,
@@ -1061,7 +1130,10 @@ class AccountDeletionService
      * PRIV-4: Tombstone reported-user PII embedded in moderation.evidence payload.
      *
      * EvidenceSnapshotService::snapshotSite() writes the reported user's handle,
-     * display_name, bio, and site_subdomain into payload for evidence_type='content_snapshot'.
+     * display_name, and site_subdomain into payload for evidence_type='content_snapshot'.
+     * (This docblock previously also claimed `bio` — it never was written, and there is
+     * no `bio` column anywhere in the schema. Corrected rather than defensively redacted:
+     * redacting a key that is never present is dead code that reads as coverage.)
      * moderation.evidence has no FK to the reported user, so forceDelete's cascade never
      * reaches it — the PII would otherwise survive indefinitely (GDPR erasure gap).
      *
