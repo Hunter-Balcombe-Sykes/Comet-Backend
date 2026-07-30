@@ -196,6 +196,18 @@ return [
         'bab8cea99a97', // IngestProjectCommand:142 — $collection from a literal foreach array
         '24cc5ece6372', // IngestProjectCommand:148 — $facet from a literal foreach array
 
+        // Re-vetted 2026-07-30. Same three call sites as :675/:680 above, re-hashed
+        // after refreshItemCaches() moved — Checkpoint keys a suppression by line
+        // CONTENT, so any edit above a finding silently reopens it. Provenance
+        // re-confirmed at the current lines, not assumed from the older entries:
+        //   ProjectionWriter:785  foreach (array_keys(self::SINGLETON_FACETS) as $facet)
+        //   ProjectionWriter:791  foreach (['item_media','offers','item_tags','f_action'] as $collection)
+        // Both loop sources are compile-time constants; no request input reaches the
+        // table name, and item_id values travel as bindings via whereIn().
+        '657930f2f7f9', // ProjectionWriter:786 — $facet from array_keys(self::SINGLETON_FACETS) (:785)
+        '3b8365f2b9b7', // ProjectionWriter:792 — $collection from the literal foreach array (:791)
+        '677ef50b5100', // ProjectionWriterBatchingTest:128 — same $facet const in a test fixture
+
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
         // All are `Authorization: Bearer ` headers concatenating a VARIABLE
         // (JWT/service key/OAuth token resolved at runtime) — nothing literal.

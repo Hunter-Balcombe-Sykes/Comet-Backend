@@ -5,6 +5,7 @@ namespace App\Models\Core\Site;
 use App\Models\BaseModel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 // One ordered pick in a site's "Content Selection" — up to 15 heterogeneous
 // references the user chooses as sitepage background content. NOTHING is copied:
@@ -18,6 +19,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // The DB CHECK content_selection_ref_shape enforces which of media_id/external_ref
 // is set per entry_type; UNIQUE(site_id, position) enforces 1..15 ordering.
 // Ownership is gated in ContentSelectionPolicy (RLS is off), resolved via site.
+/**
+ * Columns mirror site.content_selection (baseline_pilot.sql:1511); nullability
+ * is the DDL's, and `position` is int because $casts maps it, not because
+ * smallint implies it.
+ *
+ * @property string $id
+ * @property string $site_id
+ * @property int $position
+ * @property string $entry_type
+ * @property string|null $media_id
+ * @property string|null $external_ref
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ * @property-read Site|null $site
+ * @property-read SiteMedia|null $media
+ */
 class ContentSelection extends BaseModel
 {
     use HasUuids;

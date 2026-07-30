@@ -5,22 +5,37 @@
 // auth_user_id = auth.uid()` (no role filter) on a write policy would let a
 // rogue `support` JWT mutate any user/customer row.
 //
-// Strategy mirrors tests/Feature/Database/CheckConstraintsTest.php: introspect
-// pg_policies (PostgreSQL-only) rather than attempting to exercise RLS, which
-// SQLite cannot enforce. Skips on the default SQLite test driver.
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every assertion on a helper that asked whether the connection was Postgres.
+// Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory SQLite
+// unconditionally — deliberately, so BaseModel-forced models never dial the real
+// Supabase host — so that helper returned false in every lane, and every
+// assertion here skipped silently in CI and locally.
 //
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter AdminOnlyWritePoliciesTest
+// It now runs in the applied-schema lane (phpunit.schema.xml / `composer
+// test:schema`, see Tests\SchemaTestCase), against a container that the real
+// supabase/migrations/ set has been applied to by scripts/db/apply-migrations.sh.
+// The per-test skip guard is gone: the base case skips the whole lane when no
+// migrated Postgres is present, so a re-widened staff-write policy now fails
+// instead of vanishing.
+//
+// The `role = 'admin'` assertions below depend on pg_get_expr's rendering: an
+// unreserved identifier like `role` is left bare by quote_identifier, and the
+// literal is cast, so the qual text is `cs.role = 'admin'::text` — the
+// substring match works because of that specific rendering, not by accident.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-function adminWritePoliciesIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Fetch the USING (qual) + WITH CHECK expressions for a named policy.
+ *
+ * NOTE: `fetchPolicy` is a dangerously generic name for a Pest file-scope
+ * function — Pest test files share a GLOBAL symbol table, and a redeclaration
+ * in another tests/Schema/ file is a hard fatal under --parallel. Do not
+ * redeclare this name elsewhere in the lane.
  *
  * @return object{cmd: string, qual: ?string, with_check: ?string}|null
  */
@@ -36,10 +51,6 @@ function fetchPolicy(string $schema, string $table, string $policy): ?object
 
 // The old FOR ALL policies must be gone — their presence means the split never ran.
 it('drops the unsplit FOR ALL staff-write policies', function () {
-    if (! adminWritePoliciesIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     expect(fetchPolicy('core', 'users', 'users_all_authenticated'))->toBeNull(
         'Legacy core.users FOR ALL policy still exists — admin-write split did not apply.'
     );
@@ -59,10 +70,6 @@ dataset('admin_gated_write_policies', [
 ]);
 
 it('gates every staff-write policy on role = admin', function (string $schema, string $table, string $policy) {
-    if (! adminWritePoliciesIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchPolicy($schema, $table, $policy);
     expect($row)->not->toBeNull("Expected policy [{$schema}.{$table}.{$policy}] to exist.");
 
@@ -70,11 +77,8 @@ it('gates every staff-write policy on role = admin', function (string $schema, s
     // for that command: WITH CHECK for INSERT, USING for DELETE, both for UPDATE.
     $expr = trim(($row->qual ?? '').' '.($row->with_check ?? ''));
 
-    expect($expr)->toContain('partna_staff', "[{$policy}] should reference partna_staff.");
-    expect($expr)->toContain(
-        "role = 'admin'",
-        "[{$policy}] staff branch is NOT gated on role = 'admin' — support staff can write."
-    );
+    expect($expr)->toContain('partna_staff');
+    expect($expr)->toContain("role = 'admin'");
 })->with('admin_gated_write_policies');
 
 // The SELECT policies must remain open to ANY staff (no admin gate) so support
@@ -86,16 +90,9 @@ dataset('any_staff_select_policies', [
 ]);
 
 it('keeps SELECT open to any staff (no admin gate)', function (string $schema, string $table, string $policy) {
-    if (! adminWritePoliciesIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchPolicy($schema, $table, $policy);
     expect($row)->not->toBeNull("Expected SELECT policy [{$schema}.{$table}.{$policy}] to exist.");
     expect($row->cmd)->toBe('SELECT');
-    expect($row->qual)->toContain('partna_staff', "[{$policy}] should let staff read.");
-    expect($row->qual)->not->toContain(
-        "role = 'admin'",
-        "[{$policy}] must NOT gate reads on admin — support staff need read access."
-    );
+    expect($row->qual)->toContain('partna_staff');
+    expect($row->qual)->not->toContain("role = 'admin'");
 })->with('any_staff_select_policies');

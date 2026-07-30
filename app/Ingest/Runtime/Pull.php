@@ -11,10 +11,10 @@ final readonly class Pull
      * @param  array<string, mixed>  $cursor  last Bookmark for this stream
      * @param  array<string, mixed>  $config  per-source options (scope, scope_n)
      * @param  bool  $isClaimed  drives Manifest::redactionsFor() — a PII gate,
-     *   so the default must fail CLOSED. RunExecutor:75 is the only production
-     *   construction site today and always passes this explicitly; the default
-     *   only matters to a future second call site that forgets the argument,
-     *   and "forgot to pass it" must silently over-redact, never under-redact.
+     *                           so the default must fail CLOSED. RunExecutor:75 is the only production
+     *                           construction site today and always passes this explicitly; the default
+     *                           only matters to a future second call site that forgets the argument,
+     *                           and "forgot to pass it" must silently over-redact, never under-redact.
      */
     public function __construct(
         public string $identifier,

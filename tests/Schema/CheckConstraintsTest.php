@@ -24,7 +24,7 @@
 use Illuminate\Support\Facades\DB;
 use Tests\SchemaTestCase;
 
-uses(SchemaTestCase::class)->in(__DIR__);
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Assert that a named CHECK constraint exists on the given table and has been validated.
@@ -286,4 +286,20 @@ it('action_events_site_fk exists, is validated, and cascades on delete', functio
 
 it('field_bindings_manual_priority constraint exists and is validated', function () {
     assertCheckConstraintExists('site', 'field_bindings', 'field_bindings_manual_priority');
+});
+
+// ─── site.content_selection ─────────────────────────────────────────────────
+//
+// The NOT VALID -> VALIDATE pair added by 20260730090000 + 20260730090001 (audit
+// LC-ROLLBACK). This lane is the only place the pair is proven end-to-end: it runs
+// against a container the whole migration set was applied to FROM ZERO by
+// scripts/db/apply-migrations.sh, so a future edit that deletes ...090001 surfaces
+// here as convalidated = false instead of as an un-validated CHECK in production.
+
+it('content_selection_entry_type_check constraint exists and is validated', function () {
+    assertCheckConstraintExists('site', 'content_selection', 'content_selection_entry_type_check');
+});
+
+it('content_selection_ref_shape constraint exists and is validated', function () {
+    assertCheckConstraintExists('site', 'content_selection', 'content_selection_ref_shape');
 });

@@ -11,6 +11,11 @@
 -- the wrong tool here and an explicit purge is the right one.
 --
 -- source_id is already nullable, so SET NULL needs no further schema change.
+--
+-- ROLLBACK: ALTER TABLE ingest.effects
+--             DROP CONSTRAINT IF EXISTS effects_source_id_fk;
+--           Any source_id already NULLed by ON DELETE SET NULL stays NULL;
+--           the original pointer is unrecoverable.
 
 BEGIN;
 SET LOCAL lock_timeout      = '5s';

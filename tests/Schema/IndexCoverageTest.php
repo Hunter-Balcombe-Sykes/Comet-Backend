@@ -1,21 +1,22 @@
 <?php
 
 // Verifies that FK columns known to lack auto-created indexes have the expected
-// supporting indexes in place. Run against real PostgreSQL only — SQLite doesn't
-// have pg_index / pg_attribute.
+// supporting indexes in place.
 //
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter IndexCoverageTest
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every one of its assertions on a helper that asked whether the connection was
+// Postgres. Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory
+// SQLite unconditionally, so that helper returned false in every lane and all 7
+// assertions skipped silently in CI and locally.
+//
+// It now runs in the applied-schema lane (phpunit.schema.xml / `composer
+// test:schema`, see Tests\SchemaTestCase), against a container that the real
+// supabase/migrations/ set has been applied to by scripts/db/apply-migrations.sh.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-/**
- * Return true if the current connection is a real PostgreSQL instance.
- */
-function indexCoverageSuiteIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Assert that a named index exists on the given schema.table and is VALID
@@ -65,8 +66,5 @@ dataset('analyticsPurgeIndexes', [
 ]);
 
 it('has a timestamp-leading purge index on each raw analytics table', function (string $table, string $index) {
-    if (! indexCoverageSuiteIsPostgres()) {
-        $this->markTestSkipped('pg_indexes queries require PostgreSQL.');
-    }
     assertIndexExists('analytics', $table, $index);
 })->with('analyticsPurgeIndexes');

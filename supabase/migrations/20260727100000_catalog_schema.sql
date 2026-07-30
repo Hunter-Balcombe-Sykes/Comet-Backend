@@ -3,6 +3,12 @@
 -- ever TRUNCATEd or DELETEd) plus the runtime tables at the bottom, which the
 -- compiler/sync never touch. The router reads the opcache artefact, never
 -- these tables — they exist for FKs, analytics joins, and the dashboard API.
+--
+-- ROLLBACK: DROP SCHEMA IF EXISTS catalog CASCADE;
+--           IRREVERSIBLE IN PRACTICE: brands/surfaces/detectors/host_aliases/
+--           suffix_overrides are a PROJECTION (`catalog:sync` rebuilds them
+--           from the compiled artefact), but sync_state, detector_suspensions
+--           and unmatched_domains are locally ACCUMULATED and NOT re-derivable.
 
 CREATE SCHEMA IF NOT EXISTS "catalog";
 

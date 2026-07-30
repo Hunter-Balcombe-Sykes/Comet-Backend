@@ -2,6 +2,14 @@
 -- pipeline's durable state. Deliberately NOT the router's read path — the
 -- router reads the compiled artefact; these tables record what was observed,
 -- what was decided, and what a user asked us to stop doing.
+--
+-- ROLLBACK: DROP SCHEMA IF EXISTS routing CASCADE;
+--           IRREVERSIBLE DATA LOSS. Destroys routing.item_tombstones, the
+--           record of every connection a user REFUSED; PlacementPolicy::
+--           isTombstoned() then reads nothing and the next scan silently
+--           resurrects them (the exact hazard 20260728120000 exists to
+--           close). Also takes link_observations, source_intents, import_runs
+--           (cooldown state).
 
 CREATE SCHEMA IF NOT EXISTS "routing";
 

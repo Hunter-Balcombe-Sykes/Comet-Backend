@@ -67,6 +67,14 @@
 -- a hot table; core.users is read-only here). Re-runnable: ON CONFLICT DO
 -- NOTHING against idx_item_tombstones_unique, so a repeat apply is a no-op and
 -- refusals already recorded by the suggestions inbox are left alone.
+--
+-- ROLLBACK: DELETE FROM routing.item_tombstones
+--            WHERE reason = 'legacy soft-deleted connection, backfilled 2026-07-28';
+--           Exactly reversible: the reason string is unique to this file, and
+--           ON CONFLICT DO NOTHING means it never overwrote a tombstone the
+--           suggestions inbox had written. But reverting re-opens the
+--           resurrection hazard in the header -- connections users
+--           deliberately deleted come back on the next scan.
 
 INSERT INTO "routing"."item_tombstones" ("user_id", "source_ref", "scope", "reason", "created_at")
 SELECT pc."user_id",

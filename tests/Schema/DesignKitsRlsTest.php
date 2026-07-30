@@ -7,19 +7,24 @@
 // a regression that drops RLS or weakens the policy set on this PII-adjacent
 // (per-user styling) table.
 //
-// Strategy mirrors tests/Feature/Security/AdminOnlyWritePoliciesTest.php:
-// introspect pg_class/pg_policies (PostgreSQL-only) rather than exercising RLS,
-// which SQLite cannot enforce. Skips on the default SQLite test driver.
+// THIS FILE RAN NOWHERE FOR ITS ENTIRE LIFE. It lived in tests/Feature and gated
+// every assertion on a helper that asked whether the connection was Postgres.
+// Tests\TestCase::setUp() repoints the 'pgsql' connection at in-memory SQLite
+// unconditionally — deliberately, so BaseModel-forced models never dial the real
+// Supabase host — so that helper returned false in every lane, and every
+// assertion here skipped silently in CI and locally.
 //
-// To run against a Supabase dev DB:
-//   DB_CONNECTION=pgsql DB_HOST=... phpunit --filter DesignKitsRlsTest
+// It now runs in the applied-schema lane (phpunit.schema.xml / `composer
+// test:schema`, see Tests\SchemaTestCase), against a container that the real
+// supabase/migrations/ set has been applied to by scripts/db/apply-migrations.sh.
+// The per-test skip guard is gone: the base case skips the whole lane when no
+// migrated Postgres is present, so a dropped/weakened policy now fails instead
+// of vanishing.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-function designKitsRlsIsPostgres(): bool
-{
-    return DB::connection()->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Fetch a named policy on site.design_kits with its roles + expressions.
@@ -39,10 +44,6 @@ function fetchDesignKitsPolicy(string $policy): ?object
 // RLS must be ENABLED and FORCED — design_kits was the lone site.* table without
 // it, leaving every user's design tokens world-readable to any authenticated JWT.
 it('keeps RLS enabled and forced on site.design_kits', function () {
-    if (! designKitsRlsIsPostgres()) {
-        $this->markTestSkipped('pg_class introspection requires PostgreSQL.');
-    }
-
     // Cast to int: PDO_pgsql can return booleans as 't'/'f' strings, and the
     // string 'f' is truthy in PHP — so compare the integer form explicitly.
     $row = DB::selectOne(
@@ -68,10 +69,6 @@ dataset('design_kit_policies', [
 ]);
 
 it('defines the expected design_kits RLS policy for each command', function (string $policy, string $cmd) {
-    if (! designKitsRlsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchDesignKitsPolicy($policy);
     expect($row)->not->toBeNull("Expected policy [site.design_kits.{$policy}] to exist.");
     expect($row->cmd)->toBe($cmd, "[{$policy}] should be a {$cmd} policy.");
@@ -80,14 +77,10 @@ it('defines the expected design_kits RLS policy for each command', function (str
 // The anon policy is the public profile read path — it must be restricted to
 // PUBLISHED sites so an unpublished site's design tokens are never exposed.
 it('restricts the anon read policy to published sites', function () {
-    if (! designKitsRlsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchDesignKitsPolicy('design_kits_public_read_published');
     expect($row)->not->toBeNull('Anon public-read policy is missing.');
-    expect($row->roles)->toContain('anon', 'Public read policy must apply to the anon role.');
-    expect($row->qual)->toContain('is_published', 'Anon read policy must be gated on the parent site being published.');
+    expect($row->roles)->toContain('anon');
+    expect($row->qual)->toContain('is_published');
 });
 
 // The authenticated policies must scope to the site owner (sites -> users on
@@ -101,14 +94,10 @@ dataset('design_kit_owner_scoped_policies', [
 ]);
 
 it('scopes authenticated design_kits policies to the site owner or staff', function (string $policy) {
-    if (! designKitsRlsIsPostgres()) {
-        $this->markTestSkipped('pg_policies introspection requires PostgreSQL.');
-    }
-
     $row = fetchDesignKitsPolicy($policy);
     expect($row)->not->toBeNull("Expected policy [site.design_kits.{$policy}] to exist.");
 
     $expr = trim(($row->qual ?? '').' '.($row->with_check ?? ''));
-    expect($expr)->toContain('auth_user_id', "[{$policy}] must scope to the owner via auth_user_id.");
-    expect($expr)->toContain('partna_staff', "[{$policy}] must allow staff access.");
+    expect($expr)->toContain('auth_user_id');
+    expect($expr)->toContain('partna_staff');
 })->with('design_kit_owner_scoped_policies');

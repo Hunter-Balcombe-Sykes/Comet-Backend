@@ -36,6 +36,17 @@ class YoutubeThumbnailResolver
     /** maxres availability is stable once a video is published, so cache long. */
     private const CACHE_DAYS = 30;
 
+    /**
+     * A YouTube video id is exactly 11 chars of [A-Za-z0-9_-].
+     *
+     * The id is interpolated into a fixed-host URL, so a hostile value cannot
+     * redirect the request — i.ytimg.com is closed before the substitution point.
+     * It CAN carry syntax though: a '?' or '#' reshapes the path and query, the
+     * same class of bug as an unparameterised SQL string. Constrain it here so
+     * neither the HEAD probe nor the URL handed to the frontend can be steered.
+     */
+    private const VIDEO_ID_PATTERN = '/^[A-Za-z0-9_-]{11}$/';
+
     public function __construct(private readonly FetchBudget $budget) {}
 
     private function maxresUrl(string $videoId): string
@@ -61,7 +72,13 @@ class YoutubeThumbnailResolver
      */
     public function bestForMany(array $videoIds): array
     {
-        $ids = array_values(array_unique(array_filter($videoIds)));
+        // Drop malformed ids before any of them reaches a URL builder (see
+        // VIDEO_ID_PATTERN). Callers already had to tolerate a missing key —
+        // array_filter dropped empty ids long before this check existed.
+        $ids = array_values(array_unique(array_filter(
+            $videoIds,
+            fn (string $id): bool => preg_match(self::VIDEO_ID_PATTERN, $id) === 1,
+        )));
         if ($ids === []) {
             return [];
         }

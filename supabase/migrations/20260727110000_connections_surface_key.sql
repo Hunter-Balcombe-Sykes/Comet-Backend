@@ -65,6 +65,17 @@
 --
 -- No guard:no-unsafe-migrations:disable-file marker: this family does not need
 -- one any more.
+--
+-- ROLLBACK: ALTER TABLE site.platform_connections
+--             DROP COLUMN IF EXISTS surface_key,
+--             DROP COLUMN IF EXISTS routing_class,
+--             DROP COLUMN IF EXISTS is_primary,
+--             DROP COLUMN IF EXISTS created_by_detector,
+--             DROP COLUMN IF EXISTS created_by_catalog_digest;
+--           ORDER MATTERS: revert ...110004 FIRST. The generated `platform`
+--           column depends on surface_key and blocks the drop. Reverting
+--           this also discards ...110001's backfill and every value written
+--           since.
 
 BEGIN;
 SET LOCAL lock_timeout      = '2s';

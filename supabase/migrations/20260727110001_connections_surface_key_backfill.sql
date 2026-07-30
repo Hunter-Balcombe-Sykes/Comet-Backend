@@ -17,6 +17,12 @@
 -- ("matches the backfill migration CASE pair-for-pair"). They are reproduced
 -- VERBATIM from 20260727110000 — including 'pinterest', retired 2026-07-28,
 -- which stays because this records what actually ran.
+--
+-- ROLLBACK: NONE independently. Nothing records which rows were NULL before
+--           the fill, so a blanket SET surface_key = NULL would also wipe
+--           values a human or later code path corrected. Reverse the FAMILY
+--           instead -- 20260727110000's ROLLBACK drops the columns and takes
+--           these values with them.
 
 DO $backfill$
 DECLARE

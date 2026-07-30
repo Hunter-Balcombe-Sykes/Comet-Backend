@@ -428,3 +428,43 @@ it('G3 accepts a disable-file marker followed by genuine comment prose stating a
 
     expect($r['exit'])->toBe(0, "Expected the guard to PASS -- the marker is followed by genuine comment prose stating a rationale; output:\n{$r['output']}");
 });
+
+// ─── LC-ROLLBACK: every migration states a reverse path (CONVENTIONS.md §10) ──
+//
+// Anchored to line start so PROSE mentioning reverting cannot satisfy it. Three
+// files contain "revert"/"rollback" as prose only -- 20260727140000 ("reverting
+// is deleting the row"), 20260729130000 ("DINT-16's revert bug") and the baseline
+// (a COMMENT ON COLUMN string literal) -- and the loose grep the audit used
+// counted all three as compliant. Requiring the keyword at the HEAD of a comment
+// line is what tells a note apart from a mention.
+
+function migrationBoundaryHasRollbackNote(string $sql): bool
+{
+    return preg_match('/^[ \t]*--[ \t]*(ROLLBACK|TO\s+REVERT|REVERT)[ \t]*:/im', $sql) === 1;
+}
+
+it('every migration in supabase/migrations/ states a reverse path', function () {
+    $missing = [];
+
+    foreach (glob(base_path('supabase/migrations/*.sql')) ?: [] as $file) {
+        if (! migrationBoundaryHasRollbackNote((string) file_get_contents($file))) {
+            $missing[] = basename($file);
+        }
+    }
+
+    expect($missing)->toBe([], "These migrations carry no reverse path (CONVENTIONS.md §10):\n  - "
+        .implode("\n  - ", $missing)
+        ."\n\nAdd a header line: `-- ROLLBACK: <exact inverse statement>;`"
+        ."\nIf there is no reverse -- a DELETE, a backfill with no recorded pre-image, a"
+        ."\nDROP -- write `-- ROLLBACK: NONE.` and one line of why. Supabase is on the Free"
+        ."\nplan: no PITR, no managed backups. A note that claims revertibility where none"
+        ."\nexists is worse than no note.");
+});
+
+it('the reverse-path matcher rejects prose that merely mentions reverting', function () {
+    expect(migrationBoundaryHasRollbackNote("-- editing one field freezes it; reverting is deleting the row\n"))->toBeFalse()
+        ->and(migrationBoundaryHasRollbackNote("-- DINT-16's revert bug can leave two rows behind\n"))->toBeFalse()
+        ->and(migrationBoundaryHasRollbackNote("COMMENT ON COLUMN t.c IS 'revert via /resync';\n"))->toBeFalse()
+        ->and(migrationBoundaryHasRollbackNote("-- ROLLBACK: DROP TABLE IF EXISTS x;\n"))->toBeTrue()
+        ->and(migrationBoundaryHasRollbackNote("-- To revert: DROP TABLE IF EXISTS x;\n"))->toBeTrue();
+});

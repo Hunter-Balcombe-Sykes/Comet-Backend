@@ -23,6 +23,13 @@
 -- specifically so this constraint is never transiently violated (a single
 -- combined UPDATE could visit rows in either order and violate it
 -- mid-statement; partial unique indexes cannot be made DEFERRABLE).
+--
+-- ROLLBACK: DROP INDEX IF EXISTS ingest.idx_record_versions_one_current;
+--           NOT CONCURRENTLY -- illegal on a partitioned table, the same reason
+--           the create is not concurrent. Wrap it in BEGIN + SET LOCAL
+--           lock_timeout the way the create is. Reverting re-opens
+--           DINT-16/DINT-9: nothing then stops two is_current=true rows per
+--           (stream_id, key).
 BEGIN;
 SET LOCAL lock_timeout      = '5s';
 SET LOCAL statement_timeout = '60s';

@@ -7,6 +7,15 @@
 -- from a bounded rule, plus the user's pins and excludes. Nothing carries an
 -- `is_selected` column, because selection is a section's opinion rather than
 -- a property of an item.
+--
+-- ROLLBACK: DROP TABLE IF EXISTS site.design_kit_restyles, site.site_build_state,
+--             site.site_documents, content.source_routes, site.section_groups,
+--             site.section_items, site.sections, site.pages
+--           CASCADE;
+--           IRREVERSIBLE: every curated section, every pin/exclude in
+--           section_items, every built document version. DocumentBuilder can
+--           rebuild only for sites whose sections survive elsewhere -- they
+--           do not.
 
 -- ── pages ──────────────────────────────────────────────────────────────────
 CREATE TABLE "site"."pages" (

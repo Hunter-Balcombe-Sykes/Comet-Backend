@@ -21,11 +21,11 @@ Partna's tenant data lives in `site.*`, `core.*`, `analytics.*`, and `notificati
 - Tables intended to be public (e.g. lookup / platform-config tables) where RLS is enabled but no policy exists — legitimate reads silently fail.
 
 **House exemplars — use these as the pattern to extend:**
-- `tests/Feature/Security/DesignKitsRlsTest.php` — asserts `site.design_kits` has RLS enabled, forced, and the correct owner/staff/anon policy set (added in `20260602000000_design_kits_rls.sql`).
-- `tests/Feature/Security/FunctionSearchPathTest.php` — introspects `pg_proc.proconfig` to assert every trigger/helper function has a pinned `search_path`.
-- `tests/Feature/Security/ModerationSchemaRlsTest.php` — asserts all five `moderation.*` tables have RLS enabled + forced + a staff-only SELECT policy + an `app_backend` FOR ALL policy.
+- `tests/Schema/DesignKitsRlsTest.php` — asserts `site.design_kits` has RLS enabled, forced, and the correct owner/staff/anon policy set (added in `20260602000000_design_kits_rls.sql`).
+- `tests/Schema/FunctionSearchPathTest.php` — introspects `pg_proc.proconfig` to assert every trigger/helper function has a pinned `search_path`.
+- `tests/Schema/ModerationSchemaRlsTest.php` — asserts all five `moderation.*` tables have RLS enabled + forced + a staff-only SELECT policy + an `app_backend` FOR ALL policy.
 
-New tenant-data or staff-data tables must replicate this pattern: RLS + FORCE + per-role policies + a regression-guard test in `tests/Feature/Security/`.
+New tenant-data or staff-data tables must replicate this pattern: RLS + FORCE + per-role policies + a regression-guard test in `tests/Schema/` (the applied-schema lane — these tests introspect `pg_policies`/`pg_class` against a real migrated Postgres, not SQLite).
 
 ### (2) `search_path` / multi-schema correctness
 

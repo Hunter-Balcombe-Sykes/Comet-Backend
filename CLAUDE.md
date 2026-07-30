@@ -106,6 +106,17 @@ All resource authorization via Laravel Policies in `app/Policies/`. Every policy
 
 **403 vs 404:** 404 when resource doesn't exist/belong to user. 403 only for role/type restrictions. Public endpoints: always 404 (403 enables enumeration).
 
+### Outbound HTTP (SSRF)
+
+**Every outbound fetch in `app/` must sit in one of four categories**, pinned by `tests/Feature/Architecture/OutboundHttpGuardTest.php` (own CI job — the Feature suite can abort before it runs). The `Http` facade is the ONLY permitted transport: no `curl_*`, no direct Guzzle, no `file_get_contents('http…')`.
+
+- **B — `SafeUrlFetcher`** — the URL came from a user, a scrape, or any third-party payload. **This is the default for new code.** Inject `App\Services\Http\SafeUrlFetcher`, call `fetch()`/`tryFetch()`.
+- **A — ConstantEndpoint** — host is a class const or `config()` value.
+- **C — HostAllowlist** — untrusted URL checked against an explicit host allowlist AND `->withoutRedirecting()` (see `InstagramConnectionSeeder`).
+- **D — FixedHostVariablePath** — host hardcoded, path variable; the variable segment MUST be validated against a strict pattern const.
+
+Adding an allowlist entry is **not** the default fix — if the URL is externally influenced, the answer is B. Laravel's `url` validation rule does NOT prevent SSRF (`http://169.254.169.254/` passes it). Spec: `docs/superpowers/specs/2026-07-30-outbound-http-guard-design.md`.
+
 ### MFA / AAL2
 
 `aal` + `amr` from Supabase JWTs as request attributes (`VerifySupabaseJwt`). Staff: `require.aal2`. User MFA: `$this->requiresFreshAal2()` in policy. Docs: `docs/auth/mfa-foundation.md`, runbook: `docs/auth/mfa-foundation-runbook.md`.
