@@ -2301,6 +2301,23 @@ return [
         // count so the purge never holds one long-running transaction.
         'purge_batch_size' => (int) env('PARTNA_ANALYTICS_PURGE_BATCH_SIZE', 10_000),
 
+        // PRIV-1: visitor lat/long precision at the PostgresEventWriter::visitRow()
+        // write boundary. 2dp ≈ 1.1km — enough for city/region rollups, not enough to
+        // locate a person. (DetectsClientInfo::parseCoordinate() already rounds to 4dp
+        // at ingest; this is a second, coarser cut at the persistence boundary so the
+        // guarantee holds regardless of ingest path.)
+        'location_precision_decimals' => (int) env('PARTNA_ANALYTICS_LOCATION_PRECISION_DECIMALS', 2),
+
+        // PRIV-4: content_popularity_scores is a DERIVED table (ComputeContentPopularityScores
+        // upserts a row per site/content-key every run) — gets its OWN retention window
+        // rather than reusing analytics_raw_event_retention_days above. A site with no raw
+        // events in the last hour is never rescanned (that command's own 60-min
+        // RECENT_EVENTS_WINDOW_MINUTES scope), so a dormant site's rows would otherwise sit
+        // forever at their last computed_at with no other purge path. Default (180d) is
+        // double that command's own HALF_LIFE_DAYS (90) — long past the point a stored
+        // score means anything.
+        'content_popularity_scores_retention_days' => (int) env('PARTNA_ANALYTICS_CONTENT_POPULARITY_SCORES_RETENTION_DAYS', 180),
+
         // API-5: ?group_by=hour is forced regardless of the requested range (up to the
         // 730-day cap). Beyond this many days the hourly bucket count is never usefully
         // rendered, so UserAnalyticsController::summary() clamps the LOOKBACK to this

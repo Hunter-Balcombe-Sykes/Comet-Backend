@@ -47,19 +47,49 @@ it('persists a pageview to site_visits', function () {
     expect(DB::connection('pgsql')->table('analytics.site_visits')->count())->toBe(1);
 });
 
-it('sanitizes referrer query strings and caps user_agent before persisting (PRIV-5/6)', function () {
+it('sanitizes referrer query strings and reduces user_agent to family/major-version before persisting (PRIV-5/6)', function () {
     $t = createTenant('writer-priv');
     pgWriter()->write(baseEvent([
         'user_id' => $t->id,
         'site_id' => $t->site->id,
         'referrer' => 'https://ads.example.com/x?utm_content=leak%40example.com',
-        'user_agent' => str_repeat('U', 400),
+        'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36',
     ]));
 
     $row = DB::connection('pgsql')->table('analytics.site_visits')->first();
     expect($row->referrer)->toBe('https://ads.example.com/x');
     expect($row->referrer)->not->toContain('leak@example.com');
-    expect(strlen($row->user_agent))->toBe(256);
+    expect($row->user_agent)->toBe('Chrome/141');
+});
+
+it('rounds visitor lat/long to the configured precision at the write boundary (PRIV-1)', function () {
+    $t = createTenant('writer-geo');
+    config(['partna.analytics.location_precision_decimals' => 2]);
+
+    pgWriter()->write(baseEvent([
+        'user_id' => $t->id,
+        'site_id' => $t->site->id,
+        'latitude' => -37.813628,
+        'longitude' => 144.963058,
+    ]));
+
+    $row = DB::connection('pgsql')->table('analytics.site_visits')->first();
+    expect((float) $row->latitude)->toBe(-37.81)
+        ->and((float) $row->longitude)->toBe(144.96);
+});
+
+it('leaves a null latitude/longitude as null, never coerced to 0.0 (PRIV-1)', function () {
+    $t = createTenant('writer-geo-null');
+    pgWriter()->write(baseEvent([
+        'user_id' => $t->id,
+        'site_id' => $t->site->id,
+        'latitude' => null,
+        'longitude' => null,
+    ]));
+
+    $row = DB::connection('pgsql')->table('analytics.site_visits')->first();
+    expect($row->latitude)->toBeNull()
+        ->and($row->longitude)->toBeNull();
 });
 
 it('is idempotent — the same minted id inserts exactly one row', function () {

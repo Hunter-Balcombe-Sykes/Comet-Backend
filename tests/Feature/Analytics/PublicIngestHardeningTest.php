@@ -168,23 +168,22 @@ it('dedups back-to-back clicks whose platform casing differs (Instagram vs insta
     expect(DB::connection('pgsql')->table('analytics.link_clicks')->count())->toBe(1);
 });
 
-// --- PRIV-1: rum() UA now routes through the shared AnalyticsEventSanitizer cap ---
+// --- PRIV-1/PRIV-2: rum() UA now routes through the shared AnalyticsEventSanitizer,
+// which reduces it to family/major-version rather than capping its length ---
 
-it('caps the rum beacon UA at 256 chars via the shared sanitiser (no ellipsis marker)', function () {
-    $longUa = 'Mozilla/5.0 (TestBrowser) '.str_repeat('X', 400);
+it('reduces the rum beacon UA to family/major-version via the shared sanitiser (PRIV-2)', function () {
+    $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
 
     Log::shouldReceive('info')
         ->once()
-        ->with('rum', Mockery::on(function (array $context) use ($longUa) {
-            expect($context['ua'])->toHaveLength(256);
-            // No trailing '...' — AnalyticsEventSanitizer::userAgent() passes '' as
-            // Str::limit's $end, matching the old substr() truncation exactly.
-            expect($context['ua'])->toBe(substr($longUa, 0, 256));
+        ->with('rum', Mockery::on(function (array $context) {
+            expect($context['ua'])->toBe('Chrome/141');
 
             return true;
         }));
 
-    $this->withHeaders(['User-Agent' => $longUa])
+    $this->withHeaders(['User-Agent' => $chromeUa])
         ->postJson('/api/public/analytics/rum', ['handle' => 'sem1-platform-case'])
         ->assertStatus(200);
 });
