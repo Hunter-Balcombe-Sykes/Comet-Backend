@@ -146,6 +146,25 @@ return [
     | such as Memcached. You may define your connection settings here.
     |
     */
+    /*
+    | Timeouts — why there are two bands, not one.
+    |
+    | phpredis defaults BOTH `timeout` (connect) and `read_timeout` to 0.0 = wait
+    | forever. Unset, a hung or packet-dropping Redis hangs the PHP process with no
+    | bound at all. (A *refused* socket is not the dangerous case — the OS refuses
+    | immediately, measured 34-52 ms during the 2026-07-31 Redis-down drill.)
+    |
+    | Values decided 2026-07-31 off measured numbers: whole-request p99 is 376 ms and
+    | the worst legitimate single Redis op observed was a 314 ms `supabase:jwks` lock,
+    | so 3.0 s on the request path is ~10x the real ceiling — it will not trip in
+    | normal operation but caps a user-facing hang at 3 s instead of forever.
+    | 2.0 s connect is ~400x a same-region Valkey connect (~1-5 ms) and only ever
+    | makes a failover fail *sooner* than the ~75 s kernel SYN timeout it replaces.
+    |
+    | The request path can take the tight bound because nothing on it issues a
+    | server-side blocking command: `Cache::lock()->block()` is a PHP-side usleep
+    | poll (Illuminate\Cache\Lock::block), so each op is a single short SET NX.
+    */
     'redis' => [
 
         'client' => env('REDIS_CLIENT', 'phpredis'),
@@ -155,6 +174,18 @@ return [
             'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_database_'),
         ],
 
+        // WORKER PATH. Every redis queue connection in config/queue.php
+        // (redis, redis_video, redis_gdpr, redis_scraping) resolves HERE via
+        // REDIS_QUEUE_CONNECTION, and Horizon's `use` is 'default' too. Each of
+        // those sets block_for, so Laravel issues `BLPOP <key> <block_for>` and the
+        // server legitimately holds this socket for block_for seconds on EVERY idle
+        // worker poll.
+        //
+        // >>> read_timeout MUST stay above the LARGEST block_for, or every worker
+        // >>> throws `read error on connection` continuously — a live queue outage.
+        // block_for is env-tunable (REDIS_QUEUE_BLOCK_FOR, PARTNA_VIDEO_QUEUE_BLOCK_FOR,
+        // PARTNA_GDPR_QUEUE_BLOCK_FOR, PARTNA_SCRAPING_QUEUE_BLOCK_FOR — all default 5).
+        // 15.0 is 3x that default. Raise block_for anywhere and raise this with it.
         'default' => [
             'url' => env('REDIS_URL'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
@@ -162,6 +193,8 @@ return [
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', 6379),
             'database' => env('REDIS_DB', 0),
+            'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
+            'read_timeout' => (float) env('REDIS_QUEUE_READ_TIMEOUT', 15.0),
         ],
 
         'cache' => [
@@ -171,6 +204,9 @@ return [
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', 6379),
             'database' => env('REDIS_CACHE_DB', 1),
+            // Request path — no server-side blocking command runs on this connection.
+            'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
+            'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 3.0),
             // LZ4 value compression. Measured 2026-07-28 on dev (phpredis 6.3.0):
             // whole cache keyspace 157,968 B → 45,560 B (3.47×); pro:model:{id}
             // 8,256 B → 2,616 B (3.16×). Nothing grew, down to 1-byte values.
@@ -204,8 +240,14 @@ return [
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_SESSION_DB', '2'),
+            // Request path.
+            'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
+            'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 3.0),
         ],
 
+        // Dormant queue-override slot: nothing points REDIS_QUEUE_CONNECTION here
+        // today, but if anything ever does it inherits the BLPOP behaviour above —
+        // so it carries the worker-path read_timeout, NOT the request-path one.
         'queue' => [
             'url' => env('REDIS_URL'),
             'host' => env('REDIS_HOST', '127.0.0.1'),
@@ -213,6 +255,8 @@ return [
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_QUEUE_DB', '3'),
+            'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
+            'read_timeout' => (float) env('REDIS_QUEUE_READ_TIMEOUT', 15.0),
         ],
 
         // Dedicated DB for atomic lock keys so Cache::flush() on the data
@@ -224,6 +268,10 @@ return [
             'username' => env('REDIS_USERNAME', null),
             'port' => env('REDIS_PORT', 6379),
             'database' => env('REDIS_CACHE_LOCKS_DB', 4),
+            // Request path. Carries the supabase:jwks lock, the slowest legitimate
+            // single op measured anywhere (314 ms) — still ~10x under the 3.0 s bound.
+            'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
+            'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 3.0),
         ],
 
     ],
