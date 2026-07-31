@@ -2,7 +2,16 @@
 
 return [
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
-    'allowed_methods' => ['*'],
+    // Enumerated 2026-07-31 (Checkpoint `CorsConfigCheck`, hash 18dbdb6d60a4). Derived
+    // from `php artisan route:list --json`, not guessed — the router serves exactly six
+    // verbs: GET 219, HEAD 219, POST 177, DELETE 97, PATCH 38, PUT 17. OPTIONS is added
+    // for the preflight itself.
+    //
+    // This list is therefore a SUPERSET of everything the app can answer: replacing '*'
+    // drops only verbs that have no route at all (TRACE, CONNECT, …), so no legitimate
+    // caller loses a method. Adding a route with a new verb means adding it here —
+    // otherwise the preflight succeeds and the browser blocks the real request.
+    'allowed_methods' => ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     // Exact-origin allowlist for browser callers. Driven by PARTNA_FRONTEND_ORIGINS
     // (see config/partna.php). First-party frontends — partna.au, www.partna.au,
     // app.partna.au, and dev/local equivalents — go here.
