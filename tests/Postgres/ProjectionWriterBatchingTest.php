@@ -233,7 +233,10 @@ beforeEach(function () {
         'f_link' => 'url text NOT NULL, canonical_url text',
         'f_duration' => 'seconds integer',
         'f_published' => 'published_from timestamptz, published_to timestamptz, verbatim text, precision text',
-        'f_occurrence' => 'starts_at_local timestamp, ends_at_local timestamp, timezone text, zone_confidence text, starts_at_utc timestamptz, is_all_day boolean NOT NULL DEFAULT false',
+        // zone_confidence carries the production CHECK verbatim (Nightwatch
+        // #370): the stand-in previously declared it bare, so the real-Postgres
+        // lane could not catch a projector inventing a fourth enum value.
+        'f_occurrence' => "starts_at_local timestamp, ends_at_local timestamp, timezone text, zone_confidence text CHECK (zone_confidence IS NULL OR zone_confidence IN ('explicit', 'inferred', 'assumed', 'offset_only')), starts_at_utc timestamptz, is_all_day boolean NOT NULL DEFAULT false",
         'f_embed' => 'provider text NOT NULL, embed_key text NOT NULL, variant text',
         'f_playable' => 'stream_url text, preview_url text, is_explicit boolean',
         'f_authored' => 'creator text, creator_url text, collaborators jsonb',

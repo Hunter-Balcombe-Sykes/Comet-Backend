@@ -93,6 +93,70 @@ it('projects landed records into items, source items, and typed facet rows', fun
         ->and(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBeGreaterThanOrEqual(1);
 });
 
+// Nightwatch #370: SchemaOrgEventProjector writes zone_confidence
+// 'offset_only', a value content.f_occurrence's CHECK did not admit until
+// 20260731230000. Every case above projects bandcamp, which never touches
+// f_occurrence — so the whole suite was blind to it, and the one test that
+// does mention 'offset_only' (tests/Unit/Ingest/ProjectionTest.php) asserts
+// the projector's RETURN ARRAY and never reaches a database. This case exists
+// to reach the write.
+
+/** A user + active eventbrite connection + its ingest source/`events` stream, with $docs landed. */
+function projectableEventbrite(array $docs, ?string $userId = null): array
+{
+    $userId ??= createTenant('evt-'.Str::lower(Str::random(6)))->id;
+
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'eventbrite',
+        'resource_id' => 'org-'.substr(sha1(Str::random(8)), 0, 16),
+        'payload' => ['url' => 'https://www.eventbrite.com/o/'.Str::lower(Str::random(8)).'-1234567890'],
+        'is_active' => true,
+    ]);
+
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    $streamId = (string) Str::uuid();
+    DB::table('ingest.streams')->insert([
+        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'events',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    foreach ($docs as $key => $doc) {
+        landCurrentRecord($streamId, (string) $key, $doc);
+    }
+
+    return [$userId, $connection, $source, $streamId];
+}
+
+it('writes zone_confidence offset_only to content.f_occurrence for a schema.org event with a start date', function () {
+    [$userId, , $source, $streamId] = projectableEventbrite([
+        'e/offset' => [
+            'name' => 'Laneway Session',
+            'url' => 'https://www.eventbrite.com/e/laneway-session-1234567890',
+            // The vendors emit the event's LOCAL offset, never an IANA zone.
+            'start_date' => '2026-06-20T09:00:00+10:00',
+            'end_date' => '2026-06-20T12:00:00+10:00',
+            'venue' => 'The Laneway',
+            'locality' => 'Melbourne',
+        ],
+    ]);
+
+    $result = app(ProjectionWriter::class)->projectStream($source, $streamId, 'events');
+
+    expect($result['status'])->toBe('ok')
+        ->and($result['items'])->toBe(1);
+
+    $itemId = DB::table('content.items')->where('user_id', $userId)->where('kind', 'event')->value('id');
+    $occurrence = DB::table('content.f_occurrence')->where('item_id', $itemId)->first();
+
+    expect($occurrence)->not->toBeNull()
+        ->and($occurrence->zone_confidence)->toBe('offset_only')
+        // timezone stays NULL by design — an offset does not name a zone, which
+        // is the whole reason 'offset_only' is distinct from 'inferred'/'assumed'.
+        ->and($occurrence->timezone)->toBeNull()
+        ->and($occurrence->starts_at_utc)->toBe('2026-06-19T23:00:00Z');
+});
+
 it('is idempotent: re-projecting unchanged records creates nothing new', function () {
     [$userId, , $source, $streamId] = projectableBandcamp([
         'album/one' => bandcampDoc('Only Album', 'https://artist.bandcamp.com/album/one'),
