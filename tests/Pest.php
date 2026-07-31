@@ -2261,7 +2261,7 @@ function setupContentTables(): void
         'f_link' => 'url TEXT NOT NULL, canonical_url TEXT NULL',
         'f_duration' => 'seconds INTEGER NULL',
         'f_published' => 'published_from TEXT NULL, published_to TEXT NULL, verbatim TEXT NULL, precision TEXT NULL CHECK (precision IS NULL OR precision IN (\'year\', \'month\', \'day\', \'time\'))',
-        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL CHECK (zone_confidence IS NULL OR zone_confidence IN (\'explicit\', \'inferred\', \'assumed\')), starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
+        'f_occurrence' => 'starts_at_local TEXT NULL, ends_at_local TEXT NULL, timezone TEXT NULL, zone_confidence TEXT NULL CHECK (zone_confidence IS NULL OR zone_confidence IN (\'explicit\', \'inferred\', \'assumed\', \'offset_only\')), starts_at_utc TEXT NULL, is_all_day INTEGER NOT NULL DEFAULT 0',
         'f_embed' => 'provider TEXT NOT NULL, embed_key TEXT NOT NULL, variant TEXT NULL',
         'f_playable' => 'stream_url TEXT NULL, preview_url TEXT NULL, is_explicit INTEGER NULL',
         'f_authored' => 'creator TEXT NULL, creator_url TEXT NULL, collaborators TEXT NULL',
