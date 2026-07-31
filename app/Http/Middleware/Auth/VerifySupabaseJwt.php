@@ -36,10 +36,28 @@ class VerifySupabaseJwt
      * APCu key prefix for cached PEM-encoded public keys. APCu is shared across
      * every PHP-FPM worker in the same container, so newly-spawned workers (a
      * common occurrence under Laravel Cloud autoscaling, where workers idle out
-     * within seconds during low traffic) skip the 150-300ms JWK::parseKeySet()
-     * path entirely. APCu can't store OpenSSLAsymmetricKey resources directly,
-     * so we cache the PEM string and rebuild the Key object per-request — the
-     * openssl_pkey_get_public() call inside JWT::decode is a few ms.
+     * within seconds during low traffic) skip the whole cold path — the Redis
+     * round-trip AND the JWK::parseKeySet() call. APCu can't store
+     * OpenSSLAsymmetricKey resources directly, so we cache the PEM string and
+     * rebuild the Key object per-request — the openssl_pkey_get_public() call
+     * inside JWT::decode is a few ms.
+     *
+     * What this layer is actually worth (measured on dev 2026-07-31, the real
+     * ES256/P-256 JWKS — an earlier revision of this docblock claimed
+     * "150-300ms for ES256", which is wrong by ~100x):
+     *
+     *   JWK::parseKeySet()        ~2.1ms cold, ~0.01ms warm (20 samples)
+     *   Redis GET supabase:jwks   ~1ms warm — but ~41ms when it is the request's
+     *                             FIRST Redis op, because phpredis connects
+     *                             lazily and the TLS handshake to managed Valkey
+     *                             is billed to whichever op runs first. On this
+     *                             middleware it usually IS first.
+     *
+     * So the saving is a few ms on a warm worker and tens of ms on a cold one,
+     * and it comes mostly from skipping the Redis round-trip, not from the parse.
+     * Still worth having — but size any future change to this layer off these
+     * numbers, not the old ones.
+     * See audits/consolidation/2026-07-30-pilot-launch-reprioritisation/FINDING-C-JWKS-SPAN.md
      */
     private const APCU_KEY_PREFIX = 'partna:jwks:pem:';
 
@@ -362,7 +380,8 @@ class VerifySupabaseJwt
      *
      *   1. Per-request static memo (~0ms)
      *   2. APCu shared memory (~0.05ms) — survives PHP-FPM worker recycling
-     *   3. Redis JWKS cache + JWK::parseKeySet() (~150-300ms for ES256)
+     *   3. Redis JWKS cache + JWK::parseKeySet() (~3ms warm; ~45ms when the Redis
+     *      GET is the request's first op and pays lazy-connect — see APCU_KEY_PREFIX)
      *
      * The third layer only fires on a fresh container or when the kid has aged
      * out of APCu. Once it fires, *every* parsed kid is written back to APCu so
@@ -387,7 +406,9 @@ class VerifySupabaseJwt
             return $key;
         }
 
-        // Cold path: parseKeySet is the 150-300ms ES256 cost we're trying to avoid.
+        // Cold path: a Redis round-trip plus parseKeySet. Cheaper than the old
+        // docblock claimed (~3ms warm, not 150-300ms) but still worth skipping —
+        // the Redis GET pays lazy-connect when it is the request's first op.
         $jwks = $this->fetchJwks();
 
         // A JWKS body that fetched + parsed as JSON but carries malformed key
@@ -557,8 +578,12 @@ class VerifySupabaseJwt
 
         $stored = apcu_store($key, $value, self::APCU_TTL_SECONDS);
         if ($stored === false) {
-            // APCu full or misconfigured — every request hits the cold JWKS parse
-            // path (150-300ms). Throttle to one report per 5 minutes; Log::warning
+            // APCu full or misconfigured — every request then hits the cold path
+            // (Redis GET + parseKeySet). That is a few ms warm, not the 150-300ms
+            // an earlier comment claimed, so this is reported as an infrastructure
+            // fault worth knowing about rather than a latency emergency: APCu being
+            // unwritable is itself the signal. Throttle to one report per 5 minutes;
+            // Log::warning
             // is breadcrumb-only (does not reach Nightwatch), report() is what
             // actually surfaces this to Nightwatch as an alert.
             if (Cache::store('cache_locks')->add('jwt:apcu-store-failed', true, 300)) {
