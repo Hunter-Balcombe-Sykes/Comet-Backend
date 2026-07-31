@@ -23,6 +23,25 @@ Produced for the P0-LAUNCH bucket. **Read the two blockers in §0 before acting 
   `nuclei-baseline.txt` comments-only. Empty is the *correct documented default* ("never pre-seed,
   which would bury real bugs"), but it means nothing has been triaged.
 
+> **Update 2026-07-31 — the ACTIVE lane has moved; the EDGE lane has not.**
+>
+> The bullet above is now stale for one file. `aa6b01bc` added a genuinely triaged entry to
+> `zap-baseline.json` — `"10021@http://host.docker.internal:8100/robots.txt"`, ZAP's missing-nosniff
+> alert on a static file that `artisan serve` ships without booting Laravel, so `SecureHeaders` never
+> runs for it (production serves it through Cloudflare, which does send the header). That is the
+> **correct** pattern: the key came out of a real run, not a keyboard. Tier 2 auth probes landed
+> alongside it (`a4876ea8`, `4288b529`, `ee57a74c`) plus a seeder fix (`3fd539a9`).
+>
+> **Everything in this document below is about the EDGE lane, and none of it has moved.** Re-verified
+> 2026-07-31: `actions/secrets` → `{"total_count":0}`, `actions/variables` → `{"total_count":0}`, and
+> `gh run list --workflow=dast-edge.yml` still shows exactly one run ever — `30211809194`, the 10-second
+> `no target` failure from 2026-07-26. The Sunday cron remains a guaranteed-red no-op.
+>
+> **The blocking step is Josh's and nothing downstream can start without it:** set `EDGE_TARGET` plus
+> the three secrets as repo secrets. Then, in order — clean run → `scripts/dast/run.sh --only edge
+> --update-baseline` → *then* drop `DAST_FAIL_ON` from `high` to `medium`. BLOCKER 2 below still
+> applies to the edge baselines: they cannot be hand-written.
+
 ### 🔴 BLOCKER 1 — the findings below are recovered from prose, not from scanner output
 `docs/superpowers/plans/2026-07-17-dast-security-implementation.md` Phase 10 records the 2026-07-26
 build-time run results in enough detail to reason about. The raw JSON is gone. So this document is a
