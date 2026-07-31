@@ -142,6 +142,56 @@ it('moves a pin from the discarded item onto the survivor', function () {
     expect(DB::table('site.section_items')->where('section_id', $sectionId)->value('item_id'))->toBe($older);
 });
 
+it('stamps retired_at on a discarded item\'s moved slugs, and clears it on the one promoted back to current', function () {
+    // 271-PRIV-1 sibling (content.item_slugs): ItemMerger::moveSlugs() is the
+    // only writer to this table. It must stamp retired_at on every slug it
+    // demotes off the discarded item, and clear it on the one slug it
+    // promotes back to is_current on the survivor -- leaving a stale stamp on
+    // a live slug is exactly the bug class slugs:prune-retired exists to
+    // avoid (see PruneRetiredItemSlugs).
+    $pro = createTenant('identity-slug-retire');
+    [$older, $newer, $candidateId] = seedDuplicatePair($pro->id);
+
+    // The survivor ($older) has no current slug, so the discarded item's
+    // current slug is the one moveSlugs() promotes back onto it.
+    $promotedSlugId = (string) Str::uuid();
+    DB::table('content.item_slugs')->insert([
+        'id' => $promotedSlugId, 'user_id' => $pro->id, 'item_id' => $newer,
+        'slug' => 'current-slug', 'is_current' => 1, 'created_at' => now(),
+        // A stale stamp from some earlier retirement -- constructed directly
+        // because nothing in this codebase mints one today. Proves the
+        // promote step actively clears it rather than merely never setting it.
+        'retired_at' => now()->subDays(5),
+    ]);
+    $alreadyRetiredSlugId = (string) Str::uuid();
+    DB::table('content.item_slugs')->insert([
+        'id' => $alreadyRetiredSlugId, 'user_id' => $pro->id, 'item_id' => $newer,
+        'slug' => 'old-slug', 'is_current' => 0, 'created_at' => now()->subDay(),
+        'retired_at' => null,
+    ]);
+
+    actingAsUser($pro)->postJson("/api/content/identity/candidates/{$candidateId}/rule", ['verdict' => 'same'])
+        ->assertOk();
+
+    // Moved but not promoted: this bulk update is the ONLY place that stamps
+    // retired_at for this table today. Pre-change code never sets this
+    // column, so this row would still read NULL after the merge.
+    $moved = DB::table('content.item_slugs')->where('id', $alreadyRetiredSlugId)->first();
+    expect($moved->item_id)->toBe($older)
+        ->and($moved->is_current)->toBeFalsy()
+        ->and($moved->retired_at)->not->toBeNull();
+
+    // Promoted back to current: the stale stamp it walked in with must be
+    // cleared, or the nightly sweep would delete a slug still serving as the
+    // survivor's current URL. Pre-change code's promote step only flips
+    // is_current -- it never touches retired_at -- so this row would still
+    // carry the now()->subDays(5) stamp seeded above after the merge.
+    $promoted = DB::table('content.item_slugs')->where('id', $promotedSlugId)->first();
+    expect($promoted->item_id)->toBe($older)
+        ->and($promoted->is_current)->toBeTruthy()
+        ->and($promoted->retired_at)->toBeNull();
+});
+
 it('keeps the survivor edit when both items edited the same field', function () {
     $pro = createTenant('identity-override-clash');
     [$older, $newer, $candidateId] = seedDuplicatePair($pro->id);
