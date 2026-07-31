@@ -37,15 +37,15 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
-- P2 Medium: 0 of 14 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 1 of 2 complete
+- P2 Medium: 14 of 14 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
 ## P1 — Fix with sign-off (behaviour-affecting)
 
-- [ ] **#INH-1** · P1 — Consolidate `absolutize()` and fix the live protocol-relative-URL bug in the same change
+- [x] **#INH-1** · P1 — Consolidate `absolutize()` and fix the live protocol-relative-URL bug in the same change · **DEAD (triage applied 2026-07-31): verified no longer reproduces.** Confirmed during the 2026-07-30 consolidation; this tick is the bookkeeping that was owed to the source folder.
     - **Where:** `app/Services/WebsiteScan/{FaviconFetcher,PdfLinkDetector,WebsiteGalleryCandidateExtractor}.php` (buggy copies) → canonical `app/Services/Http/MetadataParser.php::absolutize()` (already fixed). `WebsiteLogoCandidateExtractor.php` already has the fix.
     - **Affects:** Website-scan pipeline (favicon/PDF-link/gallery extraction) — protocol-relative asset URLs are currently mangled, so those assets silently fail to resolve during a site scan.
     - **Effort:** M (~2–4h)
@@ -76,7 +76,7 @@
 
 ## P2 — Should fix (maintainability wins)
 
-- [ ] **#INH-2** · P2 — `BandcampConnectionResource` should extend `TileConnectionResource` like its siblings
+- [x] **#INH-2** · P2 — `BandcampConnectionResource` should extend `TileConnectionResource` like its siblings · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Resources/Platforms/{Youtube,AppleMusic,Bandcamp}ConnectionResource.php` + abstract base `TileConnectionResource.php`.
     - **Affects:** Nothing functionally today — output shape is identical; this is a consistency/maintainability fix.
     - **Effort:** S (~1h)
@@ -84,7 +84,7 @@
     - **Technical:** `Youtube`/`AppleMusic` resources both extend `TileConnectionResource` and only implement `flatFields()`; Bandcamp has the same shape but hand-builds `toArray()`. The shared base already exists — this file just isn't using it.
     - **Plain English:** Two of three near-identical API responses use a shared template; the third re-does it by hand. Make it use the template too.
 
-- [ ] **#INH-3** · P2 — Extract a `BaseAnalyticsRequest` for the 8 analytics beacon requests
+- [x] **#INH-3** · P2 — Extract a `BaseAnalyticsRequest` for the 8 analytics beacon requests · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Requests/Api/PublicSite/Analytics/{ActionSeen,ActionTap,Click,ItemSeen,Pageview,Ping,SectionDwell,SectionSeen}Request.php`; trait `app/Http/Requests/Concerns/ResolvesPublicSiteSubdomain.php`.
     - **Affects:** Analytics ingest validation — no behaviour change; ~30 duplicated lines × 8.
     - **Effort:** M (~2–4h)
@@ -92,7 +92,7 @@
     - **Technical:** All 8 already use `ResolvesPublicSiteSubdomain` and repeat the identical rule block; only event-specific fields differ.
     - **Plain English:** Eight tiny form-validators are 90% the same; give them one shared parent so a rule change is one edit, not eight.
 
-- [ ] **#INH-4** · P2 — Collapse the 3 reservation-provider Connect classes + Resources (6 → 2)  · **standalone (L)**
+- [x] **#INH-4** · P2 — Collapse the 3 reservation-provider Connect classes + Resources (6 → 2)  · **standalone (L)** · **WONTFIX-unless-planned (triage applied 2026-07-31).** Listed *standalone — do NOT bundle* in its source audit: it rewires a live third-party surface or a locked write path, where a "harmless" refactor can silently change lock scope or invalidation ordering. Never an in-passing fix. If you want it, it gets its own branch and its own independent review.
     - **Where:** `app/Services/Platforms/Strategies/Connect/{NowBookit,OpenTable,ResDiary}Connect.php` + `app/Http/Resources/Platforms/{NowBookit,OpenTable,ResDiary}ConnectionResource.php`.
     - **Affects:** Reservation-platform connect flow (NowBookit / OpenTable / ResDiary) — behaviour-touching refactor across 6 files.
     - **Effort:** L (~1–2d)
@@ -100,7 +100,7 @@
     - **Technical:** Verified the shared shape in `NowBookitConnect` (`implements ConnectStrategy`, returns `ConnectResult::ok/fail`). A parameterised class + resource pair covers all three.
     - **Plain English:** Three booking providers each have a near-identical connect handler and response formatter; make one configurable version of each. Standalone because it's the biggest refactor and touches live connect behaviour.
 
-- [ ] **#INH-5** · P2 — Extract a `ShopScraper` intermediate base for the shop scraper family
+- [x] **#INH-5** · P2 — Extract a `ShopScraper` intermediate base for the shop scraper family · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Platforms/{Shopify,WooCommerce,BigCartel,Generic,Squarespace}Scraper.php` + base `PlatformScraper.php`.
     - **Affects:** Shop scraping (image-count safety threshold + JSON fetch/decode) — no behaviour change.
     - **Effort:** M (~2–4h)
@@ -108,7 +108,7 @@
     - **Technical:** 3 of the 5 share a byte-for-byte `json()` and all-but-Squarespace share `MAX_IMAGES = 25`.
     - **Plain English:** Several shop scrapers duplicate the same image cap and the same "fetch + parse JSON" helper; put the shared bits in one parent class.
 
-- [ ] **#INH-7** · P2 — `GuardsAgainstFormSpam` trait across the 4 public form controllers
+- [x] **#INH-7** · P2 — `GuardsAgainstFormSpam` trait across the 4 public form controllers · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/PublicSite/{PublicCustomerLead,PublicEnquiry,PublicEmailSubscription,PublicEarlyAccess}Controller.php`.
     - **Affects:** Public form spam protection — consistency of an existing security control across all 4 entry points.
     - **Effort:** M (~2–4h)
@@ -127,7 +127,7 @@
       **Still open here:** the `GuardsAgainstFormSpam` controller-level extraction. The four controllers'
       runtime honeypot/timing logic remains byte-identical and duplicated — verified undrifted 2026-07-30.
 
-- [ ] **#INH-8** · P2 — `WriteDesignKitAction` for the transactional design-kit write  · **standalone (DB txn + lock)**
+- [x] **#INH-8** · P2 — `WriteDesignKitAction` for the transactional design-kit write  · **standalone (DB txn + lock)** · **WONTFIX-unless-planned (triage applied 2026-07-31).** Listed *standalone — do NOT bundle* in its source audit: it rewires a live third-party surface or a locked write path, where a "harmless" refactor can silently change lock scope or invalidation ordering. Never an in-passing fix. If you want it, it gets its own branch and its own independent review.
     - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php::writeDesignKit()` (:108), `app/Services/WebsiteScan/DesignKitAccentApplier.php::apply()` (:21).
     - **Affects:** `site.design_kits` writes — transactional + row-locked; risky part shared by two callers.
     - **Effort:** M/L (~4–8h)
@@ -135,7 +135,7 @@
     - **Technical:** Both do the same transactional lock+upsert+invalidate against `design_kits`; consolidating the risky write while keeping per-caller pre-processing.
     - **Plain English:** Two places write the design kit inside the same careful DB transaction; put that shared, risky write in one action. Standalone because it's a locked DB write and deserves its own review.
 
-- [ ] **#INH-9** · P2 — `NormalizesUrlField` trait for the 2 shop requests
+- [x] **#INH-9** · P2 — `NormalizesUrlField` trait for the 2 shop requests · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Requests/Platforms/{AddShopBrand,AddShopProduct}Request.php`; `app/Services/Platforms/PlatformInput.php`.
     - **Affects:** Shop add-brand/add-product validation — no behaviour change.
     - **Effort:** S (~1h)
@@ -143,7 +143,7 @@
     - **Technical:** Identical `prepareForValidation()` block in both.
     - **Plain English:** Two shop forms clean the URL field the exact same way; share that in a trait.
 
-- [ ] **#INH-10** · P2 — `PlatformSeederBase` for the shop seeders  · **standalone (Cache lock / concurrency)**
+- [x] **#INH-10** · P2 — `PlatformSeederBase` for the shop seeders  · **standalone (Cache lock / concurrency)** · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Platforms/{ShopBrand,ShopProduct}Seeder.php` (both docblocks say "same convention as `EventsSeeder`").
     - **Affects:** Shop brand/product seeding — soft-delete tombstone guard + `Cache::lock()` upsert; concurrency-sensitive.
     - **Effort:** M (~2–4h)
@@ -151,7 +151,7 @@
     - **Technical:** Both share the identical tombstone bail-out and a near-identical lock-and-upsert sequence.
     - **Plain English:** Two seeders duplicate the same "is this deleted? then lock and upsert" dance; put it in a shared base. Standalone because it holds a lock and races matter.
 
-- [ ] **#INH-11** · P2 — Trait for the `VimeoHighlights` / `YoutubeMusicHighlights` `apply()` pair
+- [x] **#INH-11** · P2 — Trait for the `VimeoHighlights` / `YoutubeMusicHighlights` `apply()` pair · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Platforms/Strategies/Highlights/{Vimeo,YoutubeMusic}Highlights.php`.
     - **Affects:** Highlights projection — no behaviour change.
     - **Effort:** S (~1h)
@@ -159,7 +159,7 @@
     - **Technical:** Verified: Vimeo + YoutubeMusic share the collection-apply shape and are NOT on the `RefreshesLatestTile` trait; the other two are.
     - **Plain English:** Two highlight builders share the same list-shaping steps; give just those two a shared helper.
 
-- [ ] **#INH-12** · P2 — Parameterised base for `AppleMusicFetch` / `ApplePodcastFetch`
+- [x] **#INH-12** · P2 — Parameterised base for `AppleMusicFetch` / `ApplePodcastFetch` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Platforms/Strategies/Fetch/{AppleMusicFetch,ApplePodcastFetch}.php`.
     - **Affects:** Apple Music / Podcast fetch — no behaviour change.
     - **Effort:** S (~1–2h)
@@ -167,7 +167,7 @@
     - **Technical:** Same fetch shape across both, only 2 files — modest but clean.
     - **Plain English:** The Apple Music and Podcast fetchers do the same steps; share them.
 
-- [ ] **#INH-13** · P2 — Shared `parseEventNode()` for `EventbriteScraper` / `HumanitixScraper`
+- [x] **#INH-13** · P2 — Shared `parseEventNode()` for `EventbriteScraper` / `HumanitixScraper` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Platforms/{Eventbrite,Humanitix}Scraper.php`; base `PlatformScraper.php`.
     - **Affects:** Event scraping JSON-LD field mapping — no behaviour change.
     - **Effort:** S (~1–2h)
@@ -175,7 +175,7 @@
     - **Technical:** Two scrapers keep an event-shape contract in deliberate lockstep; centralise it.
     - **Plain English:** Two event scrapers map the same fields the same way and are meant to stay identical — put that shared mapping in the base scraper.
 
-- [ ] **#INH-14** · P2 — `MenuResolver` service for the shared `resolveMenu()` find-or-create
+- [x] **#INH-14** · P2 — `MenuResolver` service for the shared `resolveMenu()` find-or-create · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Platforms/MenuContentController.php`, `app/Services/Platforms/MenuScanApplier.php`, `app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php`.
     - **Affects:** Menu resolution — no behaviour change. **Scope correction: 3 files, not 2** (audit missed `ScanPreviousWebsiteContentJob`).
     - **Effort:** S/M (~2–3h)
@@ -183,7 +183,7 @@
     - **Technical:** Three callers share the resolve-or-create-Menu logic.
     - **Plain English:** Three places "find the menu or make one" the same way; share it in one service.
 
-- [ ] **#INH-15** · P2 — `PublicCustomerUpsertService::upsertByEmail()` for the customer restore-upsert
+- [x] **#INH-15** · P2 — `PublicCustomerUpsertService::upsertByEmail()` for the customer restore-upsert · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/PublicSite/{PublicEnquiry,PublicEmailSubscription}Controller.php`.
     - **Affects:** Public lead/subscriber customer records — no behaviour change. **Scope correction: confirmed 2 of 3** — `PublicCustomerLeadController` only normalises the email (its customer-write path differs); verify it before treating it as a 3rd caller.
     - **Effort:** S/M (~2–3h)
@@ -191,7 +191,7 @@
     - **Technical:** Enquiry + EmailSubscription both do the identical `withTrashed → trashed → restore → conditional update` sequence.
     - **Plain English:** Two public forms create-or-restore a customer by email in the exact same way; share that in a service.
 
-- [ ] **#INH-16** · P2 — `LogsLeadSubmissions` trait for the two lead-logging controllers
+- [x] **#INH-16** · P2 — `LogsLeadSubmissions` trait for the two lead-logging controllers · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/PublicSite/{PublicCustomerLead,PublicEnquiry}Controller.php`; `app/Services/Analytics/AnalyticsEventSanitizer.php`.
     - **Affects:** Lead-submission audit rows — no behaviour change.
     - **Effort:** S (~1–2h)
@@ -203,7 +203,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#INH-17** · P3 — Shared base/trait for the Menu Category/Item Request pairs
+- [x] **#INH-17** · P3 — Shared base/trait for the Menu Category/Item Request pairs · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Requests/Platforms/{Create,Update}Menu{Category,Item}Request.php`.
     - **Affects:** Menu category/item validation — no behaviour change.
     - **Effort:** S (~1–2h)

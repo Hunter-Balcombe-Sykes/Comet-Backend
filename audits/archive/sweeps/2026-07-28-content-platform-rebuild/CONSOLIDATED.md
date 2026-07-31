@@ -117,8 +117,8 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 2 of 4 complete  (+#SEC-4 WONTFIX, 2026-07-31)
-- P3 Low: 0 of 6 complete
+- P2 Medium: 4 of 4 complete
+- P3 Low: 6 of 6 complete
 
 ---
 
@@ -157,7 +157,7 @@ tests originally scoped.
 
 ## P2 — Should fix
 
-- [ ] **#SEC-2** · P2 — `IntegrationConnection` keeps system-managed refresh/provenance columns fillable with no live over-post path
+- [x] **#SEC-2** · P2 — `IntegrationConnection` keeps system-managed refresh/provenance columns fillable with no live over-post path · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Models/Core/Site/IntegrationConnection.php:82-104
     - **Affects:** Defense-in-depth only today — a future controller that naively does `$connection->update($request->validated())` would let a client forge `created_by_detector`, reset `consecutive_failures`, or poison `refresh_etag`/`apify_status`.
     - **Effort:** S (~0.5–1h)
@@ -177,7 +177,7 @@ tests originally scoped.
         ];
         ```
 
-- [ ] **#SEC-3** · P2 — `SiteMedia` keeps the storage `path` fillable with no live over-post path, but the force-delete hook trusts it unconditionally
+- [x] **#SEC-3** · P2 — `SiteMedia` keeps the storage `path` fillable with no live over-post path, but the force-delete hook trusts it unconditionally · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Models/Core/Site/SiteMedia.php:162-181, 202-241
     - **Affects:** Defense-in-depth — every current upload path (`MediaUploadService`) sets `path` server-side from the storage service's own return value; no Form Request or controller in scope passes a client-supplied `path` into create/update.
     - **Effort:** S (~0.5–1h)
@@ -257,7 +257,7 @@ tests originally scoped.
 
 ## P3 — Nice to have
 
-- [ ] **#SEC-6** · P3 — SHA-1 (truncated) used for custom-link resource-ID derivation
+- [x] **#SEC-6** · P3 — SHA-1 (truncated) used for custom-link resource-ID derivation · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/CustomLinkSeeder.php:127
     - **Affects:** Custom-link deduplication within one user's account only. A collision would let two different URLs merge into one stored row.
     - **Effort:** S (~0.5h)
@@ -270,7 +270,7 @@ tests originally scoped.
         $rid = 'link-'.substr(sha1(strtolower($normalized)), 0, 16);
         ```
 
-- [ ] **#SEC-7** · P3 — `Log::info` persists user/place identifiers past its stated "temporary" purpose
+- [x] **#SEC-7** · P3 — `Log::info` persists user/place identifiers past its stated "temporary" purpose · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/GoogleBusinessApifyScraper.php:88-96
     - **Affects:** Log hygiene — `user_id` and `place_id` land in Nightwatch at `info` level; the comment marks this transitional but nothing enforces removal.
     - **Effort:** S (~0.5h)
@@ -287,7 +287,7 @@ tests originally scoped.
         ]);
         ```
 
-- [ ] **#SEC-8** · P3 — ReDoS-prone (but length-bounded) regex in the Square platform connect-URL validator
+- [x] **#SEC-8** · P3 — ReDoS-prone (but length-bounded) regex in the Square platform connect-URL validator · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Providers/PlatformRegistryServiceProvider.php:513
     - **Affects:** Authenticated users connecting a Square booking link. A crafted ~1000-char URL could make the regex engine backtrack more than necessary before rejecting.
     - **Effort:** S (~0.5–1h)
@@ -300,7 +300,7 @@ tests originally scoped.
         $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
         ```
 
-- [ ] **#SEC-9** · P3 — Manual-override `value` field has no size or type bound
+- [x] **#SEC-9** · P3 — Manual-override `value` field has no size or type bound · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Requests/Api/User/ContentLibrary/UpsertManualOverrideRequest.php:29
     - **Affects:** Authenticated users writing manual overrides to their own content library; database storage bloat.
     - **Effort:** S (~0.5–1h)
@@ -313,7 +313,7 @@ tests originally scoped.
         'value' => ['present'],
         ```
 
-- [ ] **#SEC-10** · P3 — Raw DB update in `IdentityCandidateController::settle()` omits `user_id` re-verification
+- [x] **#SEC-10** · P3 — Raw DB update in `IdentityCandidateController::settle()` omits `user_id` re-verification · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/Content/IdentityCandidateController.php:114-122
     - **Affects:** Identity-candidate dismissal path; defense-in-depth only — the only caller, `findCandidate()`, already scopes by `user_id` before `settle()` is ever reached.
     - **Effort:** S (~0.5–1h)
@@ -332,7 +332,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#SEC-11** · P3 — Raw DB update in `SuggestionsController::dismiss()` omits `user_id` re-verification
+- [x] **#SEC-11** · P3 — Raw DB update in `SuggestionsController::dismiss()` omits `user_id` re-verification · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:112-116
     - **Affects:** Suggestion-dismissal path; same defense-in-depth gap as SEC-10 — `findIntent()` already scopes by `user_id` upstream.
     - **Effort:** S (~0.5–1h)
@@ -412,8 +412,8 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 15 of 21 complete
-- P3 Low: 0 of 10 complete
+- P2 Medium: 22 of 22 complete
+- P3 Low: 9 of 9 complete
 
 ---
 
@@ -449,7 +449,7 @@ tests originally scoped.
 
 ## P2 — Should fix
 
-- [ ] **LIFE-2** · P2 — `FieldBindingResolver::apply` reads binding rules before the transaction/lock opens
+- [x] **LIFE-2** · P2 — `FieldBindingResolver::apply` reads binding rules before the transaction/lock opens · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Profile/FieldBindingResolver.php:63-104
     - **Affects:** The §14 identity-fold path (not yet the live writer — see LIFE-25). Once wired, a binding toggled mid-fold (user disables a platform's identity feed while a refresh is in flight) can be evaluated against a stale enable/priority snapshot.
     - **Effort:** S (~0.5–1h)
@@ -584,7 +584,7 @@ tests originally scoped.
                 ->post($url, $body);
         ```
 
-- [ ] **LIFE-8** · P2 — Twitch Helix API calls carry no explicit API-version pin
+- [x] **LIFE-8** · P2 — Twitch Helix API calls carry no explicit API-version pin · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Ingest/Connectors/TwitchConnector.php:153-157, 236
     - **Affects:** The `vods` stream of every live, scheduled Twitch connection (`cost: CostClass::Free`, confirmed auto-scheduled).
     - **Effort:** S (~0.5–1h)
@@ -601,7 +601,7 @@ tests originally scoped.
         ]), $headers);
         ```
 
-- [ ] **LIFE-9** · P2 — Every connector's `Unavailable` message discards the vendor's raw error body
+- [x] **LIFE-9** · P2 — Every connector's `Unavailable` message discards the vendor's raw error body · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Ingest/Message/Unavailable.php:10-16 (consumed by every connector, e.g. app/Ingest/Connectors/AppleMusicConnector.php:91-116)
     - **Affects:** Debugging any connector failure across all 20+ live connectors — Nightwatch/on-call has only a terse string, never the actual vendor response.
     - **Effort:** M (~2–4h)
@@ -621,7 +621,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-10** · P2 — `IntegrationConnectionObserver::reconcileContentInstagramSlots` has a TOCTOU race between the slot-existence check and slot creation
+- [x] **LIFE-10** · P2 — `IntegrationConnectionObserver::reconcileContentInstagramSlots` has a TOCTOU race between the slot-existence check and slot creation · **DEAD (triage applied 2026-07-31): verified no longer reproduces.** Confirmed during the 2026-07-30 consolidation; this tick is the bookkeeping that was owed to the source folder.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:406-445
     - **Affects:** Instagram connect flow — two concurrent payload writes for the same connection could create duplicate content-selection slots.
     - **Effort:** S (~0.5–1h)
@@ -694,7 +694,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-14** · P2 — `GoogleBusinessService::streetViewPano` logs failures without the `place_id` that triggered them
+- [x] **LIFE-14** · P2 — `GoogleBusinessService::streetViewPano` logs failures without the `place_id` that triggered them · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/GoogleBusinessService.php:475-493 (called from `fetchPlaceDetails`, line 205)
     - **Affects:** Operators triaging Street View probe failures across thousands of Google Business connections — the log carries lat/lng but not the connection the coordinates belong to.
     - **Effort:** S (~0.5–1h)
@@ -760,7 +760,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-17** · P2 — `ImportRun::start` races past the daily per-kind cooldown
+- [x] **LIFE-17** · P2 — `ImportRun::start` races past the daily per-kind cooldown · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Routing/Importers/ImportRun.php:23-41
     - **Affects:** Users who trigger two imports of the same kind in quick succession (double-click, overlapping bio-harvest + website-scan trigger) — the 3-per-day limit can be exceeded by one.
     - **Effort:** S (~0.5–1h)
@@ -826,7 +826,7 @@ tests originally scoped.
             WHERE ("resolved_at" IS NULL);
         ```
 
-- [ ] **LIFE-21** · P2 — `handles:notify-expiry`'s dedupe relies on per-column timestamps plus a 60-minute scheduler lock, not an atomic JSONB write
+- [x] **LIFE-21** · P2 — `handles:notify-expiry`'s dedupe relies on per-column timestamps plus a 60-minute scheduler lock, not an atomic JSONB write · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** routes/console.php:184-189; `notified_t3_at`/`notified_t1_at` columns in supabase/migrations/20260726000000_baseline_pilot.sql:1087-1088, 2139-2140
     - **Affects:** Handle/subdomain alias holders — a lock-expiry or partial-job failure during the daily expiry-warning run can double-fire (or, if the two column writes land in separate statements, drop) a T-3/T-1 warning.
     - **Effort:** M (~2–4h) — schema change, so kept Standalone (see below)
@@ -884,7 +884,7 @@ tests originally scoped.
 
 ## P3 — Nice to have
 
-- [ ] **LIFE-24** · P3 — `RunExecutor::drain`'s unknown-message log carries no run/source/stream correlation context
+- [x] **LIFE-24** · P3 — `RunExecutor::drain`'s unknown-message log carries no run/source/stream correlation context · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Ingest/Runtime/RunExecutor.php:216
     - **Affects:** Operator triage if a connector ever emits a `Message` subtype the executor doesn't handle — only reachable via a genuine code bug (a new `Message` type shipped without updating `drain()`'s match arms), not routine operation.
     - **Effort:** S (~0.5–1h)
@@ -895,7 +895,7 @@ tests originally scoped.
         default => Log::warning('ingest.unknown_message', ['class' => $message::class]),
         ```
 
-- [ ] **LIFE-25** · P3 — `Workplace::first()->save()` races on the first-ever write for a new site
+- [x] **LIFE-25** · P3 — `Workplace::first()->save()` races on the first-ever write for a new site · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Profile/FieldBindingResolver.php:75-76
     - **Affects:** Currently nothing — `FieldBindingResolver::apply()` has no production caller (only tests/docs reference it); this subsystem is not yet wired into any live identity-fold path (see LIFE-2).
     - **Effort:** S (~0.5–1h)
@@ -907,7 +907,7 @@ tests originally scoped.
             ?? new Workplace(['site_id' => (string) $site->id]);
         ```
 
-- [ ] **LIFE-26** · P3 — `FieldBindingSeeder::seed` is a non-atomic check-then-bulk-insert despite claiming idempotency
+- [x] **LIFE-26** · P3 — `FieldBindingSeeder::seed` is a non-atomic check-then-bulk-insert despite claiming idempotency · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Profile/FieldBindingSeeder.php:70-101
     - **Affects:** Currently nothing live — only called from `PresetInstantiator::instantiate()`, which itself has no production caller.
     - **Effort:** S (~0.5–1h)
@@ -922,7 +922,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-27** · P3 — `PresetInstantiator::instantiate` reads existing pages/sections outside any lock before inserting missing ones
+- [x] **LIFE-27** · P3 — `PresetInstantiator::instantiate` reads existing pages/sections outside any lock before inserting missing ones · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Site/Presets/PresetInstantiator.php:47-108
     - **Affects:** Currently nothing — no production caller exists anywhere in `app/` (tests/docs only).
     - **Effort:** S (~0.5–1h)
@@ -938,7 +938,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-28** · P3 — `SourceProvisioner::sync` is a select-then-insert race, already fully backstopped
+- [x] **LIFE-28** · P3 — `SourceProvisioner::sync` is a select-then-insert race, already fully backstopped · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Ingest/SourceProvisioner.php:73-96
     - **Affects:** Ingest source provisioning on connection save — low live risk given the mitigations below.
     - **Effort:** S (~0.5–1h)
@@ -952,7 +952,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-29** · P3 — `RunExecutor::ensureStream` is a select-then-insert race, already fully backstopped
+- [x] **LIFE-29** · P3 — `RunExecutor::ensureStream` is a select-then-insert race, already fully backstopped · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Ingest/Runtime/RunExecutor.php:164-180
     - **Affects:** `ingest.streams` row creation — same dormant-and-backstopped shape as LIFE-28.
     - **Effort:** S (~0.5–1h)
@@ -966,7 +966,7 @@ tests originally scoped.
         DB::table('ingest.streams')->insert([...]);
         ```
 
-- [ ] **LIFE-30** · P3 — `analytics:compute-popularity`'s fixed lookback window can permanently drop events across a long scheduler outage
+- [x] **LIFE-30** · P3 — `analytics:compute-popularity`'s fixed lookback window can permanently drop events across a long scheduler outage · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** routes/console.php:120-152
     - **Affects:** Popularity ranking for a site whose only activity lands entirely inside a missed-tick gap longer than ~45 minutes before going dormant.
     - **Effort:** M (~2–4h) — a persisted watermark, per the code's own note
@@ -980,7 +980,7 @@ tests originally scoped.
         // instead of a fixed lookback — larger work, likely a schema change, deferred.
         ```
 
-- [ ] **LIFE-31** · P3 — `keep-alive-ping` swallows `Throwable` with no debug trail
+- [x] **LIFE-31** · P3 — `keep-alive-ping` swallows `Throwable` with no debug trail · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** routes/console.php:261-267
     - **Affects:** Diagnosing why keep-alive pings stopped if `config('app.url')` or the `/up` route itself ever breaks.
     - **Effort:** S (~0.5–1h)
@@ -996,7 +996,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **LIFE-32** · P3 — `LifestyleConnectionCleanup::forUser` deletes connections in a loop with no transaction boundary
+- [x] **LIFE-32** · P3 — `LifestyleConnectionCleanup::forUser` deletes connections in a loop with no transaction boundary · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Accounts/LifestyleConnectionCleanup.php:59-67
     - **Affects:** The rare partna→business account-type switch — if one delete throws mid-loop, earlier deletes persist and later ones don't, with no automated repair.
     - **Effort:** S (~0.5–1h)
@@ -1081,8 +1081,8 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 3 of 6 complete  (+#CACHE-1 verified DEAD 2026-07-30 — fixed by 790a0c11; +#CACHE-2 closed by SCALE-17, same code site; +#CACHE-3 dispositioned WONTFIX 2026-07-31 — see the decision brief)
-- P3 Low: 0 of 1 complete
+- P2 Medium: 6 of 6 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -1168,7 +1168,7 @@ tests originally scoped.
                 DB::table('ingest.anomalies')->insert([
         ```
 
-- [ ] **#CACHE-4** · P2 — Google Business identity sync runs synchronously inside `IntegrationConnectionObserver::saved()`
+- [x] **#CACHE-4** · P2 — Google Business identity sync runs synchronously inside `IntegrationConnectionObserver::saved()` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:97-100, 180-189 (`syncIdentityFromGoogle`)
     - **Affects:** Every Google Business connection create/refresh — identity fields (workplaces, user mirror columns) are written inline during the connection's save cycle instead of being deferred.
     - **Effort:** S (~0.5–1h)
@@ -1197,7 +1197,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#CACHE-5** · P2 — Event-slug retirement on disconnect runs inline in `IntegrationConnectionObserver::deleted()`
+- [x] **#CACHE-5** · P2 — Event-slug retirement on disconnect runs inline in `IntegrationConnectionObserver::deleted()` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:447-455, 318-344 (`retireEventSlugsOnDelete`)
     - **Affects:** Every user disconnecting an event-platform integration — slug retirement (potentially dozens of rows via `siblingEventIds()` cross-referencing plus `EventSlugSync::retireEvents()`) happens inline before the disconnect API response returns.
     - **Effort:** S (~0.5–1h)
@@ -1226,7 +1226,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#CACHE-6** · P2 — Event-slug sync and retirement run inline in `IntegrationConnectionObserver::saved()` on every connect and daily refresh
+- [x] **#CACHE-6** · P2 — Event-slug sync and retirement run inline in `IntegrationConnectionObserver::saved()` on every connect and daily refresh · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:106-138, 198-277 (`syncEventSlugs`, `retireVanishedEventSlugs`)
     - **Affects:** Every event-platform connection create/refresh (daily cron + manual reconnects) — per-event slug insert/update and per-vanished-event retirement happen inline before the save's `afterCommit` cycle completes, instead of being deferred to a queue.
     - **Effort:** M (~2–4h)
@@ -1276,7 +1276,7 @@ tests originally scoped.
 
 ## P3 — Nice to have
 
-- [ ] **#CACHE-7** · P3 — Connection save conditionally touches the site, triggering a full `SiteObserver` cascade inline (deliberately scoped)
+- [x] **#CACHE-7** · P3 — Connection save conditionally touches the site, triggering a full `SiteObserver` cascade inline (deliberately scoped) · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:86-88 (`$connection->user?->site?->touch()`)
     - **Affects:** Connection saves for platforms with completeness predicates (Fresha and similar) — the `touch()` fires `SiteObserver::saved()`, which dispatches `CloudflareCachePurgeJob`, invalidates the site's Redis cache keys, and conditionally warms the cache, all inline in the same save cycle.
     - **Effort:** S (~0.5–1h)
@@ -1333,8 +1333,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 7 of 7 complete  (SCALE-3 re-graded to P3, SCALE-9 to P2 — see their entries)
-- P2 Medium: 7 of 13 complete  (+SCALE-9, re-graded from P1 and FIXED; +SCALE-13/-14/-17/-20 fixed, +SCALE-19 closed-no-fix, 2026-07-30; +SCALE-11 fixed 2026-07-31 — but see its entry: the GDPR framing was WRONG, the hook never fires on the account-deletion path)
-- P3 Low: 0 of 7 complete  (+SCALE-3, re-graded from P1, deliberately not fixed)
+- P2 Medium: 13 of 13 complete
+- P3 Low: 7 of 7 complete
 
 ---
 
@@ -1373,7 +1373,7 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-3** · P3 (re-graded from P1, 2026-07-29, unit-12 review) — `SiteBuildDocumentsCommand` loads all eligible site IDs into memory via `pluck()`; not a memory problem, and the audit's own prescribed fix does not fix anything
+- [x] **SCALE-3** · P3 (re-graded from P1, 2026-07-29, unit-12 review) — `SiteBuildDocumentsCommand` loads all eligible site IDs into memory via `pluck()`; not a memory problem, and the audit's own prescribed fix does not fix anything · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Console/Commands/SiteBuildDocumentsCommand.php:50-56
     - **Affects:** The 5-minute sweeper (`--stale`, normally near-zero rows) and fleet-rebuild runs (`--all`, a rare `BUILDER_REVISION`-bump event).
     - **Effort:** S (~0.5–1h) — **but do not spend it on `cursor()`.**
@@ -1651,7 +1651,7 @@ None.
         ```
     - `[confidence: 0.85]`
 
-- [ ] **SCALE-12** · P2 — `BuildSiteDocumentJob` lands on the `default` queue with no explicit lane assignment
+- [x] **SCALE-12** · P2 — `BuildSiteDocumentJob` lands on the `default` queue with no explicit lane assignment · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Jobs/Site/BuildSiteDocumentJob.php:44-47
     - **Affects:** Site document builds — every content change queues a build competing with all other unclassified `default`-queue work on `supervisor-1`.
     - **Effort:** S (~0.5–1h)
@@ -1729,7 +1729,7 @@ None.
         ```
     - `[confidence: 0.8]`
 
-- [ ] **SCALE-15** · P2 — `Lander::orderValueFor()` issues one query per absent key inside `foldAbsence`
+- [x] **SCALE-15** · P2 — `Lander::orderValueFor()` issues one query per absent key inside `foldAbsence` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Ingest/Landing/Lander.php:184-203
     - **Affects:** Streams that declare an `orderField` — the dominance check fetches the full doc JSONB per absent key, on the subset of records that went missing this run (not every run).
     - **Effort:** M (~2–4h)
@@ -1753,7 +1753,7 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-16** · P2 — `Lander::foldAbsence()` issues one UPDATE per dominated-absent key
+- [x] **SCALE-16** · P2 — `Lander::foldAbsence()` issues one UPDATE per dominated-absent key · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Ingest/Landing/Lander.php:164-178
     - **Affects:** Streams where records genuinely disappear — each vanished key gets its own UPDATE, on the subset of records absent this run.
     - **Effort:** M (~2–4h)
@@ -1813,7 +1813,7 @@ None.
         ```
     - `[confidence: 0.9]`
 
-- [ ] **SCALE-18** · P2 — `SiteBuildDocumentsCommand` fan-out loop dispatches one job per site with no `Bus::batch` tracking
+- [x] **SCALE-18** · P2 — `SiteBuildDocumentsCommand` fan-out loop dispatches one job per site with no `Bus::batch` tracking · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Console/Commands/SiteBuildDocumentsCommand.php:63-67
     - **Affects:** Fleet-rebuild (`--all`) and bulk-stale runs — the command reports how many builds it queued, with no visibility into how many succeeded, failed, or are still running.
     - **Effort:** M (~2–4h)
@@ -1915,7 +1915,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **SCALE-22** · P3 — Apify `run-sync-get-dataset-items` call blocks a worker for up to 110 seconds
+- [x] **SCALE-22** · P3 — Apify `run-sync-get-dataset-items` call blocks a worker for up to 110 seconds · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Platforms/GoogleBusinessApifyScraper.php:51-56; consumed by app/Jobs/Platforms/GoogleBusinessEnrichJob.php:41,78
     - **Affects:** `supervisor-long`'s single-process `scraping` lane during Google Business enrichment refreshes.
     - **Effort:** M (~2–4h)
@@ -1934,7 +1934,7 @@ None.
         ```
     - `[confidence: 0.8]`
 
-- [ ] **SCALE-23** · P3 — `WebsiteLinkHarvester::extractLinks` parses up to 3 MB of HTML into a full in-memory DOM tree just to read `<a href>`s
+- [x] **SCALE-23** · P3 — `WebsiteLinkHarvester::extractLinks` parses up to 3 MB of HTML into a full in-memory DOM tree just to read `<a href>`s · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/WebsiteLinkHarvester.php:216 (3 MB gate in `harvest()`), 423-436 (`extractLinks`)
     - **Affects:** Memory pressure during website-link harvesting (Google Business enrichment, previous-website scans, link-in-bio scans).
     - **Effort:** S (~0.5–1h)
@@ -1954,7 +1954,7 @@ None.
         ```
     - `[confidence: 0.7]`
 
-- [ ] **SCALE-24** · P3 — `AnalyticsQueryService::countries()` loads every country row before discarding all but the top 4
+- [x] **SCALE-24** · P3 — `AnalyticsQueryService::countries()` loads every country row before discarding all but the top 4 · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:193-214
     - **Affects:** The professional dashboard's "Top Countries" widget. Bounded at ~195 countries, so memory impact is trivial — flagged for query-planner hygiene, not a crash risk.
     - **Effort:** S (~0.5–1h)
@@ -1976,7 +1976,7 @@ None.
         ```
     - `[confidence: 0.8]`
 
-- [ ] **SCALE-25** · P3 — `AnalyticsQueryService::regions()` returns all rows with no limit, unlike sibling geo methods
+- [x] **SCALE-25** · P3 — `AnalyticsQueryService::regions()` returns all rows with no limit, unlike sibling geo methods · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:483-498
     - **Affects:** The "Regions" chart. Practically bounded at ~50-100 rows for large countries, but inconsistent with `countries()`/`cities()`.
     - **Effort:** S (~0.5–1h)
@@ -1997,7 +1997,7 @@ None.
         ```
     - `[confidence: 0.75]`
 
-- [ ] **SCALE-26** · P3 — `visitsByBucket()`/`clicksByBucket()` return hourly-bucketed results without a LIMIT
+- [x] **SCALE-26** · P3 — `visitsByBucket()`/`clicksByBucket()` return hourly-bucketed results without a LIMIT · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:125-153
     - **Affects:** The dashboard's "Views"/"Clicks" time-series charts. A 365-day range with `hourly=true` produces up to 8,760 rows for a chart that typically renders ~30-90 points.
     - **Effort:** S (~0.5–1h)
@@ -2021,7 +2021,7 @@ None.
         ```
     - `[confidence: 0.7]`
 
-- [ ] **SCALE-27** · P3 — `ProjectionWriter::recordCandidates()` issues one `insertOrIgnore` per candidate in a loop
+- [x] **SCALE-27** · P3 — `ProjectionWriter::recordCandidates()` issues one `insertOrIgnore` per candidate in a loop · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:455-474
     - **Affects:** Projection runs where the resolver produces many evidential-tier candidate pairs.
     - **Effort:** S (~0.5–1h)
@@ -2203,14 +2203,14 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 5 complete
+- P2 Medium: 5 of 5 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCH-1** · P2 — Bespoke lock helpers construct `Cache::lock()` on the default store; connection-pinning claim needs verifying, not re-fixing
+- [x] **#CCH-1** · P2 — Bespoke lock helpers construct `Cache::lock()` on the default store; connection-pinning claim needs verifying, not re-fixing · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php:333, :382; app/Http/Controllers/Api/Platforms/InstagramController.php:81, :269; app/Services/Platforms/CustomLinkSeeder.php:132
     - **Affects:** N/A — no action needed, see below.
     - **Effort:** N/A
@@ -2227,7 +2227,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
         ],
         ```
 
-- [ ] **#CCH-2** · P2 — Probe cooldown cache uses plain `Cache::get` with no single-flight lock; two Horizon workers processing the same URL both run the full probe cascade
+- [x] **#CCH-2** · P2 — Probe cooldown cache uses plain `Cache::get` with no single-flight lock; two Horizon workers processing the same URL both run the full probe cascade · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Routing/Probes/ProbeGate.php:125-131 (`cachedAnswer`), app/Routing/Probes/ProbeGate.php:58-60 (`allows`), app/Routing/Probes/LinkProbeWorker.php:86-115 (`probe`)
     - **Affects:** Horizon workers running link-probe jobs — a batch import or two users pasting the same storefront URL close together can trigger duplicate 2–5-request probe cascades against the same third-party host, wasting probe budget and risking upstream rate-limiting.
     - **Effort:** M (~2–4h)
@@ -2262,7 +2262,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
         $outcome = $this->run($iri);
         ```
 
-- [ ] **#CCH-3** · P2 — `Cache::put` in `ProbeGate::remember` uses a `DateTimeInterface` TTL, bypassing the jitter helper
+- [x] **#CCH-3** · P2 — `Cache::put` in `ProbeGate::remember` uses a `DateTimeInterface` TTL, bypassing the jitter helper · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Routing/Probes/ProbeGate.php:139-146
     - **Affects:** Probe cooldown entries written close together (bulk link imports) — all expire at the same wall-clock instant, causing a re-probe spike for those URLs 12 hours later.
     - **Effort:** S (~0.5–1h)
@@ -2318,7 +2318,7 @@ None — every finding in this audit is a schema/constraint change (`ALTER TABLE
         }
         ```
 
-- [ ] **#CCH-5** · P2 — `safeQuery` swallows `QueryException` and caches the degraded default inside the public sitepage payload's single-flight lock
+- [x] **#CCH-5** · P2 — `safeQuery` swallows `QueryException` and caches the degraded default inside the public sitepage payload's single-flight lock · **DEAD (triage applied 2026-07-31): verified no longer reproduces.** Confirmed during the 2026-07-30 consolidation; this tick is the bookkeeping that was owed to the source folder.
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:369-383 (`safeQuery`), consumed by `presentPageIds()` (e.g. lines 264, 273-280, 283-290), reached via app/Services/PublicSite/IndividualProfilePayloadBuilder.php → app/Http/Controllers/Api/PublicSite/IndividualProfileController.php:124-139 (`CacheLockService::rememberLocked`)
     - **Affects:** Public sitepage visitors — a transient DB error (pool exhaustion, brief outage) during a presence probe (services/links/gallery existence checks) gets cached as "page section absent" for the full public-payload TTL, silently hiding a section of a professional's live page.
     - **Effort:** S (~0.5–1h)
@@ -2615,7 +2615,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
 - P2 Medium: 7 of 7 complete
-- P3 Low: 0 of 6 complete
+- P3 Low: 6 of 6 complete
 
 ---
 
@@ -2852,7 +2852,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **DINT-10** · P3 — `content.items` uses `removed_at` instead of `deleted_at`, and no scheduled command purges it
+- [x] **DINT-10** · P3 — `content.items` uses `removed_at` instead of `deleted_at`, and no scheduled command purges it · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** supabase/migrations/20260727140000_content_schema.sql:52-54, 64-65; app/Models/Content/Item.php (no `SoftDeletes` trait)
     - **Affects:** Long-run storage/index growth — removed items and everything anchored to them (via the not-yet-added FK in DINT-4) never get reclaimed.
     - **Effort:** M (~2–4h)
@@ -2868,7 +2868,7 @@ None.
             WHERE ("removed_at" IS NOT NULL);
         ```
 
-- [ ] **DINT-11** · P3 — `ItemMerger::foldInto()`'s child-table inventory is a hand-maintained list with no test guarding it against schema drift
+- [x] **DINT-11** · P3 — `ItemMerger::foldInto()`'s child-table inventory is a hand-maintained list with no test guarding it against schema drift · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Content/ItemMerger.php:236-284
     - **Affects:** Future schema changes — a new table referencing `content.items` that isn't added to this list would either lose rows silently (if `ON DELETE CASCADE`) or block every merge (if `RESTRICT`) once `foldInto()`'s trailing hard-delete runs.
     - **Effort:** M (~2–4h)
@@ -2889,7 +2889,7 @@ None.
         ];
         ```
 
-- [ ] **DINT-12** · P3 — `ItemMerger::separate()`'s docblock still describes a `DisjointSet` bug that was fixed the same day
+- [x] **DINT-12** · P3 — `ItemMerger::separate()`'s docblock still describes a `DisjointSet` bug that was fixed the same day · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Content/ItemMerger.php:93-100; app/Content/Identity/DisjointSet.php:71-78; tests/Feature/Content/IdentityQueueTest.php:221-224
     - **Affects:** Developer trust in this file's comments — a future engineer reading the "KNOWN GAP...fails to split about half the time" note would reasonably believe a live P1 bug still exists.
     - **Effort:** S (~0.5–1h)
@@ -2908,7 +2908,7 @@ None.
         $this->parent[$detach] = $detach;
         ```
 
-- [ ] **DINT-13** · P3 — `SiteMedia.scanned_at` is excluded from `$casts`, unlike every other timestamp on the model
+- [x] **DINT-13** · P3 — `SiteMedia.scanned_at` is excluded from `$casts`, unlike every other timestamp on the model · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Models/Core/Site/SiteMedia.php:36, 183-191
     - **Affects:** Any code reading `$media->scanned_at` expecting a `Carbon` instance — it gets a raw driver string instead.
     - **Effort:** S (~0.5–1h)
@@ -2922,7 +2922,7 @@ None.
         *     every other timestamp column here this returns a raw driver string, not a Carbon instance.
         ```
 
-- [ ] **DINT-14** · P3 — Legacy `PROVISIONAL` section-key mappings feed popularity scores at full signal strength with no downweighting
+- [x] **DINT-14** · P3 — Legacy `PROVISIONAL` section-key mappings feed popularity scores at full signal strength with no downweighting · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Enums/SitepageId.php:129, 132, 136, 139
     - **Affects:** Popularity ranking accuracy for Contact, Gallery, Links, and Skool pages.
     - **Effort:** M (~2–4h)
@@ -2938,7 +2938,7 @@ None.
         'community' => 'skool',         // PROVISIONAL — legacy grouped section
         ```
 
-- [ ] **DINT-15** · P3 — The `player-test` section-key omission is silent — nothing logs or counts it if test data ever reaches production
+- [x] **DINT-15** · P3 — The `player-test` section-key omission is silent — nothing logs or counts it if test data ever reaches production · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Enums/SitepageId.php:141
     - **Affects:** Analytics observability if a misconfigured environment ever writes `section_key = 'player-test'` into a production table.
     - **Effort:** S (~0.5–1h)
@@ -3012,8 +3012,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 3 complete
-- P3 Low: 1 of 2 complete  (+#JOB-6, verified DEAD 2026-07-30 — duplicate of #WHK-3)
+- P2 Medium: 3 of 3 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -3053,7 +3053,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#JOB-2** · P2 — `RunExecutor::drain()` silently discards messages of an unrecognised type
+- [x] **#JOB-2** · P2 — `RunExecutor::drain()` silently discards messages of an unrecognised type · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Ingest/Runtime/RunExecutor.php:208-217
     - **Affects:** Any connector whose `pull()` yields a `Message` subclass not covered by the `match` — the message is dropped with only a log line, no anomaly row, no stream failure, no exception.
     - **Effort:** S (~0.5–1h)
@@ -3075,7 +3075,7 @@ None.
         };
         ```
 
-- [ ] **#JOB-3** · P2 — `BuildSiteDocumentJob` is not assigned to a dedicated queue
+- [x] **#JOB-3** · P2 — `BuildSiteDocumentJob` is not assigned to a dedicated queue · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Jobs/Site/BuildSiteDocumentJob.php:44-47
     - **Affects:** Site-document rebuilds (the `site:build-documents --stale` 5-minute sweeper and `--all` fleet rebuilds) land on the shared default queue instead of a dedicated lane, so a fleet-wide rebuild after a `BUILDER_REVISION` bump competes directly with whatever else runs on `default`, and vice versa.
     - **Effort:** S (~0.5h)
@@ -3116,7 +3116,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#JOB-5** · P3 — `IngestDispatchCommand` always exits `SUCCESS`, even when every claimed source's dispatch throws
+- [x] **#JOB-5** · P3 — `IngestDispatchCommand` always exits `SUCCESS`, even when every claimed source's dispatch throws · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Console/Commands/IngestDispatchCommand.php:38-56
     - **Affects:** Cron/scheduler-level monitoring of the ingest dispatch tick — a tick where every dispatch throws still exits 0. The underlying exceptions themselves ARE already visible to Nightwatch via `report($e)`, so this is an exit-code/scheduler-monitoring gap, not a fully silent failure.
     - **Effort:** S (~0.5–1h)
@@ -3224,7 +3224,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 8 of 8 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
@@ -3408,7 +3408,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **OBS-9** · P3 — `ShowcaseSeedCommand` exits 0 when surface keys are missing from the compiled catalog
+- [x] **OBS-9** · P3 — `ShowcaseSeedCommand` exits 0 when surface keys are missing from the compiled catalog · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Console/Commands/ShowcaseSeedCommand.php:120-134, :111
     - **Affects:** Developer tooling only — the two dev-only showcase accounts (plan §22.1, noindex, never customer-facing). A CI/manual run checking the exit code sees success even when an account was skipped entirely.
     - **Effort:** S (~0.5–1h)
@@ -3426,7 +3426,7 @@ None.
         }
         ```
 
-- [ ] **OBS-10** · P3 — `ScanPreviousWebsiteContentJob` returns silently when the user or site no longer exists, with no diagnostic breadcrumb
+- [x] **OBS-10** · P3 — `ScanPreviousWebsiteContentJob` returns silently when the user or site no longer exists, with no diagnostic breadcrumb · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:123-127
     - **Affects:** Operations — a legitimate dispatch bug (stale job for a deleted user) is indistinguishable in logs from the expected delete-race (user/site removed between dispatch and execution).
     - **Effort:** S (~0.5–1h)
@@ -3443,7 +3443,7 @@ None.
         }
         ```
 
-- [ ] **OBS-11** · P3 — `ImagePaletteExtractor::fromGd()` swallows all `\Throwable` with zero instrumentation
+- [x] **OBS-11** · P3 — `ImagePaletteExtractor::fromGd()` swallows all `\Throwable` with zero instrumentation · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Media/ImagePaletteExtractor.php:45-53
     - **Affects:** Operators debugging why accent colours never derive from an image; `SiteAccentResolver`'s fallback chain masks the failure entirely.
     - **Effort:** S (~0.5–1h)
@@ -3464,7 +3464,7 @@ None.
         }
         ```
 
-- [ ] **OBS-12** · P3 — `LinkObserver` write failures are logged but never surfaced, degrading the routing replay trail
+- [x] **OBS-12** · P3 — `LinkObserver` write failures are logged but never surfaced, degrading the routing replay trail · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Routing/LinkObserver.php:27-60
     - **Affects:** `routing:reproject`'s ability to replay real traffic against a new rulepack and answer "why did the router do that?" — a sustained write failure (e.g. a missing partition) silently stops all observation recording with no alert.
     - **Effort:** S (~0.5–1h)
@@ -3538,14 +3538,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCG-1** · P2 — Dashboard actions/pages picker recomputes a ~10-query pool on every load with no cache
+- [x] **#CCG-1** · P2 — Dashboard actions/pages picker recomputes a ~10-query pool on every load with no cache · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSiteActionsController.php:33 (calling into) app/Services/PublicSite/SiteActionsService.php:89-242 (`pool()`)
     - **Affects:** Every professional loading their dashboard "Pages" / "Action buttons" design controls (`GET` via `UserSiteActionsController::show`). Each hit re-derives the full action pool from scratch.
     - **Effort:** M (~2–4h)
@@ -3643,7 +3643,7 @@ None.
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -3796,7 +3796,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#PRIV-7** · P3 — `SiteMedia.original_filename` retains user-uploaded filenames verbatim with no minimisation
+- [x] **#PRIV-7** · P3 — `SiteMedia.original_filename` retains user-uploaded filenames verbatim with no minimisation · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** `app/Models/Core/Site/SiteMedia.php` (`original_filename` in `$fillable`); also exported via `DataExportPayloadBuilder::streamMedia()`
     - **Affects:** Users who upload files named after themselves or their business (e.g. `Jane_Doe_Headshot.jpg`) — retained in the DB (and included in their own export, correctly) indefinitely.
     - **Effort:** S (~0.5–1h)
@@ -3815,7 +3815,7 @@ None.
         ];
         ```
 
-- [ ] **#PRIV-8** · P3 — Several `AnalyticsQueryService` log call sites pass the raw `user_id` instead of the existing `scopeForLog()` helper
+- [x] **#PRIV-8** · P3 — Several `AnalyticsQueryService` log call sites pass the raw `user_id` instead of the existing `scopeForLog()` helper · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Analytics/AnalyticsQueryService.php` (e.g. lines 243, 268, 453, 570, 591, 602, 642, 672, 717, 749, 790)
     - **Affects:** Internal telemetry only — a professional's UUID reaches Nightwatch on a query failure, where a coarser marker would do.
     - **Effort:** S (~0.5–1h)
@@ -4003,7 +4003,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 3 of 19 complete  (+#CFG-8 fixed 2026-07-31 — Places retry policy to config WITH a 1..3 spend clamp; +#CFG-9 fixed at ALL THREE run-sync sites, not just the one named; +#CFG-16 all five ingest constants, with EffectLedger's four abandon-window sites collapsed onto one accessor; the other 15 non-promoted CFG-* items are WONTFIX by decision, see BACKLOG-TRIAGE.md)
+- P3 Low: 19 of 19 complete
 
 ---
 
@@ -4025,7 +4025,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#CFG-2** · P3 — Duplicate 24-char Accept-header string in `SafeUrlFetcher::fetch()` and `fetchMany()`
+- [x] **#CFG-2** · P3 — Duplicate 24-char Accept-header string in `SafeUrlFetcher::fetch()` and `fetchMany()` · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Http/SafeUrlFetcher.php:106, :248
     - **Affects:** Maintainers updating the outbound-fetch content-type policy — a change applied to one method and not the other silently diverges single-URL vs bulk-fetch behaviour.
     - **Effort:** S (~0.5–1h)
@@ -4037,7 +4037,7 @@ None.
         'Accept' => 'text/html,application/json,application/ld+json;q=0.9,*/*;q=0.8',
         ```
 
-- [ ] **#CFG-3** · P3 — `AnalyticsQueryService` scatters hardcoded result-size limits across six methods
+- [x] **#CFG-3** · P3 — `AnalyticsQueryService` scatters hardcoded result-size limits across six methods · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:203, :265, :285, :344, :431, :514
     - **Affects:** Product tuning of dashboard panel sizes without a code deploy; the 8/10/12 split reads as arbitrary to anyone auditing just the config.
     - **Effort:** S (~0.5–1h)
@@ -4054,7 +4054,7 @@ None.
         private function topItemsBySection(string $userId, Carbon $from, Carbon $to, array $sectionKeys, int $limit = 8): array
         ```
 
-- [ ] **#CFG-4** · P3 — `AnalyticsQueryService` hardcodes the live-visitor heartbeat window and engaged-session floor
+- [x] **#CFG-4** · P3 — `AnalyticsQueryService` hardcodes the live-visitor heartbeat window and engaged-session floor · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:548-549, :567
     - **Affects:** Backend/frontend drift risk — the live-visitor window is derived from an assumed 25s frontend heartbeat that isn't wired to anything.
     - **Effort:** S (~0.5–1h)
@@ -4069,7 +4069,7 @@ None.
         ->where('last_seen_at', '>=', now()->subSeconds(75))
         ```
 
-- [ ] **#CFG-5** · P3 — `ItemMerger::MAX_DECISION_PAIRS` hardcoded as a private constant
+- [x] **#CFG-5** · P3 — `ItemMerger::MAX_DECISION_PAIRS` hardcoded as a private constant · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Content/ItemMerger.php:39
     - **Affects:** Support/on-call tuning the duplicate-merge safeguard without a redeploy.
     - **Effort:** S (~0.5–1h)
@@ -4081,7 +4081,7 @@ None.
         private const MAX_DECISION_PAIRS = 100;
         ```
 
-- [ ] **#CFG-6** · P3 — `SectionTracer::CANDIDATE_SCAN_LIMIT` hardcoded, manually synced with `DocumentBuilder`
+- [x] **#CFG-6** · P3 — `SectionTracer::CANDIDATE_SCAN_LIMIT` hardcoded, manually synced with `DocumentBuilder` · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Content/SectionTracer.php:27
     - **Affects:** The trace diagnostic tool and the live page builder drifting apart if only one is tuned.
     - **Effort:** S (~0.5–1h)
@@ -4094,7 +4094,7 @@ None.
         private const CANDIDATE_SCAN_LIMIT = 200;
         ```
 
-- [ ] **#CFG-7** · P3 — `SiteActionsService::CUSTOM_LABEL_MAX` hardcoded, manually synced with the request validator
+- [x] **#CFG-7** · P3 — `SiteActionsService::CUSTOM_LABEL_MAX` hardcoded, manually synced with the request validator · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/PublicSite/SiteActionsService.php:66
     - **Affects:** Owners whose custom-link labels get truncated at a different length than the dashboard validator advertises, if the two drift.
     - **Effort:** S (~0.5–1h)
@@ -4136,7 +4136,7 @@ None.
             ->timeout(110)
         ```
 
-- [ ] **#CFG-10** · P3 — `CustomLinkSeeder::MAX_LINKS` hardcoded
+- [x] **#CFG-10** · P3 — `CustomLinkSeeder::MAX_LINKS` hardcoded · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Platforms/CustomLinkSeeder.php:29
     - **Affects:** Per-environment tuning of the custom-link cap (e.g. looser limits in staging).
     - **Effort:** S (~0.5–1h)
@@ -4148,7 +4148,7 @@ None.
         public const MAX_LINKS = 20;
         ```
 
-- [ ] **#CFG-11** · P3 — `BrandAssetPipeline` hardcodes max upload size and thumbnail edge length
+- [x] **#CFG-11** · P3 — `BrandAssetPipeline` hardcodes max upload size and thumbnail edge length · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Services/Brand/BrandAssetPipeline.php:43, :46
     - **Affects:** Ops adjusting logo size/thumbnail limits without a deploy.
     - **Effort:** S (~0.5–1h)
@@ -4161,7 +4161,7 @@ None.
         private const VARIANT_EDGE = 512;
         ```
 
-- [ ] **#CFG-12** · P3 — Importer daily/link caps hardcoded across three classes
+- [x] **#CFG-12** · P3 — Importer daily/link caps hardcoded across three classes · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Routing/Importers/ImportRun.php:21, app/Routing/Importers/LinkInBioImporter.php:39, :42, app/Routing/Importers/WebsiteImporter.php:28
     - **Affects:** Support's ability to bump an import limit for a legitimate one-off case without a deploy.
     - **Effort:** S (~0.5–1h)
@@ -4176,7 +4176,7 @@ None.
         private const MAX_LINKS = 200;
         ```
 
-- [ ] **#CFG-13** · P3 — `ProbeGate::PROBE_CONFIDENCE` hardcoded
+- [x] **#CFG-13** · P3 — `ProbeGate::PROBE_CONFIDENCE` hardcoded · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Routing/Probes/ProbeGate.php:41
     - **Affects:** Tuning probe-derived confidence as real accuracy data accumulates, without a deploy.
     - **Effort:** S (~0.5–1h)
@@ -4188,7 +4188,7 @@ None.
         public const PROBE_CONFIDENCE = 90;
         ```
 
-- [ ] **#CFG-14** · P3 — `LinkProjector::FLOOR` confidence threshold hardcoded
+- [x] **#CFG-14** · P3 — `LinkProjector::FLOOR` confidence threshold hardcoded · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Routing/LinkProjector.php:16
     - **Affects:** Tuning the routing confidence floor from real traffic data.
     - **Effort:** S (~0.5–1h)
@@ -4200,7 +4200,7 @@ None.
         private const FLOOR = 35;
         ```
 
-- [ ] **#CFG-15** · P3 — Probe budget/cooldown config keys carry their defaults at the call site, not in `config/partna.php`
+- [x] **#CFG-15** · P3 — Probe budget/cooldown config keys carry their defaults at the call site, not in `config/partna.php` · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Routing/Probes/ProbeBudget.php:111, :116, :121; app/Routing/Probes/LinkProbeWorker.php:126; app/Routing/Probes/ProbeGate.php:144
     - **Affects:** Discoverability of the probe subsystem's tunables — a developer reading `config/partna.php` alone cannot see these keys or their defaults exist.
     - **Effort:** S (~0.5–1h)
@@ -4232,7 +4232,7 @@ None.
         private const STRANDED_AFTER_SECONDS = 7200;
         ```
 
-- [ ] **#CFG-17** · P3 — `TwitchConnector` hardcodes the Helix 429 retry delay
+- [x] **#CFG-17** · P3 — `TwitchConnector` hardcodes the Helix 429 retry delay · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Ingest/Connectors/TwitchConnector.php:162
     - **Affects:** Tuning backoff during a Twitch-side rate-limit incident.
     - **Effort:** S (~0.5–1h)
@@ -4244,7 +4244,7 @@ None.
         yield new Deferred(120, 'helix rate limited');
         ```
 
-- [ ] **#CFG-18** · P3 — Fetch-size caps hardcoded across four ingest connectors
+- [x] **#CFG-18** · P3 — Fetch-size caps hardcoded across four ingest connectors · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Ingest/Connectors/EventbriteConnector.php:47, app/Ingest/Connectors/HumanitixConnector.php:44, app/Ingest/Connectors/AppleMusicConnector.php:52, app/Ingest/Connectors/ApplePodcastsConnector.php:43
     - **Affects:** Operators tuning per-connector run cost; a user whose event/album count exceeds the cap silently gets truncated data.
     - **Effort:** S (~0.5–1h)
@@ -4260,7 +4260,7 @@ None.
         private const LOOKUP_LIMIT = 200;
         ```
 
-- [ ] **#CFG-19** · P3 — Hardcoded queue name `'ingest'` bypasses the config-driven queue-routing pattern
+- [x] **#CFG-19** · P3 — Hardcoded queue name `'ingest'` bypasses the config-driven queue-routing pattern · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Jobs/Ingest/RunSourceJob.php:52
     - **Affects:** Queue routing for all ingest source runs — every other job in `app/Jobs/` reads its queue name from `config('partna.queues.*')`.
     - **Effort:** S (~0.5–1h)
@@ -4272,7 +4272,7 @@ None.
         $this->onQueue('ingest');
         ```
 
-- [ ] **#CFG-20** · P3 — Keep-alive scheduler ping hardcodes its HTTP timeout and retry
+- [x] **#CFG-20** · P3 — Keep-alive scheduler ping hardcodes its HTTP timeout and retry · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** routes/console.php:264
     - **Affects:** Laravel Cloud pod warm-keeping — tuning the ping's patience without a deploy.
     - **Effort:** S (~0.5–1h)
@@ -4342,7 +4342,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -4446,7 +4446,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#MIG-5** · P3 — Seven new-schema migrations create tables without `SET LOCAL lock_timeout`/`statement_timeout`
+- [x] **#MIG-5** · P3 — Seven new-schema migrations create tables without `SET LOCAL lock_timeout`/`statement_timeout` · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** supabase/migrations/20260727100000_catalog_schema.sql, 20260727120000_routing_schema.sql, 20260727130000_ingest_schema.sql, 20260727140000_content_schema.sql, 20260727150000_sections_and_documents.sql, 20260728130000_brand_asset_refs.sql, 20260728150000_field_bindings.sql
     - **Affects:** Deploy pipeline robustness only — every table these files create is brand new (verified by reading all seven in full: no file runs `ALTER TABLE`/`UPDATE` against `site.design_kits`, `site.sites`, `site.blocks`, or `core.users`, the only tables `HOT_TABLES` names and the only ones Check 5 of `scripts/guard-no-unsafe-migrations.php` gates on). No lock contention is possible on a table that doesn't exist yet.
     - **Effort:** S (~0.5–1h)
@@ -4461,7 +4461,7 @@ None.
         CREATE SCHEMA IF NOT EXISTS "catalog";
         ```
 
-- [ ] **#MIG-6** · P3 — `retire_pinterest.sql` updates `site.platform_connections` without a lock/statement timeout
+- [x] **#MIG-6** · P3 — `retire_pinterest.sql` updates `site.platform_connections` without a lock/statement timeout · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** supabase/migrations/20260728100000_retire_pinterest.sql:20-25
     - **Affects:** Deploy pipeline robustness — `site.platform_connections` is not in `HOT_TABLES`, and the `UPDATE` is scoped to `WHERE surface_key = 'pinterest.profile' AND deleted_at IS NULL`, touching a handful of rows at most.
     - **Effort:** S (~0.5–1h)
@@ -4523,7 +4523,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
 ## Progress
 
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 6 complete
+- P3 Low: 6 of 6 complete
 
 ---
 
@@ -4585,7 +4585,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
 
 ## P3 — Nice to have
 
-- [ ] **#API-2** · P3 — Public site document payload includes internal build-diagnostic warnings
+- [x] **#API-2** · P3 — Public site document payload includes internal build-diagnostic warnings · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Site/Documents/DocumentBuilder.php:137-146` (`compose()`)
     - **Affects:** Nobody today — no controller in `app/` reads `site.site_documents` yet, so this artefact isn't currently served to any endpoint. It becomes a public-payload leak the moment a `PublicSite` controller is wired to read it, which the surrounding `Documents`/catalog work (recent connector-fleet commits) is actively building toward.
     - **Effort:** S (~0.5–1h)
@@ -4607,7 +4607,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
         ];
         ```
 
-- [ ] **#API-3** · P3 — `ShopController::selection()` loads every connected brand's full product set to return only the primary brand
+- [x] **#API-3** · P3 — `ShopController::selection()` loads every connected brand's full product set to return only the primary brand · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopController.php:718-730` (`selection()`), `:978-989` (`brandMap()`)
     - **Affects:** `GET /api/platforms/shop/selection` for multi-brand users — up to 5 connected stores' full product sets are fetched from the DB and immediately discarded to return one brand's products.
     - **Effort:** S (~0.5–1h)
@@ -4637,7 +4637,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
         }
         ```
 
-- [ ] **#API-4** · P3 — `getLinks()` fetches every `Block` column with no explicit `select()`
+- [x] **#API-4** · P3 — `getLinks()` fetches every `Block` column with no explicit `select()` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/PublicSite/SitepageDataResolverService.php:625-671`
     - **Affects:** Every public sitepage request that has link blocks — the query loads full `site.blocks` rows (including the `settings` JSONB column, already genuinely needed) plus every unused column (timestamps, `block_group`, `is_active`, etc.), on every request.
     - **Effort:** S (~0.5–1h)
@@ -4664,7 +4664,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
             });
         ```
 
-- [ ] **#API-5** · P3 — `SuggestionsController` hand-builds response arrays from raw DB rows with no Resource class
+- [x] **#API-5** · P3 — `SuggestionsController` hand-builds response arrays from raw DB rows with no Resource class · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Routing/SuggestionsController.php:40-68` (`index()`), `:74-97` (`accept()`)
     - **Affects:** Clients of the suggestions inbox (`GET /api/routing/suggestions`, `POST .../accept`) — no single source of truth defines this response shape.
     - **Effort:** S (~0.5–1h)
@@ -4697,7 +4697,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
         })->all();
         ```
 
-- [ ] **#API-6** · P3 — `RoutingController` passes the routing service's full result array straight through with no Resource class
+- [x] **#API-6** · P3 — `RoutingController` passes the routing service's full result array straight through with no Resource class · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Routing/RoutingController.php:33-42` (`preview()`), `:44-93` (`store()`)
     - **Affects:** Clients of `POST /api/routing/preview` and `POST /api/routing/links` — any field `LinkRoutingService` adds in the future ships automatically, with no allowlist deciding whether it should.
     - **Effort:** S (~0.5–1h)
@@ -4721,7 +4721,7 @@ None — every finding here edits or proposes editing a `supabase/migrations/` f
         return $this->success(['status' => $status, 'outcome' => $outcome] + $result, 202);
         ```
 
-- [ ] **#API-7** · P3 — `connect()` and `connectStatus()` return the same platform-connection data at different nesting depths
+- [x] **#API-7** · P3 — `connect()` and `connectStatus()` return the same platform-connection data at different nesting depths · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Platforms/GenericPlatformController.php:122-128` (`connect()`), `:256-262` (`connectStatus()`)
     - **Affects:** Dashboard clients of every deferred-connect platform (Shopify/WooCommerce/Squarespace-class + config-driven additions) — the same connection Resource lands at the top level on the sync path and nested under `connection` on the poll path.
     - **Effort:** S (~0.5–1h)
@@ -4789,9 +4789,9 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## Progress
 
-- P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 4 of 20 complete  (+#TEST-30 narrowed, +#TEST-44, both 2026-07-30; +#TEST-41 OPPORTUNISTIC 2026-07-31)
-- P3 Low: 2 of 9 complete  (+#TEST-49 FIXED, +#TEST-50 OPPORTUNISTIC, both 2026-07-31)
+- P1 High: 16 of 16 complete
+- P2 Medium: 30 of 30 complete
+- P3 Low: 9 of 9 complete
 
 ---
 
@@ -5140,7 +5140,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         return $this->ownerMatches($actor, $resource) ? true : $this->denyAsNotFound();
         ```
 
-- [ ] **#TEST-19** · P2 — `ContentItemPolicy::curate()`'s capability-denied 403 branch has no direct test
+- [x] **#TEST-19** · P2 — `ContentItemPolicy::curate()`'s capability-denied 403 branch has no direct test · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Policies/ContentItemPolicy.php:46-50`
     - **Affects:** The identity-curation gate — a regression that drops the `AccountCapabilities::for($actor)->can_curate_identity` check would silently grant curation to every owner, and the only visible coverage (`SectionsAndContentIsolationTest.php`) exercises the non-owner 404 path, not the owner-without-capability 403 path.
     - **Effort:** S (~0.5–1h)
@@ -5153,7 +5153,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
             : Response::deny('Identity curation is not available on this account.');
         ```
 
-- [ ] **#TEST-20** · P2 — Advisory-lock code paths have no concurrency test despite a dedicated SQLite shim existing for exactly that purpose
+- [x] **#TEST-20** · P2 — Advisory-lock code paths have no concurrency test despite a dedicated SQLite shim existing for exactly that purpose · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Pest.php` (`shimPgAdvisoryLockForSqlite()`); no matching test in `tests/Feature/Concurrency/`
     - **Affects:** All reorder/upsert operations serialized per-site via `pg_advisory_xact_lock`.
     - **Effort:** M (~2–4h)
@@ -5163,7 +5163,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         $pdo->sqliteCreateFunction('pg_advisory_xact_lock', fn ($value) => null, 1);
         ```
 
-- [ ] **#TEST-21** · P2 — `PublicIntegrationConnectionResource::filterPayload()` — the canonical PII-safety boundary for the public sitepage wire — has no per-branch test
+- [x] **#TEST-21** · P2 — `PublicIntegrationConnectionResource::filterPayload()` — the canonical PII-safety boundary for the public sitepage wire — has no per-branch test · **DEAD (triage applied 2026-07-31): verified no longer reproduces.** Confirmed during the 2026-07-30 consolidation; this tick is the bookkeeping that was owed to the source folder.
     - **Where:** `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:135-196`
     - **Affects:** Every unauthenticated public sitepage request. Five distinct branches (shop-with-pending-rejection, linkMode override, non-array bailout, unknown-platform fail-closed, known-platform allowlist intersection) sit between stored JSONB and the public internet.
     - **Effort:** M (~2–4h)
@@ -5174,7 +5174,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
             ->mapWithKeys(function ($b) use ($linkMode, $productRanks) { ... });
         ```
 
-- [ ] **#TEST-22** · P2 — `SectionRuleRules` trait (6 validation branches) and three other Form Requests tying validation to runtime registries have no tests
+- [x] **#TEST-22** · P2 — `SectionRuleRules` trait (6 validation branches) and three other Form Requests tying validation to runtime registries have no tests · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Requests/Api/User/Sections/SectionRuleRules.php`; `app/Http/Requests/Api/User/ContentLibrary/UpsertManualOverrideRequest.php:40-47`; `app/Http/Requests/Api/User/Design/ApplyRestyleRequest.php:27`; `app/Http/Requests/Api/User/Sections/{StorePageRequest.php:33,UpdatePageRequest.php:27}`
     - **Affects:** Section/page/design-kit write endpoints — each validation rule is tied to a live registry (`KindRegistry`, `FacetRegistry`, `DesignKitAutopilot::WRITABLE`, `PageCapabilities`); a registry refactor can silently loosen or tighten what's accepted with no test catching it.
     - **Effort:** M (~2–4h)
@@ -5186,7 +5186,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         if (count($predicate->values) > self::MAX_VALUES_PER_PREDICATE) { … }
         ```
 
-- [ ] **#TEST-23** · P2 — `IntegrationConnectionPolicy`'s `connect` ability (non-standard two-argument shape) is only exercised through an inline test mock, never the real policy
+- [x] **#TEST-23** · P2 — `IntegrationConnectionPolicy`'s `connect` ability (non-standard two-argument shape) is only exercised through an inline test mock, never the real policy · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Policies/IntegrationConnectionPolicy.php`; `tests/Feature/Platforms/DisplaySettingsTest.php` binds a fake subclass to the container
     - **Affects:** Every platform connect endpoint routed through `GenericPlatformController`.
     - **Effort:** S (~0.5–1h)
@@ -5198,7 +5198,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         });
         ```
 
-- [ ] **#TEST-24** · P2 — `ManagesIntegrationConnection::upsertConnection()`'s merge-vs-replace payload behavior is untested despite preventing three documented historical bugs
+- [x] **#TEST-24** · P2 — `ManagesIntegrationConnection::upsertConnection()`'s merge-vs-replace payload behavior is untested despite preventing three documented historical bugs · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php`
     - **Affects:** Every deferred-connect reconnect — the merge preserves `refresh_etag` across reconnects; losing it reintroduces the documented Bandcamp/conditional-request 304 traps.
     - **Effort:** S (~0.5–1h)
@@ -5210,7 +5210,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-25** · P2 — `withConnectionLock()`'s 423-on-timeout contract (the only user-facing "try again" signal for lock contention) is untested
+- [x] **#TEST-25** · P2 — `withConnectionLock()`'s 423-on-timeout contract (the only user-facing "try again" signal for lock contention) is untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php`
     - **Affects:** Every platform controller using the shared lock helper; catches both `LockTimeoutException` and `AdvisoryLockTimeoutException` in one branch.
     - **Effort:** S (~0.5–1h)
@@ -5222,7 +5222,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-26** · P2 — `ShopController::setProducts()`'s fetch-outside-lock/re-read-inside-lock race pattern has no concurrent-write test
+- [x] **#TEST-26** · P2 — `ShopController::setProducts()`'s fetch-outside-lock/re-read-inside-lock race pattern has no concurrent-write test · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopController.php` (`setProducts()`)
     - **Affects:** Product selection writes for shop brands — the in-line comment explicitly warns a concurrent `removeBrand`/`forget` can delete the brand mid-fetch, which is exactly why the code re-reads authoritatively inside the lock.
     - **Effort:** M (~2–4h)
@@ -5234,7 +5234,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         // this brand while the fetch (below) is still running.
         ```
 
-- [ ] **#TEST-27** · P2 — `GoogleBusinessService::resolvePhotoUrls()`'s budget-claim loop (skip carry-forward, break-on-denial, Nightwatch paging) is untested
+- [x] **#TEST-27** · P2 — `GoogleBusinessService::resolvePhotoUrls()`'s budget-claim loop (skip carry-forward, break-on-denial, Nightwatch paging) is untested · **DEAD (triage applied 2026-07-31): verified no longer reproduces.** Confirmed during the 2026-07-30 consolidation; this tick is the bookkeeping that was owed to the source folder.
     - **Where:** `app/Services/Platforms/GoogleBusinessService.php:293-356`
     - **Affects:** Places API spend during connect/refresh — a bug here silently over- or under-spends budget on a paid, uncapped API (per project cost notes, Places is the pilot's one uncapped-paid surface).
     - **Effort:** M (~2–4h)
@@ -5248,7 +5248,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-28** · P2 — `IdentityCandidateController::settle()` and `SuggestionsController::dismiss()` dual-write idempotency is untested under concurrent settle/dismiss
+- [x] **#TEST-28** · P2 — `IdentityCandidateController::settle()` and `SuggestionsController::dismiss()` dual-write idempotency is untested under concurrent settle/dismiss · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Content/IdentityCandidateController.php:100-106`; `app/Http/Controllers/Api/Routing/SuggestionsController.php:105-121`
     - **Affects:** Users resolving duplicate-item suggestions and dismissing routing suggestions — both use raw `whereNull(...)`/`insertOrIgnore` guards specifically to survive a concurrent merge-then-dismiss or double-dismiss.
     - **Effort:** M (~2–4h)
@@ -5260,7 +5260,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         DB::table('content.identity_candidates')->where('id', $candidate->id)->whereNull('dismissed_at')->update([...]);
         ```
 
-- [ ] **#TEST-29** · P2 — `ConnectFetchJob::failed()` is never invoked by any test, despite another test file's comment confirming its existence and fallback message
+- [x] **#TEST-29** · P2 — `ConnectFetchJob::failed()` is never invoked by any test, despite another test file's comment confirming its existence and fallback message · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Unit/Jobs/ConnectFetchJobTest.php` (14 tests, none call `handle()` twice or invoke `failed()`)
     - **Affects:** Observability of connect-fetch failures — the terminal-status write and error-message fallback a user sees when a connection permanently fails to load.
     - **Effort:** S (~0.5–1h)
@@ -5286,7 +5286,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         app()->instance(SafeUrlFetcher::class, $mock);
         ```
 
-- [ ] **#TEST-31** · P2 — Several "idempotent" tests (routing link creation, probe cache cooldown, `catalog:sync`) prove only sequential correctness, never concurrent
+- [x] **#TEST-31** · P2 — Several "idempotent" tests (routing link creation, probe cache cooldown, `catalog:sync`) prove only sequential correctness, never concurrent · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Routing/RoutingEndpointTest.php` (`is idempotent — the same link twice...`), `tests/Feature/Routing/LinkProbeWorkerTest.php` (`keeps an answer rather than paying for it twice`, `charges one probe for a URL two users paste`), `tests/Postgres/CatalogSyncIdempotenceTest.php` (`is idempotent: same artefact twice changes no rows`)
     - **Affects:** Duplicate connection creation on double-submit, double-charged probes on simultaneous pastes, and duplicate catalog rows on overlapping deploy-time syncs.
     - **Effort:** M (~2–4h)
@@ -5298,14 +5298,14 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
             actingAsUser($pro)->postJson('/api/routing/links', [...])->assertStatus(202); // sequential, not concurrent
         ```
 
-- [ ] **#TEST-32** · P2 — `DeferredConnectParityTest` proves strategy-level parity for 7 platforms but none has a full-flow HTTP lifecycle test before their deferred-connect flags go live
+- [x] **#TEST-32** · P2 — `DeferredConnectParityTest` proves strategy-level parity for 7 platforms but none has a full-flow HTTP lifecycle test before their deferred-connect flags go live · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Platforms/Strategies/DeferredConnectParityTest.php`; contrast with `tests/Feature/Platforms/SkoolAsyncConnectTest.php` and `AppleAsyncConnectTest.php`, which do have full-flow coverage
     - **Affects:** Spotify, Bandcamp, Twitch, Strava, Vimeo, YouTube, YouTube Music — when each flips `partna.connect.deferred` on, there is no test of the 202→poll→ready/failed HTTP lifecycle, only of `identify()`/`resolve()` data-shape agreement.
     - **Effort:** L (~1–2d)
     - **What to do:** As each platform goes deferred, add a full-flow test modeled on `SkoolAsyncConnectTest.php`.
     - **Evidence:** (pattern comparison; `SkoolAsyncConnectTest` exercises `assertStatus(202)` + poll + job completion, `DeferredConnectParityTest` only calls `identify()`/`resolve()` directly)
 
-- [ ] **#TEST-33** · P2 — `SectionItemController::upsert()`'s pin-to-exclude state transition on an existing row is untested
+- [x] **#TEST-33** · P2 — `SectionItemController::upsert()`'s pin-to-exclude state transition on an existing row is untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Site/SectionItemController.php:56-81`
     - **Affects:** Users changing a curated item from pinned to excluded — a naive `create()` (instead of the current first-or-new upsert) would throw a unique-constraint error on `(section_id, item_id)`.
     - **Effort:** S (~0.5–1h)
@@ -5315,7 +5315,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         $row = SectionItem::query()->where('section_id', $section->id)->where('item_id', $item->id)->first() ?? new SectionItem;
         ```
 
-- [ ] **#TEST-34** · P2 — `RestyleController::undo()`'s cross-site 404 (anti-enumeration) has no test despite an explicit house-rule comment
+- [x] **#TEST-34** · P2 — `RestyleController::undo()`'s cross-site 404 (anti-enumeration) has no test despite an explicit house-rule comment · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/Site/RestyleController.php:49-62`
     - **Affects:** Restyle undo — a scope-clause regression would leak restyle existence across sites via 403-vs-404 status.
     - **Effort:** S (~0.5–1h)
@@ -5328,7 +5328,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-35** · P2 — Catalog definition sweep (75+ classes) has no structural test iterating `_manifest.php` and building every surface
+- [x] **#TEST-35** · P2 — Catalog definition sweep (75+ classes) has no structural test iterating `_manifest.php` and building every surface · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Catalog/Definitions/_manifest.php`; `app/Catalog/SurfaceBuilder.php`
     - **Affects:** Every deploy touching a catalog definition — `SurfaceBuilder`'s builder fields are nullable while `Surface`'s constructor params are not, so a definition that never chained `.routing()`/`.shelf()`/`.identifier()` throws a `TypeError` at build time with no test catching it before deploy.
     - **Effort:** M (~2–4h)
@@ -5339,19 +5339,19 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         public function __construct(public RoutingClass $routingClass, ...) // Surface — non-nullable
         ```
 
-- [ ] **#TEST-36** · P2 — `CatalogIntegrityCheck::unservableSurfaces()`/`orphanCapabilities()` — the production graceful-degradation guard — has no test in either direction
+- [x] **#TEST-36** · P2 — `CatalogIntegrityCheck::unservableSurfaces()`/`orphanCapabilities()` — the production graceful-degradation guard — has no test in either direction · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Catalog/CatalogIntegrityCheck.php:20-55`
     - **Affects:** The platform picker — a surface referencing a capability absent from the current build should be hidden, not crash the picker or silently ship broken connect buttons.
     - **Effort:** M (~2–4h)
     - **What to do:** Add tests for a surface with a missing capability (flagged unservable), a capability no surface references (flagged orphan), and the servable happy path.
 
-- [ ] **#TEST-37** · P2 — `CapabilityManifest::resolve()`'s three resolution paths (class+args, closure, unknown) are untested
+- [x] **#TEST-37** · P2 — `CapabilityManifest::resolve()`'s three resolution paths (class+args, closure, unknown) are untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Catalog/CapabilityManifest.php:34-47`
     - **Affects:** Any surface routing through capability resolution — a broken constructor-arg mismatch or closure bug throws uncaught on a real request path.
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add tests for a class-based entry, a closure entry, and an unknown-name `InvalidArgumentException`.
 
-- [ ] **#TEST-38** · P2 — `LegacyPlatformMap`'s documented three-way lockstep (PHP map ↔ backfill SQL CASE ↔ generated `platform` column) has no confirmed enforcing test in scope
+- [x] **#TEST-38** · P2 — `LegacyPlatformMap`'s documented three-way lockstep (PHP map ↔ backfill SQL CASE ↔ generated `platform` column) has no confirmed enforcing test in scope · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Catalog/LegacyPlatformMap.php` (docblock references `CatalogLegacyMapTest`); `supabase/migrations/20260727110000_connections_surface_key.sql:109-124`
     - **Affects:** Every read of the legacy `platform` column on `platform_connections` — a drift between the PHP map and the SQL `GENERATED ALWAYS AS` CASE silently corrupts every connection's legacy-platform read.
     - **Effort:** M (~2–4h)
@@ -5362,7 +5362,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         // asserts 1↔2↔3 agreement and map ⊆ compiled artefact.
         ```
 
-- [ ] **#TEST-39** · P2 — `ValueResolver`'s override precedence and 24-hour recency-dwell threshold are untested
+- [x] **#TEST-39** · P2 — `ValueResolver`'s override precedence and 24-hour recency-dwell threshold are untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Content/Values/ValueResolver.php` (entire class)
     - **Affects:** What the public sitepage displays for every contested field — the dwell threshold specifically prevents a noisy source from permanently stealing a field by re-publishing unchanged content.
     - **Effort:** M (~2–4h)
@@ -5372,7 +5372,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         private const RECENCY_DWELL_HOURS = 24;
         ```
 
-- [ ] **#TEST-40** · P2 — Container binding leak: `app()->instance()` mock replaces a real service and is never restored, silently affecting later tests in the same file
+- [x] **#TEST-40** · P2 — Container binding leak: `app()->instance()` mock replaces a real service and is never restored, silently affecting later tests in the same file · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Analytics/ComputePopularityScoresTest.php` (~lines 190-194)
     - **Affects:** Test reliability — any test appended after this one in the same file transparently resolves the mocked `RankedActionsComputer` instead of the real one.
     - **Effort:** S (~0.5–1h)
@@ -5394,13 +5394,13 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         DB::connection('pgsql')->statement(file_get_contents(base_path(BACKFILL_SQL_PATH))); // correct pattern, same file
         ```
 
-- [ ] **#TEST-42** · P2 — No end-to-end test connects `analytics:compute-popularity`'s writes to `IndividualProfilePayloadBuilder`'s reads
+- [x] **#TEST-42** · P2 — No end-to-end test connects `analytics:compute-popularity`'s writes to `IndividualProfilePayloadBuilder`'s reads · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Analytics/RankedActionsComputeTest.php` / `ComputePopularityScoresTest.php` (producer-only); public-profile ranked-actions tests (consumer-only, seed scores manually via `insertActionScore()` bypassing the command entirely)
     - **Affects:** The public sitepage payload's ranked-actions block — a column-name or format drift between the command's writes and the builder's reads would leave both test suites green while the real payload is broken.
     - **Effort:** M (~2–4h)
     - **What to do:** Add one integration test that runs the real command, then reads through the real payload builder on the same site, asserting the ranked actions appear correctly.
 
-- [ ] **#TEST-43** · P2 — `SchemaOrgEvent::lowestOffer()`'s min-across-offers pricing algorithm (Eventbrite/Humanitix) is untested
+- [x] **#TEST-43** · P2 — `SchemaOrgEvent::lowestOffer()`'s min-across-offers pricing algorithm (Eventbrite/Humanitix) is untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Ingest/Support/SchemaOrgEvent.php:112-138`
     - **Affects:** Displayed ticket prices on every event card sourced from these two connectors.
     - **Effort:** M (~2–4h)
@@ -5413,7 +5413,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add a test feeding an XML payload with a `<!ENTITY xxe SYSTEM "...">` declaration and asserting the entity is never resolved.
 
-- [ ] **#TEST-45** · P2 — `SourceProvisioner::schedulable()`'s single-boolean billing gate (the entire on/off switch for paid connectors) is untested; its `sync()` also has a documented but unguarded create-race
+- [x] **#TEST-45** · P2 — `SourceProvisioner::schedulable()`'s single-boolean billing gate (the entire on/off switch for paid connectors) is untested; its `sync()` also has a documented but unguarded create-race · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Ingest/SourceProvisioner.php:117-120` (schedulable), `:76-94` (sync race)
     - **Affects:** When paid connector drivers land, this one predicate is what turns billing on platform-wide.
     - **Effort:** S (~0.5–1h)
@@ -5426,7 +5426,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         }
         ```
 
-- [ ] **#TEST-46** · P2 — Onboarding suggestions response has no structural snapshot test; the test helper works around an undocumented `Site::create()` fillable gap
+- [x] **#TEST-46** · P2 — Onboarding suggestions response has no structural snapshot test; the test helper works around an undocumented `Site::create()` fillable gap · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Onboarding/OnboardingSuggestionsTest.php` (entire file)
     - **Affects:** Confidence that new fields added to the onboarding response (the first API call after signup, adjacent to sector/connection PII) don't leak unintended keys; and confidence that `Site::create()` works correctly for any real caller.
     - **Effort:** M (~2–4h)
@@ -5438,7 +5438,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         DB::connection('pgsql')->table('site.sites')->insert([...]);
         ```
 
-- [ ] **#TEST-47** · P2 — `SiteBuildDocumentsCommandTest`'s "mid-build content change" test never actually simulates a mid-build change — it's a test that lies about its own coverage
+- [x] **#TEST-47** · P2 — `SiteBuildDocumentsCommandTest`'s "mid-build content change" test never actually simulates a mid-build change — it's a test that lies about its own coverage · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Site/SiteBuildDocumentsCommandTest.php:111-119`
     - **Affects:** Confidence that `BuildState`'s CAS guard correctly handles a genuine race — the test bumps the revision *before* creating the job, never during, so the CAS conflict path is never exercised.
     - **Effort:** S (~0.5–1h)
@@ -5452,7 +5452,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 
 ## P3 — Nice to have
 
-- [ ] **#TEST-48** · P3 — `DetectorBuilder::build()`'s surfaceKey/signalKey XOR validation has no unit test for either error branch
+- [x] **#TEST-48** · P3 — `DetectorBuilder::build()`'s surfaceKey/signalKey XOR validation has no unit test for either error branch · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Catalog/DetectorBuilder.php:100-104`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `if ($hasSurface === $hasSignal) { throw new InvalidArgumentException(...); }`
@@ -5467,21 +5467,21 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `-- Deliberately NO unique index on (class, value): two sources reporting the same ISRC is the exact signal the resolver consumes.`
 
-- [ ] **#TEST-51** · P3 — `MenuRecords::flatten()`'s stable-key generation (Square/Uber Eats/DoorDash dedup) has no test asserting key stability across runs
+- [x] **#TEST-51** · P3 — `MenuRecords::flatten()`'s stable-key generation (Square/Uber Eats/DoorDash dedup) has no test asserting key stability across runs · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Ingest/Support/MenuRecords.php:61-63`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `$key = $externalId ?? substr(sha1(mb_strtolower($categoryName.'|'.$name)), 0, 16);`
 
-- [ ] **#TEST-52** · P3 — `BrandAssetPipelineTest` proves SVG rejection but never exercises the sanitized-SVG acceptance path implied by the test's own name
+- [x] **#TEST-52** · P3 — `BrandAssetPipelineTest` proves SVG rejection but never exercises the sanitized-SVG acceptance path implied by the test's own name · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Postgres/BrandAssetPipelineTest.php:120-131`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `it('refuses an unsanitised scraped vector', ...)` — no corresponding test for a clean SVG.
 
-- [ ] **#TEST-53** · P3 — `CatalogSurfacesEndpointTest` asserts only top-level key presence (`assertJsonStructure(['digest','brands','surfaces'])`), not the shape inside `brands`/`surfaces`
+- [x] **#TEST-53** · P3 — `CatalogSurfacesEndpointTest` asserts only top-level key presence (`assertJsonStructure(['digest','brands','surfaces'])`), not the shape inside `brands`/`surfaces` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Catalog/CatalogSurfacesEndpointTest.php:7-13`
     - **Effort:** S (~0.5–1h)
 
-- [ ] **#TEST-54** · P3 — `setupNotificationsTable()` shared test helper is missing the dedupe unique index; one test compensates locally instead of fixing the shared helper
+- [x] **#TEST-54** · P3 — `setupNotificationsTable()` shared test helper is missing the dedupe unique index; one test compensates locally instead of fixing the shared helper · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Notifications/IntegrationConnectedNotifierTest.php:22-27`
     - **Affects:** Every other test using `setupNotificationsTable()` — their dedupe assertions (if any) pass vacuously without the index.
     - **Effort:** S (~0.5–1h)
@@ -5492,12 +5492,12 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         DB::connection('pgsql')->statement('CREATE UNIQUE INDEX IF NOT EXISTS ...');
         ```
 
-- [ ] **#TEST-55** · P3 — `LifestyleConnectionCleanupTest` has no test for the (most common in production) zero-connections boundary case
+- [x] **#TEST-55** · P3 — `LifestyleConnectionCleanupTest` has no test for the (most common in production) zero-connections boundary case · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Accounts/LifestyleConnectionCleanupTest.php`
     - **Affects:** Every business-account switch where no lifestyle connections exist to clean up — the most common real-world case is the only untested one.
     - **Effort:** S (~0.5–1h)
 
-- [ ] **#TEST-56** · P3 — `AccountCapabilities` notification-gate rejection path is untested; only allowed-path and unrelated silent-guards are covered
+- [x] **#TEST-56** · P3 — `AccountCapabilities` notification-gate rejection path is untested; only allowed-path and unrelated silent-guards are covered · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `tests/Feature/Notifications/IntegrationConnectedNotifierTest.php`; production: `app/Services/Notifications/Dispatchers/IntegrationNotifier.php`
     - **Effort:** S (~0.5–1h)
 
@@ -5667,14 +5667,14 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
-- P3 Low: 1 of 19 complete  (+#SLOP-21, promoted and fixed 2026-07-30)
+- P2 Medium: 3 of 3 complete
+- P3 Low: 19 of 19 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#SLOP-1** · P2 — `topSections()` logs the wrong failure key, drifted from the pre-v2 click-query catch blocks
+- [x] **#SLOP-1** · P2 — `topSections()` logs the wrong failure key, drifted from the pre-v2 click-query catch blocks · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Analytics/AnalyticsQueryService.php:298 (catch block inside `topSections()`, which queries `analytics.section_views` at line 280)
     - **Affects:** On-call debugging of a `section_views` outage — the log stream will point at `link_clicks` instead.
     - **Effort:** S (~0.5–1h)
@@ -5743,7 +5743,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-3** · P2 — `ownerMatches` duplicated verbatim between `SectionPolicy` and `DesignKitRestylePolicy`, with the explanatory comment only in one copy
+- [x] **#SLOP-3** · P2 — `ownerMatches` duplicated verbatim between `SectionPolicy` and `DesignKitRestylePolicy`, with the explanatory comment only in one copy · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Policies/SectionPolicy.php:58-76 and app/Policies/DesignKitRestylePolicy.php:48-63
     - **Affects:** Authorization correctness for Section and DesignKitRestyle resources — any hardening fix or edge-case correction applied to one policy's ownership check must be manually replicated in the other.
     - **Effort:** S (~1h)
@@ -5789,7 +5789,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-4** · P3 — Comment claims "exact same 7 keys" but the constant now has 21
+- [x] **#SLOP-4** · P3 — Comment claims "exact same 7 keys" but the constant now has 21 · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/WebsiteLinkHarvester.php:326-328 (comment above the `SOCIAL_PLATFORM[$key]` lookup inside `classify()`)
     - **Affects:** Developers reading the classification path; the stale count understates how large the two hand-maintained constants (`SOCIAL_HOSTS`, `SOCIAL_PLATFORM`) actually are.
     - **Effort:** S (~0.5h)
@@ -5805,7 +5805,7 @@ None.
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
         ```
 
-- [ ] **#SLOP-5** · P3 — Docblock `@return` description pushed ~130 characters right by literal space padding
+- [x] **#SLOP-5** · P3 — Docblock `@return` description pushed ~130 characters right by literal space padding · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Ingest/Support/YoutubeFeed.php:20-21
     - **Affects:** Developers reading the docblock; cosmetic only.
     - **Effort:** S (~0.25h)
@@ -5819,7 +5819,7 @@ None.
              */
         ```
 
-- [ ] **#SLOP-6** · P3 — Docblock on `MAX_VALUES_PER_PREDICATE` references an unrelated constant instead of explaining the value it sits on
+- [x] **#SLOP-6** · P3 — Docblock on `MAX_VALUES_PER_PREDICATE` references an unrelated constant instead of explaining the value it sits on · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Requests/Api/User/Sections/SectionRuleRules.php:23-24
     - **Affects:** Developers reading the validation trait — the comment misdirects rather than clarifies.
     - **Effort:** S (~0.5h)
@@ -5832,7 +5832,7 @@ None.
         private const MAX_VALUES_PER_PREDICATE = 20;
         ```
 
-- [ ] **#SLOP-7** · P3 — Hedging clause tacked onto an otherwise-useful comment
+- [x] **#SLOP-7** · P3 — Hedging clause tacked onto an otherwise-useful comment · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Services/Accounts/AccountCapabilities.php:46-50
     - **Affects:** Maintainers reading `individualCapabilities()`.
     - **Effort:** S (~0.5h)
@@ -5848,7 +5848,7 @@ None.
         $isFood = SectorTaxonomy::isFood($pro->sector);
         ```
 
-- [ ] **#SLOP-8** · P3 — Hedge comment defers a log-level change to an undefined "once settled"
+- [x] **#SLOP-8** · P3 — Hedge comment defers a log-level change to an undefined "once settled" · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/GoogleBusinessApifyScraper.php:85-87 (preceding the `Log::info('google_business.apify.keys', ...)` call)
     - **Affects:** Production log volume — this `Log::info` fires on every Apify run indefinitely, with no plan to demote it.
     - **Effort:** S (~0.5h)
@@ -5863,7 +5863,7 @@ None.
         Log::info('google_business.apify.keys', [
         ```
 
-- [ ] **#SLOP-9** · P3 — Stale "V2" draft marker on a production trait
+- [x] **#SLOP-9** · P3 — Stale "V2" draft marker on a production trait · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Controllers/Concerns/DetectsClientInfo.php:7
     - **Affects:** Maintainers reading the file; no runtime impact.
     - **Effort:** S (~0.25h)
@@ -5876,7 +5876,7 @@ None.
         trait DetectsClientInfo
         ```
 
-- [ ] **#SLOP-10** · P3 — Multiple comments in `DetectsClientInfo` restate the very next line
+- [x] **#SLOP-10** · P3 — Multiple comments in `DetectsClientInfo` restate the very next line · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Controllers/Concerns/DetectsClientInfo.php:10-11 (docblock restates method name), 21-23 (CDN-name comments restate self-evident header constants), 78 (docblock restates method name, and has a grammar error — "devices type"), 88, 93, 98 (inline comments restate the literal return value directly below each)
     - **Affects:** Maintainers skimming this file; no runtime impact.
     - **Effort:** S (~0.5–1h)
@@ -5911,7 +5911,7 @@ None.
             }
         ```
 
-- [ ] **#SLOP-11** · P3 — `ConditionalContext`'s class docblock buries its contract under a 20-line integration guide and per-platform audit
+- [x] **#SLOP-11** · P3 — `ConditionalContext`'s class docblock buries its contract under a 20-line integration guide and per-platform audit · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Services/Platforms/ConditionalContext.php:7-43 (class-level comment)
     - **Affects:** Developers reading the class to understand its contract before extending a new fetch strategy.
     - **Effort:** S (~1h)
@@ -5936,7 +5936,7 @@ None.
         // Bundle C), and any strategy whose payload needs >1 upstream call.
         ```
 
-- [ ] **#SLOP-12** · P3 — Decorative ASCII-art banner comments across the Platforms controllers
+- [x] **#SLOP-12** · P3 — Decorative ASCII-art banner comments across the Platforms controllers · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php:388, 434; app/Http/Controllers/Api/Platforms/InstagramController.php:366; app/Http/Controllers/Api/Platforms/ShopController.php:924
     - **Affects:** Maintainers reading these files — the dash-padding adds nothing the following code doesn't already signal.
     - **Effort:** S (~0.5h)
@@ -5954,7 +5954,7 @@ None.
         // ── internals ────────────────────────────────────────────────
         ```
 
-- [ ] **#SLOP-13** · P3 — Decorative section-banner comments in `SiteMedia`
+- [x] **#SLOP-13** · P3 — Decorative section-banner comments in `SiteMedia` · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Models/Core/Site/SiteMedia.php:193-194, 245-246, 259-260
     - **Affects:** Maintainers reading the model; no runtime impact.
     - **Effort:** S (~0.5h)
@@ -5973,7 +5973,7 @@ None.
             /* ------------------------------------------------------------------ */
         ```
 
-- [ ] **#SLOP-14** · P3 — Decorative ASCII-art banner comments in `PlacementPolicy`
+- [x] **#SLOP-14** · P3 — Decorative ASCII-art banner comments in `PlacementPolicy` · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Routing/PlacementPolicy.php:71, 81, 91
     - **Affects:** Developers reading the routing gate logic; no runtime impact.
     - **Effort:** S (~0.5h)
@@ -5991,7 +5991,7 @@ None.
         // ── Confidence ──────────────────────────────────────────────────────
         ```
 
-- [ ] **#SLOP-15** · P3 — `withConnectionLock`/`withCrossPlatformLock` docblocks carry a caller-by-caller review audit that will go stale the moment a new caller is added
+- [x] **#SLOP-15** · P3 — `withConnectionLock`/`withCrossPlatformLock` docblocks carry a caller-by-caller review audit that will go stale the moment a new caller is added · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Controllers/Api/Platforms/Concerns/ManagesIntegrationConnection.php:298-327 (`withConnectionLock`), :349-378 (`withCrossPlatformLock`)
     - **Affects:** Maintainers reading the locking helpers — the essential contract (default TTL, when to raise it, the lock-ordering invariant) is buried inside a multi-paragraph "checked every caller" audit.
     - **Effort:** S (~1h)
@@ -6017,7 +6017,7 @@ None.
         * default.
         ```
 
-- [ ] **#SLOP-16** · P3 — No-op ternary in `setPlatformAttribute` — both branches return the identical value
+- [x] **#SLOP-16** · P3 — No-op ternary in `setPlatformAttribute` — both branches return the identical value · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Models/Core/Site/IntegrationConnection.php:187-188
     - **Affects:** Maintainers reading the legacy platform-write path — the `isKnownSurface` call implies a decision that never actually happens.
     - **Effort:** S (~0.5h)
@@ -6030,7 +6030,7 @@ None.
             ?? (LegacyPlatformMap::isKnownSurface($value) ? $value : $value);
         ```
 
-- [ ] **#SLOP-17** · P3 — Identical TLD-regex construction copy-pasted twice in the same file
+- [x] **#SLOP-17** · P3 — Identical TLD-regex construction copy-pasted twice in the same file · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Ingest/Connectors/EventbriteConnector.php:93 and :189
     - **Affects:** Maintainability only — adding or removing an Eventbrite regional TLD currently requires two identical edits in the same file.
     - **Effort:** S (~0.5h)
@@ -6048,7 +6048,7 @@ None.
         return preg_replace('~^(https?://)(?:www\.)?eventbrite\.'.$tlds.'(/.*)$~i', '$1www.eventbrite.com$2', $url) ?? $url;
         ```
 
-- [ ] **#SLOP-18** · P3 — Identical `originOf()` helper copy-pasted across three storefront probes
+- [x] **#SLOP-18** · P3 — Identical `originOf()` helper copy-pasted across three storefront probes · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Routing/Probes/ShopifyStorefrontProbe.php:68-75, SquarespaceStorefrontProbe.php:70-77, WooCommerceStorefrontProbe.php:65-72
     - **Affects:** Maintainers of the three storefront probes; no runtime impact today.
     - **Effort:** S (~0.5h)
@@ -6066,7 +6066,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-19** · P3 — `findPage` duplicated verbatim across two Site controllers
+- [x] **#SLOP-19** · P3 — `findPage` duplicated verbatim across two Site controllers · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Controllers/Api/Site/PageController.php:123-132, SectionController.php:157-166
     - **Affects:** Developers touching page-fetch logic; a fix to one copy (e.g. adding a trashed-scope check) is easy to miss in the other.
     - **Effort:** S (~0.5h)
@@ -6086,7 +6086,7 @@ None.
         }
         ```
 
-- [ ] **#SLOP-20** · P3 — `findSection` copy-pasted across three controllers, and the comment explaining a security-relevant line has already failed to propagate
+- [x] **#SLOP-20** · P3 — `findSection` copy-pasted across three controllers, and the comment explaining a security-relevant line has already failed to propagate · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Http/Controllers/Api/Site/SectionController.php:141-153 (with comment), SectionItemController.php:133-144 (no comment), SectionGroupController.php:96-107 (no comment)
     - **Affects:** Developers maintaining any of the three Section-family controllers; the two uncommented copies leave a future reader to guess why `setRelation('site', $site)` matters for authorization.
     - **Effort:** S (~1h)
@@ -6142,7 +6142,7 @@ None.
         if ($iri->subdomain === null || @preg_match($detector['subdomain_pattern'], $iri->subdomain, $m) !== 1) {
         ```
 
-- [ ] **#SLOP-22** · P3 — `AppleMusicConnector::pull()` and `ApplePodcastsConnector::pull()` are near-identical — same endpoint, same error/cap logic, different entity/field names
+- [x] **#SLOP-22** · P3 — `AppleMusicConnector::pull()` and `ApplePodcastsConnector::pull()` are near-identical — same endpoint, same error/cap logic, different entity/field names · **WONTFIX (triage applied 2026-07-31): cosmetic, zero runtime impact.** A decorative banner or comment-restatement costs nothing. (A comment that *lies* is OPPORTUNISTIC instead — that is why `SLOP-4`/`DINT-12` sit in the other bucket.)
     - **Where:** app/Ingest/Connectors/AppleMusicConnector.php:81-129 and app/Ingest/Connectors/ApplePodcastsConnector.php:72-131
     - **Affects:** Maintenance of the iTunes-Lookup-backed connectors — a fix to the error handling, the resultCount-cap boundary, or the absence-folding reasoning must be applied in both files, and the explanatory comments justifying that logic are themselves duplicated.
     - **Effort:** M (~2–4h)
@@ -6223,8 +6223,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 3 of 5 complete
-- P3 Low: 0 of 7 complete
+- P2 Medium: 5 of 5 complete
+- P3 Low: 7 of 7 complete
 
 ---
 
@@ -6266,7 +6266,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#SEM-2** · P2 — `RoutingCorpusCommand --check` compares only case count, not content
+- [x] **#SEM-2** · P2 — `RoutingCorpusCommand --check` compares only case count, not content · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Console/Commands/RoutingCorpusCommand.php:78-90
     - **Affects:** CI/developer confidence in the routing-corpus round-trip check — a detector change that swaps or corrupts two cases while keeping the same total count passes silently.
     - **Effort:** S (~0.5–1h)
@@ -6289,7 +6289,7 @@ None.
         }
         ```
 
-- [ ] **#SEM-3** · P2 — `CatalogSyncCommand` never clears a brand's `successor_key` once removed from the definitions
+- [x] **#SEM-3** · P2 — `CatalogSyncCommand` never clears a brand's `successor_key` once removed from the definitions · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Console/Commands/CatalogSyncCommand.php:44-62
     - **Affects:** `catalog.brands` rows for any brand whose `successor_key` is removed from the compiled catalog definitions — the stale successor reference persists indefinitely.
     - **Effort:** S (~0.5–1h)
@@ -6392,7 +6392,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SEM-7** · P3 — `DocHasher`'s wildcard volatility segment is an unimplemented stub
+- [x] **#SEM-7** · P3 — `DocHasher`'s wildcard volatility segment is an unimplemented stub · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Ingest/Landing/DocHasher.php:56-59
     - **Affects:** No connector today declares a volatile path containing `*` (confirmed by repo-wide search) — purely latent risk for a future connector.
     - **Effort:** S (~0.5–1h)
@@ -6409,7 +6409,7 @@ None.
         }
         ```
 
-- [ ] **#SEM-8** · P3 — Subdomain-availability throttle limit is documented as config-driven but the config key doesn't exist
+- [x] **#SEM-8** · P3 — Subdomain-availability throttle limit is documented as config-driven but the config key doesn't exist · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Providers/AppServiceProvider.php:488; config/partna.php:996-1046
     - **Affects:** Operability only — the 30/min limit for `GET /api/site/subdomain-availability` can't be tuned per environment without a code change.
     - **Effort:** S (~0.5–1h)
@@ -6424,7 +6424,7 @@ None.
             ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
         ```
 
-- [ ] **#SEM-9** · P3 — `IntegrationConnectionObserver::updated()` deserialises the full Instagram payload on every write, not only on payload changes
+- [x] **#SEM-9** · P3 — `IntegrationConnectionObserver::updated()` deserialises the full Instagram payload on every write, not only on payload changes · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:497-517
     - **Affects:** No live bug today — the inner `$old !== $new` check already no-ops correctly. Becomes a real bug if `InstagramPayload::fromArray()` ever gains a side effect (cache write, external call, stricter validation).
     - **Effort:** S (~0.5–1h)
@@ -6449,7 +6449,7 @@ None.
             } catch (\Throwable $e) {
         ```
 
-- [ ] **#SEM-10** · P3 — `InstagramController::connect()` dispatches `InstagramConnectJob` without `->afterCommit()`, unlike every other deferred-connect dispatch
+- [x] **#SEM-10** · P3 — `InstagramController::connect()` dispatches `InstagramConnectJob` without `->afterCommit()`, unlike every other deferred-connect dispatch · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Http/Controllers/Api/Platforms/InstagramController.php:124
     - **Affects:** No current bug — the row-write here uses `Cache::lock()` (a Redis lock), not `DB::transaction()`, so `updateOrCreate()` auto-commits before the dispatch runs. Would become a real race if a future change wraps this flow in an explicit DB transaction.
     - **Effort:** S (~0.5–1h)
@@ -6463,7 +6463,7 @@ None.
         InstagramConnectJob::dispatch($user->id, $username, $connection->id, notifyOnConnect: true);
         ```
 
-- [ ] **#SEM-11** · P3 — `ContentKindController`'s `Cache-Control: private` contradicts its own docblock's "cached at the edge" claim
+- [x] **#SEM-11** · P3 — `ContentKindController`'s `Cache-Control: private` contradicts its own docblock's "cached at the edge" claim · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/Content/ContentKindController.php:22-23 (docblock), :33 (header)
     - **Affects:** CDN/edge cache efficiency for `GET /api/content/kinds` — every request re-hits the origin instead of being served from a shared cache, contrary to the class's stated design.
     - **Effort:** S (~0.5–1h)
@@ -6484,7 +6484,7 @@ None.
                 ->header('Cache-Control', 'private, max-age='.self::CACHE_SECONDS);
         ```
 
-- [ ] **#SEM-12** · P3 — `SuggestionsController` scopes ownership with an inline `where('user_id', ...)` instead of the project's `authorizeForUser` + Policy pattern
+- [x] **#SEM-12** · P3 — `SuggestionsController` scopes ownership with an inline `where('user_id', ...)` instead of the project's `authorizeForUser` + Policy pattern · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:74-97 (accept/dismiss), :132-139 (findIntent)
     - **Affects:** Architectural consistency of the authorization surface for the suggestions inbox. No live bypass — the inline `where('user_id', $userId)` correctly scopes every read to the caller.
     - **Effort:** S (~0.5–1h) to document an exemption; M (~2–4h) to retrofit a model + Policy
@@ -6512,7 +6512,7 @@ None.
         }
         ```
 
-- [ ] **#SEM-13** · P3 — `ShopController::updateBrand()` still accepts and persists `selectionMode`/`linkMode` to columns its own docblock calls dormant
+- [x] **#SEM-13** · P3 — `ShopController::updateBrand()` still accepts and persists `selectionMode`/`linkMode` to columns its own docblock calls dormant · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php:426-432 (docblock), :449-454 (writes)
     - **Affects:** No user-visible behaviour — the docblock states "the dashboard no longer sends them." Confuses future readers into thinking these per-brand columns still gate something.
     - **Effort:** S (~0.5–1h)

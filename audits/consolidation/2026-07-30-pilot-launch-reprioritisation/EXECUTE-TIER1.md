@@ -187,7 +187,7 @@ remaining items judged genuinely worth doing at zero live users, plus one decisi
 >
 > ## Item 3 — `DINT-1`: two missing analytics indexes  🔴 BLOCKER
 >
-> Source: `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md`.
+> Source: `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md`.
 > Queries filter `analytics.action_events` and `analytics.item_views` by `user_id` with no index, so
 > Postgres sequential-scans. Cheap to add now while the tables are near-empty; adding an index to a large
 > table later is slow and can block writes. **This gets more expensive the longer it waits.**
@@ -216,7 +216,7 @@ remaining items judged genuinely worth doing at zero live users, plus one decisi
 >
 > ## Item 4 — `#9`: DSAR must export the subject's own frozen identity  🔴 BLOCKER (privacy)
 >
-> Source: `audits/sweeps/2026-07-11-full-work-sweep/CONSOLIDATED.md` (canonical id `PRIV-13`).
+> Source: `audits/archive/sweeps/2026-07-11-full-work-sweep/CONSOLIDATED.md` (canonical id `PRIV-13`).
 >
 > **What's wrong.** `EvidenceSnapshotService::snapshotSite()` freezes the user's `handle` and
 > `display_name` into `moderation.evidence.payload` when they're reported. `DataExportPayloadBuilder` has

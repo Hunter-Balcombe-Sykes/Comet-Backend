@@ -99,7 +99,7 @@ Verified against live code on 2026-07-25:
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -173,7 +173,7 @@ Verified against live code on 2026-07-25:
 
 ## P3 — Nice to have
 
-- [ ] **#SEC-4** · P3 — RUM beacon endpoint reads the raw request body instead of using a Form Request, unlike every sibling analytics method
+- [x] **#SEC-4** · P3 — RUM beacon endpoint reads the raw request body instead of using a Form Request, unlike every sibling analytics method · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:600-635
     - **Affects:** Code consistency only — the `/api/public/analytics/rum` endpoint. Confirmed already covered by the same `throttle:analytics` middleware as its siblings (`routes/api.php:133-134`), so the log-flooding risk DeepSeek's draft raised does not hold; this is a validation-pattern inconsistency, not an active DoS gap.
     - **Effort:** S (~0.5–1h)
@@ -447,13 +447,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **MIG-1** · P3 — New `analytics.action_events` table's FK to `site.sites` isn't wrapped in a lock/statement timeout guard
+- [x] **MIG-1** · P3 — New `analytics.action_events` table's FK to `site.sites` isn't wrapped in a lock/statement timeout guard · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** `supabase/migrations/20260723090000_create_action_events.sql:29-46`
     - **Affects:** Deploy operator only — the `CREATE TABLE` + inline FK constraint against `site.sites(id)` momentarily requires a lock on `site.sites` to register the constraint. On a brand-new, empty child table this completes in single-digit milliseconds, so there's no realistic write-stall risk today. The only downside of the missing guard is that if some other session happens to be holding a conflicting lock on `site.sites` at the moment this migration runs, the statement queues indefinitely instead of failing fast with a clear `lock_timeout` error — which would stall the rest of the sequential `db push`.
     - **Effort:** S (~0.5–1h)
@@ -505,14 +505,14 @@ None — a single low-effort finding doesn't warrant bundling overhead.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
-- P3 Low: 0 of 2 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#API-1** · P2 — Shop product objects reach the public wire with no per-field allowlist
+- [x] **#API-1** · P2 — Shop product objects reach the public wire with no per-field allowlist · **DEAD (triage applied 2026-07-31): duplicate.** Same finding as the 07-28 sweep's `#API-1` (`ShopBrand::toBrandArray()` spreading `ShopProduct.data` verbatim onto the public wire), which was **fixed in P0-LAUNCH**. Closed as a dedupe, not as a judgement on the risk.
     - **Where:** `app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:159, 207-217`; source data from `app/Models/Core/Site/ShopBrand.php:86-125`
     - **Affects:** Unauthenticated sitepage visitors hitting `GET /api/public/profiles/{handle}/platforms` — every key present on a `ShopBrand`'s `products` array is emitted verbatim, with no enforcement layer.
     - **Effort:** M (~2–4h)
@@ -542,7 +542,7 @@ None — a single low-effort finding doesn't warrant bundling overhead.
 
 ## P3 — Nice to have
 
-- [ ] **#API-2** · P3 — Unconditional eager load of `shopBrands.products` on every public platforms request
+- [x] **#API-2** · P3 — Unconditional eager load of `shopBrands.products` on every public platforms request · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:66-88`
     - **Affects:** All visitors to `GET /api/public/profiles/{handle}/platforms` — two extra always-run queries (`shop_brands` + `shop_products`) on every request, even for the common case of a profile with no shop connection.
     - **Effort:** S (~0.5–1h)
@@ -565,7 +565,7 @@ None — a single low-effort finding doesn't warrant bundling overhead.
             ->groupBy('platform');
         ```
 
-- [ ] **#API-3** · P3 — `SiteActionsService::pool()` fetches the full `payload` JSONB column when only a handful of scalar keys are read
+- [x] **#API-3** · P3 — `SiteActionsService::pool()` fetches the full `payload` JSONB column when only a handful of scalar keys are read · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/PublicSite/SiteActionsService.php:102-110, 267-271`
     - **Affects:** Every public profile build (`GET /api/public/profiles/{handle}`, cache-miss path) — the entire stored `payload` blob for every one of the user's active integration connections is pulled into PHP memory just to read `url`/`link`/`username`/`handle`/`name`.
     - **Effort:** S (~1h)
@@ -638,8 +638,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 0 of 3 complete
-- P3 Low: 0 of 7 complete
+- P2 Medium: 3 of 3 complete
+- P3 Low: 7 of 7 complete
 
 ---
 
@@ -728,7 +728,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#TEST-4** · P2 — `UserSiteActionsEndpointTest` only exercises a single-action pool; empty-state and multi-action shapes are untested
+- [x] **#TEST-4** · P2 — `UserSiteActionsEndpointTest` only exercises a single-action pool; empty-state and multi-action shapes are untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** tests/Feature/Api/User/SiteManagement/UserSiteActionsEndpointTest.php:22-62
     - **Affects:** The dashboard action-picker data source (`GET /api/site/actions`) for professionals with zero eligible actions or several — the two most common real shapes.
     - **Effort:** M (~2–4h)
@@ -748,7 +748,7 @@ None.
         expect($poolIds)->toBe(['instagram'])
         ```
 
-- [ ] **#TEST-5** · P2 — `PublicIntegrationController::show()`'s Instagram-toggle suppression and popularity-rank threading (incl. single-flight cache) are untested
+- [x] **#TEST-5** · P2 — `PublicIntegrationController::show()`'s Instagram-toggle suppression and popularity-rank threading (incl. single-flight cache) are untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:90-133; tests/Feature/Platforms/PublicIntegrationAllowlistTest.php
     - **Affects:** Every Instagram-connected profile that has turned off auto-sync (gallery card must disappear), and every shop-connected profile's product popularity ranking (a 15-minute single-flight cache around a Postgres read).
     - **Effort:** M (~2–4h)
@@ -778,7 +778,7 @@ None.
             : [];
         ```
 
-- [ ] **#TEST-6** · P2 — Fail-closed `MissingPublicAllowlistException` path asserts the empty payload but not that `report()`/Nightwatch actually fires
+- [x] **#TEST-6** · P2 — Fail-closed `MissingPublicAllowlistException` path asserts the empty payload but not that `report()`/Nightwatch actually fires · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:225-242; tests/Feature/Platforms/PublicIntegrationAllowlistTest.php:354-382
     - **Affects:** Observability for the exact scenario #TEST-3 above just demonstrated live — a platform shipped without an `ALLOWLIST` entry. Without the `report()` assertion, this failure mode can go unnoticed by Nightwatch even though the code intends to page it.
     - **Effort:** S (~0.5–1h)
@@ -797,7 +797,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#TEST-7** · P3 — `smart_actions`/`smart_page_order` boolean settings never tested with a non-boolean value
+- [x] **#TEST-7** · P3 — `smart_actions`/`smart_page_order` boolean settings never tested with a non-boolean value · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** tests/Feature/Api/User/SiteManagement/ActionSettingsValidationTest.php
     - **Affects:** `PATCH /api/site` when a client sends `"true"`/`1` instead of a real boolean for `smart_actions`/`smart_page_order`.
     - **Effort:** S (~0.5–1h)
@@ -816,7 +816,7 @@ None.
             ->assertOk();
         ```
 
-- [ ] **#TEST-8** · P3 — `GoogleBusinessEnrichJob::failed()`'s straightforward (non-lock-contended) happy path isn't directly asserted
+- [x] **#TEST-8** · P3 — `GoogleBusinessEnrichJob::failed()`'s straightforward (non-lock-contended) happy path isn't directly asserted · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Jobs/Platforms/GoogleBusinessEnrichJob.php:283-308; tests/Feature/Platforms/GoogleBusinessEnrichConcurrencyTest.php
     - **Affects:** Recovery after a genuine job failure when the connection lock is NOT contended (the common case).
     - **Effort:** S (~0.5–1h)
@@ -839,7 +839,7 @@ None.
         }
         ```
 
-- [ ] **#TEST-9** · P3 — No invariant test guarding against `site.themes` reappearing in a future migration
+- [x] **#TEST-9** · P3 — No invariant test guarding against `site.themes` reappearing in a future migration · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** supabase/migrations/ (sweep target); tests/Feature/Database/ (missing test)
     - **Affects:** Regression prevention for the architecture-system cleanup — `site.themes` and its trigger were deliberately dropped and must never be reintroduced.
     - **Effort:** S (~0.5–1h)
@@ -853,7 +853,7 @@ None.
         for `CREATE TABLE site.themes` — confirmed via search across tests/.
         ```
 
-- [ ] **#TEST-10** · P3 — `PurgeRawAnalyticsEventsCommandTest.php` has several small, real coverage gaps
+- [x] **#TEST-10** · P3 — `PurgeRawAnalyticsEventsCommandTest.php` has several small, real coverage gaps · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** tests/Feature/Console/PurgeRawAnalyticsEventsCommandTest.php; app/Console/Commands/PurgeRawAnalyticsEvents.php
     - **Affects:** Operators tuning retention via `--days`, and CI's ability to catch a table silently dropped from the purge sweep.
     - **Effort:** M (~2–4h)
@@ -879,7 +879,7 @@ None.
         DB::connection('pgsql')->statement('DROP TABLE IF EXISTS analytics.lead_submissions');
         ```
 
-- [ ] **#TEST-11** · P3 — No test covers a platform connection with a `null`/`[]` payload (e.g. a scraper that errored before first sync)
+- [x] **#TEST-11** · P3 — No test covers a platform connection with a `null`/`[]` payload (e.g. a scraper that errored before first sync) · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Resources/Platforms/PublicIntegrationConnectionResource.php:220-223; tests/Feature/Platforms/PublicIntegrationAllowlistTest.php
     - **Affects:** Public sitepage rendering for a connection stuck mid-scrape or in an error state before its first successful payload.
     - **Effort:** S (~0.5–1h)
@@ -895,7 +895,7 @@ None.
         }
         ```
 
-- [ ] **#TEST-12** · P3 — `rum()` beacon's bot-rejection, missing/invalid-handle, and log-failure-swallow paths aren't tested
+- [x] **#TEST-12** · P3 — `rum()` beacon's bot-rejection, missing/invalid-handle, and log-failure-swallow paths aren't tested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:600-635; tests/Feature/Analytics/PublicIngestHardeningTest.php
     - **Affects:** Real-user-monitoring data quality — malformed or bot RUM traffic and a failing log call are all silently absorbed into a uniform `200 {'message':'ok'}`, and nothing currently proves each path behaves as intended.
     - **Effort:** S (~0.5–1h)
@@ -924,7 +924,7 @@ None.
         }
         ```
 
-- [ ] **#TEST-13** · P3 — `ComputePopularityScoresTest`'s only end-to-end command test mocks away `RankedActionsComputer`, so the real command→computer wiring is never proven
+- [x] **#TEST-13** · P3 — `ComputePopularityScoresTest`'s only end-to-end command test mocks away `RankedActionsComputer`, so the real command→computer wiring is never proven · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** tests/Feature/Analytics/ComputePopularityScoresTest.php; tests/Feature/Analytics/RankedActionsComputeTest.php
     - **Affects:** The `analytics:compute-popularity` artisan command's action-score output — confidence that the command actually invokes the real computer correctly, not just that its failure path is caught.
     - **Effort:** S (~0.5–1h)
@@ -1060,13 +1060,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#SEM-1** · P3 — Hardcoded `'Reservations'` label bypasses the single-source-of-truth vocabulary used by every other static action in `pool()`
+- [x] **#SEM-1** · P3 — Hardcoded `'Reservations'` label bypasses the single-source-of-truth vocabulary used by every other static action in `pool()` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/PublicSite/SiteActionsService.php:118
     - **Affects:** Maintainability only — a future label change in `ActionVocabulary::LABELS` silently leaves the reservations action displaying the old label. No user-visible bug today.
     - **Effort:** S (~0.5–1h)
@@ -1079,7 +1079,7 @@ None.
         $out[] = $this->entry('reservations', 'external', 'Reservations', url: $url, createdAt: $reservation->created_at);
         ```
 
-- [ ] **#SEM-2** · P3 — `analytics:compute-popularity --dry-run` always prints "0 rows written; 0 rows deleted" in its final summary, even though per-site output is correct
+- [x] **#SEM-2** · P3 — `analytics:compute-popularity --dry-run` always prints "0 rows written; 0 rows deleted" in its final summary, even though per-site output is correct · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Console/Commands/ComputeContentPopularityScores.php:194-198, 208, 219, 224-232
     - **Affects:** Operator readability during `--dry-run` invocations only. No production data impact — the counters that guard the real write path (`$rowsWritten`/`$rowsDeleted`) are untouched.
     - **Effort:** S (~0.5–1h)
@@ -1287,14 +1287,14 @@ None — both surviving findings sit in unrelated subsystems (item-slug redirect
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#271-MIG-1** · P2 — `CREATE TABLE ... REFERENCES core.users(id)` runs with no lock/statement timeout guard
+- [x] **#271-MIG-1** · P2 — `CREATE TABLE ... REFERENCES core.users(id)` runs with no lock/statement timeout guard · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** supabase/migrations/20260724120000_create_item_slugs.sql:31-41
     - **Affects:** Deploy of this migration via `supabase db push` against the dev Supabase project — which, per current environment reality, is the live database serving both `dev-api.partna.au` and `api.partna.au` traffic against `core.users` right now, not a traffic-free bootstrap DB.
     - **Effort:** S (~0.5–1h)
@@ -1352,13 +1352,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#271-API-1** · P3 — `PublicIntegrationController` calls `->resolve()` on Resources, bypassing the Resource response pipeline
+- [x] **#271-API-1** · P3 — `PublicIntegrationController` calls `->resolve()` on Resources, bypassing the Resource response pipeline · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:181-192
     - **Affects:** `GET /api/public/profiles/{handle}/platforms` — no current behavioral difference (verified: neither `PublicIntegrationConnectionResource` nor any sibling Platforms Resource defines `withResponse()` or `additional()`), but any future addition of either is silently dropped because `->resolve()` returns the raw `toArray()` result instead of routing through `toResponse()`.
     - **Effort:** S (~0.5–1h)
@@ -1384,7 +1384,7 @@ None.
             ->toArray();
         ```
 
-- [ ] **#271-API-2** · P3 — `PublicMenuController` composes the response as a hand-rolled array instead of a Resource/composer class
+- [x] **#271-API-2** · P3 — `PublicMenuController` composes the response as a hand-rolled array instead of a Resource/composer class · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicMenuController.php:106-181
     - **Affects:** `GET /api/public/profiles/{handle}/menu` — no field-audience leak today (every emitted field is deliberately public menu data: name, description, price, platform links), but the controller itself owns ~75 lines of nested array construction with no shared, testable composition unit.
     - **Effort:** M (~2–4h)
@@ -1515,8 +1515,8 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
+- P3 Low: 3 of 3 complete
 
 ---
 
@@ -1560,7 +1560,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **271-DINT-2** · P3 — `site.item_slugs` has no `updated_at`, so a retired-slug timestamp is unrecoverable
+- [x] **271-DINT-2** · P3 — `site.item_slugs` has no `updated_at`, so a retired-slug timestamp is unrecoverable · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** supabase/migrations/20260724120000_create_item_slugs.sql:31-41
     - **Affects:** Operators debugging slug-retirement timing (support/on-call tracing "when did this link stop working"). No user-facing impact.
     - **Effort:** S (~0.5–1h)
@@ -1643,7 +1643,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
 
 ## P3 — Nice to have
 
-- [ ] **271-DINT-5** · P3 — `site.item_slugs` has no `updated_at`, so the in-place `is_current` flip (retire/promote) leaves no modification timestamp
+- [x] **271-DINT-5** · P3 — `site.item_slugs` has no `updated_at`, so the in-place `is_current` flip (retire/promote) leaves no modification timestamp · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** supabase/migrations/20260724120000_create_item_slugs.sql:31-41
     - **Affects:** Operators debugging slug-retirement timing; no functional impact.
     - **Effort:** S (~0.5–1h)
@@ -1666,7 +1666,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
         );
         ```
 
-- [ ] **271-DINT-6** · P3 — `site.menus.dining_modes` JSONB column has no shape enforcement
+- [x] **271-DINT-6** · P3 — `site.menus.dining_modes` JSONB column has no shape enforcement · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** app/Models/Core/Site/Menu.php:26 (`@property array|null $dining_modes`), :89 (`'dining_modes' => 'array'`)
     - **Affects:** `site.menus` row quality — a malformed Uber Eats response shape would land silently.
     - **Effort:** S (~0.5–1h)
@@ -1733,8 +1733,8 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 6 complete
-- P3 Low: 0 of 3 complete
+- P2 Medium: 6 of 6 complete
+- P3 Low: 3 of 3 complete
 
 **Adjudication note:** the draft scan over-reported heavily on this scope. Most "no visible test" claims turned out false on inspection — this PR's feature (item-url-slugs) and the public sitepage endpoints it touches are unusually well tested (`PublicEventSlugTest.php`, `PublicMenuControllerTest.php`, `PublicIntegrationAllowlistTest.php`, `EventSlugSyncTest.php`, `ItemSlugAllocatorTest.php`, `BackfillItemSlugsTest.php` all directly cover what several draft findings claimed was untested). Two findings (`account_type` should be `'individual'`) were backwards: the `AccountType` enum and `users_account_type_check` constraint (`supabase/migrations/20260612120000_account_type_partna_business.sql`) only permit `'partna'`/`'business'` — `'individual'` is the legacy value explicitly rejected going forward. Those were dropped rather than "fixed," since applying the proposed fix would itself introduce a bug.
 
@@ -1757,7 +1757,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
         DROP TABLE IF EXISTS site.themes CASCADE;
         ```
 
-- [ ] **271-TEST-2** · P2 — No migration-invariant test for `site.item_slugs`'s CHECK / UNIQUE / FK constraints
+- [x] **271-TEST-2** · P2 — No migration-invariant test for `site.item_slugs`'s CHECK / UNIQUE / FK constraints · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** supabase/migrations/20260724120000_create_item_slugs.sql (entire file); no corresponding test in tests/Feature/Database/
     - **Affects:** CI's ability to catch a future migration that relaxes the per-profile slug-uniqueness guarantee or the one-current-slug-per-item guarantee — SQLite can't enforce either at the test layer, so nothing else catches a regression here.
     - **Effort:** M (~2–4h)
@@ -1779,7 +1779,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
             WHERE is_current;
         ```
 
-- [ ] **271-TEST-3** · P2 — No test for deleting a non-existent custom event via `DELETE /api/platforms/events/custom/{id}`
+- [x] **271-TEST-3** · P2 — No test for deleting a non-existent custom event via `DELETE /api/platforms/events/custom/{id}` · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/EventsCatalog.php:203-218 (`removeCustom`); tests/Feature/Platforms/EventsCatalogTest.php (only the happy-path delete is tested)
     - **Affects:** The `EventsController::removeCustom` endpoint — the 404-not-found contract for a made-up event ID is implemented but has zero regression protection.
     - **Effort:** S (~0.5h)
@@ -1803,7 +1803,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
             }
         ```
 
-- [ ] **271-TEST-4** · P2 — `ItemSlugAllocator::lookupCurrent` exception-degrade path is untested in both public controllers
+- [x] **271-TEST-4** · P2 — `ItemSlugAllocator::lookupCurrent` exception-degrade path is untested in both public controllers · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicMenuController.php:197-207 (`menuItemSlugMap`); app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:166-174 (event-slug lookup)
     - **Affects:** Every public sitepage visitor loading a menu or an events section — if `ItemSlugAllocator::lookupCurrent` throws (DB hiccup, connection blip), both controllers are designed to degrade every item to `slug: null, aliases: [id]` rather than 500ing, but nothing proves the catch block actually does that.
     - **Effort:** S (~0.5–1h)
@@ -1827,7 +1827,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
         }
         ```
 
-- [ ] **271-TEST-5** · P2 — Instagram gallery-suppression branch (`content_instagram_auto_enabled === false`) has no test
+- [x] **271-TEST-5** · P2 — Instagram gallery-suppression branch (`content_instagram_auto_enabled === false`) has no test · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicIntegrationController.php:106-115
     - **Affects:** Every user with a connected Instagram account who toggles off auto-sync — a comparison-operator regression here either hides a gallery that should show, or (privacy-relevant) shows a gallery the owner explicitly turned off.
     - **Edwort:** S (~0.5–1h)
@@ -1872,7 +1872,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
 
 ## P3 — Nice to have
 
-- [ ] **271-TEST-7** · P3 — `EventSlugSync::PLATFORMS` is a third, uncross-checked source of truth for "which platforms carry events"
+- [x] **271-TEST-7** · P3 — `EventSlugSync::PLATFORMS` is a third, uncross-checked source of truth for "which platforms carry events" · **WONTFIX (triage applied 2026-07-31): closed by the audit's own words** — the finding body carries an adjudicator caveat that disarms it. Reopen only on a real symptom.
     - **Where:** app/Services/Platforms/EventSlugSync.php:31
     - **Affects:** A hypothetical future events platform added to the registry but forgotten in this constant — that platform's events would silently never get slugs.
     - **Effort:** S (~0.5–1h)
@@ -1890,7 +1890,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
         public const PLATFORMS = ['eventbrite', 'humanitix', 'events-custom'];
         ```
 
-- [ ] **271-TEST-8** · P3 — `MenuItemObserver`'s best-effort failure-tolerance is untested
+- [x] **271-TEST-8** · P3 — `MenuItemObserver`'s best-effort failure-tolerance is untested · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Observers/MenuItemObserver.php:48-59 (`sync`); tests/Unit/Observers/MenuItemObserverTest.php (happy paths only)
     - **Affects:** Any menu-item create/rename if `ItemSlugAllocator` transiently throws — the design promises the item save still succeeds, but nothing proves it.
     - **Effort:** S (~0.5–1h)
@@ -1915,7 +1915,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
         }
         ```
 
-- [ ] **271-TEST-9** · P3 — No regression test locking in `EventsCatalog::addByUrl`'s idempotency on duplicate URL submission
+- [x] **271-TEST-9** · P3 — No regression test locking in `EventsCatalog::addByUrl`'s idempotency on duplicate URL submission · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Services/Platforms/EventsCatalog.php:228-277 (`storeAccount`, `storeStandalone`)
     - **Affects:** A user pasting the same event/organiser link twice — the underlying mechanism is already idempotent, but the guarantee has no regression test.
     - **Effort:** S (~0.5h)

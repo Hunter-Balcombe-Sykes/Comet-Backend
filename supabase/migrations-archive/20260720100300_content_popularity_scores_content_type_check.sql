@@ -1,7 +1,7 @@
 -- SCHEMA-2 — analytics.content_popularity_scores.content_type CHECK constraint.
 --
 -- CORRECTED vocabulary (12 values), NOT the 8-value list in the audit
--- finding (audits/sweeps/2026-07-11-full-work-sweep/TRIAGE-2-P2.md SCHEMA-2),
+-- finding (audits/archive/sweeps/2026-07-11-full-work-sweep/TRIAGE-2-P2.md SCHEMA-2),
 -- which was copied from the stale DDL comment at
 -- 20260709042716_create_content_popularity_scores.sql:10. That comment
 -- predates two later additions:

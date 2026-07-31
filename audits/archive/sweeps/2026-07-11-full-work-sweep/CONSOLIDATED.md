@@ -107,7 +107,7 @@ therefore does **not** auto-archive, which is correct. Spot-verified against liv
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -188,7 +188,7 @@ therefore does **not** auto-archive, which is correct. Spot-verified against liv
 
 ## P3 — Nice to have
 
-- [ ] **#SEC-6** · P3 — `setPreviousWebsite` validates inline instead of via a Form Request
+- [x] **#SEC-6** · P3 — `setPreviousWebsite` validates inline instead of via a Form Request · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserWorkplaceController.php:212-216
     - **Affects:** `PATCH /site/workplace/previous-website` — same organizational nit as kept separate since it's a single-field, already-adequate validation (`nullable|url|max:2048`).
     - **Effort:** S (~0.5–1h)
@@ -860,7 +860,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -947,7 +947,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 ## P3 — Nice to have
 
-- [ ] **SCALE-5** · P3 — `AnalyzeConnectionWebsitesJob` re-queries `shopBrands()->get()` per connection at three separate call sites instead of eager-loading
+- [x] **SCALE-5** · P3 — `AnalyzeConnectionWebsitesJob` re-queries `shopBrands()->get()` per connection at three separate call sites instead of eager-loading · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Jobs/Design/AnalyzeConnectionWebsitesJob.php:103, 189, 249-254
     - **Affects:** Users with more than one shop-platform connection, during design-analysis job runs (main `handle()` loop, its self-continue check, and the `failed()` kill-recovery re-dispatch check). Bounded by small per-user connection counts and by `MAX_ANALYSES_PER_RUN = 2`, which already caps work per invocation.
     - **Effort:** S (~0.5–1h)
@@ -1023,7 +1023,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 5 of 5 complete
-- P3 Low: 7 of 8 complete
+- P3 Low: 8 of 8 complete
 
 ---
 
@@ -1140,7 +1140,7 @@ None.
         public const UPDATED_AT = null; // membership rows are insert-only (created_at column only)
         ```
 
-- [ ] **#SCHEMA-8** · P3 — `analytics.item_views` has no DB-level dedup key, relying entirely on app-side Redis
+- [x] **#SCHEMA-8** · P3 — `analytics.item_views` has no DB-level dedup key, relying entirely on app-side Redis · **WONTFIX (triage applied 2026-07-31): accepted as-is on Josh's sign-off.** `ItemView`'s own comment records the tradeoff — *"Dedup is app-side Redis (AnalyticsDedupGuard, 300s), not a DB column — same pattern as section-seen"* — so this is a deliberate design decision, not an oversight. Exposure is bounded: duplicates arise only during a Redis outage and purge at 90 days regardless. A composite UNIQUE adds write amplification to the highest-ingest table in the schema and would leave the sibling `analytics.section_views` inconsistent unless both changed. The finding's own text allows this outcome: *"this can also be accepted as-is"*.
     - **Where:** supabase/migrations/20260709042911_create_item_views.sql (entire `CREATE TABLE`); app/Models/Analytics/ItemView.php:19
     - **Affects:** Duplicate rows on Redis outage or event re-delivery would inflate popularity scores until the 90-day purge window rolls them off.
     - **Effort:** M (~2–4h)
@@ -1304,7 +1304,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 4 of 4 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -1417,7 +1417,7 @@ None — every finding in this audit is a `supabase/migrations/` schema change, 
 
 ## P3 — Nice to have
 
-- [ ] **#CCH-6** · P3 — `FeatureAvailability` builds cache keys with ad-hoc string concatenation instead of `CacheKeyGenerator`
+- [x] **#CCH-6** · P3 — `FeatureAvailability` builds cache keys with ad-hoc string concatenation instead of `CacheKeyGenerator` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Services/FeatureAvailability/FeatureAvailability.php:33, 35, 42
     - **Affects:** Maintainability only today (single reader/writer, same class) — future readers (e.g. a staff preview endpoint) risk a silent typo-miss without a shared helper.
     - **Effort:** S (~0.5–1h)
@@ -1763,7 +1763,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -1818,7 +1818,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#JOB-5** · P3 — SendTransactionalNotificationEmailJob has no `ShouldBeUnique` guard, so duplicate dispatches contend for its row lock instead of coalescing
+- [x] **#JOB-5** · P3 — SendTransactionalNotificationEmailJob has no `ShouldBeUnique` guard, so duplicate dispatches contend for its row lock instead of coalescing · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Jobs/Notifications/SendTransactionalNotificationEmailJob.php:23-25
     - **Affects:** Transactional email dispatch; wasted worker/DB time when the same notification is dispatched more than once, no data-correctness impact
     - **Effort:** S (~0.5–1h)
@@ -2157,7 +2157,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
 - P2 Medium: 5 of 5 complete
-- P3 Low: 1 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
@@ -2350,7 +2350,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **PRIV-10** · P3 — Stale Shopify-era docblock and dead `RedactShopJob` reference in the GDPR config section
+- [x] **PRIV-10** · P3 — Stale Shopify-era docblock and dead `RedactShopJob` reference in the GDPR config section · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `config/partna.php:1468-1479` (`gdpr` section docblock)
     - **Affects:** No live data — documentation-only drift that could mislead a future privacy audit about what the `gdpr` config section actually governs.
     - **Effort:** S (~0.5–1h)
@@ -2374,7 +2374,7 @@ None.
         ]
         ```
 
-- [ ] **PRIV-11** · P3 — Default seeded contact card uses a real, platform-uncontrolled domain (`charlie@ai.com`)
+- [x] **PRIV-11** · P3 — Default seeded contact card uses a real, platform-uncontrolled domain (`charlie@ai.com`) · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `config/partna.php:852-858` (`account_type_defaults.individual.default_contact`)
     - **Affects:** New individual accounts before the professional customises their public contact card — any code path that acts on the default before it's overwritten sends mail to a real stranger's inbox rather than nowhere.
     - **Effort:** S (~0.5h)
@@ -2394,7 +2394,7 @@ None.
         ]
         ```
 
-- [ ] **PRIV-12** · P3 — Two-year waitlist retention for non-converting applicants may exceed what's proportionate
+- [x] **PRIV-12** · P3 — Two-year waitlist retention for non-converting applicants may exceed what's proportionate · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `config/partna.php:816` (`waitlist.retention_days`)
     - **Affects:** Every waitlist signup who never converts to a full account — name, email, and industry retained 730 days past their last activity.
     - **Effort:** S (~0.5h, config-only)
@@ -2478,7 +2478,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 1 of 2 complete  (+EDGE-5, verified DEAD 2026-07-30)
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -2605,7 +2605,7 @@ None.
         ...`;
         ```
 
-- [ ] **EDGE-6** · P3 — Staging KV namespace in `wrangler.toml` is still a placeholder TODO (Category 7)
+- [x] **EDGE-6** · P3 — Staging KV namespace in `wrangler.toml` is still a placeholder TODO (Category 7) · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `cloudflare-worker/wrangler.toml:42-53`
     - **Affects:** Anyone who runs `wrangler deploy --env staging` before the referenced namespace exists — the deploy fails outright rather than silently writing into production (fail-safe), but the staging override is currently non-functional.
     - **Effort:** S (~0.5–1h)
@@ -2672,7 +2672,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
@@ -2702,7 +2702,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#CFG-2** · P3 — Analytics endpoint default resolves `config('app.url')` at config-load time
+- [x] **#CFG-2** · P3 — Analytics endpoint default resolves `config('app.url')` at config-load time · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** config/partna.php:946-949 (`public_profile.analytics_endpoint`)
     - **Affects:** Staging/QA environments where `APP_URL` is left unset — the client analytics-beacon endpoint bakes in `http://localhost/api/analytics` at `php artisan config:cache` time.
     - **Effort:** S (~0.5–1h)
@@ -2718,7 +2718,7 @@ None.
         )
         ```
 
-- [ ] **#CFG-3** · P3 — `brand_scan.enabled` defaults `true`, inconsistent with the rest of the `*_ENABLED` fleet
+- [x] **#CFG-3** · P3 — `brand_scan.enabled` defaults `true`, inconsistent with the rest of the `*_ENABLED` fleet · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** config/partna.php:1135 (`brand_scan.enabled`); .env.example:249
     - **Affects:** New environment deploys — the brand-scan flag reads "on" without an explicit opt-in, unlike every other `*_ENABLED` flag in this file.
     - **Effort:** S (~0.5–1h)
@@ -2732,7 +2732,7 @@ None.
             'enabled' => (bool) env('PARTNA_BRAND_SCAN_ENABLED', true)
         ```
 
-- [ ] **#CFG-4** · P3 — `refresh.conditional.enabled` defaults `true`, same fleet inconsistency as CFG-3
+- [x] **#CFG-4** · P3 — `refresh.conditional.enabled` defaults `true`, same fleet inconsistency as CFG-3 · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** config/partna.php:1344 (`refresh.conditional.enabled`); .env.example:314
     - **Affects:** New environments — conditional HTTP (ETag/If-None-Match) requests to upstream platforms are active without explicit opt-in.
     - **Effort:** S (~0.5–1h)
@@ -2747,7 +2747,7 @@ None.
         ]
         ```
 
-- [ ] **#CFG-5** · P3 — Hardcoded queue name bypasses `config('partna.queues.*')` routing convention
+- [x] **#CFG-5** · P3 — Hardcoded queue name bypasses `config('partna.queues.*')` routing convention · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php:36
     - **Affects:** Notification delivery — a future queue rename or per-environment override would silently miss this job.
     - **Effort:** S (~0.5–1h)
@@ -2822,7 +2822,7 @@ None.
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -2928,7 +2928,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#MIG-5** · P3 — Missing rollback-path comment on destructive `site.design_kits` column drops
+- [x] **#MIG-5** · P3 — Missing rollback-path comment on destructive `site.design_kits` column drops · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** `supabase/migrations/20260710160000_design_kit_theme_surface_rework.sql:22-24`
     - **Affects:** Documentation only — the drops themselves are fast, metadata-only operations on data the file itself calls test-only.
     - **Effort:** S (~0.5–1h)
@@ -2992,13 +2992,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 7 complete
+- P3 Low: 7 of 7 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **#API-2** · P3 — `SiteResource` exposes `user_id` unconditionally — internal FK surfaced with no dashboard use
+- [x] **#API-2** · P3 — `SiteResource` exposes `user_id` unconditionally — internal FK surfaced with no dashboard use · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Http/Resources/SiteResource.php:54`
     - **Affects:** Every dashboard endpoint returning `SiteResource` — `UserSelfController::show()`, `UserSiteController::show()`/`update()`/`updateBookingSettings()`, `SiteVisibilityController::update()` (all authenticated-owner routes; verified `SiteResource` has no public-surface call site).
     - **Effort:** S (~0.5–1h)
@@ -3014,7 +3014,7 @@ None.
             'subdomain' => $this->subdomain
         ```
 
-- [ ] **#API-3** · P3 — `ContentLibraryUploadResource` missing `updated_at` — clients can't detect a re-uploaded image
+- [x] **#API-3** · P3 — `ContentLibraryUploadResource` missing `updated_at` — clients can't detect a re-uploaded image · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Http/Resources/Content/ContentLibraryUploadResource.php:27-35`
     - **Affects:** Dashboard content library — re-uploading an image replaces the row in-place (same `id`), and the client has no signal it changed.
     - **Effort:** S (~0.5–1h)
@@ -3035,7 +3035,7 @@ None.
         ];
         ```
 
-- [ ] **#API-4** · P3 — `UserAnalyticsController` returns plain arrays with no acknowledgment of the exception, unlike its sibling `DevInsightsController`
+- [x] **#API-4** · P3 — `UserAnalyticsController` returns plain arrays with no acknowledgment of the exception, unlike its sibling `DevInsightsController` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:**
         - `app/Http/Controllers/Api/User/Analytics/DevInsightsController.php:24-25` (documented exception)
         - `app/Http/Controllers/Api/User/Analytics/UserAnalyticsController.php:116` (undocumented)
@@ -3061,7 +3061,7 @@ None.
         return $this->success($data);
         ```
 
-- [ ] **#API-5** · P3 — `StaffSegmentController::users()` manually maps `User` rows instead of a Resource class
+- [x] **#API-5** · P3 — `StaffSegmentController::users()` manually maps `User` rows instead of a Resource class · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Http/Controllers/Api/Staff/Segments/StaffSegmentController.php:175-182`
     - **Affects:** Staff dashboard segment-membership preview; future staff-facing fields added to `User`.
     - **Effort:** S (~0.5–1h)
@@ -3081,7 +3081,7 @@ None.
         ]);
         ```
 
-- [ ] **#API-6** · P3 — `ShopController::selection()` builds a public-compat payload inline, duplicating `ShopBrandResource`'s field contract
+- [x] **#API-6** · P3 — `ShopController::selection()` builds a public-compat payload inline, duplicating `ShopBrandResource`'s field contract · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Http/Controllers/Api/Platforms/ShopController.php:415-427`
     - **Affects:** Authenticated `GET /api/platforms/shop/selection` (dashboard/compat Shop-card read); future changes to the brand payload shape.
     - **Effort:** S (~0.5–1h)
@@ -3101,7 +3101,7 @@ None.
         return $this->success(['selection' => $selection]);
         ```
 
-- [ ] **#API-8** · P3 — Content/design upload endpoints manually pre-materialize Resources with `->toArray()`, bypassing the app's own inline-Resource pattern
+- [x] **#API-8** · P3 — Content/design upload endpoints manually pre-materialize Resources with `->toArray()`, bypassing the app's own inline-Resource pattern · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:**
         - `app/Http/Controllers/Api/User/Content/ContentController.php:64` (`library()`), `:102` (`storeUpload()`)
         - `app/Http/Controllers/Api/User/Uploads/UserDesignMediaController.php:55` (`index()`), `:86` (`upload()`)
@@ -3129,7 +3129,7 @@ None.
         return $this->success((new DesignMediaResource($media))->toArray(request()), 201);
         ```
 
-- [ ] **#API-10** · P3 — `StaffNotificationController::index()` uses `->limit()` instead of `->paginate()`, omitting pagination metadata used by every sibling staff list endpoint
+- [x] **#API-10** · P3 — `StaffNotificationController::index()` uses `->limit()` instead of `->paginate()`, omitting pagination metadata used by every sibling staff list endpoint · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Http/Controllers/Api/Staff/StaffSite/StaffNotificationController.php:159-174`
     - **Affects:** Staff dashboard notification history view; clients cannot discover whether more than `limit` rows exist.
     - **Effort:** S (~0.5–1h)
@@ -3194,7 +3194,7 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -3243,7 +3243,7 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
 
 ## P3 — Nice to have
 
-- [ ] **TEST-4** · P3 — `SupabaseAuthHookController`'s malformed-payload branch (invalid UUID format) is untested
+- [x] **TEST-4** · P3 — `SupabaseAuthHookController`'s malformed-payload branch (invalid UUID format) is untested · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Http/Controllers/Api/Webhooks/SupabaseAuthHookController.php:75-78`; closest test file `tests/Feature/Webhooks/SupabaseAuthHookBruteForceTest.php`
     - **Affects:** Supabase MFA-verification webhook — a regression in the UUID-format guard would go undetected until a malformed delivery actually arrives in production.
     - **Effort:** S (~0.5–1h)
@@ -3259,7 +3259,7 @@ The DeepSeek draft (8 chunks, ~80 raw findings) systematically **hallucinated an
         }
         ```
 
-- [ ] **TEST-5** · P3 — `ConditionalFetchStrategiesTest.php` claims three wired strategies but only tests two
+- [x] **TEST-5** · P3 — `ConditionalFetchStrategiesTest.php` claims three wired strategies but only tests two · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `tests/Feature/Platforms/Strategies/ConditionalFetchStrategiesTest.php:5,34,52`
     - **Affects:** Confidence that the third conditional-fetch strategy correctly raises `FetchNotModifiedException` on a 304.
     - **Effort:** S (~0.5–1h)
@@ -3309,7 +3309,7 @@ None — no P0, auth/money/migration-touching, or L/XL-effort findings survived 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 3 of 3 complete
 
 ---
 
@@ -3317,7 +3317,7 @@ None — no P0, auth/money/migration-touching, or L/XL-effort findings survived 
 
 ## P3 — Nice to have
 
-- [ ] **#SLOP-4** · P3 — Decorative ASCII-art block banner in a controller
+- [x] **#SLOP-4** · P3 — Decorative ASCII-art block banner in a controller · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/User/Content/ContentController.php:236-238
     - **Affects:** Developer reading the file — no user-facing impact.
     - **Effort:** S (~0.5–1h)
@@ -3331,7 +3331,7 @@ None — no P0, auth/money/migration-touching, or L/XL-effort findings survived 
             /* ------------------------------------------------------------------ */
         ```
 
-- [ ] **#SLOP-5** · P3 — Dead vestigial variable from removed account-type section gating
+- [x] **#SLOP-5** · P3 — Dead vestigial variable from removed account-type section gating · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Http/Controllers/Api/User/SiteManagement/UserSectionBlockController.php:36
     - **Affects:** No user or system impact — purely a maintainer reading the method body.
     - **Effort:** S (~0.5–1h)
@@ -3346,7 +3346,7 @@ None — no P0, auth/money/migration-touching, or L/XL-effort findings survived 
             $unavailableSections = [];
         ```
 
-- [ ] **#SLOP-6** · P3 — Inconsistent empty-object coercion patterns in the same resource
+- [x] **#SLOP-6** · P3 — Inconsistent empty-object coercion patterns in the same resource · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Http/Resources/PublicSite/IndividualProfileResource.php:75-88 (three verbose blocks) vs. lines 127, 140 (concise inline casts)
     - **Affects:** No runtime behaviour — all five produce `{}` in JSON when empty. A maintainer reading the file sees two different patterns for the identical operation.
     - **Effort:** S (~0.5–1h)
@@ -3431,7 +3431,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -3473,7 +3473,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SEM-2** · P3 — `DevInsightsController::CLICK_SECTION_TO_ITEM_TYPE` is a hand-maintained mirror of a private const in the scoring job
+- [x] **#SEM-2** · P3 — `DevInsightsController::CLICK_SECTION_TO_ITEM_TYPE` is a hand-maintained mirror of a private const in the scoring job · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** app/Http/Controllers/Api/User/Analytics/DevInsightsController.php:44-56
     - **Affects:** Developers using the `dev-insights` diagnostic endpoint. Currently harmless — verified byte-for-byte identical to the source map — but nothing enforces that identity going forward.
     - **Effort:** S (~0.5–1h)
@@ -3813,7 +3813,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 9 of 9 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -4053,7 +4053,7 @@ Every finding in this audit is an authorization-boundary or PII-exposure fix —
 
 ## P3 — Nice to have
 
-- [ ] **#LIFE-11** · P3 — `InstagramConnectJob::markFailed` increments `consecutive_failures` via read-then-write instead of an atomic increment
+- [x] **#LIFE-11** · P3 — `InstagramConnectJob::markFailed` increments `consecutive_failures` via read-then-write instead of an atomic increment · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Jobs/Platforms/InstagramConnectJob.php:434-441
     - **Affects:** The `consecutive_failures` counter on an Instagram integration connection — cosmetic drift only; the job is already serialized per-connection by its own `ShouldBeUnique`/`uniqueId()` (`"{$this->connectionId}:{$this->username}"`), so a genuine concurrent write to the same connection's counter is already very unlikely in practice.
     - **Effort:** S (~0.5h)
@@ -4158,7 +4158,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -4212,7 +4212,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SCALE-3** · P3 — `Site::designKitVars()` issues a raw per-instance query with no batch-loading alternative (latent N+1)
+- [x] **#SCALE-3** · P3 — `Site::designKitVars()` issues a raw per-instance query with no batch-loading alternative (latent N+1) · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Models/Core/Site/Site.php:179-201
     - **Affects:** `SiteResource::toArray()` and `StaffUserController`'s diagnostic endpoint, both of which are single-`Site` responses today (`SiteResource` has zero `::collection()` call sites in the codebase). Purely a latent risk, not a current one.
     - **Effort:** S (~0.5–1h)
@@ -4242,7 +4242,7 @@ None.
             }
         ```
 
-- [ ] **#SCALE-4** · P3 — `SyncSubdomainToKvJob` has no explicit rate-limit middleware on Cloudflare KV writes, relying only on implicit Horizon worker-count throttling
+- [x] **#SCALE-4** · P3 — `SyncSubdomainToKvJob` has no explicit rate-limit middleware on Cloudflare KV writes, relying only on implicit Horizon worker-count throttling · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:56-64, :122
     - **Affects:** Every profile mutation that triggers a KV sync (handle changes, moderation actions, connect/disconnect). A mass moderation event or bulk handle-update could queue many jobs at once.
     - **Effort:** M (~2–4h)
@@ -4305,7 +4305,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
@@ -4368,7 +4368,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **SCHEMA-3** · P3 — Unindexed `DELETE` on `site.design_kit_contributions` in `20260714210000_drop_effect_surface.sql`
+- [x] **SCHEMA-3** · P3 — Unindexed `DELETE` on `site.design_kit_contributions` in `20260714210000_drop_effect_surface.sql` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** supabase/migrations/20260714210000_drop_effect_surface.sql:11
     - **Affects:** `site.design_kit_contributions` — the `target_var` column carries no index, so this (and every sibling migration below) forces a sequential scan.
     - **Effort:** S (~0.5–1h)
@@ -4382,7 +4382,7 @@ None.
         DELETE FROM site.design_kit_contributions WHERE target_var = 'effect_surface';
         ```
 
-- [ ] **SCHEMA-4** · P3 — Unindexed `DELETE` on `site.design_kit_contributions` in `20260714230000_drop_glass_satellites.sql`
+- [x] **SCHEMA-4** · P3 — Unindexed `DELETE` on `site.design_kit_contributions` in `20260714230000_drop_glass_satellites.sql` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** supabase/migrations/20260714230000_drop_glass_satellites.sql:11-12
     - **Affects:** Same table/root cause as SCHEMA-3.
     - **Effort:** S (~0.5–1h)
@@ -4395,7 +4395,7 @@ None.
         WHERE target_var IN ('effect_scrim_blur', 'effect_glass_blur', 'motion_glass_shine_duration');
         ```
 
-- [ ] **SCHEMA-5** · P3 — `DROP COLUMN` without a rename-to-deprecated cycle in `20260714210000_drop_effect_surface.sql`
+- [x] **SCHEMA-5** · P3 — `DROP COLUMN` without a rename-to-deprecated cycle in `20260714210000_drop_effect_surface.sql` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** supabase/migrations/20260714210000_drop_effect_surface.sql:13
     - **Affects:** `site.design_kits.effect_surface` — theoretical risk window if this migration is applied to Supabase before the corresponding app-code deploy lands.
     - **Effort:** S (~0.5–1h)
@@ -4409,7 +4409,7 @@ None.
         ALTER TABLE site.design_kits DROP COLUMN IF EXISTS effect_surface;
         ```
 
-- [ ] **SCHEMA-6** · P3 — `DROP COLUMN` without a rename-to-deprecated cycle in `20260714230000_drop_glass_satellites.sql`
+- [x] **SCHEMA-6** · P3 — `DROP COLUMN` without a rename-to-deprecated cycle in `20260714230000_drop_glass_satellites.sql` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** supabase/migrations/20260714230000_drop_glass_satellites.sql:14-17
     - **Affects:** `site.design_kits.effect_scrim_blur` / `effect_glass_blur` / `motion_glass_shine_duration` — same root cause and same mitigations as SCHEMA-5.
     - **Effort:** S (~0.5–1h)
@@ -4839,7 +4839,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 1 of 2 complete
 
 ---
 
@@ -4924,7 +4924,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 ## P3 — Nice to have
 
-- [ ] **#DINT-3** · P3 — `AccountType::Individual` enum case has outlived its documented purpose and can no longer be written to the DB
+- [x] **#DINT-3** · P3 — `AccountType::Individual` enum case has outlived its documented purpose and can no longer be written to the DB · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Enums/AccountType.php:28
     - **Affects:** Code hygiene only. Confirmed no application write path can currently produce `account_type = 'individual'` — `app/Http/Requests/Api/User/UpdateUserRequest.php` explicitly rejects it at validation, and `database/factories/UserFactory.php` defaults to `'partna'`. All ~90 test-suite references to `'individual'` are explicit fixture overrides running against the SQLite test mirror, which doesn't enforce the Postgres CHECK.
     - **Effort:** S (~0.5–1h)
@@ -4945,7 +4945,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
             ADD CONSTRAINT users_account_type_check CHECK (account_type IN ('partna', 'business')) NOT VALID;
         ```
 
-- [ ] **#DINT-4** · P3 — `site.menus.dining_modes` JSONB has no shape enforcement beyond app-layer normalization
+- [x] **#DINT-4** · P3 — `site.menus.dining_modes` JSONB has no shape enforcement beyond app-layer normalization · **FIXED (2026-07-31, Josh signed off):** `menus_dining_modes_is_array` CHECK — `dining_modes IS NULL OR jsonb_typeof(dining_modes) = 'array'` — added NOT VALID by `20260731220000` and validated by `...220001` (CONVENTIONS.md §2 file pair; a single ADD would validate every row under ACCESS EXCLUSIVE and fail the migration-safety guard). **Structure only, deliberately not content:** the finding's original enum proposal was rejected because `UberEatsMenuDriver::diningModes()` passes through whatever `supportedDiningModes` strings Uber Eats returns, so a value CHECK would reject a legitimate new mode the day Uber Eats added one and surface as a silently-failing scrape. NULL stays legal (DoorDash exposes none). Applied to dev 2026-07-31, verified `convalidated = true`, ledger realigned to the repo filenames. Pinned by `tests/Schema/CheckConstraintsTest`. ⚠️ **PROD NOT MIGRATED.**
     - **Where:** supabase/migrations/20260715090000_menu_item_currency_and_dining_modes.sql:11-18
     - **Affects:** `site.menus.dining_modes` — any future consumer beyond the current single reader (`MenuController`/public menu payload) must independently defend against a non-array value reaching it via a direct DB write, since the column's documented `["DELIVERY","PICKUP"]` shape is enforced only by `UberEatsMenuDriver::diningModes()` on the write path, not by the schema.
     - **Effort:** S (~0.5–1h)
@@ -5132,7 +5132,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -5162,7 +5162,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 
 ## P3 — Nice to have
 
-- [ ] **OBS-2** · P3 — `InstagramScraper::latestMedia` emits an unconditional `Log::info` diagnostic on every scrape
+- [x] **OBS-2** · P3 — `InstagramScraper::latestMedia` emits an unconditional `Log::info` diagnostic on every scrape · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Services/Platforms/InstagramScraper.php:208-216
     - **Affects:** `cloud env:logs partna development` signal-to-noise for anyone manually triaging Instagram-related issues — every profile scrape (connect + periodic refresh) writes a structured info entry regardless of outcome.
     - **Effort:** S (~0.5–1h)
@@ -5181,7 +5181,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
         ]);
         ```
 
-- [ ] **OBS-3** · P3 — `CloudflareCustomHostnameService::delete()` never checks the API response, so the 3 call sites that already catch its failures never receive one
+- [x] **OBS-3** · P3 — `CloudflareCustomHostnameService::delete()` never checks the API response, so the 3 call sites that already catch its failures never receive one · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Services/Cloudflare/CloudflareCustomHostnameService.php:91-98
     - **Affects:** Custom-domain disconnect/cleanup for users with a connected domain — a failed Cloudflare hostname deletion (bad token, transient outage, rate limit) leaves the certificate/hostname active on Cloudflare's zone while Partna's own `site.custom_domain*` columns show it disconnected. A lingering hostname can also 409 a future `create()` attempt to reuse that same domain.
     - **Effort:** S (~0.5–1h)
@@ -5237,7 +5237,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -5282,7 +5282,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#CCG-1** · P3 — `presentPageIds()`'s 7-query fan-out runs twice inside one `build()` call
+- [x] **#CCG-1** · P3 — `presentPageIds()`'s 7-query fan-out runs twice inside one `build()` call · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php:174-309 (`presentPageIds`), app/Services/PublicSite/IndividualProfilePayloadBuilder.php:97-109 (`build`), app/Services/PublicSite/SiteActionsService.php:94-95 (`pool`)
     - **Affects:** Every public sitepage payload cache miss (behind the 60s `rememberLocked` wrapper) — doubles the presence-probe query fan-out on each miss, though single-flight locking means this cost isn't multiplied across concurrent viewers of the same handle.
     - **Effort:** S (~0.5–1h)
@@ -5371,7 +5371,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -5450,7 +5450,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **PRIV-3** · P3 — Internal cleanup command writes user handles to log/console output unnecessarily
+- [x] **PRIV-3** · P3 — Internal cleanup command writes user handles to log/console output unnecessarily · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Console/Commands/CleanupOrphanedLifestyleConnections.php:51-57
     - **Affects:** Users whose account has an orphaned lifestyle-integration connection cleaned up by this one-shot remediation command — their handle (an indirect identifier) is written to console output and, depending on the deployment's stdout capture, to Laravel Cloud log storage.
     - **Effort:** S (~0.5–1h)
@@ -5514,7 +5514,7 @@ None — no finding in this audit is P0, touches auth/authorization or money, in
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 1 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -5638,7 +5638,7 @@ These are dropped below rather than re-tiered, since the underlying claim — no
         cloudflare-worker/wrangler.toml
         ```
 
-- [ ] **#EDGE-5** · P3 — Product detail page purge is capped at 100 products with no visibility when the cap is hit
+- [x] **#EDGE-5** · P3 — Product detail page purge is capped at 100 products with no visibility when the cap is hit · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Services/Cloudflare/CloudflarePurgeService.php:132-146
     - **Affects:** Individual professionals with more than 100 shop products connected via a platform integration — product pages 101+ stay edge-cached for up to 24h primary / 7d shadow after any purge-triggering mutation.
     - **Effort:** S (~0.5–1h)
@@ -5701,13 +5701,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **CFG-1** · P3 — Hardcoded HTTP timeouts in `CloudflareCustomHostnameService`
+- [x] **CFG-1** · P3 — Hardcoded HTTP timeouts in `CloudflareCustomHostnameService` · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Services/Cloudflare/CloudflareCustomHostnameService.php:56,82,97
     - **Affects:** Operators tuning Cloudflare "Custom Hostnames" API call behavior; any environment where Cloudflare's control plane is slower than the hardcoded budget.
     - **Effort:** S (~0.5–1h)
@@ -5733,7 +5733,7 @@ None.
         Http::withToken($this->apiToken)->timeout(5)->delete($this->base()."/{$id}");
         ```
 
-- [ ] **CFG-2** · P3 — Hardcoded fetch timeouts and media size caps in `InstagramConnectJob`
+- [x] **CFG-2** · P3 — Hardcoded fetch timeouts and media size caps in `InstagramConnectJob` · **WONTFIX (triage applied 2026-07-31): the ops-tuning premise does not hold.** Graded on "operators can't tune this without a deploy", which assumes an ops function Partna does not have — one deploy path, no on-call rotation, one engineer. Extracting the constant buys nothing and adds an indirection. The three that survived (`CFG-8`, `CFG-9`, `CFG-16`) did so as *incident* and *paid-API* knobs, a named scenario rather than a general principle.
     - **Where:** app/Jobs/Platforms/InstagramConnectJob.php:73,76,81,87
     - **Affects:** Operators managing Instagram media-mirroring behavior; environments where CDN latency or media sizes differ from today's assumptions.
     - **Effort:** S (~0.5–1h)
@@ -5783,7 +5783,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 3 of 3 complete
-- P3 Low: 0 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -5852,7 +5852,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
 
 ## P3 — Nice to have
 
-- [ ] **MIG-4** · P3 — `ADD CONSTRAINT CHECK` without `NOT VALID` on `site.sites`, already compensated by a documented guard exemption
+- [x] **MIG-4** · P3 — `ADD CONSTRAINT CHECK` without `NOT VALID` on `site.sites`, already compensated by a documented guard exemption · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** supabase/migrations/20260714200000_architecture_one_to_staple.sql:15-34
     - **Affects:** `site.sites` — informational/tracking only; the file's own reasoning already accounts for the lock.
     - **Effort:** S (no code change required now)
@@ -5877,7 +5877,7 @@ None — neither finding touches auth/authorization, money, or a DB migration/sc
             ADD CONSTRAINT sites_architecture_id_check CHECK (architecture_id = 'staple');
         ```
 
-- [ ] **MIG-5** · P3 — `DROP COLUMN` migrations on `site.design_kits` carry no "to revert:" note (repo-wide convention gap, not a regression)
+- [x] **MIG-5** · P3 — `DROP COLUMN` migrations on `site.design_kits` carry no "to revert:" note (repo-wide convention gap, not a regression) · **WONTFIX (triage applied 2026-07-31): superseded** — `LC-ROLLBACK` (P0-LAUNCH) swept the whole `supabase/migrations/` directory and wrote the convention into `CONVENTIONS.md`, closing the general case this flags individually.
     - **Where:** supabase/migrations/20260714210000_drop_effect_surface.sql:13; supabase/migrations/20260714230000_drop_glass_satellites.sql:14-17
     - **Affects:** `site.design_kits` — if a rollback were ever needed mid-incident, there's no comment documenting the `ADD COLUMN` needed to restore storage (data itself is unrecoverable regardless).
     - **Effort:** S (~0.5h, going forward only)
@@ -5944,7 +5944,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 3 of 3 complete
 
 ---
 
@@ -5994,7 +5994,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 ## P3 — Nice to have
 
-- [ ] **#API-2** · P3 — `StaffUserController::show()` mixes a Resource class and hand-built arrays in one response body
+- [x] **#API-2** · P3 — `StaffUserController::show()` mixes a Resource class and hand-built arrays in one response body · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php:96-138
     - **Affects:** Staff dashboard consumers of `GET /api/staff/professionals/{professional}` — the `integrations` and `design_summary` keys bypass the Resource layer entirely.
     - **Effort:** S (~0.5–1h)
@@ -6031,7 +6031,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         ] : null,
         ```
 
-- [ ] **#API-3** · P3 — `PublicMenuController::show()` builds the public menu payload without a Resource class
+- [x] **#API-3** · P3 — `PublicMenuController::show()` builds the public menu payload without a Resource class · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicMenuController.php:75-131
     - **Affects:** Unauthenticated public sitepage visitors — the menu payload has no allowlisting guardrail between the Eloquent models and the wire.
     - **Effort:** M (~2–4h)
@@ -6069,7 +6069,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
             ->toArray();
         ```
 
-- [ ] **#API-4** · P3 — `MenuController::show()` builds the authenticated dashboard menu payload by hand, duplicating `PublicMenuController`'s shaping logic under different field names
+- [x] **#API-4** · P3 — `MenuController::show()` builds the authenticated dashboard menu payload by hand, duplicating `PublicMenuController`'s shaping logic under different field names · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Http/Controllers/Api/Platforms/MenuController.php:171-222
     - **Affects:** Authenticated dashboard users — the same underlying menu data is manually re-shaped here with different key names (`image` vs `imageUrl`, `basePrice` unformatted vs `price` formatted) than the public surface.
     - **Effort:** M (~2–4h)
@@ -6148,7 +6148,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 7 of 7 complete
-- P3 Low: 0 of 3 complete
+- P3 Low: 3 of 3 complete
 
 ---
 
@@ -6309,7 +6309,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 ## P3 — Nice to have
 
-- [ ] **#TEST-8** · P3 — Custom-domain race-condition test's ad-hoc unique index isn't cross-checked against the real migration
+- [x] **#TEST-8** · P3 — Custom-domain race-condition test's ad-hoc unique index isn't cross-checked against the real migration · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `tests/Feature/Site/CustomDomainTest.php:143-146`; no matching assertion in `tests/Feature/Database/CheckConstraintsTest.php` or `IndexCoverageTest.php`.
     - **Affects:** Confidence that the TOCTOU race test (`LIFE-5`) is actually exercising the same constraint shape that exists in production.
     - **Effort:** S (~0.5–1h)
@@ -6325,7 +6325,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         );
         ```
 
-- [ ] **#TEST-9** · P3 — No forget/disconnect test for the `nowbookit` reservation provider
+- [x] **#TEST-9** · P3 — No forget/disconnect test for the `nowbookit` reservation provider · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `tests/Feature/Platforms/ReservationProvidersTest.php:135-141` has the pattern for `resdiary`; no equivalent exists for `nowbookit` despite `nowbookit` having full connect/detect/selection coverage elsewhere in the same file.
     - **Affects:** Users who connect NowBookit and later remove it via the provider-agnostic forget endpoint.
     - **Effort:** S (~0.5–1h)
@@ -6344,7 +6344,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         // No analogous test for nowbookit exists in this file.
         ```
 
-- [ ] **#TEST-10** · P3 — Custom domain connect test doesn't verify the KV sync job carries the right data
+- [x] **#TEST-10** · P3 — Custom domain connect test doesn't verify the KV sync job carries the right data · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `tests/Feature/Site/CustomDomainTest.php:58` (connect test); compare the disconnect test at line 112 in the same file, which already uses the correct pattern.
     - **Affects:** Confidence that connecting a custom domain queues a KV sync for the *correct* user/site, not just "a" `SyncSubdomainToKvJob`.
     - **Effort:** S (~0.5–1h)
@@ -6426,7 +6426,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
@@ -6473,7 +6473,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
 
 ## P3 — Nice to have
 
-- [ ] **SLOP-2** · P3 — Decorative ASCII-art section-separator comments add noise without structural value
+- [x] **SLOP-2** · P3 — Decorative ASCII-art section-separator comments add noise without structural value · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php:139, 236, 300, 349, 521, 624, 665` (7 separators), `app/Services/Platforms/ShopifyScraper.php:194`, `app/Services/Platforms/WooCommerceScraper.php:280`
     - **Affects:** Readability — the banners are visual noise; the method names they sit above already convey the grouping.
     - **Effort:** S (~0.5h)
@@ -6492,7 +6492,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         // ── internals ────────────────────────────────────────────────
         ```
 
-- [ ] **SLOP-3** · P3 — `MAX_IMAGES = 25` duplicated across four scraper classes instead of living once on the shared base
+- [x] **SLOP-3** · P3 — `MAX_IMAGES = 25` duplicated across four scraper classes instead of living once on the shared base · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Services/Platforms/BigCartelScraper.php:16`, `GenericShopScraper.php:25`, `ShopifyScraper.php:71`, `WooCommerceScraper.php:22`
     - **Affects:** Maintainers — changing the gallery cap means touching four files; each carries its own copy of a "mirrors ShopifyScraper::MAX_IMAGES" comment confirming the value is meant to be one cross-provider constant.
     - **Effort:** S (~0.5–1h)
@@ -6507,7 +6507,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         private const MAX_IMAGES = 25;
         ```
 
-- [ ] **SLOP-4** · P3 — `json()` fetch helper duplicated with near-identical bodies in three scrapers
+- [x] **SLOP-4** · P3 — `json()` fetch helper duplicated with near-identical bodies in three scrapers · **OPPORTUNISTIC (triage applied 2026-07-31): no scheduled work.** Fix in-passing, in the same commit, the next time this file is open for real work — per the standing rule in `CLAUDE.md`. The rule is what carries it forward, not the checkbox.
     - **Where:** `app/Services/Platforms/ShopifyScraper.php:198-207`, `WooCommerceScraper.php:285-294` (byte-identical to each other); `BigCartelScraper.php:99-107` (adds an `Accept` header, skips the `is_array` check, returns `mixed`)
     - **Affects:** Maintainers — the same fetch-decode-validate sequence lives in three places.
     - **Effort:** S (~0.5–1h)
@@ -6542,7 +6542,7 @@ None. Every finding above edits a `supabase/migrations/*.sql` file — per the f
         }
         ```
 
-- [ ] **SLOP-5** · P3 — Dead private methods `hasStoreKey` and `count` left behind after eager-load refactor
+- [x] **SLOP-5** · P3 — Dead private methods `hasStoreKey` and `count` left behind after eager-load refactor · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** `app/Services/Platforms/GoogleBusinessAutoSync.php:492-499` (`hasStoreKey`), `:677-680` (`count`)
     - **Affects:** Maintainers — readers may assume these are still on a live call path, since a comment a few lines above references them by name as if they still ran per-iteration.
     - **Effort:** S (~0.5h)
@@ -6620,13 +6620,13 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
 ## P3 — Nice to have
 
-- [ ] **SEM-1** · P3 — Instagram reel mirror leaks a file descriptor when the R2 `put()` call throws
+- [x] **SEM-1** · P3 — Instagram reel mirror leaks a file descriptor when the R2 `put()` call throws · **WONTFIX (triage applied 2026-07-31): 07-11 P3 remainder, closed en bloc.** Uniformly P3 and sub-hour, and 19 days stale at triage. Direct sampling of 14 found **6 already fixed (43% dead)**, so under `fix-flow.md` the verify/plan/implement/review process costs more than the work, and nearly half of it discovers nothing to do. Reopen an individual one on a real symptom; do not re-derive the list.
     - **Where:** app/Jobs/Platforms/InstagramConnectJob.php:397-413
     - **Affects:** Horizon queue workers processing `InstagramConnectJob` during an R2/Storage outage or transient network fault — each failed reel mirror leaks one open file handle on the worker process.
     - **Effort:** S (~0.5–1h)

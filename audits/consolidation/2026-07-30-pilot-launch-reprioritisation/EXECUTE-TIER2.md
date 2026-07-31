@@ -115,7 +115,7 @@ index that gets more expensive the longer it waits.
 >
 > ## Item 1 — `CFG-8`: Places retry policy → config, with a spend clamp
 >
-> **Source:** `audits/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:4106`.
+> **Source:** `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:4106`.
 > **File:** `app/Services/Platforms/GoogleBusinessService.php` — `DETAILS_MAX_ATTEMPTS = 2` (~`:183`) and
 > `usleep(200_000)` (~`:226`).
 >
@@ -231,7 +231,7 @@ index that gets more expensive the longer it waits.
 >
 > ## Item 3 — `271-PRIV-1`: retired slugs accumulate forever  🔴 BLOCKER (migration)
 >
-> **Source:** `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md:1195`.
+> **Source:** `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md:1195`.
 > Retired item-url slugs in `site.item_slugs` accumulate with **no retention column and no purge job**.
 >
 > Add `retired_at` plus a scheduled prune command. **Model it on the handle/subdomain alias lifecycle that
@@ -260,7 +260,7 @@ index that gets more expensive the longer it waits.
 >
 > ## Item 4 — `SCALE-11`: `SiteMedia` force-delete storage I/O  🔴 BLOCKER (standalone / GDPR)
 >
-> **Source:** `audits/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:1606`.
+> **Source:** `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:1606`.
 > `SiteMedia`'s force-delete hook serialises **per-file storage I/O** — one blocking remote call per file,
 > inline.
 >
