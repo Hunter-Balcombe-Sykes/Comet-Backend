@@ -2146,7 +2146,17 @@ return [
             // Reads (hits + misses) a bucket needs before it is judged at all.
             // Deliberately NOT per-prefix: this is a statistical noise floor, not
             // a TTL-derived ceiling, so one value serves every prefix.
-            'min_sample' => (int) env('PARTNA_CACHE_SLO_MIN_SAMPLE', 10),
+            //
+            // 100, raised from 10 (Nightwatch #371). The floors above carry only
+            // a few points of margin — `pro` sits ~7 points under its ~87%
+            // observed ceiling — and a margin that thin judged against 10 reads
+            // is not a measurement. At 10, a bucket of 13 reads and 3 misses
+            // breaches an 80% floor; on a quiet hour, with observer-driven
+            // invalidation busting these keys on every dashboard write, two
+            // edits are enough to do it with nothing wrong. The sample has to be
+            // large enough for the rate to mean anything before the floor can
+            // distinguish a real regression from one cache bust.
+            'min_sample' => (int) env('PARTNA_CACHE_SLO_MIN_SAMPLE', 100),
         ],
 
         // cache-gold-standard §2.3: run the SWR lock-winner's recompute after the

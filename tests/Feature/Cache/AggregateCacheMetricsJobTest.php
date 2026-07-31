@@ -5,6 +5,22 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
+// Nightwatch #371 raised the shipped min_sample from 10 to 100. Nearly every
+// case below seeds a two-digit bucket, so left on the default they would have
+// stopped exercising the SLO comparison entirely — the sample gate would
+// short-circuit first and each `shouldNotHaveReceived('report')` would pass for
+// the wrong reason, while the positive cases (11 and 21 reads) would have
+// failed outright. A test that passes because the code under test no longer
+// runs is worse than a failing one.
+//
+// So the floor is pinned small here on purpose: these cases are about the
+// hit-rate comparison, not about the shipped noise floor. The shipped default
+// is captured BEFORE the override and asserted on its own, further down.
+beforeEach(function () {
+    $this->shippedMinSample = (int) config('partna.cache.slo.min_sample');
+    config()->set('partna.cache.slo.min_sample', 10);
+});
+
 it('does nothing when the previous hour bucket is empty', function () {
     Redis::shouldReceive('hGetAll')->andReturn([]);
     Log::spy();
@@ -130,7 +146,9 @@ it('runs on the default queue', function () {
 it('confirms slo prefixes and threshold defaults are as documented', function () {
     expect(config('partna.cache.slo.prefixes'))->toContain('site', 'pro');
     expect(config('partna.cache.slo.min_hit_rate'))->toBe(0.9);
-    expect(config('partna.cache.slo.min_sample'))->toBe(10);
+    // The value as SHIPPED, captured in beforeEach before the pin above
+    // overrode it. Reading config() here would only read the pin back.
+    expect($this->shippedMinSample)->toBe(100);
     // Per-prefix targets are derived from each prefix's dominant TTL, not picked:
     // site is public_payload at 900s, pro is professional_model at 60s.
     expect(config('partna.cache.slo.min_hit_rate_by_prefix'))->toBe([
