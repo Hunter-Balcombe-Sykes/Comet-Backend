@@ -61,6 +61,13 @@ class CacheLockService
     private const STALE_TTL_MULTIPLIER = 10;
 
     /**
+     * Sampling rate for the Nightwatch report on a store fault. Matches
+     * EscalatesRepeatedFaults::FAULT_SAMPLE_RATE — see recordStoreFault() for
+     * why only the sampled tier exists here.
+     */
+    private const FAULT_SAMPLE_RATE = 200;
+
+    /**
      * Get the value at $key, or compute it via $callback under a single-flight lock.
      *
      * TTL jitter (±20%) is applied to every int $ttl write to spread expiry across
@@ -83,25 +90,45 @@ class CacheLockService
         int $lockSeconds = 10,
         int $blockSeconds = 5,
     ): mixed {
-        // Fast path: primary key still warm.
-        $cached = Cache::get($key);
-        if ($cached !== null) {
-            return $cached;
+        $staleKey = $key.':stale';
+
+        try {
+            // Fast path: primary key still warm.
+            $cached = Cache::get($key);
+            if ($cached !== null) {
+                return $cached;
+            }
+
+            // SWR fast path: primary expired but stale copy is still live — return
+            // last-good immediately. The lock below will let one worker recompute.
+            $stale = Cache::get($staleKey);
+        } catch (Throwable $e) {
+            // The STORE is unreachable — distinct from the callback failing,
+            // which has its own catch below and must still propagate. Compute
+            // directly and hand back an uncached value rather than 500 a public
+            // read that never needed the cache to be correct, only to be fast.
+            return $this->computeWithoutCache($e, 'read', $callback);
         }
 
-        // SWR fast path: primary expired but stale copy is still live — return
-        // last-good immediately. The lock below will let one worker recompute.
-        $staleKey = $key.':stale';
-        $stale = Cache::get($staleKey);
         if ($stale !== null) {
             // Try a non-blocking lock attempt so a single worker recomputes in
             // this same request. If the lock is already held (another worker is
             // recomputing), skip and return the stale value without waiting.
-            $lock = Cache::lock('lock:'.$key, $lockSeconds);
-            if ($lock->get()) {
+            try {
+                $lock = Cache::lock('lock:'.$key, $lockSeconds);
+                $acquired = $lock->get();
+            } catch (Throwable $e) {
+                // Lock store gone, but a known-good value is already in hand.
+                // Serving it beats recomputing with no single-flight guard.
+                $this->recordStoreFault($e, 'lock');
+
+                return $stale;
+            }
+
+            if ($acquired) {
                 // Re-check primary after acquiring — another process may have
                 // just filled it while we were racing for the lock.
-                $fresh = Cache::get($key);
+                $fresh = $this->readOrDegrade($key);
                 if ($fresh !== null) {
                     $this->releaseQuietly($lock);
 
@@ -157,26 +184,31 @@ class CacheLockService
         }
 
         // Cold miss — acquire blocking lock so only one worker runs the callback.
-        $lock = Cache::lock('lock:'.$key, $lockSeconds);
-
         try {
+            $lock = Cache::lock('lock:'.$key, $lockSeconds);
             $lock->block($blockSeconds);
         } catch (LockTimeoutException) {
             // Another process is filling the cache but took too long.
             // Return whatever is now cached, or fall through to compute as a last resort
             // so the user never gets nothing back. The stampede risk on this edge case
             // is bounded to requests that arrive in the timeout window.
-            $warm = Cache::get($key);
+            //
+            // Listed BEFORE the Throwable arm below on purpose: LockTimeoutException
+            // is a Throwable, and PHP matches catch arms in order — reversing them
+            // would reclassify every lock timeout as a store outage.
+            $warm = $this->readOrDegrade($key);
             if ($warm !== null) {
                 return $warm;
             }
 
             return $callback();
+        } catch (Throwable $e) {
+            return $this->computeWithoutCache($e, 'lock', $callback);
         }
 
         try {
             // Double-check: another process may have filled the cache while we waited.
-            $rechecked = Cache::get($key);
+            $rechecked = $this->readOrDegrade($key);
             if ($rechecked !== null) {
                 return $rechecked;
             }
@@ -216,8 +248,8 @@ class CacheLockService
      */
     public function shortenDegraded(string $key, mixed $value, int $ttl): void
     {
-        Cache::put($key, $value, self::applyJitter($ttl));
-        Cache::put($key.':stale', $value, self::applyJitter($ttl));
+        $this->writeOrDegrade($key, $value, self::applyJitter($ttl));
+        $this->writeOrDegrade($key.':stale', $value, self::applyJitter($ttl));
     }
 
     /**
@@ -230,11 +262,11 @@ class CacheLockService
     {
         if ($ttl instanceof DateTimeInterface) {
             // Caller wants a specific expiry deadline — honour it exactly.
-            Cache::put($key, $value, $ttl);
+            $this->writeOrDegrade($key, $value, $ttl);
             // Stale extension: seconds from now to deadline, then ×10. Ensures
             // the stale copy outlives the primary by a meaningful window.
             $secondsUntilDeadline = max(1, $ttl->getTimestamp() - now()->timestamp);
-            Cache::put($staleKey, $value, $secondsUntilDeadline * self::STALE_TTL_MULTIPLIER);
+            $this->writeOrDegrade($staleKey, $value, $secondsUntilDeadline * self::STALE_TTL_MULTIPLIER);
 
             return;
         }
@@ -243,8 +275,119 @@ class CacheLockService
         $jitteredTtl = self::applyJitter($ttl);
         $staleTtl = self::applyJitter($ttl * self::STALE_TTL_MULTIPLIER);
 
-        Cache::put($key, $value, $jitteredTtl);
-        Cache::put($staleKey, $value, $staleTtl);
+        $this->writeOrDegrade($key, $value, $jitteredTtl);
+        $this->writeOrDegrade($staleKey, $value, $staleTtl);
+    }
+
+    /**
+     * Read a key, treating a store fault as a miss.
+     *
+     * Every caller already handles null as "not cached", so degrading to null
+     * needs no extra branch at the call site — the request falls through to the
+     * compute path it would have taken on a cold miss.
+     */
+    private function readOrDegrade(string $key): mixed
+    {
+        try {
+            return Cache::get($key);
+        } catch (Throwable $e) {
+            $this->recordStoreFault($e, 'read');
+
+            return null;
+        }
+    }
+
+    /**
+     * Write a key, treating a store fault as "stays uncached".
+     *
+     * A failed write is not a failed request: the caller already holds the
+     * computed value and is about to return it. The only cost is that the next
+     * reader recomputes too — which is the correct behaviour when there is no
+     * working cache to read from.
+     */
+    private function writeOrDegrade(string $key, mixed $value, DateTimeInterface|int $ttl): void
+    {
+        try {
+            Cache::put($key, $value, $ttl);
+        } catch (Throwable $e) {
+            $this->recordStoreFault($e, 'write');
+        }
+    }
+
+    /**
+     * The store is gone: skip the lock, compute directly, return uncached.
+     *
+     * BLAST RADIUS, STATED HONESTLY. This class also backs
+     * UserCacheService::getIdByAuthId() — the authenticated hot path — so
+     * degradation there costs one extra DB query per authenticated request
+     * during an outage, and with neither cache nor lock a cache-miss stampede
+     * becomes a DB stampede. The trade is deliberate: Postgres survives an
+     * unthrottled read burst at pilot scale, and the behaviour being replaced
+     * is total unavailability. If it proves wrong, the narrowing is to restrict
+     * degradation to the public read path.
+     *
+     * ONE CONSUMER IS NOT A DB READ, and it is the one to watch:
+     * VerifySupabaseJwt::fetchJwksOrThrow() caches `supabase:jwks` through here.
+     * Degrading it means every authenticated request re-fetches JWKS from
+     * Supabase over HTTP for the duration of an outage — an EXTERNAL stampede,
+     * not an internal one, with a 5s timeout attached. That is still better
+     * than what it replaces (the RedisException became a JwksUnavailableException
+     * and every authed request 503'd), but it is a different shape of risk from
+     * the DB stampede above: if Supabase throttles the burst, authentication
+     * degrades anyway, just more slowly. Worth revisiting with a process-local
+     * JWKS memo before pilot traffic grows.
+     *
+     * CALLERS THAT CATCH. FeatureFlagService and FeatureAvailability both wrap
+     * rememberLocked() in their own try/catch. A STORE fault no longer reaches
+     * them — it is handled here — but a fault thrown by their CALLBACK still
+     * does, which is what those catches are actually for (see
+     * FeatureAvailability::resolveOverrides()'s docblock). Do not "clean up"
+     * those catches as dead code.
+     *
+     * The callback's OWN exceptions are not caught here — a genuine downstream
+     * failure must not be laundered into a cache-outage breadcrumb.
+     */
+    private function computeWithoutCache(Throwable $e, string $operation, Closure $callback): mixed
+    {
+        $this->recordStoreFault($e, $operation);
+
+        return $callback();
+    }
+
+    /**
+     * Breadcrumb on EVERY store fault plus a 1-in-200 sampled report.
+     *
+     * The 2026-07-31 Redis drill measured ZERO breadcrumbs during a full
+     * outage. Degrading silently would be strictly worse than the 500s it
+     * replaces — nothing would tell us the cache had stopped being a cache.
+     *
+     * NO TIER 1 COUNTER, deliberately. EscalatesRepeatedFaults' Tier 1 counts
+     * faults in a CACHE-BACKED RateLimiter bucket; here the fault IS the cache
+     * being dead, so that counter would throw on its own first write 100% of
+     * the time and fall through to Tier 2 anyway. Only implementing the sampled
+     * tier is that trait's own "you cannot count failures of X using X" note
+     * applied honestly, not a shortcut. (The trait is not reused: it lives in
+     * App\Services\Analytics\Concerns and hardcodes an `analytics:fault:` key
+     * prefix, so borrowing it here would be namespace dishonesty for six lines.)
+     */
+    private function recordStoreFault(Throwable $e, string $operation): void
+    {
+        try {
+            Log::warning('cache.store_unavailable', [
+                'operation' => $operation,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+
+            // mt_rand (not random_int): a sampling decision, not a security
+            // boundary, and mt_srand() makes it seedable from a test.
+            if (mt_rand(1, self::FAULT_SAMPLE_RATE) === 1) {
+                report($e);
+            }
+        } catch (Throwable) {
+            // A broken logger or reporter must never be what turns a degraded
+            // request into a failed one.
+        }
     }
 
     /**
@@ -270,7 +413,12 @@ class CacheLockService
         int $lockSeconds = 10,
         int $blockSeconds = 5,
     ): mixed {
-        $cached = Cache::get($key);
+        try {
+            $cached = Cache::get($key);
+        } catch (Throwable $e) {
+            return $this->computeWithoutCache($e, 'read', $callback);
+        }
+
         if ($cached === self::NULL_SENTINEL) {
             return null;
         }
@@ -278,12 +426,12 @@ class CacheLockService
             return $cached;
         }
 
-        $lock = Cache::lock('lock:'.$key, $lockSeconds);
-
         try {
+            $lock = Cache::lock('lock:'.$key, $lockSeconds);
             $lock->block($blockSeconds);
         } catch (LockTimeoutException) {
-            $warm = Cache::get($key);
+            // Ordered before the Throwable arm — see rememberLocked().
+            $warm = $this->readOrDegrade($key);
             if ($warm === self::NULL_SENTINEL) {
                 return null;
             }
@@ -292,10 +440,12 @@ class CacheLockService
             }
 
             return $callback();
+        } catch (Throwable $e) {
+            return $this->computeWithoutCache($e, 'lock', $callback);
         }
 
         try {
-            $rechecked = Cache::get($key);
+            $rechecked = $this->readOrDegrade($key);
             if ($rechecked === self::NULL_SENTINEL) {
                 return null;
             }
@@ -308,9 +458,9 @@ class CacheLockService
                 throw new \LogicException('Closure returned the cache null sentinel; this value is reserved.');
             }
             if ($value === null) {
-                Cache::put($key, self::NULL_SENTINEL, $nullTtl ?? $ttl);
+                $this->writeOrDegrade($key, self::NULL_SENTINEL, $nullTtl ?? $ttl);
             } else {
-                Cache::put($key, $value, $ttl);
+                $this->writeOrDegrade($key, $value, $ttl);
             }
 
             return $value;

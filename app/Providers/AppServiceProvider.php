@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
@@ -88,6 +89,7 @@ use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Events\MessageSending;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -177,6 +179,25 @@ class AppServiceProvider extends ServiceProvider
             ClaimDmChannel::class,
             NullClaimDmChannel::class,
         );
+
+        // A Redis/Valkey outage used to surface as HTTP 500 on every public
+        // sitepage read, because ThrottleRequests threw before the request ever
+        // reached the DB-backed read that would have served fine. The subclass
+        // wraps only the RateLimiter instance IT holds, so allow-listed public
+        // limiters fail open and everything else fails closed as a clean 503.
+        //
+        // bind(), not singleton(): each `throttle:x` pipeline entry must get its
+        // own instance so a multi-limiter route evaluates each limiter's mode
+        // independently.
+        //
+        // Bound over ThrottleRequests::class rather than aliased, on purpose —
+        // the priority-list pins in bootstrap/app.php match that literal class
+        // name, and a rename would silently un-pin VerifySupabaseJwt.
+        // Deliberately NOT bound over the Illuminate\Cache\RateLimiter singleton:
+        // EscalatesRepeatedFaults' Tier 2 alarm only fires because
+        // RateLimiter::hit() throws, so a globally resilient limiter would make
+        // the analytics fail-open paths silent.
+        $this->app->bind(ThrottleRequests::class, FailOpenThrottleRequests::class);
     }
 
     /**

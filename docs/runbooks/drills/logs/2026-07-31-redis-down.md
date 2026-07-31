@@ -10,6 +10,8 @@
   `SIDEST_THROTTLE_ENABLED=false`, which would have made this drill prove nothing), Horizon running.
 - **Scenarios run:** BASELINE / DOWN / RECOVER. **Scenario C (hung, not down) executed in a second
   pass later the same day** — see "Scenario C" below. Findings 3 and 5 are both now **RESOLVED**.
+  **DOWN re-run a third time after the D1 fix** — see "Re-run after the D1 fix"; Findings 1, 2 and
+  7(a) are **RESOLVED** there.
 
 ## Probe substitution — stated up front
 
@@ -200,12 +202,13 @@ the failure; it does not fail open. `B1`/`B2` remain the fix for that and are ou
 1. 🔴 **A Redis outage is a full public-site outage.** `throttle:public-site` sits in front of
    `GET /api/public/profiles/{handle}` and hard-fails on a dead cache store, so a DB-backed read
    that needs no Redis to produce its answer returns 500 anyway. Every sitepage goes down with
-   Redis. **Not fixed** — the fix (a fail-open limiter, or moving the limiter off the cache store)
-   is a design decision on the public wire and out of scope for a drill.
+   Redis. **RESOLVED 2026-07-31** — fail-open limiter + cache-store degradation; re-measured at
+   **200** with Redis genuinely stopped. See "Re-run after the D1 fix" below.
 2. 🔴 **The analytics fail-open is unreachable during a full outage.** `QueuedIngestor::ingest()`'s
    catch-and-warn is real and correct, but nothing reaches it: `throttle:analytics` throws first.
    The "beacon data is lost by design, request succeeds" contract holds only when Redis is healthy
-   enough to serve the limiter — i.e. exactly when it isn't needed. **Not fixed.**
+   enough to serve the limiter — i.e. exactly when it isn't needed. **RESOLVED 2026-07-31** —
+   re-measured at **20/20 → 201** with Redis genuinely stopped. See "Re-run after the D1 fix" below.
 3. ✅ **RESOLVED — phpredis timeouts were unbounded.** No `timeout`/`read_timeout` was configured on
    any redis connection, so phpredis used `0.0` (unlimited) — visible in the trace as
    `connect('127.0.0.1','6379', 0.0, NULL, 0, 0.0)`. A *refused* socket fails instantly (measured),
@@ -243,8 +246,11 @@ the failure; it does not fail open. `B1`/`B2` remain the fix for that and are ou
    any dashboard read. There is **no model mutator, no INSERT trigger, and no CHECK constraint**
    tying them (the two existing triggers fire only `ON UPDATE OF handle`); both columns are plain
    `$fillable`. Any write path that sets `handle` without `handle_lc` makes a site publicly
-   unreachable, invisibly. **Flagged, not fixed** — it touches the public wire and deserves its own
-   decision. This is the most consequential thing this drill turned up that it was not looking for.
+   unreachable, invisibly. **RESOLVED 2026-07-31 (part a)** — `User::setHandleAttribute()` derives
+   `handle_lc` at assignment, and the factory no longer seeds it (that seeding was what defeated the
+   mutator on the exact call that motivated it — see below). The DB CHECK constraint (part b) is
+   still open and needs its own sign-off. This is the most consequential thing this drill turned up
+   that it was not looking for.
 8. **The optional enquiry-flow probe was not run** — the drill's write-path data-loss question
    (save-then-500 vs save-cleanly-without-email vs fail-entirely) is **unanswered**.
 
@@ -266,6 +272,118 @@ Applied to `../03-redis-down.md` in the same commit as this log:
 5. **Add the throttle precondition** — `PARTNA_THROTTLE_ENABLED`/`SIDEST_THROTTLE_ENABLED` must be
    **true**, or the drill's central question is untestable and the run is worthless.
 
+## Re-run after the D1 fix — Findings 1, 2, 7
+
+- **Date:** 2026-07-31, same day, after `audit-fix/redis-failopen-handle-lc-2026-07-31`.
+- **Scope:** Findings 1, 2 and 7 only. Findings 3, 4, 5 and 8 are untouched here and remain open —
+  3/4/5 belong to `EXECUTE-DRILL-FOLLOWUPS.md`.
+
+### Stack — rebuilt, and deliberately NOT the original one
+
+The first run's local stack (Herd site `partna-drill.test` + local Supabase
+`supabase_db_Partna-Development`) no longer existed. Rather than reconstruct it, this run used a
+**cheaper stack that is still real where it matters** — real HTTP, real phpredis socket, real
+Postgres:
+
+```
+DB     : partna_drill, a fresh database in the existing partna-pg-test container,
+         built by scripts/db/ci-supabase-shim.sql + every supabase/migrations/*.sql
+         applied in filename order (69 tables). Dropped after the run.
+Cache  : CACHE_STORE=redis against the machine's real Homebrew Redis on 6379.
+App    : php -S 127.0.0.1:8099 from the worktree, APP_ENV=drill / .env.drill
+         (gitignored; recipe below), SIDEST_THROTTLE_ENABLED=true.
+Origin : http://drill-wk-20260731.partna-drill.test  (PARTNA_PUBLIC_DOMAIN=partna-drill.test)
+```
+
+**What this stack does NOT prove**, stated up front so the PASSes are not read as wider than they
+are: no Horizon, no queue worker, and no authed probe — so Finding 4 is untested here, and the
+authed dashboard path is as unmeasured as it was in the first run.
+
+The precondition traps the first run recorded were both live again and both mattered:
+`SIDEST_THROTTLE_ENABLED` ships `false` (without flipping it the run proves nothing), and the beacon
+`Origin` must be the local host, not `…partna.au`, or SEC-1 fails it closed at 404 and the probe
+measures the wrong thing.
+
+### Injection verification (runbook Finding 6)
+
+```
+brew services stop redis
+redis-cli ping   →  Could not connect to Redis at 127.0.0.1:6379: Connection refused
+pgrep redis      →  0 processes
+```
+
+### Results
+
+| Probe | Limiter | WARM | **DOWN (before)** | **DOWN (now)** | RECOVERED |
+|---|---|---|---|---|---|
+| `GET /api/public/profiles/{handle}` | `public-profile` | 200 · 0.089s | **500** | **200 · 0.071s** | 200 · 0.041s |
+| `POST /api/public/analytics/pageviews` | `analytics` | 201 · 0.033s | **500** | **201 · 0.035s** | 201 · 0.035s |
+| same, mismatched `Origin` (SEC-1) | `analytics` | 404 · 0.032s | — | **404 · 0.028s** | 404 · 0.030s |
+| `POST /api/public/enquiry` | `leads` | 422 · 0.025s | — | **503 · 0.032s** | 422 · 0.026s |
+| `GET /api/public/documents/{id}/download` | `public-site` + `document-download` | 404 · 0.031s | — | **503 · 0.027s** | 404 · 0.032s |
+| `GET /api/health` | `health-check` | 200 · 0.026s | — | **200 · 0.026s** | 200 · 0.026s |
+
+Sustained beacon volume under outage: **20 of 20 → 201** (was 20 of 20 → 500).
+
+Every DOWN response still returned in **26–71 ms** — the first run's top-priority criterion (fail
+fast, whatever the status code) is unchanged by the fix.
+
+### Breadcrumbs — the FAIL that mattered most
+
+```
+throttle.store_unavailable : 77     # was 0
+cache.store_unavailable    :  3     # was 0
+```
+
+Carrying the real exception, not a simulated one:
+
+```
+throttle.store_unavailable {"limiter":"public-profile","operation":"tooManyAttempts","mode":"open",
+                            "exception":"RedisException","error":"Connection refused"}
+cache.store_unavailable    {"operation":"handle_resolve_floor",
+                            "exception":"RedisException","error":"Connection refused"}
+```
+
+The only ERROR-level lines in the whole DOWN window were **3 × the deliberate 503s** (the renderer
+logs any status ≥ 500). No unhandled `RedisException` reached the renderer.
+
+The 503s carry `Retry-After: 5` and a non-leaking message — the shape the fail-closed set is
+supposed to produce, not the opaque 500 the first run measured.
+
+### Verdict against the original criteria
+
+| Criterion | Before | Now |
+|---|---|---|
+| Failures are FAST whatever the status code | PASS | **PASS** (26–71 ms) |
+| Public profile reads survive | FAIL (500) | **PASS** (200) |
+| Beacon fail-open works end-to-end | PARTIAL (0/20) | **PASS** (20/20 → 201) |
+| Breadcrumb trail exists | FAIL (zero) | **PASS** (80 across two paths) |
+| Recovery is hands-off | PASS | **PASS** (`brew services start redis`, no cache repair) |
+| SEC-1 tenancy control unaffected | n/a | **PASS** (mismatched Origin still 404, no row written) |
+
+Finding 7 was re-proved in the same stack, against real Postgres rather than SQLite: a user created
+with `handle` set and `handle_lc` never mentioned persisted as
+`handle=Drill-WK-20260731, handle_lc=drill-wk-20260731`, and its sitepage resolved.
+
+### Reproducing this stack
+
+```bash
+docker exec partna-pg-test psql -U postgres -d postgres -c 'CREATE DATABASE partna_drill;'
+docker exec -i partna-pg-test psql -U postgres -d partna_drill -v ON_ERROR_STOP=1 \
+    < scripts/db/ci-supabase-shim.sql
+for f in supabase/migrations/*.sql; do
+  docker exec -i partna-pg-test psql -U postgres -d partna_drill -v ON_ERROR_STOP=1 < "$f"; done
+# .env.drill: APP_ENV=drill, CACHE_STORE=redis, QUEUE_CONNECTION=sync, SESSION_DRIVER=cookie,
+#             SIDEST_THROTTLE_ENABLED=true, PARTNA_PUBLIC_DOMAIN=partna-drill.test,
+#             DB_* → 127.0.0.1:5432/partna_drill (postgres/postgres, sslmode=disable)
+cd public && APP_ENV=drill php -S 127.0.0.1:8099 \
+    ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php
+```
+
+`php artisan serve` is NOT a drop-in here — the built-in server's router resolves `$publicPath` from
+`getcwd()`, so it must be launched from `public/`, and `-t public` alone leaves it serving a broken
+`require_once`.
+
 ## Next run due
 
 On material change to cache/queue wiring, analytics ingest, throttle middleware, or
@@ -276,7 +394,15 @@ Scenario C is **done** — Findings 3 and 5 are resolved and the hung-server cas
 `block_for` changes, since the two are coupled and `RedisTimeoutBoundsTest` pins only their
 *relative* order, not that either value is still operationally right.
 
-Still open from this drill, unchanged by the second pass: Finding 1 (a Redis outage is a full public
-site outage), Finding 2 (the analytics fail-open is unreachable) — both belong to `B1`/`B2`;
-Finding 4 (Horizon does not self-heal); Finding 7 (`handle`/`handle_lc` desync); Finding 8 (the
-enquiry-flow write-path probe was never run).
+Findings 1, 2 and 7 are resolved by the D1 re-run above. That pass covered the DOWN scenario only —
+it did **not** cover Scenario C, Horizon (Finding 4), or the authed path.
+
+Still open from this drill: **Finding 4** (Horizon does not self-heal on Redis loss); **Finding 7
+part (b)** (the `handle_lc = lower(handle)` CHECK constraint — part (a), the model mutator, is done);
+**Finding 8** (the enquiry-flow write-path probe was never run — the D1 pass exercised that route
+only as far as its 503, never through to a successful write).
+
+Neither pass measured the fail-open set under a *hung* Redis rather than a dead one. Both fixes now
+depend on the B4 timeouts to bound that case: a fail-open limiter that waits on `read_timeout`
+before opening is only as fast as `read_timeout`. Worth a targeted Scenario C round on the public
+profile route the next time this drill runs.

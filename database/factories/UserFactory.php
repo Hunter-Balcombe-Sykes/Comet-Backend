@@ -23,7 +23,13 @@ class UserFactory extends Factory
             'id' => (string) Str::uuid(),
             'auth_user_id' => (string) Str::uuid(),
             'handle' => $handle,
-            'handle_lc' => $handle,
+            // handle_lc is deliberately ABSENT: User::setHandleAttribute derives
+            // it. Seeding it here would defeat the mutator on the exact call that
+            // motivated it — array_merge keeps the definition's key ORDER, so a
+            // `create(['handle' => 'x'])` override fills handle first and this
+            // stale value second, clobbering the derived one. A caller that wants
+            // a deliberately desynced row can still pass handle_lc explicitly;
+            // being absent from the definition, it appends last and wins.
             'display_name' => "{$first} {$last}",
             'first_name' => $first,
             'last_name' => $last,
