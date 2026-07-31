@@ -28,6 +28,8 @@ use Throwable;
 // response payloads are never logged — status codes only.
 class MenuAiExtractor
 {
+    use CleansScrapedStrings;
+
     private const MISTRAL_OCR_URL = 'https://api.mistral.ai/v1/ocr';
 
     private const MISTRAL_MODEL = 'mistral-ocr-latest';
@@ -286,16 +288,6 @@ PROMPT;
         }
 
         return substr($text, 0, $lastClose + 1).']}';
-    }
-
-    private function cleanString(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $s = trim($value);
-
-        return $s !== '' ? $s : null;
     }
 
     private function cleanPrice(mixed $value): ?float

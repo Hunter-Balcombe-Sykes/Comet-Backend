@@ -57,7 +57,7 @@ This is a snapshot, not a guarantee — re-run the Step 1 pre-flight yourself.
 > `SLOP-21`, `TEST-30`, `TEST-44` → `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md`.
 > `271-PRIV-1`, `271-TEST-1` → `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md`.
 > `#3`, `#38`, `TEST-9` → `audits/archive/sweeps/2026-07-11-full-work-sweep/CONSOLIDATED.md`.
-> `INH-6` → `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md`.
+> `INH-6` → `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md`.
 > `LC-*` → `audits/launch-check/2026-07-26/REPORT.md`.
 >
 > ---

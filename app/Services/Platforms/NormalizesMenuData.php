@@ -7,16 +7,9 @@ namespace App\Services\Platforms;
 // behavior, just relocated so both drivers can use them.
 trait NormalizesMenuData
 {
-    /** A non-empty trimmed string, or null. */
-    private function cleanString(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $s = trim($value);
-
-        return $s !== '' ? $s : null;
-    }
+    // cleanString() lives in CleansScrapedStrings (#INH-6) — the drivers still
+    // get it from here, it just is not a seventh copy of the same six lines.
+    use CleansScrapedStrings;
 
     /** Title Case — first letter of every word uppercase, rest lowercase. */
     private function titleCase(?string $s): ?string

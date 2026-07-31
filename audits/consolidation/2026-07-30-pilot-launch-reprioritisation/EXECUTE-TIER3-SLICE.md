@@ -51,7 +51,7 @@ Every other box, verified:
 - `#TEST-49` — `…/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:5460` + `audit-2026-07-28-test-coverage.md:681`
 - `#TEST-50` — same files, `:5465` / `:686`
 - `#TEST-41` — `…/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:5386`
-- `#INH-6` — `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59` — **leave unticked**
+- `#INH-6` — `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59` — ~~**leave unticked**~~ **SUPERSEDED: worked and ticked 2026-07-31**, all three parts resolved; that folder is now archived
 - `LC-DRILL-*`, `LC-K6`, `LC-RERUN` — this consolidation's `CONSOLIDATED.md:805-806`
 - **Worker CSP has no checkbox at all.** `#10` is already `[x]` (`:806`); the CSP residual was split out and
   lives only as open follow-up **#3** in the prose at `CONSOLIDATED.md:902`. Close it there.
@@ -229,9 +229,14 @@ Every other box, verified:
 >
 > ---
 >
-> ## Item 5 — `#INH-6`  ← record only, **do not tick, do not refactor**
+> ## Item 5 — `#INH-6`  ← ~~record only, **do not tick, do not refactor**~~
 >
-> **Box:** `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59` — leave it `[ ]`.
+> 🟢 **SUPERSEDED 2026-07-31.** This instruction applied to the Tier 3 triage slice only. `#INH-6` was
+> subsequently worked in full on its own branch (`audit-fix/inh-6-2026-07-31`) — all three parts resolved,
+> ticked, and the source folder auto-archived. The reasoning below is retained as the record of why it was
+> *deferred at the time*, and its three traps all proved correct when the work was done.
+>
+> **Box:** `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59` — ~~leave it `[ ]`~~ now `[x]`.
 >
 > Three parts, one of which is safe and two of which are not:
 >

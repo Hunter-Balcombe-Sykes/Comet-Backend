@@ -16,9 +16,11 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
+use App\Services\Platforms\AllocatesMenuPositions;
+use App\Services\Platforms\CleansScrapedStrings;
 use App\Services\Platforms\MenuPayloadComposer;
+use App\Services\Platforms\NormalizesMenuItemNames;
 use App\Services\Site\ItemSlugAllocator;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,7 +42,7 @@ use Illuminate\Support\Facades\DB;
 // composed by the shared MenuPayloadComposer.
 class MenuContentController extends ApiController
 {
-    use ResolveCurrentUser;
+    use AllocatesMenuPositions, CleansScrapedStrings, NormalizesMenuItemNames, ResolveCurrentUser;
 
     private const DEFAULT_CATEGORY_NAME = 'Menu';
 
@@ -678,37 +680,6 @@ class MenuContentController extends ApiController
         $url = $variants['optimized'] ?? $variants['original'] ?? null;
 
         return ['image_url' => $url, 'images' => $url !== null ? [$url] : null];
-    }
-
-    /** One past the current max `position` in $query (0 when empty). */
-    private function nextPosition(Builder $query): int
-    {
-        return 1 + (int) ($query->max('position') ?? -1);
-    }
-
-    /** Trim to null — an empty/whitespace string clears the field. */
-    private function cleanString(?string $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $trimmed = trim($value);
-
-        return $trimmed !== '' ? $trimmed : null;
-    }
-
-    /**
-     * lowercase, non-alphanumerics → single spaces, trimmed — IDENTICAL to
-     * MenuFetchJob::normalizeName so a suppressed dish matches at rebuild time.
-     * (Kept local — duplication over a shared dependency, matching the menu
-     * code's own convention.)
-     */
-    private function normalizeName(string $s): string
-    {
-        $s = mb_strtolower($s);
-        $s = preg_replace('~[^a-z0-9]+~', ' ', $s) ?? '';
-
-        return trim((string) preg_replace('~\s+~', ' ', $s));
     }
 
     /** Bust the public sitepage cache for a menu content change, then echo the fresh menu. */

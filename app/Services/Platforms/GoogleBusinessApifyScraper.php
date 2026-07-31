@@ -24,6 +24,8 @@ use Throwable;
 // keys are logged on each run so the shape can be tuned against real data.
 class GoogleBusinessApifyScraper extends PlatformScraper
 {
+    use CleansScrapedStrings;
+
     /** Fallback default for config('partna.limits.apify.run_sync_timeout_seconds') (CFG-9). */
     private const RUN_SYNC_TIMEOUT_SECONDS = 110;
 
@@ -197,17 +199,6 @@ class GoogleBusinessApifyScraper extends PlatformScraper
         $url = trim($value);
 
         return preg_match('~^https?://~i', $url) === 1 ? $url : null;
-    }
-
-    /** A non-empty trimmed string, or null. */
-    private function cleanString(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $s = trim($value);
-
-        return $s !== '' ? $s : null;
     }
 
     /**
