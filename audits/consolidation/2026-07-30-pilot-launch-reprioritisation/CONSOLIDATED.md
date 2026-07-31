@@ -492,7 +492,7 @@ tracked in their source folders).
 
 **P1-PILOT** — worked 2026-07-30 on `audit-fix/p1-pilot-2026-07-30` (isolated worktree, 7 commits).
 - [x] `#CCH-4` · [x] `#LIFE-11` · [x] `#LIFE-12` · [x] `271-SEM-1` · [x] `#JOB-4` · [x] `PRIV-1`
-- [x] `PRIV-2` · [x] `PRIV-4` · [x] `PRIV-3` · [x] `#43` · [x] `#EDGE-2` · [ ] `LC-NIGHTWATCH`
+- [x] `PRIV-2` · [x] `PRIV-4` · [x] `PRIV-3` · [x] `#43` · [x] `#EDGE-2` · [x] `LC-NIGHTWATCH` — **ran 2026-07-31, PASSED end-to-end**: `report()` on dev → issue **#373** in ~51s → **email alert confirmed received by Josh**. Delivery, not just capture, is now proven. ⚠️ Found: a bare `throw` in `cloud tinker` produces **no** issue (PsySH catches it before Laravel's handler; `exitCode 0`) — the runbook's own command would have produced a false negative.
 
 > Every unit got plan → implement → **independent** review. Two units failed first review and
 > were re-implemented; one of those needed a second review round. Reviewers were given the two
@@ -501,14 +501,26 @@ tracked in their source folders).
 > (`where ("reporter_user_id" = ? or lower(trim(reporter_email)) = ?)`, correctly parenthesised,
 > OR leg omitted entirely on a null email) rather than by reading it.
 >
-> **`LC-NIGHTWATCH` is the one left open, deliberately.** Capture is proven — a `QueryException`
-> landed on dev unprompted as Nightwatch issue **#370** on 2026-07-30. The finding is about
-> *delivery*, and nothing an agent can read confirms an email or Slack message arrived.
-> **Trap for whoever runs it:** Nightwatch fingerprints by exception class + location, not
-> message, so a second probe of the same class folds into the same issue and will NOT re-fire a
-> new-issue alert — each attempt needs a distinct class. Also, a `report()` from `tinker` lands
-> as a **command**-source exception; if the alert rule is request-scoped, nothing fires even
-> though capture works, and *that* is the finding.
+> ✅ **`LC-NIGHTWATCH` CLOSED 2026-07-31 — PASS, delivery confirmed.** Previously left open because
+> nothing an agent can read confirms an email or Slack message arrived; Josh confirmed receipt
+> directly, which is what closed it.
+>
+> Evidence: dev had **zero** open exception issues before the drill (clean baseline), so
+> attribution is unambiguous. `report(new \RuntimeException('LC-NIGHTWATCH drill B …'))` via
+> `cloud tinker development` → Nightwatch issue **#373** within ~51 s → **email alert received**.
+> The old worry that a `report()` from `tinker` lands as a **command**-source exception and might
+> not fire a request-scoped rule is now answered: it fired anyway.
+>
+> 🔴 **The runbook's own command produces a false negative.** `throw new \RuntimeException(...)`
+> inside `cloud tinker` returns `status: command.success`, `exitCode: 0` and creates **no issue at
+> all** — PsySH catches thrown exceptions and prints them, so they never reach Laravel's exception
+> handler where Nightwatch hooks in. The difference between "our alerting is broken" and "our
+> alerting works" was entirely in which of two near-identical one-liners you typed. **Always use
+> `report()`, never a bare `throw`.**
+>
+> **Trap that still stands:** Nightwatch fingerprints by exception class + location, not message,
+> so a second probe of the same class folds into the same issue and will NOT re-fire a new-issue
+> alert — each attempt needs a distinct class.
 >
 > **Three things the findings did not describe, all surfaced by verifying the premise first:**
 >
@@ -803,8 +815,13 @@ any unit in this bucket.
 - [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [x] `#SCHEMA-8`
 - [x] `#TEST-9` (⚠️ **mis-citation — see the id-integrity note below**) · [x] `271-TEST-1` · [x] `#TEST-41`
 - [x] `#TEST-49` · [x] `#TEST-50` · [x] `#DINT-4`
-- [ ] `#INH-6` · [x] `#SEC-4` · [x] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
-- [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [x] `#10`
+- [ ] `#INH-6` · [x] `#SEC-4` · [x] `#9`
+- [x] `LC-DRILL-worker-kill` — **ran 2026-07-31, PASS** (queue/crash/retry semantics); PARTIAL on the headline DB↔KV divergence question, which is **unanswerable** while prod and dev share one KV namespace. SIGKILL caught mid-job; converged at **t+91s** with a live worker, no failed jobs. Log: [`logs/2026-07-31-worker-kill.md`](../../../docs/runbooks/drills/logs/2026-07-31-worker-kill.md)
+- [x] `LC-DRILL-vendor-outage` — **ran 2026-07-31, PASS 5/5.** 1 bounded attempt, honest bookkeeping, no cross-platform starvation, breaker opened at exactly 10, notifier fired once then deduped, recovery reset the counter. **Variant 2 (auth-failure) NOT run** — the raw-exception path is still unexercised. Log: [`logs/2026-07-31-vendor-outage.md`](../../../docs/runbooks/drills/logs/2026-07-31-vendor-outage.md)
+- [x] `LC-DRILL-redis-down` — **ran 2026-07-31, PARTIAL — 2 FAILs that matter.** Failures are fast (34–52 ms, no hangs) ✅ and recovery is hands-off ✅, but **public profile reads 500** and the **analytics fail-open never executes**: `throttle:*` throws before the controller (0 breadcrumbs across 20 beacons). Log: [`logs/2026-07-31-redis-down.md`](../../../docs/runbooks/drills/logs/2026-07-31-redis-down.md)
+- [ ] `LC-K6` — **Phase 1 only, ran 2026-07-31, PASS** (p50 136.6 / p95 240.2 / p99 376.0 ms, 0.00% errors, 904/904 checks). **Left OPEN deliberately:** phases 2a (edge), 2b (origin flood) and 3 (jobs) were not run by decision, so edge cache-hit ratio, limiter engagement and Supavisor headroom **at the named 50-concurrent target remain unmeasured**. Results: [`k6/results/2026-07-31-baseline-run1.md`](../../../scripts/launch-check/k6/results/2026-07-31-baseline-run1.md)
+- [x] `LC-RERUN` — **done 2026-07-31.** Launch-check wired into [`docs/deploy/routine-deploy.md`](../../../docs/deploy/routine-deploy.md) at three fixed points: `--only schema` after every migration push (step 2a), a full run before every promote (step 2c), and `--only env,runtime` in Verify.
+- [x] `#10`
 
 > 🔴 **Id-integrity defect in this consolidation — second variant (found 2026-07-31, tier3 triage).**
 >
@@ -1157,7 +1174,30 @@ the same class of miss as `#INH-7`.
 - `LC-K6` — baseline load pass (10 VU/5 min) + public-handle spike (50–100 VU), watching edge cache-hit ratio, Supavisor headroom, p95. Harness exists and is ready.
 - `LC-RERUN` — make re-running launch-check a standing step after every migration push and before every promote. Process, not code.
 
-> ⏸ **DEFERRED with a trigger, 2026-07-31 (Tier 3 triage).** All five stay `[ ]` **on purpose** — this is a
+> ▶️ **TRIGGER OVERRIDDEN AND RUN, 2026-07-31.** The deferral below stood for less than a day. Josh
+> elected to run these **without waiting for the trigger** ("when the first real pilot traffic is
+> scheduled"), which had not fired and still has not. That was his call, made explicitly; the work is
+> valuable and nothing about it gets easier later. Recording the override so the deferral text below
+> does not read as contradicted by an unexplained run.
+>
+> **Outcome: 4 of 5 ticked.** All three drills ran on the LOCAL stack and are logged under
+> `docs/runbooks/drills/logs/2026-07-31-*.md`; `LC-RERUN` landed in `routine-deploy.md`. **`LC-K6`
+> stays `[ ]`** — only Phase 1 (baseline) was run, by decision, so the spike phases that would
+> actually exercise the 50-concurrent target were never executed. See the per-item lines above.
+>
+> **The drills were not a formality — they found real things.** Chiefly: a Redis outage 500s every
+> public sitepage and makes the documented analytics fail-open unreachable code
+> (`LC-DRILL-redis-down`); `handle`/`handle_lc` can silently desync with no mutator, trigger or CHECK
+> guarding them, which makes a site publicly unreachable while looking correct everywhere else; and
+> the DB↔KV divergence question `LC-DRILL-worker-kill` exists to answer **cannot be answered at all**
+> until prod and dev stop sharing one KV namespace. Nine runbook defects were corrected in the same
+> commit — including three prescribed commands that silently do nothing and would have produced
+> confident false PASSes.
+>
+> ---
+>
+> ⏸ **DEFERRED with a trigger, 2026-07-31 (Tier 3 triage).** *(superseded by the override above —
+> retained for the reasoning.)* All five stay `[ ]` **on purpose** — this is a
 > deferral, not an oversight, and not a WONTFIX. They are hours of hands-on operational work whose value is
 > proportional to traffic, and there is none: zero live users. **Trigger to run them: when the first real
 > pilot traffic is scheduled**, before it lands — not on a date, and not "when someone has time".

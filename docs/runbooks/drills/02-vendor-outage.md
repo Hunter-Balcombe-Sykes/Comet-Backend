@@ -47,18 +47,45 @@ real one — the health notifier emails the connection's owner.
 
 ## INJECT — two variants, run both if time allows
 
-**Variant 1 — hard outage (connection refused).** Point the vendor's API host at localhost.
-Find the host the strategy actually calls (check the platform's fetch strategy /
-`PlatformRegistry` descriptor), then:
+**Variant 1 — hard outage (unreachable vendor).**
+
+✅ **Preferred: poison the connection's URL to a non-resolving `.invalid` host.** Strategies
+that read their URL from the payload (`OEmbedFetch` → `payload['link'] ?? payload['url']`,
+and others per `DeferredConnect`) can be made to fail at DNS with no `sudo` and no
+machine-global state:
+
+```php
+// tinker — save the original first, you restore it in RECOVERY
+$orig = $conn->payload;
+file_put_contents('/tmp/drill02_orig_payload.json', json_encode($orig));
+$conn->payload = ['link' => 'https://vendor-outage-drill.invalid/x'];  // RFC 2606, never resolves
+$conn->save();
+```
+
+Scoped to one connection, nothing to forget to clean up, and no other caller on the machine is
+affected. This is what the 2026-07-31 run used.
+
+**Fallback (only when the host is hardcoded in the fetch strategy, not read from the payload):**
+point the vendor's API host at localhost. Find the host the strategy actually calls (check the
+platform's fetch strategy / `PlatformRegistry` descriptor), then:
 
 ```bash
 sudo sh -c 'echo "127.0.0.1 <vendor-api-host>" >> /etc/hosts'
 sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder
 ```
 
+⚠️ Machine-global, needs `sudo`, and must be reverted in RESTORE or every later run is poisoned.
+
 **Variant 2 — auth failure (vendor up, token dead).** Poison the stored credential via
 tinker (shape depends on the platform's payload — inspect `$conn->payload` first and note
 the original value for restore).
+
+⚠️ **Pick a credentialed platform for this one.** An unauthenticated fetch strategy (e.g.
+`OEmbedFetch` for spotify/soundcloud) has no credential to poison, so it can only ever
+demonstrate the *translated* `FetchUnavailableException` path. Exercising the **raw-exception**
+path (`$maxExceptions` 3, backoff [30,120,300]) needs a platform that can throw something the
+refresher does not translate — use e.g. `google-business`. The 2026-07-31 run skipped Variant 2
+for exactly this reason, so the raw path is still unexercised.
 
 ## ACT + OBSERVE
 
@@ -100,6 +127,19 @@ Then verify:
 - Dispatch one more failing refresh → notifier must NOT fire again (dedupe key).
 - Run the dispatcher: `php artisan integrations:refresh` → this connection must be
   **skipped** (breaker open). Confirm no new `RefreshConnectionJob` for it in Horizon.
+
+  🔴 **`selected 0` is NOT breaker evidence.** The dispatcher selects on TTL-dueness first, so a
+  connection you refreshed minutes ago is skipped for being *not due*, with or without a
+  breaker. Force every candidate due first, then the skip is attributable to
+  `consecutive_failures` alone:
+
+  ```php
+  \App\Models\Core\Site\IntegrationConnection::query()
+      ->update(['last_refreshed_at' => now()->subDays(30)]);
+  ```
+
+  Expect the dispatcher to select the healthy connection(s) **and not the tripped one** — a
+  non-zero count that excludes your victim, not a zero count.
 
 ## RECOVERY
 

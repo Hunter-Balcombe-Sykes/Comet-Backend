@@ -54,10 +54,18 @@ since `site_id`/`subdomain` are public values and can't authenticate a caller al
 `config.js`'s `EDGE_HOST` already resolves to the right value; every write-scenario
 script must include it in its request headers.
 
-## Baseline reference (fill after first Phase 1 run)
+## Baseline reference
 
-- p50: __ ms · p95: __ ms · p99: __ ms · error rate: __
-- Date: ____ · target: 50 concurrent · env: dev
+- p50: **136.6 ms** · p95: **240.2 ms** · p99: **376.0 ms** · error rate: **0.00%**
+- Date: **2026-07-31** · target: 50 concurrent · env: **dev** (`dev-api.partna.au`)
+- Run: `baseline.js` @ 45 req/min for 5m · 678 requests · 226 iterations · 904/904 checks passed
+- Thresholds: `p(95)<500` ✓ (238.73 ms as reported by k6) · `http_req_failed<0.01` ✓ (0.00%)
+- Raw: `results/baseline-run1.json` · summary: `results/2026-07-31-baseline-run1.md`
+- avg 129.3 ms · min 29.0 ms · **max 805.2 ms** (see the cold-start note in the summary)
+
+⚠️ **Phases 2a/2b/3 have NOT been run.** Phase 1 only, by decision on 2026-07-31. The edge
+cache-hit ratio, origin-limiter behaviour under flood, and Supavisor headroom at the named
+50-concurrent target are all still **unmeasured**.
 
 ## Collaboration (§8)
 

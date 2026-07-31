@@ -26,8 +26,13 @@ Two scenarios, because "worker dies" happens two ways with different semantics:
 
 - [ ] Local stack up: Herd site + local Redis + local `.env` with `QUEUE_CONNECTION=redis`.
 - [ ] **Decide the KV mode up front:**
-  - **Real KV (full drill):** `services.cloudflare.{account_id, kv_namespace_id, api_token}`
-    set in local `.env` (dev-namespace credentials). Only this mode can show real divergence.
+  - 🔴 **Real KV is currently FORBIDDEN on this project.** There is no dev-only KV namespace —
+    prod and dev share one `SUBDOMAIN_KV` behind a single zone-wide Worker. Real-KV mode would
+    write `drill-*` handle keys into the namespace **production** reads from. Use it only once
+    a separate dev namespace exists.
+  - **Real KV (full drill, blocked — see above):** `services.cloudflare.{account_id,
+    kv_namespace_id, api_token}` set in local `.env`. Only this mode can show real divergence,
+    which is why the DB↔KV divergence question stays unanswered until the namespaces are split.
   - **Unconfigured (queue-semantics-only):** `CloudflareKvService` no-ops without
     credentials (`guardUnconfigured`) — the drill still proves SIGTERM/SIGKILL/retry
     semantics, but KV checks below become no-ops. Note the mode in the log.
@@ -43,18 +48,37 @@ kv_get() { curl -s -H "Authorization: Bearer $CF_TOKEN" \
 
 ## ARRANGE — drill user
 
+⚠️ Two things bite here on a real Postgres local stack that the SQLite test suite never sees:
+`core.users.auth_user_id` has a **real FK to `auth.users`**, and **nothing auto-creates a site**.
+
 In `php artisan tinker`:
 
 ```php
+use Illuminate\Support\Str;
+
+// 1. auth.users row first — the FK is real; the factory alone fails with SQLSTATE 23503.
+//    Only `id` is NOT NULL without a default.
+$authId = (string) Str::uuid();
+DB::statement('insert into auth.users (id, email, aud, role) values (?, ?, ?, ?)', [
+    $authId, 'drill-wk-<YYYYMMDD>@drill.local', 'authenticated', 'authenticated',
+]);
+
 $u = \App\Models\Core\User\User::factory()->create([
-    'handle' => 'drill-wk-<YYYYMMDD>',
-    // whatever else the factory needs for an active, publicly-servable user
+    'handle'       => 'drill-wk-<YYYYMMDD>',
+    'auth_user_id' => $authId,
 ]);
 $u->id; // note it
+
+// 2. Provision the site EXPLICITLY. There is no trigger and no observer that does this:
+//    pg_trigger on core.users holds only set_timestamp_users + the two handle-alias
+//    triggers, and `Site::create` appears nowhere in app/. Sites are created application-side
+//    by SiteProvisioningService, called from UserBootstrapService / PreAccountBuildService.
+$svc  = app(\App\Services\User\SiteProvisioningService::class);
+$site = $svc->createSiteWithRetry($u->id, $svc->subdomainBaseFromHandle($u->handle), true);
 ```
 
-Sanity: `$u->isActive()` must be true and the user must have a site row (the site-creation
-trigger/observer normally handles this — verify `$u->site` is non-null).
+Sanity: `$u->isActive()` must be true, and after the step above `$u->refresh()->site` must be
+non-null and `is_published` true.
 
 Optionally add an alias row so `bulkPut` has something to write (widens the divergence window):
 
@@ -130,11 +154,19 @@ kill -9 $WORKER_PID && echo "killed mid-job"
      divergence — screenshot/copy it into the log.**
    - Unique-lock behavior: re-dispatch the same job within 45s of the kill →
      `redis-cli -n 0 llen "$QKEY"` stays 0 (silently dropped by `ShouldBeUnique`). Record.
+     ⚠️ Incident-response consequence: after a crash, a human re-dispatching inside the 45s
+     `uniqueFor` window gets **no queue entry and no error**. Wait out `uniqueFor`, or rely on
+     re-delivery — do not re-dispatch and assume it took.
 
 5. **Observe convergence:**
-   - Start a fresh worker: `php artisan queue:work redis --queue=cloudflare --once` after
-     `retry_after` has elapsed (90s if you shrank it; watch
-     `zrange ... :reserved` empty back into the main list first).
+   - 🔴 **Start the worker FIRST, then watch.** Do not wait for `:reserved` to empty before
+     starting a worker — it never will. `migrateExpiredJobs()` runs inside the worker's
+     `pop()` loop; there is no background reaper, so with zero workers a crashed job stays
+     reserved indefinitely no matter how long `retry_after` has elapsed (verified: still
+     reserved at t+178s with `retry_after`=90s).
+   - Start a long-lived worker and leave it running:
+     `php artisan queue:work redis --queue=cloudflare`. Expect re-delivery at
+     ≈ `retry_after` + poll granularity (measured: **t+91s** with `retry_after`=90s).
    - Re-run the KV checks → handle, custom-domain, and alias entries must now ALL match DB
      state. `php artisan queue:failed` → empty.
 
