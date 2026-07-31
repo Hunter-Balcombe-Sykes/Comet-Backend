@@ -599,3 +599,42 @@ jobs:
 
       - name: Outbound HTTP guard (SSRF sanitizer enforcement)
         run: php artisan test --filter=OutboundHttpGuardTest
+
+  # Checkpoint suppression staleness. Same "own job" reasoning as the two guards
+  # above — it lives in the Feature suite, which aborts before reaching it if
+  # anything earlier fatals.
+  #
+  # It is a SEPARATE concern from the `Security scan (Checkpoint)` step in `test`:
+  # that step fails when a NEW finding appears; this one fails when an EXISTING
+  # suppression stops matching anything. Neither catches the other's case, and the
+  # second had gone undetected three times by 2026-07-31 — twice from an edit that
+  # re-hashed a finding, once from a deleted file.
+  #
+  # No service containers, and no network: the test disables ComposerAuditCheck and
+  # NpmAuditCheck (which shell out to Packagist / the npm registry) so an upstream
+  # advisory appearing cannot flip it red on an unrelated commit.
+  checkpoint-suppressions:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP_ENV: testing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_sqlite, sqlite3
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy env
+        run: cp .env.example .env && php artisan key:generate
+
+      - name: Checkpoint suppression staleness guard
+        run: php artisan test --filter=CheckpointSuppressionStalenessTest

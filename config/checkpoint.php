@@ -39,7 +39,20 @@ return [
         Checks\CorsConfigCheck::class => true,
         Checks\PackageFreshnessCheck::class => true,
         Checks\SuspiciousVendorAutoloadCheck::class => true,
-        Checks\SupplyChainToolingCheck::class => true,
+        // Disabled 2026-07-31. This check tests whether `safe-chain`/`socket` is on the
+        // CURRENT MACHINE's PATH — a per-developer global npm install. No repo change can
+        // satisfy it, so it warns forever on every CI runner.
+        //
+        // Disabled rather than hash-suppressed on purpose: its findings exist only while
+        // the tool is ABSENT, so suppressing them would go stale the moment anyone
+        // installed it, and CheckpointSuppressionStalenessTest would then fail the build
+        // for someone improving their own setup. Machine-state-dependent findings are a
+        // bad fit for content-addressed suppression.
+        //
+        // The repo-level equivalent is already enforced by the `supply-chain` CI job:
+        // `composer audit`, `npm audit` over both package trees, and gitleaks across
+        // full history.
+        Checks\SupplyChainToolingCheck::class => false,
         Checks\PathTraversalCheck::class => true,
         Checks\WeakCryptographyCheck::class => true,
         Checks\InsecureRngCheck::class => true,
@@ -191,22 +204,40 @@ return [
         // or the literal array being iterated on the line above — never
         // request input. Values still travel via bindings.
         '320c82ee77b5', // ProjectionWriter:536 — upsertSingletonFacet early-returns unless $facet is a SINGLETON_FACETS key (:521)
-        '7b0f383edf44', // ProjectionWriter:675 — $facet from array_keys(self::SINGLETON_FACETS)
-        'a15fee82d15b', // ProjectionWriter:680 — $collection from a literal foreach array
         'bab8cea99a97', // IngestProjectCommand:142 — $collection from a literal foreach array
         '24cc5ece6372', // IngestProjectCommand:148 — $facet from a literal foreach array
 
-        // Re-vetted 2026-07-30. Same three call sites as :675/:680 above, re-hashed
-        // after refreshItemCaches() moved — Checkpoint keys a suppression by line
-        // CONTENT, so any edit above a finding silently reopens it. Provenance
-        // re-confirmed at the current lines, not assumed from the older entries:
-        //   ProjectionWriter:785  foreach (array_keys(self::SINGLETON_FACETS) as $facet)
-        //   ProjectionWriter:791  foreach (['item_media','offers','item_tags','f_action'] as $collection)
+        // Re-vetted 2026-07-30, after refreshItemCaches() moved — Checkpoint keys a
+        // suppression by line CONTENT, so any edit above a finding silently reopens it.
         // Both loop sources are compile-time constants; no request input reaches the
         // table name, and item_id values travel as bindings via whereIn().
-        '657930f2f7f9', // ProjectionWriter:786 — $facet from array_keys(self::SINGLETON_FACETS) (:785)
-        '3b8365f2b9b7', // ProjectionWriter:792 — $collection from the literal foreach array (:791)
+        //
+        // Line labels re-read 2026-07-31 — the 07-30 pass wrote :785/:791, which have
+        // since drifted to :992/:998 while the hashes survived untouched. That is the
+        // documented behaviour (content-addressed, line-insensitive) and it is why the
+        // `:NNN` in every comment here is a LABEL, not a key. Do not trust it without
+        // grepping; do not "fix" a hash because its label looks wrong.
+        //   ProjectionWriter:992  foreach (array_keys(self::SINGLETON_FACETS) as $facet)
+        //   ProjectionWriter:998  foreach (['item_media','offers','item_tags','f_action'] as $collection)
+        //
+        // The two entries this pair REPLACED (`7b0f383edf44`/`a15fee82d15b`, commented
+        // ProjectionWriter:675/:680) were left behind by that re-vet and sat dead until
+        // 2026-07-31. CheckpointSuppressionStalenessTest now fails on exactly that.
+        '657930f2f7f9', // ProjectionWriter:993 — $facet from array_keys(self::SINGLETON_FACETS) (:992)
+        '3b8365f2b9b7', // ProjectionWriter:999 — $collection from the literal foreach array (:998)
         '677ef50b5100', // ProjectionWriterBatchingTest:128 — same $facet const in a test fixture
+
+        // Vetted 2026-07-31: the rebuild-chunking rewrite added a third interpolated
+        // call site in projectStream() and reddened CI. Provenance read at the current
+        // lines, both closed sets of string literals:
+        //   ProjectionWriter:791-795  $tables = ['item_media' => …, 'offers' => …, 'item_tags' => …]
+        //                             then `foreach ($tables as $table => $rows)` at :805
+        //   IngestProjectRebuildChunkingTest:162  foreach (['f_action','offers','item_tags', …] as $table)
+        // No request input reaches the table name; item_ids and source_id travel as
+        // bindings via whereIn()/where(), and the rows go through insert().
+        '66f9a31cbb50', // ProjectionWriter:806 — $table from the literal $tables map (:791)
+        'e835690783ba', // ProjectionWriter:812 — same $table, insert() inside the same loop
+        '0f027c086763', // IngestProjectRebuildChunkingTest:163 — $table from the literal foreach array (:162)
 
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
         // All are `Authorization: Bearer ` headers concatenating a VARIABLE
@@ -229,8 +260,36 @@ return [
         'b4adc742e4c3',
         'c6e9e9ec265f',
 
-        // ── Debug functions: false positive ────────────────────────────────
-        '5dd3ec775690', // ScanWebsiteCommand:31 — $this->info() is normal artisan output
+        // ── Debug functions: false positives, vetted 2026-07-31 ───────────
+        // All three use var_export()'s return-mode (`, true`) to render a value into a
+        // string, which is its documented purpose — none of them writes to output, and
+        // none is leftover debugging. Two generate PHP artefacts; one builds an
+        // exception message where `null` and `'null'` must stay distinguishable.
+        //
+        // The prior entry here (`5dd3ec775690`, ScanWebsiteCommand:31) was deleted: that
+        // file went away with the website-style-analysis pipeline in e66bb911, and
+        // config/checkpoint.php was its last reference anywhere in the repo.
+        //
+        // NOTE — write the function name WITHOUT its parentheses below. DebugFunctionsCheck
+        // matches /\b(var_dump|print_r|var_export|dd|dump|…)\s*\(/ and only skips lines whose
+        // trimmed text starts with `//` or `*`. A trailing comment on a hash line is NOT
+        // skipped, so `var_export()` written here flags config/checkpoint.php ITSELF —
+        // the suppression comment becomes a new finding. Same shape as the GS-1 allowlist
+        // trap documented in OutboundHttpGuardTest's header.
+        'ea463d746bf7', // BuildsAutoSyncFindings:178 — var_export in return mode, into a report()ed exception message
+        '172b812bfed7', // CatalogCompileCommand:143 — var_export in return mode, writes the generated catalog artefact
+        '8099ce2de8e4', // RoutingCorpusCommand:101 — var_export in return mode, writes the generated corpus-negatives artefact
+
+        // ── Deliberately NOT suppressed ────────────────────────────────────
+        // Supply Chain Tooling is switched off in the `checks` map above rather than
+        // suppressed here — see the reasoning there; its findings are machine-state,
+        // not repo state, so they cannot be safely content-addressed.
+        //
+        // The Environment (APP_DEBUG / APP_ENV / APP_URL) and File Permissions (.env
+        // mode) findings read the LOCAL .env, which is why they warn on a dev machine
+        // and in CI (which copies .env.example). They are correct signals, and
+        // suppressing them would blind the check to a genuine production
+        // misconfiguration — the one case where it must fire. Leave them warning.
     ],
 
     /*

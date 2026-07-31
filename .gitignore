@@ -1,4 +1,6 @@
 *.log
+# A committed private key is a live key — nothing else in this file covered .pem.
+*.pem
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
@@ -21,6 +23,12 @@
 /public/hot
 /public/storage
 /storage/*.key
+# Redundant with storage/logs/.gitignore (`*` + `!.gitignore`), which already ignores
+# the directory's contents — but that nested file is one `rm` away from taking the
+# protection with it, and Checkpoint's GitIgnoreCheck only str_contains-matches THIS
+# file, so it cannot see the nested one. The negation keeps the tracked .gitignore.
+/storage/logs/*
+!/storage/logs/.gitignore
 /storage/pail
 /vendor
 /.worktrees

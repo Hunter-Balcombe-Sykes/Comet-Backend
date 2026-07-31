@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# Pre-push gate. Runs the fast, deterministic, OFFLINE half of CI's `test` job.
+#
+# WHY THIS EXISTS: there is no branch protection on `development` or `production` —
+# every CI job reports, none blocks. And `production` has usesPushToDeploy=true, so a
+# push to it IS the deploy, with no CI gate in front. Until branch protection exists,
+# this hook is the only enforcement point in the chain.
+#
+# It is ADVISORY, not a gate: `git push --no-verify` skips it, and CI remains the real
+# signal. Do not read a green hook as "CI will pass".
+#
+# WHAT IT DOES NOT COVER — deliberate, measured 2026-07-31 on this machine:
+#   - `composer test` (full suite): ~15 min. A hook that slow trains everyone to
+#     --no-verify, which is worse than no hook.
+#   - `php artisan checkpoint:scan`: shells out to `composer audit` (Packagist) and
+#     `npm audit` (npm registry). Network in a pre-push hook means the hook fails on a
+#     plane. This is the one CI step most likely to surprise you — check it by hand
+#     after touching raw SQL, a Bearer header, or config/checkpoint.php.
+#   - the Postgres / schema / authz lanes: need Docker containers on fixed ports.
+#
+# Timings that justified the split (warm caches; first run after a cold clone is
+# ~90s for pint and ~28s for phpstan, both cached thereafter):
+#   pint --test              0.5s
+#   guard:no-laravel-migrations / no-cache-memo / no-unsafe-migrations   ~1.1s total
+#   phpstan analyse          1.2s   (result cache; 28s cold)
+#   -------------------------------------
+#   total                    ~3s
+
+set -uo pipefail
+
+# Run from the top of THIS working tree — the hook must operate on the worktree being
+# pushed, not on wherever git happened to invoke it.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if [ ! -x vendor/bin/pint ]; then
+    echo "pre-push: vendor/ is missing — run 'composer install'. Skipping checks." >&2
+    exit 0
+fi
+
+FAILED=()
+
+# NEVER pipe a check's output (| tail, | grep). The pipeline's exit status is the LAST
+# command's, so piping turns a failure into a pass — the exact trap CI's GS-1 step
+# documents. Capture to a variable instead and print on failure.
+run_check() {
+    local label="$1"
+    shift
+    local output
+    if ! output=$("$@" 2>&1); then
+        FAILED+=("$label")
+        printf '\033[31m  ✗ %s\033[0m\n' "$label"
+        printf '%s\n' "$output" | sed 's/^/      /'
+        return
+    fi
+    printf '\033[32m  ✓ %s\033[0m\n' "$label"
+}
+
+echo "pre-push: running fast offline gates (skip with --no-verify)"
+
+run_check "pint (code style)"          vendor/bin/pint --test
+run_check "guard: no Laravel migrations" composer guard:no-laravel-migrations
+run_check "guard: no Cache::memo"        composer guard:no-cache-memo
+run_check "guard: no unsafe migrations"  composer guard:no-unsafe-migrations
+run_check "phpstan (level 5)"          vendor/bin/phpstan analyse --memory-limit=2G --no-progress
+
+if [ ${#FAILED[@]} -gt 0 ]; then
+    echo ""
+    echo "pre-push BLOCKED — ${#FAILED[@]} check(s) failed:"
+    for f in "${FAILED[@]}"; do echo "  - $f"; done
+    echo ""
+    echo "Fix them, or push anyway with: git push --no-verify"
+    exit 1
+fi
+
+echo "pre-push: all gates passed"
+exit 0
