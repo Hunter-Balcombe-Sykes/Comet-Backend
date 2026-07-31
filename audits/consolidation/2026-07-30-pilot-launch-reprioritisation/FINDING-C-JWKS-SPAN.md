@@ -97,10 +97,10 @@ outlier.
 
 Two things *are* worth doing, neither in scope here:
 
-| # | Action | Effort | Why |
+| # | Action | Effort | Status |
 |---|---|---|---|
-| 1 | Correct the "~150-300ms for ES256" claim at `VerifySupabaseJwt.php:365` and `:390` to the measured ~3 ms | XS | The number justifies the whole APCu layer and is ~100× off. Left alone, the next person sizing that cache reasons from a fiction. Note this does **not** imply removing APCu — it still saves a Redis round-trip. |
-| 2 | If the k6 tail matters, re-run phase 1 with a warm-up stage and compare | S | Would settle whether the 805 ms max is the same cold-start effect on public keys, instead of inferring it from an authed route that shares no code path. |
+| 1 | Correct the "~150-300ms for ES256" claim to the measured figure | XS | ✅ **DONE** — `1cfbcd62`. Four sites, not two (`:39`, `:365`, `:390`, `:561`). Re-measured first against the real dev JWKS to confirm it is genuinely `kty=EC / alg=ES256 / crv=P-256`, so the correction addresses the algorithm the claim names: **2.09 ms first sample, 0.01 ms median over 19 more**. APCu was **kept** — the comment now states its real value (skipping the Redis round-trip, ~1 ms warm / ~41 ms when it pays lazy-connect) instead of a CPU cost that isn't there. Comment-only, proven at token level. |
+| 2 | If the k6 tail matters, re-run phase 1 with a warm-up stage and compare | S | **Open.** Would settle whether the 805 ms max is the same cold-start effect on public keys, instead of inferring it from an authed route that shares no code path. Needs a decision — it generates load against dev. |
 
 ## Reproduce
 
