@@ -8,8 +8,8 @@
 - **Preconditions met:** `CACHE_STORE=redis`, `QUEUE_CONNECTION=redis`, `SESSION_DRIVER=cookie`,
   `partna.throttle.enabled=true` (**had to be turned on** — local `.env` shipped
   `SIDEST_THROTTLE_ENABLED=false`, which would have made this drill prove nothing), Horizon running.
-- **Scenarios run:** BASELINE / DOWN / RECOVER. **Scenario C (hung, not down) NOT faithfully
-  executed** — see Finding 5.
+- **Scenarios run:** BASELINE / DOWN / RECOVER. **Scenario C (hung, not down) executed in a second
+  pass later the same day** — see "Scenario C" below. Findings 3 and 5 are both now **RESOLVED**.
 
 ## Probe substitution — stated up front
 
@@ -115,6 +115,86 @@ stack trace:         Redis->connect('127.0.0.1', '6379', 0.0, NULL, 0, 0.0)
 The system fails *fast and cleanly*, which is the good news. But it fails **closed** on the public
 read path and on the beacon path, and it does so **silently** (no breadcrumbs).
 
+## Scenario C — Redis hung, not down (second pass, same day)
+
+Run after `B4` landed, so this pass measures **both** the pre-fix and post-fix behaviour rather than
+only confirming a risk. Environment differs from the first pass in one respect: the app was served by
+`php artisan serve` on `127.0.0.1:8787` from an isolated worktree (branch
+`audit-fix/drill-followups-2026-07-31`), not the Herd site, so the bound under test is the one in the
+branch. Local Supabase + local Redis as before; `PARTNA_THROTTLE_ENABLED=true`, `CACHE_STORE=redis`,
+`QUEUE_CONNECTION=redis`, `SESSION_DRIVER=cookie`.
+
+### Injection — verified this time
+
+`enable-debug-command local` set in `/opt/homebrew/etc/redis.conf` + `brew services restart redis`
+(config restored afterwards). Proof it blocks, per the runbook's own instruction:
+
+```
+(redis-cli DEBUG SLEEP 6 &) ; sleep 0.5 ; time redis-cli ping   →  ping blocked for 5.55s
+```
+
+Every probe round below carries its own **concurrent hang witness** — a `redis-cli ping` started
+alongside the probes and timed independently — so each measurement is paired with proof that Redis
+was genuinely hung for the whole window. Witness values were 29.75s / 19.76s / 19.77s against
+`DEBUG SLEEP` values of 30 / 20 / 20.
+
+### The measurement
+
+| Config | Redis hung for | `GET /api/public/profiles/{handle}` | `POST …/analytics/pageviews` |
+|---|---|---|---|
+| **Unbounded** (`read_timeout=0.0`, pre-B4) | 19.76s (witness) | **200 · 19.842s** | not run |
+| **Bounded** (`read_timeout=3.0`, B4) | 29.75s (witness) | **500 · 3.057s** | **500 · 3.036s** |
+| Bounded, repeat ×3 | 25s each | 500 · 3.056 / 3.039 / 3.043s | 500 · 3.033 / 3.036 / 3.034s |
+| RECOVERED (hands-off) | — | 200 · 0.120s | 201 · 0.066s |
+
+Baseline before injection: profile `200 · 0.106s`, pageview `201 · 0.070s`, authed `401 · 0.029s`.
+
+Both timeout bands measured directly against a 40s hang, confirming the split is real and not just
+present in `config()`:
+
+```
+cache    (request path, 3.0)  → actual  3.00s  RedisException: read error on connection
+default  (worker path, 15.0)  → actual 15.00s  RedisException: read error on connection
+```
+
+### What this answers
+
+**The hang duration, unbounded, is the hang duration.** With `read_timeout=0.0` the request waited
+**19.84s** against a 19.76s hang and then returned **200**. It did not time out, degrade, or fail — it
+waited exactly as long as Redis was unresponsive. A 60s hang would have held the request 60s; an
+indefinite one, indefinitely. That is the number Scenario C existed to produce and never had.
+
+**The bound holds, exactly.** 6/6 probes at **3.03–3.06s** against hangs of 25–30s. The failure is
+`read error on connection to 127.0.0.1:6379` surfaced as a 500. Recovery is hands-off.
+
+**The trade is real and worth stating.** Unbounded eventually returned **200**; bounded returns
+**500**. B4 converts "correct after an unbounded wait" into "fails fast at 3s". A Redis hiccup shorter
+than 3s is still absorbed transparently; anything longer now fails fast rather than holding a
+PHP-FPM worker hostage. That is the intended trade — a held worker under a real hang is how a single
+slow dependency becomes a full outage — but it is a behaviour change, not a pure win.
+
+**The public-read path is unchanged in kind.** Finding 1 (a Redis outage is a full public-site
+outage) is *not* affected by B4: the profile read still 500s, just at 3s instead of never. B4 bounds
+the failure; it does not fail open. `B1`/`B2` remain the fix for that and are out of scope here.
+
+### New traps found in this pass
+
+9. **The runbook's own verification step destroys the injection window if run inline.**
+   `(redis-cli DEBUG SLEEP 6 &) ; sleep 0.5 ; time redis-cli ping` is correct as a *prerequisite*
+   check, but the verifying `ping` **blocks for the full sleep**. Run it immediately before the
+   probes and it consumes the hang; the probes then execute against a recovered Redis and return a
+   full set of fast, healthy, entirely false PASSes. This happened on the first attempt here
+   (profile `200 · 0.039s` during a "hung" Redis). Verify with a **separate** injection, and during
+   the real round put the witness **concurrent with** the probes, never before them.
+10. **`php artisan serve` silently discards environment overrides.**
+    `REDIS_READ_TIMEOUT=0 php artisan serve …` has **no effect**:
+    `Illuminate\Foundation\Console\ServeCommand::$passthroughVariables` whitelists 14 variables
+    (`APP_ENV`, `PATH`, the `HERD_*` and `XDEBUG_*` sets, …) and maps every other variable to
+    `false`, which unsets it in the child process. The app then reads the `.env` value and the
+    control run silently measures the *unmodified* config. Caught here only because the "unbounded"
+    control returned 3.05s — identical to the bounded run. Put drill overrides in `.env`, and
+    confirm with `php artisan tinker --execute='...config(...)'` before trusting a control.
+
 ## Findings
 
 1. 🔴 **A Redis outage is a full public-site outage.** `throttle:public-site` sits in front of
@@ -126,23 +206,32 @@ read path and on the beacon path, and it does so **silently** (no breadcrumbs).
    catch-and-warn is real and correct, but nothing reaches it: `throttle:analytics` throws first.
    The "beacon data is lost by design, request succeeds" contract holds only when Redis is healthy
    enough to serve the limiter — i.e. exactly when it isn't needed. **Not fixed.**
-3. 🟠 **phpredis timeouts are unbounded.** No `timeout`/`read_timeout` is configured on any redis
-   connection, so phpredis uses `0.0` (unlimited) — visible in the trace as
+3. ✅ **RESOLVED — phpredis timeouts were unbounded.** No `timeout`/`read_timeout` was configured on
+   any redis connection, so phpredis used `0.0` (unlimited) — visible in the trace as
    `connect('127.0.0.1','6379', 0.0, NULL, 0, 0.0)`. A *refused* socket fails instantly (measured),
-   so this did not bite here — but a *hung or packet-dropping* server is the case with no bound at
-   all, and that is the operationally worse failure the runbook explicitly warns about. Recommend
-   explicit `REDIS_TIMEOUT` / `REDIS_READ_TIMEOUT`. **Not fixed** (touches shared config).
+   so this did not bite in the DOWN scenario — but a *hung or packet-dropping* server is the case
+   with no bound at all, and Scenario C has now measured it: **19.84s of hang held the request for
+   19.84s**.
+   **Fixed by `B4`** (`fix(redis): B4 — bound phpredis connect and read timeouts`): all five
+   connections carry `timeout 2.0`; request path (`cache`, `session`, `cache_locks`)
+   `read_timeout 3.0`, worker path (`default`, `queue`) `read_timeout 15.0` — the latter must stay
+   above the queues' `block_for` (default 5) or every worker throws `read error on connection`
+   silently, into the log only. Re-measured under a live hang: **3.06s** on the request path,
+   **15.00s** on the worker path. Pinned by `tests/Feature/Architecture/RedisTimeoutBoundsTest.php`.
 4. 🟠 **Horizon did not exit or self-heal on Redis loss.** The master dropped 15 → 10 processes and
    then spun in a reconnect loop, logging a `RedisException` stack trace per poll (it flooded
    `laravel.log` badly enough to bury the HTTP traces). A plain `pkill` did not stop it; `pkill -9`
    was needed. Per the runbook's own note, "a Horizon master that needs a human after a Redis blip
    is itself a finding for the deployed-env runbook" — recording it as exactly that. **Not fixed.**
-5. **Scenario C (hung, not down) could not be executed.** `redis-cli DEBUG SLEEP` is refused on
-   modern Redis (`ERR DEBUG command not allowed … enable-debug-command`). A substitute black-hole
-   listener (`nc -k -l 6380` + `REDIS_PORT=6380`) also failed to reproduce a true hang — nc resets
-   rather than holding the socket silently, producing a fast `read error on connection` instead.
-   **The scenario the runbook calls its most valuable remains unmeasured.** Finding 3 is the
-   static evidence that the risk it targets is real.
+5. ✅ **RESOLVED — Scenario C (hung, not down) is now executed and measured.** It could not be run in
+   the first pass: `redis-cli DEBUG SLEEP` is refused on modern Redis
+   (`ERR DEBUG command not allowed … enable-debug-command`), and a substitute black-hole listener
+   (`nc -k -l 6380` + `REDIS_PORT=6380`) does not reproduce a true hang — nc resets rather than
+   holding the socket silently, producing a fast `read error on connection` instead.
+   **Executed in the second pass** by setting `enable-debug-command local` in `redis.conf` and
+   restarting Redis, with the block proven (`ping` held 5.55s) and a concurrent hang witness on every
+   round. Results in "Scenario C" above. Two further silent-no-op traps were found in the process —
+   see new Findings 9 and 10; the runbook's own inline verification step was one of them.
 6. **`redis-cli SHUTDOWN NOSAVE` does not take Redis down on this machine.** Redis runs as a
    Homebrew service under launchd with KeepAlive, which restarts it within ~1s. The first DOWN
    probe round was accidentally run against a **live** Redis and produced a full set of
@@ -180,5 +269,14 @@ Applied to `../03-redis-down.md` in the same commit as this log:
 ## Next run due
 
 On material change to cache/queue wiring, analytics ingest, throttle middleware, or
-`EscalatesRepeatedFaults`. **Re-run Scenario C specifically** once Findings 3 and 5 are addressed —
-the hung-server case is still the one nobody has measured.
+`EscalatesRepeatedFaults`.
+
+Scenario C is **done** — Findings 3 and 5 are resolved and the hung-server case is measured
+(19.84s unbounded → 3.06s bounded). Re-run it specifically if `read_timeout` or any queue's
+`block_for` changes, since the two are coupled and `RedisTimeoutBoundsTest` pins only their
+*relative* order, not that either value is still operationally right.
+
+Still open from this drill, unchanged by the second pass: Finding 1 (a Redis outage is a full public
+site outage), Finding 2 (the analytics fail-open is unreachable) — both belong to `B1`/`B2`;
+Finding 4 (Horizon does not self-heal); Finding 7 (`handle`/`handle_lc` desync); Finding 8 (the
+enquiry-flow write-path probe was never run).

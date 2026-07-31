@@ -145,17 +145,41 @@ before trusting any timing:
 (redis-cli DEBUG SLEEP 6 &) ; sleep 0.5 ; time redis-cli ping   # must take >5s
 ```
 
+🔴 **Run that check against its OWN injection, never inline before the probes.** The verifying
+`ping` blocks for the *whole* sleep, so if you run it immediately before the curls it consumes the
+hang window and the probes execute against a **recovered** Redis — returning a full set of fast,
+healthy, entirely false PASSes. This bit the 2026-07-31 second pass (profile `200 · 0.039s` during a
+supposedly hung Redis). In the real round, start the witness **concurrently with** the probes:
+
+```bash
+(redis-cli -t 60 DEBUG SLEEP 30 &) ; sleep 0.3
+( S=$(perl -MTime::HiRes=time -e 'print time'); redis-cli -t 60 ping >/dev/null; \
+  E=$(perl -MTime::HiRes=time -e 'print time'); \
+  perl -e "printf(\"witness: hung %.2fs\n\", $E-$S)" ) &
+# …probes here, then `wait` and read the witness
+```
+
 `nc -k -l <port>` is **not** an adequate substitute — it resets the connection instead of
 holding it open silently, producing a fast `read error on connection` rather than a hang.
 
-Immediately re-run the baseline curls. If requests hang for the full 15s, PHP's Redis
-timeouts (`REDIS_*` / phpredis `timeout`/`read_timeout`) are effectively unbounded — file
-as a finding with the measured hang times. This scenario frequently produces the drill's
-only real action item.
+🔴 **Do not pass drill overrides on the `php artisan serve` command line.**
+`ServeCommand::$passthroughVariables` whitelists 14 variables and maps every other one to `false`,
+unsetting it in the child process — so `REDIS_READ_TIMEOUT=0 php artisan serve …` silently serves
+the *unmodified* config. Put overrides in `.env` and confirm with
+`php artisan tinker --execute='var_dump(config("database.redis.cache.read_timeout"));'` first.
 
-Note (2026-07-31): `timeout` and `read_timeout` are **unset** on every redis connection in
-`config/database.php`, so phpredis uses `0.0` = unbounded. The risk this scenario targets is
-already confirmed statically; what is still missing is the measured hang duration.
+Immediately re-run the baseline curls and record the elapsed times.
+
+**Expected as of 2026-07-31 (post-`B4`):** request-path probes fail at **~3s** with
+`read error on connection` and a 500 — that is `read_timeout 3.0` on the `cache` connection doing
+its job. Measured: 6/6 probes at 3.03–3.06s against 25–30s hangs. Worker-path connections
+(`default`, `queue`) are bounded at **15.0s** instead, because they must exceed the queues'
+`block_for`.
+
+If a request-path probe hangs **past 3s**, `B4` did not take effect on the connection actually
+serving it — find out which connection that is rather than raising the timeout. If it hangs for the
+full sleep duration, the timeouts are unbounded again (pre-`B4` behaviour measured at
+**19.84s against a 19.76s hang**, returning 200 — it waits exactly as long as Redis is unresponsive).
 
 ## Pass criteria
 
