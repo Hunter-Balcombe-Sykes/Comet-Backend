@@ -39,7 +39,20 @@ return [
         Checks\CorsConfigCheck::class => true,
         Checks\PackageFreshnessCheck::class => true,
         Checks\SuspiciousVendorAutoloadCheck::class => true,
-        Checks\SupplyChainToolingCheck::class => true,
+        // Disabled 2026-07-31. This check tests whether `safe-chain`/`socket` is on the
+        // CURRENT MACHINE's PATH — a per-developer global npm install. No repo change can
+        // satisfy it, so it warns forever on every CI runner.
+        //
+        // Disabled rather than hash-suppressed on purpose: its findings exist only while
+        // the tool is ABSENT, so suppressing them would go stale the moment anyone
+        // installed it, and CheckpointSuppressionStalenessTest would then fail the build
+        // for someone improving their own setup. Machine-state-dependent findings are a
+        // bad fit for content-addressed suppression.
+        //
+        // The repo-level equivalent is already enforced by the `supply-chain` CI job:
+        // `composer audit`, `npm audit` over both package trees, and gitleaks across
+        // full history.
+        Checks\SupplyChainToolingCheck::class => false,
         Checks\PathTraversalCheck::class => true,
         Checks\WeakCryptographyCheck::class => true,
         Checks\InsecureRngCheck::class => true,
@@ -267,22 +280,11 @@ return [
         '172b812bfed7', // CatalogCompileCommand:143 — var_export in return mode, writes the generated catalog artefact
         '8099ce2de8e4', // RoutingCorpusCommand:101 — var_export in return mode, writes the generated corpus-negatives artefact
 
-        // ── Supply-chain tooling: not a repo-level condition, vetted 2026-07-31 ──
-        // The check tests whether `safe-chain`/`socket` is on the CURRENT MACHINE's
-        // PATH. That is a per-developer global npm install, so it can never pass on a
-        // CI runner and no repo change can make it pass. The repo-level equivalent is
-        // already enforced by the `supply-chain` CI job: `composer audit`, `npm audit`
-        // over both package trees, and gitleaks across full history.
-        //
-        // Suppressed by hash rather than disabling SupplyChainToolingCheck outright —
-        // if the check later adds NEW advice, that advice is new detail text, so it
-        // gets a new hash and surfaces as a fresh WARN instead of being silently hidden.
-        '11237ebcced3', // "Install Safe-Chain …"
-        'ef474f32494e', // "  npm install -g @aikidosec/safe-chain"
-        '2e20e774eab1', // "  safe-chain setup"
-        '32cc17ad5d23', // "Alternative: Socket CLI …"
-
         // ── Deliberately NOT suppressed ────────────────────────────────────
+        // Supply Chain Tooling is switched off in the `checks` map above rather than
+        // suppressed here — see the reasoning there; its findings are machine-state,
+        // not repo state, so they cannot be safely content-addressed.
+        //
         // The Environment (APP_DEBUG / APP_ENV / APP_URL) and File Permissions (.env
         // mode) findings read the LOCAL .env, which is why they warn on a dev machine
         // and in CI (which copies .env.example). They are correct signals, and
