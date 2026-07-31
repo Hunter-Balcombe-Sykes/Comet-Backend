@@ -207,7 +207,7 @@ meant to go — absorbed in passing.
 >
 > ## Item 5 — `INH-6`: partial only, and **do not tick it**
 >
-> **Source:** `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` (effort M, ~2–4h).
+> **Source:** `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` (effort M, ~2–4h).
 > The finding has **three** parts:
 >
 > | Part | State |

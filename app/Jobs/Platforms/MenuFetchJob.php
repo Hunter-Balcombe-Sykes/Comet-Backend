@@ -14,6 +14,7 @@ use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
+use App\Services\Platforms\NormalizesMenuItemNames;
 use App\Services\Site\ItemSlugAllocator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -45,7 +46,7 @@ use Throwable;
 // no Uber Eats / DoorDash link at all, the menu row is soft-deleted (cleared).
 class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, NormalizesMenuItemNames, Queueable, SerializesModels;
 
     // Up to two real store scrapes (UE + DD), each retried on empty; allow
     // headroom for MAX_ATTEMPTS × ATTEMPT_TIMEOUT per platform in MenuApifyScraper.
@@ -738,21 +739,6 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
 
         return array_shift($idsByName[$key]);
-    }
-
-    /**
-     * lowercase, non-alphanumerics → single spaces, trimmed. Deliberately the
-     * same normalization MenuMerger::norm() applies when matching one dish
-     * across platforms, so "identity" means the same thing at merge time and
-     * at persist time. (Kept local — duplication over a shared dependency,
-     * matching the menu controllers' own convention.)
-     */
-    private function normalizeName(string $s): string
-    {
-        $s = mb_strtolower($s);
-        $s = preg_replace('~[^a-z0-9]+~', ' ', $s) ?? '';
-
-        return trim((string) preg_replace('~\s+~', ' ', $s));
     }
 
     /**

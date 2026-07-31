@@ -7,7 +7,6 @@ use App\Models\Core\Site\MenuCategory;
 use App\Models\Core\Site\MenuItem;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheInvalidator;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
 
@@ -34,6 +33,8 @@ use Illuminate\Support\Facades\DB;
 // right along with it on the next scrape refresh.
 class MenuScanApplier
 {
+    use AllocatesMenuPositions, CleansScrapedStrings;
+
     private const DEFAULT_CATEGORY_NAME = 'Menu';
 
     private const SOURCE = 'scan';
@@ -388,12 +389,6 @@ class MenuScanApplier
         return $addedAny ? $badges : null;
     }
 
-    /** One past the current max `position` in $query (0 when the table's empty). */
-    private function nextPosition(Builder $query): int
-    {
-        return 1 + (int) ($query->max('position') ?? -1);
-    }
-
     private function cleanCategoryName(?string $category): string
     {
         $trimmed = trim((string) $category);
@@ -401,17 +396,7 @@ class MenuScanApplier
         return $trimmed !== '' ? $trimmed : self::DEFAULT_CATEGORY_NAME;
     }
 
-    private function cleanString(?string $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $trimmed = trim($value);
-
-        return $trimmed !== '' ? $trimmed : null;
-    }
-
-    /** lowercase + trim — the brief's literal match rule (no punctuation stripping, unlike MenuMerger::norm()). */
+    /** lowercase + trim — the brief's literal match rule (no punctuation stripping, unlike normalizeName()). */
     private function normalize(string $value): string
     {
         return mb_strtolower(trim($value));

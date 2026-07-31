@@ -78,7 +78,7 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 > | Unit | ID | Kind | Source of the full finding |
 > |---|---|---|---|
 > | 1 | `271-PRIV-2` | **product/legal decision, then code** | `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
-> | 2 | `#INH-7-DRIFT` | code — one validation rule | `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` + `VERIFICATION-LOG.md` §V3 |
+> | 2 | `#INH-7-DRIFT` | code — one validation rule | `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` + `VERIFICATION-LOG.md` §V3 |
 > | 3 | `LC-PROD-ENV` | ops — Josh only | `audits/launch-check/2026-07-26/REPORT.md` |
 > | 4 | `LC-BACKUP` | ops + decision — Josh only | same |
 > | 5 | `LC-RUNBOOKS-2` | docs — two runbooks | same |
@@ -397,7 +397,7 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
     - `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md` — 170 open
     - `audits/archive/sweeps/2026-07-11-full-work-sweep/CONSOLIDATED.md` — 59 open (all P3)
     - `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` — 43 open
-    - `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` — 17 open
+    - `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` — 17 open
     - `audits/sweeps/2026-07-27-dead-code/BACKEND-INHERITANCE-CONSOLIDATION-VERIFIED.md` — 16 open (same 17 findings as above, re-numbered; **not** double-counted)
     - `audits/launch-check/2026-07-26/REPORT.md` — 13 open action items
 - **Universe:** **302 unique open items.**
@@ -950,7 +950,7 @@ any unit in this bucket.
 >    **Fixed — the duplicated literal.** One `DASHBOARD_ORIGIN = \`https://app.${PARTNA_DOMAIN}\`` const now feeds both headers, restoring the convention the rest of the file already follows (`:192`: *"Domain references read `PARTNA_DOMAIN` rather than repeating the literal"*). Prod output is byte-identical — `frame-ancestors 'self' https://app.partna.au` in both — which is the acceptance criterion, not a side effect.
 >    **Coverage gap found and closed while proving it:** `test/headers.test.mjs` pinned the *enforcing* header byte-exact but asserted the Report-Only policy only via `toContain("default-src 'self'")`, so `:156` — one of the two lines edited — was **untested**. An assertion for its `frame-ancestors` clause was added. Both were mutation-checked independently (wrong `DASHBOARD_ORIGIN` → enforcing header red; `SITEPAGE_CSP`'s clause alone corrupted → Report-Only assertion red). Worker suite 38/38.
 >    **WONTFIX — making `PARTNA_DOMAIN` env-driven.** The recorded motive was "a staging dashboard origin would be refused framing", but **there is no non-prod Worker deploy to refuse it**: `wrangler.toml` has no `[env.staging]`, removed deliberately by EDGE-102 on the grounds that CLAUDE.md documents exactly two backend environments and none of them is a staging Worker. Delivering it means threading `env` through all **13** `finalize()` call sites on the public edge and demoting `SITEPAGE_CSP` from a module const (`env` does not exist at module init) — real blast radius on the path every `<handle>.partna.au` request takes, for a target that does not exist. EDGE-3's comment at `:42-46` already documents the manual-mirror decision. Revisit only if a genuine staging Worker tier is introduced, which is the same trigger EDGE-10 names for its KV namespace.
-> 4. **`#INH-6`'s other two-thirds** — `cleanString` spans **6** files (not 4), and its two menu copies have divergent *signatures and bodies*, so that half is a behaviour question, not a move. `nextPosition` spans 2. **Re-examined 2026-07-31 (Tier 3 triage) and deliberately left unticked**: the `normalizeName` third is still byte-identical and safe to move, but at effort M with live menu-matching behaviour at stake it is a bad passenger on a triage commit. The three traps that make it non-mechanical — the `NormalizesMenuData` shadowing hazard, the `$this->norm(` search anchor, and drift-means-escalate — are now written into the finding itself at `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59`.
+> 4. **`#INH-6`'s other two-thirds** — `cleanString` spans **6** files (not 4), and its two menu copies have divergent *signatures and bodies*, so that half is a behaviour question, not a move. `nextPosition` spans 2. **Re-examined 2026-07-31 (Tier 3 triage) and deliberately left unticked**: the `normalizeName` third is still byte-identical and safe to move, but at effort M with live menu-matching behaviour at stake it is a bad passenger on a triage commit. The three traps that make it non-mechanical — the `NormalizesMenuData` shadowing hazard, the `$this->norm(` search anchor, and drift-means-escalate — are now written into the finding itself at `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59`.
 > 5. **OPEN follow-up, raised 2026-07-31, deliberately NOT bundled (Josh's call).** `IngestProjectCommand::dropDerivedRows()` deletes **every** `content.identity_keys` row for a stream up front, outside any transaction, before `projectStream()` re-creates them — a window orders of magnitude wider than the per-record one `#CACHE-3`'s cleanup closed, and one that fix does **not** touch. So `ingest:project --rebuild` remains exposed: source items are live and keyless for the whole rebuild, and a concurrent `resolveItems()` (which scopes by `user_id` + `kind`, not `stream_id`) will mint spurious `content.items` rows. **The drop looks redundant** — `writeIdentityKeys()` is already a replace-set per source item, `retireAbsentSourceItems()` stamps `removed_at` so `resolveItems()`'s `whereNull('si.removed_at')` filters stale keys out, and the FK cascades on real deletion — so removing four lines would close it at no cost. Not done here because it edits a decision carrying an explicit written rationale (`IngestProjectCommand.php:153-157`, "Deliberately NOT a transaction"), which earns its own plan + independent review rather than riding along on an unrelated commit.
 >
 > **Process notes worth keeping:**
@@ -1272,7 +1272,7 @@ Composition of what was triaged:
 
 - Tick the 11 DEAD items in their source folders. Six of them are in
   `audits/archive/sweeps/2026-07-11-full-work-sweep/`, which cannot auto-archive while they stand.
-- Tick `#INH-1` in `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` — the 07-27
+- Tick `#INH-1` in `audits/archive/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` — the 07-27
   verification file already has it correct.
 - **Fix the audit pipeline itself:** the test-coverage lens cannot see `tests/Unit/Routing/`,
   `tests/Unit/Policies/`, `tests/Feature/Security/PolicyEnforcement/`, `TenantIsolation/`, or

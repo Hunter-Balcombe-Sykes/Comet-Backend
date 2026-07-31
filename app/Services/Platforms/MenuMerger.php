@@ -42,6 +42,8 @@ use Illuminate\Support\Facades\Log;
 // the next successful scrape.
 class MenuMerger
 {
+    use CleansScrapedStrings, NormalizesMenuItemNames;
+
     // Mild-strict matching needs at least this many characters in the shorter
     // name before a containment match counts — stops short tokens ("Naan",
     // "Cola") pairing every dish that happens to include the word.
@@ -279,7 +281,7 @@ class MenuMerger
         $groups = [];
         $order = [];
         foreach ($categories as $category) {
-            $norm = $this->norm((string) $category['name']);
+            $norm = $this->normalizeName((string) $category['name']);
             if (! isset($groups[$norm])) {
                 $order[] = $norm;
             }
@@ -393,7 +395,7 @@ class MenuMerger
     private function normalizedItemNames(array $category): array
     {
         return array_values(array_unique(array_map(
-            fn (array $item) => $this->norm((string) ($item['name'] ?? '')),
+            fn (array $item) => $this->normalizeName((string) ($item['name'] ?? '')),
             $category['items']
         )));
     }
@@ -417,7 +419,7 @@ class MenuMerger
         $seen = [];
         foreach ($group as $category) {
             foreach ($category['items'] as $item) {
-                $key = $this->norm((string) ($item['name'] ?? '')).'|'.($item['basePrice'] ?? '');
+                $key = $this->normalizeName((string) ($item['name'] ?? '')).'|'.($item['basePrice'] ?? '');
                 if (isset($seen[$key])) {
                     continue;
                 }
@@ -462,13 +464,13 @@ class MenuMerger
         // a repeated normalized name, which shouldn't occur in persisted data).
         $persistedIndex = [];
         foreach ($persistedCategoryOrder as $i => $name) {
-            $persistedIndex[$this->norm((string) $name)] ??= $i;
+            $persistedIndex[$this->normalizeName((string) $name)] ??= $i;
         }
 
         $known = [];
         $new = [];
         foreach (array_values($categories) as $category) {
-            $norm = $this->norm((string) $category['name']);
+            $norm = $this->normalizeName((string) $category['name']);
             if (isset($persistedIndex[$norm])) {
                 $known[] = [$persistedIndex[$norm], $category];
             } else {
@@ -483,7 +485,7 @@ class MenuMerger
                 return $byPosition;
             }
 
-            return $this->norm((string) $a['name']) <=> $this->norm((string) $b['name']);
+            return $this->normalizeName((string) $a['name']) <=> $this->normalizeName((string) $b['name']);
         });
 
         return [...array_map(fn (array $pair) => $pair[1], $known), ...$new];
@@ -553,7 +555,7 @@ class MenuMerger
     {
         $out = [];
         foreach ($this->platforms() as $p) {
-            $image = $this->str($versions[$p]['image'] ?? null);
+            $image = $this->cleanString($versions[$p]['image'] ?? null);
             if ($image !== null && ! in_array($image, $out, true)) {
                 $out[] = $image;
             }
@@ -566,7 +568,7 @@ class MenuMerger
     private function pick(array $versions, string $field): ?string
     {
         foreach ($this->platforms() as $p) {
-            $val = $this->str($versions[$p][$field] ?? null);
+            $val = $this->cleanString($versions[$p][$field] ?? null);
             if ($val !== null) {
                 return $val;
             }
@@ -762,7 +764,7 @@ class MenuMerger
         $all = [];
         foreach ($categories as $ci => $category) {
             foreach ((array) ($category['items'] ?? []) as $ii => $item) {
-                $norm = $this->norm((string) ($item['name'] ?? ''));
+                $norm = $this->normalizeName((string) ($item['name'] ?? ''));
                 if ($norm === '') {
                     continue;
                 }
@@ -788,7 +790,7 @@ class MenuMerger
      */
     private function match(string $name, array $index): ?array
     {
-        $norm = $this->norm($name);
+        $norm = $this->normalizeName($name);
         if ($norm === '') {
             return null;
         }
@@ -811,25 +813,5 @@ class MenuMerger
     private function price(mixed $value): ?float
     {
         return is_numeric($value) ? (float) $value : null;
-    }
-
-    /** A non-empty trimmed string, or null. */
-    private function str(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-        $s = trim($value);
-
-        return $s !== '' ? $s : null;
-    }
-
-    /** lowercase, non-alphanumerics → single spaces, trimmed — for name matching. */
-    private function norm(string $s): string
-    {
-        $s = mb_strtolower($s);
-        $s = preg_replace('~[^a-z0-9]+~', ' ', $s) ?? '';
-
-        return trim((string) preg_replace('~\s+~', ' ', $s));
     }
 }
