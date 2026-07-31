@@ -60,6 +60,7 @@
     "scripts": {
         "setup": [
             "composer install",
+            "@composer hooks:install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "npm install",
@@ -99,6 +100,9 @@
         ],
         "guard:no-unsafe-migrations": [
             "@php scripts/guard-no-unsafe-migrations.php"
+        ],
+        "hooks:install": [
+            "git config core.hooksPath .githooks && echo 'core.hooksPath -> .githooks (pre-push gate active; bypass with git push --no-verify)' || echo 'Not a git checkout — skipped installing the pre-push hook.'"
         ],
         "guard:no-cache-memo": [
             "@php -r '$bad = []; if (is_dir(\"app\")) { foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(\"app\")) as $f) { if ($f->isFile() && $f->getExtension() === \"php\" && str_contains(file_get_contents($f->getPathname()), \"Cache::memo()->remember\")) { $bad[] = $f->getPathname(); } } } if (!empty($bad)) { fwrite(STDERR, \"Cache::memo()->remember is banned in app/ — use CacheLockService::rememberLocked (Master Pattern 14):\" . PHP_EOL); foreach ($bad as $p) { fwrite(STDERR, \"  $p\" . PHP_EOL); } exit(1); }'"
