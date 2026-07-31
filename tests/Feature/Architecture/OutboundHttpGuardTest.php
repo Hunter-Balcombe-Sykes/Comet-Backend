@@ -18,6 +18,22 @@
 // SCOPE: one sink. This says nothing about SQL, filesystem paths, or shell
 // execution. Do not read a green run here as "dataflow analysis is covered".
 //
+// SCOPE (directories): base_path('app') only — tests/, scripts/ and the Worker are
+// NOT scanned. Reviewed 2026-07-31 and left that way deliberately, because none of
+// the three holds an SSRF surface:
+//   - cloudflare-worker/ has exactly two outbound sites, and neither resolves an
+//     attacker-supplied host: `fetch(request)` (src/index.js:331) passes the inbound
+//     request through to its own origin, and `env.PARTNA_PAGES.fetch(originRequest)`
+//     (:341, :418, :424) is a service binding, which performs no URL resolution at
+//     all. Re-check with `grep -rn "fetch(" cloudflare-worker/src/`.
+//   - scripts/ hits are launch-check shell/PHP diagnostics run by hand. No request
+//     input reaches them.
+//   - tests/ is not a runtime surface.
+// Widening the scanner would therefore add maintenance and allowlist churn without
+// closing a reachable path. If a NEW outbound call in scripts/ or the Worker ever
+// takes a variable host, that changes — widen the scanner then, and do not treat
+// this note as settling it.
+//
 // Comments are stripped with token_get_all() before matching, and that is
 // load-bearing: ProcessShopBrandLogoJob.php:67 contains the comment "Never call
 // Http::get() here." A regex scanner allowlists a file for mentioning the very

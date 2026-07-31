@@ -226,3 +226,23 @@ this design leaves uncovered (SQL, file paths, shell) start to matter.
 
 - Sinks other than outbound HTTP remain uncovered (§2).
 - `SafeUrlFetcher`'s own correctness is assumed, not re-verified here.
+
+### 8.1 Directory scope — `app/` only, reviewed and kept 2026-07-31
+
+The scanner runs against `base_path('app')` at all four call sites. `tests/`, `scripts/`
+and `cloudflare-worker/` are **not** scanned. This was raised as a gap and closed as
+**WONTFIX**, because none of the three holds a reachable SSRF surface:
+
+| Directory | Finding |
+|---|---|
+| `cloudflare-worker/` | Exactly two outbound sites, neither taking an attacker-chosen host: `fetch(request)` (`src/index.js:331`) passes the inbound request through to its own origin; `env.PARTNA_PAGES.fetch(originRequest)` (`:341`, `:418`, `:424`) is a **service binding** and resolves no URL. |
+| `scripts/` | Hits are `launch-check/*.sh` and `refresh-schema-snapshot.php` — hand-run diagnostics, no request input. |
+| `tests/` | Not a runtime surface. |
+
+Widening the scanner would add allowlist churn without closing a reachable path. It
+would also mean a second scanner in TypeScript for the Worker, which is a real cost
+against zero measured risk.
+
+**What would reopen this:** a new outbound call in `scripts/` or the Worker that takes a
+**variable host**. Verify with `grep -rn "fetch(" cloudflare-worker/src/` before assuming
+this note still holds — it is a snapshot, not an invariant, and nothing enforces it.
