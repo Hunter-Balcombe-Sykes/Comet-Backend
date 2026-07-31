@@ -9,9 +9,16 @@ use Illuminate\Support\Str;
 // slugs:prune-retired's two predicates: (1) properly retired rows past the
 // config window, and (2) stranded is_current=false/retired_at=NULL rows
 // (a crashed rename) older than the window.
+//
+// content.item_slugs shares the same column shape but is a smaller, currently
+// vestigial addition to this command (see the 20260731210000 migration): no
+// allocator, no read path -- only ItemMerger::moveSlugs() writes retired_at.
+// The predicates below are pinned identically so the sweep is proven correct
+// even though production has zero rows there today.
 
 beforeEach(function () {
     setupItemSlugsTable();
+    setupContentCurationTables();
 });
 
 function insertItemSlugRow(array $overrides = []): string
@@ -22,6 +29,22 @@ function insertItemSlugRow(array $overrides = []): string
         'user_id' => 'user-1',
         'item_type' => 'menu_item',
         'item_key' => 'k1',
+        'slug' => 'fish-tacos',
+        'is_current' => 1,
+        'created_at' => now()->toDateTimeString(),
+        'retired_at' => null,
+    ], $overrides));
+
+    return $id;
+}
+
+function insertContentItemSlugRow(array $overrides = []): string
+{
+    $id = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.item_slugs')->insert(array_merge([
+        'id' => $id,
+        'user_id' => 'user-1',
+        'item_id' => (string) Str::uuid(),
         'slug' => 'fish-tacos',
         'is_current' => 1,
         'created_at' => now()->toDateTimeString(),
@@ -119,8 +142,8 @@ it('--dry-run reports counts and deletes nothing', function () {
     ]);
 
     $this->artisan(PruneRetiredItemSlugs::class, ['--dry-run' => true])
-        ->expectsOutputToContain('Expired retired item slugs: 1')
-        ->expectsOutputToContain('Stranded unstamped item slugs: 1')
+        ->expectsOutputToContain('Expired retired item slugs (site): 1')
+        ->expectsOutputToContain('Stranded unstamped item slugs (site): 1')
         ->assertSuccessful();
 
     expect(DB::connection('pgsql')->table('site.item_slugs')->where('id', $expiredId)->exists())->toBeTrue();
@@ -137,4 +160,92 @@ it('is global, not tenant-scoped: a second user\'s expired retired row is also d
     $this->artisan(PruneRetiredItemSlugs::class)->assertSuccessful();
 
     expect(DB::connection('pgsql')->table('site.item_slugs')->where('id', $otherId)->exists())->toBeFalse();
+});
+
+// ─── content.item_slugs: same predicates, smaller scope (271-PRIV-1 sibling) ──
+// No allocator writes here today -- only ItemMerger::moveSlugs() stamps
+// retired_at -- so these pin the sweep's correctness ahead of that table ever
+// carrying real rows in production.
+
+it('deletes a retired content slug past the retention window', function () {
+    $id = insertContentItemSlugRow([
+        'slug' => 'old-content-name', 'is_current' => 0,
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'retired_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+
+    $this->artisan(PruneRetiredItemSlugs::class)->assertSuccessful();
+
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('id', $id)->exists())->toBeFalse();
+});
+
+it('keeps a retired content slug still inside the retention window', function () {
+    $id = insertContentItemSlugRow([
+        'slug' => 'old-content-name', 'is_current' => 0,
+        'created_at' => now()->subDays(10)->toDateTimeString(),
+        'retired_at' => now()->subDays(10)->toDateTimeString(),
+    ]);
+
+    $this->artisan(PruneRetiredItemSlugs::class)->assertSuccessful();
+
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('id', $id)->exists())->toBeTrue();
+});
+
+it('deletes a stranded content is_current=false row with no retired_at older than the window', function () {
+    $id = insertContentItemSlugRow([
+        'slug' => 'stranded-content', 'is_current' => 0, 'retired_at' => null,
+        'created_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+
+    $this->artisan(PruneRetiredItemSlugs::class)->assertSuccessful();
+
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('id', $id)->exists())->toBeFalse();
+});
+
+it('--dry-run reports both tables\' counts separately and deletes from neither', function () {
+    $siteExpiredId = insertItemSlugRow([
+        'slug' => 'old-name', 'is_current' => 0,
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'retired_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+    $contentExpiredId = insertContentItemSlugRow([
+        'slug' => 'old-content-name', 'is_current' => 0,
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'retired_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+    $contentStrandedId = insertContentItemSlugRow([
+        'slug' => 'stranded-content', 'is_current' => 0, 'retired_at' => null,
+        'created_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+
+    $this->artisan(PruneRetiredItemSlugs::class, ['--dry-run' => true])
+        ->expectsOutputToContain('Expired retired item slugs (site): 1')
+        ->expectsOutputToContain('Expired retired item slugs (content): 1')
+        ->expectsOutputToContain('Stranded unstamped item slugs (content): 1')
+        ->assertSuccessful();
+
+    expect(DB::connection('pgsql')->table('site.item_slugs')->where('id', $siteExpiredId)->exists())->toBeTrue();
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('id', $contentExpiredId)->exists())->toBeTrue();
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('id', $contentStrandedId)->exists())->toBeTrue();
+});
+
+it('sweeps site and content rows in the same real run, reported with separate counts', function () {
+    $siteId = insertItemSlugRow([
+        'slug' => 'site-old', 'is_current' => 0,
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'retired_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+    $contentId = insertContentItemSlugRow([
+        'slug' => 'content-old', 'is_current' => 0,
+        'created_at' => now()->subDays(200)->toDateTimeString(),
+        'retired_at' => now()->subDays(91)->toDateTimeString(),
+    ]);
+
+    $this->artisan(PruneRetiredItemSlugs::class)
+        ->expectsOutputToContain('Expired retired item slugs (site): 1')
+        ->expectsOutputToContain('Expired retired item slugs (content): 1')
+        ->assertSuccessful();
+
+    expect(DB::connection('pgsql')->table('site.item_slugs')->where('id', $siteId)->exists())->toBeFalse();
+    expect(DB::connection('pgsql')->table('content.item_slugs')->where('id', $contentId)->exists())->toBeFalse();
 });

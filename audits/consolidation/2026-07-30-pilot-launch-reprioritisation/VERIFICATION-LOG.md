@@ -977,6 +977,9 @@ analytics.site_sessions
 
 `routes/console.php` has no slug-prune schedule — grepped for `prune|purge` across the whole file; the closest neighbors are unrelated (`handles:prune-expired-aliases`, `moderation:prune-resolved-signal-pii`, etc.), nothing targets `item_slugs`. `ItemSlugAllocator` only ever inserts/reactivates/hard-deletes-on-`forget()` rows; retired (`is_current=false`) rows accumulate indefinitely with no age-based cleanup. Confirmed still open, and now doubled by the new `content.item_slugs` table carrying the same gap.
 
+**RESOLVED 2026-07-31.** `site.item_slugs` closed by 271-PRIV-1 (Tier 2, `499c13ef`). The `content.item_slugs` half — which never had a finding id of its own — closed on `audit-fix/content-slugs-retention-2026-07-31` with a deliberately SMALLER fix: column + a stamp in `ItemMerger::moveSlugs()` + a second arm on the existing `slugs:prune-retired`, but NO allocator, NO read filter and NO backfill. Reason: nothing mints rows into `content.item_slugs` (0 rows on dev vs 395 `content.items`) and nothing reads it, so the defect was latent, not active. `moveSlugs()` does genuinely retire slugs, so a future minter would have started accumulating immediately.
+
+
 ## 271-PRIV-2 — VERDICT: STILL-OPEN (confirmed as current, deliberate behaviour)
 
 Traced the full path for a **claimed** google-business connection:

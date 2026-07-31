@@ -3265,6 +3265,7 @@ function setupContentCurationTables(): void
         slug TEXT NOT NULL,
         is_current INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
+        retired_at TEXT NULL,
         UNIQUE (user_id, slug)
     )');
 }

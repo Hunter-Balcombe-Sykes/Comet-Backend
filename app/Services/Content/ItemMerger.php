@@ -343,12 +343,22 @@ final class ItemMerger
                 ->orderByDesc('created_at')
                 ->value('id');
 
+        // 271-PRIV-1 (content.item_slugs sibling): stamp every moved row as
+        // retired here first, then clear the one being promoted below. Order
+        // matters -- if the promote ran first, this bulk update would
+        // immediately re-stamp it right back to retired.
         $moved = DB::table('content.item_slugs')
             ->where('item_id', $discarded->id)
-            ->update(['item_id' => $kept->id, 'is_current' => false]);
+            ->update(['item_id' => $kept->id, 'is_current' => false, 'retired_at' => now()]);
 
         if ($promote !== null) {
-            DB::table('content.item_slugs')->where('id', $promote)->update(['is_current' => true]);
+            // Clear the stamp this same bulk update just set. Leaving it would
+            // flip the slug back to current while it still carries a delete
+            // stamp -- the highest-severity bug class from the site.item_slugs
+            // retention work (ItemSlugAllocator::promote()) -- and the nightly
+            // slugs:prune-retired sweep would hard-delete a slug that is
+            // currently serving as the item's URL.
+            DB::table('content.item_slugs')->where('id', $promote)->update(['is_current' => true, 'retired_at' => null]);
         }
 
         return $moved;
