@@ -502,12 +502,18 @@ it('still marks the platform sync status ok when persist() succeeds (control)', 
     expect($link->synced_at)->not->toBeNull();
 });
 
-// ── DINT-102: a menu with live categories can never be deleted ────────────
+// ── DINT-102: a menu with live categories can never be SOFT-deleted ───────
 // MenuFetchJob::clearScrapedContent() only ever calls $menu->delete() after
 // checking `! $menu->categories()->exists()` — this MenuObserver makes that
 // invariant a model-level guarantee (not just a convention at one call site)
-// so a future delete path can't silently orphan menu_categories/menu_items
-// rows under a vanished menu.
+// so a future delete path can't leave a category tree under a menu the user
+// can no longer see.
+//
+// NARROWED (Nightwatch #297): the guard no longer covers the retention
+// hard-delete. All three children are ON DELETE CASCADE, so forceDelete()
+// cannot orphan anything, and guarding it jammed PurgeSoftDeleted forever —
+// MenuCategory has no SoftDeletes, so categories()->exists() never goes false
+// for a soft-deleted menu. See MenuObserver's docblock for the FK evidence.
 
 it('blocks deleting a menu that still has live categories, and the categories survive', function () {
     $user = menuUser('dint102');
@@ -521,15 +527,28 @@ it('blocks deleting a menu that still has live categories, and the categories su
     expect(MenuCategory::query()->where('menu_id', $menu->id)->exists())->toBeTrue();
 });
 
-it('blocks force-deleting a menu that still has live categories (PurgeSoftDeleted path)', function () {
+it('allows force-deleting a menu that still has live categories (PurgeSoftDeleted path)', function () {
     $user = menuUser('dint102fd');
     $menu = Menu::create(['user_id' => $user->id, 'content_source' => 'uber-eats', 'fetch_status' => 'ok']);
     MenuCategory::create(['menu_id' => $menu->id, 'name' => 'Mains', 'position' => 0, 'source_platform' => 'uber-eats']);
 
-    expect(fn () => $menu->forceDelete())->toThrow(RuntimeException::class);
+    // Trashed via the query builder, not ->delete(): the soft-delete guard is
+    // deliberately still in force, and this is how the 8 jammed dev rows got
+    // there anyway — soft-deleted before this observer existed. What
+    // PurgeSoftDeleted then finds is an already-trashed menu with live
+    // categories, which is precisely the state that jammed it (#297).
+    DB::table('site.menus')->where('id', $menu->id)->update(['deleted_at' => now()]);
+    $menu = Menu::withTrashed()->findOrFail($menu->id);
 
-    expect(Menu::query()->whereKey($menu->id)->exists())->toBeTrue();
-    expect(MenuCategory::query()->where('menu_id', $menu->id)->exists())->toBeTrue();
+    $menu->forceDelete();
+
+    expect(Menu::withTrashed()->whereKey($menu->id)->exists())->toBeFalse();
+
+    // Deliberately NOT asserting the categories cascaded: this lane is SQLite,
+    // where foreign keys are off unless a pragma enables them, so the cascade
+    // cannot fire here. Asserting it would be asserting a behaviour the lane
+    // is incapable of producing. The cascade itself is pinned against real
+    // Postgres in tests/Postgres/MenuForceDeleteCascadeTest.php.
 });
 
 it('allows deleting a menu with no live categories (the legitimate clearScrapedContent path stays unblocked)', function () {
