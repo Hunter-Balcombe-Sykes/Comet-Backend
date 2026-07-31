@@ -1733,7 +1733,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 6 complete
+- P2 Medium: 1 of 6 complete
 - P3 Low: 0 of 3 complete
 
 **Adjudication note:** the draft scan over-reported heavily on this scope. Most "no visible test" claims turned out false on inspection — this PR's feature (item-url-slugs) and the public sitepage endpoints it touches are unusually well tested (`PublicEventSlugTest.php`, `PublicMenuControllerTest.php`, `PublicIntegrationAllowlistTest.php`, `EventSlugSyncTest.php`, `ItemSlugAllocatorTest.php`, `BackfillItemSlugsTest.php` all directly cover what several draft findings claimed was untested). Two findings (`account_type` should be `'individual'`) were backwards: the `AccountType` enum and `users_account_type_check` constraint (`supabase/migrations/20260612120000_account_type_partna_business.sql`) only permit `'partna'`/`'business'` — `'individual'` is the legacy value explicitly rejected going forward. Those were dropped rather than "fixed," since applying the proposed fix would itself introduce a bug.
@@ -1742,7 +1742,7 @@ ng purposes ("wholesale rebuild via query builder bypasses the model observers")
 
 ## P2 — Should fix
 
-- [ ] **271-TEST-1** · P2 — No invariant test asserting `site.themes` stays dropped
+- [x] **271-TEST-1** · P2 — No invariant test asserting `site.themes` stays dropped · **FIXED (tier3 triage 2026-07-31):** two absence assertions added to `tests/Schema/ArchitectureSystemConstraintsTest.php` — `site.themes` absent from `information_schema.tables` (so a compatibility VIEW fails too, not just a table) and `set_default_theme_for_site()` absent from `pg_proc` in ANY schema (it was dropped with CASCADE; a re-add elsewhere is the same regression). Both proven to fail: creating the table + function turned them red with the object type/schema named, and teardown returned the lane to green. Schema lane 123 → 126 passed / 344 → 348 assertions. ⚠️ Runs in `composer test:schema` only — NOT `composer test`. **`CLAUDE.md:228`'s claim that this rule was "Pinned by `ArchitectureSystemConstraintsTest`" was false and has been corrected** to name what each clause is actually pinned by, and the lane.
     - **Where:** tests/Feature/Database/ (no matching file); supabase/migrations/20260527070000_skeleton_system_cleanup.sql:56
     - **Affects:** Architecture-system integrity — a future migration authored by copy-pasting an older pattern could accidentally re-introduce `site.themes` with nothing in CI to catch it.
     - **Effort:** S (~0.5–1h)

@@ -13,8 +13,8 @@
 ## Progress
 
 - P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 1 of 20 complete
-- P3 Low: 0 of 9 complete
+- P2 Medium: 2 of 20 complete  (+#TEST-41 OPPORTUNISTIC, 2026-07-31)
+- P3 Low: 2 of 9 complete  (+#TEST-49 FIXED, +#TEST-50 OPPORTUNISTIC, both 2026-07-31)
 
 ---
 
@@ -605,7 +605,7 @@
         // no restore anywhere in the file
         ```
 
-- [ ] **#TEST-41** · P2 — `tests/Postgres/*` tests hand-copy migration DDL inline rather than exercising the real migration files, risking silent schema drift
+- [x] **#TEST-41** · P2 — `tests/Postgres/*` tests hand-copy migration DDL inline rather than exercising the real migration files, risking silent schema drift · **OPPORTUNISTIC (tier3 triage 2026-07-31):** unblocked but not attempted — the schema-drift gate now watches those two files and the only fast remedy for a red gate (regenerating its baselines) is forbidden. Copy `tests/Postgres/ItemTombstoneBackfillTest.php`. Full note in `CONSOLIDATED.md`.
     - **Where:** `tests/Postgres/BrandAssetPipelineTest.php:36-68`, `tests/Postgres/CatalogSyncIdempotenceTest.php:19-83`, `tests/Postgres/ItemTombstoneBackfillTest.php:26-61`
     - **Affects:** CI confidence that Postgres tests validate against production schema — one file (`ItemTombstoneBackfillTest`) already demonstrates the correct pattern (`file_get_contents(base_path(...))`) for the backfill itself but not for its own base-table setup.
     - **Effort:** M (~2–4h)
@@ -678,12 +678,12 @@
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `if ($hasSurface === $hasSignal) { throw new InvalidArgumentException(...); }`
 
-- [ ] **#TEST-49** · P3 — `detectors_surface_xor_signal` DB CHECK constraint (defense-in-depth backup to #TEST-48) has no grep-based invariant test
+- [x] **#TEST-49** · P3 — `detectors_surface_xor_signal` DB CHECK constraint (defense-in-depth backup to #TEST-48) has no grep-based invariant test · **FIXED (tier3 triage 2026-07-31):** one `it()` in `tests/Schema/CheckConstraintsTest.php` via that file's `assertCheckConstraintExists('catalog', 'detectors', …)` helper — stronger than a grep, since it also asserts `convalidated`. Full note in `CONSOLIDATED.md`.
     - **Where:** `supabase/migrations/20260727100000_catalog_schema.sql:57`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `CONSTRAINT "detectors_surface_xor_signal" CHECK (("surface_key" IS NULL) <> ("signal_key" IS NULL))`
 
-- [ ] **#TEST-50** · P3 — `content.identity_keys` deliberately has NO unique index on `(key_class, key_value)` — a "must not exist" invariant with no guard against a well-meaning future addition
+- [x] **#TEST-50** · P3 — `content.identity_keys` deliberately has NO unique index on `(key_class, key_value)` — a "must not exist" invariant with no guard against a well-meaning future addition · **OPPORTUNISTIC (tier3 triage 2026-07-31):** prevents no bug that can happen today; fix when `tests/Schema/IndexCoverageTest.php` is next open. ⚠️ The guard needs a why-comment or it gets deleted as dead weight — see the `site.themes` guards in `ArchitectureSystemConstraintsTest` for the shape. Full note in `CONSOLIDATED.md`.
     - **Where:** `supabase/migrations/20260727140000_content_schema.sql:76-82`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `-- Deliberately NO unique index on (class, value): two sources reporting the same ISRC is the exact signal the resolver consumes.`

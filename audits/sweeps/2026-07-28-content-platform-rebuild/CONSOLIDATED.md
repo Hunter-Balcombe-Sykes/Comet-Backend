@@ -117,7 +117,7 @@ tests originally scoped.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 4 complete
+- P2 Medium: 2 of 4 complete  (+#SEC-4 WONTFIX, 2026-07-31)
 - P3 Low: 0 of 6 complete
 
 ---
@@ -203,7 +203,7 @@ tests originally scoped.
         }
         ```
 
-- [ ] **#SEC-4** · P2 — Raw `DB::insert()` in `ShopController::setProducts()` bypasses `$fillable` for bulk product rows
+- [x] **#SEC-4** · P2 — Raw `DB::insert()` in `ShopController::setProducts()` bypasses `$fillable` for bulk product rows · **WONTFIX (tier3 triage 2026-07-31).** Both premises re-verified against `ShopController.php:699-709` on 2026-07-31 and both still hold, which is *why* this closes rather than ships. (1) **No live over-post path.** `$rows` is a hand-written 7-key literal (`id`, `brand_id`, `product_id`, `position`, `data`, `created_at`, `updated_at`); `$productData` is never spread — it reaches only `(string) ($productData['productId'] ?? '')` and `json_encode($productData)` into the `data` JSONB column, which is that column's intended contents. The finding's own Technical note concedes this. (2) **The prescribed fix is a tautology.** "Validate the keys in each `$rows[]` entry against an explicit allowlist immediately before the insert" — the keys are written as literals three lines above, so an `array_intersect_key` against a hand-copied allowlist can never remove anything, can never fail, and cannot be meaningfully tested. It is also actively harmful: a silently-dropping filter is a debugging trap for exactly the future developer it claims to protect (they spread `$productData`, columns vanish, no signal). The raw insert is a documented performance trade-off — 250 products × Supavisor round-trips inside a 10s lock — with `HasUuids` and the `data` cast reproduced by hand. **Reopen only on new evidence:** if `$rows` ever stops being a hand-written literal, this becomes a different, live finding. Guarded meanwhile by `tests/Feature/Platforms/ShopSelectionLockTest.php`'s single-INSERT and 250-product round-trip tests. No code changed.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php:682-697
     - **Affects:** Shop product-selection persistence — any future column added to `site.shop_products` (especially a tenant-scoping FK) would be silently writable through this raw insert path if the scraper's catalog output ever grows a colliding key.
     - **Effort:** S (~0.5–1h)
@@ -4790,8 +4790,8 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
 ## Progress
 
 - P1 High: 17 of 17 complete  (many stale or partly stale — see individual entries)
-- P2 Medium: 3 of 20 complete  (+#TEST-30 narrowed, +#TEST-44, both 2026-07-30)
-- P3 Low: 0 of 9 complete
+- P2 Medium: 4 of 20 complete  (+#TEST-30 narrowed, +#TEST-44, both 2026-07-30; +#TEST-41 OPPORTUNISTIC 2026-07-31)
+- P3 Low: 2 of 9 complete  (+#TEST-49 FIXED, +#TEST-50 OPPORTUNISTIC, both 2026-07-31)
 
 ---
 
@@ -5383,7 +5383,7 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
         // no restore anywhere in the file
         ```
 
-- [ ] **#TEST-41** · P2 — `tests/Postgres/*` tests hand-copy migration DDL inline rather than exercising the real migration files, risking silent schema drift
+- [x] **#TEST-41** · P2 — `tests/Postgres/*` tests hand-copy migration DDL inline rather than exercising the real migration files, risking silent schema drift · **OPPORTUNISTIC (tier3 triage 2026-07-31):** deliberately NOT attempted here. Its deferral condition ("once P0-LAUNCH merges") is met, but P0-LAUNCH also widened the schema-drift gate so it now *sees* inline DDL in `tests/Postgres/BrandAssetPipelineTest.php` (3 statements) and `CatalogSyncIdempotenceTest.php` (6), and re-grandfathered the baseline around them. Editing those files risks turning the gate red, and the only fast remedy — regenerating `scripts/launch-check/schema-drift-baseline.json` / `no-local-canonical-ddl-baseline.json` — is forbidden. **Copy `tests/Postgres/ItemTombstoneBackfillTest.php`**, which already reads real migration SQL off disk, rather than inventing a pattern. Worth doing in a session that owns those two files and can watch the gate.
     - **Where:** `tests/Postgres/BrandAssetPipelineTest.php:36-68`, `tests/Postgres/CatalogSyncIdempotenceTest.php:19-83`, `tests/Postgres/ItemTombstoneBackfillTest.php:26-61`
     - **Affects:** CI confidence that Postgres tests validate against production schema — one file (`ItemTombstoneBackfillTest`) already demonstrates the correct pattern (`file_get_contents(base_path(...))`) for the backfill itself but not for its own base-table setup.
     - **Effort:** M (~2–4h)
@@ -5457,12 +5457,12 @@ None — no P0, auth/authorization-bypass, money, DB migration/schema, or L/XL-e
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `if ($hasSurface === $hasSignal) { throw new InvalidArgumentException(...); }`
 
-- [ ] **#TEST-49** · P3 — `detectors_surface_xor_signal` DB CHECK constraint (defense-in-depth backup to #TEST-48) has no grep-based invariant test
+- [x] **#TEST-49** · P3 — `detectors_surface_xor_signal` DB CHECK constraint (defense-in-depth backup to #TEST-48) has no grep-based invariant test · **FIXED (tier3 triage 2026-07-31):** one `it()` in `tests/Schema/CheckConstraintsTest.php` using that file's existing `assertCheckConstraintExists('catalog', 'detectors', …)` helper. Absorbed opportunistically — `tests/Schema/` was already open for `271-TEST-1`. Note this is **stronger than the finding asked for**: a grep proves a string is in a migration file, this asks the applied schema whether the constraint exists AND is `convalidated`, so a `NOT VALID` constraint fails too.
     - **Where:** `supabase/migrations/20260727100000_catalog_schema.sql:57`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `CONSTRAINT "detectors_surface_xor_signal" CHECK (("surface_key" IS NULL) <> ("signal_key" IS NULL))`
 
-- [ ] **#TEST-50** · P3 — `content.identity_keys` deliberately has NO unique index on `(key_class, key_value)` — a "must not exist" invariant with no guard against a well-meaning future addition
+- [x] **#TEST-50** · P3 — `content.identity_keys` deliberately has NO unique index on `(key_class, key_value)` — a "must not exist" invariant with no guard against a well-meaning future addition · **OPPORTUNISTIC (tier3 triage 2026-07-31):** legitimate future guard, but it prevents no bug that can happen today, and `CLAUDE.md` forbids running the P3 tail as a campaign. Fix it when `tests/Schema/IndexCoverageTest.php` is next open for real work. ⚠️ **When you do: the guard needs a comment stating why the absence is correct**, or the next developer deletes it as dead weight rather than respecting it — an absence-assertion reads like an oversight otherwise. `tests/Schema/ArchitectureSystemConstraintsTest.php`'s `site.themes`/`set_default_theme_for_site()` guards (added 2026-07-31 under `271-TEST-1`) are the worked example of that shape, including the failure-message wording.
     - **Where:** `supabase/migrations/20260727140000_content_schema.sql:76-82`
     - **Effort:** S (~0.5–1h)
     - **Evidence:** `-- Deliberately NO unique index on (class, value): two sources reporting the same ISRC is the exact signal the resolver consumes.`

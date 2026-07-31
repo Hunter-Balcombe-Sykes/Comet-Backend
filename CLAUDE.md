@@ -225,8 +225,8 @@ Partna is an individual-user-only platform. The model is `App\Models\Core\User\U
 
 **Hard rules:**
 - New design kit var = new migration (NULLABLE, no DB default).
-- Adding a second architecture is a **platform decision, not a task** — needs CHECK widened, collapse undone, new `src/architectures/<name>/`, rebuilt dashboard picker. Pinned by `ArchitectureSystemConstraintsTest`.
-- Never reintroduce `site.themes`, `settings.design.*`, or theme-picker machinery. "Theme" ONLY means `theme_mode` (bleach/dust/warm/dusk/midnight).
+- Adding a second architecture is a **platform decision, not a task** — needs CHECK widened, collapse undone, new `src/architectures/<name>/`, rebuilt dashboard picker. `tests/Schema/ArchitectureSystemConstraintsTest` pins the `architecture_id` CHECK, the `design_kits` CASCADE FK, the auto-insert trigger, and that `site.themes` + `set_default_theme_for_site()` stay dropped — but it runs in the **applied-schema lane** (`composer test:schema`, CI `ci.yml`), **NOT** `composer test`. A green `composer test` says nothing about any of them.
+- Never reintroduce `site.themes`, `settings.design.*`, or theme-picker machinery. "Theme" ONLY means `theme_mode` (bleach/dust/warm/dusk/midnight). The dropped `site.themes`/`set_default_theme_for_site()` are pinned by the schema test above; the `settings.design.*` write rejection by `UpdateSiteValidationTest` + `StaffUpdateSiteValidationTest` (those two DO run in `composer test`).
 
 ## Load-testing harness (`scripts/launch-check/k6/`)
 
