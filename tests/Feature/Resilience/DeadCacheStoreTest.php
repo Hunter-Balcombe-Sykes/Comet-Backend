@@ -152,17 +152,18 @@ function setupDeadStoreProfileSchema(): void
     setupServicesTable();
     setupContentSelectionTable();
 
+    // Shared helper, not a local CREATE TABLE: NoLocalCanonicalTableDdlTest and
+    // DuplicateStandInDdlGuardTest both reject a bespoke copy, because
+    // tests/Pest.php's version runs first in setup order and IF NOT EXISTS makes
+    // the local one a silent no-op — the test would believe it ran under a
+    // schema it never got.
+    setupDesignKitsTable();
+
     try {
         DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN architecture_id TEXT NOT NULL DEFAULT 'staple'");
     } catch (Throwable) {
         // Column already added by an earlier test in this process.
     }
-
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.design_kits (
-        site_id TEXT PRIMARY KEY,
-        color_accent TEXT NULL,
-        color_text TEXT NULL
-    )');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

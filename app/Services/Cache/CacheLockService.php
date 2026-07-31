@@ -326,6 +326,24 @@ class CacheLockService
      * is total unavailability. If it proves wrong, the narrowing is to restrict
      * degradation to the public read path.
      *
+     * ONE CONSUMER IS NOT A DB READ, and it is the one to watch:
+     * VerifySupabaseJwt::fetchJwksOrThrow() caches `supabase:jwks` through here.
+     * Degrading it means every authenticated request re-fetches JWKS from
+     * Supabase over HTTP for the duration of an outage — an EXTERNAL stampede,
+     * not an internal one, with a 5s timeout attached. That is still better
+     * than what it replaces (the RedisException became a JwksUnavailableException
+     * and every authed request 503'd), but it is a different shape of risk from
+     * the DB stampede above: if Supabase throttles the burst, authentication
+     * degrades anyway, just more slowly. Worth revisiting with a process-local
+     * JWKS memo before pilot traffic grows.
+     *
+     * CALLERS THAT CATCH. FeatureFlagService and FeatureAvailability both wrap
+     * rememberLocked() in their own try/catch. A STORE fault no longer reaches
+     * them — it is handled here — but a fault thrown by their CALLBACK still
+     * does, which is what those catches are actually for (see
+     * FeatureAvailability::resolveOverrides()'s docblock). Do not "clean up"
+     * those catches as dead code.
+     *
      * The callback's OWN exceptions are not caught here — a genuine downstream
      * failure must not be laundered into a cache-outage breadcrumb.
      */

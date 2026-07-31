@@ -70,3 +70,4 @@ scripts/dast/.env
 # messages), so it must never be committable even though those paths are now
 # truncated/redacted at the source.
 audits/launch-check/
+.env.drill

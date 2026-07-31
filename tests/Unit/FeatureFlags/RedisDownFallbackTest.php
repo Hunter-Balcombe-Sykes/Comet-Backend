@@ -23,7 +23,44 @@ it('falls back to DB when cache throws and logs a warning', function () {
     config(['partna.features.fallback_flag' => true]);
 
     expect($service->enabled('fallback_flag'))->toBeTrue();
-    Log::shouldHaveReceived('warning')->withArgs(fn ($msg) => str_contains($msg, 'cache_unavailable'));
+
+    // D1: the breadcrumb for a dead STORE now comes from CacheLockService, one
+    // layer down, not from this service's own catch. The registry lookup goes
+    // through rememberLocked(), which since D1 degrades to an uncached compute
+    // instead of rethrowing — so enabled() gets its DB answer without the
+    // exception ever reaching FeatureFlagService::enabled()'s catch.
+    //
+    // The alarm is NOT lost, it moved and widened: every CacheLockService
+    // consumer now emits this, rather than only the handful that hand-wrote a
+    // catch. The service's own guard is still live for the faults it uniquely
+    // sees — proven by the next test, not assumed here.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $msg) => $msg === 'cache.store_unavailable')
+        ->atLeast()->once();
+});
+
+it('still logs its own feature_flags.cache_unavailable when the fault is its own', function () {
+    // loadProOverrides() does a bare Cache::get() of its own BEFORE reaching
+    // rememberLocked (the warm-read fast path that skips the MIN(expires_at)
+    // query). That call is outside CacheLockService, so it still bubbles — and
+    // this service's context-rich breadcrumb, with flag_key and user_id, still
+    // fires. Pinned so the D1 layering change above cannot quietly become
+    // "FeatureFlagService's catch is dead code".
+    Cache::shouldReceive('get')->andThrow(new RuntimeException('redis down'));
+    Log::spy();
+
+    $pro = new User;
+    $pro->id = (string) Str::uuid();
+    $pro->status = 'active';
+
+    $service = app(FeatureFlagService::class);
+    config(['partna.features.fallback_flag' => true]);
+
+    expect($service->enabled('fallback_flag', $pro))->toBeTrue();
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $msg) => $msg === 'feature_flags.cache_unavailable')
+        ->atLeast()->once();
 });
 
 // FFLAG-2: enabled() degraded path — DB row present, Redis down.
