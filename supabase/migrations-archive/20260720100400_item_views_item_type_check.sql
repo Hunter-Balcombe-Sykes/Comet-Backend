@@ -1,7 +1,7 @@
 -- SCHEMA-1 — analytics.item_views.item_type CHECK constraint.
 --
 -- CORRECTED vocabulary (10 values), NOT the 7-value list in the audit finding
--- (audits/sweeps/2026-07-11-full-work-sweep/TRIAGE-2-P2.md SCHEMA-1), which
+-- (audits/archive/sweeps/2026-07-11-full-work-sweep/TRIAGE-2-P2.md SCHEMA-1), which
 -- was copied from the stale DDL comment at
 -- 20260709042911_create_item_views.sql:13. Source of truth is
 -- App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest::ITEM_TYPES,

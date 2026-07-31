@@ -43,8 +43,8 @@ two places, on top of the two phantoms it already flags. Verified 2026-07-31:
 
 | Item | ❌ Do NOT tick | ✅ The real box |
 |---|---|---|
-| themes guard | `#TEST-9` in the **07-11** sweep — that is *"no forget test for `nowbookit`"*, P3, unrelated. The 07-11 sweep has **no** themes finding (`grep site\.themes` → nothing). 07-28's `#TEST-9` is the Lander guard, already `[x]`. | **`271-TEST-1`** — `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md:1745` |
-| raw insert | `#SEC-4` in the **07-11** sweep — that is `StaffUserController::index()`, already `[x]` at `CONSOLIDATED.md:3641` | **`#SEC-4`** — `audits/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:206` + `audit-2026-07-28-security.md:112` |
+| themes guard | `#TEST-9` in the **07-11** sweep — that is *"no forget test for `nowbookit`"*, P3, unrelated. The 07-11 sweep has **no** themes finding (`grep site\.themes` → nothing). 07-28's `#TEST-9` is the Lander guard, already `[x]`. | **`271-TEST-1`** — `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md:1745` |
+| raw insert | `#SEC-4` in the **07-11** sweep — that is `StaffUserController::index()`, already `[x]` at `CONSOLIDATED.md:3641` | **`#SEC-4`** — `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:206` + `audit-2026-07-28-security.md:112` |
 
 Every other box, verified:
 
@@ -115,7 +115,7 @@ Every other box, verified:
 >
 > ## Item 1 — `site.themes` guard, and the false pinning claim  ← FIX
 >
-> **Box:** `271-TEST-1` · P2 — `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md:1745`
+> **Box:** `271-TEST-1` · P2 — `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md:1745`
 >
 > Half is already closed upstream: P0-LAUNCH moved `ArchitectureSystemConstraintsTest` out of
 > `tests/Feature/Database/` into `tests/Schema/` and into the real applied-schema lane
@@ -198,7 +198,7 @@ Every other box, verified:
 >
 > ## Item 4 — `#SEC-4` raw insert  ← WONTFIX
 >
-> **Box:** `audits/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:206` +
+> **Box:** `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md:206` +
 > `audit-2026-07-28-security.md:112`. **Not** the 07-11 `#SEC-4`.
 >
 > `app/Http/Controllers/Api/Platforms/ShopController.php:709` — `ShopProduct::query()->insert($rows)` has

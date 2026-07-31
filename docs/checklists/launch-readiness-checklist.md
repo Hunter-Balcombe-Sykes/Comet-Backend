@@ -119,6 +119,14 @@ This is the **business + operational** counterpart to the audit checklists. It c
       **the decision to keep it is only defensible if the policy says so** — that was the express condition
       attached to the 2026-07-30 call. (The DSAR export path is unaffected: `DsarPayloadFilter` strips
       `reviews`/`reviewSummary` from every export, and nested `photos[].authors` was fixed @ `31ccf162`.)
+    - ✍️ **Draft clause written 2026-07-31: `docs/legal/reviewer-data-disclosure.md`.** Verified field
+      list off `GoogleBusinessService.php:304-311`, the mitigations already in place, a draft clause to
+      adapt, and four points to raise with the adviser. **Not legal advice** — it exists so a lawyer or
+      generator works from accurate facts rather than a template's assumptions. Two of those points are
+      really engineering questions: the draft promises a reviewer-initiated removal route that **does not
+      exist today** (removing one review currently means disconnecting the integration), and
+      republication is **default-on** rather than opt-in per connection. Settle both before publishing —
+      a policy that describes a takedown path the platform cannot perform is worse than no clause.
 
 - [ ] **LEGAL-3 · P0** — Acceptable Use Policy
     - **When:** Before first pilot customer signs

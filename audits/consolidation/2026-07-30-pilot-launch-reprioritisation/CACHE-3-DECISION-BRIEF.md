@@ -7,7 +7,7 @@ Tier 1 item 5, "decision brief only".**
 >
 > **Projection stays inside the ingest job. The `Bus::chain` fix is REJECTED outright, not
 > postponed.** `#CACHE-3` is ticked in both `CONSOLIDATED.md` and its source
-> (`audits/sweeps/2026-07-28-content-platform-rebuild/`) as **WONTFIX-as-prescribed** — the box closes
+> (`audits/archive/sweeps/2026-07-28-content-platform-rebuild/`) as **WONTFIX-as-prescribed** — the box closes
 > the *question*, not the code. Reopen only on one of the named triggers at the foot of this file, and
 > if triggered, design **bounding projection** via the existing `projection_*_chunk` levers first.
 >

@@ -27,9 +27,9 @@ P1-PILOT (`RunExecutor::execute`, the DSAR export path, and `cloudflare-worker/`
 >
 > | Unit | IDs | Gate | Source of the full finding |
 > |---|---|---|---|
-> | 1 | `#TEST-2` + `#TEST-1` + `271-PARITY-1` | P0 | `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
+> | 1 | `#TEST-2` + `#TEST-1` + `271-PARITY-1` | P0 | `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
 > | 2 | `LC-ROLLBACK` | P0 | `audits/launch-check/2026-07-26/REPORT.md` |
-> | 3 | `#API-1` | P0 + public wire | `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
+> | 3 | `#API-1` | P0 + public wire | `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
 > | 4 | `LC-DAST` | P0 + decision | `audits/launch-check/2026-07-26/REPORT.md` |
 >
 > ---

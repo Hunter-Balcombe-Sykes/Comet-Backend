@@ -77,7 +77,7 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 >
 > | Unit | ID | Kind | Source of the full finding |
 > |---|---|---|---|
-> | 1 | `271-PRIV-2` | **product/legal decision, then code** | `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
+> | 1 | `271-PRIV-2` | **product/legal decision, then code** | `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` |
 > | 2 | `#INH-7-DRIFT` | code — one validation rule | `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` + `VERIFICATION-LOG.md` §V3 |
 > | 3 | `LC-PROD-ENV` | ops — Josh only | `audits/launch-check/2026-07-26/REPORT.md` |
 > | 4 | `LC-BACKUP` | ops + decision — Josh only | same |
@@ -162,7 +162,7 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 > |---|---|---|---|
 > | 1 | `PRIV-1` + `PRIV-2` + `PRIV-4` | S+S+S | `audits/sweeps/2026-07-24-...pr270-pr271.../CONSOLIDATED.md` |
 > | 2 | `PRIV-3` | M | same |
-> | 3 | `#CCH-4` + `#LIFE-11` | S+S | `audits/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md` |
+> | 3 | `#CCH-4` + `#LIFE-11` | S+S | `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md` |
 > | 4 | `#LIFE-12` + `#JOB-4` | S+S | same |
 > | 5 | `271-SEM-1` | M | `audits/sweeps/2026-07-24-...pr270-pr271.../CONSOLIDATED.md` |
 > | 6 | `#43` + `#EDGE-2` + `LC-NIGHTWATCH` | M+S+S | `#43` → 07-11 sweep; `#EDGE-2` → 07-28 sweep; `LC-*` → launch-check report |
@@ -394,9 +394,9 @@ lives in; the `Where:` / `Technical:` / `Evidence:` blocks there are the real sp
 - **Method:** mechanical extraction (Haiku ×7) → verification against current code (Sonnet ×6) → re-grading (Opus)
 - **Branch at time of run:** `guard/postgres-lane-walker`
 - **Sources read:**
-    - `audits/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md` — 170 open
-    - `audits/sweeps/2026-07-11-full-work-sweep/CONSOLIDATED.md` — 59 open (all P3)
-    - `audits/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` — 43 open
+    - `audits/archive/sweeps/2026-07-28-content-platform-rebuild/CONSOLIDATED.md` — 170 open
+    - `audits/archive/sweeps/2026-07-11-full-work-sweep/CONSOLIDATED.md` — 59 open (all P3)
+    - `audits/archive/sweeps/2026-07-24-pr270-pr271-actions-and-slugs/CONSOLIDATED.md` — 43 open
     - `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` — 17 open
     - `audits/sweeps/2026-07-27-dead-code/BACKEND-INHERITANCE-CONSOLIDATION-VERIFIED.md` — 16 open (same 17 findings as above, re-numbered; **not** double-counted)
     - `audits/launch-check/2026-07-26/REPORT.md` — 13 open action items
@@ -475,7 +475,7 @@ tracked in their source folders).
 | DEAD bookkeeping | 0 / 11 |
 
 **P0-PILOT** — worked 2026-07-30 on `audit-fix/p0-pilot-2026-07-30`.
-- [ ] `271-PRIV-2` — **OPEN: awaiting Josh's product/legal decision.** Decision brief prepared; no code written by design.
+- [x] `271-PRIV-2` — ~~OPEN: awaiting Josh's product/legal decision~~ **STALE ENTRY, corrected 2026-07-31.** The decision was taken on **2026-07-30**, before this line was ever read: the nested `photos[].authors` leak was FIXED @ `31ccf162`, and the public-wire `reviews`/`reviewSummary` leg was **DECIDED — kept**, as a deliberate product choice. The source sweep has carried it `[x]` since (`audits/sweeps/2026-07-24-…/CONSOLIDATED.md:38`). This line went stale because the decision landed in the *source* audit and was never reflected back here — the same direction of drift as the id mis-citations noted below, and worth the same caution: **the consolidation is a view, the source audit is the record.** ⚠️ The decision carries a live obligation: `LEGAL-2 · P0` — the privacy policy must disclose the second-subject processing relationship before the first pilot customer. Drafted 2026-07-31 at `docs/legal/reviewer-data-disclosure.md`.
 - [x] `#INH-7-DRIFT` — `PublicEarlyAccessSignupRequest` adopts `WithBotProtection`; 4-endpoint regression test added. Independent review PASS; 428 passed / 0 failed across `tests/Feature/Security` + `tests/Feature/PublicSite`.
 - [x] `LC-PROD-ENV` — **delegated to Josh**, checklist issued. Ticked on handoff, *not* on verified restart: prod was still `status=stopped` at tick time.
 - [x] `LC-BACKUP` — **delegated to Josh**, decision + checklist issued. Ticked on handoff; org plan still `free` at tick time.
@@ -800,9 +800,9 @@ any unit in this bucket.
 
 **P1-LAUNCH**
 - [x] `DINT-1` · [x] `271-PRIV-1` · [x] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
-- [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [ ] `#SCHEMA-8`
+- [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [x] `#SCHEMA-8`
 - [x] `#TEST-9` (⚠️ **mis-citation — see the id-integrity note below**) · [x] `271-TEST-1` · [x] `#TEST-41`
-- [x] `#TEST-49` · [x] `#TEST-50` · [ ] `#DINT-4`
+- [x] `#TEST-49` · [x] `#TEST-50` · [x] `#DINT-4`
 - [ ] `#INH-6` · [x] `#SEC-4` · [x] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
 - [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [x] `#10`
 
@@ -823,7 +823,7 @@ any unit in this bucket.
 > - **`#TEST-9`** is cited here for the `site.themes` guard. The 07-11 sweep's `#TEST-9` is *"No
 >   forget/disconnect test for the `nowbookit` reservation provider"* (P3, unrelated), and the 07-28
 >   sweep's `#TEST-9` is the Lander 40% deletion guard (already `[x]`). **The 07-11 sweep contains no
->   themes finding at all** — `grep "site\.themes" audits/sweeps/2026-07-11-full-work-sweep/` returns
+>   themes finding at all** — `grep "site\.themes" audits/archive/sweeps/2026-07-11-full-work-sweep/` returns
 >   nothing. The real box is `271-TEST-1`, and only that one was ticked in a source file. `#TEST-9` is
 >   ticked here purely to close this consolidation's own phantom entry.
 > - **`#SEC-4`** likewise: the 07-11 sweep's `#SEC-4` is `StaffUserController::index()` (already `[x]`
@@ -942,7 +942,7 @@ any unit in this bucket.
 
 **DEAD — bookkeeping owed to the source folders** (see `## Bookkeeping to apply to the source files`).
 Left open on purpose: these are verified dead *here*, but the tick has to land in each source audit
-before the finding stops being carried. Six of them block `audits/sweeps/2026-07-11-full-work-sweep/`
+before the finding stops being carried. Six of them block `audits/archive/sweeps/2026-07-11-full-work-sweep/`
 from auto-archiving.
 - [ ] `#7` · [ ] `#40` · [ ] `#59` · [ ] `#37` · [ ] `#58` · [ ] `#11` · [ ] `#INH-1` · [ ] `#CCH-5`
 - [ ] `#LIFE-10` · [ ] `#TEST-21` · [ ] `#TEST-27`
@@ -1224,7 +1224,7 @@ Composition of what was triaged:
 ## Bookkeeping to apply to the source files
 
 - Tick the 11 DEAD items in their source folders. Six of them are in
-  `audits/sweeps/2026-07-11-full-work-sweep/`, which cannot auto-archive while they stand.
+  `audits/archive/sweeps/2026-07-11-full-work-sweep/`, which cannot auto-archive while they stand.
 - Tick `#INH-1` in `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md` — the 07-27
   verification file already has it correct.
 - **Fix the audit pipeline itself:** the test-coverage lens cannot see `tests/Unit/Routing/`,

@@ -9,7 +9,7 @@
 //
 // WHY THIS EXISTS
 // ----------------
-// The SCHEMA-1/SCHEMA-2 audit findings (audits/sweeps/2026-07-11-full-work-sweep/
+// The SCHEMA-1/SCHEMA-2 audit findings (audits/archive/sweeps/2026-07-11-full-work-sweep/
 // TRIAGE-2-P2.md) specified CHECK vocabularies copied from stale SQL DDL
 // comments — 7 item types instead of the real 10, 8 content types instead of
 // the real 12 — because nothing kept the DDL comment, the migration's CHECK,

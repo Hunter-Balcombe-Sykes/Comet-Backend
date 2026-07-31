@@ -142,7 +142,7 @@
             ADD CONSTRAINT users_account_type_check CHECK (account_type IN ('partna', 'business')) NOT VALID;
         ```
 
-- [ ] **#DINT-4** · P3 — `site.menus.dining_modes` JSONB has no shape enforcement beyond app-layer normalization
+- [x] **#DINT-4** · P3 — `site.menus.dining_modes` JSONB has no shape enforcement beyond app-layer normalization · **FIXED (2026-07-31, Josh signed off):** `menus_dining_modes_is_array` CHECK — `dining_modes IS NULL OR jsonb_typeof(dining_modes) = 'array'` — added NOT VALID by `20260731220000` and validated by `...220001` (CONVENTIONS.md §2 file pair; a single ADD would validate every row under ACCESS EXCLUSIVE and fail the migration-safety guard). **Structure only, deliberately not content:** the finding's original enum proposal was rejected because `UberEatsMenuDriver::diningModes()` passes through whatever `supportedDiningModes` strings Uber Eats returns, so a value CHECK would reject a legitimate new mode the day Uber Eats added one and surface as a silently-failing scrape. NULL stays legal (DoorDash exposes none). Applied to dev 2026-07-31, verified `convalidated = true`, ledger realigned to the repo filenames. Pinned by `tests/Schema/CheckConstraintsTest`. ⚠️ **PROD NOT MIGRATED.**
     - **Where:** supabase/migrations/20260715090000_menu_item_currency_and_dining_modes.sql:11-18
     - **Affects:** `site.menus.dining_modes` — any future consumer beyond the current single reader (`MenuController`/public menu payload) must independently defend against a non-array value reaching it via a direct DB write, since the column's documented `["DELIVERY","PICKUP"]` shape is enforced only by `UberEatsMenuDriver::diningModes()` on the write path, not by the schema.
     - **Effort:** S (~0.5–1h)

@@ -317,3 +317,16 @@ it('content_selection_ref_shape constraint exists and is validated', function ()
 it('detectors_surface_xor_signal constraint exists and is validated', function () {
     assertCheckConstraintExists('catalog', 'detectors', 'detectors_surface_xor_signal');
 });
+
+// ─── site.menus.dining_modes (#DINT-4) ──────────────────────────────────────
+//
+// Structure only — NULL or a JSON array, never an object or scalar. The element
+// vocabulary is deliberately unconstrained: UberEatsMenuDriver::diningModes()
+// passes through whatever supportedDiningModes strings Uber Eats returns, so an
+// enum CHECK would reject a legitimate new mode the day Uber Eats added one.
+// Added NOT VALID by 20260731220000 and validated by ...220001, so asserting
+// convalidated here is what proves the second file still exists.
+
+it('menus_dining_modes_is_array constraint exists and is validated', function () {
+    assertCheckConstraintExists('site', 'menus', 'menus_dining_modes_is_array');
+});
