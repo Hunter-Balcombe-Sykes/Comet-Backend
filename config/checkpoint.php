@@ -196,17 +196,22 @@ return [
 
         // Re-vetted 2026-07-30, after refreshItemCaches() moved — Checkpoint keys a
         // suppression by line CONTENT, so any edit above a finding silently reopens it.
-        // Provenance re-confirmed at the current lines, not assumed from older entries:
-        //   ProjectionWriter:785  foreach (array_keys(self::SINGLETON_FACETS) as $facet)
-        //   ProjectionWriter:791  foreach (['item_media','offers','item_tags','f_action'] as $collection)
         // Both loop sources are compile-time constants; no request input reaches the
         // table name, and item_id values travel as bindings via whereIn().
+        //
+        // Line labels re-read 2026-07-31 — the 07-30 pass wrote :785/:791, which have
+        // since drifted to :992/:998 while the hashes survived untouched. That is the
+        // documented behaviour (content-addressed, line-insensitive) and it is why the
+        // `:NNN` in every comment here is a LABEL, not a key. Do not trust it without
+        // grepping; do not "fix" a hash because its label looks wrong.
+        //   ProjectionWriter:992  foreach (array_keys(self::SINGLETON_FACETS) as $facet)
+        //   ProjectionWriter:998  foreach (['item_media','offers','item_tags','f_action'] as $collection)
         //
         // The two entries this pair REPLACED (`7b0f383edf44`/`a15fee82d15b`, commented
         // ProjectionWriter:675/:680) were left behind by that re-vet and sat dead until
         // 2026-07-31. CheckpointSuppressionStalenessTest now fails on exactly that.
-        '657930f2f7f9', // ProjectionWriter:786 — $facet from array_keys(self::SINGLETON_FACETS) (:785)
-        '3b8365f2b9b7', // ProjectionWriter:792 — $collection from the literal foreach array (:791)
+        '657930f2f7f9', // ProjectionWriter:993 — $facet from array_keys(self::SINGLETON_FACETS) (:992)
+        '3b8365f2b9b7', // ProjectionWriter:999 — $collection from the literal foreach array (:998)
         '677ef50b5100', // ProjectionWriterBatchingTest:128 — same $facet const in a test fixture
 
         // Vetted 2026-07-31: the rebuild-chunking rewrite added a third interpolated
@@ -247,10 +252,10 @@ return [
         // string, which is its documented purpose — none of them writes to output, and
         // none is leftover debugging. Two generate PHP artefacts; one builds an
         // exception message where `null` and `'null'` must stay distinguishable.
-        // The prior entry here
-        // (`5dd3ec775690`, ScanWebsiteCommand:31) was deleted: that file went away with
-        // the website-style-analysis pipeline in e66bb911 and config/checkpoint.php was
-        // its last reference anywhere in the repo.
+        //
+        // The prior entry here (`5dd3ec775690`, ScanWebsiteCommand:31) was deleted: that
+        // file went away with the website-style-analysis pipeline in e66bb911, and
+        // config/checkpoint.php was its last reference anywhere in the repo.
         //
         // NOTE — write the function name WITHOUT its parentheses below. DebugFunctionsCheck
         // matches /\b(var_dump|print_r|var_export|dd|dump|…)\s*\(/ and only skips lines whose
