@@ -944,8 +944,15 @@ any unit in this bucket.
 Left open on purpose: these are verified dead *here*, but the tick has to land in each source audit
 before the finding stops being carried. Six of them block `audits/archive/sweeps/2026-07-11-full-work-sweep/`
 from auto-archiving.
-- [ ] `#7` · [ ] `#40` · [ ] `#59` · [ ] `#37` · [ ] `#58` · [ ] `#11` · [ ] `#INH-1` · [ ] `#CCH-5`
-- [ ] `#LIFE-10` · [ ] `#TEST-21` · [ ] `#TEST-27`
+- [x] `#7` · [x] `#40` · [x] `#59` · [x] `#37` · [x] `#58` · [x] `#11` · [x] `#INH-1` · [x] `#CCH-5`
+- [x] `#LIFE-10` · [x] `#TEST-21` · [x] `#TEST-27`
+
+> ✅ **Bookkeeping applied 2026-07-31.** All 11 now carry the DEAD tick in their source audit, which is
+> what this line was waiting on — verified zero remaining `- [ ]` for each id in
+> `audits/archive/sweeps/2026-07-11-full-work-sweep/`,
+> `audits/archive/sweeps/2026-07-28-content-platform-rebuild/` and the inheritance consolidation.
+> The six that were said to block `2026-07-11-full-work-sweep` no longer do: that folder reached zero
+> open in the same pass and **auto-archived**, along with the 07-24 and 07-28 sweeps.
 
 ---
 
