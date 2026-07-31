@@ -5,6 +5,17 @@
 //   1. The architecture_id TEXT CHECK enum on site.sites is present and validated.
 //   2. The ON DELETE CASCADE FK from site.design_kits to site.sites is registered.
 //   3. The trg_create_empty_design_kit AFTER INSERT trigger exists on site.sites.
+//   4. site.themes stays DROPPED.
+//   5. set_default_theme_for_site() stays DROPPED.
+//
+// 4 and 5 assert an ABSENCE, which is unusual enough to say why out loud: the
+// theme system was removed, not disabled. CLAUDE.md's hard rule is "never
+// reintroduce site.themes, settings.design.*, or theme-picker machinery" —
+// "theme" now means only theme_mode (bleach/dust/warm/dusk/midnight), a
+// design_kits column. Design lives in site.design_kits, one nullable column per
+// var, and a resurrected themes table would give it a second, competing home.
+// A well-meaning re-add is exactly the regression these two guard, so do not
+// delete them because "nothing references site.themes" — that IS the invariant.
 //
 // The CHECK constraint originated in the skeleton-system cleanup migration
 // (20260527070000_skeleton_system_cleanup.sql) as sites_skeleton_id_check and was
@@ -89,5 +100,46 @@ it('trg_create_empty_design_kit AFTER INSERT trigger exists on site.sites', func
 
     expect($row)->not->toBeNull(
         'Expected AFTER INSERT trigger [trg_create_empty_design_kit] on [site.sites] but it was not found.'
+    );
+});
+
+// ─── 4. site.themes stays dropped ────────────────────────────────────────────
+
+it('site.themes does not exist', function () {
+    // information_schema.tables rather than to_regclass so a VIEW named
+    // site.themes — a plausible "compatibility shim" way back in — fails too.
+    $row = DB::selectOne(
+        "SELECT table_type
+           FROM information_schema.tables
+          WHERE table_schema = 'site'
+            AND table_name   = 'themes'",
+        []
+    );
+
+    expect($row)->toBeNull(
+        'site.themes exists again (as '.($row->table_type ?? 'unknown').'). It was dropped deliberately: '
+        .'design state lives in site.design_kits, one nullable column per var, and "theme" now means only '
+        .'theme_mode. See CLAUDE.md → "Never reintroduce site.themes".'
+    );
+});
+
+// ─── 5. set_default_theme_for_site() stays dropped ───────────────────────────
+
+it('set_default_theme_for_site() does not exist in any schema', function () {
+    // Unqualified by schema on purpose: the function was dropped with CASCADE,
+    // and a re-add under a different namespace would be the same regression.
+    $row = DB::selectOne(
+        "SELECT n.nspname
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE p.proname = 'set_default_theme_for_site'
+          LIMIT 1",
+        []
+    );
+
+    expect($row)->toBeNull(
+        'set_default_theme_for_site() exists again in schema ['.($row->nspname ?? 'unknown').']. '
+        .'It was dropped with CASCADE alongside site.themes; the design_kits auto-insert trigger '
+        .'(trg_create_empty_design_kit) is what seeds a new site now.'
     );
 });

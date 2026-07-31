@@ -303,3 +303,17 @@ it('content_selection_entry_type_check constraint exists and is validated', func
 it('content_selection_ref_shape constraint exists and is validated', function () {
     assertCheckConstraintExists('site', 'content_selection', 'content_selection_ref_shape');
 });
+
+// ─── catalog.detectors (#TEST-49) ───────────────────────────────────────────
+//
+// A detector claims a surface XOR names a pure signal — never both, never
+// neither (20260727100000_catalog_schema.sql:91). The rulepack sync writes
+// these rows straight from a compiled artefact, so the DB CHECK is the only
+// thing standing between a malformed rulepack and a detector that matches
+// everything or nothing. The audit asked for a grep-based invariant test; this
+// is strictly stronger — it asks the applied schema whether the constraint is
+// really there AND validated, rather than whether a string appears in a file.
+
+it('detectors_surface_xor_signal constraint exists and is validated', function () {
+    assertCheckConstraintExists('catalog', 'detectors', 'detectors_surface_xor_signal');
+});

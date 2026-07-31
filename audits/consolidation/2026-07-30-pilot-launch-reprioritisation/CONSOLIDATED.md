@@ -801,9 +801,39 @@ any unit in this bucket.
 **P1-LAUNCH**
 - [x] `DINT-1` · [x] `271-PRIV-1` · [x] `#SCALE-11` · [x] `#SCALE-13` · [x] `#SCALE-14` · [x] `#SCALE-17`
 - [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [ ] `#SCHEMA-8`
-- [ ] `#TEST-9` · [ ] `271-TEST-1` · [ ] `#TEST-41` · [ ] `#TEST-49` · [ ] `#TEST-50` · [ ] `#DINT-4`
-- [ ] `#INH-6` · [ ] `#SEC-4` · [x] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
+- [x] `#TEST-9` (⚠️ **mis-citation — see the id-integrity note below**) · [x] `271-TEST-1` · [x] `#TEST-41`
+- [x] `#TEST-49` · [x] `#TEST-50` · [ ] `#DINT-4`
+- [ ] `#INH-6` · [x] `#SEC-4` · [x] `#9` · [ ] `LC-DRILL-worker-kill` · [ ] `LC-DRILL-vendor-outage`
 - [ ] `LC-DRILL-redis-down` · [ ] `LC-K6` · [ ] `LC-RERUN` · [x] `#10`
+
+> 🔴 **Id-integrity defect in this consolidation — second variant (found 2026-07-31, tier3 triage).**
+>
+> Tier 2 already closed the *first* variant: `#3` and `#38` are not phantom ids, they are **`#SCHEMA-8`
+> and `#DINT-4` with their prefixes stripped** (commit `499c13ef`). Both remain genuinely open, and both
+> need a migration — `#SCHEMA-8` a DB-level dedup key on `analytics.item_views`, `#DINT-4` a shape CHECK
+> on `site.menus.dining_modes` (`271-DINT-6` is its duplicate, per `BACKLOG-TRIAGE.md:146`). They are not
+> in this slice because a migration trips the blocker gate.
+>
+> ⚠️ **`EXECUTE-TIER3.md` item 7 is therefore stale**: it instructs the next session to "tick `#38` closed
+> as untraceable", work Tier 2 had already done and reached the opposite conclusion on. Do not run it.
+>
+> The variant found here is worse than a stripped prefix, because it fails silently instead of loudly.
+> Finding ids are **per-sweep and collide across sweeps**, so a bare id can resolve to a *real but wrong*
+> finding. Two entries above do exactly that:
+> - **`#TEST-9`** is cited here for the `site.themes` guard. The 07-11 sweep's `#TEST-9` is *"No
+>   forget/disconnect test for the `nowbookit` reservation provider"* (P3, unrelated), and the 07-28
+>   sweep's `#TEST-9` is the Lander 40% deletion guard (already `[x]`). **The 07-11 sweep contains no
+>   themes finding at all** — `grep "site\.themes" audits/sweeps/2026-07-11-full-work-sweep/` returns
+>   nothing. The real box is `271-TEST-1`, and only that one was ticked in a source file. `#TEST-9` is
+>   ticked here purely to close this consolidation's own phantom entry.
+> - **`#SEC-4`** likewise: the 07-11 sweep's `#SEC-4` is `StaffUserController::index()` (already `[x]`
+>   since 07-11). The raw-insert finding is the **07-28** sweep's `#SEC-4`.
+>
+> Ticking by bare id would have marked two unrelated findings — one already closed — as done in audits
+> this work never touched, while leaving the real boxes open. A stripped-prefix id at least resolves to
+> nothing and stops you; a colliding id resolves to something plausible and does not.
+>
+> **Cite cross-sweep findings as `<sweep>/<file>:<line>`, never a bare id.**
 
 > **P1-LAUNCH** — worked 2026-07-30 on `audit-fix/p1-launch-2026-07-30`, concurrently with P0-LAUNCH.
 >
@@ -899,8 +929,11 @@ any unit in this bucket.
 > 2. ✅ **FIXED 2026-07-30 (Tier 1, `audit-fix/tier1-2026-07-30`).** **`tests/Postgres/ProjectionWriterBatchingTest.php` hardcodes `art_url => null` on all four tests**, so the real-Postgres lane issues **zero** `item_media`/`media_assets` writes. Every Postgres-specific risk `#SCALE-17` introduced — `ON CONFLICT DO NOTHING` vs `INSERT OR IGNORE`, 4,000-bind multi-row inserts, lock behaviour of the widened DELETE inside a transaction — is exercised nowhere. One line in `pwbtDoc` closes it. Now unblocked.
 >    **Fix:** `pwbtDoc` now derives a distinct `art_url` per URL by default (overridable to share one). The N=200 test gained media assertions — 200 `item_media`, 200 distinct `media_assets`, zero null `asset_id`, `MAX(position) = 0` (which is what would catch a batch-wide position counter) — plus a re-projection pass, the only place the widened `DELETE … WHERE item_id IN (chunk) AND source_id = ?` runs with rows present to delete. A fifth test pins 200 items sharing one image to exactly **one** asset. No existing assertion was weakened. Mutation-checked: forcing `art_url` back to null fails 2 tests with `0 is identical to 200`.
 >    ⚠️ Known residual, deliberately not chased: `insertOrIgnore`'s actual conflict branch is still never hit — the PHP-level fingerprint dedupe plus the `lookupMediaAssets` re-check mean it is only ever called with genuinely-new rows. The tests prove the SQL is valid Postgres and that re-runs don't duplicate assets, **not** a live constraint-violation race. N=200 also stays under the 500 `writeChunk()` default, so multi-chunk crossing is proven on SQLite only.
-> 3. **Worker CSP hardcoding** — `https://app.partna.au` literal at `cloudflare-worker/src/index.js:156` and `:311`; and `PARTNA_DOMAIN` is itself a compile-time `const` (`:46`), not read from `env`. Split out of `#10` deliberately.
-> 4. **`#INH-6`'s other two-thirds** — `cleanString` spans **6** files (not 4), and its two menu copies have divergent *signatures and bodies*, so that half is a behaviour question, not a move. `nextPosition` spans 2.
+> 3. ✅ **CLOSED 2026-07-31 (Tier 3 triage, `audit-fix/tier3-slice-2026-07-31`) — half fixed, half WONTFIX.** **Worker CSP hardcoding** — `https://app.partna.au` literal at `cloudflare-worker/src/index.js:156` and `:311`; and `PARTNA_DOMAIN` is itself a compile-time `const` (`:46`), not read from `env`. Split out of `#10` deliberately.
+>    **Fixed — the duplicated literal.** One `DASHBOARD_ORIGIN = \`https://app.${PARTNA_DOMAIN}\`` const now feeds both headers, restoring the convention the rest of the file already follows (`:192`: *"Domain references read `PARTNA_DOMAIN` rather than repeating the literal"*). Prod output is byte-identical — `frame-ancestors 'self' https://app.partna.au` in both — which is the acceptance criterion, not a side effect.
+>    **Coverage gap found and closed while proving it:** `test/headers.test.mjs` pinned the *enforcing* header byte-exact but asserted the Report-Only policy only via `toContain("default-src 'self'")`, so `:156` — one of the two lines edited — was **untested**. An assertion for its `frame-ancestors` clause was added. Both were mutation-checked independently (wrong `DASHBOARD_ORIGIN` → enforcing header red; `SITEPAGE_CSP`'s clause alone corrupted → Report-Only assertion red). Worker suite 38/38.
+>    **WONTFIX — making `PARTNA_DOMAIN` env-driven.** The recorded motive was "a staging dashboard origin would be refused framing", but **there is no non-prod Worker deploy to refuse it**: `wrangler.toml` has no `[env.staging]`, removed deliberately by EDGE-102 on the grounds that CLAUDE.md documents exactly two backend environments and none of them is a staging Worker. Delivering it means threading `env` through all **13** `finalize()` call sites on the public edge and demoting `SITEPAGE_CSP` from a module const (`env` does not exist at module init) — real blast radius on the path every `<handle>.partna.au` request takes, for a target that does not exist. EDGE-3's comment at `:42-46` already documents the manual-mirror decision. Revisit only if a genuine staging Worker tier is introduced, which is the same trigger EDGE-10 names for its KV namespace.
+> 4. **`#INH-6`'s other two-thirds** — `cleanString` spans **6** files (not 4), and its two menu copies have divergent *signatures and bodies*, so that half is a behaviour question, not a move. `nextPosition` spans 2. **Re-examined 2026-07-31 (Tier 3 triage) and deliberately left unticked**: the `normalizeName` third is still byte-identical and safe to move, but at effort M with live menu-matching behaviour at stake it is a bad passenger on a triage commit. The three traps that make it non-mechanical — the `NormalizesMenuData` shadowing hazard, the `$this->norm(` search anchor, and drift-means-escalate — are now written into the finding itself at `audits/consolidation/2026-07-25-backend-inheritance/CONSOLIDATED.md:59`.
 > 5. **OPEN follow-up, raised 2026-07-31, deliberately NOT bundled (Josh's call).** `IngestProjectCommand::dropDerivedRows()` deletes **every** `content.identity_keys` row for a stream up front, outside any transaction, before `projectStream()` re-creates them — a window orders of magnitude wider than the per-record one `#CACHE-3`'s cleanup closed, and one that fix does **not** touch. So `ingest:project --rebuild` remains exposed: source items are live and keyless for the whole rebuild, and a concurrent `resolveItems()` (which scopes by `user_id` + `kind`, not `stream_id`) will mint spurious `content.items` rows. **The drop looks redundant** — `writeIdentityKeys()` is already a replace-set per source item, `retireAbsentSourceItems()` stamps `removed_at` so `resolveItems()`'s `whereNull('si.removed_at')` filters stale keys out, and the FK cascades on real deletion — so removing four lines would close it at no cost. Not done here because it edits a decision carrying an explicit written rationale (`IngestProjectCommand.php:153-157`, "Deliberately NOT a transaction"), which earns its own plan + independent review rather than riding along on an unrelated commit.
 >
 > **Process notes worth keeping:**
@@ -1102,12 +1135,12 @@ the same class of miss as `#INH-7`.
 - `#SCHEMA-8` (P3) — `analytics.item_views` has no DB-level dedup key, relying entirely on app-side Redis. **STILL-OPEN.**
 
 **Correctness guards:**
-- `#TEST-9` / `271-TEST-1` (P3/P2) — no invariant test that `site.themes` stays dropped. **STILL-OPEN, and worse than recorded:** `ArchitectureSystemConstraintsTest` exists but its three assertions don't cover themes-dropped — *and* it doesn't run in CI (see `#TEST-2`). `CLAUDE.md` currently claims this rule is "pinned" by that test. **It isn't.**
-- `#TEST-41` — `BrandAssetPipelineTest` and `CatalogSyncIdempotenceTest` still hand-copy migration DDL. `ItemTombstoneBackfillTest` is the one file doing it correctly; copy that pattern. **STILL-OPEN.**
-- `#TEST-49` / `#TEST-50` — no invariant test for the `detectors_surface_xor_signal` CHECK, and none asserting the deliberate *absence* of a unique index on `content.identity_keys(key_class, key_value)`. **STILL-OPEN.**
+- `#TEST-9` / `271-TEST-1` (P3/P2) — no invariant test that `site.themes` stays dropped. ~~STILL-OPEN~~ **CLOSED 2026-07-31 (Tier 3 triage).** Both halves done: two absence assertions added to `tests/Schema/ArchitectureSystemConstraintsTest.php` (`site.themes` and `set_default_theme_for_site()`, each mutation-proven to fail), and `CLAUDE.md:228`'s false "pinned by" claim corrected to name what each clause is actually pinned by **and the lane** — the pin is real but lives in `composer test:schema`, not `composer test`. ⚠️ `#TEST-9` is a mis-citation here; only `271-TEST-1` was a real box (see the id-integrity note above).
+- `#TEST-41` — `BrandAssetPipelineTest` and `CatalogSyncIdempotenceTest` still hand-copy migration DDL. `ItemTombstoneBackfillTest` is the one file doing it correctly; copy that pattern. **OPPORTUNISTIC 2026-07-31** — unblocked, but the schema-drift gate now watches those two files and its baselines must not be regenerated, so it needs a session that owns them.
+- `#TEST-49` / `#TEST-50` — no invariant test for the `detectors_surface_xor_signal` CHECK, and none asserting the deliberate *absence* of a unique index on `content.identity_keys(key_class, key_value)`. **`#TEST-49` FIXED 2026-07-31** (one `it()` in `tests/Schema/CheckConstraintsTest.php`, absorbed while that lane was open — and stronger than the grep asked for, since it also asserts `convalidated`). **`#TEST-50` OPPORTUNISTIC** — needs a why-comment when written, or it reads as dead weight and gets deleted.
 - `#DINT-4` (P3) — `site.menus.dining_modes` JSONB has no `jsonb_typeof = 'array'` CHECK. **STILL-OPEN.**
 - `#INH-6` (P1 → P1-LAUNCH) — `normalizeName`/`norm` declared three times with "must stay identical" comments. **Verified NOT drifted today** — all three implementations are still byte-identical, so this is latent risk, not a live bug. That verification is why it drops from P1 rather than rising.
-- `#SEC-4` (P2) — raw insert bypasses `$fillable`. **PARTIAL** — the row keys are a fixed literal set never derived from request input, so there is no live injection path; structural hardening only.
+- `#SEC-4` (P2) — raw insert bypasses `$fillable`. ~~PARTIAL~~ **WONTFIX 2026-07-31 (Tier 3 triage).** Both premises re-verified at `ShopController.php:699-709` and both hold, which is why it closes rather than ships: the row keys are a fixed 7-key literal never derived from request input (no live over-post path — the finding concedes this), and the prescribed allowlist is a **tautology** against literals three lines above, so it can never remove anything, never fail, and never be tested. A silently-dropping filter would also be a debugging trap for exactly the future developer it claims to protect. Reopen only if `$rows` stops being a hand-written literal. See the 07-28 sweep for the full argument.
 
 **Privacy / compliance:**
 - `#9` (P3) — evidence-snapshot handle/display_name missing from the DSAR export (deletion side is already correct). **STILL-OPEN.**
@@ -1116,6 +1149,20 @@ the same class of miss as `#INH-7`.
 - `LC-DRILL-worker-kill`, `LC-DRILL-vendor-outage`, `LC-DRILL-redis-down` — **verified never run.** Only backup-restore has a log.
 - `LC-K6` — baseline load pass (10 VU/5 min) + public-handle spike (50–100 VU), watching edge cache-hit ratio, Supavisor headroom, p95. Harness exists and is ready.
 - `LC-RERUN` — make re-running launch-check a standing step after every migration push and before every promote. Process, not code.
+
+> ⏸ **DEFERRED with a trigger, 2026-07-31 (Tier 3 triage).** All five stay `[ ]` **on purpose** — this is a
+> deferral, not an oversight, and not a WONTFIX. They are hours of hands-on operational work whose value is
+> proportional to traffic, and there is none: zero live users. **Trigger to run them: when the first real
+> pilot traffic is scheduled**, before it lands — not on a date, and not "when someone has time".
+> Re-verified 2026-07-31: only `docs/runbooks/drills/logs/2026-07-26-backup-restore.md` exists, so drills
+> `01-worker-kill`, `02-vendor-outage` and `03-redis-down` have still never been run.
+> When that trigger fires: drills on the **LOCAL** stack only, logging to `docs/runbooks/drills/logs/`; k6
+> against **dev only**; ⚠️ never in the same window as `LC-NIGHTWATCH` (the load run drowns the alert
+> signal); ⚠️ confirm no other session is on dev first; ⚠️ if a k6 seed fails, check the harness's three
+> hard-coded invariants (gallery capped at 6/site by `core.enforce_site_gallery_max6`; a gallery item needs
+> a matching `site.media_variants` webp row or its URL resolves empty; analytics writes need an
+> `Origin`/`Referer` matching the site's subdomain, SEC-1) **before** debugging the harness — all three
+> have silently broken it before.
 - `#10` (P3) — Worker `unclaimedHtml()` hardcodes `https://partna.au` regardless of environment. **STILL-OPEN.** Trivial, and it pairs with `#43`/`#EDGE-2`.
 
 **Promoted from backlog, 2026-07-30** — seven findings the source audits under-graded. Full reasoning in

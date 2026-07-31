@@ -45,6 +45,16 @@
 // domain (e.g. adopting a non-prod TLD) must be mirrored here by hand (EDGE-3).
 const PARTNA_DOMAIN = "partna.au";
 
+// The dashboard origin allowed to frame a sitepage — the /account/design
+// preview iframe, and nothing else. Derived rather than repeated: the literal
+// was written out twice (SITEPAGE_CSP and the enforced frame-ancestors header),
+// which is one more place to miss than the rest of this file, whose domain
+// references all read PARTNA_DOMAIN. Note this does NOT make the origin
+// environment-driven — PARTNA_DOMAIN is itself a compile-time const (see EDGE-3
+// above), and there is deliberately no non-prod Worker environment to be driven
+// by (EDGE-102 removed [env.staging] from wrangler.toml). One const, one edit.
+const DASHBOARD_ORIGIN = `https://app.${PARTNA_DOMAIN}`;
+
 // Mirrors `reserved_subdomains` in config/partna.php (EDGE-6/EDGE-11). KEEP IN
 // SYNC: a subdomain missing here is sent to KV and 404s instead of passing
 // through to the apex origin. This is a manual mirror — when config changes,
@@ -153,7 +163,7 @@ const SITEPAGE_CSP =
   "font-src 'self' https: data:; " +
   "script-src 'self' 'unsafe-inline' https:; " +
   "connect-src 'self' https:; " +
-  "frame-ancestors 'self' https://app.partna.au; " +
+  `frame-ancestors 'self' ${DASHBOARD_ORIGIN}; ` +
   "base-uri 'self'; " +
   "object-src 'none'";
 
@@ -305,10 +315,10 @@ function finalize(response, opts = {}) {
   if (opts.sitepage) {
     // Enforce ONLY frame-ancestors — it replaces X-Frame-Options (which can't
     // allow-list a cross-origin embedder) so the /account/design preview iframe
-    // on app.partna.au can embed the sitepage, while every other origin stays
-    // refused. The rest of the policy remains Report-Only until it's validated.
+    // on the dashboard origin can embed the sitepage, while every other origin
+    // stays refused. The rest of the policy remains Report-Only until validated.
     headers.delete("X-Frame-Options");
-    headers.set("Content-Security-Policy", "frame-ancestors 'self' https://app.partna.au");
+    headers.set("Content-Security-Policy", `frame-ancestors 'self' ${DASHBOARD_ORIGIN}`);
     headers.set("Content-Security-Policy-Report-Only", SITEPAGE_CSP);
   }
   // EDGE-12: don't let a misconfigured origin error page get cached by browsers.

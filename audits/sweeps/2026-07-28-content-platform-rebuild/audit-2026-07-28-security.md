@@ -23,7 +23,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 4 complete
+- P2 Medium: 2 of 4 complete  (+#SEC-4 WONTFIX, 2026-07-31)
 - P3 Low: 0 of 6 complete
 
 ---
@@ -109,7 +109,7 @@
         }
         ```
 
-- [ ] **#SEC-4** · P2 — Raw `DB::insert()` in `ShopController::setProducts()` bypasses `$fillable` for bulk product rows
+- [x] **#SEC-4** · P2 — Raw `DB::insert()` in `ShopController::setProducts()` bypasses `$fillable` for bulk product rows · **WONTFIX (tier3 triage 2026-07-31):** both premises re-verified at `ShopController.php:699-709` and both hold — `$rows` is a hand-written 7-key literal and `$productData` is never spread (only `productId` + `json_encode()` into the `data` JSONB), so there is no live over-post path; and the prescribed allowlist is a tautology against literals three lines above — untestable, and a silently-dropping filter would be a debugging trap for the future developer it claims to protect. Reopen only if `$rows` stops being a literal. Full argument in `CONSOLIDATED.md`. No code changed.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php:682-697
     - **Affects:** Shop product-selection persistence — any future column added to `site.shop_products` (especially a tenant-scoping FK) would be silently writable through this raw insert path if the scraper's catalog output ever grows a colliding key.
     - **Effort:** S (~0.5–1h)
