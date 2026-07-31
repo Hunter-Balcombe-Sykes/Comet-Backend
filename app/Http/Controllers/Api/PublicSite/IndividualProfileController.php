@@ -116,7 +116,7 @@ class IndividualProfileController extends ApiController
         // paid to close a per-save race.
         $ts = max(
             (int) $resolved['updated_at_ts'],
-            (int) Cache::get(CacheKeyGenerator::handleResolveFloor($handleLc), 0),
+            $this->handleResolveFloor($handleLc),
         );
 
         $key = CacheKeyGenerator::publicProfile($handleLc, $ts);
@@ -171,6 +171,31 @@ class IndividualProfileController extends ApiController
         // match other endpoints — the Worker subrequest depends on this exact shape.
         // Any change here requires a coordinated deploy with the Worker code.
         return $this->success(['data' => $payload]);
+    }
+
+    /**
+     * The handle-resolve floor, degrading to 0 when the cache store is dead.
+     *
+     * The only bare Cache call left on this route — CacheLockService guards its
+     * own now, and a raw RedisException here would 500 the page five lines
+     * after the fail-open limiter went to the trouble of letting it through.
+     * Zero is a safe floor: max() already treats it as "no floor recorded", so
+     * the request falls back to the resolver's own timestamp exactly as it does
+     * before the first invalidation ever writes this key.
+     */
+    private function handleResolveFloor(string $handleLc): int
+    {
+        try {
+            return (int) Cache::get(CacheKeyGenerator::handleResolveFloor($handleLc), 0);
+        } catch (\Throwable $e) {
+            Log::warning('cache.store_unavailable', [
+                'operation' => 'handle_resolve_floor',
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+
+            return 0;
+        }
     }
 
     /** Emit a structured warning when a public profile fetch crosses the
