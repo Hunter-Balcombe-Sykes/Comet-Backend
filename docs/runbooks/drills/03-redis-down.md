@@ -29,6 +29,10 @@ manual repair?
 
 - [ ] Local `.env`: `CACHE_STORE=redis` (NOT a failover store — that silently breaks the
       escalation invariant), `QUEUE_CONNECTION=redis`, `SESSION_DRIVER=cookie`.
+- [ ] 🔴 **Throttle must be ON**: `PARTNA_THROTTLE_ENABLED=true` (or `SIDEST_THROTTLE_ENABLED=true`).
+      The local `.env` has historically shipped this **false**. The throttle layer is the layer
+      under test — with it off, every probe passes and the drill proves nothing. Verify:
+      `php artisan tinker --execute='var_dump(config("partna.throttle.enabled"));'`
 - [ ] A drill user with an active site (reuse the pattern from drill 01) — note its
       `handle` and `site_id`.
 - [ ] Horizon running (`php artisan horizon`) — part of the drill is watching it die and
@@ -42,15 +46,21 @@ manual repair?
 curl -s -o /dev/null -w "profile  %{http_code}  %{time_total}s\n" "$BASE/api/public/profiles/<handle>"
 
 # 2. analytics beacon (Origin required — SEC-1 rejects header-less callers)
+#    ⚠️ The Origin must match the site's subdomain on the LOCAL host, not partna.au —
+#    SEC-1 fails closed with 404 "Site not found" otherwise, and you silently measure
+#    the wrong thing. Locally that is <handle>.<your herd site host>.
 curl -s -o /dev/null -w "pageview %{http_code}  %{time_total}s\n" \
   -X POST "$BASE/api/public/analytics/pageviews" \
   -H 'Content-Type: application/json' \
-  -H 'Origin: https://<handle>.partna.au' \
+  -H "Origin: http://<handle>.partna-drill.test" \
   -d '{"subdomain": "<handle>"}'
 
 # 3. an authed dashboard read (grab a real bearer token from the frontend session)
+#    ⚠️ The route is api/site — api/professional/site does not exist (404 "Endpoint not found").
+#    Without a valid Supabase JWT this probe runs unauthenticated and returns 401; that 401
+#    is NOT evidence of resilience, because auth rejects before the throttle layer is reached.
 curl -s -o /dev/null -w "authed   %{http_code}  %{time_total}s\n" \
-  -H "Authorization: Bearer $TOKEN" "$BASE/api/professional/site"
+  -H "Authorization: Bearer $TOKEN" "$BASE/api/site"
 ```
 
 All should be 2xx with sub-second times. Record them.
@@ -58,10 +68,21 @@ All should be 2xx with sub-second times. Record them.
 ## INJECT
 
 ```bash
-redis-cli SHUTDOWN NOSAVE      # hard-down, closest to a real crash
+brew services stop redis       # primary — unloads the launchd agent so it STAYS down
 ```
 
-(`brew services stop redis` if the shutdown command is refused.)
+🔴 **`redis-cli SHUTDOWN NOSAVE` does NOT work when Redis runs as a Homebrew service.** launchd
+has `KeepAlive` set and restarts it within ~1s. The 2026-07-31 run did this and collected a full
+set of plausible, entirely false PASSes (200/201, sub-100ms) against a **live** Redis.
+
+**Always verify the injection landed before probing:**
+
+```bash
+redis-cli ping           # MUST print: Could not connect … Connection refused
+ps aux | grep -c '[r]edis-server'   # MUST be 0
+```
+
+If `ping` returns `PONG`, you are measuring nothing. Do not proceed.
 
 ## OBSERVE
 
@@ -114,10 +135,27 @@ Worse than dead: a server that accepts connections but doesn't answer.
 redis-cli DEBUG SLEEP 15 &
 ```
 
+🔴 **`DEBUG` is disabled by default on modern Redis** — this returns
+`ERR DEBUG command not allowed. If the enable-debug-command option is set to "local" …`
+and does nothing. Silently. To actually run this scenario you must set
+`enable-debug-command local` in `redis.conf` and restart Redis first. **Verify it blocks**
+before trusting any timing:
+
+```bash
+(redis-cli DEBUG SLEEP 6 &) ; sleep 0.5 ; time redis-cli ping   # must take >5s
+```
+
+`nc -k -l <port>` is **not** an adequate substitute — it resets the connection instead of
+holding it open silently, producing a fast `read error on connection` rather than a hang.
+
 Immediately re-run the baseline curls. If requests hang for the full 15s, PHP's Redis
 timeouts (`REDIS_*` / phpredis `timeout`/`read_timeout`) are effectively unbounded — file
 as a finding with the measured hang times. This scenario frequently produces the drill's
 only real action item.
+
+Note (2026-07-31): `timeout` and `read_timeout` are **unset** on every redis connection in
+`config/database.php`, so phpredis uses `0.0` = unbounded. The risk this scenario targets is
+already confirmed statically; what is still missing is the measured hang duration.
 
 ## Pass criteria
 

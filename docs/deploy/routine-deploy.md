@@ -105,6 +105,14 @@ git diff --name-only origin/production origin/development -- supabase/migrations
 #                  supabase link --project-ref edplucmvkcnokyygxqsb
 #                  supabase db push --dry-run     ← read every line
 #                  supabase db push
+#
+# 2a. AFTER EVERY MIGRATION PUSH — re-run launch-check's schema group. Standing
+#     step, not a judgement call: the schema snapshot is the only thing that
+#     catches a migration that applied but left the DB shaped differently from
+#     what the code expects. Schema rollback does not exist here, so this is the
+#     last point where a mistake is still cheap.
+scripts/launch-check/launch-check.sh --only schema
+#     Non-zero exit ⇒ STOP. Do not proceed to step 3. Reconcile the drift first.
 
 # 2b. Catalog changes, if any (bootstrap/catalog/compiled.php or app/Catalog/**)
 git diff --name-only origin/production origin/development -- bootstrap/catalog/ app/Catalog/
@@ -114,6 +122,13 @@ git diff --name-only origin/production origin/development -- bootstrap/catalog/ 
 #   The hourly scheduled catalog:sync is the convergence net if this step is
 #   forgotten — but run it explicitly so the catalog schema is current the
 #   moment the deploy finishes, not up to an hour later.
+
+# 2c. BEFORE EVERY PROMOTE TO PRODUCTION — full local launch-check gate.
+#     Standing step. `git push …:production` IS the deploy and is NOT gated by
+#     CI (see "The mechanics" above), so this run is the only gate that exists
+#     between your machine and the public site.
+scripts/launch-check/launch-check.sh
+#     Non-zero exit ⇒ do not push. There is no valve downstream of step 3.
 
 # 3. Ship
 git push origin development:production
@@ -156,10 +171,21 @@ Minimum, every time:
 # DB-touching smoke (404-not-403, debug leakage, .env exposure, and a document-download
 # probe that requires a real DB lookup)
 scripts/launch-check/smoke.sh --base-url https://api.partna.au
+
+# Deployed-env groups against the thing you just shipped. Opt-in groups (they need
+# the `cloud` CLI + a deployed env), which is exactly what you have at this point.
+scripts/launch-check/launch-check.sh --only env,runtime --base-url https://api.partna.au
 ```
 
 Then Nightwatch (prod project) for new exceptions in the deploy window, and `cloud env:logs partna
 production --minutes 10` if anything looks off.
+
+> **Launch-check is a standing deploy step, not an occasional audit.** Three fixed points, all of
+> them above: `--only schema` after **every** migration push (2a), the full run before **every**
+> promote (2c), and `--only env,runtime` after the deploy lands (here). The reasoning is in
+> "The mechanics you are operating": the push *is* the deploy, CI does not gate `production`, and
+> schema rollback does not exist. Nothing else in this flow will catch a drifted schema or a
+> misconfigured deployed env before customers do.
 
 > **smoke.sh false-FAILs if you run it too often — verified live 2026-07-26.** Its DB-touching probe
 > hits `/api/public/documents/<fixed-uuid>/download`, and that route carries **two** stacked throttles:
