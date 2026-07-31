@@ -130,6 +130,31 @@ class User extends BaseModel
     ];
 
     /**
+     * Derive handle_lc from handle at assignment time (D2a).
+     *
+     * handle_lc is the column every resolver reads (SiteResolver, the public
+     * profile cache key, KV sync), so a row where it does not mirror `handle`
+     * is invisible to the whole public read path. All four production writers
+     * already set both columns; what bit was the OMISSION case — a caller (a
+     * factory, a seeder, a manual fix) setting only `handle` and leaving
+     * handle_lc at whatever it was.
+     *
+     * A mutator, not a `saving` hook, deliberately: normalising at assignment
+     * means an unsaved model is already correct in memory, so a test asserting
+     * on it sees the right value. A `saving` hook would leave that exact case
+     * wrong until save() — the shape of the original bug.
+     *
+     * Cannot fight the existing writers: they set both keys to the same value,
+     * forceFill() still routes through setAttribute(), and whichever key lands
+     * second writes an identical string.
+     */
+    public function setHandleAttribute(?string $value): void
+    {
+        $this->attributes['handle'] = $value;
+        $this->attributes['handle_lc'] = $value === null ? null : mb_strtolower(trim($value));
+    }
+
+    /**
      * Mail-channel routing. Nullable: provisional (unclaimed) users have no email
      * until claim — returning null makes the mail channel skip them instead of
      * fataling (TypeError) inside any queued notification.
