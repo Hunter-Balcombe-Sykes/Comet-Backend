@@ -98,7 +98,7 @@ than letting it stall the other eight.
 - [x] `COV-PII-2` — **DONE 2026-08-03.** New `StaffEmailSubscriberExportAuthTest`: support→403, admin→200 asserting real CSV content (the seeded email + exact header row), nonexistent UUID→404 (route-model binding proof), and the sibling `index()` pinned as any-staff in both directions. The admin leg is the control — without it a 403 could be a route typo, a `whereUuid` miss, or a 404 misread. All four existing direct-controller files KEPT per sign-off, each given a one-line pointer docblock
 - [x] `COV-JWT-1` — **DONE 2026-08-03.** ⚠️ **The audit's prescribed value was WRONG.** `firebase/php-jwt` checks expiry as `($now - $leeway) >= $exp`, so with the 60s leeway `exp => time() - 10` returns **200, not 401** — verified through the real kernel. Uses `time() - 120`. Driven route-level on an ad-hoc `supabase.jwt`-only route so a 401 cannot be confused with one from `RequireAal2`
 - [x] `COV-JWT-2` — **DONE 2026-08-03.** Both directions, on **both claims**: `nbf +30` → 200, `nbf +300` → 401, and — the half the finding didn't name — `exp -10` → **200**, since the leeway applies to `exp` too. Anti-vacuity: every 401 case differs from the asserted-body baseline by exactly one claim and carries a log-spy `reason` assertion plus a `shouldNotReceive` expectation pinning where in the pipeline the rejection happened. Falsification: removing `JWT::$leeway` reddens the in-leeway cases; disabling the `kid` throw reddens the missing-`kid` case
-- [ ] `COV-TIMEOUT-1` — `AccountDeletionService.php:1400` has no `->timeout()` and is reachable synchronously from a staff endpoint
+- [x] `COV-TIMEOUT-1` — **DONE 2026-08-03.** ⚠️ **The audit's one-liner was incomplete.** Adding `->timeout()` alone converts a hang into an **uncaught `ConnectionException` → unhandled 500**, silently skipping the `EVENT_PURGE_FAILED` audit row (the compliance record of a failed GDPR erasure), the Nightwatch `report()`, and the deliberate 502-with-retry copy — and **aborting the nightly purge batch mid-run** under a 10-hour `withoutOverlapping` lock. Shipped `timeout` + `connectTimeout(min(3, …))` + `catch (ConnectionException) → return false`, which re-enters the already-written, already-tested failure branch so every one of those stays byte-identical. **Risk analysis independently re-verified: the call is outside every transaction and is the literal first statement of `purge()`, strictly before all local destruction — so the fix CANNOT make partial deletion more likely.** Only the recoverable orphan direction is reachable, and the daily retry self-heals it because 404 is treated as success. Positive control drives the config to a distinct value (asserting the default would pass against a hardcoded `->timeout(5)`); falsification showed Guzzle's uncustomised `30`. Sweep of all 33 `Http::` sites in `app/` confirmed the audit's count of exactly one unbounded call
 - [x] `COV-LANE-3` — **DONE 2026-08-03.** ⚠️ **The audit's prescribed fix would NOT have worked.** `DatabaseServiceProvider::boot()` returns early on `runningUnitTests()`, which is true in `phpunit.pg.xml` too (it sets `APP_ENV=testing` and runs under the console SAPI) — so a naive `SHOW statement_timeout` test would have read Postgres's own default of `0` and asserted nothing. Fixed by narrowing the gate with an opt-in `DB_APPLY_TIMEOUTS_IN_TESTS=1`, set only in the `postgres-tests` job; production behaviour provably unchanged (the new clause is ANDed with `runningUnitTests()`, false at real app boot). New `tests/Postgres/DatabaseTimeoutsTest.php` with a **mandatory positive control** — re-boots the provider with the timeout overridden to a distinct value and asserts `SHOW` reflects it, so the test cannot pass against a hardcoded constant or a coincidental server default
 
 ### P2 (10)
@@ -122,9 +122,9 @@ than letting it stall the other eight.
 | `COV-LANE` | **3 / 3** ✅ |
 | `COV-PII` | **2 / 2** ✅ |
 | `COV-JWT` | **3 / 3** ✅ |
-| `COV-TIMEOUT` | 0 / 1 |
+| `COV-TIMEOUT` | **1 / 1** ✅ |
 | `COV-TAIL` | 0 / 9 |
-| **Total** | **15 / 25** |
+| **Total** | **16 / 25** |
 
 ---
 

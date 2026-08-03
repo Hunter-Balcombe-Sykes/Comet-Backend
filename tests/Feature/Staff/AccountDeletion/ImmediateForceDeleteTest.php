@@ -18,6 +18,7 @@
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -152,6 +153,23 @@ it('maps an auth-delete failure to 502 and leaves the account present', function
     $pro = seedImmediateForceDeletePro();
 
     Http::fake(['*/auth/v1/admin/users/*' => Http::response('', 500)]);
+
+    actingAsStaff($staff)
+        ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Confirmed spam — ticket #4242'])
+        ->assertStatus(502);
+
+    expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeTrue();
+});
+
+it('maps a Supabase connection failure to 502 and leaves the account present (COV-TIMEOUT)', function () {
+    // This is the test that guards the actual risk of the COV-TIMEOUT change:
+    // it fails if the implementer ships the audit's literal ->timeout() one-liner
+    // without the catch(ConnectionException) — that variant lets the exception
+    // propagate as an uncaught 500 instead of the deliberate retryable 502.
+    $staff = makeImmediateForceDeleteAdmin();
+    $pro = seedImmediateForceDeletePro();
+
+    Http::fake(['*/auth/v1/admin/users/*' => fn () => throw new ConnectionException('timed out')]);
 
     actingAsStaff($staff)
         ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Confirmed spam — ticket #4242'])
