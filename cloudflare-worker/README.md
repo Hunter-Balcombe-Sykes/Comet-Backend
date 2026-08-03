@@ -409,3 +409,39 @@ than none. What matters is which dials this Worker turns:
   origin cost roughly linearly.
 
 Current pricing: <https://developers.cloudflare.com/workers/platform/pricing/>.
+
+## Static analysis
+
+`worker-static` in CI runs four checks. All four have local equivalents:
+
+| Check | Command |
+|---|---|
+| Types match `wrangler.toml` | `npm run types` then `git diff --exit-code -- worker-configuration.d.ts` |
+| Typecheck (`checkJs` + `strict`) | `npm run typecheck` |
+| Lint (type-aware) | `npm run lint` |
+| Format | `npm run format` to fix, `npm run format:check` to verify |
+
+**`worker-configuration.d.ts` is generated and committed.** Regenerate with
+`npm run types` — never hand-edit. The flags matter: `--strict-vars false`
+yields `PRIMARY_CACHE_TTL_S: number` instead of the literal `86400`, which keeps
+the CFG-1 fallback in `fetchAndCache()` from typing as unreachable.
+
+**Do not use `wrangler types --check` as a gate.** It compares only the
+config-hash comment on line 2 and reports "up to date" even for a file truncated
+to two lines. The CI gate regenerates and diffs instead.
+
+**Bumping wrangler will turn `worker-static` red.** The generated file records
+the workerd version it came from (line 3). Run `npm run types` and commit the
+result as part of the bump. This is the gate working, not failing.
+
+**`typescript` is pinned to `~5.9`.** `typescript-eslint@8` peer-caps at
+`typescript <6.1.0` while TypeScript 7 is current; unpinning breaks `npm ci`
+with `ERESOLVE`. Revisit when typescript-eslint ships TS 7 support.
+
+**Biome is a formatter only** — `linter` and `assist` are both disabled in
+`biome.json`. ESLint owns linting. The `assist` disable matters: `biome ci` runs
+organize-imports while `biome format --write` does not, so leaving it on makes
+the fix and check commands asymmetric.
+
+`test/invariants.test.mjs` pins four structural rules (INV-1..INV-4) that types
+and lint cannot express — see the comments in that file for what each protects.
