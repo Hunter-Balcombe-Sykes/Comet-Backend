@@ -37,7 +37,11 @@ jobs:
           EDGE_TARGET: ${{ secrets.DAST_EDGE_TARGET }}
           EDGE_SITEPAGE_TARGET: ${{ secrets.DAST_EDGE_SITEPAGE_TARGET }}
           DAST_EDGE_RATE_LIMIT: ${{ secrets.DAST_EDGE_RATE_LIMIT || '20' }}
-          DAST_FAIL_ON: high
+          # Lowered high -> medium 2026-08-03, once a real baseline existed. Doing it
+          # earlier would have turned the first run's 19 low/informational findings into
+          # a weekly red build; with them baselined, `medium` now means "something new
+          # and non-trivial appeared" rather than "the scanner ran".
+          DAST_FAIL_ON: medium
         run: scripts/dast/run.sh --only edge
 
       - name: Attach REPORT.md

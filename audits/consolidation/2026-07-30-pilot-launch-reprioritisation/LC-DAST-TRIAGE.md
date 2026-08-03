@@ -42,6 +42,54 @@ Produced for the P0-LAUNCH bucket. **Read the two blockers in §0 before acting 
 > --update-baseline` → *then* drop `DAST_FAIL_ON` from `high` to `medium`. BLOCKER 2 below still
 > applies to the edge baselines: they cannot be hand-written.
 
+> ## ✅ RESOLVED 2026-08-03 — both blockers are discharged. Edge lane is live and baselined.
+>
+> Secrets set (`DAST_EDGE_TARGET=https://dev-api.partna.au`,
+> `DAST_EDGE_SITEPAGE_TARGET=https://ollies.partna.au`). **First successful run ever:**
+> `30799411551`, 19m41s, exit 0 — 19 findings, every one low or informational. Nuclei and wcvs
+> both clean, matching the 2026-07-26 manual result. All 19 came from `zap-passive`.
+>
+> The 17 unique keys are now in `scripts/dast/baseline/zap-passive-baseline.json`, derived from
+> that run's own `REPORT.md` (BLOCKER 2 satisfied — real generated keys, not invented ones).
+> `DAST_FAIL_ON` lowered `high` → `medium`.
+>
+> ### ⚠️ The API hostnames are NOT behind your Cloudflare zone — this is the finding to remember
+>
+> Every header-related finding is anchored to `https://dev-api.partna.au/robots.txt`, and the
+> reason is architectural, not a misconfiguration to fix:
+>
+> ```
+> dev-api.partna.au → CNAME partna-development-fsh3vz.laravel.cloud → 103.133.1.1   (DNS-only)
+> api.partna.au     → CNAME partna-production-uovh3z.laravel.cloud  → 103.133.1.1   (DNS-only)
+> ollies.partna.au  → 104.21.82.134, 172.67.158.59                  (Cloudflare anycast — proxied)
+> partna.au         → 216.198.79.1                                   (Vercel)
+> ```
+>
+> The API records are **grey-clouded**: the CNAME is visible in the DNS answer, whereas a proxied
+> record hides its origin behind CF anycast IPs the way `ollies.partna.au` does. So **zone-level
+> Cloudflare settings cannot affect the API hosts at all.**
+>
+> This is easy to get wrong, and we did: `dev-api.partna.au` returns `cf-ray`, `__cf_bm` and
+> `server: cloudflare`, which look like proof of proxying. Those come from **Laravel Cloud's own
+> Cloudflare** — Laravel Cloud runs behind CF itself. The tell is `/cdn-cgi/trace`, which returns
+> **404** on the API hosts; a genuinely proxied host answers it. Enabling zone HSTS (done, and
+> kept — it covers proxied sitepages incl. CF-generated error/challenge pages) changed nothing on
+> `dev-api`, exactly as this predicts.
+>
+> ### Dispositions — all 19 accepted, none fixed
+>
+> | Keys | Verdict |
+> |---|---|
+> | `10035-1` HSTS, `90004-1` site isolation (both `/robots.txt`) | **Accepted.** `robots.txt` is a static file served by the platform edge without booting Laravel, so `SecureHeaders` never runs for it. Fixing means either orange-clouding the whole API (large blast radius: caching, WAF, double-proxy) or routing a static file through PHP. HSTS is per-host and every real API endpoint already sends `max-age=31536000`; the only client whose sole contact is `/robots.txt` is a crawler, which does not act on HSTS. Cost exceeds the risk. |
+> | `10054-1`, `10054-2` cookie SameSite | **Not ours.** These are Cloudflare's `__cf_bm` / `_cfuvid` bot-management cookies, already `HttpOnly; Secure; SameSite=None`. |
+> | `10049-1`, `10049-3`, `10015` cacheable content | **Intended.** `cache-control: public, max-age=14400` on `robots.txt` is deliberate. |
+> | `10096` timestamp disclosure | **False positive** — pattern-matches any epoch-like number. |
+> | `10112` session management | **Informational**, triggered by the same CF cookies. |
+>
+> **What would reopen the HSTS item:** moving the API behind the Cloudflare zone for any other
+> reason (edge WAF, rate limiting). At that point the header comes free and the finding should be
+> un-baselined rather than left blessed.
+
 ### 🔴 BLOCKER 1 — the findings below are recovered from prose, not from scanner output
 `docs/superpowers/plans/2026-07-17-dast-security-implementation.md` Phase 10 records the 2026-07-26
 build-time run results in enough detail to reason about. The raw JSON is gone. So this document is a
