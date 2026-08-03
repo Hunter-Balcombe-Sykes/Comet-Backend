@@ -1,5 +1,12 @@
 <?php
 
+/**
+ * Route-level companion: StaffEmailSubscriberExportAuthTest exercises
+ * index()/export() over real HTTP, including the admin-only export gate;
+ * this file's direct-controller calls stay for the no-staff-actor
+ * fail-closed case below that route-level can't reach.
+ */
+
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;

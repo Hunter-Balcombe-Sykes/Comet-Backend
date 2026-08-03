@@ -7,6 +7,10 @@
  *   - index() no longer crashes on the removed site.theme eager-load
  *   - show()  no longer crashes on the removed site.theme / unused services/blocks loads
  *   - Both responses include architecture_id (not theme) in the site payload
+ *
+ * Route-level companion: StaffUserShowPiiTest section (c) exercises this same
+ * show()/index() PII gate over real HTTP; this file's direct-controller calls
+ * stay to pin the #P1-01 crash regression they were written for.
  */
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;

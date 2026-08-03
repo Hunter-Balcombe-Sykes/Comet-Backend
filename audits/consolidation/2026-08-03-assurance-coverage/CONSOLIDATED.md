@@ -94,15 +94,15 @@ than letting it stall the other eight.
 - [x] `COV-GUARD-3` — **CLOSED NARROWED-DEAD 2026-08-03.** No threshold number changed; the decision and its arithmetic recorded as a comment in `config.js`. A `p(99)` gate is either flaky (below 890 → fails run A on a one-in-2100 TTFB event) or dead (above 890 → cannot fire before `p(95)<500` does, given server p95 of 91ms). No guard added, so **no positive control applies** — this is not a missing control. Baseline comparison stays with `COV-TAIL-10` per the audit's own cross-reference
 - [x] `COV-GUARD-4` — **DONE 2026-08-03.** All three sweeps now assert the denominator via `SweepGuard::assertDenominator()` before asserting the numerator; model discovery unified into `ModelSweep`, which removes `SoftDeletePurgeCoverageTest`'s hardcoded `'App\Models\'`. Behaviour-preserving (SoftDeletes set stays at exactly 11). Floors 50 / 50 / 10 / 8, each below the measured value with stated headroom
 - [x] `COV-GUARD-5` — **DONE 2026-08-03.** Both sweeps floored at 50, each with a denominator control *and* an offender control built on an **unregistered** `Illuminate\Routing\Route` (a registered probe would persist in the collection and redden the real sweep). ⚠️ **Premise corrected:** "5 routes currently match" is wrong — measured live, **106** routes match the jwt filter and **109** carry a `platform` default. The 5 was a count of declaration sites in `routes/`, not of matched routes. The finding stands; only the number was wrong
-- [ ] `COV-PII-1` — staff PII redaction asserted only off-route, bypassing the middleware that feeds the gate
-- [ ] `COV-PII-2` — the admin-only customer-email CSV export has no route-level test in any form
-- [ ] `COV-JWT-1` — nothing asserts an expired JWT is rejected
-- [ ] `COV-JWT-2` — nothing asserts the 60s `nbf` leeway works
+- [x] `COV-PII-1` — **DONE 2026-08-03.** ⚠️ **The audit's prescribed assertion was VACUOUS and was NOT written.** It says assert `primary_email` *absent*, but `UserStaffResource` emits redacted PII as **present-and-null**, and `assertJsonPath($path, null)` resolves via `data_get()`, **which returns null for a missing key** — so that assertion passes against `{}`, against a renamed key, and against an empty 200. Replaced with a **four-leg control**: key-exists (`assertJsonStructure`), value-redacted, non-PII-survives (incl. `public_contact_email`, the near-twin of gated `primary_email`), and an **admin positive control** asserting the real seeded values, plus a raw-body high-entropy-secret check using `assertStringNotContainsString`. ⚠️ **Second correction:** `actingAsStaff()` **stubs out `EnsurePartnaStaff`** — the very middleware the finding says is bypassed — so the prescribed fix would not have closed the gap it names. Added a real-middleware pair via `actingAsUser()` + a seeded `core.partna_staff` row, exercising role resolution by `auth_user_id` for the first time. **All 10 gated fields asserted, not the 3 the finding named.** Falsification: flipping `$showPii = true` reddened 3 of 9 cases. **No leak found** — the real middleware resolved the same role as the stub
+- [x] `COV-PII-2` — **DONE 2026-08-03.** New `StaffEmailSubscriberExportAuthTest`: support→403, admin→200 asserting real CSV content (the seeded email + exact header row), nonexistent UUID→404 (route-model binding proof), and the sibling `index()` pinned as any-staff in both directions. The admin leg is the control — without it a 403 could be a route typo, a `whereUuid` miss, or a 404 misread. All four existing direct-controller files KEPT per sign-off, each given a one-line pointer docblock
+- [x] `COV-JWT-1` — **DONE 2026-08-03.** ⚠️ **The audit's prescribed value was WRONG.** `firebase/php-jwt` checks expiry as `($now - $leeway) >= $exp`, so with the 60s leeway `exp => time() - 10` returns **200, not 401** — verified through the real kernel. Uses `time() - 120`. Driven route-level on an ad-hoc `supabase.jwt`-only route so a 401 cannot be confused with one from `RequireAal2`
+- [x] `COV-JWT-2` — **DONE 2026-08-03.** Both directions, on **both claims**: `nbf +30` → 200, `nbf +300` → 401, and — the half the finding didn't name — `exp -10` → **200**, since the leeway applies to `exp` too. Anti-vacuity: every 401 case differs from the asserted-body baseline by exactly one claim and carries a log-spy `reason` assertion plus a `shouldNotReceive` expectation pinning where in the pipeline the rejection happened. Falsification: removing `JWT::$leeway` reddens the in-leeway cases; disabling the `kid` throw reddens the missing-`kid` case
 - [ ] `COV-TIMEOUT-1` — `AccountDeletionService.php:1400` has no `->timeout()` and is reachable synchronously from a staff endpoint
 - [x] `COV-LANE-3` — **DONE 2026-08-03.** ⚠️ **The audit's prescribed fix would NOT have worked.** `DatabaseServiceProvider::boot()` returns early on `runningUnitTests()`, which is true in `phpunit.pg.xml` too (it sets `APP_ENV=testing` and runs under the console SAPI) — so a naive `SHOW statement_timeout` test would have read Postgres's own default of `0` and asserted nothing. Fixed by narrowing the gate with an opt-in `DB_APPLY_TIMEOUTS_IN_TESTS=1`, set only in the `postgres-tests` job; production behaviour provably unchanged (the new clause is ANDed with `runningUnitTests()`, false at real app boot). New `tests/Postgres/DatabaseTimeoutsTest.php` with a **mandatory positive control** — re-boots the provider with the timeout overridden to a distinct value and asserts `SHOW` reflects it, so the test cannot pass against a hardcoded constant or a coincidental server default
 
 ### P2 (10)
-- [ ] `COV-JWT-3` — missing-`kid` rejection path untested
+- [x] `COV-JWT-3` — **DONE 2026-08-03.** Covered as case 4 of the new claim-timing test. Its control is unusually clean: `$cacheLock->shouldNotReceive('rememberLocked')`, because the throw at `:359` precedes `resolveSigningKey`, so a 401 from any other cause would have consulted the JWKS first
 - [ ] `COV-TAIL-1` — 7 files carry an undocumented Redis-signature PHPStan suppression that one file documents
 - [ ] `COV-TAIL-2` — PHPStan level 5 cannot see null dereferences; the codebase is nullable-heavy
 - [ ] `COV-TAIL-3` — the TTL guard matches call syntax, not arity: 2-arg `Cache::put` forwards to `forever()` unseen
@@ -120,11 +120,11 @@ than letting it stall the other eight.
 | `COV-GATE` | **2 / 2** ✅ |
 | `COV-GUARD` | **5 / 5** ✅ |
 | `COV-LANE` | **3 / 3** ✅ |
-| `COV-PII` | 0 / 2 |
-| `COV-JWT` | 0 / 3 |
+| `COV-PII` | **2 / 2** ✅ |
+| `COV-JWT` | **3 / 3** ✅ |
 | `COV-TIMEOUT` | 0 / 1 |
 | `COV-TAIL` | 0 / 9 |
-| **Total** | **10 / 25** |
+| **Total** | **15 / 25** |
 
 ---
 
