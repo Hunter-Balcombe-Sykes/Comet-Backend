@@ -739,7 +739,15 @@ async function serveIndividual(env, ctx, request, handleOverride) {
     // 2) Primary MISS — serve the stale shadow if present, refresh in background.
     const shadow = await cache.match(staleShadowKey(cacheKey));
     if (shadow) {
-        ctx.waitUntil(fetchAndCache(env, ctx, cacheKey, cache, originRequest));
+        // EDGE-13: same as the two cache.put chains in fetchAndCache — a rejected
+        // waitUntil promise resolves after the response has already gone out, so
+        // without this the failure surfaces as an unhandled rejection instead of a
+        // log line anyone can act on.
+        ctx.waitUntil(
+            fetchAndCache(env, ctx, cacheKey, cache, originRequest).catch((err) =>
+                console.error("swr background refresh failed", {err: String(err)}),
+            ),
+        );
         return finalize(shadow, {cacheStatus: "stale", sitepage: true});
     }
 
