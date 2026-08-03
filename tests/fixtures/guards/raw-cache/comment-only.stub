@@ -1,0 +1,13 @@
+<?php
+
+// Fixture for RawCacheCallScanner (GS-1 / COV-GUARD-2). Negative control: the
+// string "Cache::put" appears only in a comment, never as a real call. A
+// text-matching scanner would flag this file (this is exactly how the real
+// allowlist acquired its bogus IndividualProfileController entry); a token
+// scanner discards T_COMMENT/T_DOC_COMMENT before matching and must produce
+// zero hits.
+// Never call Cache::put() directly here — go through UserCacheService.
+function noop(): void
+{
+    // also never Cache::forget('x') in this function body
+}

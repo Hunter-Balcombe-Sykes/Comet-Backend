@@ -67,8 +67,11 @@ it('folds multiple section_keys into one page with correct views + unique viewer
     $byKey = collect($pages)->keyBy('key');
 
     // player-test contributes no page → exactly 3 pages, no null bucket.
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a two-needle negation passes the moment either is absent.
     expect($pages)->toHaveCount(3)
-        ->and($byKey->keys()->all())->not->toContain('player-test', '');
+        ->and($byKey->keys()->all())->not->toContain('player-test')
+        ->and($byKey->keys()->all())->not->toContain('');
 
     expect($byKey['shop']['title'])->toBe('Shop')
         ->and($byKey['shop']['views'])->toBe(3)              // shop-products x2 + shop x1

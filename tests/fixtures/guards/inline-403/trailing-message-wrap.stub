@@ -1,0 +1,8 @@
+<?php
+
+// Fixture for ControllerAbortScanner (COV-GUARD-2). abort_if() with only the
+// trailing message argument wrapped — the shape Pint actually produces once a
+// message is long enough, rather than wrapping every argument.
+abort_if($x, 403,
+    'a message long enough that Pint wraps it'
+);

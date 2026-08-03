@@ -4,7 +4,9 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\Staff\StaffAuditEntry;
 use App\Services\User\AccountDeletionService;
 use App\Services\User\DataExport\DataExportPayloadBuilder;
-use Symfony\Component\Finder\Finder;
+use PHPUnit\Framework\ExpectationFailedException;
+use Tests\Support\Architecture\ModelSweep;
+use Tests\Support\Architecture\SweepGuard;
 use Tests\Support\SchemaDrift\MigrationColumnReplay;
 use Tests\Support\SchemaDrift\SelectStatementParser;
 
@@ -77,22 +79,13 @@ const PII_MARKERS = [
 ];
 
 it('every PII-bearing model is covered by the data export', function () {
-    $modelFiles = (new Finder)
-        ->files()
-        ->in(app_path('Models'))
-        ->name('*.php')
-        ->notName('BaseModel.php')
-        ->notPath('Views')
-        ->getIterator();
+    $models = ModelSweep::resolvedModelClasses();
+    SweepGuard::assertDenominator($models, 50, 'app/Models data-export sweep');
 
     $missing = [];
+    $piiBearing = [];
 
-    foreach ($modelFiles as $file) {
-        $class = str_replace([app_path(), '/', '.php'], ['App', '\\', ''], $file->getRealPath());
-        if (! class_exists($class)) {
-            continue;
-        }
-
+    foreach ($models as $class) {
         $reflection = new ReflectionClass($class);
         if ($reflection->isAbstract()) {
             continue;
@@ -112,6 +105,8 @@ it('every PII-bearing model is covered by the data export', function () {
             continue;
         }
 
+        $piiBearing[] = $class;
+
         if (in_array($class, EXPORT_EXEMPT, true)) {
             continue;
         }
@@ -121,7 +116,19 @@ it('every PII-bearing model is covered by the data export', function () {
         }
     }
 
+    // The set that actually reaches the assertion. If PII_MARKERS stops matching
+    // (a $fillable → $guarded refactor, a renamed column) this collapses to 0
+    // and the guard passes having inspected no PII at all.
+    SweepGuard::assertDenominator($piiBearing, 10, 'PII-bearing models');
+
     expect($missing)->toBe([], "PII-bearing models missing from the data export:\n  - ".implode("\n  - ", $missing)."\n\nEither add the table to DataExportPayloadBuilder::COVERED_PII_TABLES (and wire a section in sectionDescriptors()) or add the model to EXPORT_EXEMPT in this test with a justification.");
+});
+
+// Positive control (COV-GUARD-4): the cheap inline form — an empty discovery
+// set must redden the floor, proving the guard itself can fail.
+it('proves the denominator guard can fail: an empty set is rejected', function () {
+    expect(fn () => SweepGuard::assertDenominator([], 50, 'probe'))
+        ->toThrow(ExpectationFailedException::class);
 });
 
 it('every COVERED_PII_TABLES entry is actually referenced by the builder', function () {

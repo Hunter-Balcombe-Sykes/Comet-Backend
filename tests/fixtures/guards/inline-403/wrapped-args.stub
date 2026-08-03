@@ -1,0 +1,12 @@
+<?php
+
+// Fixture for ControllerAbortScanner (COV-GUARD-2). THE REGRESSION PIN: the
+// identical call as single-line.stub, wrapped across lines the way Pint
+// wraps any abort_unless() whose message argument is long enough. The old
+// two-stage `grep -rE ... | grep 403` pipeline is line-oriented and matched
+// NEITHER grep stage against this — zero hits, silently. That is COV-GUARD-2.
+abort_unless(
+    $a === $b,
+    403,
+    'no'
+);

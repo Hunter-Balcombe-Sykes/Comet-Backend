@@ -85,7 +85,10 @@ it('topProducts() only returns clicks scoped to shop section keys', function () 
     expect($products)->toHaveCount(2);
     $productIds = collect($products)->pluck('product_id')->all();
     expect($productIds)->toContain('black-tee', 'live-set');
-    expect($productIds)->not->toContain('haircut-basic', 'summer-workshop');
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a two-needle negation passes the moment either is absent.
+    expect($productIds)->not->toContain('haircut-basic');
+    expect($productIds)->not->toContain('summer-workshop');
 });
 
 it('topServices() surfaces clicks under book and services section keys, not shop or events', function () {
@@ -117,7 +120,10 @@ it('topServices() surfaces clicks under book and services section keys, not shop
     expect($services)->toHaveCount(2);
     $serviceIds = collect($services)->pluck('product_id')->all();
     expect($serviceIds)->toContain('haircut-basic', 'colour-treatment');
-    expect($serviceIds)->not->toContain('black-tee', 'summer-workshop');
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a two-needle negation passes the moment either is absent.
+    expect($serviceIds)->not->toContain('black-tee');
+    expect($serviceIds)->not->toContain('summer-workshop');
 });
 
 it('topEvents() surfaces clicks under events and attend section keys, not shop or book', function () {
@@ -149,7 +155,10 @@ it('topEvents() surfaces clicks under events and attend section keys, not shop o
     expect($events)->toHaveCount(2);
     $eventIds = collect($events)->pluck('product_id')->all();
     expect($eventIds)->toContain('summer-workshop', 'winter-retreat');
-    expect($eventIds)->not->toContain('haircut-basic', 'black-tee');
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a two-needle negation passes the moment either is absent.
+    expect($eventIds)->not->toContain('haircut-basic');
+    expect($eventIds)->not->toContain('black-tee');
 });
 
 it('excludes rows with NULL section_key from every scoped list', function () {

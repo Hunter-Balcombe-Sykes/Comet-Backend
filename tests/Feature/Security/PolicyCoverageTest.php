@@ -25,7 +25,9 @@ use App\Models\Moderation\AuditEvent;
 use App\Models\Moderation\CaseSignal;
 use App\Models\Moderation\Evidence;
 use Illuminate\Support\Facades\Gate;
-use Symfony\Component\Finder\Finder;
+use PHPUnit\Framework\ExpectationFailedException;
+use Tests\Support\Architecture\ModelSweep;
+use Tests\Support\Architecture\SweepGuard;
 
 /*
 |--------------------------------------------------------------------------
@@ -115,22 +117,16 @@ const POLICY_EXEMPT = [
 ];
 
 it('every tenant-owned model has a registered policy', function () {
-    $modelFiles = (new Finder)
-        ->files()
-        ->in(app_path('Models'))
-        ->name('*.php')
-        ->notName('BaseModel.php')
-        ->notPath('Views') // read-only DB views are not policy-gated
-        ->getIterator();
+    $models = ModelSweep::resolvedModelClasses();
+
+    // COV-GUARD-4: the `$missing === []` assertion below is ALSO true when the
+    // sweep examined nothing. Assert the denominator before asserting the
+    // numerator. Same discipline as Aal2RouteCoverageTest:24.
+    SweepGuard::assertDenominator($models, 50, 'app/Models policy sweep');
 
     $missing = [];
 
-    foreach ($modelFiles as $file) {
-        $relative = str_replace([app_path(), '/', '.php'], ['App', '\\', ''], $file->getRealPath());
-        if (! class_exists($relative)) {
-            continue;
-        }
-
+    foreach ($models as $relative) {
         if (in_array($relative, POLICY_EXEMPT, true)) {
             continue;
         }
@@ -148,4 +144,21 @@ it('every POLICY_EXEMPT entry resolves to a real model class', function () {
     foreach (POLICY_EXEMPT as $class) {
         expect(class_exists($class))->toBeTrue("POLICY_EXEMPT entry {$class} does not resolve to an existing class.");
     }
+});
+
+// Positive control (COV-GUARD-4). A PSR-4/namespace move makes class_exists()
+// reject every file; the `continue` skips them all and the missing-list is []
+// for the wrong reason. This drives that exact state and asserts the floor goes
+// RED — without it the floor itself could be vacuous.
+it('proves the denominator guard can fail: a collapsed discovery set is rejected', function () {
+    $collapsed = ModelSweep::resolvedModelClasses(base_path('tests/fixtures/guards/no-models'));
+
+    expect($collapsed)->toBe([]);
+
+    expect(fn () => SweepGuard::assertDenominator($collapsed, 50, 'probe'))
+        ->toThrow(ExpectationFailedException::class);
+
+    // And the near-miss: a partial collapse must fail too, not just a total one.
+    expect(fn () => SweepGuard::assertDenominator(range(1, 49), 50, 'probe'))
+        ->toThrow(ExpectationFailedException::class);
 });

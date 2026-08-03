@@ -1,0 +1,6 @@
+<?php
+
+// Fixture for RawCacheCallScanner (GS-1 / COV-GUARD-2). The case the OLD
+// line-oriented grep caught: a raw Cache::put(...) on one line, outside any
+// cache service.
+Cache::put('user_count', $n, 60);

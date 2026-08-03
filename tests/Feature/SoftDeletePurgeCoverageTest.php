@@ -18,33 +18,30 @@
 
 use App\Console\Commands\PurgeSoftDeleted;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Symfony\Component\Finder\Finder;
+use PHPUnit\Framework\ExpectationFailedException;
+use Tests\Support\Architecture\ModelSweep;
+use Tests\Support\Architecture\SweepGuard;
 
 function discoverSoftDeleteModels(): array
 {
-    $finder = (new Finder)
-        ->files()
-        ->in(app_path('Models'))
-        ->name('*.php');
+    // Namespace derivation is shared with PolicyCoverageTest and
+    // DataExportCoverageTest via ModelSweep — this file used to hardcode
+    // 'App\Models\', so a PSR-4 move could break one sweep and not the others
+    // (COV-GUARD-4).
+    $models = ModelSweep::resolvedModelClasses();
+    SweepGuard::assertDenominator($models, 50, 'app/Models soft-delete sweep');
 
-    $models = [];
-    foreach ($finder as $file) {
-        $relative = str_replace(app_path('Models').'/', '', $file->getRealPath());
-        $class = 'App\\Models\\'.str_replace(['/', '.php'], ['\\', ''], $relative);
+    $softDeleting = [];
 
-        if (! class_exists($class)) {
-            continue;
-        }
-
-        $uses = class_uses_recursive($class);
-        if (in_array(SoftDeletes::class, $uses, true)) {
-            $models[] = $class;
+    foreach ($models as $class) {
+        if (in_array(SoftDeletes::class, class_uses_recursive($class), true)) {
+            $softDeleting[] = $class;
         }
     }
 
-    sort($models);
+    sort($softDeleting);
 
-    return $models;
+    return $softDeleting;
 }
 
 it('every SoftDeletes-using model is covered by PurgeSoftDeleted or has a documented exemption', function () {
@@ -55,6 +52,7 @@ it('every SoftDeletes-using model is covered by PurgeSoftDeleted or has a docume
     );
 
     $found = discoverSoftDeleteModels();
+    SweepGuard::assertDenominator($found, 8, 'SoftDeletes-using models');
     $uncovered = array_diff($found, $covered);
 
     expect($uncovered)->toBe(
@@ -78,4 +76,11 @@ it('every PURGE_EXEMPT entry carries a non-empty justification', function () {
     foreach (PurgeSoftDeleted::PURGE_EXEMPT as $class => $reason) {
         expect(trim($reason))->not->toBe('', "Empty justification for PURGE_EXEMPT entry {$class}");
     }
+});
+
+// Positive control (COV-GUARD-4): the cheap inline form — an empty discovery
+// set must redden the floor, proving the guard itself can fail.
+it('proves the denominator guard can fail: an empty set is rejected', function () {
+    expect(fn () => SweepGuard::assertDenominator([], 8, 'probe'))
+        ->toThrow(ExpectationFailedException::class);
 });

@@ -1,0 +1,8 @@
+<?php
+
+// Fixture for ControllerAbortScanner (COV-GUARD-2). abort(403, ...) wrapped
+// across lines — the direct-abort() form of the same evasion.
+abort(
+    403,
+    'no'
+);

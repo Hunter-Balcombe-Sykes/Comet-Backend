@@ -89,11 +89,11 @@ than letting it stall the other eight.
 ### P1 (13)
 - [ ] `COV-LANE-1` — 37 skip sites across 18 files gate Postgres-only assertions on a check that can only ever answer "no"
 - [ ] `COV-LANE-2` — `tests/Integration/` is in no `<testsuite>` **and** gated on an env var set nowhere
-- [ ] `COV-GUARD-1` — `not->toContain($needle, $prose)` passes unconditionally (reproduced)
-- [ ] `COV-GUARD-2` — the inline-403 CI guard is defeated by ordinary line wrapping (reproduced)
-- [ ] `COV-GUARD-3` — ⚠️ **MOSTLY DEAD, revised 2026-08-03** — the "3× p99 regression" was n=1; two control runs refuted it. Only "no p99 threshold, no baseline comparison" survives. **Do not add a `max` threshold**
-- [ ] `COV-GUARD-4` — three `Finder`-based model sweeps have no non-empty denominator guard
-- [ ] `COV-GUARD-5` — two route-collection sweeps have the same missing guard (lower severity)
+- [x] `COV-GUARD-1` — **DONE 2026-08-03.** Both vacuous sites converted to `assertStringNotContainsString`. The suite-wide sweep the finding asked for turned up **a third vacuous site the audit missed** — `StrandedPendingWindowLockstepTest.php:41` — fixed the same way. Seven further *weak* (not vacuous) multi-needle negations split to one needle per call. Positive controls added to both lockstep tests. `grep -rn "not->toContain([^)]*," tests/` now returns only the two documented false positives in `PiiLogHygieneSweepTest.php:136-137` (comma inside a string literal — correct as written)
+- [x] `COV-GUARD-2` — **DONE 2026-08-03.** Both line-oriented CI greps replaced with token-based scanners (`ControllerAbortScanner`, `RawCacheCallScanner`), which have no concept of a line and so cannot be evaded by wrapping. Positive controls are `.stub` fixtures named **individually**, not counted — a count assertion would pass on 4 single-line hits and 0 wrapped hits, i.e. the bug itself. All 30 GS-1 allowlist pathspecs migrated with every justification comment verbatim (reviewer diffed them); 6 entries marked `// STALE`, none deleted
+- [x] `COV-GUARD-3` — **CLOSED NARROWED-DEAD 2026-08-03.** No threshold number changed; the decision and its arithmetic recorded as a comment in `config.js`. A `p(99)` gate is either flaky (below 890 → fails run A on a one-in-2100 TTFB event) or dead (above 890 → cannot fire before `p(95)<500` does, given server p95 of 91ms). No guard added, so **no positive control applies** — this is not a missing control. Baseline comparison stays with `COV-TAIL-10` per the audit's own cross-reference
+- [x] `COV-GUARD-4` — **DONE 2026-08-03.** All three sweeps now assert the denominator via `SweepGuard::assertDenominator()` before asserting the numerator; model discovery unified into `ModelSweep`, which removes `SoftDeletePurgeCoverageTest`'s hardcoded `'App\Models\'`. Behaviour-preserving (SoftDeletes set stays at exactly 11). Floors 50 / 50 / 10 / 8, each below the measured value with stated headroom
+- [x] `COV-GUARD-5` — **DONE 2026-08-03.** Both sweeps floored at 50, each with a denominator control *and* an offender control built on an **unregistered** `Illuminate\Routing\Route` (a registered probe would persist in the collection and redden the real sweep). ⚠️ **Premise corrected:** "5 routes currently match" is wrong — measured live, **106** routes match the jwt filter and **109** carry a `platform` default. The 5 was a count of declaration sites in `routes/`, not of matched routes. The finding stands; only the number was wrong
 - [ ] `COV-PII-1` — staff PII redaction asserted only off-route, bypassing the middleware that feeds the gate
 - [ ] `COV-PII-2` — the admin-only customer-email CSV export has no route-level test in any form
 - [ ] `COV-JWT-1` — nothing asserts an expired JWT is rejected
@@ -118,13 +118,13 @@ than letting it stall the other eight.
 | Unit | Done |
 |---|---|
 | `COV-GATE` | **2 / 2** ✅ |
-| `COV-GUARD` | 0 / 5 |
+| `COV-GUARD` | **5 / 5** ✅ |
 | `COV-LANE` | 0 / 3 |
 | `COV-PII` | 0 / 2 |
 | `COV-JWT` | 0 / 3 |
 | `COV-TIMEOUT` | 0 / 1 |
 | `COV-TAIL` | 0 / 9 |
-| **Total** | **2 / 25** |
+| **Total** | **7 / 25** |
 
 ---
 
@@ -314,6 +314,22 @@ alone and called it a trend.
 
 **What actually survives, narrowed:** `config.js` has no p99 threshold, and there is no automated
 comparison of a run against the recorded baseline (overlaps `COV-TAIL-10`). That is real but small.
+
+> **Figure correction, 2026-08-03 (execution).** The table above lists run A's p99 as **1185ms**. The
+> committed writeup (`results/2026-08-03-baseline-warmup-comparison.md`) says **889.8ms**. Use 889.8 —
+> the writeup is the primary source; the raw JSON is gitignored. The four observed p99s are therefore
+> **293.9 / 320.7 / 376.0 / 889.8ms**, which is what the declined-threshold arithmetic below rests on.
+>
+> **Closed NARROWED-DEAD, no number changed.** A `p(99)` gate is flaky below 890 (it fails run A on a
+> one-in-2100 TTFB event that hit the DB-free `/api/health` at the same instant) and dead above 890
+> (the origin's own access log puts server p95 at 91ms and its worst request at 351ms over 970
+> requests — a regression big enough to move p99 past 1000ms moves p50/p95 first, and `p(95)<500`
+> already gates those). Tightening `p(95)` is defensible on the data — worst observed is 241.4 — but
+> it is a policy change with **no possible positive control**: k6 runs by hand and nothing in CI
+> executes `config.js`. Landing an unverifiable number into a file nothing runs automatically is the
+> exact category of assurance this audit exists to remove. Deferred to `COV-TAIL-10`, which will
+> actually run these scripts and can set it from more points. The reasoning is recorded in `config.js`
+> so the next reader does not re-derive it from one run.
 
 **Fix — read the constraints first:**
 - **Never add a `max` threshold.** Identical conditions (A vs C) gave 4563ms and 550ms — an 8×
@@ -513,6 +529,44 @@ passes identically, so a degraded-build regression (`IndividualProfileController
 100% pass.
 **Fix.** Assert parsed array lengths against seed expectations (`gallery.length === 6` etc.), then run
 `jobs.js` once and record it. Scope decision on the broader route coverage — flag, don't silently expand.
+
+---
+
+## Discovered during execution — needs a disposition, not a checkbox
+
+Found while working the units above. Deliberately **not** filed as checkboxes: an open box blocks
+auto-archive, and per `BACKLOG-TRIAGE.md` the right first move on a new P2/P3 is disposition
+(WONTFIX / OPPORTUNISTIC / PROMOTE), not execution. Josh calls each.
+
+1. **`not->toHaveKeys([...])` is the same vacuity, different matcher — 9 sites.** `toHaveKeys(array
+   $keys, string $message = '')` loops `toHaveKey` internally, so negated it means **"not ALL
+   present"** — a leak of one key out of four passes. Sites: `Platforms/DisplaySettingsTest.php:188,
+   215, 239, 266`, `Platforms/GoogleBusinessApifyTest.php:556`,
+   `Platforms/ShopBrandLogoProcessingTest.php:161`, `PreAccount/InstagramSourceGeneratorTest.php:93`,
+   `Documents/DocumentUploadTest.php:30`, `Media/DesignSingletonMediaTest.php:75`. Several are
+   **PII-adjacent** — `DisplaySettingsTest` asserts `reviews`/`reviewSummary` do not leak, the same
+   third-party-key surface `DsarAllowlistCoverageTest` guards. Mechanical fix: `->not->toHaveKey($k)`
+   per key in a `foreach`. **Recommend PROMOTE** — this is a P1-shaped leak check, not tail work.
+
+2. **`EmailVerifiedRouteCoverageTest` is blind to ~372 routes.** `gatherMiddleware()` does not expand
+   middleware **groups**, so every route on the `user.api` group (`bootstrap/app.php:123-127`) never
+   enters the filter at all. This is *not* the `gatherRouteMiddleware()`-before-first-request hazard
+   the audit correctly ruled out for `COV-GUARD-5` — it is a plain scope gap, and it is why that
+   test's floor is 50 rather than ~106. **Left unfixed deliberately:** the fix changes what the sweep
+   *does*, which is a behaviour change, not the guard repair `COV-GUARD-5` scoped. Without this note
+   the floor of 50 reads to a future maintainer as "106 routes are covered", which is false.
+
+3. **Five GS-1 allowlist entries were already dead before the token migration.** Re-running the
+   *original* ci.yml grep against today's tree found ordinary code drift, unrelated to this unit:
+   `CustomerObserver.php` (refactored onto `UserCacheService`), `InstagramController.php` (only
+   `Cache::lock()` left, not a gated method), `ProbeBudget.php` (only `Cache::get()`, a read),
+   and `OwnMediaAccentFactor.php` / `StorePricePointFactor.php` — **both files no longer exist**.
+   All marked `// STALE` with a reason and pinned by `RawCacheCallGuardTest`'s expected-stale set, so
+   *new* staleness still fails loud. Retiring them is a follow-up, not this unit.
+
+4. **`HealthController.php` sits in the GS-1 allowlist with no justification comment at all.** Every
+   other entry carries one. Transcribed as-is rather than inventing a rationale. Someone should
+   either write the reason or remove the entry.
 
 ---
 

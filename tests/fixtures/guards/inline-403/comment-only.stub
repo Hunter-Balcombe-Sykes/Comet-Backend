@@ -1,0 +1,11 @@
+<?php
+
+// Fixture for ControllerAbortScanner (COV-GUARD-2). Negative control: the
+// string "abort(403)" appears only in a comment, never as a real call. A
+// text-matching scanner would flag this file; a token scanner discards
+// T_COMMENT/T_DOC_COMMENT before matching and must produce zero hits.
+// never abort(403) here — this route is intentionally open to all roles.
+function noop(): void
+{
+    // also never call abort_unless($x, 403) in this function
+}

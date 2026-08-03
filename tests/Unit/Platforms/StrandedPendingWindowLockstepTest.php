@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Platforms\StrandedPendingWindow;
+use PHPUnit\Framework\ExpectationFailedException;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -38,7 +39,24 @@ it('no consumer keeps a local copy of the stale-pending literal or const', funct
 
         $source = (string) file_get_contents($path);
 
-        expect($source)->not->toContain('subMinutes(5)', "[$relative] hand-types the stale-pending literal again; read StrandedPendingWindow::MINUTES instead.");
+        // Same COV-GUARD-1 trap as ConnectErrorSentenceLockstepTest: the message
+        // argument was silently a second needle, so this never failed.
+        $this->assertStringNotContainsString(
+            'subMinutes(5)',
+            $source,
+            "[$relative] hand-types the stale-pending literal again; read StrandedPendingWindow::MINUTES instead."
+        );
         expect($source)->not->toMatch('/PENDING_MINUTES\s*=/', "[$relative] reintroduces a local *_PENDING_MINUTES const; read StrandedPendingWindow::MINUTES instead.");
     }
+});
+
+// Positive control (COV-GUARD-1), mirroring ConnectErrorSentenceLockstepTest's.
+it('proves the lockstep guard can fail: a hand-typed literal IS caught', function () {
+    $forged = '$deadline = now()->subMinutes(5);';
+
+    expect(fn () => $this->assertStringNotContainsString(
+        'subMinutes(5)',
+        $forged,
+        'probe'
+    ))->toThrow(ExpectationFailedException::class);
 });

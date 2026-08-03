@@ -111,7 +111,10 @@ it('purgeHandle purges root + every deep-link sub-page + shadows + API', functio
     foreach (cfDeepLinkSubPages() as $page) {
         expect($files)->toContain("{$base}/{$page}", "{$base}/_swr-shadow/{$page}");
     }
-    expect($files)->not->toContain("{$base}/home", "{$base}/_swr-shadow/home");
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a two-needle negation passes the moment either is absent.
+    expect($files)->not->toContain("{$base}/home")
+        ->and($files)->not->toContain("{$base}/_swr-shadow/home");
     // exact size: 3 root + 2 per sub-page + 4 API (profile + integrations + platforms + menu)
     expect($files)->toHaveCount(3 + 2 * count(cfDeepLinkSubPages()) + 4);
 });
@@ -450,8 +453,9 @@ it('percent-encodes the handle and product handle before they land in a purge UR
         'https://dev-api.partna.au/api/public/profiles/jane%20doe/integrations',
         'https://jane%20doe.partna.au/products/foo%2Fbar',
         'https://jane%20doe.partna.au/_swr-shadow/products/foo%2Fbar',
-    )->not->toContain(
-        'https://jane doe.partna.au/',
-        'https://jane%20doe.partna.au/products/foo/bar',
     );
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a two-needle negation passes the moment either is absent.
+    expect($files)->not->toContain('https://jane doe.partna.au/');
+    expect($files)->not->toContain('https://jane%20doe.partna.au/products/foo/bar');
 });
