@@ -61,7 +61,48 @@ script must include it in its request headers.
 - Run: `baseline.js` @ 45 req/min for 5m · 678 requests · 226 iterations · 904/904 checks passed
 - Thresholds: `p(95)<500` ✓ (238.73 ms as reported by k6) · `http_req_failed<0.01` ✓ (0.00%)
 - Raw: `results/baseline-run1.json` · summary: `results/2026-07-31-baseline-run1.md`
-- avg 129.3 ms · min 29.0 ms · **max 805.2 ms** (see the cold-start note in the summary)
+
+Confirmed by three further runs on **2026-08-03** (`results/2026-08-03-baseline-warmup-comparison.md`):
+p50 **132.9–140.3 ms**, p95 **218.3–241.4 ms** across four independent runs. That part is solid.
+
+### Read `max`, don't trust it
+
+**`max` does not describe Partna and must not be quoted as a latency figure.** Two runs under
+identical conditions produced **550 ms** and **4,563 ms** — an 8× spread. It is a blended
+client+network+edge number sampling a rare event.
+
+The origin's own log is the check that settles it: across the two fully-instrumented runs the origin
+logged **970 requests, none over 500 ms** (worst 351 ms, on a cold first request), while k6 reported
+maxima of 675 ms and 550 ms in the same runs. Judge the run on **p50/p95 and the thresholds**.
+
+To get the server's side of any run — the buffer caps at 100 entries (~45 s of traffic), so poll
+during the run rather than after:
+
+```bash
+cloud env:logs partna development --minutes 5
+```
+
+### ⚠️ Phase 1 is NOT origin-only
+
+`/api/public/config/social-platforms` is served entirely from the Cloudflare edge and reaches the
+origin **zero** times (measured: 485 requests sent, 0 arrived). One of the three endpoints is
+measuring a CDN, which drags the blended p50 down. `dev-api.partna.au` is behind Cloudflare —
+"origin, no edge" was never true for this phase.
+
+### Warm-up (opt-in)
+
+```bash
+k6 run -e WARMUP=45s baseline.js
+```
+
+Runs an identically-paced `warmup` scenario first and scopes every threshold to
+`{scenario:baseline}`, so warm-up traffic is excluded from pass/fail but still lands in the raw JSON.
+Default is OFF — a bare `k6 run baseline.js` is byte-identical to the reference above.
+
+Note it does **not** reduce the tail (that was tested on 2026-08-03: the warm-up run's max was
+*higher* than the no-warm-up control). Genuine cold start is ~+270 ms server-side on the **first
+request only**. Use it when you want the measured slice free of connection-setup noise, not as a
+tail fix.
 
 ⚠️ **Phases 2a/2b/3 have NOT been run.** Phase 1 only, by decision on 2026-07-31. The edge
 cache-hit ratio, origin-limiter behaviour under flood, and Supavisor headroom at the named

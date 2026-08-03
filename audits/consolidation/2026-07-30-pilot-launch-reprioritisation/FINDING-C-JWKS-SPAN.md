@@ -88,6 +88,13 @@ public-path cache key came first, and the report itself notes the tail was "conc
 iterations". But that is a separate untested hypothesis about a different set of keys, and it is worth
 saying plainly rather than letting the jwks number stand in for it.
 
+> **Tested 2026-08-03 — the mechanism does not transfer, and the "early iterations" premise was
+> false.** The re-run tail sat mid-run (165–167 s), warming made it no better, and `max` proved
+> non-reproducible (550 ms vs 4,563 ms under identical conditions). Cold start on the public path is
+> real but ~+270 ms server-side on the **first request only**. So the cold-start reasoning in this
+> document is sound for the *authed* route it was derived from, and simply too small to account for
+> the k6 tail. See `scripts/launch-check/k6/results/2026-08-03-baseline-warmup-comparison.md`.
+
 ## Recommendation
 
 **Do not fix the 314 ms.** It is a cold-start artefact on a low-traffic dev environment, it is not
@@ -100,7 +107,7 @@ Two things *are* worth doing, neither in scope here:
 | # | Action | Effort | Status |
 |---|---|---|---|
 | 1 | Correct the "~150-300ms for ES256" claim to the measured figure | XS | ✅ **DONE** — `1cfbcd62`. Four sites, not two (`:39`, `:365`, `:390`, `:561`). Re-measured first against the real dev JWKS to confirm it is genuinely `kty=EC / alg=ES256 / crv=P-256`, so the correction addresses the algorithm the claim names: **2.09 ms first sample, 0.01 ms median over 19 more**. APCu was **kept** — the comment now states its real value (skipping the Redis round-trip, ~1 ms warm / ~41 ms when it pays lazy-connect) instead of a CPU cost that isn't there. Comment-only, proven at token level. |
-| 2 | If the k6 tail matters, re-run phase 1 with a warm-up stage and compare | S | **Open.** Would settle whether the 805 ms max is the same cold-start effect on public keys, instead of inferring it from an authed route that shares no code path. Needs a decision — it generates load against dev. |
+| 2 | If the k6 tail matters, re-run phase 1 with a warm-up stage and compare | S | ✅ **DONE** — 2026-08-03, three instrumented runs. Result: **the tail is not cold-start**, and the warm-up does not remove it (warm-up max 674.8 ms vs no-warm-up control 550.3 ms). `max` is not reproducible at all — 550 ms vs 4,563 ms under identical conditions — while p50/p95 hold within ~8% across four runs. The origin's own log across 970 requests never exceeded 500 ms. Also found: `/api/public/config/social-platforms` is 100% Cloudflare-edge-served and never reaches the origin, so the baseline was always a blended origin+edge number. Write-up: `scripts/launch-check/k6/results/2026-08-03-baseline-warmup-comparison.md`. |
 
 ## Reproduce
 

@@ -1,7 +1,11 @@
 # k6 Phase 1 — baseline run 1
 
 - **Date:** 2026-07-31
-- **Env:** dev — `https://dev-api.partna.au` (origin; no edge, no KV, no writes)
+- **Env:** dev — `https://dev-api.partna.au` (~~origin; no edge~~ — see correction below; no KV, no writes)
+
+> **⚠️ Two claims in this file were corrected on 2026-08-03** by three instrumented re-runs
+> (`2026-08-03-baseline-warmup-comparison.md`). The p50/p95/p99 numbers below stand and were
+> reproduced. Observation 1 and the "no edge" framing did not. Corrections are marked inline.
 - **Script:** `baseline.js` — `constant-arrival-rate` 45 req/min, 5m, preAllocatedVUs 10, maxVUs 20
 - **Command:** `k6 run --out json=results/baseline-run1.json baseline.js`
 - **Raw:** `baseline-run1.json`
@@ -65,18 +69,33 @@ time, not a side effect.
 
 ## Observations
 
-1. **max 805 ms against a p99 of 376 ms.** The tail is roughly 2× p99, concentrated in early
-   iterations — consistent with cold caches/connections rather than sustained load, since the run
-   held a flat 45 req/min and never queued (max 1 VU active against 10 preallocated). Corroborated
-   by an unrelated Nightwatch slow-route issue on dev the same morning
-   (`#372`, `GET /api/platforms/twitch/selection`, 1,082 ms) whose **single slowest span was a
-   `supabase:jwks` cache *hit* costing 314 ms** — a cache hit that expensive is connection
-   establishment being billed to the first operation, not lookup cost. Worth confirming before it
-   is read as steady-state latency.
+1. ~~**max 805 ms against a p99 of 376 ms.** The tail is roughly 2× p99, concentrated in early
+   iterations — consistent with cold caches/connections rather than sustained load...~~
+
+   **❌ CORRECTED 2026-08-03 — this observation was wrong on both counts.** It was inferred from the
+   summary, never checked against the raw JSON, and the raw JSON was gitignored so it could not be
+   re-checked later. Three instrumented re-runs found:
+   - **Not early iterations.** The re-run tail sat at **165–167 s, mid-run**.
+   - **Not fixed by warming.** A 45 s warm-up produced a *higher* max (674.8 ms) than the
+     no-warm-up control (550.3 ms).
+   - **`max` is not reproducible at all** — 550 ms vs 4,563 ms under identical conditions.
+   - The origin's own log across two fully-instrumented runs: **970 requests, none over 500 ms.**
+     Genuine cold start is ~+270 ms server-side, on the first request only.
+
+   The `supabase:jwks` corroboration also does not transfer: `baseline.js` sends no `Authorization`
+   header, so `VerifySupabaseJwt` never runs on these routes. (That was already noted in
+   `FINDING-C-JWKS-SPAN.md` §"Does it explain the k6 805 ms max? — No.")
+
+   Full analysis: `2026-08-03-baseline-warmup-comparison.md`.
 2. **This run does not exercise the named target.** 45 req/min with a peak of 1 concurrent VU is a
    latency baseline, not a load test. The 50-concurrent guardrail figure remains unmeasured.
 3. **Zero 5xx, zero failed checks, no 429s** — the run stayed under the 60/min public-profile
    limiter by design (45/min), so it says nothing about limiter behaviour either. That is Phase 2b.
+4. **❌ ADDED 2026-08-03 — this run was not origin-only.** `/api/public/config/social-platforms`
+   is served entirely from the Cloudflare edge and reached the origin **zero** times (measured over
+   485 requests in the re-runs; `cf-cache-status: HIT`, `age: 963`). One of the three endpoints
+   measured a CDN, so the p50/p95 above are a **blended origin+edge** figure, not pure origin.
+   They are still a valid regression reference — just not the thing the header claimed.
 
 ## Not measured (explicitly)
 
