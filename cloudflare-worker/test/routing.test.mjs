@@ -227,7 +227,9 @@ describe("custom domains", () => {
 
         expect(res.status).toBe(200);
         expect(h.pagesCalls).toHaveLength(1);
-        const injected = h.pagesCalls[0].headers.find(([k]) => k.toLowerCase() === "x-partna-handle");
+        const injected = h.pagesCalls[0].headers.find(
+            ([k]) => k.toLowerCase() === "x-partna-handle",
+        );
         expect(injected?.[1]).toBe("jane");
     });
 

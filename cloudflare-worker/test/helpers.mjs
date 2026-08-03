@@ -136,8 +136,8 @@ export async function createHarness() {
         fetch(url, init = {}) {
             if ("redirect" in init && init.redirect !== "manual") {
                 throw new Error(
-                    `h.fetch() refuses redirect: "${init.redirect}" — following a router 301 leaves `
-                    + "Miniflare and hits the real production Worker. Assert on the 301 itself instead.",
+                    `h.fetch() refuses redirect: "${init.redirect}" — following a router 301 leaves ` +
+                        "Miniflare and hits the real production Worker. Assert on the 301 itself instead.",
                 );
             }
 
