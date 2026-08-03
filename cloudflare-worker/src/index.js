@@ -419,7 +419,9 @@ const SITEPAGE_CSP =
  * dropped (EDGE-9). Sitepage output depends on host + path, never on query
  * params, so collapsing every `?utm_*` / `?fbclid` variant to one key prevents
  * a shared/marketing link from minting unbounded distinct edge-cache entries.
- * The full original request (query intact) is still what we forward to origin. */
+ * The full original request (query intact) is still what we forward to origin.
+ * @param {Request} request
+ * @returns {Request} */
 function cacheKeyFor(request) {
     const u = new URL(request.url);
     u.search = "";
@@ -430,7 +432,9 @@ function cacheKeyFor(request) {
 /** Build a URL identifying the stale shadow for a given cache key. The
  * shadow lives under a different path so cache.match doesn't get confused;
  * the visitor never reaches this URL directly. Operates on the (already
- * query-stripped) cache key so the primary and shadow share normalisation. */
+ * query-stripped) cache key so the primary and shadow share normalisation.
+ * @param {Request} cacheKey
+ * @returns {Request} */
 function staleShadowKey(cacheKey) {
     const u = new URL(cacheKey.url);
     u.pathname = `/_swr-shadow${u.pathname}`;
@@ -450,6 +454,10 @@ function staleShadowKey(cacheKey) {
 // Domain references read PARTNA_DOMAIN rather than repeating the literal — one
 // place to change. That const is still a flat literal (EDGE-3, see its comment):
 // this is de-duplication, NOT environment-awareness.
+/**
+ * @param {string|null} subdomain
+ * @returns {string}
+ */
 function unclaimedHtml(subdomain) {
     const safe =
         typeof subdomain === "string" && /^[a-z0-9-]{1,63}$/.test(subdomain) ? subdomain : null;
@@ -490,6 +498,11 @@ a { display: inline-block; margin-top: 8px; color: #1a1a1a; text-decoration: und
 </html>`;
 }
 
+/**
+ * @param {Response} response
+ * @param {number} ttlSeconds
+ * @returns {Promise<Response>}
+ */
 async function withCacheTtl(response, ttlSeconds) {
     const body = await response.clone().arrayBuffer();
     const headers = new Headers(response.headers);
@@ -528,7 +541,9 @@ async function withCacheTtl(response, ttlSeconds) {
  * - HSTS: 1 year + includeSubDomains.
  * - X-Content-Type-Options: nosniff — blocks MIME sniffing.
  * - Referrer-Policy: strict-origin-when-cross-origin.
- * - X-Frame-Options: SAMEORIGIN — clickjacking defence for older browsers. */
+ * - X-Frame-Options: SAMEORIGIN — clickjacking defence for older browsers.
+ * @param {Headers} headers
+ * @returns {void} */
 function applySecurityHeaders(headers) {
     if (!headers.has("Strict-Transport-Security")) {
         headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
@@ -584,7 +599,9 @@ function finalize(response, opts = {}) {
 /** Pass a request straight through to its origin (apex, reserved, custom, or
  * unknown host) but still stamp the baseline security headers (EDGE-7). A
  * WebSocket upgrade (101) is returned RAW — re-wrapping via new Response() would
- * drop response.webSocket and break the connection. */
+ * drop response.webSocket and break the connection.
+ * @param {Request} request
+ * @returns {Promise<Response>} */
 async function passThrough(request) {
     const response = await fetch(request);
     if (response.status === 101 || response.webSocket) {
@@ -593,6 +610,14 @@ async function passThrough(request) {
     return finalize(response);
 }
 
+/**
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {Request} cacheKey
+ * @param {Cache} cache
+ * @param {Request} originRequest
+ * @returns {Promise<Response>}
+ */
 async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
     // `cacheKey` is the normalised (query-stripped) cache key; `originRequest`
     // carries the full URL + the sanitized x-partna-handle header upstream.
@@ -630,6 +655,10 @@ async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
  *
  * EDGE-2: also strips Cookie and Authorization — sitepages are public/static
  * and must never receive visitor credentials on the forwarded request.
+ *
+ * @param {Request} request
+ * @param {string|null} handle
+ * @returns {Request}
  */
 function withHandleHeader(request, handle) {
     const headers = new Headers(request.headers);
@@ -646,6 +675,12 @@ function withHandleHeader(request, handle) {
  * Serve an individual sitepage from partna-pages with the edge cache + SWR
  * strategy. `handleOverride` is the resolved handle for custom-domain requests;
  * null for <handle>.partna.au, where partna-pages parses the handle from Host.
+ *
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {Request} request
+ * @param {string|null} handleOverride
+ * @returns {Promise<Response>}
  */
 async function serveIndividual(env, ctx, request, handleOverride) {
     // Fail-fast if the binding hasn't been deployed yet.
@@ -719,6 +754,12 @@ async function serveIndividual(env, ctx, request, handleOverride) {
 }
 
 export default {
+    /**
+     * @param {Request} request
+     * @param {Env} env
+     * @param {ExecutionContext} ctx
+     * @returns {Promise<Response>}
+     */
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         const hostname = url.hostname.toLowerCase();
