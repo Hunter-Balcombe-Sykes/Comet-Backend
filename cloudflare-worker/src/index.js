@@ -753,6 +753,69 @@ async function serveIndividual(env, ctx, request, handleOverride) {
     });
 }
 
+/**
+ * A validated `SUBDOMAIN_KV` payload.
+ *
+ * `alias-invalid` is distinct from `unknown` on purpose: an entry that declares
+ * itself an alias but carries an untrusted target must fail CLOSED to a 404,
+ * whereas an entry we simply don't recognise passes through to origin. Merging
+ * them would turn SEC-5's fail-closed 404 into an origin hit.
+ *
+ * @typedef {{kind: "individual", handle: string | null}
+ *         | {kind: "alias", redirect: URL}
+ *         | {kind: "alias-invalid"}
+ *         | {kind: "unknown"}} KvEntry
+ */
+
+/**
+ * Validate an untrusted KV payload into a narrowed entry.
+ *
+ * SyncSubdomainToKvJob is the single writer, but the Worker cannot verify that —
+ * a poisoned or stale value is externally-shaped input. This is the ONE place
+ * that decides what a KV value means; callers consume the union rather than
+ * reading raw properties.
+ *
+ * @param {unknown} raw
+ * @returns {KvEntry}
+ */
+function parseKvEntry(raw) {
+    if (typeof raw !== "object" || raw === null) {
+        return {kind: "unknown"};
+    }
+    const entry = /** @type {Record<string, unknown>} */ (raw);
+
+    if (entry.type === "individual") {
+        // handle may legitimately be absent: on the <handle>.partna.au path
+        // partna-pages derives it from Host. The custom-domain caller, which has
+        // no such Host, requires non-null itself.
+        return {
+            kind: "individual",
+            handle: typeof entry.handle === "string" ? entry.handle : null,
+        };
+    }
+
+    // A non-string redirect is not an alias at all — pass through, matching the
+    // pre-refactor fall-through.
+    if (entry.type === "alias" && typeof entry.redirect === "string") {
+        let candidate = null;
+        try {
+            candidate = new URL(entry.redirect);
+        } catch (err) {
+            // PRIV-1: don't put the raw subdomain in the structured field.
+            console.error("alias redirect parse failed", {err: String(err)});
+            return {kind: "alias-invalid"};
+        }
+        // SEC-5: only https on partna.au (apex or subdomain) is a trusted target.
+        const okHost =
+            candidate.protocol === "https:" &&
+            (candidate.hostname === PARTNA_DOMAIN ||
+                candidate.hostname.endsWith("." + PARTNA_DOMAIN));
+        return okHost ? {kind: "alias", redirect: candidate} : {kind: "alias-invalid"};
+    }
+
+    return {kind: "unknown"};
+}
+
 export default {
     /**
      * @param {Request} request
@@ -794,8 +857,11 @@ export default {
                 console.error("KV custom-domain lookup failed", {err: String(err)});
                 return passThrough(request);
             }
-            if (custom && custom.type === "individual" && typeof custom.handle === "string") {
-                return serveIndividual(env, ctx, request, custom.handle);
+            const customEntry = parseKvEntry(custom);
+            // Non-null handle required: there is no <handle>.partna.au Host here
+            // for partna-pages to fall back on.
+            if (customEntry.kind === "individual" && customEntry.handle !== null) {
+                return serveIndividual(env, ctx, request, customEntry.handle);
             }
             return passThrough(request);
         }
@@ -849,41 +915,26 @@ export default {
             );
         }
 
+        const parsed = parseKvEntry(entry);
+
         // Alias entries 301 old subdomains to the canonical URL (written by
-        // SyncSubdomainToKvJob on rename). SEC-5: validate the redirect target is a
-        // partna.au URL before trusting it — a poisoned KV entry must NOT become an
-        // open redirect to an attacker-controlled host.
-        if (entry.type === "alias" && typeof entry.redirect === "string") {
-            let redirectBase = null;
-            try {
-                const candidate = new URL(entry.redirect);
-                const okHost =
-                    candidate.protocol === "https:" &&
-                    (candidate.hostname === PARTNA_DOMAIN ||
-                        candidate.hostname.endsWith("." + PARTNA_DOMAIN));
-                if (okHost) {
-                    redirectBase = candidate;
-                }
-            } catch (err) {
-                // Malformed redirect value — treat as untrusted (redirectBase stays null).
-                // PRIV-1: don't put the raw subdomain in the structured field.
-                console.error("alias redirect parse failed", {err: String(err)});
-            }
+        // SyncSubdomainToKvJob on rename). Preserve the deep link: `/gallery?x=1`
+        // on the old handle → the same path on the canonical handle. The stored
+        // value is a bare origin, so build from `.origin` only and ignore any path
+        // it carries.
+        if (parsed.kind === "alias") {
+            const target = `${parsed.redirect.origin}${url.pathname}${url.search}`;
+            return finalize(
+                new Response(null, {
+                    status: 301,
+                    headers: {Location: target, "Cache-Control": "max-age=0, must-revalidate"},
+                }),
+            );
+        }
 
-            if (redirectBase) {
-                // Preserve the deep link: `/gallery?x=1` on the old handle → same path
-                // on the canonical handle. entry.redirect is a bare origin, so build the
-                // target from its origin only (ignore any path it may carry).
-                const target = `${redirectBase.origin}${url.pathname}${url.search}`;
-                return finalize(
-                    new Response(null, {
-                        status: 301,
-                        headers: {Location: target, "Cache-Control": "max-age=0, must-revalidate"},
-                    }),
-                );
-            }
-
-            // Untrusted/invalid alias target — fail closed to 404 rather than redirect.
+        // SEC-5: an alias whose target failed validation fails CLOSED to 404 rather
+        // than redirecting or hitting origin.
+        if (parsed.kind === "alias-invalid") {
             return finalize(
                 new Response(unclaimedHtml(null), {
                     status: 404,
@@ -895,7 +946,7 @@ export default {
 
         // Individual sitepage — partna-pages derives the handle from Host, so no
         // override here.
-        if (entry.type === "individual") {
+        if (parsed.kind === "individual") {
             return serveIndividual(env, ctx, request, null);
         }
 
