@@ -87,8 +87,8 @@ than letting it stall the other eight.
 - [x] `COV-GATE-2` — **DONE 2026-08-03.** `worker-static` added in the same call. Required contexts now: `schema-tests, postgres-tests, worker-tests, schema-drift, outbound-http-guard, supply-chain, checkpoint-suppressions, test, worker-static`. ⚠️ `enforce_admins` remains **false** — admins still bypass all nine with a printed warning. Left as-is deliberately: turning it on is a separate decision about how you deploy, not part of this finding.
 
 ### P1 (13)
-- [ ] `COV-LANE-1` — 37 skip sites across 18 files gate Postgres-only assertions on a check that can only ever answer "no"
-- [ ] `COV-LANE-2` — `tests/Integration/` is in no `<testsuite>` **and** gated on an env var set nowhere
+- [x] `COV-LANE-1` — **DONE 2026-08-03.** All 18 files migrated and un-skipped; **194 passing in the `schema-tests` lane**, stable across back-to-back runs. ⚠️ **The audit's prescribed destination was WRONG**: `tests/Postgres/` runs against a **bare `postgres:16` container with no migrations applied** (`ci.yml:353-365` never calls `apply-migrations.sh`), so moving them there would have reddened a required check for 14+ files. Correct destination is `tests/Schema/` + `SchemaTestCase`, run by `schema-tests` *after* migrations — **zero CI changes needed**. ⚠️ **Count corrected: 41 test cases skipped in every lane, not 37**, and those files also held **26 tests that passed under SQLite**, so a naive whole-file move would have LOST coverage. Zero lost in the end. Every file was proven green against a locally migrated container *before* being moved. Four fixture bugs surfaced that SQLite structurally cannot catch — see the drift note below
+- [x] `COV-LANE-2` — **DONE 2026-08-03.** Deleted, per sign-off. Fully redundant: `TurnstileProviderTest` already covers the provider end-to-end with `Http::fake()` (request shape, success/failure/expired parse, 503, `ConnectionException`, timeout, `driverName()`), while the integration test asserted only `$result->success === true` — using Cloudflare's documented **always-pass** test key, so it would stay green even if `TurnstileProvider` broke. It also carried a live-network `markTestSkipped`, and wiring that into a gating lane would have produced an intermittently-vacuous required check that fires on Cloudflare incidents rather than Partna regressions. `CI_RUN_INTEGRATION` now has zero references repo-wide. Removing the directory broke `AuditPipelineIntegrityTest` (a dead chunk path in `scripts/audit/audit.sh`) — caught and fixed in the same unit
 - [x] `COV-GUARD-1` — **DONE 2026-08-03.** Both vacuous sites converted to `assertStringNotContainsString`. The suite-wide sweep the finding asked for turned up **a third vacuous site the audit missed** — `StrandedPendingWindowLockstepTest.php:41` — fixed the same way. Seven further *weak* (not vacuous) multi-needle negations split to one needle per call. Positive controls added to both lockstep tests. `grep -rn "not->toContain([^)]*," tests/` now returns only the two documented false positives in `PiiLogHygieneSweepTest.php:136-137` (comma inside a string literal — correct as written)
 - [x] `COV-GUARD-2` — **DONE 2026-08-03.** Both line-oriented CI greps replaced with token-based scanners (`ControllerAbortScanner`, `RawCacheCallScanner`), which have no concept of a line and so cannot be evaded by wrapping. Positive controls are `.stub` fixtures named **individually**, not counted — a count assertion would pass on 4 single-line hits and 0 wrapped hits, i.e. the bug itself. All 30 GS-1 allowlist pathspecs migrated with every justification comment verbatim (reviewer diffed them); 6 entries marked `// STALE`, none deleted
 - [x] `COV-GUARD-3` — **CLOSED NARROWED-DEAD 2026-08-03.** No threshold number changed; the decision and its arithmetic recorded as a comment in `config.js`. A `p(99)` gate is either flaky (below 890 → fails run A on a one-in-2100 TTFB event) or dead (above 890 → cannot fire before `p(95)<500` does, given server p95 of 91ms). No guard added, so **no positive control applies** — this is not a missing control. Baseline comparison stays with `COV-TAIL-10` per the audit's own cross-reference
@@ -99,7 +99,7 @@ than letting it stall the other eight.
 - [ ] `COV-JWT-1` — nothing asserts an expired JWT is rejected
 - [ ] `COV-JWT-2` — nothing asserts the 60s `nbf` leeway works
 - [ ] `COV-TIMEOUT-1` — `AccountDeletionService.php:1400` has no `->timeout()` and is reachable synchronously from a staff endpoint
-- [ ] `COV-LANE-3` — `statement_timeout`/`lock_timeout` are never applied in any test lane
+- [x] `COV-LANE-3` — **DONE 2026-08-03.** ⚠️ **The audit's prescribed fix would NOT have worked.** `DatabaseServiceProvider::boot()` returns early on `runningUnitTests()`, which is true in `phpunit.pg.xml` too (it sets `APP_ENV=testing` and runs under the console SAPI) — so a naive `SHOW statement_timeout` test would have read Postgres's own default of `0` and asserted nothing. Fixed by narrowing the gate with an opt-in `DB_APPLY_TIMEOUTS_IN_TESTS=1`, set only in the `postgres-tests` job; production behaviour provably unchanged (the new clause is ANDed with `runningUnitTests()`, false at real app boot). New `tests/Postgres/DatabaseTimeoutsTest.php` with a **mandatory positive control** — re-boots the provider with the timeout overridden to a distinct value and asserts `SHOW` reflects it, so the test cannot pass against a hardcoded constant or a coincidental server default
 
 ### P2 (10)
 - [ ] `COV-JWT-3` — missing-`kid` rejection path untested
@@ -119,12 +119,12 @@ than letting it stall the other eight.
 |---|---|
 | `COV-GATE` | **2 / 2** ✅ |
 | `COV-GUARD` | **5 / 5** ✅ |
-| `COV-LANE` | 0 / 3 |
+| `COV-LANE` | **3 / 3** ✅ |
 | `COV-PII` | 0 / 2 |
 | `COV-JWT` | 0 / 3 |
 | `COV-TIMEOUT` | 0 / 1 |
 | `COV-TAIL` | 0 / 9 |
-| **Total** | **7 / 25** |
+| **Total** | **10 / 25** |
 
 ---
 
@@ -224,6 +224,25 @@ was moved. These 18 were not: the fix was applied to the instance, not the class
 **Watch for.** 5 files in `tests/Postgres/*ConcurrencyTest.php` gate on `pcntl_fork`, and the
 `postgres-tests` runner's PHP setup (`ci.yml:466`) doesn't list `pcntl`. **Unverified** whether it's
 present by default — worth confirming during this unit, since it is the same bug shape one layer up.
+
+> **RESOLVED 2026-08-03 — REFUTED, tick DEAD.** All 5 fork-based concurrency tests **run and pass** in
+> CI. Evidence: `postgres-tests` job log from run `30809317492` (job `91672008154`, `development`)
+> shows `✓` with real durations for `EffectLedgerConcurrencyTest`, `SourceSchedulerConcurrencyTest`
+> and `StreamFailureCounterConcurrencyTest`; `Tests: 189 passed (903 assertions)`; no
+> `markTestSkipped` output anywhere. Mechanism: `shivammathur/setup-php`'s `extensions:` input is
+> **additive**, and `pcntl` is compiled into the CLI SAPI on the Ubuntu PHP builds it installs, so
+> listing it would be a no-op. (Citation fix: `ci.yml:466` is `schema-tests`' "Copy env" step;
+> `postgres-tests`' `setup-php` is at `ci.yml:369-374`.)
+>
+> **But the real version of this bug was found one layer up, and fixed.** `tests/PostgresTestCase.php`
+> **skipped** rather than failed when the driver wasn't pgsql, when `getPdo()` threw, or when the
+> database wasn't named `partna_test` — and `postgres-tests` set no required flag. PHPUnit exits 0 on
+> an all-skipped run, so **if the `postgres:16` service container failed to come up, a REQUIRED status
+> check reported green having executed zero assertions.** `SchemaTestCase` already solved this
+> (`SCHEMA_LANE_REQUIRED=1`, `ci.yml:419`) and it had never been generalised — the same "fixed the
+> instance, not the class" pattern as `COV-LANE-1` itself. Now fixed: `PG_LANE_REQUIRED=1` on the job
+> plus the `unavailable()` treatment on the base class. Verified by pointing `DB_PORT` at a dead port
+> — the lane now fails hard instead of skipping.
 
 ---
 
@@ -567,6 +586,61 @@ auto-archive, and per `BACKLOG-TRIAGE.md` the right first move on a new P2/P3 is
 4. **`HealthController.php` sits in the GS-1 allowlist with no justification comment at all.** Every
    other entry carries one. Transcribed as-is rather than inventing a rationale. Someone should
    either write the reason or remove the entry.
+
+5. **Four SQLite-only fixture bugs, invisible until the assertions finally ran** (COV-LANE). All
+   fixed in-unit; recorded because the *class* recurs: (a) `CREATE UNIQUE INDEX site.name ON …` —
+   SQLite reads a schema-qualified **index** name as an attach-database alias and accepts it,
+   Postgres qualifies the *table* and rejects it outright; (b) non-UUID fixture ids (`fresh-uid`,
+   `rival-uid`, …) that a TEXT stand-in swallows and a real `uuid` column refuses; (c) an **unsaved**
+   `PartnaStaff` built on the comment "associate() only reads the key" — true without FK enforcement,
+   false against a real FK; (d) `DB::table('core.users')->count()` asserted against a **whole table**,
+   only ever true because SQLite starts each test with an empty in-memory DB. Any future
+   SQLite→Postgres migration should grep for these four shapes first.
+
+6. **`SiteProvisioningSavepointTest`'s seed-failure skip does not fire for the reason its comment
+   claims.** The message says *"likely no INSERT on auth.users"*, implying a role-permission gap.
+   Running as `postgres` (superuser, as CI does), the `auth.users` insert succeeds — the skip
+   actually fires because the fixture passes `$authId.'-a'` as `auth_user_id`, which is not a valid
+   UUID and is not the id inserted into `auth.users`. A pre-existing fixture typo that happens to
+   land on the same catch block as the intended permission check. Left untouched (it is one of the
+   three legitimate skips), but the comment is misleading and should be corrected.
+
+7. **`AnalyticsQueryServiceBreakdownsTest` asserted `toHaveCount(15)` where the real count is 14.**
+   Surfaced by running the never-executed `referrers()` test for the first time. 14 = 12
+   `REFERRER_SOURCES` + 2 structural labels, independently corroborated by the existing `#FOUND-3`
+   reflection guard in `AnalyticsQueryServiceConfigDrivenTest`, which had been silently proving 14
+   all along. Fixed in-unit.
+
+8. **`VerifySupabaseJwtJwksLeewayTest` does not test the leeway.** Despite the name, it only asserts
+   `JWT::$leeway` is *restored* to its prior value after decode (process-global-state hygiene). It
+   never asserts the leeway *does* anything — itself an assertion that passes while proving nothing
+   about what its name implies, and probably why `COV-JWT-2` was easy to miss. Consider renaming.
+
+9. **The 60s JWT leeway grants a 60-second post-expiry grace on every access token.** `JWT::$leeway`
+   in `firebase/php-jwt` applies to `nbf`, `iat` **and** `exp` — it is not skew-only. The comment at
+   `VerifySupabaseJwt.php:368` says only *"Supabase tokens can arrive with up to ~60s clock skew"*,
+   which describes the intent, not this consequence. **Probably not a defect** — 60s on a ~1h token is
+   ~1.7%, the fail-closed revocation gate (SEC-2) is the real kill-session control and is unaffected,
+   and lowering the leeway would reintroduce the skew rejections it was added to stop. **Recommend P3:
+   amend the comment.** It is recorded because it is what invalidated the audit's prescribed test value.
+
+10. **Forged-`kid` path untested** — a `kid` that is present but absent from the JWKS hits
+    `RuntimeException('No matching JWKS key for kid')` (`VerifySupabaseJwt.php:427`) → 401, with zero
+    coverage. Adjacent to `COV-JWT-3` and cheap. Explicitly deferred by decision, not overlooked.
+
+11. **`OutboundHttpGuardTest` has no concept of a timeout at all.** It enforces SSRF *category* for
+    every outbound call but never checks that a call is time-bounded (`grep timeout` over both the
+    scanner and the test → zero hits). **That is why no guard caught `COV-TIMEOUT-1`.** A sweep during
+    that unit found 32 of 33 `Http::` sites in `app/` bounded and exactly one not — so the durable fix
+    is extending `OutboundHttpScanner` to assert boundedness. Deliberately not bundled into a
+    blocker-gated runtime change: it is a new guard, needs its own positive control, and touches a
+    required CI job. **Recommend PROMOTE.**
+
+12. **62 direct-controller call sites across 18 staff test files** (`grep -rn "app(Staff.*Controller::class)\|new Staff.*Controller" tests/`).
+    `COV-PII` converted none of them — it added route-level companions for the two PII surfaces the
+    finding named. The wider anti-pattern, which has a documented three-live-bug record in this repo,
+    remains. Also: `setupUsersTable()` omits the real `admin_notes` column, so
+    `StaffUserShowPiiTest` has to `ALTER` it in — a small fixture-parity gap.
 
 ---
 

@@ -15,8 +15,8 @@
 // SQLite (the default `composer test` driver) does NOT abort the transaction on
 // a statement error, so it cannot reproduce this bug at all — a SQLite test would
 // pass with OR without the fix and prove nothing. These tests therefore target a
-// REAL PostgreSQL connection and SKIP when one isn't configured, following the
-// precedent in tests/Feature/Database/*.
+// REAL PostgreSQL connection — tests/SchemaTestCase.php below skips (or, in the
+// schema-tests CI job, fails) the whole file when one isn't configured.
 //
 // To run against Supabase dev (or any real Postgres):
 //   DB_CONNECTION=pgsql DB_HOST=... DB_PORT=... DB_DATABASE=... \
@@ -27,13 +27,9 @@ use App\Services\User\SiteProvisioningService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\SchemaTestCase;
 
-if (! function_exists('savepointSuiteIsPostgres')) {
-    function savepointSuiteIsPostgres(): bool
-    {
-        return DB::connection()->getDriverName() === 'pgsql';
-    }
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 // ─── 1. Mechanism sentinel — savepoint isolates 23505 from the outer tx ───────
 //
@@ -43,10 +39,6 @@ if (! function_exists('savepointSuiteIsPostgres')) {
 // INSERT rights.
 
 it('a nested transaction isolates a unique-violation so the outer transaction survives', function () {
-    if (! savepointSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $table = 'savepoint_probe_'.Str::lower(Str::random(8));
     DB::statement("CREATE TEMPORARY TABLE {$table} (val text UNIQUE)");
 
@@ -86,10 +78,6 @@ it('a nested transaction isolates a unique-violation so the outer transaction su
 });
 
 it('without a savepoint, the same 23505 poisons the whole outer transaction (negative control)', function () {
-    if (! savepointSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $table = 'savepoint_probe_'.Str::lower(Str::random(8));
     DB::statement("CREATE TEMPORARY TABLE {$table} (val text UNIQUE)");
 
@@ -132,10 +120,6 @@ it('without a savepoint, the same 23505 poisons the whole outer transaction (neg
 // case the mechanism sentinel above is the regression guard.
 
 it('createSiteWithRetry retries past a taken subdomain without aborting the outer signup transaction', function () {
-    if (! savepointSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $base = 'sp-'.Str::lower(Str::random(10));
 
     // Build the FK chain: a new site needs core.users(id), which FKs auth.users.

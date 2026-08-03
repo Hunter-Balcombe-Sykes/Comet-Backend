@@ -26,22 +26,19 @@
 // regression this test exists to catch. Reset in afterEach so the session-level
 // GUC never leaks to another test file sharing the same connection.
 //
-// Postgres-only — skipped on the SQLite test default (no real EXPLAIN/planner).
+// Postgres-only — requires a real EXPLAIN/planner, hence tests/Schema + SchemaTestCase.
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
+
+uses(SchemaTestCase::class)->in(__FILE__);
 
 beforeEach(function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('Postgres-only — query plan inspection requires a real EXPLAIN/planner.');
-    }
-
     DB::statement('SET enable_seqscan = off');
 });
 
 afterEach(function () {
-    if (DB::connection()->getDriverName() === 'pgsql') {
-        DB::statement('SET enable_seqscan = on');
-    }
+    DB::statement('SET enable_seqscan = on');
 });
 
 /**

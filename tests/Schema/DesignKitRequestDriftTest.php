@@ -7,6 +7,9 @@
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateSiteRequest;
 use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
+
+uses(SchemaTestCase::class)->in(__FILE__);
 
 // Extract column names from `design_kit.{column_name}` keys in a rules array.
 // The `design_kit` parent key itself (no dot suffix) is skipped — it's the
@@ -29,19 +32,10 @@ function extractDesignKitColumnNames(array $rules): array
 }
 
 // Fetch design var columns from the live PostgreSQL DB.
-// Returns null when running against the SQLite in-memory test env (no information_schema).
 // Structural columns (PK, timestamps) are excluded — they are not design vars.
-function fetchDesignKitDbColumns(): ?array
+function fetchDesignKitDbColumns(): array
 {
-    $conn = DB::connection('pgsql');
-
-    // The test env aliases 'pgsql' to SQLite in-memory (see TestCase::setUp).
-    // information_schema is a PostgreSQL feature — skip on SQLite.
-    if ($conn->getDriverName() !== 'pgsql') {
-        return null;
-    }
-
-    $rows = $conn->select("
+    $rows = DB::connection('pgsql')->select("
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = 'site'
@@ -55,9 +49,6 @@ function fetchDesignKitDbColumns(): ?array
 
 it('every site.design_kits column has a matching rule in UpdateSiteRequest', function () {
     $dbColumns = fetchDesignKitDbColumns();
-    if ($dbColumns === null) {
-        $this->markTestSkipped('Requires real PostgreSQL — skipped in SQLite test env.');
-    }
 
     $requestKeys = extractDesignKitColumnNames((new UpdateSiteRequest)->rules());
     $missing = array_values(array_diff($dbColumns, $requestKeys));
@@ -71,9 +62,6 @@ it('every site.design_kits column has a matching rule in UpdateSiteRequest', fun
 
 it('every site.design_kits column has a matching rule in StaffUpdateSiteRequest', function () {
     $dbColumns = fetchDesignKitDbColumns();
-    if ($dbColumns === null) {
-        $this->markTestSkipped('Requires real PostgreSQL — skipped in SQLite test env.');
-    }
 
     $requestKeys = extractDesignKitColumnNames((new StaffUpdateSiteRequest)->rules());
     $missing = array_values(array_diff($dbColumns, $requestKeys));
@@ -87,9 +75,6 @@ it('every site.design_kits column has a matching rule in StaffUpdateSiteRequest'
 
 it('UpdateSiteRequest has no design_kit rules for non-existent columns', function () {
     $dbColumns = fetchDesignKitDbColumns();
-    if ($dbColumns === null) {
-        $this->markTestSkipped('Requires real PostgreSQL — skipped in SQLite test env.');
-    }
 
     $requestKeys = extractDesignKitColumnNames((new UpdateSiteRequest)->rules());
     $phantom = array_values(array_diff($requestKeys, $dbColumns));
@@ -103,9 +88,6 @@ it('UpdateSiteRequest has no design_kit rules for non-existent columns', functio
 
 it('StaffUpdateSiteRequest has no design_kit rules for non-existent columns', function () {
     $dbColumns = fetchDesignKitDbColumns();
-    if ($dbColumns === null) {
-        $this->markTestSkipped('Requires real PostgreSQL — skipped in SQLite test env.');
-    }
 
     $requestKeys = extractDesignKitColumnNames((new StaffUpdateSiteRequest)->rules());
     $phantom = array_values(array_diff($requestKeys, $dbColumns));

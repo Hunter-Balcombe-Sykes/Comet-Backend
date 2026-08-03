@@ -1,12 +1,11 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
+
+uses(SchemaTestCase::class)->in(__FILE__);
 
 it('has moderation schema with the seven core tables', function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('information_schema queries require PostgreSQL.');
-    }
-
     $tables = collect(DB::select(<<<'SQL'
         SELECT table_name
         FROM information_schema.tables
@@ -24,10 +23,6 @@ it('has moderation schema with the seven core tables', function () {
 })->group('postgres');
 
 it('has audit schema with moderation_events table', function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('information_schema queries require PostgreSQL.');
-    }
-
     $exists = DB::selectOne(<<<'SQL'
         SELECT EXISTS (
             SELECT 1 FROM information_schema.tables
@@ -39,10 +34,6 @@ it('has audit schema with moderation_events table', function () {
 })->group('postgres');
 
 it('has the hot-path partial indexes for moderation queries', function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('information_schema queries require PostgreSQL.');
-    }
-
     $indexes = collect(DB::select(<<<'SQL'
         SELECT indexname FROM pg_indexes
         WHERE schemaname = 'moderation'

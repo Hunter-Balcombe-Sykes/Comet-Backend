@@ -1,6 +1,7 @@
 <?php
 
-// LIFE-3: regression sentinel for PreAccountBuildService::createProvisionalUserWithRetry().
+// LIFE-3 (moved to the applied-schema lane, tranche 3 of COV-LANE): regression
+// sentinel for PreAccountBuildService::createProvisionalUserWithRetry().
 // HandleAllocator::allocate() is check-then-return (SELECT ... exists(), then the
 // caller INSERTs) — a genuine TOCTOU window when two concurrent builds resolve the
 // same seed and both allocate() calls land before either INSERT commits. The fix
@@ -11,12 +12,27 @@
 // Same PostgreSQL-only rationale as SiteProvisioningSavepointTest: the SQLite test
 // schema has no handle_lc UNIQUE index, and SQLite doesn't abort a transaction on a
 // statement error the way Postgres does — a 23505 (and the poisoning it would cause
-// without a savepoint) simply cannot be reproduced there.
+// without a savepoint) simply cannot be reproduced there. SchemaTestCase's setUp()
+// requires a real, migrated Postgres connection.
 //
-// To run against Supabase dev (or any real Postgres):
-//   DB_CONNECTION=pgsql DB_HOST=... DB_PORT=... DB_DATABASE=... \
-//   DB_USERNAME=... DB_PASSWORD=... \
-//   php artisan test --filter PreAccountBuildHandleRaceTest
+// Two fixes made against real Postgres that the original SQLite-only version never
+// exercised:
+//
+// 1. makeHandleRaceStaff() built an UNSAVED PartnaStaff (id set, never persisted) —
+//    "associate() only reads the key" was true under SQLite, which has no FK from
+//    pre_account_builds.built_by_staff_id onto core.partna_staff. Real Postgres DOES
+//    enforce pre_account_builds_built_by_staff_id_fkey, so $build->save() 23503'd on
+//    every staff-attributed build. seedRaceStaff() below inserts a real
+//    core.partna_staff row (with its own auth.users parent) so the FK is satisfied.
+//
+// 2. The two `expect(DB::table('core.users')->count())->toBe(1)` /
+//    `->toBe(...)` style assertions counted the ENTIRE table. That was only ever
+//    true because the SQLite lane starts each test against an empty in-memory
+//    core.users — this lane's database is real, persistent, and shared (per
+//    SchemaTestCase's docblock), and the cloned template already carries pre-existing
+//    rows from other fixtures. The assertions are rewritten to scope by the specific
+//    handle_lc values this test controls, which is what "no partial rows were left
+//    behind by the retry attempts" actually means.
 
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\PreAccount\PreAccountBuildException;
@@ -26,26 +42,29 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Tests\SchemaTestCase;
 
-if (! function_exists('handleRaceSuiteIsPostgres')) {
-    function handleRaceSuiteIsPostgres(): bool
-    {
-        return DB::connection()->getDriverName() === 'pgsql';
-    }
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
-// Staff actor: skips the IP abuse-cap lock entirely so these tests isolate the
-// handle-collision path. Unsaved model — associate() only reads the key.
-if (! function_exists('makeHandleRaceStaff')) {
-    function makeHandleRaceStaff(): PartnaStaff
-    {
-        $staff = new PartnaStaff;
-        $staff->id = (string) Str::uuid();
-        $staff->auth_user_id = (string) Str::uuid();
-        $staff->role = PartnaStaff::ROLE_ADMIN;
+/**
+ * Insert a real core.partna_staff row (with its own auth.users parent) on the
+ * SAME connection/transaction the caller is already inside, so a caller-managed
+ * DB::rollBack() undoes it along with everything else — no separate cleanup call
+ * needed. Mirrors Tests\Schema\Concerns\SeedsAuthUsers::seedAuthUser() for the
+ * staff table, which has an identical auth_user_id FK.
+ */
+function seedRaceStaff(): PartnaStaff
+{
+    $authUserId = (string) Str::uuid();
+    DB::table('auth.users')->insert([
+        'id' => $authUserId,
+        'email' => $authUserId.'@schema-lane.test',
+    ]);
 
-        return $staff;
-    }
+    return PartnaStaff::factory()->create([
+        'auth_user_id' => $authUserId,
+        'role' => PartnaStaff::ROLE_ADMIN,
+    ]);
 }
 
 beforeEach(function () {
@@ -55,10 +74,6 @@ beforeEach(function () {
 // ─── 1. Mechanism sentinel — savepoints isolate repeated 23505s from the outer tx ───
 
 it('a nested transaction isolates repeated unique-violations so the outer transaction survives', function () {
-    if (! handleRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $table = 'handle_race_probe_'.Str::lower(Str::random(8));
     DB::statement("CREATE TEMPORARY TABLE {$table} (val text UNIQUE)");
 
@@ -97,10 +112,6 @@ it('a nested transaction isolates repeated unique-violations so the outer transa
 });
 
 it('without a savepoint, a repeated 23505 poisons the whole outer transaction (negative control)', function () {
-    if (! handleRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $table = 'handle_race_probe_'.Str::lower(Str::random(8));
     DB::statement("CREATE TEMPORARY TABLE {$table} (val text UNIQUE)");
 
@@ -141,11 +152,9 @@ it('without a savepoint, a repeated 23505 poisons the whole outer transaction (n
 // transaction that is rolled back at the end, so nothing persists to the shared DB.
 
 it('retries past a colliding handle_lc without aborting the build transaction', function () {
-    if (! handleRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $existingId = (string) Str::uuid();
+    $handleLc = 'collision'.Str::lower(Str::random(6));
+    $handleLcFree = $handleLc.'-free';
 
     try {
         DB::beginTransaction();
@@ -156,17 +165,19 @@ it('retries past a colliding handle_lc without aborting the build transaction', 
             DB::table('core.users')->insert([
                 'id' => $existingId,
                 'auth_user_id' => null,
-                'handle' => 'collision',
-                'handle_lc' => 'collision',
+                'handle' => $handleLc,
+                'handle_lc' => $handleLc,
                 'display_name' => 'Existing',
                 'primary_email' => null,
                 'first_name' => 'Existing',
                 'account_type' => 'partna',
                 'status' => 'unclaimed',
             ]);
+
+            $staff = seedRaceStaff();
         } catch (QueryException $e) {
             DB::rollBack();
-            $this->markTestSkipped('Cannot seed the core.users row as this role: '.$e->getMessage());
+            $this->markTestSkipped('Cannot seed the core.users/partna_staff FK chain as this role: '.$e->getMessage());
         }
 
         // First two allocate() calls return the ALREADY-TAKEN handle (simulating the
@@ -175,23 +186,30 @@ it('retries past a colliding handle_lc without aborting the build transaction', 
         $mockAllocator->shouldReceive('allocate')
             ->times(3)
             ->andReturn(
-                ['handle' => 'collision', 'handle_lc' => 'collision'],
-                ['handle' => 'collision', 'handle_lc' => 'collision'],
-                ['handle' => 'collision-free', 'handle_lc' => 'collision-free'],
+                ['handle' => $handleLc, 'handle_lc' => $handleLc],
+                ['handle' => $handleLc, 'handle_lc' => $handleLc],
+                ['handle' => $handleLcFree, 'handle_lc' => $handleLcFree],
             );
         app()->instance(HandleAllocator::class, $mockAllocator);
 
         $result = app(PreAccountBuildService::class)->requestBuild(
-            accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleracewinner',
-            sourceName: null, ipHash: null, staff: makeHandleRaceStaff(),
+            accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleracewinner'.Str::random(6),
+            sourceName: null, ipHash: null, staff: $staff,
         );
 
-        expect($result['build']->user->handle_lc)->toBe('collision-free');
+        expect($result['build']->user->handle_lc)->toBe($handleLcFree);
 
         // Outer transaction still alive: the build row committed (to the savepoint)
         // in the same tx as the pre-seeded collision row.
         $stillAlive = DB::table('core.pre_account_builds')->where('id', $result['build']->id)->exists();
         expect($stillAlive)->toBeTrue('Outer transaction was aborted — the build row is not visible.');
+
+        // Scoped, not a whole-table count: this lane's core.users is a real, shared,
+        // persistent table (unlike SQLite's empty-per-test one) — only THIS test's
+        // two handle_lc values are its business. Exactly one row per handle survives
+        // (the pre-seed, and the one the retry finally created); no ghost row from
+        // either aborted attempt at $handleLc leaked past its savepoint rollback.
+        expect(DB::table('core.users')->whereIn('handle_lc', [$handleLc, $handleLcFree])->count())->toBe(2);
     } finally {
         if (DB::transactionLevel() > 0) {
             DB::rollBack();
@@ -200,11 +218,8 @@ it('retries past a colliding handle_lc without aborting the build transaction', 
 });
 
 it('exhausts retries cleanly (PreAccountBuildException) when every attempt collides, without poisoning the transaction', function () {
-    if (! handleRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort semantics required; SQLite cannot reproduce this.');
-    }
-
     $existingId = (string) Str::uuid();
+    $handleLc = 'alwayscollision'.Str::lower(Str::random(6));
 
     try {
         DB::beginTransaction();
@@ -213,17 +228,19 @@ it('exhausts retries cleanly (PreAccountBuildException) when every attempt colli
             DB::table('core.users')->insert([
                 'id' => $existingId,
                 'auth_user_id' => null,
-                'handle' => 'alwayscollision',
-                'handle_lc' => 'alwayscollision',
+                'handle' => $handleLc,
+                'handle_lc' => $handleLc,
                 'display_name' => 'Existing',
                 'primary_email' => null,
                 'first_name' => 'Existing',
                 'account_type' => 'partna',
                 'status' => 'unclaimed',
             ]);
+
+            $staff = seedRaceStaff();
         } catch (QueryException $e) {
             DB::rollBack();
-            $this->markTestSkipped('Cannot seed the core.users row as this role: '.$e->getMessage());
+            $this->markTestSkipped('Cannot seed the core.users/partna_staff FK chain as this role: '.$e->getMessage());
         }
 
         // Every allocate() call hands back the same already-taken handle — 5
@@ -231,14 +248,14 @@ it('exhausts retries cleanly (PreAccountBuildException) when every attempt colli
         $mockAllocator = Mockery::mock(HandleAllocator::class);
         $mockAllocator->shouldReceive('allocate')
             ->times(5)
-            ->andReturn(['handle' => 'alwayscollision', 'handle_lc' => 'alwayscollision']);
+            ->andReturn(['handle' => $handleLc, 'handle_lc' => $handleLc]);
         app()->instance(HandleAllocator::class, $mockAllocator);
 
         $thrown = null;
         try {
             app(PreAccountBuildService::class)->requestBuild(
-                accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleraceloser',
-                sourceName: null, ipHash: null, staff: makeHandleRaceStaff(),
+                accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleraceloser'.Str::random(6),
+                sourceName: null, ipHash: null, staff: $staff,
             );
         } catch (PreAccountBuildException $e) {
             $thrown = $e;
@@ -248,9 +265,12 @@ it('exhausts retries cleanly (PreAccountBuildException) when every attempt colli
             ->and($thrown->errorCode)->toBe(PreAccountBuildException::SOURCE_REF_INVALID);
 
         // Outer transaction is still usable — no 25P02 poisoning from the collisions —
-        // and the failed attempt left no partial rows behind.
-        expect(DB::table('core.pre_account_builds')->count())->toBe(0);
-        expect(DB::table('core.users')->count())->toBe(1); // only the pre-seeded row
+        // and the failed attempt left no partial rows behind. Scoped to this test's
+        // own handle_lc (see the header comment: a whole-table count only ever passed
+        // because the SQLite lane's core.users starts empty, which this lane's
+        // real, shared, persistent database does not).
+        expect(DB::table('core.pre_account_builds')->where('source_type', 'instagram')->where('source_ref_lc', 'like', 'handleraceloser%')->count())->toBe(0);
+        expect(DB::table('core.users')->where('handle_lc', $handleLc)->count())->toBe(1); // only the pre-seeded row
     } finally {
         if (DB::transactionLevel() > 0) {
             DB::rollBack();

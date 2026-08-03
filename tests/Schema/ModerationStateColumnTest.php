@@ -1,16 +1,15 @@
 <?php
 
 use App\Models\Core\Site\Site;
-use App\Models\Core\User\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Schema\Concerns\SeedsAuthUsers;
+use Tests\SchemaTestCase;
+
+uses(SchemaTestCase::class, SeedsAuthUsers::class)->in(__FILE__);
 
 it('adds moderation_state column to site.sites with default active', function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('information_schema queries require PostgreSQL.');
-    }
-
     $col = DB::selectOne(<<<'SQL'
         SELECT column_name, is_nullable, column_default
         FROM information_schema.columns
@@ -24,34 +23,33 @@ it('adds moderation_state column to site.sites with default active', function ()
 })->group('postgres');
 
 it('rejects illegal site moderation_state values via CHECK constraint', function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('Constraint tests require PostgreSQL.');
-    }
-
     // Pick any existing site via the test factory once SiteFactory exists (Task 7.5).
     // Until then, this assertion runs against a forceFilled row.
-    $user = User::factory()->create();
-    $site = (new Site)->forceFill([
-        'id' => (string) Str::uuid(),
-        'user_id' => $user->id,
-        'subdomain' => 'check-'.uniqid(),
-        'architecture_id' => 'staple',
-        'settings' => [],
-        'is_published' => true,
-    ]);
-    $site->save();
+    $user = $this->seedAuthUser();
 
-    expect(fn () => DB::statement(
-        "UPDATE site.sites SET moderation_state = 'invalid_state' WHERE id = ?",
-        [$site->id]
-    ))->toThrow(QueryException::class);
+    try {
+        $site = (new Site)->forceFill([
+            'id' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'subdomain' => 'check-'.uniqid(),
+            'architecture_id' => 'staple',
+            'settings' => [],
+            'is_published' => true,
+        ]);
+        $site->save();
+
+        expect(fn () => DB::statement(
+            "UPDATE site.sites SET moderation_state = 'invalid_state' WHERE id = ?",
+            [$site->id]
+        ))->toThrow(QueryException::class);
+    } finally {
+        // No RefreshDatabase in this lane — the DB is persistent and shared
+        // across the whole run. forceDelete cascades site.sites via its FK.
+        $this->cleanupSeededUser($user);
+    }
 })->group('postgres');
 
 it('users.status already covers moderation outcomes (no new column needed)', function () {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
-        $this->markTestSkipped('pg_constraint queries require PostgreSQL.');
-    }
-
     // Sanity check: confirm the values we'll be using exist in users_status_check.
     $constraintDef = DB::selectOne(<<<'SQL'
         SELECT pg_get_constraintdef(oid) AS def

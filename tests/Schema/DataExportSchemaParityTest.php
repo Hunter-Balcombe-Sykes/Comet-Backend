@@ -32,12 +32,9 @@
 
 use App\Services\User\DataExport\DataExportPayloadBuilder;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
+use Tests\SchemaTestCase;
 
-function dataExportParitySuiteIsPostgres(): bool
-{
-    return DB::connection('pgsql')->getDriverName() === 'pgsql';
-}
+uses(SchemaTestCase::class)->in(__FILE__);
 
 /**
  * Build a dummy argument for a stream* parameter based on its name.
@@ -52,13 +49,6 @@ function dataExportParityDummyArg(ReflectionParameter $param): string
 }
 
 it('every column the data export reads exists in the live schema', function () {
-    if (! dataExportParitySuiteIsPostgres()) {
-        $this->markTestSkipped(
-            'Column existence can only be validated on PostgreSQL — SQLite treats an '
-            .'unknown double-quoted identifier as a string literal instead of erroring.'
-        );
-    }
-
     $builder = app(DataExportPayloadBuilder::class);
     $reflection = new ReflectionClass($builder);
 

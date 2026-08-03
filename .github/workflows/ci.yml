@@ -350,6 +350,16 @@ jobs:
       # The service container below has no SSL configured — config/database.php
       # defaults DB_SSLMODE to 'require', which would refuse to connect.
       DB_SSLMODE: disable
+      # Preconditions are MANDATORY here. Without this the lane would skip when
+      # the service container failed to come up and the build would stay green
+      # having run zero assertions — the same false-safety-net schema-tests'
+      # SCHEMA_LANE_REQUIRED was created to remove, one layer up.
+      PG_LANE_REQUIRED: '1'
+      # Opt-in: lets DatabaseServiceProvider apply statement_timeout/lock_timeout
+      # against this real, disposable Postgres container so
+      # tests/Postgres/DatabaseTimeoutsTest.php can prove they still fire. See
+      # DatabaseServiceProvider::boot() — every other lane leaves this unset.
+      DB_APPLY_TIMEOUTS_IN_TESTS: '1'
     services:
       postgres:
         image: postgres:16

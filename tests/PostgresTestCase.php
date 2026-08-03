@@ -30,7 +30,7 @@ abstract class PostgresTestCase extends BaseTestCase
         // No pgsql connection configured at all (e.g. DB_CONNECTION left at
         // its sqlite default) — skip rather than blow up with a driver error.
         if (DB::connection('pgsql')->getDriverName() !== 'pgsql') {
-            $this->markTestSkipped(
+            $this->unavailable(
                 'Postgres lane requires DB_CONNECTION=pgsql (see phpunit.pg.xml / composer test:pg).'
             );
         }
@@ -41,7 +41,7 @@ abstract class PostgresTestCase extends BaseTestCase
         try {
             DB::connection('pgsql')->getPdo();
         } catch (Throwable $e) {
-            $this->markTestSkipped('Postgres lane requires a reachable Postgres server: '.$e->getMessage());
+            $this->unavailable('Postgres lane requires a reachable Postgres server: '.$e->getMessage());
         }
 
         // Guard: this lane CREATEs and DROPs production-named tables in core.*/site.*.
@@ -53,7 +53,27 @@ abstract class PostgresTestCase extends BaseTestCase
         // container (DB_DATABASE=partna_test) or an explicitly opted-in local one.
         $db = DB::connection('pgsql')->selectOne('select current_database() as db')->db;
         if ($db !== 'partna_test' && getenv('PG_LANE_DISPOSABLE') !== '1') {
-            $this->markTestSkipped("Refusing to provision core.*/site.* on '{$db}' — set PG_LANE_DISPOSABLE=1 to override.");
+            $this->unavailable("Refusing to provision core.*/site.* on '{$db}' — set PG_LANE_DISPOSABLE=1 to override.");
         }
+    }
+
+    /**
+     * Lane preconditions are missing: skip locally, FAIL where the lane is
+     * declared required (PG_LANE_REQUIRED=1, set by the CI job).
+     *
+     * Mirrors SchemaTestCase::unavailable() — same bug shape one layer up: a
+     * failed/unreachable postgres:16 service container made this lane skip
+     * every assertion and report green having run zero of them. See
+     * tests/SchemaTestCase.php for the full rationale.
+     *
+     * A developer without a local Postgres still gets a clean skip.
+     */
+    private function unavailable(string $why): void
+    {
+        if (getenv('PG_LANE_REQUIRED') === '1') {
+            $this->fail($why.' (PG_LANE_REQUIRED=1 — refusing to pass by skipping.)');
+        }
+
+        $this->markTestSkipped($why);
     }
 }

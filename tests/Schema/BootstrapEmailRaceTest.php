@@ -21,26 +21,81 @@
  * the SQLite tests below (classifier precision + common case, both driver-agnostic);
  * the genuinely-concurrent race itself can only be reproduced against real Postgres
  * with a second connection — see the Postgres-gated tests at the bottom, modeled on
- * tests/Feature/Bootstrap/SiteProvisioningSavepointTest.php.
+ * tests/Schema/SiteProvisioningSavepointTest.php.
+ *
+ * MOVED to the applied-schema lane (tranche 3 of COV-LANE). Two genuine bugs in the
+ * SQLite-era version of this file, neither an app defect:
+ *
+ * 1. Every auth-user placeholder id in this file ('fresh-uid', 'rival-uid',
+ *    'newcomer-uid', 'other-uid', 'new-uid', 'race-target-...', 'race-rival-...') was a
+ *    non-UUID string. SQLite's TEXT-typed stand-in column swallows anything; real
+ *    Postgres's core.users.auth_user_id is a genuine `uuid` column and rejects them
+ *    with `invalid input syntax for type uuid`. Every id below is now a real UUID, and
+ *    — because auth_user_id is ALSO a real FK onto auth.users (see
+ *    Tests\Schema\Concerns\SeedsAuthUsers) — each one gets a matching auth.users row
+ *    before use.
+ *
+ * 2. The DISC-6-style tests fabricated core.users_email_unique /
+ *    core_users_handle_lc_unique inside SQLite's in-memory schema with
+ *    `CREATE UNIQUE INDEX core.name ON users (...)` — SQLite-only syntax (the schema
+ *    qualifier belongs on the TABLE, not the index; real Postgres parses it as
+ *    `syntax error at or near "."`, the same bug class fixed in
+ *    DesignSingletonMediaConcurrencyTest). Both indexes already exist for real in the
+ *    applied schema (20260726000000_baseline_pilot.sql,
+ *    20260711170000_users_email_unique_case_insensitive.sql), so the fabrication
+ *    statements are simply removed — the tests now exercise the REAL constraints.
+ *
+ * Directory-scope warning: tests/Pest.php:2918-2924 binds a fake bot-protection
+ * provider via `uses()->beforeEach(...)->in('Feature/Http/Middleware',
+ * 'Feature/PublicSite', 'Feature/Security')`. This file used to live in
+ * Feature/PublicSite and inherited that binding; moved out, it's gone with no error
+ * pointing at the cause. Nothing in UserBootstrapService's call graph currently
+ * touches bot protection, so its absence wouldn't have failed a test today — but the
+ * binding is re-established explicitly below anyway, matching the original directory
+ * behaviour instead of silently relying on that being permanently true.
  */
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\BotProtection\Providers\FakeProvider;
 use App\Services\User\UserBootstrapService;
 use Illuminate\Database\QueryException;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Tests\Schema\Concerns\SeedsAuthUsers;
+use Tests\SchemaTestCase;
+
+uses(SchemaTestCase::class, SeedsAuthUsers::class)->in(__FILE__);
 
 beforeEach(function () {
-    setupUsersTable();
-    setupSitesTable();
-    setupEmailSubscriptionsTable();
-    setupNotificationsTable(); // createWelcomeNotification() writes here on a brand-new signup
-    setupSubdomainAliasesTable(); // SiteCacheService::invalidateSite (via cache->invalidateUser) reads this
     Queue::fake(); // avoid the KV-sync / cache-purge / cache-warm jobs actually running under QUEUE_CONNECTION=sync
+
+    // Re-establish the directory-scoped fake this file inherited under
+    // Feature/PublicSite (see header comment) — cheap insurance even though
+    // nothing here currently resolves it.
+    config(['partna.bot_protection.driver' => 'fake']);
+    app()->instance(FakeProvider::class, new FakeProvider);
 });
+
+/** Insert just the auth.users parent row and return its id — for ids that are
+ * handed to UserBootstrapService::bootstrap() directly rather than through
+ * SeedsAuthUsers::seedAuthUser() (which also creates the core.users row via
+ * the factory; bootstrap() creates that row itself). */
+function seedRaceAuthId(): string
+{
+    $id = (string) Str::uuid();
+    DB::connection('pgsql')->table('auth.users')->insert(['id' => $id, 'email' => $id.'@schema-lane.test']);
+
+    return $id;
+}
+
+/** Undo seedRaceAuthId() when bootstrap() never got far enough to create the
+ * core.users row (e.g. it threw before save()). */
+function cleanupRaceAuthId(string $authId): void
+{
+    DB::connection('pgsql')->table('auth.users')->where('id', $authId)->delete();
+}
 
 /**
  * Minimal valid bootstrap payload for a brand-new user.
@@ -60,33 +115,48 @@ function raceBootstrapPayload(array $overrides = []): array
 }
 
 it('still completes a brand-new signup end-to-end after the locked re-fetch was added inside the transaction (07-08 #LIFE-12 regression guard)', function () {
-    $result = app(UserBootstrapService::class)->bootstrap('fresh-uid', raceBootstrapPayload([
-        'handle' => 'freshuser',
-        'handle_lc' => 'freshuser',
-        'display_name' => 'Fresh User',
-        'primary_email' => 'freshuser@example.com',
-        'first_name' => 'Fresh',
-    ]));
+    $authId = seedRaceAuthId();
+    $handle = 'freshuser'.Str::lower(Str::random(6));
 
-    expect($result['created'])->toBeTrue();
-    expect($result['professional'])->toBeInstanceOf(User::class);
-    expect($result['site'])->toBeInstanceOf(Site::class);
+    $result = null;
 
-    $row = User::query()->where('auth_user_id', 'fresh-uid')->first();
-    expect($row)->not->toBeNull();
-    expect($row->primary_email)->toBe('freshuser@example.com');
-    expect(Site::query()->where('user_id', $row->id)->exists())->toBeTrue();
+    try {
+        $result = app(UserBootstrapService::class)->bootstrap($authId, raceBootstrapPayload([
+            'handle' => $handle,
+            'handle_lc' => $handle,
+            'display_name' => 'Fresh User',
+            'primary_email' => $handle.'@example.com',
+            'first_name' => 'Fresh',
+        ]));
+
+        expect($result['created'])->toBeTrue();
+        expect($result['professional'])->toBeInstanceOf(User::class);
+        expect($result['site'])->toBeInstanceOf(Site::class);
+
+        $row = User::query()->where('auth_user_id', $authId)->first();
+        expect($row)->not->toBeNull();
+        expect($row->primary_email)->toBe($handle.'@example.com');
+        expect(Site::query()->where('user_id', $row->id)->exists())->toBeTrue();
+    } finally {
+        if ($result) {
+            $this->cleanupSeededUser($result['professional']);
+        } else {
+            cleanupRaceAuthId($authId);
+        }
+    }
 });
 
 it('throws EMAIL_ALREADY_REGISTERED via the pre-check when the email is already taken by a different auth user (common case)', function () {
     // A pre-existing (already-committed) rival — no race involved. This is the
     // ordinary path: guardAgainstEmailReuseByDifferentAuthUser() finds the row and
     // throws BEFORE save() ever runs, so the LIFE-101 nested-tx catch never fires.
+    $rivalAuthId = seedRaceAuthId();
+    $rivalHandle = 'existingrival'.Str::lower(Str::random(6));
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => (string) Str::uuid(),
-        'auth_user_id' => 'rival-uid',
-        'handle' => 'existingrival',
-        'handle_lc' => 'existingrival',
+        'auth_user_id' => $rivalAuthId,
+        'handle' => $rivalHandle,
+        'handle_lc' => $rivalHandle,
         'display_name' => 'Existing Rival',
         'first_name' => 'Existingrival',
         'primary_email' => 'taken@example.com',
@@ -96,60 +166,78 @@ it('throws EMAIL_ALREADY_REGISTERED via the pre-check when the email is already 
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    expect(fn () => app(UserBootstrapService::class)->bootstrap('newcomer-uid', raceBootstrapPayload([
-        'handle' => 'newcomer',
-        'handle_lc' => 'newcomer',
-        'display_name' => 'Newcomer',
-        'primary_email' => 'TAKEN@Example.com', // different case, same lower()
-        'first_name' => 'Newcomer',
-    ])))->toThrow(RuntimeException::class, 'EMAIL_ALREADY_REGISTERED');
+    $newcomerAuthId = seedRaceAuthId();
+    $newcomerHandle = 'newcomer'.Str::lower(Str::random(6));
 
-    expect(User::query()->where('auth_user_id', 'newcomer-uid')->exists())->toBeFalse();
+    try {
+        expect(fn () => app(UserBootstrapService::class)->bootstrap($newcomerAuthId, raceBootstrapPayload([
+            'handle' => $newcomerHandle,
+            'handle_lc' => $newcomerHandle,
+            'display_name' => 'Newcomer',
+            'primary_email' => 'TAKEN@Example.com', // different case, same lower()
+            'first_name' => 'Newcomer',
+        ])))->toThrow(RuntimeException::class, 'EMAIL_ALREADY_REGISTERED');
+
+        expect(User::query()->where('auth_user_id', $newcomerAuthId)->exists())->toBeFalse();
+    } finally {
+        $rival = User::query()->where('auth_user_id', $rivalAuthId)->first();
+        if ($rival) {
+            $this->cleanupSeededUser($rival);
+        } else {
+            cleanupRaceAuthId($rivalAuthId);
+        }
+        cleanupRaceAuthId($newcomerAuthId); // never got a core.users row
+    }
 });
 
 it('DISC-6: classifies a concurrent handle_lc collision as HANDLE_ALREADY_TAKEN (re-query, not driver-message), never as email or a raw 500', function () {
-    // Real unique indexes on the SQLite stub, mirroring the constraints defined in
-    // supabase/migrations/20260726000000_baseline_pilot.sql
-    // (core_users_handle_lc_unique) and 20260711170000_users_email_unique_case_insensitive.sql
-    // (users_email_unique, now case-insensitive on lower(primary_email)).
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS core.users_email_unique '.
-        'ON users (lower(primary_email)) WHERE deleted_at IS NULL'
-    );
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS core.core_users_handle_lc_unique '.
-        'ON users (handle_lc) WHERE deleted_at IS NULL'
-    );
-
+    // Real unique indexes already exist on the applied schema — see
+    // supabase/migrations/20260726000000_baseline_pilot.sql (core_users_handle_lc_unique)
+    // and 20260711170000_users_email_unique_case_insensitive.sql (users_email_unique,
+    // case-insensitive on lower(primary_email)). No fabrication needed here.
+    $handle = 'taken'.Str::lower(Str::random(6));
+    $otherAuthId = seedRaceAuthId();
     DB::connection('pgsql')->table('core.users')->insert([
         'id' => (string) Str::uuid(),
-        'auth_user_id' => 'other-uid',
-        'handle' => 'taken',
-        'handle_lc' => 'taken',
+        'auth_user_id' => $otherAuthId,
+        'handle' => $handle,
+        'handle_lc' => $handle,
         'display_name' => 'Handle Holder',
         'first_name' => 'Taken',
-        'primary_email' => 'other@example.com',
+        'primary_email' => 'other'.Str::lower(Str::random(6)).'@example.com',
         'account_type' => 'partna',
         'status' => 'active',
         'created_at' => now()->toDateTimeString(),
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    // Different email — the pre-check and the post-catch email re-query both look
-    // ONLY at primary_email, so a handle_lc collision must NOT surface as
-    // EMAIL_ALREADY_REGISTERED. DISC-6: it is now deliberately classified via a
-    // second re-query (never driver-message string matching) as the friendly
-    // HANDLE_ALREADY_TAKEN, not left as a raw UniqueConstraintViolationException
-    // (which the controller can't translate and turns into a 500).
-    expect(fn () => app(UserBootstrapService::class)->bootstrap('new-uid', raceBootstrapPayload([
-        'handle' => 'taken',
-        'handle_lc' => 'taken',
-        'display_name' => 'New Arrival',
-        'primary_email' => 'new@example.com',
-        'first_name' => 'New',
-    ])))->toThrow(RuntimeException::class, 'HANDLE_ALREADY_TAKEN');
+    $newAuthId = seedRaceAuthId();
 
-    expect(User::query()->where('auth_user_id', 'new-uid')->exists())->toBeFalse();
+    try {
+        // Different email — the pre-check and the post-catch email re-query both look
+        // ONLY at primary_email, so a handle_lc collision must NOT surface as
+        // EMAIL_ALREADY_REGISTERED. DISC-6: it is now deliberately classified via a
+        // second re-query (never driver-message string matching) as the friendly
+        // HANDLE_ALREADY_TAKEN, not left as a raw UniqueConstraintViolationException
+        // (which the controller can't translate and turns into a 500).
+        expect(fn () => app(UserBootstrapService::class)->bootstrap($newAuthId, raceBootstrapPayload([
+            'handle' => $handle,
+            'handle_lc' => $handle,
+            'display_name' => 'New Arrival',
+            'primary_email' => 'new'.Str::lower(Str::random(6)).'@example.com',
+            'first_name' => 'New',
+        ])))->toThrow(RuntimeException::class, 'HANDLE_ALREADY_TAKEN');
+
+        expect(User::query()->where('auth_user_id', $newAuthId)->exists())->toBeFalse();
+    } finally {
+        $other = User::query()->where('auth_user_id', $otherAuthId)->first();
+        if ($other) {
+            $this->cleanupSeededUser($other);
+        } else {
+            cleanupRaceAuthId($otherAuthId);
+        }
+        cleanupRaceAuthId($newAuthId); // never got a core.users row
+    }
 });
 
 // ─── Postgres-gated: the genuine concurrent race ──────────────────────────────────
@@ -162,22 +250,12 @@ it('DISC-6: classifies a concurrent handle_lc collision as HANDLE_ALREADY_TAKEN 
 // re-throws the raw UniqueConstraintViolationException instead of the friendly error.
 //
 // A real concurrent signup is a genuinely separate Postgres session that COMMITS
-// independently and durably — not undone by our savepoint rollback. That can only be
-// reproduced against real PostgreSQL with a second connection, following the same
-// gate + pattern as tests/Feature/Bootstrap/SiteProvisioningSavepointTest.php.
+// independently and durably — not undone by our savepoint rollback. That requires a
+// real, migrated Postgres with a second connection, following the same gate + pattern
+// as tests/Schema/SiteProvisioningSavepointTest.php (SchemaTestCase's setUp() already
+// enforces that for the whole file).
 
-if (! function_exists('emailRaceSuiteIsPostgres')) {
-    function emailRaceSuiteIsPostgres(): bool
-    {
-        return DB::connection('pgsql')->getDriverName() === 'pgsql';
-    }
-}
-
-it('LIFE-101 mechanism: after a nested-tx 23505 rolls back to its savepoint, a same-connection re-query still runs and sees a row committed by a second connection (Postgres only)', function () {
-    if (! emailRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort + savepoint semantics required; SQLite cannot reproduce a genuinely concurrent commit.');
-    }
-
+it('LIFE-101 mechanism: after a nested-tx 23505 rolls back to its savepoint, a same-connection re-query still runs and sees a row committed by a second connection', function () {
     $table = 'email_race_probe_'.Str::lower(Str::random(8));
     DB::connection('pgsql')->statement("CREATE TABLE {$table} (val text UNIQUE)");
 
@@ -224,19 +302,10 @@ it('LIFE-101 mechanism: after a nested-tx 23505 rolls back to its savepoint, a s
     }
 });
 
-it('LIFE-101: throws EMAIL_ALREADY_REGISTERED (via re-query, not driver-message matching) when a second real Postgres connection commits the rival email during the nested-tx save (Postgres only)', function () {
-    if (! emailRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort + savepoint semantics required; SQLite cannot reproduce a genuinely concurrent commit from a second session.');
-    }
-
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS core.users_email_unique '.
-        'ON users (lower(primary_email)) WHERE deleted_at IS NULL'
-    );
-
+it('LIFE-101: throws EMAIL_ALREADY_REGISTERED (via re-query, not driver-message matching) when a second real Postgres connection commits the rival email during the nested-tx save', function () {
     $email = 'race-'.Str::lower(Str::random(8)).'@example.com';
-    $targetAuthId = 'race-target-'.Str::lower(Str::random(8));
-    $rivalAuthId = 'race-rival-'.Str::lower(Str::random(8));
+    $targetAuthId = seedRaceAuthId();
+    $rivalAuthId = seedRaceAuthId();
     $rivalHandle = 'racerival'.Str::lower(Str::random(8));
     $handle = 'race'.Str::lower(Str::random(8));
 
@@ -289,23 +358,17 @@ it('LIFE-101: throws EMAIL_ALREADY_REGISTERED (via re-query, not driver-message 
         expect(User::query()->where('auth_user_id', $targetAuthId)->exists())->toBeFalse();
     } finally {
         DB::connection('pgsql')->table('core.users')->whereIn('auth_user_id', [$targetAuthId, $rivalAuthId])->delete();
+        DB::connection('pgsql')->table('auth.users')->whereIn('id', [$targetAuthId, $rivalAuthId])->delete();
         DB::disconnect('pgsql_race_rival');
     }
 });
 
-it('DISC-6: throws HANDLE_ALREADY_TAKEN (via re-query, not driver-message matching) when a second real Postgres connection commits the rival handle_lc during the nested-tx save (Postgres only)', function () {
-    if (! emailRaceSuiteIsPostgres()) {
-        $this->markTestSkipped('PostgreSQL transaction-abort + savepoint semantics required; SQLite cannot reproduce a genuinely concurrent commit from a second session.');
-    }
-
-    DB::connection('pgsql')->statement(
-        'CREATE UNIQUE INDEX IF NOT EXISTS core.core_users_handle_lc_unique '.
-        'ON users (handle_lc) WHERE deleted_at IS NULL'
-    );
-
+it('DISC-6: throws HANDLE_ALREADY_TAKEN (via re-query, not driver-message matching) when a second real Postgres connection commits the rival handle_lc during the nested-tx save', function () {
+    // Real unique index already exists on the applied schema
+    // (core_users_handle_lc_unique) — no fabrication needed here.
     $handle = 'race'.Str::lower(Str::random(8));
-    $targetAuthId = 'race-target-'.Str::lower(Str::random(8));
-    $rivalAuthId = 'race-rival-'.Str::lower(Str::random(8));
+    $targetAuthId = seedRaceAuthId();
+    $rivalAuthId = seedRaceAuthId();
     $rivalEmail = 'race-rival-'.Str::lower(Str::random(8)).'@example.com';
     $targetEmail = 'race-'.Str::lower(Str::random(8)).'@example.com';
 
@@ -357,6 +420,7 @@ it('DISC-6: throws HANDLE_ALREADY_TAKEN (via re-query, not driver-message matchi
         expect(User::query()->where('auth_user_id', $targetAuthId)->exists())->toBeFalse();
     } finally {
         DB::connection('pgsql')->table('core.users')->whereIn('auth_user_id', [$targetAuthId, $rivalAuthId])->delete();
+        DB::connection('pgsql')->table('auth.users')->whereIn('id', [$targetAuthId, $rivalAuthId])->delete();
         DB::disconnect('pgsql_race_rival');
     }
 });
