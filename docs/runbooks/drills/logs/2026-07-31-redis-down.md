@@ -246,11 +246,14 @@ the failure; it does not fail open. `B1`/`B2` remain the fix for that and are ou
    any dashboard read. There is **no model mutator, no INSERT trigger, and no CHECK constraint**
    tying them (the two existing triggers fire only `ON UPDATE OF handle`); both columns are plain
    `$fillable`. Any write path that sets `handle` without `handle_lc` makes a site publicly
-   unreachable, invisibly. **RESOLVED 2026-07-31 (part a)** — `User::setHandleAttribute()` derives
-   `handle_lc` at assignment, and the factory no longer seeds it (that seeding was what defeated the
-   mutator on the exact call that motivated it — see below). The DB CHECK constraint (part b) is
-   still open and needs its own sign-off. This is the most consequential thing this drill turned up
-   that it was not looking for.
+   unreachable, invisibly. **RESOLVED — part (a) 2026-07-31, part (b) 2026-08-03.**
+   `User::setHandleAttribute()` derives `handle_lc` at assignment and the factory no longer seeds it
+   (that seeding was what defeated the mutator on the exact call that motivated it — see below).
+   Part (b) adds `users_handle_lc_matches_handle` (`CHECK (handle_lc = lower(handle))`), applied and
+   VALIDATED on **both** dev and prod, as the backstop for every write that bypasses Eloquent.
+   Pinned by `tests/Schema/CheckConstraintsTest.php` in the applied-schema lane — invisible to
+   `composer test`, which is SQLite. This is the most consequential thing this drill turned up that
+   it was not looking for.
 8. **The optional enquiry-flow probe was not run** — the drill's write-path data-loss question
    (save-then-500 vs save-cleanly-without-email vs fail-entirely) is **unanswered**.
 
@@ -397,10 +400,9 @@ Scenario C is **done** — Findings 3 and 5 are resolved and the hung-server cas
 Findings 1, 2 and 7 are resolved by the D1 re-run above. That pass covered the DOWN scenario only —
 it did **not** cover Scenario C, Horizon (Finding 4), or the authed path.
 
-Still open from this drill: **Finding 4** (Horizon does not self-heal on Redis loss); **Finding 7
-part (b)** (the `handle_lc = lower(handle)` CHECK constraint — part (a), the model mutator, is done);
-**Finding 8** (the enquiry-flow write-path probe was never run — the D1 pass exercised that route
-only as far as its 503, never through to a successful write).
+Still open from this drill: **Finding 4** (Horizon does not self-heal on Redis loss); **Finding 8**
+(the enquiry-flow write-path probe was never run — the D1 pass exercised that route only as far as
+its 503, never through to a successful write). Finding 7 is fully closed as of 2026-08-03.
 
 Neither pass measured the fail-open set under a *hung* Redis rather than a dead one. Both fixes now
 depend on the B4 timeouts to bound that case: a fail-open limiter that waits on `read_timeout`

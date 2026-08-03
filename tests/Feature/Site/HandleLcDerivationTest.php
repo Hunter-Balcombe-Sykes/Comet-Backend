@@ -65,3 +65,20 @@ it('leaves handle_lc null when handle is null', function () {
 
     expect($user->handle_lc)->toBeNull();
 });
+
+it('trims BOTH columns so the DB CHECK can never reject what the model built', function () {
+    // D2b. `users_handle_lc_matches_handle` is the plain `handle_lc =
+    // lower(handle)` — no btrim in the predicate, deliberately. If the model
+    // trimmed only handle_lc, ' Bob ' would yield handle_lc 'bob' against
+    // lower(handle) ' bob ' and Postgres would reject a row the model happily
+    // produced, as a 23514 on a write path. Trimming both makes the constraint
+    // true by construction.
+    //
+    // Unreachable through the API today — every write path validates
+    // regex:/^[a-z0-9_-]+$/i — so this pins the invariant, not a live bug.
+    $user = new User(['handle' => '  Spaced-Handle  ']);
+
+    expect($user->handle)->toBe('Spaced-Handle')
+        ->and($user->handle_lc)->toBe('spaced-handle')
+        ->and($user->handle_lc)->toBe(mb_strtolower($user->handle));
+});

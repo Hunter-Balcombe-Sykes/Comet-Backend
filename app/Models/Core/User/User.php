@@ -147,10 +147,20 @@ class User extends BaseModel
      * Cannot fight the existing writers: they set both keys to the same value,
      * forceFill() still routes through setAttribute(), and whichever key lands
      * second writes an identical string.
+     *
+     * D2b: BOTH sides are trimmed, not just handle_lc. The DB CHECK
+     * `handle_lc = lower(handle)` is the constraint this has to satisfy, so the
+     * model must make that true BY CONSTRUCTION rather than leave a shape
+     * Postgres would reject — otherwise ` Bob ` yields handle_lc `bob` against
+     * lower(handle) ` bob ` and the write dies as a 23514 the model happily
+     * produced. No behaviour change today: every write path validates
+     * `regex:/^[a-z0-9_-]+$/i` (BootstrapRequest, ReclaimHandleRequest, the
+     * rename flow), which cannot match whitespace, so the trim is a no-op on
+     * every real handle.
      */
     public function setHandleAttribute(?string $value): void
     {
-        $this->attributes['handle'] = $value;
+        $this->attributes['handle'] = $value === null ? null : trim($value);
         $this->attributes['handle_lc'] = $value === null ? null : mb_strtolower(trim($value));
     }
 
