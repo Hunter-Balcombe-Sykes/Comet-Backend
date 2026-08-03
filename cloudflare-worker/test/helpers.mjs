@@ -56,10 +56,13 @@ export async function createHarness() {
         scriptPath,
         compatibilityDate: "2025-01-01",
         kvNamespaces: ["SUBDOMAIN_KV"],
-        // Mirrors wrangler.toml [vars]. Strings — workerd env vars always are.
+        // Mirrors wrangler.toml [vars], which declares these as TOML integers —
+        // so workerd delivers NUMBERS here, not strings. (`wrangler types`
+        // independently reports `number`.) The Worker's Number() coercion
+        // accepts either, but the harness should send what production sends.
         bindings: {
-            PRIMARY_CACHE_TTL_S: "86400",
-            STALE_SHADOW_TTL_S: "604800",
+            PRIMARY_CACHE_TTL_S: 86_400,
+            STALE_SHADOW_TTL_S: 604_800,
         },
         // A FUNCTION service binding (not a second Worker): the closure records
         // what the router forwarded, which is the only reason the cache-key and
