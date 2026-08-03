@@ -36,7 +36,9 @@ describe("cache keying", () => {
         const first = await h.fetch("https://t6.partna.au/?utm_source=a");
         expect(first.status).toBe(200);
         expect(first.headers.get("x-partna-cache")).toBe("origin");
-        expect(await h.waitForCache(cacheKeyUrl("https://t6.partna.au/?utm_source=a"))).not.toBeNull();
+        expect(
+            await h.waitForCache(cacheKeyUrl("https://t6.partna.au/?utm_source=a")),
+        ).not.toBeNull();
 
         const second = await h.fetch("https://t6.partna.au/?utm_source=b");
 

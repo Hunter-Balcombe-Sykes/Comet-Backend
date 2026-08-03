@@ -1,2 +1,6 @@
-# style: repo-wide Pint baseline clean — formatting only (see commit subject)
-c7c150d2b20e8cb34d265517d77880c12ec6718c
+# Revisions to skip in `git blame` — formatting-only, no token changes.
+# GitHub honours this file automatically. Locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style(worker): reformat to 4-space via biome
+c45d6cc4444ed6f546b2d4cd776b09d56f7dbf91

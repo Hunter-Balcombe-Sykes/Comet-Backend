@@ -48,34 +48,41 @@ describe.each(paths)("%s", (label, send, isSitepage) => {
         expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
     });
 
-    it(isSitepage ? "swaps X-Frame-Options for enforcing frame-ancestors" : "keeps X-Frame-Options: SAMEORIGIN", async () => {
-        const res = await send();
+    it(
+        isSitepage
+            ? "swaps X-Frame-Options for enforcing frame-ancestors"
+            : "keeps X-Frame-Options: SAMEORIGIN",
+        async () => {
+            const res = await send();
 
-        if (isSitepage) {
-            // X-Frame-Options cannot allow-list a cross-origin embedder, so
-            // sitepages drop it in favour of an ENFORCING frame-ancestors — that
-            // is what lets the /account/design preview iframe on app.partna.au
-            // embed the page while every other origin stays refused.
-            expect(res.headers.get("x-frame-options")).toBeNull();
-            expect(res.headers.get("content-security-policy")).toBe(
-                "frame-ancestors 'self' https://app.partna.au",
-            );
-            // The full policy ships Report-Only and is INERT — it blocks nothing.
-            // Present so a real render can be validated before it is enforced.
-            expect(res.headers.get("content-security-policy-report-only")).toContain("default-src 'self'");
-            // Both headers name the dashboard origin, and both now build it from
-            // one DASHBOARD_ORIGIN const. Asserted here too so a change to that
-            // const cannot silently diverge the Report-Only policy from the
-            // enforcing one — the enforcing header above is the only other place
-            // this string is pinned, and it would keep passing on its own.
-            expect(res.headers.get("content-security-policy-report-only")).toContain(
-                "frame-ancestors 'self' https://app.partna.au",
-            );
-        } else {
-            expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
-            expect(res.headers.get("content-security-policy")).toBeNull();
-        }
-    });
+            if (isSitepage) {
+                // X-Frame-Options cannot allow-list a cross-origin embedder, so
+                // sitepages drop it in favour of an ENFORCING frame-ancestors — that
+                // is what lets the /account/design preview iframe on app.partna.au
+                // embed the page while every other origin stays refused.
+                expect(res.headers.get("x-frame-options")).toBeNull();
+                expect(res.headers.get("content-security-policy")).toBe(
+                    "frame-ancestors 'self' https://app.partna.au",
+                );
+                // The full policy ships Report-Only and is INERT — it blocks nothing.
+                // Present so a real render can be validated before it is enforced.
+                expect(res.headers.get("content-security-policy-report-only")).toContain(
+                    "default-src 'self'",
+                );
+                // Both headers name the dashboard origin, and both now build it from
+                // one DASHBOARD_ORIGIN const. Asserted here too so a change to that
+                // const cannot silently diverge the Report-Only policy from the
+                // enforcing one — the enforcing header above is the only other place
+                // this string is pinned, and it would keep passing on its own.
+                expect(res.headers.get("content-security-policy-report-only")).toContain(
+                    "frame-ancestors 'self' https://app.partna.au",
+                );
+            } else {
+                expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+                expect(res.headers.get("content-security-policy")).toBeNull();
+            }
+        },
+    );
 });
 
 describe("origin-set headers win", () => {

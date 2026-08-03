@@ -227,12 +227,26 @@ describe("custom domains", () => {
 
         expect(res.status).toBe(200);
         expect(h.pagesCalls).toHaveLength(1);
-        const injected = h.pagesCalls[0].headers.find(([k]) => k.toLowerCase() === "x-partna-handle");
+        const injected = h.pagesCalls[0].headers.find(
+            ([k]) => k.toLowerCase() === "x-partna-handle",
+        );
         expect(injected?.[1]).toBe("jane");
     });
 
     it("T11b: an unknown non-partna.au host falls through to origin", async () => {
         const res = await h.fetch("https://unknown.t11.example/");
+
+        await expect(res.text()).resolves.toBe(APEX_ORIGIN_BODY);
+        expect(h.pagesCalls).toHaveLength(0);
+    });
+
+    // The subdomain path accepts {type:"individual"} with no handle (partna-pages
+    // reads it from Host); the custom-domain path must NOT — there is no Host to
+    // derive it from, so a handle-less entry is malformed and falls through.
+    it("T11c: a domain:<host> entry with no handle falls through to origin", async () => {
+        await h.seedKv("domain:shop.t11c.example", {type: "individual"});
+
+        const res = await h.fetch("https://shop.t11c.example/");
 
         await expect(res.text()).resolves.toBe(APEX_ORIGIN_BODY);
         expect(h.pagesCalls).toHaveLength(0);

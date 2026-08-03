@@ -363,6 +363,63 @@ jobs:
         # would make real requests to https://api.partna.au from CI.
         run: npm test
 
+  # Cloudflare Worker static analysis (types, typecheck, lint, format). The
+  # Worker is the public wire for 100% of <handle>.partna.au traffic and had no
+  # static analysis of any kind before 2026-08-03 — npm audit checks its
+  # dependencies, DAST probes the deployed edge, neither reads the source.
+  #
+  # Its own job, NOT steps appended to worker-tests: a type error and a failing
+  # behavioural test are different signals, and appending would let a test
+  # failure mask the static result.
+  #
+  # No `paths:` filter, deliberately — same reasoning as worker-tests: GitHub
+  # renders a skipped required check as green, so a filtered guard silently
+  # stops guarding.
+  worker-static:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # 22 to match worker-tests: wrangler declares engines node >= 22.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare-worker/package-lock.json
+
+      - name: Install dependencies
+        working-directory: cloudflare-worker
+        run: npm ci
+
+      - name: Workers types are in sync with wrangler.toml
+        working-directory: cloudflare-worker
+        # Regenerate-and-diff, NOT `wrangler types --check`: that flag compares
+        # only the config-hash comment on line 2 and passes even when the file
+        # has been truncated to two lines (verified against wrangler 4.112.0).
+        #
+        # Deterministic because npm ci pins wrangler via the committed lockfile.
+        # A wrangler bump changes the generated runtime types and turns this red
+        # until regenerated and committed — expected, not a broken gate.
+        run: |
+          npm run types
+          git diff --exit-code -- worker-configuration.d.ts
+
+      - name: Typecheck (tsc --noEmit, checkJs + strict)
+        working-directory: cloudflare-worker
+        run: npm run typecheck
+
+      - name: Lint (typescript-eslint, type-aware)
+        working-directory: cloudflare-worker
+        run: npm run lint
+
+      - name: Format check (biome)
+        working-directory: cloudflare-worker
+        run: npm run format:check
+
   # Real-Postgres regression lane (tests/Postgres/, see tests/PostgresTestCase.php).
   # `composer test` never reaches these — the Postgres-gated sentinels there
   # (e.g. ItemSlugAllocatorRegressionTest, guarding the SQLSTATE 25P02

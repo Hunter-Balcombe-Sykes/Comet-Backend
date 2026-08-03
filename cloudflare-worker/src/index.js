@@ -66,67 +66,315 @@ const DASHBOARD_ORIGIN = `https://app.${PARTNA_DOMAIN}`;
 // has a Miniflare suite, but it runs in workerd with no access to Laravel config,
 // so it can never see this mirror. A change to either side goes red until mirrored.
 const RESERVED = new Set([
-  // --- Platform infrastructure / DNS ---
-  "www", "api", "admin", "app", "apps", "staff", "dashboard",
-  "support", "help", "helpdesk", "billing", "static", "cdn", "assets",
-  "auth", "docs", "status", "comet", "sidest", "partna",
-  "mail", "email", "smtp", "imap", "pop", "pop3", "webmail",
-  "ns", "ns1", "ns2", "ns3", "mx", "dns", "ftp", "sftp", "ssh", "vpn",
-  "proxy", "gateway", "server", "host", "cloud", "edge", "worker", "workers",
-  "kv", "db", "database", "redis", "cache", "queue", "jobs", "cron",
-  "webhook", "webhooks", "callback", "callbacks", "localhost", "internal",
-  "public", "private", "secure", "security", "ssl", "tls",
-  // --- Environments / build stages ---
-  "dev", "development", "prod", "production", "staging", "stage",
-  "test", "tests", "testing", "qa", "uat", "sandbox", "preview",
-  "beta", "alpha", "demo", "local",
-  // --- Auth / account routes ---
-  "login", "logout", "signin", "signup", "signout", "register",
-  "account", "accounts", "settings", "profile", "profiles",
-  "user", "users", "member", "members", "me", "my", "mine",
-  "password", "reset", "forgot", "verify", "verification",
-  "confirm", "activate", "activation", "oauth", "sso", "saml", "jwt",
-  "token", "tokens", "key", "keys", "secret", "secrets",
-  "onboarding", "install", "setup", "start",
-  // --- Marketing / company pages ---
-  "home", "about", "team", "company", "contact", "careers",
-  "hiring", "press", "media", "news", "blog", "newsroom",
-  "investors", "enterprise", "pricing", "plans", "features",
-  "partner", "partners", "affiliate", "affiliates",
-  "referral", "referrals", "brand", "brands", "community",
-  // --- Commerce / store ---
-  "shop", "store", "stores", "marketplace", "cart", "checkout",
-  "order", "orders", "invoice", "invoices", "payment", "payments",
-  "refund", "refunds", "subscription", "subscriptions",
-  // --- Discovery / catalog ---
-  "search", "explore", "discover", "trending", "popular", "top",
-  "new", "latest", "featured", "browse", "category", "categories",
-  "tag", "tags", "topic", "topics", "sitemap", "robots", "feed", "rss",
-  // --- Legal / trust ---
-  "terms", "tos", "privacy", "legal", "dmca", "copyright",
-  "trademark", "abuse", "report", "compliance", "gdpr",
-  // --- Developer / system ---
-  "developer", "developers", "doc", "documentation",
-  "api-docs", "graphql", "rest", "rpc", "sdk", "cli",
-  "system", "service", "services", "root", "null", "undefined",
-  "true", "false", "nil", "none", "error", "errors", "config",
-  // --- AU government / regulators / common impersonation targets ---
-  "ato", "asic", "accc", "acma", "austrac", "apra", "rba",
-  "medicare", "mygov", "centrelink", "ndis", "ahpra", "fairwork",
-  "servicesaustralia", "gov", "government", "police", "afp",
-  "aec", "abs", "tga", "dva", "auspost",
-  // --- Brand impersonation (high-risk lookalikes) ---
-  "google", "apple", "microsoft", "amazon", "meta", "facebook",
-  "instagram", "tiktok", "twitter", "youtube", "linkedin",
-  "paypal", "stripe", "square", "shopify", "cloudflare",
-  "anthropic", "claude", "openai", "chatgpt",
-  // --- Profanity / slurs (exact-match only) ---
-  "fuck", "fucker", "fucking", "motherfucker", "shit", "bullshit",
-  "cunt", "bitch", "bastard", "asshole", "arsehole", "dick",
-  "cock", "pussy", "slut", "whore", "twat", "wanker",
-  "faggot", "fag", "nigger", "nigga", "retard", "tranny",
-  "kike", "spic", "chink", "gook", "wetback", "raghead",
-  "towelhead", "dyke", "shemale", "porn", "porno", "xxx", "nsfw",
+    // --- Platform infrastructure / DNS ---
+    "www",
+    "api",
+    "admin",
+    "app",
+    "apps",
+    "staff",
+    "dashboard",
+    "support",
+    "help",
+    "helpdesk",
+    "billing",
+    "static",
+    "cdn",
+    "assets",
+    "auth",
+    "docs",
+    "status",
+    "comet",
+    "sidest",
+    "partna",
+    "mail",
+    "email",
+    "smtp",
+    "imap",
+    "pop",
+    "pop3",
+    "webmail",
+    "ns",
+    "ns1",
+    "ns2",
+    "ns3",
+    "mx",
+    "dns",
+    "ftp",
+    "sftp",
+    "ssh",
+    "vpn",
+    "proxy",
+    "gateway",
+    "server",
+    "host",
+    "cloud",
+    "edge",
+    "worker",
+    "workers",
+    "kv",
+    "db",
+    "database",
+    "redis",
+    "cache",
+    "queue",
+    "jobs",
+    "cron",
+    "webhook",
+    "webhooks",
+    "callback",
+    "callbacks",
+    "localhost",
+    "internal",
+    "public",
+    "private",
+    "secure",
+    "security",
+    "ssl",
+    "tls",
+    // --- Environments / build stages ---
+    "dev",
+    "development",
+    "prod",
+    "production",
+    "staging",
+    "stage",
+    "test",
+    "tests",
+    "testing",
+    "qa",
+    "uat",
+    "sandbox",
+    "preview",
+    "beta",
+    "alpha",
+    "demo",
+    "local",
+    // --- Auth / account routes ---
+    "login",
+    "logout",
+    "signin",
+    "signup",
+    "signout",
+    "register",
+    "account",
+    "accounts",
+    "settings",
+    "profile",
+    "profiles",
+    "user",
+    "users",
+    "member",
+    "members",
+    "me",
+    "my",
+    "mine",
+    "password",
+    "reset",
+    "forgot",
+    "verify",
+    "verification",
+    "confirm",
+    "activate",
+    "activation",
+    "oauth",
+    "sso",
+    "saml",
+    "jwt",
+    "token",
+    "tokens",
+    "key",
+    "keys",
+    "secret",
+    "secrets",
+    "onboarding",
+    "install",
+    "setup",
+    "start",
+    // --- Marketing / company pages ---
+    "home",
+    "about",
+    "team",
+    "company",
+    "contact",
+    "careers",
+    "hiring",
+    "press",
+    "media",
+    "news",
+    "blog",
+    "newsroom",
+    "investors",
+    "enterprise",
+    "pricing",
+    "plans",
+    "features",
+    "partner",
+    "partners",
+    "affiliate",
+    "affiliates",
+    "referral",
+    "referrals",
+    "brand",
+    "brands",
+    "community",
+    // --- Commerce / store ---
+    "shop",
+    "store",
+    "stores",
+    "marketplace",
+    "cart",
+    "checkout",
+    "order",
+    "orders",
+    "invoice",
+    "invoices",
+    "payment",
+    "payments",
+    "refund",
+    "refunds",
+    "subscription",
+    "subscriptions",
+    // --- Discovery / catalog ---
+    "search",
+    "explore",
+    "discover",
+    "trending",
+    "popular",
+    "top",
+    "new",
+    "latest",
+    "featured",
+    "browse",
+    "category",
+    "categories",
+    "tag",
+    "tags",
+    "topic",
+    "topics",
+    "sitemap",
+    "robots",
+    "feed",
+    "rss",
+    // --- Legal / trust ---
+    "terms",
+    "tos",
+    "privacy",
+    "legal",
+    "dmca",
+    "copyright",
+    "trademark",
+    "abuse",
+    "report",
+    "compliance",
+    "gdpr",
+    // --- Developer / system ---
+    "developer",
+    "developers",
+    "doc",
+    "documentation",
+    "api-docs",
+    "graphql",
+    "rest",
+    "rpc",
+    "sdk",
+    "cli",
+    "system",
+    "service",
+    "services",
+    "root",
+    "null",
+    "undefined",
+    "true",
+    "false",
+    "nil",
+    "none",
+    "error",
+    "errors",
+    "config",
+    // --- AU government / regulators / common impersonation targets ---
+    "ato",
+    "asic",
+    "accc",
+    "acma",
+    "austrac",
+    "apra",
+    "rba",
+    "medicare",
+    "mygov",
+    "centrelink",
+    "ndis",
+    "ahpra",
+    "fairwork",
+    "servicesaustralia",
+    "gov",
+    "government",
+    "police",
+    "afp",
+    "aec",
+    "abs",
+    "tga",
+    "dva",
+    "auspost",
+    // --- Brand impersonation (high-risk lookalikes) ---
+    "google",
+    "apple",
+    "microsoft",
+    "amazon",
+    "meta",
+    "facebook",
+    "instagram",
+    "tiktok",
+    "twitter",
+    "youtube",
+    "linkedin",
+    "paypal",
+    "stripe",
+    "square",
+    "shopify",
+    "cloudflare",
+    "anthropic",
+    "claude",
+    "openai",
+    "chatgpt",
+    // --- Profanity / slurs (exact-match only) ---
+    "fuck",
+    "fucker",
+    "fucking",
+    "motherfucker",
+    "shit",
+    "bullshit",
+    "cunt",
+    "bitch",
+    "bastard",
+    "asshole",
+    "arsehole",
+    "dick",
+    "cock",
+    "pussy",
+    "slut",
+    "whore",
+    "twat",
+    "wanker",
+    "faggot",
+    "fag",
+    "nigger",
+    "nigga",
+    "retard",
+    "tranny",
+    "kike",
+    "spic",
+    "chink",
+    "gook",
+    "wetback",
+    "raghead",
+    "towelhead",
+    "dyke",
+    "shemale",
+    "porn",
+    "porno",
+    "xxx",
+    "nsfw",
 ]);
 
 /** Primary cache TTL in seconds — 24 h, push-purged on mutation. CFG-1:
@@ -157,36 +405,40 @@ const STALE_SHADOW_TTL_S_DEFAULT = 7 * 86_400;
  * non-constraining baseline — tighten before enforcing.
  */
 const SITEPAGE_CSP =
-  "default-src 'self'; " +
-  "img-src 'self' https: data:; " +
-  "style-src 'self' 'unsafe-inline' https:; " +
-  "font-src 'self' https: data:; " +
-  "script-src 'self' 'unsafe-inline' https:; " +
-  "connect-src 'self' https:; " +
-  `frame-ancestors 'self' ${DASHBOARD_ORIGIN}; ` +
-  "base-uri 'self'; " +
-  "object-src 'none'";
+    "default-src 'self'; " +
+    "img-src 'self' https: data:; " +
+    "style-src 'self' 'unsafe-inline' https:; " +
+    "font-src 'self' https: data:; " +
+    "script-src 'self' 'unsafe-inline' https:; " +
+    "connect-src 'self' https:; " +
+    `frame-ancestors 'self' ${DASHBOARD_ORIGIN}; ` +
+    "base-uri 'self'; " +
+    "object-src 'none'";
 
 /** Cache key for a request: the same URL with the query string and fragment
  * dropped (EDGE-9). Sitepage output depends on host + path, never on query
  * params, so collapsing every `?utm_*` / `?fbclid` variant to one key prevents
  * a shared/marketing link from minting unbounded distinct edge-cache entries.
- * The full original request (query intact) is still what we forward to origin. */
+ * The full original request (query intact) is still what we forward to origin.
+ * @param {Request} request
+ * @returns {Request} */
 function cacheKeyFor(request) {
-  const u = new URL(request.url);
-  u.search = "";
-  u.hash = "";
-  return new Request(u.toString(), {method: "GET"});
+    const u = new URL(request.url);
+    u.search = "";
+    u.hash = "";
+    return new Request(u.toString(), {method: "GET"});
 }
 
 /** Build a URL identifying the stale shadow for a given cache key. The
  * shadow lives under a different path so cache.match doesn't get confused;
  * the visitor never reaches this URL directly. Operates on the (already
- * query-stripped) cache key so the primary and shadow share normalisation. */
+ * query-stripped) cache key so the primary and shadow share normalisation.
+ * @param {Request} cacheKey
+ * @returns {Request} */
 function staleShadowKey(cacheKey) {
-  const u = new URL(cacheKey.url);
-  u.pathname = `/_swr-shadow${u.pathname}`;
-  return new Request(u.toString(), {method: "GET"});
+    const u = new URL(cacheKey.url);
+    u.pathname = `/_swr-shadow${u.pathname}`;
+    return new Request(u.toString(), {method: "GET"});
 }
 
 /** Clone a response for the EDGE cache: overlay a long s-maxage so the edge
@@ -202,17 +454,21 @@ function staleShadowKey(cacheKey) {
 // Domain references read PARTNA_DOMAIN rather than repeating the literal — one
 // place to change. That const is still a flat literal (EDGE-3, see its comment):
 // this is de-duplication, NOT environment-awareness.
+/**
+ * @param {string|null} subdomain
+ * @returns {string}
+ */
 function unclaimedHtml(subdomain) {
-  const safe =
-    typeof subdomain === "string" && /^[a-z0-9-]{1,63}$/.test(subdomain) ? subdomain : null;
-  const headline = safe
-    ? `${safe}.${PARTNA_DOMAIN} isn&#8217;t claimed yet`
-    : "No Partna profile here";
-  const subline = safe
-    ? "This address is still available. Partna gives you a professional website that keeps itself current from the platforms you already use."
-    : "The address you tried to visit doesn&#8217;t match a Partna account.";
-  const cta = safe ? "Claim this address" : `Go to ${PARTNA_DOMAIN}`;
-  return `<!doctype html>
+    const safe =
+        typeof subdomain === "string" && /^[a-z0-9-]{1,63}$/.test(subdomain) ? subdomain : null;
+    const headline = safe
+        ? `${safe}.${PARTNA_DOMAIN} isn&#8217;t claimed yet`
+        : "No Partna profile here";
+    const subline = safe
+        ? "This address is still available. Partna gives you a professional website that keeps itself current from the platforms you already use."
+        : "The address you tried to visit doesn&#8217;t match a Partna account.";
+    const cta = safe ? "Claim this address" : `Go to ${PARTNA_DOMAIN}`;
+    return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -242,35 +498,40 @@ a { display: inline-block; margin-top: 8px; color: #1a1a1a; text-decoration: und
 </html>`;
 }
 
+/**
+ * @param {Response} response
+ * @param {number} ttlSeconds
+ * @returns {Promise<Response>}
+ */
 async function withCacheTtl(response, ttlSeconds) {
-  const body = await response.clone().arrayBuffer();
-  const headers = new Headers(response.headers);
+    const body = await response.clone().arrayBuffer();
+    const headers = new Headers(response.headers);
 
-  // EDGE-1: a cached copy must never carry a per-visitor cookie.
-  headers.delete("Set-Cookie");
-  // EDGE-1: a stale/varying origin Vary can't poison the shared edge cache —
-  // every visitor gets the same cached representation regardless of their
-  // own request headers.
-  headers.delete("Vary");
+    // EDGE-1: a cached copy must never carry a per-visitor cookie.
+    headers.delete("Set-Cookie");
+    // EDGE-1: a stale/varying origin Vary can't poison the shared edge cache —
+    // every visitor gets the same cached representation regardless of their
+    // own request headers.
+    headers.delete("Vary");
 
-  const original = headers.get("Cache-Control") ?? "";
-  const directives = original
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.toLowerCase().startsWith("s-maxage="));
-  directives.push(`s-maxage=${ttlSeconds}`);
-  // Force `public` so the edge cache stores it even if the upstream
-  // omitted explicit public/private (CF defaults to private on missing).
-  if (!directives.some((d) => d.toLowerCase() === "public")) {
-    directives.unshift("public");
-  }
-  headers.set("Cache-Control", directives.join(", "));
+    const original = headers.get("Cache-Control") ?? "";
+    const directives = original
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && !s.toLowerCase().startsWith("s-maxage="));
+    directives.push(`s-maxage=${ttlSeconds}`);
+    // Force `public` so the edge cache stores it even if the upstream
+    // omitted explicit public/private (CF defaults to private on missing).
+    if (!directives.some((d) => d.toLowerCase() === "public")) {
+        directives.unshift("public");
+    }
+    headers.set("Cache-Control", directives.join(", "));
 
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+    return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
 }
 
 /** Apply the standard set of security headers in place on a Headers
@@ -280,20 +541,22 @@ async function withCacheTtl(response, ttlSeconds) {
  * - HSTS: 1 year + includeSubDomains.
  * - X-Content-Type-Options: nosniff — blocks MIME sniffing.
  * - Referrer-Policy: strict-origin-when-cross-origin.
- * - X-Frame-Options: SAMEORIGIN — clickjacking defence for older browsers. */
+ * - X-Frame-Options: SAMEORIGIN — clickjacking defence for older browsers.
+ * @param {Headers} headers
+ * @returns {void} */
 function applySecurityHeaders(headers) {
-  if (!headers.has("Strict-Transport-Security")) {
-    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  }
-  if (!headers.has("X-Content-Type-Options")) {
-    headers.set("X-Content-Type-Options", "nosniff");
-  }
-  if (!headers.has("Referrer-Policy")) {
-    headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  }
-  if (!headers.has("X-Frame-Options")) {
-    headers.set("X-Frame-Options", "SAMEORIGIN");
-  }
+    if (!headers.has("Strict-Transport-Security")) {
+        headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    if (!headers.has("X-Content-Type-Options")) {
+        headers.set("X-Content-Type-Options", "nosniff");
+    }
+    if (!headers.has("Referrer-Policy")) {
+        headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    }
+    if (!headers.has("X-Frame-Options")) {
+        headers.set("X-Frame-Options", "SAMEORIGIN");
+    }
 }
 
 /**
@@ -306,72 +569,82 @@ function applySecurityHeaders(headers) {
  * @param {{cacheStatus?: string, sitepage?: boolean, noStore?: boolean}} opts
  */
 function finalize(response, opts = {}) {
-  const headers = new Headers(response.headers);
-  applySecurityHeaders(headers);
+    const headers = new Headers(response.headers);
+    applySecurityHeaders(headers);
 
-  if (opts.cacheStatus) {
-    headers.set("X-Partna-Cache", opts.cacheStatus);
-  }
-  if (opts.sitepage) {
-    // Enforce ONLY frame-ancestors — it replaces X-Frame-Options (which can't
-    // allow-list a cross-origin embedder) so the /account/design preview iframe
-    // on the dashboard origin can embed the sitepage, while every other origin
-    // stays refused. The rest of the policy remains Report-Only until validated.
-    headers.delete("X-Frame-Options");
-    headers.set("Content-Security-Policy", `frame-ancestors 'self' ${DASHBOARD_ORIGIN}`);
-    headers.set("Content-Security-Policy-Report-Only", SITEPAGE_CSP);
-  }
-  // EDGE-12: don't let a misconfigured origin error page get cached by browsers.
-  if (opts.noStore) {
-    headers.set("Cache-Control", "no-store");
-  }
+    if (opts.cacheStatus) {
+        headers.set("X-Partna-Cache", opts.cacheStatus);
+    }
+    if (opts.sitepage) {
+        // Enforce ONLY frame-ancestors — it replaces X-Frame-Options (which can't
+        // allow-list a cross-origin embedder) so the /account/design preview iframe
+        // on the dashboard origin can embed the sitepage, while every other origin
+        // stays refused. The rest of the policy remains Report-Only until validated.
+        headers.delete("X-Frame-Options");
+        headers.set("Content-Security-Policy", `frame-ancestors 'self' ${DASHBOARD_ORIGIN}`);
+        headers.set("Content-Security-Policy-Report-Only", SITEPAGE_CSP);
+    }
+    // EDGE-12: don't let a misconfigured origin error page get cached by browsers.
+    if (opts.noStore) {
+        headers.set("Cache-Control", "no-store");
+    }
 
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
 }
 
 /** Pass a request straight through to its origin (apex, reserved, custom, or
  * unknown host) but still stamp the baseline security headers (EDGE-7). A
  * WebSocket upgrade (101) is returned RAW — re-wrapping via new Response() would
- * drop response.webSocket and break the connection. */
+ * drop response.webSocket and break the connection.
+ * @param {Request} request
+ * @returns {Promise<Response>} */
 async function passThrough(request) {
-  const response = await fetch(request);
-  if (response.status === 101 || response.webSocket) {
-    return response;
-  }
-  return finalize(response);
+    const response = await fetch(request);
+    if (response.status === 101 || response.webSocket) {
+        return response;
+    }
+    return finalize(response);
 }
 
+/**
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {Request} cacheKey
+ * @param {Cache} cache
+ * @param {Request} originRequest
+ * @returns {Promise<Response>}
+ */
 async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
-  // `cacheKey` is the normalised (query-stripped) cache key; `originRequest`
-  // carries the full URL + the sanitized x-partna-handle header upstream.
-  const fresh = await env.PARTNA_PAGES.fetch(originRequest);
+    // `cacheKey` is the normalised (query-stripped) cache key; `originRequest`
+    // carries the full URL + the sanitized x-partna-handle header upstream.
+    const fresh = await env.PARTNA_PAGES.fetch(originRequest);
 
-  if (fresh.ok && originRequest.method === "GET") {
-    // CFG-1: wrangler.toml `[vars]` is the configured source; fall back to the
-    // module default if the var is missing or not a valid number.
-    const primaryTtl = Number(env.PRIMARY_CACHE_TTL_S) || PRIMARY_CACHE_TTL_S_DEFAULT;
-    const shadowTtl = Number(env.STALE_SHADOW_TTL_S) || STALE_SHADOW_TTL_S_DEFAULT;
-    // EDGE-13: surface cache.put failures instead of letting a rejected
-    // waitUntil promise vanish silently.
-    ctx.waitUntil(
-      withCacheTtl(fresh, primaryTtl)
-        .then((r) => cache.put(cacheKey, r))
-        // PRIV-1: don't put the raw cache-key URL in the structured field.
-        .catch((err) => console.error("primary cache.put failed", {err: String(err)})),
-    );
-    ctx.waitUntil(
-      withCacheTtl(fresh, shadowTtl)
-        .then((r) => cache.put(staleShadowKey(cacheKey), r))
-        // PRIV-1: don't put the raw cache-key URL in the structured field.
-        .catch((err) => console.error("shadow cache.put failed", {err: String(err)})),
-    );
-  }
+    if (fresh.ok && originRequest.method === "GET") {
+        // CFG-1: wrangler.toml `[vars]` is the configured source; fall back to the
+        // module default if the var is missing or not a valid number.
+        const primaryTtl = Number(env.PRIMARY_CACHE_TTL_S) || PRIMARY_CACHE_TTL_S_DEFAULT;
+        const shadowTtl = Number(env.STALE_SHADOW_TTL_S) || STALE_SHADOW_TTL_S_DEFAULT;
+        // EDGE-13: surface cache.put failures instead of letting a rejected
+        // waitUntil promise vanish silently.
+        ctx.waitUntil(
+            withCacheTtl(fresh, primaryTtl)
+                .then((r) => cache.put(cacheKey, r))
+                // PRIV-1: don't put the raw cache-key URL in the structured field.
+                .catch((err) => console.error("primary cache.put failed", {err: String(err)})),
+        );
+        ctx.waitUntil(
+            withCacheTtl(fresh, shadowTtl)
+                .then((r) => cache.put(staleShadowKey(cacheKey), r))
+                // PRIV-1: don't put the raw cache-key URL in the structured field.
+                .catch((err) => console.error("shadow cache.put failed", {err: String(err)})),
+        );
+    }
 
-  return fresh;
+    return fresh;
 }
 
 /**
@@ -382,222 +655,310 @@ async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
  *
  * EDGE-2: also strips Cookie and Authorization — sitepages are public/static
  * and must never receive visitor credentials on the forwarded request.
+ *
+ * @param {Request} request
+ * @param {string|null} handle
+ * @returns {Request}
  */
 function withHandleHeader(request, handle) {
-  const headers = new Headers(request.headers);
-  headers.delete("x-partna-handle");
-  headers.delete("Cookie");
-  headers.delete("Authorization");
-  if (handle) {
-    headers.set("x-partna-handle", handle);
-  }
-  return new Request(request, {headers});
+    const headers = new Headers(request.headers);
+    headers.delete("x-partna-handle");
+    headers.delete("Cookie");
+    headers.delete("Authorization");
+    if (handle) {
+        headers.set("x-partna-handle", handle);
+    }
+    return new Request(request, {headers});
 }
 
 /**
  * Serve an individual sitepage from partna-pages with the edge cache + SWR
  * strategy. `handleOverride` is the resolved handle for custom-domain requests;
  * null for <handle>.partna.au, where partna-pages parses the handle from Host.
+ *
+ * @param {Env} env
+ * @param {ExecutionContext} ctx
+ * @param {Request} request
+ * @param {string|null} handleOverride
+ * @returns {Promise<Response>}
  */
 async function serveIndividual(env, ctx, request, handleOverride) {
-  // Fail-fast if the binding hasn't been deployed yet.
-  if (!env.PARTNA_PAGES || typeof env.PARTNA_PAGES.fetch !== "function") {
-    console.error("PARTNA_PAGES service binding missing");
-    return finalize(
-      new Response("Service Unavailable", {status: 503, headers: {"Content-Type": "text/plain"}}),
-      {noStore: true},
-    );
-  }
+    // Fail-fast if the binding hasn't been deployed yet.
+    if (!env.PARTNA_PAGES || typeof env.PARTNA_PAGES.fetch !== "function") {
+        console.error("PARTNA_PAGES service binding missing");
+        return finalize(
+            new Response("Service Unavailable", {
+                status: 503,
+                headers: {"Content-Type": "text/plain"},
+            }),
+            {noStore: true},
+        );
+    }
 
-  const originRequest = withHandleHeader(request, handleOverride);
+    const originRequest = withHandleHeader(request, handleOverride);
 
-  // Bypass the edge entirely for preview-shaped requests: ?preview= (the
-  // dashboard live preview), ?architecture= (transient alternate architecture),
-  // or legacy ?skeleton=. No cache read, no cache write — cacheKeyFor() strips
-  // the query string, so a cached preview would pin under the plain URL's key
-  // for the full 24h TTL. Always fetch fresh. EDGE-7: still finalise so the
-  // preview carries security headers.
-  //
-  // Known trade-off (accepted, see the 2026-07-25 cache-freshness design): any
-  // of these params is a cache-busting lever for anonymous traffic. Not new —
-  // ?architecture= and ?skeleton= already were — but "preview" is more
-  // guessable. Cloudflare bot protection sits in front; origin rate-limiting
-  // for bypass params is separate, out-of-scope work.
-  const previewParams = new URL(request.url).searchParams;
-  if (previewParams.has("preview") || previewParams.has("skeleton") || previewParams.has("architecture")) {
-    return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true, noStore: true});
-  }
+    // Bypass the edge entirely for preview-shaped requests: ?preview= (the
+    // dashboard live preview), ?architecture= (transient alternate architecture),
+    // or legacy ?skeleton=. No cache read, no cache write — cacheKeyFor() strips
+    // the query string, so a cached preview would pin under the plain URL's key
+    // for the full 24h TTL. Always fetch fresh. EDGE-7: still finalise so the
+    // preview carries security headers.
+    //
+    // Known trade-off (accepted, see the 2026-07-25 cache-freshness design): any
+    // of these params is a cache-busting lever for anonymous traffic. Not new —
+    // ?architecture= and ?skeleton= already were — but "preview" is more
+    // guessable. Cloudflare bot protection sits in front; origin rate-limiting
+    // for bypass params is separate, out-of-scope work.
+    const previewParams = new URL(request.url).searchParams;
+    if (
+        previewParams.has("preview") ||
+        previewParams.has("skeleton") ||
+        previewParams.has("architecture")
+    ) {
+        return finalize(await env.PARTNA_PAGES.fetch(originRequest), {
+            sitepage: true,
+            noStore: true,
+        });
+    }
 
-  // Only GETs are cacheable. POST / PUT / DELETE flow through untouched so any
-  // future form-action paths can mutate state without hitting a stale body.
-  if (request.method !== "GET") {
-    return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true});
-  }
+    // Only GETs are cacheable. POST / PUT / DELETE flow through untouched so any
+    // future form-action paths can mutate state without hitting a stale body.
+    if (request.method !== "GET") {
+        return finalize(await env.PARTNA_PAGES.fetch(originRequest), {sitepage: true});
+    }
 
-  const cache = caches.default;
-  const cacheKey = cacheKeyFor(request);
+    const cache = caches.default;
+    const cacheKey = cacheKeyFor(request);
 
-  // 1) Primary cache HIT — fastest path.
-  const cached = await cache.match(cacheKey);
-  if (cached) {
-    return finalize(cached, {cacheStatus: "hit", sitepage: true});
-  }
+    // 1) Primary cache HIT — fastest path.
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+        return finalize(cached, {cacheStatus: "hit", sitepage: true});
+    }
 
-  // 2) Primary MISS — serve the stale shadow if present, refresh in background.
-  const shadow = await cache.match(staleShadowKey(cacheKey));
-  if (shadow) {
-    ctx.waitUntil(fetchAndCache(env, ctx, cacheKey, cache, originRequest));
-    return finalize(shadow, {cacheStatus: "stale", sitepage: true});
-  }
+    // 2) Primary MISS — serve the stale shadow if present, refresh in background.
+    const shadow = await cache.match(staleShadowKey(cacheKey));
+    if (shadow) {
+        // EDGE-13: same as the two cache.put chains in fetchAndCache — a rejected
+        // waitUntil promise resolves after the response has already gone out, so
+        // without this the failure surfaces as an unhandled rejection instead of a
+        // log line anyone can act on.
+        ctx.waitUntil(
+            fetchAndCache(env, ctx, cacheKey, cache, originRequest).catch((err) =>
+                console.error("swr background refresh failed", {err: String(err)}),
+            ),
+        );
+        return finalize(shadow, {cacheStatus: "stale", sitepage: true});
+    }
 
-  // 3) Cold miss — fetch from origin and populate both caches.
-  const fresh = await fetchAndCache(env, ctx, cacheKey, cache, originRequest);
-  return finalize(fresh, {
-    cacheStatus: fresh.ok ? "origin" : "origin-error",
-    sitepage: true,
-    // EDGE-12: never let an origin error response get cached by the browser.
-    noStore: !fresh.ok,
-  });
+    // 3) Cold miss — fetch from origin and populate both caches.
+    const fresh = await fetchAndCache(env, ctx, cacheKey, cache, originRequest);
+    return finalize(fresh, {
+        cacheStatus: fresh.ok ? "origin" : "origin-error",
+        sitepage: true,
+        // EDGE-12: never let an origin error response get cached by the browser.
+        noStore: !fresh.ok,
+    });
+}
+
+/**
+ * A validated `SUBDOMAIN_KV` payload.
+ *
+ * `alias-invalid` is distinct from `unknown` on purpose: an entry that declares
+ * itself an alias but carries an untrusted target must fail CLOSED to a 404,
+ * whereas an entry we simply don't recognise passes through to origin. Merging
+ * them would turn SEC-5's fail-closed 404 into an origin hit.
+ *
+ * @typedef {{kind: "individual", handle: string | null}
+ *         | {kind: "alias", redirect: URL}
+ *         | {kind: "alias-invalid"}
+ *         | {kind: "unknown"}} KvEntry
+ */
+
+/**
+ * Validate an untrusted KV payload into a narrowed entry.
+ *
+ * SyncSubdomainToKvJob is the single writer, but the Worker cannot verify that —
+ * a poisoned or stale value is externally-shaped input. This is the ONE place
+ * that decides what a KV value means; callers consume the union rather than
+ * reading raw properties.
+ *
+ * @param {unknown} raw
+ * @returns {KvEntry}
+ */
+function parseKvEntry(raw) {
+    if (typeof raw !== "object" || raw === null) {
+        return {kind: "unknown"};
+    }
+    const entry = /** @type {Record<string, unknown>} */ (raw);
+
+    if (entry.type === "individual") {
+        // handle may legitimately be absent: on the <handle>.partna.au path
+        // partna-pages derives it from Host. The custom-domain caller, which has
+        // no such Host, requires non-null itself.
+        return {
+            kind: "individual",
+            handle: typeof entry.handle === "string" ? entry.handle : null,
+        };
+    }
+
+    // A non-string redirect is not an alias at all — pass through, matching the
+    // pre-refactor fall-through.
+    if (entry.type === "alias" && typeof entry.redirect === "string") {
+        let candidate = null;
+        try {
+            candidate = new URL(entry.redirect);
+        } catch (err) {
+            // PRIV-1: don't put the raw subdomain in the structured field.
+            console.error("alias redirect parse failed", {err: String(err)});
+            return {kind: "alias-invalid"};
+        }
+        // SEC-5: only https on partna.au (apex or subdomain) is a trusted target.
+        const okHost =
+            candidate.protocol === "https:" &&
+            (candidate.hostname === PARTNA_DOMAIN ||
+                candidate.hostname.endsWith("." + PARTNA_DOMAIN));
+        return okHost ? {kind: "alias", redirect: candidate} : {kind: "alias-invalid"};
+    }
+
+    return {kind: "unknown"};
 }
 
 export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const hostname = url.hostname.toLowerCase();
+    /**
+     * @param {Request} request
+     * @param {Env} env
+     * @param {ExecutionContext} ctx
+     * @returns {Promise<Response>}
+     */
+    async fetch(request, env, ctx) {
+        const url = new URL(request.url);
+        const hostname = url.hostname.toLowerCase();
 
-    // Force HTTPS for every request the router sees. 301 (permanent upgrade);
-    // HSTS (applied below) handles the repeat-visit case.
-    if (url.protocol === "http:") {
-      const httpsUrl = new URL(request.url);
-      httpsUrl.protocol = "https:";
-      return finalize(new Response(null, {status: 301, headers: {Location: httpsUrl.toString()}}));
-    }
-
-    // Apex partna.au passes through untouched (but still hardened — EDGE-7).
-    if (hostname === PARTNA_DOMAIN) {
-      return passThrough(request);
-    }
-
-    // Custom domains (Cloudflare for SaaS): a host NOT under partna.au may be a
-    // user-connected domain. Resolve `domain:<host>` in KV → handle, then serve
-    // partna-pages with that handle injected. Unknown hosts pass through.
-    if (!hostname.endsWith("." + PARTNA_DOMAIN)) {
-      let custom = null;
-      try {
-        custom = await env.SUBDOMAIN_KV.get(`domain:${hostname}`, {type: "json"});
-      } catch (err) {
-        // KV transient failure — fail open to avoid blocking traffic.
-        // PRIV-1: keep the raw hostname out of structured logs — message + err
-        // is enough to act on, and hostname (a visitor-controlled value) is
-        // not something we want persisted verbatim in log storage.
-        console.error("KV custom-domain lookup failed", {err: String(err)});
-        return passThrough(request);
-      }
-      if (custom && custom.type === "individual" && typeof custom.handle === "string") {
-        return serveIndividual(env, ctx, request, custom.handle);
-      }
-      return passThrough(request);
-    }
-
-    const subdomain = hostname.slice(0, -1 * (PARTNA_DOMAIN.length + 1));
-
-    // Multi-level subdomains and reserved labels pass through.
-    if (subdomain === "" || subdomain.includes(".") || RESERVED.has(subdomain)) {
-      return passThrough(request);
-    }
-
-    let entry = null;
-    let kvErrored = false;
-    try {
-      entry = await env.SUBDOMAIN_KV.get(subdomain, {type: "json"});
-    } catch (err) {
-      // KV transient failure (EDGE-4). Previously this fell through to
-      // passThrough(request) — a DIFFERENT, worse UX than a genuine miss (which
-      // serves the branded unclaimedHtml 404 below): passThrough hits the apex
-      // origin with a subdomain Host it doesn't expect, typically surfacing a raw
-      // origin error. Serve the SAME branded page a real miss would, so an outage
-      // degrades gracefully instead of visibly differently — but tag the response
-      // `X-Partna-Cache: kv-error` (vs a miss's own tag below) so ops can tell a
-      // true KV outage apart from routine unclaimed-subdomain traffic in logs.
-      // PRIV-1: don't put the raw subdomain in the structured field.
-      console.error("KV lookup failed", {err: String(err)});
-      kvErrored = true;
-    }
-
-    if (kvErrored) {
-      return finalize(
-        new Response(unclaimedHtml(subdomain), {
-          status: 404,
-          headers: {"Content-Type": "text/html; charset=utf-8"},
-        }),
-        {cacheStatus: "kv-error", noStore: true},
-      );
-    }
-
-    if (!entry) {
-      // Branded 404 for unclaimed subdomains — same visual language as the
-      // pages app's notFoundHtml, inlined here so the edge keeps absorbing
-      // enumeration spam without a service-binding + backend hop. Unclaimed
-      // handles are a growth surface: the CTA offers the address.
-      return finalize(
-        new Response(unclaimedHtml(subdomain), {
-          status: 404,
-          headers: {"Content-Type": "text/html; charset=utf-8"},
-        }),
-        {noStore: true},
-      );
-    }
-
-    // Alias entries 301 old subdomains to the canonical URL (written by
-    // SyncSubdomainToKvJob on rename). SEC-5: validate the redirect target is a
-    // partna.au URL before trusting it — a poisoned KV entry must NOT become an
-    // open redirect to an attacker-controlled host.
-    if (entry.type === "alias" && typeof entry.redirect === "string") {
-      let redirectBase = null;
-      try {
-        const candidate = new URL(entry.redirect);
-        const okHost =
-          candidate.protocol === "https:" &&
-          (candidate.hostname === PARTNA_DOMAIN || candidate.hostname.endsWith("." + PARTNA_DOMAIN));
-        if (okHost) {
-          redirectBase = candidate;
+        // Force HTTPS for every request the router sees. 301 (permanent upgrade);
+        // HSTS (applied below) handles the repeat-visit case.
+        if (url.protocol === "http:") {
+            const httpsUrl = new URL(request.url);
+            httpsUrl.protocol = "https:";
+            return finalize(
+                new Response(null, {status: 301, headers: {Location: httpsUrl.toString()}}),
+            );
         }
-      } catch (err) {
-        // Malformed redirect value — treat as untrusted (redirectBase stays null).
-        // PRIV-1: don't put the raw subdomain in the structured field.
-        console.error("alias redirect parse failed", {err: String(err)});
-      }
 
-      if (redirectBase) {
-        // Preserve the deep link: `/gallery?x=1` on the old handle → same path
-        // on the canonical handle. entry.redirect is a bare origin, so build the
-        // target from its origin only (ignore any path it may carry).
-        const target = `${redirectBase.origin}${url.pathname}${url.search}`;
-        return finalize(
-          new Response(null, {
-            status: 301,
-            headers: {Location: target, "Cache-Control": "max-age=0, must-revalidate"},
-          }),
-        );
-      }
+        // Apex partna.au passes through untouched (but still hardened — EDGE-7).
+        if (hostname === PARTNA_DOMAIN) {
+            return passThrough(request);
+        }
 
-      // Untrusted/invalid alias target — fail closed to 404 rather than redirect.
-      return finalize(
-        new Response(unclaimedHtml(null), {
-          status: 404,
-          headers: {"Content-Type": "text/html; charset=utf-8"},
-        }),
-        {noStore: true},
-      );
-    }
+        // Custom domains (Cloudflare for SaaS): a host NOT under partna.au may be a
+        // user-connected domain. Resolve `domain:<host>` in KV → handle, then serve
+        // partna-pages with that handle injected. Unknown hosts pass through.
+        if (!hostname.endsWith("." + PARTNA_DOMAIN)) {
+            let custom = null;
+            try {
+                custom = await env.SUBDOMAIN_KV.get(`domain:${hostname}`, {type: "json"});
+            } catch (err) {
+                // KV transient failure — fail open to avoid blocking traffic.
+                // PRIV-1: keep the raw hostname out of structured logs — message + err
+                // is enough to act on, and hostname (a visitor-controlled value) is
+                // not something we want persisted verbatim in log storage.
+                console.error("KV custom-domain lookup failed", {err: String(err)});
+                return passThrough(request);
+            }
+            const customEntry = parseKvEntry(custom);
+            // Non-null handle required: there is no <handle>.partna.au Host here
+            // for partna-pages to fall back on.
+            if (customEntry.kind === "individual" && customEntry.handle !== null) {
+                return serveIndividual(env, ctx, request, customEntry.handle);
+            }
+            return passThrough(request);
+        }
 
-    // Individual sitepage — partna-pages derives the handle from Host, so no
-    // override here.
-    if (entry.type === "individual") {
-      return serveIndividual(env, ctx, request, null);
-    }
+        const subdomain = hostname.slice(0, -1 * (PARTNA_DOMAIN.length + 1));
 
-    // Unknown type or unhandled entry — pass through to origin.
-    return passThrough(request);
-  },
+        // Multi-level subdomains and reserved labels pass through.
+        if (subdomain === "" || subdomain.includes(".") || RESERVED.has(subdomain)) {
+            return passThrough(request);
+        }
+
+        let entry = null;
+        let kvErrored = false;
+        try {
+            entry = await env.SUBDOMAIN_KV.get(subdomain, {type: "json"});
+        } catch (err) {
+            // KV transient failure (EDGE-4). Previously this fell through to
+            // passThrough(request) — a DIFFERENT, worse UX than a genuine miss (which
+            // serves the branded unclaimedHtml 404 below): passThrough hits the apex
+            // origin with a subdomain Host it doesn't expect, typically surfacing a raw
+            // origin error. Serve the SAME branded page a real miss would, so an outage
+            // degrades gracefully instead of visibly differently — but tag the response
+            // `X-Partna-Cache: kv-error` (vs a miss's own tag below) so ops can tell a
+            // true KV outage apart from routine unclaimed-subdomain traffic in logs.
+            // PRIV-1: don't put the raw subdomain in the structured field.
+            console.error("KV lookup failed", {err: String(err)});
+            kvErrored = true;
+        }
+
+        if (kvErrored) {
+            return finalize(
+                new Response(unclaimedHtml(subdomain), {
+                    status: 404,
+                    headers: {"Content-Type": "text/html; charset=utf-8"},
+                }),
+                {cacheStatus: "kv-error", noStore: true},
+            );
+        }
+
+        if (!entry) {
+            // Branded 404 for unclaimed subdomains — same visual language as the
+            // pages app's notFoundHtml, inlined here so the edge keeps absorbing
+            // enumeration spam without a service-binding + backend hop. Unclaimed
+            // handles are a growth surface: the CTA offers the address.
+            return finalize(
+                new Response(unclaimedHtml(subdomain), {
+                    status: 404,
+                    headers: {"Content-Type": "text/html; charset=utf-8"},
+                }),
+                {noStore: true},
+            );
+        }
+
+        const parsed = parseKvEntry(entry);
+
+        // Alias entries 301 old subdomains to the canonical URL (written by
+        // SyncSubdomainToKvJob on rename). Preserve the deep link: `/gallery?x=1`
+        // on the old handle → the same path on the canonical handle. The stored
+        // value is a bare origin, so build from `.origin` only and ignore any path
+        // it carries.
+        if (parsed.kind === "alias") {
+            const target = `${parsed.redirect.origin}${url.pathname}${url.search}`;
+            return finalize(
+                new Response(null, {
+                    status: 301,
+                    headers: {Location: target, "Cache-Control": "max-age=0, must-revalidate"},
+                }),
+            );
+        }
+
+        // SEC-5: an alias whose target failed validation fails CLOSED to 404 rather
+        // than redirecting or hitting origin.
+        if (parsed.kind === "alias-invalid") {
+            return finalize(
+                new Response(unclaimedHtml(null), {
+                    status: 404,
+                    headers: {"Content-Type": "text/html; charset=utf-8"},
+                }),
+                {noStore: true},
+            );
+        }
+
+        // Individual sitepage — partna-pages derives the handle from Host, so no
+        // override here.
+        if (parsed.kind === "individual") {
+            return serveIndividual(env, ctx, request, null);
+        }
+
+        // Unknown type or unhandled entry — pass through to origin.
+        return passThrough(request);
+    },
 };
