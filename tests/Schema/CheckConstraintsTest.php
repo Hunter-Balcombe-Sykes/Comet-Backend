@@ -330,3 +330,25 @@ it('detectors_surface_xor_signal constraint exists and is validated', function (
 it('menus_dining_modes_is_array constraint exists and is validated', function () {
     assertCheckConstraintExists('site', 'menus', 'menus_dining_modes_is_array');
 });
+
+// ─── core.users.handle_lc mirrors handle (D2b, drill Finding 7) ──────────────
+//
+// handle_lc is what every public read resolves on (SiteResolver, the
+// public-profile cache key, SyncSubdomainToKvJob) while handle is what the
+// dashboard shows. Before this constraint nothing in the database tied them:
+// no CHECK, no INSERT trigger, and the two existing triggers fire only
+// ON UPDATE OF handle. A write that set handle without handle_lc made a site
+// publicly unreachable while looking correct everywhere a human would look.
+//
+// User::setHandleAttribute() is the model-layer fix; this is the backstop for
+// every write that bypasses Eloquent (DB::table()->update(), a manual SQL fix,
+// a seeder). Asserting convalidated is what proves 20260803100001 — the
+// separate VALIDATE half — still exists, since the ADD alone would leave the
+// constraint unvalidated and silently un-enforced against pre-existing rows.
+//
+// This assertion cannot live in `composer test`: that lane is SQLite, which
+// does not carry the constraint at all.
+
+it('users_handle_lc_matches_handle constraint exists and is validated', function () {
+    assertCheckConstraintExists('core', 'users', 'users_handle_lc_matches_handle');
+});
