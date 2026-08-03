@@ -185,6 +185,7 @@ jobs:
           #   - RecordScheduledTaskHeartbeat — scheduler liveness beacon; key is the class const prefix + a normalized TASK name (taskKey()), carries no tenant identity at all
           #   - ProbeBudget                 — atomic Cache::add SETNX counter init (+increment/decrement), keys via CacheKeyGenerator::routingProbe{Global,User}Daily(); same shape as AnalyticsDedupGuard/RefreshController. The docblock at :24 also matches the grep
           #   - ProbeGate                   — probe-answer memo incl. negative results, key via CacheKeyGenerator::routingProbeUrl($url) — content-addressed by URL (same shape as YoutubeThumbnailResolver/AppleSearch/MenuApifyScraper)
+          #   - LinkProjector               — Cache::add SETNX throttling malformed-pattern error reports to once per detector+field per window, so one bad catalog entry cannot flood Nightwatch. Key is "routing:malformed-detector:{$detectorId}:{$field}" — BOTH segments are catalog-level identifiers, not user- or site-scoped, so there is no tenant prefix to preserve and no cross-tenant collision to cause. Same idiom and same reasoning as LogLeadRateLimits and AnalyticsDedupGuard, which its own docblock (:204) cites as precedent and which are already excluded below.
           #
           # -P (PCRE), not -E. The pattern needs \b at both ends — leading, so
           # MyCache::put doesn't match; trailing, so Cache::adder doesn't. BSD
@@ -223,6 +224,7 @@ jobs:
             ':!app/Services/Platforms/ShopBrandSeeder.php' \
             ':!app/Listeners/RecordScheduledTaskHeartbeat.php' \
             ':!app/Routing/Probes/ProbeBudget.php' \
+            ':!app/Routing/LinkProjector.php' \
             ':!app/Routing/Probes/ProbeGate.php')
           RC=$?
           set -e
