@@ -1,0 +1,20 @@
+{
+    "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+    "files": {
+        "includes": ["src/**/*.js", "test/**/*.mjs", "*.mjs", "!worker-configuration.d.ts"]
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 100
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "double",
+            "bracketSpacing": false,
+            "trailingCommas": "all"
+        }
+    },
+    "linter": {"enabled": false}
+}

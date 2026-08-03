@@ -8,9 +8,18 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "types": "wrangler types --include-runtime --strict-vars false",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "format": "biome format --write .",
+    "format:check": "biome ci ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
+    "eslint": "^10.8.0",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10",
     "wrangler": "^4.112.0"
   }
