@@ -18,14 +18,26 @@
 #     plane. This is the one CI step most likely to surprise you — check it by hand
 #     after touching raw SQL, a Bearer header, or config/checkpoint.php.
 #   - the Postgres / schema / authz lanes: need Docker containers on fixed ports.
+#   - `cloudflare-worker` types regen (`npm run types`): REWRITES worker-configuration.d.ts.
+#     A hook must not mutate the tree it is validating. CI's worker-static job does the
+#     regenerate-and-diff; if you changed wrangler.toml, run `npm run types` by hand.
+#   - `cloudflare-worker` vitest (`npm test`): boots workerd, ~11s. Over budget.
+#     worker-tests in CI covers it.
 #
 # Timings that justified the split (warm caches; first run after a cold clone is
 # ~90s for pint and ~28s for phpstan, both cached thereafter):
 #   pint --test              0.5s
 #   guard:no-laravel-migrations / no-cache-memo / no-unsafe-migrations   ~1.1s total
 #   phpstan analyse          1.2s   (result cache; 28s cold)
+#   worker tsc --noEmit      0.15s
+#   worker eslint src        0.44s
+#   worker biome ci .        0.04s
 #   -------------------------------------
-#   total                    ~3s
+#   total                    ~3.6s
+#
+# The three worker checks were mutation-proven before being added (2026-08-03): a bad
+# binding name reddens tsc, an unsafe-any argument reddens eslint, stray whitespace
+# reddens biome. A check that cannot fail is worse than no check.
 
 set -uo pipefail
 
@@ -33,11 +45,11 @@ set -uo pipefail
 # pushed, not on wherever git happened to invoke it.
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-if [ ! -x vendor/bin/pint ]; then
-    echo "pre-push: vendor/ is missing — run 'composer install'. Skipping checks." >&2
-    exit 0
-fi
-
+# The PHP and Worker halves skip INDEPENDENTLY. Both vendor/ and
+# cloudflare-worker/node_modules are gitignored and are NOT shared between worktrees, so
+# a fresh worktree routinely has one and not the other. A single early `exit 0` on a
+# missing vendor/ would silently disable the Worker checks too — the same
+# "skipped reads as green" failure the ci.yml comments warn about.
 FAILED=()
 
 # NEVER pipe a check's output (| tail, | grep). The pipeline's exit status is the LAST
@@ -56,13 +68,51 @@ run_check() {
     printf '\033[32m  ✓ %s\033[0m\n' "$label"
 }
 
+# Same contract as run_check, but runs in $1. The `cd` happens inside the command
+# substitution's subshell, so the caller's cwd is untouched and the captured exit
+# status is still the command's own — not the cd's.
+run_check_in() {
+    local dir="$1" label="$2"
+    shift 2
+    local output
+    if ! output=$(cd "$dir" && "$@" 2>&1); then
+        FAILED+=("$label")
+        printf '\033[31m  ✗ %s\033[0m\n' "$label"
+        printf '%s\n' "$output" | sed 's/^/      /'
+        return
+    fi
+    printf '\033[32m  ✓ %s\033[0m\n' "$label"
+}
+
 echo "pre-push: running fast offline gates (skip with --no-verify)"
 
-run_check "pint (code style)"          vendor/bin/pint --test
-run_check "guard: no Laravel migrations" composer guard:no-laravel-migrations
-run_check "guard: no Cache::memo"        composer guard:no-cache-memo
-run_check "guard: no unsafe migrations"  composer guard:no-unsafe-migrations
-run_check "phpstan (level 5)"          vendor/bin/phpstan analyse --memory-limit=2G --no-progress
+if [ -x vendor/bin/pint ]; then
+    run_check "pint (code style)"            vendor/bin/pint --test
+    run_check "guard: no Laravel migrations" composer guard:no-laravel-migrations
+    run_check "guard: no Cache::memo"        composer guard:no-cache-memo
+    run_check "guard: no unsafe migrations"  composer guard:no-unsafe-migrations
+    run_check "phpstan (level 5)"            vendor/bin/phpstan analyse --memory-limit=2G --no-progress
+else
+    printf '\033[33m  ~ PHP checks skipped — run `composer install`\033[0m\n'
+fi
+
+# Cloudflare Worker static analysis — the same three checks CI's worker-static job runs
+# (minus types-regen and vitest, see the header). The Worker is the public wire for 100%
+# of <handle>.partna.au traffic, so it gets the same treatment as app/.
+#
+# Local binaries, not `npm run`: npm adds ~300ms of startup per script, which would
+# quadruple this section's cost for no benefit.
+#
+# Scoped skip rather than the whole-hook `exit 0` that a missing vendor/ triggers: a
+# fresh worktree has no cloudflare-worker/node_modules (gitignored, not shared between
+# worktrees), and that must not silently disable the PHP gates too.
+if [ -x cloudflare-worker/node_modules/.bin/tsc ]; then
+    run_check_in cloudflare-worker "worker: typecheck (tsc)"   node_modules/.bin/tsc --noEmit
+    run_check_in cloudflare-worker "worker: lint (eslint)"     node_modules/.bin/eslint src
+    run_check_in cloudflare-worker "worker: format (biome)"    node_modules/.bin/biome ci .
+else
+    printf '\033[33m  ~ worker checks skipped — run `npm ci` in cloudflare-worker/\033[0m\n'
+fi
 
 if [ ${#FAILED[@]} -gt 0 ]; then
     echo ""
