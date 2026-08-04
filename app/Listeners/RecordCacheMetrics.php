@@ -5,6 +5,7 @@ namespace App\Listeners;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
@@ -276,7 +277,7 @@ class RecordCacheMetrics
     {
         try {
             foreach ($fields as $field => $count) {
-                $newValue = Redis::hIncrBy($bucketKey, $field, $count);
+                $newValue = $this->redis()->hIncrBy($bucketKey, $field, $count);
 
                 // HINCRBY on a fresh field (base 0) returns exactly $count, so an
                 // equal result means this field/hash was just created and needs its
@@ -284,7 +285,7 @@ class RecordCacheMetrics
                 // hash TTL is already set — skip the redundant EXPIRE. Two concurrent
                 // first-writes may both EXPIRE; that's idempotent for the same TTL.
                 if ($newValue === $count) {
-                    Redis::expire($bucketKey, self::BUCKET_TTL_SECONDS);
+                    $this->redis()->expire($bucketKey, self::BUCKET_TTL_SECONDS);
                 }
             }
         } catch (\Throwable $e) {
@@ -337,6 +338,19 @@ class RecordCacheMetrics
     private function currentBucketKey(): string
     {
         return 'cache_metrics:'.now('UTC')->format('Y-m-d-H');
+    }
+
+    /**
+     * `app`, not the bare facade default. write() runs on both the HTTP path
+     * (deferred flush) and the console/queue write-through path, but neither
+     * command here blocks server-side (HINCRBY/EXPIRE), so the tight
+     * request-path bound is safe in both contexts — unlike a BLPOP, there is
+     * no worker-side reason for this to wait 15.0s instead of `default`'s. See
+     * drill 03 (2026-08-05).
+     */
+    private function redis(): Connection
+    {
+        return Redis::connection('app');
     }
 
     private function extractPrefix(string $key): ?string

@@ -4,10 +4,28 @@ use App\Services\BotProtection\CircuitBreaker;
 use App\Services\BotProtection\Exceptions\CaptchaProviderException;
 use App\Services\BotProtection\Providers\FakeProvider;
 use App\Services\BotProtection\VerificationResult;
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Route;
+use Mockery\MockInterface;
+
+/**
+ * CircuitBreaker::isOpen() and VerifyBotToken::firstHitInWindow() both read
+ * through Redis::connection('app'), not the bare facade (see drill 03,
+ * 2026-08-05 / RedisConnectionPinningTest) — mocking Redis::shouldReceive(...)
+ * directly no longer intercepts either call. Stubs connection('app') to
+ * return a Connection double and hands it back so a test can set expectations
+ * for whichever of the two callers it's exercising.
+ */
+function mockAppRedisConnectionForBotToken(): MockInterface
+{
+    $connection = Mockery::mock(Connection::class);
+    Redis::shouldReceive('connection')->with('app')->andReturn($connection);
+
+    return $connection;
+}
 
 beforeEach(function () {
     // Mount a test route per scenario — keeps tests independent of real route changes.
@@ -173,9 +191,10 @@ it('enforce + fail_open=false rejects 503 when Redis breaker check throws', func
     ]);
     // Force the breaker's Redis call to throw — simulates Redis-down.
     // CircuitBreaker is final so we mock the facade, not the breaker class.
-    Redis::shouldReceive('get')->andThrow(new RuntimeException('redis down'));
-    Redis::shouldReceive('incr')->andThrow(new RuntimeException('redis down'));
-    Redis::shouldReceive('expire')->andReturn(true);
+    $redis = mockAppRedisConnectionForBotToken();
+    $redis->shouldReceive('get')->andThrow(new RuntimeException('redis down'));
+    $redis->shouldReceive('incr')->andThrow(new RuntimeException('redis down'));
+    $redis->shouldReceive('expire')->andReturn(true);
 
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
 
@@ -198,7 +217,8 @@ it('logs and reports breaker_unavailable when the dedup store is ALSO unreachabl
         'partna.bot_protection.mode' => 'enforce',
         'partna.bot_protection.fail_open' => false,
     ]);
-    Redis::shouldReceive('get')->andThrow(new RuntimeException('redis down'));
+    $redis = mockAppRedisConnectionForBotToken();
+    $redis->shouldReceive('get')->andThrow(new RuntimeException('redis down'));
 
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
 
@@ -220,7 +240,8 @@ it('logs and reports circuit_open fail-open when the dedup store is unreachable'
         'partna.bot_protection.mode' => 'enforce',
         'partna.bot_protection.fail_open' => false,
     ]);
-    Redis::shouldReceive('get')->andReturn('1');
+    $redis = mockAppRedisConnectionForBotToken();
+    $redis->shouldReceive('get')->andReturn('1');
 
     $response = $this->postJson('/__test/bot-protected', [], ['X-Captcha-Token' => 'ok']);
 

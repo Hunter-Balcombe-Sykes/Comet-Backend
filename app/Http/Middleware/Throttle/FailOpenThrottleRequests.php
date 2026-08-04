@@ -44,9 +44,17 @@ class FailOpenThrottleRequests extends ThrottleRequests
      *                                every sitepage offline.
      *   analytics, analytics-click   Restores the documented beacon fail-open
      *                                contract (the ingestor already catches to 2xx).
-     *   health-check                 A liveness probe that 503s during a cache
-     *                                outage tells the platform to recycle a
-     *                                process that is fine.
+     *   health-check                 Now guards READINESS and diagnostics only —
+     *                                /ready, /health/scheduler, /internal/env-check.
+     *                                Liveness (/health, /ping) dropped this limiter
+     *                                on 2026-08-05: drill 03 measured 9-10s there
+     *                                against a HUNG (not dead) Redis, because
+     *                                read_timeout bounds one op and the limiter
+     *                                costs ~5 (verified via redis-cli monitor), and
+     *                                fail-open cannot save you from slow, only from
+     *                                unreachable. The entry stays because a readiness
+     *                                probe that 503s during a cache outage still
+     *                                pulls a healthy instance out of rotation.
      *
      * Deliberately absent, and why:
      *   leads, public-subscribe      Public WRITE forms. Unmetered during an

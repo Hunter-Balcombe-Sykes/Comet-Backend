@@ -26,8 +26,12 @@ use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// Ping
-Route::get('/ping', fn () => response()->json(['pong' => true]))->middleware('throttle:health-check');
+// Ping — liveness, zero-dependency by design: no throttle, because
+// throttle:health-check is cache-backed (~3 sequential Redis ops) and a hung
+// Redis turned this into a 9-10s response in drill 03 (2026-08-05), long
+// enough for a load balancer to pull the app out of rotation over a cache
+// problem, not an app problem.
+Route::get('/ping', fn () => response()->json(['pong' => true]));
 
 // Webhooks (no auth middleware — signature validated by per-route middleware)
 Route::middleware('throttle:webhooks')->group(function () {
@@ -77,7 +81,12 @@ Route::match(['get', 'post'], '/public/unsubscribe/{token}', [PublicEmailUnsubsc
     ->middleware('throttle:public-site')
     ->name('public.unsubscribe');
 
-Route::get('/health', fn () => response()->json(['ok' => true]))->middleware('throttle:health-check');
+// Liveness — same zero-dependency reasoning as /ping above: a static JSON
+// literal, no DB, no Redis. Left unthrottled deliberately so a hung cache
+// backend can never make a load balancer think the app is dead (measured
+// 9-10s here under a hung Redis, drill 03, 2026-08-05). /ready and
+// /health/scheduler below do real work and stay throttled.
+Route::get('/health', fn () => response()->json(['ok' => true]));
 
 // Header-based fallback for path-based frontend routing (e.g. /shloom).
 // When the frontend cannot use subdomain DNS, it sends the subdomain

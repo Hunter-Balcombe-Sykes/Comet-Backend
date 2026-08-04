@@ -76,16 +76,45 @@ sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder
 
 ⚠️ Machine-global, needs `sudo`, and must be reverted in RESTORE or every later run is poisoned.
 
-**Variant 2 — auth failure (vendor up, token dead).** Poison the stored credential via
-tinker (shape depends on the platform's payload — inspect `$conn->payload` first and note
-the original value for restore).
+**Variant 2 — the raw-exception path (a strategy that lets an exception escape untranslated).**
+🔴 **Not "vendor up, token dead" — no registered platform stores a credential in `payload`,**
+so there is nothing to poison for an auth-failure class of outage (see Finding, 2026-08-05 log).
+Instead, poison a payload URL on a strategy whose `SafeUrlFetcher` call is allowed to throw.
 
-⚠️ **Pick a credentialed platform for this one.** An unauthenticated fetch strategy (e.g.
-`OEmbedFetch` for spotify/soundcloud) has no credential to poison, so it can only ever
-demonstrate the *translated* `FetchUnavailableException` path. Exercising the **raw-exception**
-path (`$maxExceptions` 3, backoff [30,120,300]) needs a platform that can throw something the
-refresher does not translate — use e.g. `google-business`. The 2026-07-31 run skipped Variant 2
-for exactly this reason, so the raw path is still unexercised.
+✅ **Use `fresha`.** `FreshaScraper::fetchLocation()` is the only place in
+`app/Services/Platforms/` that calls the throwing `SafeUrlFetcher::fetch()` rather than
+`tryFetch()`, and `PlatformRefresher` deliberately rethrows a genuine `SafeUrlException` for
+it — that's what reaches `$maxExceptions` 3 / backoff [30,120,300]. `google-business`
+authenticates with an app-level `services.google_maps.server_api_key` header and every
+non-ok Places response funnels through `fetchPlaceDetails() → null → FetchUnavailableException`,
+so it can only ever demonstrate the *translated* path — it cannot reach Variant 2 at all. The
+2026-07-31 run tried `google-business` and skipped Variant 2 for exactly this reason.
+
+⚠️ **The seed URL must be a real page if you want to test recovery, not just the failure.**
+A fabricated `.invalid`/non-existent URL is fine for INJECT + attempt-count evidence, but RECOVERY
+needs the restored URL to actually resolve — the 2026-08-05 run's `fresha` connection could not
+be recovered because its seed URL was fabricated and kept 502ing on restore, costing a cycle.
+Point the payload at a real Fresha booking page you control or can verify stays up.
+
+**Seed a `fresha` connection.** There is no `IntegrationConnectionFactory`; connecting one
+through the dashboard isn't practical on a fresh local DB. Seed directly, back-dating
+`last_refreshed_at` so the dispatcher (Circuit breaker section below) considers the row due:
+
+```php
+// tinker
+// resource_id is NOT NULL with no default (site.platform_connections, supabase/migrations/
+// 20260726000000_baseline_pilot.sql:1849) and nothing else on the model supplies it —
+// setPlatformAttribute() only derives surface_key/routing_class, and platform itself is
+// DB-generated. Without it this insert 23502s. The 2026-08-05 run used the platform slug
+// as the resource id.
+$conn = \App\Models\Core\Site\IntegrationConnection::create([
+    'user_id' => $u->id,               // the drill user from Preconditions
+    'platform' => 'fresha',
+    'resource_id' => 'fresha',
+    'payload' => ['url' => 'https://<a real fresha booking page>'],
+    'last_refreshed_at' => now()->subDays(30),
+]);
+```
 
 ## ACT + OBSERVE
 

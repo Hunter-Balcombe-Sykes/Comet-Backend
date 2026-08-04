@@ -2,6 +2,7 @@
 
 namespace App\Services\Auth;
 
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -57,7 +58,7 @@ class TokenRevocationService
             return;
         }
 
-        Redis::setex(self::REVOKED_PREFIX.$sessionId, $ttlSeconds, '1');
+        $this->redis()->setex(self::REVOKED_PREFIX.$sessionId, $ttlSeconds, '1');
     }
 
     /** True if this session_id has been revoked (logout, admin action, etc.). */
@@ -67,7 +68,7 @@ class TokenRevocationService
             return false;
         }
 
-        return (bool) Redis::exists(self::REVOKED_PREFIX.$sessionId);
+        return (bool) $this->redis()->exists(self::REVOKED_PREFIX.$sessionId);
     }
 
     /**
@@ -82,7 +83,7 @@ class TokenRevocationService
         }
 
         $setKey = self::USER_SESSIONS_PREFIX.$userId;
-        Redis::sadd($setKey, $sessionId);
+        $this->redis()->sadd($setKey, $sessionId);
         // Set the set's TTL only when it has none. Bumping it on every request
         // (the old behaviour) pinned the whole set — and every dead member in
         // it — for the full 30 days as long as ANY session stayed active, so
@@ -92,8 +93,8 @@ class TokenRevocationService
         // members, so a set that resets its TTL loses nothing that matters.
         // (EXPIRE ... NX is the atomic equivalent but the flag isn't uniformly
         // supported across the phpredis/predis clients this app runs on.)
-        if (Redis::ttl($setKey) < 0) {
-            Redis::expire($setKey, $this->maxLifetimeSeconds());
+        if ($this->redis()->ttl($setKey) < 0) {
+            $this->redis()->expire($setKey, $this->maxLifetimeSeconds());
         }
 
         if ($metadata !== null) {
@@ -118,7 +119,7 @@ class TokenRevocationService
             // literal (heredoc, not built from any request/user input); values
             // are passed as Redis ARGV (data), never interpolated into the
             // script text, so there is no injection surface.
-            Redis::eval(
+            $this->redis()->eval(
                 <<<'LUA'
                 if redis.call('HSETNX', KEYS[1], '_init', '1') == 1 then
                     redis.call('HMSET', KEYS[1], 'user_id', ARGV[1], 'created_at', ARGV[2], 'ip_prefix', ARGV[3], 'browser_family', ARGV[4], 'platform', ARGV[5])
@@ -154,14 +155,14 @@ class TokenRevocationService
             return;
         }
 
-        $won = (bool) Redis::set(self::SESSION_TOUCH_PREFIX.$sessionId, '1', 'EX', $this->touchIntervalSeconds(), 'NX');
+        $won = (bool) $this->redis()->set(self::SESSION_TOUCH_PREFIX.$sessionId, '1', 'EX', $this->touchIntervalSeconds(), 'NX');
         if (! $won) {
             return;
         }
 
         $metaKey = self::SESSION_META_PREFIX.$sessionId;
-        Redis::hset($metaKey, 'last_seen_at', (string) time());
-        Redis::expire($metaKey, $this->maxLifetimeSeconds());
+        $this->redis()->hset($metaKey, 'last_seen_at', (string) time());
+        $this->redis()->expire($metaKey, $this->maxLifetimeSeconds());
     }
 
     /** Config-driven rolling touch interval (config/partna.php: sessions.touch_interval_seconds). */
@@ -190,7 +191,7 @@ class TokenRevocationService
         }
 
         $setKey = self::USER_SESSIONS_PREFIX.$userId;
-        $sessionIds = Redis::smembers($setKey) ?: [];
+        $sessionIds = $this->redis()->smembers($setKey) ?: [];
         $revoked = 0;
 
         foreach ($sessionIds as $sessionId) {
@@ -199,7 +200,7 @@ class TokenRevocationService
                 continue;
             }
             $this->revoke($sid);
-            Redis::srem($setKey, $sid);
+            $this->redis()->srem($setKey, $sid);
             $revoked++;
         }
 
@@ -218,8 +219,8 @@ class TokenRevocationService
             return;
         }
 
-        Redis::srem(self::USER_SESSIONS_PREFIX.$userId, $sessionId);
-        Redis::del(self::SESSION_META_PREFIX.$sessionId);
+        $this->redis()->srem(self::USER_SESSIONS_PREFIX.$userId, $sessionId);
+        $this->redis()->del(self::SESSION_META_PREFIX.$sessionId);
     }
 
     /**
@@ -247,7 +248,7 @@ class TokenRevocationService
 
         $this->reconcileTrackedForUser($userId, $currentSessionId);
 
-        $sessionIds = Redis::smembers(self::USER_SESSIONS_PREFIX.$userId) ?: [];
+        $sessionIds = $this->redis()->smembers(self::USER_SESSIONS_PREFIX.$userId) ?: [];
         $sessions = [];
 
         foreach ($sessionIds as $sessionId) {
@@ -256,7 +257,7 @@ class TokenRevocationService
                 continue;
             }
 
-            $meta = Redis::hgetall(self::SESSION_META_PREFIX.$sid) ?: [];
+            $meta = $this->redis()->hgetall(self::SESSION_META_PREFIX.$sid) ?: [];
 
             // Legacy-compat: entries written before SEC-3 carry raw `ip` and
             // `user_agent`; parse them on read so callers always see the new shape.
@@ -317,7 +318,7 @@ class TokenRevocationService
         }
 
         $dropped = 0;
-        foreach (Redis::smembers(self::USER_SESSIONS_PREFIX.$userId) ?: [] as $sessionId) {
+        foreach ($this->redis()->smembers(self::USER_SESSIONS_PREFIX.$userId) ?: [] as $sessionId) {
             $sid = (string) $sessionId;
             if ($sid === '' || $sid === $keepSessionId) {
                 continue;
@@ -459,5 +460,18 @@ class TokenRevocationService
             (bool) preg_match('/Linux/i', $ua) => 'Linux',
             default => 'Other',
         };
+    }
+
+    /**
+     * Every call in this class is on the request path (auth middleware) or
+     * shares this class's keyspace (ReconcileTrackedSessions) — never a
+     * server-side blocking command — so it takes the tight `app` connection
+     * (read_timeout 3.0s) instead of the bare `Redis::` facade, which resolves
+     * to `default` (read_timeout 15.0s, reserved for queue workers' BLPOP).
+     * Same DB 0, same keys — only the bound changes. See drill 03 (2026-08-05).
+     */
+    private function redis(): Connection
+    {
+        return Redis::connection('app');
     }
 }

@@ -27,6 +27,28 @@ manual repair?
 
 ## Preconditions
 
+- [ ] 🔴 **`APP_ENV=staging`, not `local`/`testing`.** `AppServiceProvider` binds
+      `AnalyticsIngestor` to `SyncIngestor` (writes straight to Postgres, never touches Redis)
+      when `app()->environment()` is `local` or `testing`
+      (`app/Providers/AppServiceProvider.php:168-173`). A local drill run under the default
+      `APP_ENV=local` therefore tests nothing about the queued fail-open path — it produced a
+      clean-looking false PASS (zero `analytics.ingest.dispatch_failed` breadcrumbs, `201`) on
+      2026-08-05 before this was caught. Set `APP_ENV=staging` and assert the binding flipped
+      before trusting any beacon probe:
+      `php artisan tinker --execute='echo get_class(app(\App\Services\Analytics\Contracts\AnalyticsIngestor::class));'`
+      → must print `App\Services\Analytics\Ingestors\QueuedIngestor`.
+- [ ] 🔴 **Ordering trap: start Horizon BEFORE flipping to `staging`, not after.**
+      `config/horizon.php`'s `environments` key only defines `production`, `development`,
+      `local` (no `staging`, no `*` wildcard). Run `php artisan horizon` under `APP_ENV=staging`
+      and it prints "Horizon started successfully." while running **zero** supervisors — a
+      silent false PASS that also breaks this runbook's own "Horizon running" precondition
+      below and the OBSERVE step that watches Horizon die/recover. Fix: start Horizon while
+      still on `APP_ENV=local` (`php artisan horizon`), THEN flip `.env` to `APP_ENV=staging`
+      and `php artisan config:clear` before running any probes — Horizon itself does not need
+      to be restarted after the flip. Verify before trusting the drill:
+      `php artisan tinker --execute='var_dump(array_keys(config("horizon.environments")));'`
+      confirms `staging` is absent, and `php artisan horizon:status` / the Horizon dashboard
+      confirms supervisors are actually running.
 - [ ] Local `.env`: `CACHE_STORE=redis` (NOT a failover store — that silently breaks the
       escalation invariant), `QUEUE_CONNECTION=redis`, `SESSION_DRIVER=cookie`.
 - [ ] 🔴 **Throttle must be ON**: `PARTNA_THROTTLE_ENABLED=true` (or `SIDEST_THROTTLE_ENABLED=true`).
@@ -61,9 +83,27 @@ curl -s -o /dev/null -w "pageview %{http_code}  %{time_total}s\n" \
 #    is NOT evidence of resilience, because auth rejects before the throttle layer is reached.
 curl -s -o /dev/null -w "authed   %{http_code}  %{time_total}s\n" \
   -H "Authorization: Bearer $TOKEN" "$BASE/api/site"
+
+# 4. liveness probe — belongs in the standard set, not as an afterthought. Was throttled until
+#    2026-08-05 (throttle:health-check, cache-backed); now deliberately unthrottled by design
+#    (routes/api.php:29-30, ~89), so a slow /api/health today would indicate something other
+#    than the limiter — still worth carrying through every probe round for that reason.
+curl -s -o /dev/null -w "health   %{http_code}  %{time_total}s\n" "$BASE/api/health"
+
+# 5. public enquiry submit — subdomain resolves from Origin, same as the pageview beacon;
+#    dispatch-heavy (notification jobs to Redis), and the one probe that measured closest to
+#    its `read_timeout` in the 2026-08-05 run, so it's the cleanest signal for "did the
+#    timeout actually take effect on this path".
+curl -s -o /dev/null -w "enquiry  %{http_code}  %{time_total}s\n" \
+  -X POST "$BASE/api/public/enquiry" \
+  -H 'Content-Type: application/json' \
+  -H "Origin: http://<handle>.partna-drill.test" \
+  -d '{"name": "Drill", "email": "drill@example.com", "subject": "Drill", "message": "drill drill drill"}'
 ```
 
-All should be 2xx with sub-second times. Record them.
+All should be 2xx with sub-second times. Record them. `health` and `enquiry` are part of the
+standard probe set alongside `profile`/`pageview`/`authed` — carry all five through OBSERVE and
+Scenario C, not just the original three.
 
 ## INJECT
 
@@ -86,8 +126,8 @@ If `ping` returns `PONG`, you are measuring nothing. Do not proceed.
 
 ## OBSERVE
 
-Re-run all three baseline curls **and time them**. For each, record `http_code` +
-`time_total`. Then:
+Re-run all five baseline curls (`profile`, `pageview`, `authed`, `health`, `enquiry`) **and
+time them**. For each, record `http_code` + `time_total`. Then:
 
 1. **Beacon POST** — the key probe. Outcomes, best → worst:
    - 2xx, fast → throttle survived or failed open AND ingest failed open. Best case.
@@ -99,17 +139,23 @@ Re-run all three baseline curls **and time them**. For each, record `http_code` 
    *DB-backed* read? A 500 here means a Redis outage takes every sitepage down with it.
 3. **Authed endpoint** — expected to be the most fragile (throttle + any cache reads).
    Record, judge against "acceptable degraded".
-4. **Horizon terminal** — did the master crash, spin in reconnect loops, or exit cleanly?
-5. **Log trail**: `tail -20 storage/logs/laravel.log` — expect
+4. **`/api/health`** — standard probe, not optional. It's documented liveness-only and meant
+   to have no dependencies. It sat behind `throttle:health-check` (cache-backed) until
+   2026-08-05; it's now deliberately unthrottled (`routes/api.php:29-30, ~89`), so a slow
+   `/api/health` under a Redis problem is no longer a throttle-layer finding — it would now
+   indicate something else has a Redis dependency on the liveness path, which is itself worth
+   chasing down (a load balancer treating a slow liveness check as "dead" over any cache
+   problem is still the operational risk either way).
+5. **Horizon terminal** — did the master crash, spin in reconnect loops, or exit cleanly?
+6. **Log trail**: `tail -20 storage/logs/laravel.log` — expect
    `analytics.ingest.dispatch_failed` breadcrumbs (if beacons reached the controller) and
    connection-refused exceptions elsewhere. Fire ~20 beacon POSTs in a loop to give Tier 2
    sampling a chance; absence of a `report()` at n=20 is expected (1-in-200), presence is
    a bonus. The *breadcrumbs* are the required evidence.
-6. **A dispatch-heavy user flow** (optional but valuable): submit a public enquiry
-   (`POST $BASE/api/public/enquiry` — note it also sits behind `throttle:leads` +
-   `bot.token:enquiry`, both potential Redis touchpoints) — it dispatches notification
-   jobs to Redis. Does the enquiry save-then-500, save-cleanly-without-email, or fail
-   entirely? This is a data-loss-shape judgment call — record exactly what happened.
+7. **`POST $BASE/api/public/enquiry`** — standard probe, not optional. Sits behind
+   `throttle:leads` + `bot.token:enquiry`, both potential Redis touchpoints, and dispatches
+   notification jobs to Redis. Does the enquiry save-then-500, save-cleanly-without-email, or
+   fail entirely? This is a data-loss-shape judgment call — record exactly what happened.
 
 ## RECOVER
 
@@ -168,18 +214,65 @@ unsetting it in the child process — so `REDIS_READ_TIMEOUT=0 php artisan serve
 the *unmodified* config. Put overrides in `.env` and confirm with
 `php artisan tinker --execute='var_dump(config("database.redis.cache.read_timeout"));'` first.
 
-Immediately re-run the baseline curls and record the elapsed times.
+🔴 **Fire all five probes in PARALLEL, not in sequence.** Sequential probes consume the hang
+window themselves — five curls run one after another against a 30–40s hang means the later
+ones execute after Redis has already recovered, and silently measure a healthy Redis instead
+(a fourth variant of the same trap this section already warns about for the witness). This is
+not hypothetical: the 2026-08-05 run's first sequential attempt produced `authed 200 · 0.05s`,
+which was meaningless. Background every probe, plus the witness, then `wait`:
 
-**Expected as of 2026-07-31 (post-`B4`):** request-path probes fail at **~3s** with
-`read error on connection` and a 500 — that is `read_timeout 3.0` on the `cache` connection doing
-its job. Measured: 6/6 probes at 3.03–3.06s against 25–30s hangs. Worker-path connections
-(`default`, `queue`) are bounded at **15.0s** instead, because they must exceed the queues'
-`block_for`.
+```bash
+(redis-cli -t 60 DEBUG SLEEP 40 &) ; sleep 0.3
+( S=$(perl -MTime::HiRes=time -e 'print time'); redis-cli -t 60 ping >/dev/null; \
+  E=$(perl -MTime::HiRes=time -e 'print time'); \
+  perl -e "printf(\"WITNESS: redis hung %.2fs\n\", $E-$S)" ) &
 
-If a request-path probe hangs **past 3s**, `B4` did not take effect on the connection actually
-serving it — find out which connection that is rather than raising the timeout. If it hangs for the
-full sleep duration, the timeouts are unbounded again (pre-`B4` behaviour measured at
-**19.84s against a 19.76s hang**, returning 200 — it waits exactly as long as Redis is unresponsive).
+curl -s -o /dev/null -w "enquiry  %{http_code}  %{time_total}s\n" -X POST "$BASE/api/public/enquiry" \
+  -H 'Content-Type: application/json' -H "Origin: http://<handle>.partna-drill.test" \
+  -d '{"name":"Drill","email":"drill@example.com","subject":"Drill","message":"drill drill drill"}' &
+curl -s -o /dev/null -w "health   %{http_code}  %{time_total}s\n" "$BASE/api/health" &
+curl -s -o /dev/null -w "profile  %{http_code}  %{time_total}s\n" "$BASE/api/public/profiles/<handle>" &
+curl -s -o /dev/null -w "pageview %{http_code}  %{time_total}s\n" -X POST "$BASE/api/public/analytics/pageviews" \
+  -H 'Content-Type: application/json' -H "Origin: http://<handle>.partna-drill.test" \
+  -d '{"subdomain": "<handle>"}' &
+curl -s -o /dev/null -w "authed   %{http_code}  %{time_total}s\n" -H "Authorization: Bearer $TOKEN" "$BASE/api/site" &
+
+wait
+```
+
+Also re-measure each probe **alone**, one per hang, to rule out contention as an explanation
+before trusting the parallel numbers.
+
+**Measured reality (2026-08-05) — only `enquiry` is fast; everything else is not:**
+
+| Probe | Time (against a ~40s hang) |
+|---|---|
+| `enquiry` | **3.04s** |
+| `health` | **9–10s** |
+| `profile` | **18.3s** |
+| `pageview` (beacon) | **29.3s** |
+| `authed` | **32.0s** |
+
+Two compounding causes, both confirmed — do not stop at "the timeout regressed":
+
+1. **At the time of this drill, the request path used the `default` connection (DB 0), bounded
+   at 15s, not 3s.** `TokenRevocationService` called the bare `Redis::` facade with no
+   `connection()` call, so every authenticated request's session-blocklist/tracking calls
+   landed on `default` — the same connection queue workers use, deliberately bounded at 15s
+   because it must exceed the queues' `block_for`. `authed` at 32.0s ≈ 2 × 15s on `default`.
+   **Fixed later this branch:** `TokenRevocationService::redis()` now explicitly resolves
+   `Redis::connection('app')` (`app/Services/Auth/TokenRevocationService.php:473-476`,
+   3.0s read_timeout) — same DB 0, so the blocklist's FLUSHDB exposure is unchanged, but a
+   re-run of this drill would no longer reproduce this exact `authed` number via this cause.
+2. **`read_timeout` bounds one *operation*, not one *request*.** A request making N sequential
+   Redis calls inherits up to N × `read_timeout`. `/api/health` sits behind
+   `throttle:health-check`, whose limiter performs ~3 ops on connections correctly bounded at
+   3s — and still takes 9–10s, because the ops stack.
+
+If a request-path probe hangs past its connection's nominal `read_timeout`, don't assume the
+timeout regressed — find out which connection is actually serving the request and how many
+Redis operations it makes per request. Stacking on the wrong connection, not a broken timeout,
+is the more likely explanation.
 
 ## Pass criteria
 

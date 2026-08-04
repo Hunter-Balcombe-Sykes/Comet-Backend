@@ -1,0 +1,7 @@
+<?php
+
+// Fixture for RedisConnectionPinningScanner. Positive control: `Redis::connection(...)`
+// is the sanctioned escape hatch, not a violation — this is how request-path
+// code opts into `app` (read_timeout 3.0s) instead of inheriting whatever the
+// bare facade resolves to. Must produce zero hits.
+Redis::connection('app')->get('some-key');

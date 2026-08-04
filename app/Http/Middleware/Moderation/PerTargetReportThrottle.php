@@ -34,7 +34,11 @@ class PerTargetReportThrottle
         // Atomic INCR + first-hit EXPIRE via a single Lua round-trip — a crash
         // between separate INCR/EXPIRE calls could otherwise leave the key
         // permanently un-expiring (LIFE-1).
-        $count = (int) Redis::eval(
+        //
+        // `app`, not the bare facade default — request path, no blocking
+        // command, so it takes the 3.0s bound instead of `default`'s 15.0s
+        // (reserved for queue workers' BLPOP). See drill 03 (2026-08-05).
+        $count = (int) Redis::connection('app')->eval(
             "local c = redis.call('INCR', KEYS[1]) if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return c",
             1,
             $key,

@@ -3,6 +3,7 @@
 use App\Services\Cache\CacheLockService;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -416,8 +417,12 @@ it('gives the lock-release failure counter a 7-day rolling TTL', function () {
 
     // The counter lives on Redis DB 0 alongside Horizon. Without a TTL it is
     // inevictable under volatile-lru, which is the policy this instance needs.
-    Redis::shouldReceive('incr')->with('cache:lock_release_failures')->once();
-    Redis::shouldReceive('expire')->with('cache:lock_release_failures', 604800)->once();
+    // recordLockReleaseFailure() reads through Redis::connection('app'), not
+    // the bare facade (see drill 03, 2026-08-05 / RedisConnectionPinningTest).
+    $redis = M::mock(Connection::class);
+    Redis::shouldReceive('connection')->with('app')->andReturn($redis);
+    $redis->shouldReceive('incr')->with('cache:lock_release_failures')->once();
+    $redis->shouldReceive('expire')->with('cache:lock_release_failures', 604800)->once();
 
     $result = $this->service->rememberLocked('test:ttl', 60, fn () => 'value');
 
@@ -435,7 +440,9 @@ it('swallows a driver error from the counter rather than failing the request', f
     Cache::shouldReceive('put')->andReturn(true);
 
     // A failure to COUNT a failure must never cascade into the caller's request.
-    Redis::shouldReceive('incr')->andThrow(new RuntimeException('redis down'));
+    $redis = M::mock(Connection::class);
+    Redis::shouldReceive('connection')->with('app')->andReturn($redis);
+    $redis->shouldReceive('incr')->andThrow(new RuntimeException('redis down'));
     Log::shouldReceive('warning')->with('cache.lock_release_failure_counter_failed', M::type('array'))->once();
 
     $result = $this->service->rememberLocked('test:swallow', 60, fn () => 'value');

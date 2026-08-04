@@ -2,6 +2,7 @@
 
 namespace App\Services\Streaming;
 
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -75,9 +76,22 @@ class LiveStatusInjector
                 $block['settings'] = [];
             }
             $redisKey = self::LIVE_KEY_PREFIX."{$platform}:{$handle}";
-            $block['settings']['is_live'] = Redis::get($redisKey) === '1';
+            $block['settings']['is_live'] = $this->redis()->get($redisKey) === '1';
 
             return $block;
         }, $blocks);
+    }
+
+    /**
+     * This runs during public sitepage render, inside injectIntoBlocks()'s
+     * map() over every block — one GET per streaming block, sequentially, on
+     * the request path the drill measured at 18.31s. `app`, not the bare
+     * facade default, so N probes take the 3.0s bound each instead of
+     * `default`'s 15.0s (reserved for queue workers' BLPOP). See drill 03
+     * (2026-08-05).
+     */
+    private function redis(): Connection
+    {
+        return Redis::connection('app');
     }
 }

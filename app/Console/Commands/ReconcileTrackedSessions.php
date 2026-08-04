@@ -33,7 +33,12 @@ class ReconcileTrackedSessions extends Command
         // $count) signature — so we use that signature against the real client.
         // The app runs phpredis everywhere; on any other client there is nothing
         // to reconcile, so skip.
-        $client = Redis::connection()->client();
+        //
+        // `app`, not the bare facade default: this SCANs the same auth:user-sessions:*
+        // keyspace TokenRevocationService writes, on DB 0, but a console command
+        // is not a queue worker, so it takes the request-appropriate 3.0s bound
+        // rather than `default`'s 15.0s (reserved for BLPOP). See drill 03 (2026-08-05).
+        $client = Redis::connection('app')->client();
         if (! $client instanceof \Redis) {
             return self::SUCCESS;
         }
