@@ -52,12 +52,24 @@ parameters:
     # satisfy the analyser would break a working atomic claim path, so the
     # analyser is wrong about the world here and is told to stand down.
     #
-    # The other seven hit the identical mismatch through a different call form:
-    # they invoke the `Redis` FACADE (`Redis::eval(...)`, `Redis::set(...)`,
-    # `Redis::pipeline(...)`, `Redis::zRemRangeByScore(...)`) rather than
-    # `RedisStore::connection()->eval(...)`, so Larastan resolves the facade
-    # root (raw \Redis) directly instead of via RedisStore — hence "Static
-    # method Redis::…" below instead of DailyCounterClaim's "Method Redis::…".
+    # The other seven hit the identical mismatch, but the ERROR TEXT differs by
+    # call form, so entries here are not interchangeable:
+    #   - Bare facade (`Redis::eval(...)`) is a STATIC call, so Larastan resolves
+    #     the facade root (raw \Redis) directly and reports "Static method
+    #     Redis::…" / "…of static method Redis::…". Still the form used by
+    #     LiveStatusPoller.php and StreamingTokenManager.php.
+    #   - `Redis::connection('app')->eval(...)` is an INSTANCE call, so the same
+    #     error loses the word "static" — matching DailyCounterClaim's
+    #     `RedisStore::connection()->eval(...)` shape. This is the form used by
+    #     PerTargetReportThrottle.php, VerifyBotToken.php, TokenRevocationService.php,
+    #     CircuitBreaker.php and EnquirySpamBlocklist.php since 2026-08-05, when
+    #     they were pinned to the request-path-bounded `app` connection (drill 03).
+    #
+    # So: repointing a caller between the facade and ->connection() FLIPS which
+    # variant matches. The stale entry then fails as `ignore.unmatched` and the
+    # new one as an unignored error — two failures from one correct change. If a
+    # push trips on that, rewrite the message, don't regenerate the baseline:
+    # these are decisions, and regeneration would drop this reasoning.
     ignoreErrors:
         -
             message: '#^Method Redis\:\:eval\(\) invoked with 5 parameters, 1\-3 required\.$#'
@@ -75,67 +87,67 @@ parameters:
             count: 1
             path: app/Services/Cache/DailyCounterClaim.php
         -
-            message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+            message: '#^Parameter \#2 \$args of method Redis\:\:eval\(\) expects array, int given\.$#'
             identifier: argument.type
             count: 1
             path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
         -
-            message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+            message: '#^Parameter \#3 \$num_keys of method Redis\:\:eval\(\) expects int, string given\.$#'
             identifier: argument.type
             count: 1
             path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
         -
-            message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
+            message: '#^Method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
             identifier: arguments.count
             count: 1
             path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
         -
-            message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+            message: '#^Parameter \#2 \$args of method Redis\:\:eval\(\) expects array, int given\.$#'
             identifier: argument.type
             count: 1
             path: app/Http/Middleware/VerifyBotToken.php
         -
-            message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+            message: '#^Parameter \#3 \$num_keys of method Redis\:\:eval\(\) expects int, string given\.$#'
             identifier: argument.type
             count: 1
             path: app/Http/Middleware/VerifyBotToken.php
         -
-            message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
+            message: '#^Method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
             identifier: arguments.count
             count: 1
             path: app/Http/Middleware/VerifyBotToken.php
         -
-            message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+            message: '#^Parameter \#2 \$args of method Redis\:\:eval\(\) expects array, int given\.$#'
             identifier: argument.type
             count: 1
             path: app/Services/Auth/TokenRevocationService.php
         -
-            message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+            message: '#^Parameter \#3 \$num_keys of method Redis\:\:eval\(\) expects int, string given\.$#'
             identifier: argument.type
             count: 1
             path: app/Services/Auth/TokenRevocationService.php
         -
-            message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
+            message: '#^Parameter \#3 \$options of method Redis\:\:set\(\) expects array\|int, string given\.$#'
             identifier: argument.type
             count: 1
             path: app/Services/Auth/TokenRevocationService.php
         -
-            message: '#^Static method Redis\:\:eval\(\) invoked with 9 parameters, 1\-3 required\.$#'
+            message: '#^Method Redis\:\:eval\(\) invoked with 9 parameters, 1\-3 required\.$#'
             identifier: arguments.count
             count: 1
             path: app/Services/Auth/TokenRevocationService.php
         -
-            message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
+            message: '#^Method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
             identifier: arguments.count
             count: 1
             path: app/Services/Auth/TokenRevocationService.php
         -
-            message: '#^Static method Redis\:\:pipeline\(\) invoked with 1 parameter, 0 required\.$#'
+            message: '#^Method Redis\:\:pipeline\(\) invoked with 1 parameter, 0 required\.$#'
             identifier: arguments.count
             count: 1
             path: app/Services/BotProtection/CircuitBreaker.php
         -
-            message: '#^Parameter \#2 \$start of static method Redis\:\:zRemRangeByScore\(\) expects string, int given\.$#'
+            message: '#^Parameter \#2 \$start of method Redis\:\:zRemRangeByScore\(\) expects string, int given\.$#'
             identifier: argument.type
             count: 1
             path: app/Services/Notifications/EnquirySpamBlocklist.php
