@@ -181,6 +181,10 @@ is rather than raising the timeout."* The connection is **`default` (DB 0), at 1
 and a hung cache is both more likely and more damaging than a dead one, which is the whole reason
 Scenario C exists.
 
+> **Post-fix status (same day):** liveness 9–10 s → **1.97 s**, authed 32 s → **12 s**, beacon
+> 29 s → **15 s**. Public profile is **still 18 s** — see "Re-run after the fix" below for why
+> the connection pin structurally cannot fix that one and what would.
+
 ## Findings
 
 1. **🔴 P1 — The request path is bounded at 15 s, not 3 s, because `TokenRevocationService`
@@ -253,6 +257,56 @@ Applied to `../03-redis-down.md` in the same commit as this log:
 4. **Add `/api/health` and `/api/public/enquiry` to the standard probe set.** Health surfaced the
    ops-stacking problem and enquiry was the only probe that behaved as the runbook predicted;
    both belong in the table rather than as optional extras.
+
+## Re-run after the fix (same day, post-merge `3b4ae79a`)
+
+Findings 1 and 2 were fixed and the drill re-run against the merged code, same method:
+parallel probes, concurrent witness, `DEBUG SLEEP 40`.
+
+| Probe | Before | **After** | Change |
+|---|---|---|---|
+| `GET /api/health` | 9–10 s | **1.97 s** | **−80 %** ✅ |
+| `GET /api/site` (authed) | 32.02 s | **12.06 s** | **−62 %** |
+| `POST /api/public/analytics/pageviews` | 29.27 s | **15.06 s** | **−49 %** |
+| `POST /api/public/enquiry` | 3.04 s | 3.97 s | ~unchanged (already bounded) |
+| `GET /api/public/profiles/<handle>` | 18.31 s | **18.11 s** | **unchanged** ❌ |
+
+`WITNESS: redis hung 39.84s` — the injection was real.
+
+Redis fully DOWN, re-checked: `profile 200 · 0.087 s`, `pageview 201 · 0.038 s`,
+`authed 503 · 0.032 s`, `health 200 · 0.023 s`, `enquiry 503 · 0.024 s`. Recovery clean and
+hands-off, all probes back to baseline. No regression.
+
+### Why `profile` did not move — the residual cause, precisely
+
+`redis-cli monitor` on a healthy public-profile request shows **41 Redis commands** across three
+databases: `SELECT 1` (cache — throttle + SWR reads/writes), `SELECT 4` (cache_locks — SWR
+locks), `SELECT 0` (the `app` connection — `RecordCacheMetrics`). Every one of those is on a
+**3 s-bounded** connection, and every layer **fails open**: it catches the timeout and carries on.
+So the request pays ~3 s per independent Redis touch that times out — 18.11 s ≈ 6 × 3.0 s.
+
+That is Finding 2 (ops × timeout) in its pure form, and **the connection pin cannot fix it.**
+The pin fixed exactly what it was scoped to fix — the ops that were on the 15 s `default`
+connection — which is why `authed` fell 32 → 12 s and `pageview` 29 → 15 s. `profile` never had
+a 15 s op to remove; it just has ~6 three-second ones.
+
+**The remaining fix is architectural, not a timeout value: a per-request Redis circuit breaker.**
+Once one operation times out, mark Redis unavailable for the rest of that request and skip the
+remaining touches instead of re-paying the bound each time. That would collapse `profile` from
+~6 × 3 s to a single 3 s. Deliberately **not** attempted in this branch — it changes the failure
+semantics of every cache read on the request path and deserves its own design, review and drill.
+Raising or lowering `read_timeout` is not a substitute: 3 s is already ~10× the measured worst
+legitimate op (314 ms), and lowering it trades correctness for latency on a healthy Redis.
+
+**Residual verdict: a hung Redis still degrades a public sitepage read to ~18 s.** Better than
+32 s on the authed path and 10 s on liveness, but not fixed. Tracked as the next piece of work,
+not closed.
+
+### Drill 04 re-run
+
+Re-triggered the same day (run `30931764229`, success): same object
+`partna-prod-2026-08-02.dump.enc`, same 4 ignorable auth/extension errors, same fingerprint
+`core.users=0 site.sites=0 core.partna_staff=1`. Unchanged and green.
 
 ## Next run due
 
