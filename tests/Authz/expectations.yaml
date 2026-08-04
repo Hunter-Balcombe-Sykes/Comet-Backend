@@ -85,6 +85,11 @@
 - route: "api/content/identity/candidates/{candidate}/dismiss"
   fixture: { candidate: unknown }
 
+# ── Design media ─────────────────────────────────────────────────────────────
+- route: "api/design-media/{purpose}"
+  expect: exempt
+  reason: "{purpose} is a design-slot name (logo_full, cover_youtube, …) validated against SiteMedia::designSingletonPurposes(); the site is resolved from the caller, not the path — there is no identity-B key to substitute."
+
 # ── Account / session ────────────────────────────────────────────────────────
 - route: "api/account/mfa/factors/{factorId}"
   expect: exempt

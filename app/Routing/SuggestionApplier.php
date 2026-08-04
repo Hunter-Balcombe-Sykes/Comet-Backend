@@ -4,6 +4,8 @@ namespace App\Routing;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -24,6 +26,32 @@ class SuggestionApplier
      */
     public function apply(User $user, object $intent, array $surface): IntegrationConnection
     {
+        // Capability re-check at APPLY time (2026-08-04): intents are durable
+        // and the account's capability set can change between record and
+        // accept. A FRESH intent is gated by PlacementPolicy::
+        // capabilityDenial(); this path (accept / synced-modal swap) bypassed
+        // it, so a stale Hold intent could install a booking/reservations/
+        // ordering connection the connect controllers themselves 403. Same
+        // match arms as PlacementPolicy — change BOTH or they drift. On
+        // denial the intent flips to the blocked/'gate' state the inbox
+        // already renders (dismiss-only), and the caller surfaces a 403.
+        $capabilities = AccountCapabilities::for($user);
+        $denied = match ((string) $intent->routing_class) {
+            'booking' => $capabilities->can_use_booking ? null : 'booking is not available for this account',
+            'reservations' => $capabilities->can_use_reservations ? null : 'reservations are not available for this account',
+            'ordering' => $capabilities->can_use_online_ordering ? null : 'online ordering is not available for this account',
+            default => null,
+        };
+        if ($denied !== null) {
+            DB::table('routing.source_intents')->where('id', $intent->id)->update([
+                'state' => 'blocked',
+                'block_reason' => 'gate',
+                'updated_at' => now(),
+            ]);
+
+            throw new AuthorizationException($denied);
+        }
+
         return DB::transaction(function () use ($user, $intent, $surface) {
             // Replacing an incumbent: demote it rather than delete it. The
             // user asked for a different primary, not for their data to go.

@@ -126,12 +126,16 @@ class AnalyticsQueryService
     {
         [$bucketExpr, $bucketGroup] = $this->bucketExpressions($hourly);
 
+        // (int) cast: pgsql's driver returns COUNT(*) as a string, which
+        // serializes as "3" in JSON — the dashboard sums these buckets for
+        // its Traffic headline, and "0"+"3" in JS is "03", not 3.
         return $this->scopedTable('analytics.site_visits', $userScope)
             ->whereBetween('occurred_at', [$from, $to])
             ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
             ->groupByRaw($bucketGroup)
             ->orderBy('day')
-            ->get();
+            ->get()
+            ->map(fn ($r) => (object) ['day' => $r->day, 'count' => (int) $r->count]);
     }
 
     public function clicksByBucket(string|array|null $userScope, Carbon $from, Carbon $to, bool $hourly): Collection
@@ -144,7 +148,8 @@ class AnalyticsQueryService
                 ->selectRaw("{$bucketExpr} as day, COUNT(*) as count")
                 ->groupByRaw($bucketGroup)
                 ->orderBy('day')
-                ->get();
+                ->get()
+                ->map(fn ($r) => (object) ['day' => $r->day, 'count' => (int) $r->count]);
         } catch (QueryException $e) {
             Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $this->scopeForLog($userScope), 'error' => $e->getMessage()]);
 
@@ -263,7 +268,16 @@ class AnalyticsQueryService
                 ->groupBy('url')
                 ->orderByDesc('clicks')
                 ->limit(10)
-                ->get();
+                ->get()
+                // (int) cast — pgsql returns COUNT(*) as a string, and the
+                // dashboard's Taps table computes % shares from these.
+                ->map(fn ($r) => (object) [
+                    'url' => (string) $r->url,
+                    'platform' => $r->platform !== null ? (string) $r->platform : null,
+                    'label' => $r->label !== null ? (string) $r->label : null,
+                    'section_key' => $r->section_key !== null ? (string) $r->section_key : null,
+                    'clicks' => (int) $r->clicks,
+                ]);
         } catch (QueryException $e) {
             Log::warning('analytics.click_query_failed', ['method' => __METHOD__, 'user_id' => $userId, 'error' => $e->getMessage()]);
 

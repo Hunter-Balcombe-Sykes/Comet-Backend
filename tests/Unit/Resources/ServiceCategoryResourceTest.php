@@ -22,8 +22,10 @@ it('ships only the allowlisted fields and drops extras', function () {
 
     $array = (new ServiceCategoryResource($category))->resolve();
 
+    // 'source' joined 2026-08-04: 'fresha' = projected from Fresha, NULL =
+    // owner-authored — the dashboard tells synced categories from editable.
     expect(array_keys($array))->toEqual([
-        'id', 'user_id', 'title', 'sort_order',
+        'id', 'user_id', 'title', 'source', 'sort_order',
         'created_at', 'updated_at', 'deleted_at',
     ]);
     expect($array)->not->toHaveKey('admin_notes');
