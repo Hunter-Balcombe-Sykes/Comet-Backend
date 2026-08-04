@@ -1,0 +1,15 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). Negative control — must NOT be
+// caught: the strings "Cache::forever(" and "Cache::put(" appear only in
+// comments, never as real calls. This is the exact failure mode that put a
+// bogus entry in the GS-1 allowlist (RawCacheCallScanner::ALLOWLIST,
+// IndividualProfileController) — a text scanner treats a comment warning
+// as the call it forbids. token_get_all() discards T_COMMENT/T_DOC_COMMENT
+// before matching and must produce zero hits here.
+// Never call Cache::forever() here — use Cache::put($key, $value, $ttl).
+// And never Cache::put($key, $value) without the 3rd argument either.
+function noop(): void
+{
+    // also never Cache::remember('x', null, fn () => 1) in this body
+}

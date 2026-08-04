@@ -103,15 +103,15 @@ than letting it stall the other eight.
 
 ### P2 (10)
 - [x] `COV-JWT-3` — **DONE 2026-08-03.** Covered as case 4 of the new claim-timing test. Its control is unusually clean: `$cacheLock->shouldNotReceive('rememberLocked')`, because the throw at `:359` precedes `resolveSigningKey`, so a 401 from any other cause would have consulted the JWKS first
-- [ ] `COV-TAIL-1` — 7 files carry an undocumented Redis-signature PHPStan suppression that one file documents
-- [ ] `COV-TAIL-2` — PHPStan level 5 cannot see null dereferences; the codebase is nullable-heavy
-- [ ] `COV-TAIL-3` — the TTL guard matches call syntax, not arity: 2-arg `Cache::put` forwards to `forever()` unseen
-- [ ] `COV-TAIL-4` — `ServiceReorderPurgeTest` proves the compensating touch, never that the key vanished
-- [ ] `COV-TAIL-5` — no lane exercises real Redis; `Cache::lock()` distributed correctness unverified full stop
-- [ ] `COV-TAIL-7` — ~15 platform routes probe a nonexistent id, never a real second owner's row
-- [ ] `COV-TAIL-8` — the authenticated DAST lane has no cadence ("Never CI, never cron")
-- [ ] `COV-TAIL-9` — Postgres and R2 have no drill; Supavisor pool exhaustion has a runbook and no signal
-- [ ] `COV-TAIL-10` — k6 covers 3 of ~28 public routes, 0 of ~380 authenticated; 3 of 4 scripts never run
+- [x] `COV-TAIL-1` — **DONE 2026-08-03.** ⚠️ **Count corrected: 18 entries, not 7 files' worth of "some" — verified line-by-line** (`TokenRevocationService` alone had 5). All moved into `phpstan.neon`'s `ignoreErrors` with `count:` preserved exactly. Rationale genuinely extended, not copy-pasted: the seven call through the **`Redis` facade** (`Static method Redis::eval()`), so Larastan resolves the facade root — a different path from `DailyCounterClaim`'s `Method Redis::eval()`. Header rewritten from "the ONE standing exception" to an exception *class*. Two controls: mutating a `count:` reddens `composer analyse` immediately, and a from-scratch baseline regeneration produces 449 entries with **zero** of the seven present — proving the block now survives regeneration, which is its entire stated purpose
+- [x] `COV-TAIL-2` — **CLOSED as a recorded decision.** Comment block added under `level: 5` documenting the accepted gap (synthetic proof: level 5 `[OK]`, level 8 `Cannot call method real() on App\Thing|null`), the real nullable surfaces (`routeNotificationForMail()` nullable by design for provisional users; all `design_kits` columns), and why a scoped level-8 island was declined — `composer analyse` sits inside the now-**required** `test` job, a scoped `paths:` island needs its own baseline, and every future file added under those paths would silently inherit a stricter gate nobody is watching. No setting changed, so no positive control applies
+- [x] `COV-TAIL-3` — **DONE 2026-08-03.** New token-based `CacheTtlScanner` replaces the line-oriented regex (the same shape `COV-GUARD-2` just removed from two CI greps). Catches three offences: `forever()`, `Cache::put` with <3 top-level args, and `remember` with a literal `null` TTL — with **paren-depth-aware** argument splitting, since `IdempotencyKey.php:130`'s nested-array shape breaks a naive comma count. Seven `.stub` controls asserted **by name, never counted**; the three *must-NOT-catch* stubs matter as much as the four must-catch, because an over-matching guard gets suppressed and then protects nothing. Also fixed an **unfixed `COV-GUARD-4` instance** in the same file — it asserted `$offenders === []` with no proof it examined anything. Real sweep: 0 offenders, 20 call sites, floor 15. Reviewer's own adversarial fixtures (a closure with internal commas as arg 2) found no false positive or negative. Disclosed scope limit: literal bareword `null` only, not null-valued expressions
+- [x] `COV-TAIL-4` — **DONE 2026-08-03.** All three cases now seed the cache key **and a foreign-subdomain control key**, assert both present *before* the act, then assert the site key is null and the control survives. **Step 2 is the load-bearing half** — asserting a key is null when it was never written proves nothing; the control key fails the test if anyone "fixes" invalidation with `Cache::flush()`. Strengthened rationale: `SiteObserver::saved()` wraps `invalidateSite()` in `catch (\Throwable) → Log::warning`, so a **total invalidation failure was invisible** — falsification confirmed all three new assertions go RED while `Queue::assertPushed` on the preceding line stays green
+- [x] `COV-TAIL-5` — **PROMOTED 2026-08-03**, not fixed. Own unit, **narrowed charter**: *prove three named Partna wrappers exclude across two forked processes against a real Redis* — `CacheLockService::rememberLocked`, `ManagesIntegrationConnection::withConnectionLock`/`withCrossPlatformLock` (incl. the 423-on-contention contract), `GuardsMediaProcessing`. **NOT** "verify distributed lock correctness", which sprawls and re-tests framework-owned `RedisLock`. Cost corrected **downward**: the `redis:7-alpine` container and `redis` extension already exist in `ci.yml` jobs `test`, `schema-tests` and `schema-drift`. Corrected **upward** on the hard part: genuine contention needs `pcntl_fork`, and a forked timing-dependent lock test is the highest flake risk in the repo — recommend **not** a required check initially
+- [x] `COV-TAIL-7` — **OPPORTUNISTIC 2026-08-03.** ⚠️ **The finding's own prescribed fix does not detect the mutation it cites.** `forgetConnection()` resolves via `connectionFor()`, which queries `$user->integrationConnections()` — **already scoped by `user_id`**. B's row is invisible to A with or without `authorizeForUser()`, so the proposed cross-tenant test passes either way. The policy's only unique contribution here is `denyIfPendingDeletion()`. Count also wrong: **40** `fixture: unknown` bindings (27 platform), not ~15. Contrast `ServicesIsolationTest`, where the controller receives a route-model-bound row loaded by PK — there the policy IS the only gate and the same test shape genuinely works
+- [x] `COV-TAIL-8` — **WONTFIX 2026-08-03. Both premises fail.** (1) A cadence already exists in writing — `scripts/dast/README.md:39`: *"Run this before a release, or after any change to auth/authorization/policy code."* The gap is enforcement and a last-run record, not the absence of a stated cadence. (2) "The ONLY lane with seeded identities and cross-identity checks" is **false**: `tests/Authz/CrossTenantTest.php` fires every param-bearing `user`/`platforms` route with identity A's token against identity B's **real row ids**, and runs as step 2 of `schema-tests` — a **required** check on every PR. What `scripts/dast/active/` adds beyond it is scanner-driven fuzzing, not cross-identity structure
+- [x] `COV-TAIL-9` — **WONTFIX (R2) / PROMOTED-to-ops (Postgres), 2026-08-03.** R2 half is substantially dead: `MediaUploadService.php:112-122` catches `\Throwable`, so `LogoBackgroundRemovalTest.php:130-145` **already executes** the catch, the row cleanup and the rethrow — a storage-shaped exception traverses byte-identical lines, making the proposed test a rename rather than new coverage. Postgres/Supavisor half is real but is an ops probe, not code. ⚠️ **Trap for whoever picks it up:** `scripts/launch-check/drill-freshness.sh:24-26` fails a drill slug with no log as "never drilled" — adding a 5th drill doc **without running it** makes `launch-check` permanently red. Write the drill only in the session it is run
+- [x] `COV-TAIL-10` — **PARTIAL 2026-08-03: body-content assert DONE, expansion WONTFIX, `jobs.js` run PROMOTED-to-ops.** `baseline.js` no longer accepts `{"data":{}}` as a pass — it parses the payload and asserts `gallery`/`services`/`links` lengths of 6/15/10, cross-checked directly against `seed.sql`'s `generate_series` values. **No threshold touched** — `p(99)`/`max` were settled in `COV-GUARD-3` and `max` is forbidden outright; `p(95)` tightening stays deferred because four data points is not "more points". Route-coverage expansion closed WONTFIX per the audit's own instruction to *"flag, don't silently expand."* ⚠️ **This assertion lands UNVERIFIED — nothing in CI runs k6.** Josh runs the two-command control below; if the second command does not fail, the assertion is wrong and must be reverted rather than adjusted
 
 ## Progress
 
@@ -123,8 +123,24 @@ than letting it stall the other eight.
 | `COV-PII` | **2 / 2** ✅ |
 | `COV-JWT` | **3 / 3** ✅ |
 | `COV-TIMEOUT` | **1 / 1** ✅ |
-| `COV-TAIL` | 0 / 9 |
-| **Total** | **16 / 25** |
+| `COV-TAIL` | **9 / 9** ✅ |
+| **Total** | **25 / 25** ✅ |
+
+**Outstanding manual step — `COV-TAIL-10`.** The k6 body-content assertion is committed but
+**unverified**, because nothing in CI executes k6. Two runs, ~2 minutes:
+
+```bash
+# 1. MUST PASS — the seeded loadtest handle (default TEST_HANDLE)
+k6 run -e DURATION=15s -e RATE=10 scripts/launch-check/k6/baseline.js
+
+# 2. MUST FAIL the new check — any other real published handle on dev.
+#    The OLD `includes('"data"')` check would have passed this same response;
+#    the new one fails because that handle's counts won't be the seed's 6/15/10.
+k6 run -e DURATION=15s -e RATE=10 -e TEST_HANDLE=<other-dev-handle> scripts/launch-check/k6/baseline.js
+```
+
+Run 2 **is** the positive control. If it does not fail, the assertion is wrong — revert it rather
+than adjusting it, per the rule that closed `COV-GUARD-3`.
 
 ---
 

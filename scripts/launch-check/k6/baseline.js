@@ -58,11 +58,41 @@ export const options = { scenarios, thresholds };
 
 const params = { headers: LOAD_HEADERS };
 
+// COV-TAIL-10: r.body.includes('"data"') passed for {"data":{}} — a degraded
+// build (empty engine outputs) reported 100% pass. These parse the body and
+// check real array lengths against seed.sql's known invariants (gallery is
+// hard-capped at 6/site by core.enforce_site_gallery_max6; services and
+// links counts are seed.sql's own generate_series bounds). Payload path:
+// IndividualProfileResource.php:98-116 -> data.profile.{gallery,services,links}.
+function hasSeededProfileShape(r) {
+  if (!r.body) {
+    return false;
+  }
+
+  let body;
+  try {
+    body = JSON.parse(r.body);
+  } catch (e) {
+    return false;
+  }
+
+  const profile = body && body.data && body.data.profile;
+  if (!profile) {
+    return false;
+  }
+
+  return (
+    Array.isArray(profile.gallery) && profile.gallery.length === 6 &&
+    Array.isArray(profile.services) && profile.services.length === 15 &&
+    Array.isArray(profile.links) && profile.links.length === 10
+  );
+}
+
 export default function () {
   const profile = http.get(`${ORIGIN}/api/public/profiles/${TEST_HANDLE}`, params);
   check(profile, {
     'profile 200': (r) => r.status === 200,
-    'profile has data envelope': (r) => !!r.body && r.body.includes('"data"'),
+    'profile has seeded gallery/services/links counts (6/15/10)': hasSeededProfileShape,
   });
 
   // Aggressively cacheable — exercises the other cheap read surfaces.

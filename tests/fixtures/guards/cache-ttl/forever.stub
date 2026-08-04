@@ -1,0 +1,6 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). MUST be caught: a bare
+// Cache::forever() call on one line — the existing rule this scanner
+// replaces still has to catch the easy case.
+Cache::forever('permanent-key', $value);

@@ -511,42 +511,6 @@ parameters:
 			path: app/Http/Middleware/Logging/LogLeadRateLimits.php
 
 		-
-			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
-
-		-
-			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
-
-		-
-			message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
-
-		-
-			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/VerifyBotToken.php
-
-		-
-			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Http/Middleware/VerifyBotToken.php
-
-		-
-			message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Http/Middleware/VerifyBotToken.php
-
-		-
 			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
 			count: 1
@@ -2035,42 +1999,6 @@ parameters:
 			path: app/Services/Audit/StaffAuditService.php
 
 		-
-			message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Static method Redis\:\:eval\(\) invoked with 9 parameters, 1\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/Auth/TokenRevocationService.php
-
-		-
-			message: '#^Static method Redis\:\:pipeline\(\) invoked with 1 parameter, 0 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/BotProtection/CircuitBreaker.php
-
-		-
 			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
 			identifier: method.notFound
 			count: 2
@@ -2267,12 +2195,6 @@ parameters:
 			identifier: property.notFound
 			count: 1
 			path: app/Services/Notifications/Adapters/InAppEnquiryNotificationAdapter.php
-
-		-
-			message: '#^Parameter \#2 \$start of static method Redis\:\:zRemRangeByScore\(\) expects string, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/Notifications/EnquirySpamBlocklist.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Core\\Notifications\\Notification\:\:\$ends_at\.$#'
@@ -2711,36 +2633,6 @@ parameters:
 			identifier: nullCoalesce.expr
 			count: 1
 			path: app/Services/Streaming/KickApiClient.php
-
-		-
-			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
-			identifier: argument.type
-			count: 3
-			path: app/Services/Streaming/LiveStatusPoller.php
-
-		-
-			message: '#^Static method Redis\:\:set\(\) invoked with 4 parameters, 2\-3 required\.$#'
-			identifier: arguments.count
-			count: 3
-			path: app/Services/Streaming/LiveStatusPoller.php
-
-		-
-			message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
-			identifier: argument.type
-			count: 2
-			path: app/Services/Streaming/StreamingTokenManager.php
-
-		-
-			message: '#^Static method Redis\:\:set\(\) invoked with 4 parameters, 2\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/Streaming/StreamingTokenManager.php
-
-		-
-			message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: app/Services/Streaming/StreamingTokenManager.php
 
 		-
 			message: '#^Parameter \#1 \$array \(list\) of array_values is already a list, call has no effect\.$#'

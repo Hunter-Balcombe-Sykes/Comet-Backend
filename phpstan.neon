@@ -10,13 +10,39 @@ includes:
 parameters:
     level: 5
 
+    # COV-TAIL-2 — recorded gap, not a TODO. Proved with a synthetic file: a
+    # method returning `?Thing` called `->real()` with no null check is clean
+    # at level 5 ("[OK] No errors") and only surfaces at level 8
+    # ("Cannot call method real() on App\Thing|null"). The codebase is
+    # nullable-heavy in exactly this shape — User::routeNotificationForMail()
+    # is nullable BY DESIGN for provisional (pre-claim) users, and every
+    # site.design_kits column is nullable (see the architecture-system rules
+    # in CLAUDE.md). A blanket level: 8 would drown in that intentional
+    # nullability on day one.
+    #
+    # A scoped `paths:`-limited level-8 island (e.g. just Services/Auth or
+    # Services/Cache) was considered and declined: `composer analyse` lives
+    # inside the now-required `test` CI job, so a second, stricter island
+    # needs its own baseline to bootstrap cleanly — and every new file added
+    # under those paths afterward silently inherits the stricter gate with no
+    # visible signal that it did. Nobody is watching that boundary today, so
+    # it would drift unnoticed rather than fail loud. Baseline is otherwise
+    # clean (467 entries as of 2026-08-03, `composer analyse` green, no
+    # unmatched patterns) — this is a deliberately accepted gap, revisit if a
+    # null-deref bug in one of the nullable-heavy surfaces above actually ships.
+
     paths:
         - app
 
-    # The ONE standing exception to "fix the cause, don't suppress". Everything
+    # The standing exception CLASS to "fix the cause, don't suppress". Everything
     # else belongs in phpstan-baseline.neon (regenerable debt) or gets fixed;
     # these live here because they are a decision, not debt, and a baseline
-    # regeneration must not silently discard the reasoning.
+    # regeneration must not silently discard the reasoning. Eight files share the
+    # one root cause below: DailyCounterClaim.php, PerTargetReportThrottle.php,
+    # VerifyBotToken.php, TokenRevocationService.php, CircuitBreaker.php,
+    # EnquirySpamBlocklist.php, LiveStatusPoller.php, StreamingTokenManager.php
+    # (COV-TAIL-1 — the other seven were previously baselined with no comment,
+    # camouflaging any genuinely swapped argument the same way).
     #
     # RedisStore::connection() has no declared return type, so Larastan infers
     # the raw \Redis client, whose signature is eval(script, args, num_keys).
@@ -25,6 +51,13 @@ parameters:
     # exactly how DailyCounterClaim::claim() calls it. Rewriting the call to
     # satisfy the analyser would break a working atomic claim path, so the
     # analyser is wrong about the world here and is told to stand down.
+    #
+    # The other seven hit the identical mismatch through a different call form:
+    # they invoke the `Redis` FACADE (`Redis::eval(...)`, `Redis::set(...)`,
+    # `Redis::pipeline(...)`, `Redis::zRemRangeByScore(...)`) rather than
+    # `RedisStore::connection()->eval(...)`, so Larastan resolves the facade
+    # root (raw \Redis) directly instead of via RedisStore — hence "Static
+    # method Redis::…" below instead of DailyCounterClaim's "Method Redis::…".
     ignoreErrors:
         -
             message: '#^Method Redis\:\:eval\(\) invoked with 5 parameters, 1\-3 required\.$#'
@@ -41,6 +74,96 @@ parameters:
             identifier: argument.type
             count: 1
             path: app/Services/Cache/DailyCounterClaim.php
+        -
+            message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
+        -
+            message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
+        -
+            message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Http/Middleware/Moderation/PerTargetReportThrottle.php
+        -
+            message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Http/Middleware/VerifyBotToken.php
+        -
+            message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Http/Middleware/VerifyBotToken.php
+        -
+            message: '#^Static method Redis\:\:eval\(\) invoked with 4 parameters, 1\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Http/Middleware/VerifyBotToken.php
+        -
+            message: '#^Parameter \#2 \$args of static method Redis\:\:eval\(\) expects array, int given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Services/Auth/TokenRevocationService.php
+        -
+            message: '#^Parameter \#3 \$num_keys of static method Redis\:\:eval\(\) expects int, string given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Services/Auth/TokenRevocationService.php
+        -
+            message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Services/Auth/TokenRevocationService.php
+        -
+            message: '#^Static method Redis\:\:eval\(\) invoked with 9 parameters, 1\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Services/Auth/TokenRevocationService.php
+        -
+            message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Services/Auth/TokenRevocationService.php
+        -
+            message: '#^Static method Redis\:\:pipeline\(\) invoked with 1 parameter, 0 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Services/BotProtection/CircuitBreaker.php
+        -
+            message: '#^Parameter \#2 \$start of static method Redis\:\:zRemRangeByScore\(\) expects string, int given\.$#'
+            identifier: argument.type
+            count: 1
+            path: app/Services/Notifications/EnquirySpamBlocklist.php
+        -
+            message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
+            identifier: argument.type
+            count: 3
+            path: app/Services/Streaming/LiveStatusPoller.php
+        -
+            message: '#^Static method Redis\:\:set\(\) invoked with 4 parameters, 2\-3 required\.$#'
+            identifier: arguments.count
+            count: 3
+            path: app/Services/Streaming/LiveStatusPoller.php
+        -
+            message: '#^Parameter \#3 \$options of static method Redis\:\:set\(\) expects array\|int, string given\.$#'
+            identifier: argument.type
+            count: 2
+            path: app/Services/Streaming/StreamingTokenManager.php
+        -
+            message: '#^Static method Redis\:\:set\(\) invoked with 4 parameters, 2\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Services/Streaming/StreamingTokenManager.php
+        -
+            message: '#^Static method Redis\:\:set\(\) invoked with 5 parameters, 2\-3 required\.$#'
+            identifier: arguments.count
+            count: 1
+            path: app/Services/Streaming/StreamingTokenManager.php
 
         # EventsCatalog::reorder() re-reads site.settings under lockForUpdate and
         # merges, so that two writers cannot clobber each other's unrelated keys
