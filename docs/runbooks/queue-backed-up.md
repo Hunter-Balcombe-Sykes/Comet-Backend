@@ -94,7 +94,12 @@ around this.
 This is the core diagnostic step — the fix is different for each.
 
 1. **Workers dead.** `horizon:status` doesn't say "running", or the Worker instance itself is
-   stopped. Fix: restart the instance / redeploy; this isn't a queue-logic problem.
+   stopped. Fix: restart the instance / redeploy; this isn't a queue-logic problem. **A reserved
+   job is recovered by a live worker, not by elapsed time.** `migrateExpiredJobs()` runs inside
+   the worker's `pop()` loop — there is no background reaper. Drill 01 (2026-08-05) measured a
+   job sitting reserved for **145s** against `retry_after`=90s with zero workers, then
+   converging in **1s** once a worker appeared. If a deploy kills the last worker on a
+   low-traffic queue, the outage is unbounded until a worker comes back, not `retry_after`-bounded.
 2. **Alive but slow.** Workers are running, queue depth is climbing anyway. Check Horizon's
    Metrics tab (job runtime trend) and Nightwatch for slow-job flags. Fix: find what got
    slower (a vendor API, a DB query — see `docs/runbooks/db-pool-exhausted.md` if it's
@@ -102,14 +107,19 @@ This is the core diagnostic step — the fix is different for each.
 3. **Poison job — repeatedly failing and re-queuing.** Check
    `cloud command:run development --cmd="php artisan queue:failed"` and
    `cloud command:run development --cmd="php artisan horizon:failed"`. **Every `supervisor-*`
-   lane sets `'tries' => 1`** (`config/horizon.php:210-333`) — Horizon does not retry a job
-   that throws. So if you're seeing the *same* job reappear repeatedly, it is **not** Laravel
-   retry logic; it's the job's `retry_after` window expiring before the job finished, and
-   Redis handing it to a second worker while the first is still (or was) running it. That
-   changes the fix: don't look for a retry-count bug that doesn't exist — look at whether the
-   job is running longer than its lane's `retry_after`
-   (`config/queue.php:70-125` — `redis` 360s, `redis_gdpr` 660s, `redis_scraping` 660s;
-   `redis_video` is a separate connection at 3600s, `config/queue.php:87-96`).
+   lane sets `'tries' => 1`** (`config/horizon.php:210-333`) as the worker's default — but a
+   job's own `$tries` property overrides that worker option. `RefreshConnectionJob` sets
+   `$tries = 0` (unlimited) and is bounded by `$maxExceptions = 3` instead; Drill 02
+   (2026-08-05) measured exactly 3 attempts at t+0 / +32s / +153s against its
+   `[30, 120, 300]` backoff — genuine Laravel retry, not a Redis re-delivery artifact. So if
+   you're seeing the *same* job reappear repeatedly, check the job's own `$tries`/
+   `$maxExceptions` before assuming either cause: it could be that (job overrides the lane
+   default), or it could be the job's `retry_after` window expiring before the job finished,
+   with Redis handing it to a second worker while the first is still (or was) running it.
+   `config/horizon.php` alone won't tell you which — look at whether the job is running longer
+   than its lane's `retry_after` (`config/queue.php:70-125` — `redis` 360s, `redis_gdpr` 660s,
+   `redis_scraping` 660s; `redis_video` is a separate connection at 3600s,
+   `config/queue.php:87-96`) as well as the job class's own retry properties.
 4. **Redis memory pressure.** One shared Valkey instance, **250 MB** total, spans DB 0
    (queue/Horizon), 1 (cache), 2 (sessions), 4 (cache locks) — `maxmemory-policy` is
    instance-wide and set to `volatile-lru` (confirmed on the Cloud dashboard 2026-07-24; also
@@ -138,6 +148,20 @@ threshold, not a live reservation. **Do not raise `maxProcesses` — especially 
 `supervisor-ingest` — without a box resize first.** Scaling `background-process:update` or
 adding Horizon-lane `maxProcesses` on the *same* box makes the over-commit worse, not better.
 If more throughput is genuinely needed, resize the instance first, then raise `maxProcesses`.
+
+**Post-crash re-dispatch of `SyncSubdomainToKvJob` may or may not queue — it depends where the
+kill landed, and you can't tell just by "nothing seemed to happen."** The job implements
+`ShouldBeUniqueUntilProcessing` (`app/Jobs/Cloudflare/SyncSubdomainToKvJob.php:45`), and
+Laravel releases that lock the moment the handler starts, not when it finishes
+(`CallQueuedHandler::dispatchThroughMiddleware()`'s `->then()` callback, right before
+`dispatchNow()` — `vendor/laravel/framework/src/Illuminate/Queue/CallQueuedHandler.php:72,
+125-130`). A SIGKILL landing **between reservation and handler entry** (worker died before
+printing `RUNNING` — what Drill 01, 2026-08-05, observed) leaves the lock held, so a
+re-dispatch inside the `uniqueFor` window (45s) produces **no queue entry and no error**. A
+crash **mid-`handle()`** (OOM, a deploy kill on a slow job — the likelier real incident) hits
+after the lock already released, so a re-dispatch **does** queue normally. If you can't tell
+which happened, wait out `uniqueFor` or rely on re-delivery once a worker is back (see failure
+mode 1 above) rather than assuming either outcome.
 
 **Requeue failed jobs**, once you know *why* they failed (don't blind-retry a poison job back
 into the same failure):
@@ -171,6 +195,18 @@ stop: that would need a `FLUSHDB`/`FLUSHALL` against DB 0 directly, which destro
 own bookkeeping (not just queued jobs — supervisor state, metrics, everything), and there is
 no code path in this app that's meant to do that. Don't generalize `Cache::flush()`'s safety
 to "Redis" as a whole.
+
+**The blast radius is bigger than Horizon.** DB 0 also carries the auth session blocklist and
+session-tracking keyspace (`auth:revoked-session:*`, `auth:user-sessions:*`,
+`auth:session-meta:*`, `auth:session-touch:*`), written via `TokenRevocationService::redis()`
+(`Redis::connection('app')`) — a different connection *name* than the queue's `default`, but
+the same DB 0 (`config/database.php`'s `app` connection uses `'database' => env('REDIS_DB', 0)`,
+identical to `default`). A DB 0
+`FLUSHDB` destroys those too — **every signed-out or revoked session becomes valid again** for
+the remainder of its refresh token's life (up to 30 days). Same exposure applies under
+eviction, not just an explicit flush: these keys all carry TTLs, so under `volatile-lru` memory
+pressure from queue growth they are eviction candidates same as anything else on the shared
+250 MB instance.
 
 ## Root cause
 

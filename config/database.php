@@ -197,6 +197,30 @@ return [
             'read_timeout' => (float) env('REDIS_QUEUE_READ_TIMEOUT', 15.0),
         ],
 
+        // REQUEST-PATH view of the SAME database as `default` (DB 0, same
+        // `auth:*` session-blocklist/session-tracking keyspace) — same
+        // url/host/port/password/username, deliberately the same `database`,
+        // but a request-appropriate `read_timeout`. No server-side blocking
+        // command ever runs on this connection, so it can take the tight
+        // bound; `default` must keep 15.0s because queue workers BLPOP on it
+        // and read_timeout must exceed block_for (see comment above).
+        //
+        // Exists because the bare `Redis::` facade resolves to `default`.
+        // Drill 03 (2026-08-05) measured an authenticated request taking
+        // 32.01s against a hung Redis for exactly that reason:
+        // TokenRevocationService used the bare facade and inherited
+        // `default`'s 15.0s bound instead of the request path's 3.0s one.
+        'app' => [
+            'url' => env('REDIS_URL'),
+            'host' => env('REDIS_HOST', '127.0.0.1'),
+            'password' => env('REDIS_PASSWORD', null),
+            'username' => env('REDIS_USERNAME', null),
+            'port' => env('REDIS_PORT', 6379),
+            'database' => env('REDIS_DB', 0),
+            'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
+            'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 3.0),
+        ],
+
         'cache' => [
             'url' => env('REDIS_URL'),
             'host' => env('REDIS_HOST', '127.0.0.1'),

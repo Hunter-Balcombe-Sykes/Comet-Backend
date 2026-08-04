@@ -48,13 +48,20 @@ the only drill runnable at any time regardless of in-flight work.
 
 ## Phase 1 — Reconnaissance (read-only, ~10 min)
 
-In the Supabase dashboard for `glncumufgaqcmqhzwrxm` → Database → Backups:
+Source is **prod** (`edplucmvkcnokyygxqsb`), per the Ground rules above — not dev. On the Free
+plan the Supabase dashboard's Database → Backups tab has nothing to show (no PITR, no managed
+backups), so recon is against the R2 object list instead:
 
-- [ ] Plan tier, and whether **PITR** is enabled. If PITR is available, note the retention
-      window; if not, note the daily-backup cadence.
-- [ ] Timestamp of the **latest** backup → **measured RPO** = now − that timestamp.
-      Record it. (Daily backups ⇒ worst-case RPO ≈ 24h. Decide in the log whether that's
-      acceptable for launch or PITR is a pre-launch requirement.)
+```bash
+aws s3 ls s3://partna-db-backups/weekly/ --endpoint-url <r2 endpoint>   # or the R2 dashboard
+```
+
+- [ ] Confirm the plan tier and that **PITR** is unavailable (Free plan — expected, not a
+      finding). If a paid tier is ever adopted, note the retention window instead.
+- [ ] Timestamp of the **newest** object under `weekly/` → **measured RPO** = now − that
+      timestamp. Record it. (Weekly cadence ⇒ **worst-case RPO ≈ 7 days**, not 24h — decide in
+      the log whether that's acceptable for launch or a daily cadence is a pre-launch
+      requirement.)
 - [ ] Backup size (informs restore-time expectations).
 - [ ] Where media/object storage lives and whether it's covered by ANY backup story —
       **a DB backup does not include object storage**. If sitepage media would not survive
@@ -85,7 +92,10 @@ which is arguably the more valuable rehearsal. Note which path you ran.)
 
 ## Phase 3 — The gap between "restored" and "working"
 
-These are the steps a real 3am recovery would trip over — rehearse them deliberately:
+🔴 **Not covered by `restore-drill.yml`.** The workflow proves *the data comes back*; it does
+not touch roles, connection strings, or migration state — running the workflow alone leaves
+this whole phase unrehearsed. These are the steps a real 3am recovery would trip over —
+rehearse them by hand, deliberately, every quarterly run:
 
 - [ ] **`app_backend` role.** Roles are cluster-level: a fresh project + logical restore
       leaves `app_backend` either missing or `NOLOGIN` (the v2 baseline creates it
@@ -100,6 +110,12 @@ These are the steps a real 3am recovery would trip over — rehearse them delibe
       order by version desc limit 5;` on both source and scratch — must match.
 
 ## Phase 4 — Integrity verification
+
+🔴 **Only partially covered by `restore-drill.yml`.** The workflow asserts per-schema table
+counts against a floor and prints row counts for the fingerprint tables — that much runs
+automatically. The RLS/grants check, the trigger-survival check, and the one-user depth walk
+below do **not** run in the workflow; do them by hand or this phase silently degrades to a
+row-count-only check.
 
 Row-count diff, source vs scratch (same query both sides; source via MCP/psql read-only):
 

@@ -2,6 +2,7 @@
 
 namespace App\Services\BotProtection;
 
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
@@ -27,7 +28,7 @@ final class CircuitBreaker
 
     public function isOpen(string $driver): bool
     {
-        return (bool) Redis::get($this->openKey($driver));
+        return (bool) $this->redis()->get($this->openKey($driver));
     }
 
     public function recordFailure(string $driver): void
@@ -38,7 +39,7 @@ final class CircuitBreaker
         // refreshing the TTL eliminates the "expire only on count==1" race that
         // could leave the counter without a TTL. Window slides slightly with
         // each failure (acceptable per spec §15.9).
-        $results = Redis::pipeline(function ($pipe) use ($key) {
+        $results = $this->redis()->pipeline(function ($pipe) use ($key) {
             $pipe->incr($key);
             $pipe->expire($key, $this->windowSeconds);
         });
@@ -54,18 +55,18 @@ final class CircuitBreaker
         // Clear the failure counter, but leave the open key alone — cooldown TTL
         // owns auto-recovery. Trade-off: flapping during extended outages
         // (open → cooldown → re-trip), accepted per spec §15.2.
-        Redis::del($this->failuresKey($driver));
+        $this->redis()->del($this->failuresKey($driver));
     }
 
     public function reset(string $driver): void
     {
-        Redis::del($this->openKey($driver), $this->failuresKey($driver));
+        $this->redis()->del($this->openKey($driver), $this->failuresKey($driver));
     }
 
     private function trip(string $driver): void
     {
         $wasOpen = $this->isOpen($driver);
-        Redis::setex($this->openKey($driver), $this->cooldownSeconds, (string) now()->timestamp);
+        $this->redis()->setex($this->openKey($driver), $this->cooldownSeconds, (string) now()->timestamp);
         if (! $wasOpen) {
             Log::warning('bot_protection.circuit_open', ['driver' => $driver]);
         }
@@ -80,5 +81,18 @@ final class CircuitBreaker
     private function failuresKey(string $driver): string
     {
         return "bot_protection:cb:{$driver}:failures";
+    }
+
+    /**
+     * isOpen() is called from VerifyBotToken::handle() on every request
+     * through bot.token:* (11 public routes) — the hottest bare-facade caller
+     * left after U1's first pass, which repointed only VerifyBotToken's cold
+     * `catch` branch and left this class's hot path inheriting `default`'s
+     * 15.0s bound. No command here blocks server-side, so the tight
+     * request-path bound applies uniformly. See drill 03 (2026-08-05).
+     */
+    private function redis(): Connection
+    {
+        return Redis::connection('app');
     }
 }

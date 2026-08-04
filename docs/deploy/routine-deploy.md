@@ -221,6 +221,15 @@ production --minutes 10` if anything looks off.
 > probe traffic against that route. Do not "fix" it by relaxing the limiter — the 10/hour cap is
 > deliberate anti-enumeration protection on a route that 302s to presigned R2 URLs.
 
+> **A deploy that leaves zero workers on a low-traffic queue stalls anything reserved at that
+> instant — indefinitely, not for `retry_after`.** On queues like `cloudflare` and `cache-warm`,
+> a worker restart during deploy can land between reserve and completion; recovery is
+> worker-triggered, not time-triggered (`migrateExpiredJobs()` runs inside the worker's `pop()`
+> loop — there is no background reaper). Drill 01 (2026-08-05, `docs/runbooks/queue-backed-up.md`)
+> measured a job stuck reserved for 145s against a 90s `retry_after` with zero workers, converging
+> in 1s once a worker came back. If a deploy verification finds a reserved job that isn't draining,
+> check for a live worker before assuming a stuck job.
+
 For a deploy that touched env vars, queues, caching, jobs, or the edge path, add the deployed-env groups.
 Both are gated and refuse to run against prod without an explicit opt-in:
 

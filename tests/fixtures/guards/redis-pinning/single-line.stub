@@ -1,0 +1,6 @@
+<?php
+
+// Fixture for RedisConnectionPinningScanner. Simplest violation: a bare
+// `Redis::get(...)` call, which resolves to `default` (read_timeout 15.0s) —
+// exactly the shape that caused drill 03 (2026-08-05).
+Redis::get('some-key');

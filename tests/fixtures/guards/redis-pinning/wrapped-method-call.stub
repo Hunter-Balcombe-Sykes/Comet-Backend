@@ -1,0 +1,8 @@
+<?php
+
+// Fixture for RedisConnectionPinningScanner. `Redis` and `::setex(...)` split
+// across lines — a line-oriented grep for `Redis::` would never see the two
+// halves on one line. token_get_all() has no concept of a line, so this
+// evasion does not work against it.
+Redis
+    ::setex('some-key', 60, '1');

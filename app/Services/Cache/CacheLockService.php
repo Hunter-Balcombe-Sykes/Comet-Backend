@@ -8,6 +8,7 @@ use Closure;
 use DateTimeInterface;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -499,10 +500,21 @@ class CacheLockService
     private function recordLockReleaseFailure(): void
     {
         try {
-            Redis::incr('cache:lock_release_failures');
-            Redis::expire('cache:lock_release_failures', 7 * 86400);
+            $this->redis()->incr('cache:lock_release_failures');
+            $this->redis()->expire('cache:lock_release_failures', 7 * 86400);
         } catch (Throwable $e) {
             Log::warning('cache.lock_release_failure_counter_failed', ['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * `app`, not the bare facade default — this fires from releaseQuietly()
+     * on the request path, no blocking command, so it takes the 3.0s bound
+     * instead of `default`'s 15.0s (reserved for queue workers' BLPOP). See
+     * drill 03 (2026-08-05).
+     */
+    private function redis(): Connection
+    {
+        return Redis::connection('app');
     }
 }

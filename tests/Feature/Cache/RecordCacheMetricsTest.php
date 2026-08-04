@@ -4,9 +4,11 @@ use App\Listeners\RecordCacheMetrics;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
+use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Mockery\MockInterface;
 
 // A listener forced onto the deferred (HTTP-request) path, so the batching
 // behaviour can be exercised without spoofing runningInConsole(). Real requests
@@ -23,8 +25,26 @@ function deferringRecordCacheMetrics(): RecordCacheMetrics
     };
 }
 
+/**
+ * RecordCacheMetrics::write() reads through Redis::connection('app'), not the
+ * bare facade (see drill 03, 2026-08-05 / RedisConnectionPinningTest) — the
+ * request path takes the tight 3.0s read_timeout bound, not `default`'s
+ * 15.0s. Mocking `Redis::shouldReceive('hIncrBy')` directly no longer
+ * intercepts anything; this stubs `connection('app')` to return a Connection
+ * double and hands that double back so each test sets its hIncrBy/expire
+ * expectations on it instead.
+ */
+function mockAppRedisConnection(): MockInterface
+{
+    $connection = Mockery::mock(Connection::class);
+    Redis::shouldReceive('connection')->with('app')->andReturn($connection);
+
+    return $connection;
+}
+
 it('increments hits counter for a CacheHit event', function () {
-    Redis::shouldReceive('hIncrBy')
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')
         ->once()
         ->withArgs(fn ($key, $field) => str_ends_with($key, ':') === false
             && str_starts_with($field, 'site:hits'))
@@ -35,7 +55,8 @@ it('increments hits counter for a CacheHit event', function () {
 });
 
 it('records a buffered miss on flush() for a CacheMissed event', function () {
-    Redis::shouldReceive('hIncrBy')
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')
         ->once()
         ->withArgs(fn ($key, $field) => str_starts_with($field, 'site:misses'))
         ->andReturn(2);
@@ -50,20 +71,22 @@ it('records a buffered miss on flush() for a CacheMissed event', function () {
 });
 
 it('increments writes counter for a KeyWritten event', function () {
-    Redis::shouldReceive('hIncrBy')
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')
         ->once()
         ->withArgs(fn ($key, $field) => str_starts_with($field, 'pro:writes'))
         ->andReturn(1);
 
-    Redis::shouldReceive('expire')->once()->andReturn(true);
+    $redis->shouldReceive('expire')->once()->andReturn(true);
 
     $listener = new RecordCacheMetrics;
     $listener->handle(new KeyWritten('redis', 'pro:model:xyz', 'value', 60));
 });
 
 it('sets TTL on the bucket hash when a field is first created', function () {
-    Redis::shouldReceive('hIncrBy')->andReturn(1); // new field
-    Redis::shouldReceive('expire')
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->andReturn(1); // new field
+    $redis->shouldReceive('expire')
         ->once()
         ->with(Mockery::pattern('/^cache_metrics:/'), RecordCacheMetrics::BUCKET_TTL_SECONDS);
 
@@ -72,41 +95,46 @@ it('sets TTL on the bucket hash when a field is first created', function () {
 });
 
 it('does not set TTL when a field already existed', function () {
-    Redis::shouldReceive('hIncrBy')->andReturn(42); // field already existed
-    Redis::shouldReceive('expire')->never();
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->andReturn(42); // field already existed
+    $redis->shouldReceive('expire')->never();
 
     $listener = new RecordCacheMetrics;
     $listener->handle(new CacheHit('redis', 'site:payload:abc', []));
 });
 
 it('skips lock: prefix keys', function () {
-    Redis::shouldReceive('hIncrBy')->never();
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->never();
 
     $listener = new RecordCacheMetrics;
     $listener->handle(new CacheHit('redis', 'lock:site:payload:abc', []));
 });
 
 it('skips scheduler: prefix keys', function () {
-    Redis::shouldReceive('hIncrBy')->never();
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->never();
 
     $listener = new RecordCacheMetrics;
     $listener->handle(new CacheHit('redis', 'scheduler:last_run:task', []));
 });
 
 it('buckets multi-segment keys by first prefix segment', function () {
-    Redis::shouldReceive('hIncrBy')
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')
         ->once()
         ->withArgs(fn ($key, $field) => str_starts_with($field, 'commerce:hits'))
         ->andReturn(1);
 
-    Redis::shouldReceive('expire')->once()->andReturn(true);
+    $redis->shouldReceive('expire')->once()->andReturn(true);
 
     $listener = new RecordCacheMetrics;
     $listener->handle(new CacheHit('redis', 'commerce:orders:brand:uuid', []));
 });
 
 it('swallows redis errors so cache operations are not disrupted', function () {
-    Redis::shouldReceive('hIncrBy')->andThrow(new RuntimeException('Redis connection failed'));
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->andThrow(new RuntimeException('Redis connection failed'));
     Log::spy();
 
     $listener = new RecordCacheMetrics;
@@ -118,8 +146,9 @@ it('swallows redis errors so cache operations are not disrupted', function () {
 
 it('does not touch Redis during handle() on the deferred path', function () {
     Carbon::setTestNow('2026-07-23 10:30:00');
-    Redis::shouldReceive('hIncrBy')->never();
-    Redis::shouldReceive('expire')->never();
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->never();
+    $redis->shouldReceive('expire')->never();
 
     $listener = deferringRecordCacheMetrics();
     $listener->handle(new CacheHit('redis', 'site:payload:a', []));
@@ -139,13 +168,14 @@ it('flushes repeated events for a field as one batched HINCRBY', function () {
 
     // Three hits collapse into a single HINCRBY of +3; a brand-new field returns
     // its own increment, so TTL is set exactly once.
-    Redis::shouldReceive('hIncrBy')
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')
         ->once()
         ->withArgs(fn ($key, $field, $by) => str_starts_with($key, 'cache_metrics:')
             && $field === 'site:hits'
             && $by === 3)
         ->andReturn(3);
-    Redis::shouldReceive('expire')
+    $redis->shouldReceive('expire')
         ->once()
         ->with(Mockery::pattern('/^cache_metrics:/'), RecordCacheMetrics::BUCKET_TTL_SECONDS)
         ->andReturn(true);
@@ -165,12 +195,13 @@ it('flushes distinct prefixes and types as separate batched increments', functio
     $listener->handle(new CacheHit('redis', 'site:c', []));        // site:hits → 2
 
     $seen = [];
-    Redis::shouldReceive('hIncrBy')->times(3)->andReturnUsing(function ($key, $field, $by) use (&$seen) {
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->times(3)->andReturnUsing(function ($key, $field, $by) use (&$seen) {
         $seen[$field] = $by;
 
         return $by; // pretend every field is newly created
     });
-    Redis::shouldReceive('expire')->times(3)->andReturn(true);
+    $redis->shouldReceive('expire')->times(3)->andReturn(true);
 
     $listener->flush();
 
@@ -180,14 +211,16 @@ it('flushes distinct prefixes and types as separate batched increments', functio
 });
 
 it('flush() is a no-op when nothing was accumulated', function () {
-    Redis::shouldReceive('hIncrBy')->never();
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->never();
 
     deferringRecordCacheMetrics()->flush();
 });
 
 it('still swallows redis errors on the batched flush path', function () {
     Carbon::setTestNow('2026-07-23 10:30:00');
-    Redis::shouldReceive('hIncrBy')->andThrow(new RuntimeException('Redis connection failed'));
+    $redis = mockAppRedisConnection();
+    $redis->shouldReceive('hIncrBy')->andThrow(new RuntimeException('Redis connection failed'));
     Log::spy();
 
     $listener = deferringRecordCacheMetrics();
@@ -209,11 +242,12 @@ it('still swallows redis errors on the batched flush path', function () {
 // calibration decision).
 describe('SWR stale-probe fold (#CACHE-2)', function () {
     it('folds a primary miss + stale hit into ONE hit on the write-through (console) path', function () {
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:hits' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'site:payload:x'));
@@ -221,11 +255,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
     });
 
     it('folds a genuine cold miss (primary miss + stale miss) into ONE miss on the write-through path', function () {
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:misses' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'site:payload:y'));
@@ -233,11 +268,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
     });
 
     it('ignores the :stale half of a write-through pair (one logical write, not two)', function () {
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:writes' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new KeyWritten('redis', 'site:payload:z', 'v', 60));
@@ -252,11 +288,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $listener->handle(new CacheHit('redis', 'site:payload:def:stale', []));
         // Nothing written yet — still batched until flush(), same as any other deferred record.
 
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => str_starts_with($key, 'cache_metrics:') && $field === 'site:hits' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener->flush();
 
@@ -270,11 +307,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $listener->handle(new KeyWritten('redis', 'site:payload:ghi', 'v', 60));
         $listener->handle(new KeyWritten('redis', 'site:payload:ghi:stale', 'v', 600));
 
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:writes' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener->flush();
 
@@ -282,8 +320,9 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
     });
 
     it('does not touch Redis for a lone buffered miss until it is resolved (deferred path)', function () {
-        Redis::shouldReceive('hIncrBy')->never();
-        Redis::shouldReceive('expire')->never();
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')->never();
+        $redis->shouldReceive('expire')->never();
 
         $listener = deferringRecordCacheMetrics();
         $listener->handle(new CacheMissed('redis', 'site:payload:lonely'));
@@ -296,11 +335,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $listener = deferringRecordCacheMetrics();
         $listener->handle(new CacheMissed('redis', 'site:payload:lonely'));
 
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:misses' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener->flush();
 
@@ -313,11 +353,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         // request-termination hook on this path (see class docblock on
         // __destruct()). forgetScopedInstances() drops the container's only
         // reference between jobs — unset() here stands in for that.
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:misses' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'site:payload:queued'));
@@ -326,7 +367,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
     });
 
     it('__destruct() is a no-op when nothing was ever buffered', function () {
-        Redis::shouldReceive('hIncrBy')->never();
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')->never();
 
         // SKIP_PREFIXES key — dropped before any buffering/write decision, so
         // there is nothing for __destruct() to flush.
@@ -344,11 +386,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
 
         Carbon::setTestNow('2026-07-23 11:00:01'); // crossed the hour boundary before the pair arrives
 
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $key === 'cache_metrics:2026-07-23-10' && $field === 'site:hits' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')
+        $redis->shouldReceive('expire')
             ->once()
             ->with('cache_metrics:2026-07-23-10', RecordCacheMetrics::BUCKET_TTL_SECONDS)
             ->andReturn(true);
@@ -366,7 +409,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
 
         Carbon::setTestNow('2026-07-23 11:00:01');
 
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->twice() // 1: the flushed 10:00 miss, 2: the unrelated 11:00 hit
             ->andReturnUsing(function ($key, $field, $by) {
                 if ($field === 'site:misses') {
@@ -377,7 +421,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
 
                 return $by;
             });
-        Redis::shouldReceive('expire')->twice()->andReturn(true);
+        $redis->shouldReceive('expire')->twice()->andReturn(true);
 
         // Unrelated pro: key in the new hour — doesn't pair with the buffered
         // site: miss, so it flushes the buffered miss under ITS OWN (old) bucket
@@ -388,11 +432,12 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
     });
 
     it('does not pair a stale-key event with an unrelated buffered miss (different key)', function () {
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once() // only the flushed buffered miss — the unrelated :stale event is dropped
             ->withArgs(fn ($key, $field, $by) => $field === 'site:misses' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'site:payload:a'));
@@ -400,18 +445,20 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
     });
 
     it('drops an unpaired :stale event with no buffered miss at all (SWR healing housekeeping)', function () {
-        Redis::shouldReceive('hIncrBy')->never();
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')->never();
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'site:payload:c:stale'));
     });
 
     it('flushes a buffered miss (and still skips the event) when a lock: probe intervenes', function () {
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'site:misses' && $by === 1)
             ->andReturn(1);
-        Redis::shouldReceive('expire')->once()->andReturn(true);
+        $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'site:payload:abc'));
@@ -438,12 +485,13 @@ describe('post-lock re-check fold (CACHE-3)', function () {
     // would be invisible — exactly the bug these tests exist to catch.
     beforeEach(function () {
         $this->fields = [];
-        Redis::shouldReceive('hIncrBy')->andReturnUsing(function ($key, $field, $by) {
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')->andReturnUsing(function ($key, $field, $by) {
             $this->fields[] = $field;
 
             return $by;
         });
-        Redis::shouldReceive('expire')->andReturn(true);
+        $redis->shouldReceive('expire')->andReturn(true);
     });
 
     it('folds the post-lock re-check that follows an SWR stale probe', function () {
@@ -547,7 +595,8 @@ describe('noise prefixes are not recorded (CACHE-3)', function () {
         // Queue workers poll illuminate:queue:restart on every loop; the key is
         // only ever set by `queue:restart`, so it is a permanent 100% miss —
         // ~9.7k events/hour on dev, about 90% of everything recorded.
-        Redis::shouldReceive('hIncrBy')->never();
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')->never();
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheMissed('redis', 'illuminate:queue:restart'));
@@ -558,7 +607,8 @@ describe('noise prefixes are not recorded (CACHE-3)', function () {
         // ThrottleRequests hashes its request signature, so each limited caller
         // mints its own single-use "prefix" field in the bucket hash. They can
         // never aggregate into a meaningful rate and the hash lives 48h.
-        Redis::shouldReceive('hIncrBy')->never();
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')->never();
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheHit('redis', 'a7106324236cf58f7c9a5bc67c05877c', []));
@@ -567,11 +617,12 @@ describe('noise prefixes are not recorded (CACHE-3)', function () {
     });
 
     it('still records ordinary named prefixes', function () {
-        Redis::shouldReceive('hIncrBy')
+        $redis = mockAppRedisConnection();
+        $redis->shouldReceive('hIncrBy')
             ->once()
             ->withArgs(fn ($key, $field, $by) => $field === 'analytics:hits')
             ->andReturn(1);
-        Redis::shouldReceive('expire')->andReturn(true);
+        $redis->shouldReceive('expire')->andReturn(true);
 
         $listener = new RecordCacheMetrics;
         $listener->handle(new CacheHit('redis', 'analytics:summary:abc', []));

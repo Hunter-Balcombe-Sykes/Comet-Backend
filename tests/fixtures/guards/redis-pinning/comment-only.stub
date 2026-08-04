@@ -1,0 +1,16 @@
+<?php
+
+// Fixture for RedisConnectionPinningScanner. Negative control: this file
+// mentions `Redis::eval()` and `Redis::get()` only in comments — the same
+// shape as TokenRevocationService's real class docblock and
+// RecordCacheMetrics's __destruct() docblock. A text-matching scanner would
+// flag this file; a token scanner discards T_COMMENT/T_DOC_COMMENT before
+// matching and must produce zero hits.
+//
+// Never call Redis::get() directly here — go through the `app` connection.
+// See also Redis::eval() (a server-side Lua script command) mentioned only
+// for illustration.
+function noop(): void
+{
+    // also never Redis::setex('x', 60, '1') in this function body
+}

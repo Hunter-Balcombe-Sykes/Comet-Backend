@@ -15,8 +15,14 @@ Two scenarios, because "worker dies" happens two ways with different semantics:
 `app/Jobs/Cloudflare/SyncSubdomainToKvJob.php`:
 - Queue `cloudflare` (redis connection), `$timeout` 30s.
 - Retry policy from `HasCloudflareRetryPolicy`: `$tries` 3, `$backoff` [10, 30, 60], `$maxExceptions` 2.
-- `ShouldBeUnique` with `$uniqueFor` 45s — **a SIGKILL leaves the unique lock held until it
-  expires**, so a re-dispatch within ~45s of the kill is silently dropped. Observe this.
+- `ShouldBeUniqueUntilProcessing` with `$uniqueFor` 45s — Laravel releases this lock when the
+  handler *starts*, not when it finishes (`CallQueuedHandler::dispatchThroughMiddleware()`'s
+  `->then()`, right before `dispatchNow()` —
+  `vendor/laravel/framework/src/Illuminate/Queue/CallQueuedHandler.php:72,125-130`). **A SIGKILL
+  landing between reservation and handler entry leaves the lock held until it expires**, so a
+  re-dispatch within ~45s of that kind of kill is silently dropped. A kill mid-`handle()` hits
+  after the lock already released, so a re-dispatch there queues normally. Observe which one
+  this run produces.
 - Writes: `put(<handle>)` → `put(domain:<custom>)` (if any) → `bulkPut(<aliases>)`. A kill
   between these is the divergence window.
 
@@ -24,6 +30,13 @@ Two scenarios, because "worker dies" happens two ways with different semantics:
 
 ## Preconditions
 
+- [ ] 🔴 **A crashed job needs a live worker to recover — elapsed time alone does nothing.**
+  `migrateExpiredJobs()` runs inside the worker's `pop()` loop; there is no background reaper.
+  With zero workers, a reserved job stays reserved indefinitely no matter how far past
+  `retry_after` the clock runs (2026-08-05 run: still reserved at **145s** against
+  `retry_after`=90s, converged in **1s** once a worker started). Read this before Scenario B
+  step 5 — don't spend the drill watching `:reserved` empty on its own; start the worker first,
+  then watch it converge.
 - [ ] Local stack up: Herd site + local Redis + local `.env` with `QUEUE_CONNECTION=redis`.
 - [ ] **Decide the KV mode up front:**
   - 🔴 **Real KV is currently FORBIDDEN on this project.** There is no dev-only KV namespace —
@@ -93,26 +106,39 @@ DB::table('core.user_handle_aliases')->insert([
 
 ## Scenario A — graceful terminate (deploy semantics)
 
-1. Start Horizon in its own terminal: `php artisan horizon`
-2. Dispatch, then immediately terminate:
+⚠️ **A single dispatch cannot enter this race window.** A ~10ms job is over before any
+terminate command can boot, `horizon:terminate` included — the 2026-07-31 run terminated
+167ms after a 32ms job and never actually raced it. Use a batch instead (one job per drill
+user, so `ShouldBeUniqueUntilProcessing` doesn't dedupe them into a single queue entry) and signal the
+Horizon master directly rather than shelling out: `posix_kill()` landed the signal 12.2ms
+after the first dispatch in the 2026-08-05 run, vs. 167ms for `horizon:terminate`.
+
+1. Start Horizon in its own terminal: `php artisan horizon`, and note its master PID
+   (`horizon:status` or `pgrep -f 'horizon'`).
+2. Create a few more drill users with the ARRANGE recipe above (e.g.
+   `drill-wk-<YYYYMMDD>-2` through `-6`) so there's a real batch to dispatch.
+3. Dispatch one job per user, then signal the master immediately:
 
 ```php
 // tinker
-\App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatch($u->id);
+$users = [$u /* , $u2, $u3, … the batch */];
+foreach ($users as $user) {
+    \App\Jobs\Cloudflare\SyncSubdomainToKvJob::dispatch($user->id);
+}
+// Derived here rather than pasted from step 1's terminal — the actual 2026-08-05 run did this.
+$masterPid = (int) trim(shell_exec("pgrep -f 'artisan horizon\$' | head -1"));
+posix_kill($masterPid, SIGTERM);
 ```
 
-```bash
-php artisan horizon:terminate   # fire within ~1s of the dispatch
-```
-
-3. **Observe:**
-   - Horizon terminal: workers should drain — the in-flight job completes before exit.
+4. **Observe:**
+   - Horizon terminal: whichever job was already `RUNNING` at the moment of the signal should
+     finish; jobs still on the ready list should stay queued for the next worker, not vanish.
    - `php artisan queue:failed` → expect empty.
    - Real-KV mode: `kv_get drill-wk-<YYYYMMDD>` → expect `{"type":"individual"}`.
      `kv_get drill-wk-old-<YYYYMMDD>` → expect the alias redirect entry.
 
-**Pass A:** job completed (or was never started and remains queued for the next worker) —
-either is fine; the failure would be a half-applied write with the job *gone*.
+**Pass A:** every job in the batch either completed or remained queued for the next worker —
+never gone with a half-applied write.
 
 ## Scenario B — SIGKILL mid-job (crash semantics)
 
@@ -136,9 +162,27 @@ echo $WORKER_PID
 # `queue`, and NOT DB 2, which is sessions. See config/queue.php + config/horizon.php.
 redis-cli -n 0 --scan --pattern '*queues:cloudflare*'
 QKEY='<the plain list key from above, not :notify / :reserved>'
-while [ "$(redis-cli -n 0 llen "$QKEY")" -eq 0 ]; do sleep 0.05; done  # wait for enqueue
-while [ "$(redis-cli -n 0 llen "$QKEY")" -gt 0 ]; do sleep 0.02; done  # wait for reserve
-kill -9 $WORKER_PID && echo "killed mid-job"
+```
+
+🔴 **`sleep 0.02` + `redis-cli` polling is too coarse for a job this fast** — each `redis-cli`
+invocation alone spawns a process, which costs more than the job's own runtime. Use a raw
+phpredis tight-loop watcher instead (~50µs per `LLEN`, no process-spawn overhead); it landed
+the kill in 1–2 polls in the 2026-08-05 run:
+
+```php
+<?php
+// watcher.php — usage: php watcher.php <worker_pid> <queue_key>
+$r = new Redis();
+$r->connect('127.0.0.1', 6379);
+$r->select(0);
+while ($r->lLen($argv[2]) === 0) { /* tight loop: wait for enqueue */ }
+while ($r->lLen($argv[2]) > 0)  { /* tight loop: wait for reserve */ }
+posix_kill((int) $argv[1], SIGKILL);
+echo "killed mid-job\n";
+```
+
+```bash
+php watcher.php "$WORKER_PID" "$QKEY"
 ```
 
 3. Tinker — dispatch (watcher fires automatically):
@@ -153,17 +197,19 @@ kill -9 $WORKER_PID && echo "killed mid-job"
      handle entry may exist while the alias entry doesn't (or neither). **This is the
      divergence — screenshot/copy it into the log.**
    - Unique-lock behavior: re-dispatch the same job within 45s of the kill →
-     `redis-cli -n 0 llen "$QKEY"` stays 0 (silently dropped by `ShouldBeUnique`). Record.
-     ⚠️ Incident-response consequence: after a crash, a human re-dispatching inside the 45s
-     `uniqueFor` window gets **no queue entry and no error**. Wait out `uniqueFor`, or rely on
-     re-delivery — do not re-dispatch and assume it took.
+     `redis-cli -n 0 llen "$QKEY"` stays 0 (silently dropped — the watcher kills right at
+     reservation, before the handler starts, which is the one window where
+     `ShouldBeUniqueUntilProcessing`'s lock is still held; see Target job facts above). Record.
+     ⚠️ Incident-response consequence: after a crash landing in that pre-handler window, a human
+     re-dispatching inside the 45s `uniqueFor` window gets **no queue entry and no error**. A
+     crash mid-`handle()` instead (the more common real-world case — OOM, a deploy kill on a
+     slow job) releases the lock first, so that re-dispatch *does* queue. Wait out `uniqueFor`,
+     or rely on re-delivery, if you can't tell which happened — do not assume a re-dispatch
+     failed just because nothing seemed to happen.
 
 5. **Observe convergence:**
-   - 🔴 **Start the worker FIRST, then watch.** Do not wait for `:reserved` to empty before
-     starting a worker — it never will. `migrateExpiredJobs()` runs inside the worker's
-     `pop()` loop; there is no background reaper, so with zero workers a crashed job stays
-     reserved indefinitely no matter how long `retry_after` has elapsed (verified: still
-     reserved at t+178s with `retry_after`=90s).
+   - Start the worker FIRST, then watch — see the Preconditions warning above; `:reserved`
+     never empties on its own.
    - Start a long-lived worker and leave it running:
      `php artisan queue:work redis --queue=cloudflare`. Expect re-delivery at
      ≈ `retry_after` + poll granularity (measured: **t+91s** with `retry_after`=90s).

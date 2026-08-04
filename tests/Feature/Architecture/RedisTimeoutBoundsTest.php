@@ -90,3 +90,59 @@ it('keeps read_timeout above block_for on every connection a worker blocks on', 
         );
     }
 });
+
+it('bounds read_timeout at 3.0s on every connection outside the worker path', function () {
+    // Drill 03 (2026-08-05) measured an authenticated request taking 32.01s
+    // against a hung Redis, reproducible in isolation. Cause: TokenRevocationService
+    // and several request-path middleware used the bare `Redis::` facade, which
+    // resolves to the `default` connection at read_timeout 15.0s — a bound sized
+    // for queue workers' BLPOP, not a user-facing request. The fix (U1, same date)
+    // added a request-path `app` connection at 3.0s and repointed those callers to
+    // it explicitly. This test is the backstop: it does not know about `app` by
+    // name, it asserts the PROPERTY that made the incident possible can't recur —
+    // no connection outside the worker-path allow-list may sit above 3.0s.
+    //
+    // The allow-list is worker-path connections only:
+    //   - `default` — every redis queue connection in config/queue.php resolves
+    //     here via REDIS_QUEUE_CONNECTION, and Horizon's `use` is 'default' too.
+    //   - `queue` — config/database.php's dormant queue-override slot. Nothing
+    //     points REDIS_QUEUE_CONNECTION there today, but if something does, it
+    //     inherits the same BLPOP behaviour and so carries the same worker-path
+    //     bound.
+    //   - `horizon` — not declared in config/database.php at all. HorizonServiceProvider
+    //     boots by calling Horizon::use(config('horizon.use')) ('default' today), which
+    //     copies whatever connection that names wholesale into
+    //     config('database.redis.horizon') at runtime (vendor/laravel/horizon/src/Horizon.php
+    //     configureStandaloneConnection()). It always mirrors `horizon.use`'s target, so its
+    //     read_timeout can never drift from that connection's — 15.0s via `default` today.
+    // Only `default` is pinned above block_for by the previous test — every redis
+    // queue connection in config/queue.php resolves to `default` via
+    // REDIS_QUEUE_CONNECTION, so `queue` is never iterated there. `queue` sits on
+    // this allow-list purely because it WOULD inherit BLPOP if something pointed
+    // REDIS_QUEUE_CONNECTION at it (see above); today its only floor is test 1's
+    // "> 0.0". Don't read its presence here as "already verified above 15.0s".
+    // Anything else added to config/database.php's redis array in future MUST default
+    // to the request-path bound or explicitly join this allow-list — silently inheriting
+    // an unbounded or loosely-bounded read_timeout is exactly how the bare-facade
+    // incident happened in the first place.
+    $workerPathConnections = ['default', 'queue', 'horizon'];
+
+    $connections = collect(config('database.redis'))
+        ->except(['client', 'options']);
+
+    foreach ($connections as $name => $config) {
+        if (in_array($name, $workerPathConnections, true)) {
+            continue;
+        }
+
+        $readTimeout = (float) ($config['read_timeout'] ?? 0.0);
+        $allowListLabel = implode(', ', $workerPathConnections);
+
+        expect($readTimeout)->toBeLessThanOrEqual(
+            3.0,
+            "redis connection [{$name}] has read_timeout {$readTimeout}s but is not on the worker-path allow-list "
+                ."({$allowListLabel}). A request-path caller resolving to it would inherit an unbounded hang "
+                .'instead of the 3.0s request-path bound — see drill 03, 2026-08-05.'
+        );
+    }
+});
