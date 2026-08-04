@@ -126,21 +126,26 @@ than letting it stall the other eight.
 | `COV-TAIL` | **9 / 9** ✅ |
 | **Total** | **25 / 25** ✅ |
 
-**Outstanding manual step — `COV-TAIL-10`.** The k6 body-content assertion is committed but
-**unverified**, because nothing in CI executes k6. Two runs, ~2 minutes:
+### `COV-TAIL-10` k6 assertion — **VERIFIED 2026-08-04**, both runs executed
 
-```bash
-# 1. MUST PASS — the seeded loadtest handle (default TEST_HANDLE)
-k6 run -e DURATION=15s -e RATE=10 scripts/launch-check/k6/baseline.js
+Nothing in CI runs k6, so this assertion would otherwise have landed unverified — the exact
+category of assurance this audit exists to remove. Both runs were executed against dev:
 
-# 2. MUST FAIL the new check — any other real published handle on dev.
-#    The OLD `includes('"data"')` check would have passed this same response;
-#    the new one fails because that handle's counts won't be the seed's 6/15/10.
-k6 run -e DURATION=15s -e RATE=10 -e TEST_HANDLE=<other-dev-handle> scripts/launch-check/k6/baseline.js
-```
+| Run | Command | `profile 200` | counts check | Verdict |
+|---|---|---|---|---|
+| 1 | `k6 run -e DURATION=15s -e RATE=10 baseline.js` | ✓ | **✓** | PASS as required |
+| 2 (control) | same `-e TEST_HANDLE=showcase-creator` | ✓ | **✗ 0/3** | FAILS as required |
 
-Run 2 **is** the positive control. If it does not fail, the assertion is wrong — revert it rather
-than adjusting it, per the rule that closed `COV-GUARD-3`.
+**Run 2 is the positive control and it is a clean one.** `showcase-creator` is a real *published*
+dev handle whose profile is `0/0/0`, so it returns a genuine 200 with a `{"data":…}` body — the
+**old** `r.body.includes('"data"')` check would have passed it. The new check fails it 0/3 while
+`profile 200`, `social 200` and `health 200` all stay green, proving the failure is the counts
+assertion and nothing else. `http_req_failed` stayed 0.00% in both runs: the HTTP request succeeds,
+it is the *content* that is wrong — which is precisely the degraded-build case
+(`IndividualProfileController.php:145-149`) the finding was about.
+
+Run 1 also re-confirms the p50/p95 story `COV-GUARD-3` settled: p(95) 198.85ms against the
+`p(95)<500` threshold, error rate 0.00%.
 
 ---
 
