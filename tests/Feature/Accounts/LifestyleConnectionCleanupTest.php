@@ -57,8 +57,12 @@ function lccActiveCount(string $userId): int
 it('derives the lifestyle platform set from the presence gate', function () {
     $platforms = LifestyleConnectionCleanup::lifestylePlatforms();
     // Listen + community + other platforms, NOT shop/bandcamp/google-business/booking.
-    expect($platforms)->toContain('apple-music', 'spotify', 'soundcloud', 'strava', 'skool')
-        ->and($platforms)->not->toContain('shop', 'bandcamp', 'fresha', 'google-business', 'instagram');
+    expect($platforms)->toContain('apple-music', 'spotify', 'soundcloud', 'strava', 'skool');
+    // One needle per call: toContain is variadic and `not` means "not ALL of
+    // them", so a multi-needle negation passes the moment any one is absent.
+    foreach (['shop', 'bandcamp', 'fresha', 'google-business', 'instagram'] as $platform) {
+        expect($platforms)->not->toContain($platform);
+    }
 });
 
 it('soft-deletes a business account lifestyle connections but leaves shop/other', function () {

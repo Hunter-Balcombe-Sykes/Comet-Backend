@@ -9,7 +9,9 @@ use App\Http\Requests\Api\User\Services\ReorderServiceLayoutRequest;
 use App\Http\Requests\Api\User\Services\ReorderServiceRequest;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -20,6 +22,20 @@ use Illuminate\Support\Str;
 // stale order. UserServiceCategoryController::reorder and
 // UserServiceController::reorder/reorderLayout must each touch the site
 // explicitly so SiteObserver fires (Redis bust + Cloudflare edge purge).
+//
+// COV-TAIL-4: the cache assertions below exist because SiteObserver::saved()
+// wraps invalidateSite() in its own catch(\Throwable) -> Log::warning
+// (SiteObserver.php:26-36), and CloudflareCachePurgeJob::dispatch() sits in a
+// SEPARATE try block right after. So today a total invalidation failure logs
+// a warning and nothing else — the pre-existing Queue::assertPushed below
+// still passes, because the purge-job dispatch is unrelated to whether the
+// cache key was actually forgotten. Asserting the key is null proves nothing
+// unless the key was first proven present — a key that was never written is
+// also null. Each case therefore seeds the site's payload key AND a foreign
+// subdomain's payload key (the control), asserts both are present before the
+// act, then asserts the site key was busted and the control key survived
+// untouched — which fails if invalidation is ever "fixed" with a blunt
+// Cache::flush().
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
@@ -111,6 +127,13 @@ it('category reorder touches the site and dispatches CloudflareCachePurgeJob (us
     [$pro, $siteId, $catIds] = seedServiceReorderFixture();
     Queue::fake();
 
+    $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
+    $controlKey = CacheKeyGenerator::publicSitePayload('other-site');
+    Cache::put($siteKey, ['sentinel' => true], 600);
+    Cache::put($controlKey, ['sentinel' => true], 600);
+    expect(Cache::get($siteKey))->not->toBeNull();
+    expect(Cache::get($controlKey))->not->toBeNull();
+
     $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
 
     $request = Request::create('/api/professional/service-categories/reorder', 'POST', ['ids' => array_reverse($catIds)]);
@@ -126,11 +149,21 @@ it('category reorder touches the site and dispatches CloudflareCachePurgeJob (us
     expect($after)->not->toBe($before);
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, fn (CloudflareCachePurgeJob $job) => $job->handle === 'service-purge');
+
+    expect(Cache::get($siteKey))->toBeNull();
+    expect(Cache::get($controlKey))->not->toBeNull();
 });
 
 it('service reorder touches the site and dispatches CloudflareCachePurgeJob (user-api/EDGE-1)', function () {
     [$pro, $siteId, , $svcIds] = seedServiceReorderFixture();
     Queue::fake();
+
+    $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
+    $controlKey = CacheKeyGenerator::publicSitePayload('other-site');
+    Cache::put($siteKey, ['sentinel' => true], 600);
+    Cache::put($controlKey, ['sentinel' => true], 600);
+    expect(Cache::get($siteKey))->not->toBeNull();
+    expect(Cache::get($controlKey))->not->toBeNull();
 
     $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
 
@@ -147,11 +180,21 @@ it('service reorder touches the site and dispatches CloudflareCachePurgeJob (use
     expect($after)->not->toBe($before);
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, fn (CloudflareCachePurgeJob $job) => $job->handle === 'service-purge');
+
+    expect(Cache::get($siteKey))->toBeNull();
+    expect(Cache::get($controlKey))->not->toBeNull();
 });
 
 it('reorderLayout touches the site and dispatches CloudflareCachePurgeJob (user-api/EDGE-1)', function () {
     [$pro, $siteId, $catIds, $svcIds] = seedServiceReorderFixture();
     Queue::fake();
+
+    $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
+    $controlKey = CacheKeyGenerator::publicSitePayload('other-site');
+    Cache::put($siteKey, ['sentinel' => true], 600);
+    Cache::put($controlKey, ['sentinel' => true], 600);
+    expect(Cache::get($siteKey))->not->toBeNull();
+    expect(Cache::get($controlKey))->not->toBeNull();
 
     $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
 
@@ -180,4 +223,7 @@ it('reorderLayout touches the site and dispatches CloudflareCachePurgeJob (user-
     expect($after)->not->toBe($before);
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, fn (CloudflareCachePurgeJob $job) => $job->handle === 'service-purge');
+
+    expect(Cache::get($siteKey))->toBeNull();
+    expect(Cache::get($controlKey))->not->toBeNull();
 });

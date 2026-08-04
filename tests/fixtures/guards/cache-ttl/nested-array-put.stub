@@ -1,0 +1,14 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). Negative control — must NOT be
+// caught: 3 top-level arguments where the 2nd is a multi-line array literal
+// carrying its own internal commas — IdempotencyKey.php:130's real shape. A
+// naive comma count over the raw argument text (not paren/bracket-depth
+// aware) would see 5 commas here and misjudge the arity entirely; this
+// scanner must see exactly 3 top-level arguments and stay quiet.
+Cache::put($cacheKey, [
+    'v' => 1,
+    'status' => $response->getStatusCode(),
+    'body' => $response->getContent(),
+    'headers' => $this->captureHeaders($response),
+], $ttl);

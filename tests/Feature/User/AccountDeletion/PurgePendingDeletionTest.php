@@ -5,8 +5,10 @@ use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\User\AccountDeletionService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -428,4 +430,93 @@ it('does not hard-delete the row when the Supabase auth-delete fails (retryable)
 
     expect((new AccountDeletionService)->purge($pro))->toBeFalse();
     expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeTrue();
+});
+
+// ── COV-TIMEOUT: bounded HTTP call to GoTrue's admin delete ────────────────
+
+it('bounds the Supabase auth-delete with a configured timeout + clamped connect timeout (COV-TIMEOUT)', function () {
+    // Positive control: Http::fake's callback form receives the raw Guzzle
+    // transfer options as the 2nd arg — the only place PendingRequest::timeout()/
+    // connectTimeout() are observable, since they aren't part of the PSR request
+    // Http::recorded() exposes. Drive the config (not the default) and assert the
+    // driven value — asserting the default 5 would still pass against a
+    // hardcoded ->timeout(5), which is the exact vacuity this test exists to rule out.
+    Config::set('supabase.http_timeout_seconds', 7);
+
+    $pro = seedPurgeableUser();
+
+    $capturedOptions = [];
+    Http::fake(function ($request, $options) use (&$capturedOptions) {
+        $capturedOptions[] = $options;
+
+        return Http::response('', 200);
+    });
+
+    expect((new AccountDeletionService)->purge($pro))->toBeTrue();
+
+    expect($capturedOptions)->toHaveCount(1)
+        ->and($capturedOptions[0]['timeout'] ?? null)->toBe(7)
+        ->and($capturedOptions[0]['connect_timeout'] ?? null)->toBe(3);
+});
+
+it('clamps the connect timeout to a configured total budget shorter than 3s (COV-TIMEOUT)', function () {
+    // min(3, $timeout), not a bare 3 — an incident-time
+    // SUPABASE_HTTP_TIMEOUT_SECONDS=2 must not let connectTimeout exceed the
+    // total budget.
+    Config::set('supabase.http_timeout_seconds', 2);
+
+    $pro = seedPurgeableUser();
+
+    $capturedOptions = [];
+    Http::fake(function ($request, $options) use (&$capturedOptions) {
+        $capturedOptions[] = $options;
+
+        return Http::response('', 200);
+    });
+
+    (new AccountDeletionService)->purge($pro);
+
+    expect($capturedOptions[0]['timeout'] ?? null)->toBe(2)
+        ->and($capturedOptions[0]['connect_timeout'] ?? null)->toBe(2);
+});
+
+it('treats a Supabase connection failure as a retryable purge failure, not an uncaught exception (COV-TIMEOUT)', function () {
+    // Regression control: a black-holed/degraded GoTrue host must funnel into
+    // the same failure branch a non-2xx response takes — EVENT_PURGE_FAILED
+    // audit row, report() to Nightwatch, false return — not propagate as an
+    // uncaught ConnectionException.
+    $pro = seedPurgeableUser();
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => fn () => throw new ConnectionException('timed out')]);
+
+    expect((new AccountDeletionService)->purge($pro))->toBeFalse();
+
+    expect(DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->exists())->toBeTrue();
+
+    $audit = DB::connection('pgsql')->table('audit.user_deletion_audit')
+        ->where('event', 'purge_failed')
+        ->where('user_id', $pro->id)
+        ->first();
+    expect($audit)->not->toBeNull();
+});
+
+it('command continues past a Supabase connection failure to purge the next row (COV-TIMEOUT)', function () {
+    // Guards the nightly-batch impact: PurgeSoftDeleted::purgePendingDeletionProfessionals()
+    // has no try/catch around the purge() call inside its chunk() loop, so an
+    // uncaught ConnectionException here would abort the entire chunk — not just
+    // skip the one bad row. This proves the catch keeps the batch alive.
+    AccountDeletionTestCase::boot();
+
+    $failing = seedPurgeableUser();
+    $succeeding = seedPurgeableUser();
+
+    Http::fake([
+        "test.supabase.co/auth/v1/admin/users/{$failing->auth_user_id}" => fn () => throw new ConnectionException('timed out'),
+        'test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200),
+    ]);
+
+    Artisan::call('partna:purge-soft-deletes');
+
+    expect(DB::connection('pgsql')->table('core.users')->where('id', $failing->id)->exists())->toBeTrue()
+        ->and(DB::connection('pgsql')->table('core.users')->where('id', $succeeding->id)->exists())->toBeFalse();
 });

@@ -9,6 +9,15 @@
  * already gated the same fields to admin staff via $showPii. This proves
  * the fix: the resource redacts by default, and the controller only flips
  * $showPii on for admin-role staff — mirroring the index() pattern exactly.
+ *
+ * COV-PII: sections (a)/(b) above call the resource/controller directly and
+ * never traverse HTTP, so they can't prove a real request reaches the gate.
+ * Section (c) adds that over real HTTP via actingAsStaff() (four-leg control:
+ * key-exists / value-redacted / non-PII-survives / admin-positive-control).
+ * actingAsStaff() itself stubs out EnsurePartnaStaff (see tests/Pest.php),
+ * so section (d) repeats the positive/negative pair through the REAL
+ * middleware via actingAsUser() + a seeded core.partna_staff row. Section (e)
+ * covers the sibling index() tier split (StaffUserListResource).
  */
 
 use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
@@ -32,6 +41,26 @@ beforeEach(function () {
     } catch (Throwable) {
         // already exists — ignore
     }
+
+    // staff.audit middleware writes here on every request through the real
+    // HTTP route (sections (c)/(d)/(e) below). Insert failures are
+    // double-swallowed, so this is just to keep logs clean.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
+        id TEXT PRIMARY KEY,
+        staff_id TEXT,
+        staff_email_snapshot TEXT,
+        impersonator_staff_id TEXT,
+        impersonator_email_snapshot TEXT,
+        user_id TEXT,
+        professional_handle_snapshot TEXT,
+        route TEXT NOT NULL DEFAULT \'\',
+        http_method TEXT NOT NULL DEFAULT \'\',
+        status_code INTEGER NOT NULL DEFAULT 0,
+        payload_summary TEXT NOT NULL DEFAULT \'{}\',
+        ip_hash TEXT,
+        user_agent TEXT,
+        created_at TEXT
+    )');
 });
 
 /** Build an unsaved User model with every PII field populated (resource-unit tests). */
@@ -187,4 +216,158 @@ it('show() returns PII fields populated for admin-tier staff', function () {
         ->and($body['professional']['admin_notes'])->toBe('VIP — handle with care')
         ->and($body['professional']['auth_user_id'])->not->toBeNull()
         ->and($body['professional']['location_street_address'])->toBe('1 Test St');
+});
+
+// ---------------------------------------------------------------------------
+// (c) Route-level — real HTTP through actingAsStaff() (COV-PII).
+//
+// (a)/(b) above never traverse HTTP, and the audit's literal prescription
+// ("assert primary_email absent") is vacuous: UserStaffResource emits gated
+// PII as present-and-null, and assertJsonPath(..., null) resolves via
+// data_get(), which also returns null for a MISSING key — so that assertion
+// alone would pass against an empty body or a renamed key. This four-leg
+// control is the fix: A) the key exists at all, B) its value is null for
+// support, C) non-PII fields are untouched (proving the gate discriminates
+// rather than nulling everything), D) the same fields carry the real seeded
+// values for admin (proving B's null is a gate result, not an accident of a
+// field that can never be populated on this route).
+// ---------------------------------------------------------------------------
+
+/** The 10 fields UserStaffResource gates behind $showPii (UserStaffResource.php:33-53). */
+function staffPiiTest_gatedFields(): array
+{
+    return [
+        'auth_user_id', 'phone', 'primary_email', 'public_contact_number',
+        'location_street_address', 'location_city', 'location_state',
+        'location_postcode', 'location_country', 'admin_notes',
+    ];
+}
+
+it('show() route-level: four-leg PII control over real HTTP (support redacted, admin populated, secret never leaks to support)', function () {
+    $pro = staffPiiTest_seedProfessional();
+    $piiFields = staffPiiTest_gatedFields();
+
+    // --- Support tier ---
+    $supportResponse = actingAsStaff(staffPiiTest_makeStaff(PartnaStaff::ROLE_SUPPORT))
+        ->getJson("/api/staff/professionals/{$pro->id}");
+
+    $supportResponse->assertOk();
+
+    // A. Key exists — assertJsonStructure fails on a MISSING key but passes on
+    // a null value, so this alone rules out an empty body / renamed key.
+    $supportResponse->assertJsonStructure(['professional' => $piiFields]);
+
+    // B. Value redacted for every gated field.
+    foreach ($piiFields as $field) {
+        $supportResponse->assertJsonPath("professional.{$field}", null);
+    }
+
+    // C. Non-PII survives untouched. public_contact_email is the near-twin of
+    // gated primary_email — proves the gate discriminates, not "null everything".
+    $supportResponse->assertJsonPath('professional.display_name', 'Ada L')
+        ->assertJsonPath('professional.first_name', 'Ada')
+        ->assertJsonPath('professional.last_name', 'Lovelace')
+        ->assertJsonPath('professional.public_contact_email', 'ada-public@example.test');
+
+    // Fifth leg: the seeded private email must not appear ANYWHERE in the
+    // support response body, not just at the expected JSON path.
+    $this->assertStringNotContainsString($pro->primary_email, $supportResponse->getContent());
+
+    // --- Admin tier (D. positive control) ---
+    $adminResponse = actingAsStaff(staffPiiTest_makeStaff(PartnaStaff::ROLE_ADMIN))
+        ->getJson("/api/staff/professionals/{$pro->id}");
+
+    $adminResponse->assertOk();
+
+    foreach ($piiFields as $field) {
+        $adminResponse->assertJsonPath("professional.{$field}", $pro->{$field});
+    }
+
+    $this->assertStringContainsString($pro->primary_email, $adminResponse->getContent());
+});
+
+// ---------------------------------------------------------------------------
+// (d) Real EnsurePartnaStaff — actingAsStaff() stubs EnsurePartnaStaff out
+// entirely (tests/Pest.php docblock), so section (c) never exercises the
+// actual core.partna_staff lookup by auth_user_id. actingAsUser() only stubs
+// VerifySupabaseJwt + LoadCurrentUser, leaving EnsurePartnaStaff real —
+// mirrors the negative case in tests/Schema/StaffUserSearchFiltersTest.php.
+// Both roles are checked here so a stub/real divergence in role resolution
+// would surface as a red test rather than silently passing.
+// ---------------------------------------------------------------------------
+
+/** Insert a core.partna_staff row with a known auth_user_id + role; returns the auth_user_id. */
+function staffPiiTest_seedRealPartnaStaff(string $role): string
+{
+    $authUserId = 'real-staff-auth-'.Str::random(12);
+
+    DB::connection('pgsql')->table('core.partna_staff')->insert([
+        'id' => (string) Str::uuid(),
+        'auth_user_id' => $authUserId,
+        'role' => $role,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    return $authUserId;
+}
+
+it('resolves support role via the REAL EnsurePartnaStaff middleware (not the actingAsStaff stub) and still redacts', function () {
+    $pro = staffPiiTest_seedProfessional();
+    $authUserId = staffPiiTest_seedRealPartnaStaff(PartnaStaff::ROLE_SUPPORT);
+
+    $actor = new User(['primary_email' => null]);
+    $actor->auth_user_id = $authUserId;
+
+    $response = actingAsUser($actor, aal2ClaimsWithFreshTotp())
+        ->getJson("/api/staff/professionals/{$pro->id}");
+
+    $response->assertOk()
+        ->assertJsonPath('professional.primary_email', null)
+        ->assertJsonPath('professional.admin_notes', null)
+        ->assertJsonPath('professional.display_name', 'Ada L');
+});
+
+it('resolves admin role via the REAL EnsurePartnaStaff middleware and exposes PII', function () {
+    $pro = staffPiiTest_seedProfessional();
+    $authUserId = staffPiiTest_seedRealPartnaStaff(PartnaStaff::ROLE_ADMIN);
+
+    $actor = new User(['primary_email' => null]);
+    $actor->auth_user_id = $authUserId;
+
+    $response = actingAsUser($actor, aal2ClaimsWithFreshTotp())
+        ->getJson("/api/staff/professionals/{$pro->id}");
+
+    $response->assertOk()
+        ->assertJsonPath('professional.primary_email', $pro->primary_email)
+        ->assertJsonPath('professional.admin_notes', $pro->admin_notes);
+});
+
+// ---------------------------------------------------------------------------
+// (e) index() tier split — StaffUserListResource gates the same fields, but
+// index() has NO authorizeForUser call at all (StaffUserController.php:36-39
+// docblock): $showPii is the only enforcement point on this endpoint.
+// ---------------------------------------------------------------------------
+
+it('index() route-level: redacts primary_email + phone for support-tier staff, exposes them for admin', function () {
+    $pro = staffPiiTest_seedProfessional();
+
+    $supportResponse = actingAsStaff(staffPiiTest_makeStaff(PartnaStaff::ROLE_SUPPORT))
+        ->getJson('/api/staff/professionals');
+    $supportResponse->assertOk();
+    $supportRow = collect($supportResponse->json('professionals'))->firstWhere('id', $pro->id);
+
+    expect($supportRow)->not->toBeNull()
+        ->and($supportRow['primary_email'])->toBeNull()
+        ->and($supportRow['phone'])->toBeNull()
+        ->and($supportRow['display_name'])->toBe('Ada L');
+
+    $adminResponse = actingAsStaff(staffPiiTest_makeStaff(PartnaStaff::ROLE_ADMIN))
+        ->getJson('/api/staff/professionals');
+    $adminResponse->assertOk();
+    $adminRow = collect($adminResponse->json('professionals'))->firstWhere('id', $pro->id);
+
+    expect($adminRow)->not->toBeNull()
+        ->and($adminRow['primary_email'])->toBe($pro->primary_email)
+        ->and($adminRow['phone'])->toBe($pro->phone);
 });

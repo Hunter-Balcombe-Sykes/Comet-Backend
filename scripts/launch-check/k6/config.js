@@ -32,6 +32,26 @@ export const LOAD_HEADERS = { 'X-Load-Test': '1' };
 // pass/fail signal (§9). Origin/jobs count 5xx-only as failure (see those
 // scripts' http.setResponseCallback), so 429/201 do not inflate http_req_failed.
 export const THRESHOLDS = {
+  // Thresholds here are p50/p95 only, DELIBERATELY. Reviewed 2026-08-03 against
+  // four runs (results/2026-08-03-baseline-warmup-comparison.md):
+  //
+  //   NEVER add a `max` threshold. Runs A and C were identical conditions and
+  //   gave 4562.9ms and 550.3ms — an 8x spread. `max` samples a rare transport
+  //   event, not Partna. Never quote it as a Partna latency figure either.
+  //
+  //   No p(99) either. Observed: 293.9 / 320.7 / 376.0 / 889.8ms. Anything below
+  //   890 fails run A on a one-in-2100 TTFB event that hit /api/health (no DB
+  //   work) at the same instant, i.e. container-or-path, not application code.
+  //   Anything above 890 cannot fire before p(95)<500 does: the origin's own log
+  //   puts server p95 at 91ms and its worst request at 351ms over 970 requests.
+  //   Flaky or dead; neither is worth a gate.
+  //
+  //   p50/p95 held within ~8% across four runs and ARE trustworthy. Tightening
+  //   p(95) is defensible on the data (worst observed 241.4) — deferred to
+  //   COV-TAIL-10, which will run these scripts and can set it from more points.
+  //
+  //   Before attributing any future tail to Partna, split http_req_waiting (TTFB)
+  //   from http_req_receiving. http_req_duration is blended client+network+edge.
   baseline: {
     http_req_duration: ['p(95)<500'],
     http_req_failed: ['rate<0.01'],

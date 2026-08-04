@@ -1,0 +1,9 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). MUST be caught: the new
+// literal-null rule. A literal `null` TTL argument is indistinguishable at
+// runtime from calling rememberForever() — the value is cached and never
+// expires, but the call site reads as if it took a TTL.
+Cache::remember('some-key', null, function () {
+    return expensiveCompute();
+});

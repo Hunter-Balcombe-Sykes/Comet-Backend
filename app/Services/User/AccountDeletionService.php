@@ -17,6 +17,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Media\ImageVariantService;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -1397,10 +1398,33 @@ class AccountDeletionService
             return false;
         }
 
-        $response = Http::withHeaders([
-            'apikey' => $serviceKey,
-            'Authorization' => 'Bearer '.$serviceKey,
-        ])->delete("{$baseUrl}/auth/v1/admin/users/{$authUserId}");
+        // Bounded so a black-holed/degraded GoTrue host can't hang this synchronous
+        // staff request (or, on the nightly command, the whole chunk() batch)
+        // indefinitely. connectTimeout is clamped to the total budget — a house
+        // default of 3s would exceed a shorter SUPABASE_HTTP_TIMEOUT_SECONDS set
+        // during an incident (mirrors SafeUrlFetcher's per-hop clamp).
+        $timeoutSeconds = (int) config('supabase.http_timeout_seconds', 5);
+
+        try {
+            $response = Http::withHeaders([
+                'apikey' => $serviceKey,
+                'Authorization' => 'Bearer '.$serviceKey,
+            ])
+                ->timeout($timeoutSeconds)
+                ->connectTimeout(min(3, $timeoutSeconds))
+                ->delete("{$baseUrl}/auth/v1/admin/users/{$authUserId}");
+        } catch (ConnectionException $e) {
+            // Funnel into the same failure branch a non-2xx response takes below:
+            // purge() logs EVENT_PURGE_FAILED + report()s and returns false, which
+            // the staff route maps to a retryable 502 and the nightly command
+            // continues to the next row instead of aborting the chunk.
+            Log::error('Supabase auth user deletion connection failed', [
+                'auth_user_id' => $authUserId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
 
         if ($response->status() === 404) {
             return true;

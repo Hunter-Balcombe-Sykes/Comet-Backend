@@ -1,0 +1,9 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). MUST be caught: `Cache` and
+// `::forever(` split across lines. A line-oriented implementation (the old
+// file()-based loop this scanner replaces) cannot see this — the literal
+// text "Cache::forever" never appears on one line. token_get_all() has no
+// concept of a line, so this evasion does not work against it.
+Cache
+    ::forever('permanent-key', $value);

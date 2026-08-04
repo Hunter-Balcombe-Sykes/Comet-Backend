@@ -192,10 +192,17 @@ return [
         '829c9554911e', // ComputeContentPopularityScores — driver-conditional day expr
         '3e38e942b939', // ComputeContentPopularityScores — driver-conditional day expr
         '7c06737326a6', // ComputeContentPopularityScores — driver-conditional day expr
-        '6e4b3296bd03', // SiteProvisioningSavepointTest — local const table name
-        '731db7a5ac32', // SiteProvisioningSavepointTest — local const table name
-        '55939d4857c2', // PreAccountBuildHandleRaceTest — CREATE TEMP TABLE, local const table name
-        '2d77dfcb34d9', // PreAccountBuildHandleRaceTest — DROP TABLE, local const table name
+        // Re-minted 2026-08-03 (COV-LANE): both files moved to tests/Schema/ and had
+        // their per-test savepointSuiteIsPostgres()/markTestSkipped() driver-check
+        // stripped out (SchemaTestCase::setUp() already gates the whole class), which
+        // shifted enough surrounding text to change these hashes. Re-vetted against the
+        // moved files: the flagged construct in every case is still $table interpolated
+        // straight from 'savepoint_probe_'/'handle_race_probe_' . Str::lower(Str::random(8))
+        // — never request input — so the original justification stands unchanged.
+        '6fa07c5b79e3', // SiteProvisioningSavepointTest — local const table name
+        '704838cf3f48', // SiteProvisioningSavepointTest — local const table name
+        '9b9ae54b8595', // PreAccountBuildHandleRaceTest — CREATE TEMP TABLE, local const table name
+        'e9ec6b1ede76', // PreAccountBuildHandleRaceTest — DROP TABLE, local const table name
         'bd0226c951ba', // ItemSlugAllocatorSavepointTest — CREATE TEMP TABLE, Str::random() local table name
         '28488bff79f2', // ItemSlugAllocatorSavepointTest — DROP TABLE, Str::random() local table name
         // Vetted 2026-07-28: the content/ingest projection landed while CI was

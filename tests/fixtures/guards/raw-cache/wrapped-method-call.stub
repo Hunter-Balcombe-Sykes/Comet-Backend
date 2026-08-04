@@ -1,0 +1,10 @@
+<?php
+
+// Fixture for RawCacheCallScanner (GS-1 / COV-GUARD-2). THE REGRESSION PIN:
+// `Cache` and `::forget(...)` split across lines. Verified empirically that
+// the OLD `git grep -n -P '\bCache::(put|…)\b'` finds NOTHING here — git grep
+// matches per-line, and the literal text "Cache::forget" never appears on a
+// single line once the `::` is pushed to the next one. token_get_all() has no
+// concept of a line, so this evasion does not work against it.
+Cache
+    ::forget('some-key');

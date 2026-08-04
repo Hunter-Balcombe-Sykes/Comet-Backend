@@ -3,6 +3,8 @@
 use App\Http\Middleware\Auth\RequireEmailVerified;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
 use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\ExpectationFailedException;
+use Tests\Support\Architecture\SweepGuard;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,10 +37,16 @@ const EMAIL_VERIFY_EXEMPT = [
     'POST api/claim',
 ];
 
-it('every supabase.jwt route also runs RequireEmailVerified (or is explicitly exempt)', function () {
+/**
+ * @param  iterable<Illuminate\Routing\Route>  $routes
+ * @return array{matched: list<string>, offenders: list<string>}
+ */
+function emailVerifySweep(iterable $routes): array
+{
+    $matched = [];
     $offenders = [];
 
-    foreach (Route::getRoutes() as $route) {
+    foreach ($routes as $route) {
         $middleware = $route->gatherMiddleware();
 
         $hasJwt = in_array(VerifySupabaseJwt::class, $middleware, true)
@@ -48,28 +56,57 @@ it('every supabase.jwt route also runs RequireEmailVerified (or is explicitly ex
             continue;
         }
 
+        // Normalise to the first verb for readability (Laravel adds HEAD to GET).
+        $primary = strtoupper($route->methods()[0]).' '.$route->uri();
+        $matched[] = $primary;
+
         $hasGate = in_array(RequireEmailVerified::class, $middleware, true)
             || in_array('require.email_verified', $middleware, true);
 
-        if ($hasGate) {
-            continue;
-        }
-
-        $signature = strtoupper(implode('|', $route->methods())).' '.$route->uri();
-        // Normalise to the first verb for readability (Laravel adds HEAD to GET).
-        $primary = strtoupper($route->methods()[0]).' '.$route->uri();
-
-        if (in_array($primary, EMAIL_VERIFY_EXEMPT, true)) {
+        if ($hasGate || in_array($primary, EMAIL_VERIFY_EXEMPT, true)) {
             continue;
         }
 
         $offenders[] = $primary;
     }
 
-    expect($offenders)->toBe(
+    return ['matched' => $matched, 'offenders' => $offenders];
+}
+
+it('every supabase.jwt route also runs RequireEmailVerified (or is explicitly exempt)', function () {
+    $sweep = emailVerifySweep(Route::getRoutes());
+
+    // COV-GUARD-5. 106 routes match today. If the `supabase.jwt` alias is
+    // renamed or the three staff route groups are folded into a group alias,
+    // this collapses to ~2 and `$offenders === []` becomes vacuously true.
+    // NOTE: gatherMiddleware() does NOT expand groups, so the ~372 routes on
+    // the `user.api` group are outside this sweep entirely — a separate gap,
+    // not something this floor covers.
+    SweepGuard::assertDenominator($sweep['matched'], 50, 'supabase.jwt routes');
+
+    expect($sweep['offenders'])->toBe(
         [],
         "Routes using supabase.jwt without require.email_verified:\n  - "
-            .implode("\n  - ", $offenders)
+            .implode("\n  - ", $sweep['offenders'])
             ."\nAdd 'require.email_verified' to the route group, or add the route to EMAIL_VERIFY_EXEMPT with a justification."
     );
+});
+
+// Positive control (COV-GUARD-5). The route is constructed, NOT registered, so
+// it cannot leak into Route::getRoutes() and redden the real sweep above.
+it('proves the guard can fail: a jwt route without require.email_verified IS flagged', function () {
+    $probe = (new Illuminate\Routing\Route(['GET'], 'api/__guard-probe', fn () => null))
+        ->middleware('supabase.jwt');
+
+    $sweep = emailVerifySweep([$probe]);
+
+    expect($sweep['matched'])->toBe(['GET api/__guard-probe'])
+        ->and($sweep['offenders'])->toBe(['GET api/__guard-probe']);
+});
+
+// Positive control (COV-GUARD-5): the denominator half — zero matched routes
+// must redden the floor, proving the guard itself can fail.
+it('proves the denominator guard can fail: zero matched routes is rejected', function () {
+    expect(fn () => SweepGuard::assertDenominator([], 50, 'probe'))
+        ->toThrow(ExpectationFailedException::class);
 });

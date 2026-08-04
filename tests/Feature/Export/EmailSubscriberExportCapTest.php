@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Route-level companion: StaffEmailSubscriberExportAuthTest exercises
+ * export() over real HTTP; this file's direct-controller calls stay to pin
+ * the truncation arithmetic + X-Export-Truncated header asserted below.
+ */
+
 use App\Http\Controllers\Api\Staff\StaffSite\StaffEmailSubscriberController;
 use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Models\Core\Staff\PartnaStaff;

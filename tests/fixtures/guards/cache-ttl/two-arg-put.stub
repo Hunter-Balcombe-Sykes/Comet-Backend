@@ -1,0 +1,7 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). MUST be caught: the new arity
+// rule. Cache::put($key, $value) with no 3rd TTL argument silently forwards
+// to forever() inside the framework — same hazard as calling forever()
+// directly, just spelled differently.
+Cache::put('some-key', $value);

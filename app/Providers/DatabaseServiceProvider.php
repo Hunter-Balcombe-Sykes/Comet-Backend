@@ -18,7 +18,13 @@ class DatabaseServiceProvider extends ServiceProvider
         // but `php artisan config:clear` runs before phpunit.xml's DB_CONNECTION=sqlite
         // override, which would otherwise force a real Supabase TCP connect during
         // the composer-test preflight and fail in any sandbox without DNS.
-        if ($this->app->runningUnitTests()) {
+        //
+        // DB_APPLY_TIMEOUTS_IN_TESTS=1 is the single opt-in escape hatch: set only
+        // by the postgres-tests CI job (a real, reachable Postgres, never Supabase),
+        // so tests/Postgres/DatabaseTimeoutsTest.php can prove these SET statements
+        // still fire. Every other test lane — local sandboxes included — keeps the
+        // unconditional bail above unchanged.
+        if ($this->app->runningUnitTests() && getenv('DB_APPLY_TIMEOUTS_IN_TESTS') !== '1') {
             return;
         }
 

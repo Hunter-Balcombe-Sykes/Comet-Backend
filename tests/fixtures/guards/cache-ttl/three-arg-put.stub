@@ -1,0 +1,6 @@
+<?php
+
+// Fixture for CacheTtlScanner (COV-TAIL-3). Negative control — must NOT be
+// caught: a normal, correct 3-argument Cache::put() call with a real TTL.
+// An over-matching guard gets suppressed, and then it protects nothing.
+Cache::put('some-key', $value, 600);

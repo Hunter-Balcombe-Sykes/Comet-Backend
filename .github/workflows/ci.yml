@@ -117,134 +117,41 @@ jobs:
 
       - name: Check for inline auth bypasses in controllers
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
-        run: |
-          # Inline 403 aborts in controllers bypass the Policy layer — use authorizeForUser() instead.
-          # Pattern catches abort(403, ...), abort_unless(..., 403, ...), abort_if(..., 403, ...).
-          # If the abort is actually input validation (stale IDs etc.), use abort(422, ...) — see the bulk-id reorder pattern in ProfessionalServiceController for precedent.
-          INLINE_403=$(grep -rE "abort\(403|abort_unless|abort_if" app/Http/Controllers/ | grep "403" | wc -l | tr -d ' ')
-
-          if [ "$INLINE_403" -gt 0 ]; then
-            echo "::error::Found $INLINE_403 inline 403 abort(s) in controllers. Use a Policy via authorizeForUser() for authorization, or abort(422, ...) if it's really input validation."
-            grep -rEn "abort\(403|abort_unless|abort_if" app/Http/Controllers/ | grep "403"
-            exit 1
-          fi
-
-          echo "No inline auth bypasses found."
+        # Inline 403 aborts in controllers bypass the Policy layer — use authorizeForUser() instead.
+        # If the abort is actually input validation (stale IDs etc.), use abort(422, ...) — see the
+        # bulk-id reorder pattern in ProfessionalServiceController for precedent.
+        #
+        # This was a two-stage `grep -rE "abort\(403|abort_unless|abort_if" ... | grep 403`
+        # until 2026-08-03. Both stages were line-oriented, so an abort_unless() wrapped
+        # across lines — which Pint produces for any message long enough — evaded it
+        # entirely (COV-GUARD-2). The replacement scanner is token-based
+        # (tests/Support/Architecture/ControllerAbortScanner.php) and has no concept of
+        # a line. Invoked BY PATH, not --filter: a --filter that matches nothing exits
+        # in a way that reads as a pass, which is the same class of rot this replaces.
+        run: php artisan test tests/Feature/Architecture/InlineAuthBypassGuardTest.php
 
       - name: No raw Cache::* calls outside cache services (GS-1)
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
-        run: |
-          # GS-1: Cache keys must flow through CacheKeyGenerator and a *CacheService
-          # to preserve tenant-prefix discipline. A rogue Cache::put('user_count', $n)
-          # in a controller is one git push away from a cross-tenant data leak — this
-          # lint blocks that class of bug before it reaches review.
-          #
-          # Allowlisted by path:
-          #   - app/Services/Cache/                  — the canonical cache layer itself
-          #   - app/Http/Controllers/Api/Webhooks/   — Cache::add() for idempotency dedupe
-          #   - pre-existing legitimate callers      — file-level entries below.
-          # New code MUST route through a cache service. To add a new exception,
-          # justify it in PR review and append the path here.
-          #
-          # File-level exceptions (audited 2026-06-12 — the guard shipped while CI
-          # was failing at the pint step, so these pre-existing callers were never
-          # caught; each is a deliberate pattern, not a tenant-key leak):
-          #   - CustomerObserver            — Cache::forget via CacheKeyGenerator; direct invalidation in observer, no service injection point
-          #   - SupabaseEmailHookController — Cache::add SETNX webhook dedupe + Cache::forget rollback on send failure
-          #   - InstagramController         — refresh budget + cooldown via atomic Cache::add (comments also match the grep)
-          #   - ShopController              — short-lived picker-catalog cache, keys via CacheKeyGenerator
-          #   - IndividualProfileController — docblock mention only (grep matches the comment)
-          #   - IdempotencyKey middleware   — the idempotency exception the error copy itself names
-          #   - LogLeadRateLimits           — Cache::add SETNX dedupe of auto-retry log bursts
-          #   - SendFeedbackEmailJob        — job idempotency SETNX + rollback
-          #   - AnalyticsCacheService       — IS a *CacheService, just lives under Services/Analytics/
-          #   - AnalyticsDedupGuard         — atomic SETNX fixed-window dedup utility
-          #   - FeatureFlagService          — flag registry/per-pro invalidation (Cache::forget)
-          #   - YoutubeThumbnailResolver    — thumbnail-tier memo with jittered TTL
-          #   - AppleSearch                 — iTunes API response cache, key via CacheKeyGenerator (same pattern as YoutubeThumbnailResolver)
-          #   - RefreshController           — Cache::add SETNX per-user refresh cooldown (key is user+platform scoped)
-          #   - DispatchEnquiryNotificationsJob — Cache::put notify-once idempotency guard (enquiry-id scoped)
-          # File-level exceptions (audited 2026-07-22 — same story: the whole gate
-          # chain after composer audit was masked, so these pre-existing callers were
-          # never caught until the chain was fixed. Each key is scoped/content-addressed
-          # — vetted, not a tenant leak):
-          #   - StaffAggregateAnalyticsController — staff-only aggregate; key encodes the full scope (all|segment-hash)+window; cross-tenant BY DESIGN (staff see all), so tenant isolation is N/A
-          #   - GoogleBusinessEnrichJob     — paid-Apify inflight/result guard, keys via CacheKeyGenerator::googleBusinessApify*(userId, placeId) (same pattern as InstagramController)
-          #   - OwnMediaAccentFactor        — content-addressed memo (key = md5 of image URL); value is a non-sensitive computed hex colour
-          #   - StorePricePointFactor       — site-scoped streak key (design:store-price-streak:<site_id>)
-          #   - AccountDeletionService      — Cache::forget of the user's OWN idempotency keys (enumerated from idempotencyIndexKey(authUserId)) during account teardown
-          # File-level exceptions (audited 2026-07-25 — same story a third time: all
-          # three landed while CI was red at PHPStan/Checkpoint, so GS-1 never ran
-          # on them. Each key is scoped/content-addressed — vetted, not a leak):
-          #   - DedupesRecipientSends       — RV-10 per-recipient Cache::add SETNX claim + Cache::forget rollback; key is action-log-scoped and content-addressed (sha256 of "<actionLogId>|<recipient>"), same pattern as SendFeedbackEmailJob
-          #   - MenuApifyScraper            — negative-cache "blocked/hard_error" marker + its recovery forget, key via CacheKeyGenerator::menuScrapeBlocked(platform, url) (same shape as YoutubeThumbnailResolver/AppleSearch)
-          #   - ShopBrandSeeder             — picker-catalog warm mirroring addBrand()'s, key via CacheKeyGenerator::shopifyBrandCatalog($id); ShopController is already allowlisted for this exact cache
-          # File-level exceptions (audited 2026-07-28 — a FOURTH round of the same
-          # story: all three landed while CI was red at PHPStan, so GS-1 never ran
-          # on them. Each key is scoped/content-addressed — vetted, not a leak):
-          #   - RecordScheduledTaskHeartbeat — scheduler liveness beacon; key is the class const prefix + a normalized TASK name (taskKey()), carries no tenant identity at all
-          #   - ProbeBudget                 — atomic Cache::add SETNX counter init (+increment/decrement), keys via CacheKeyGenerator::routingProbe{Global,User}Daily(); same shape as AnalyticsDedupGuard/RefreshController. The docblock at :24 also matches the grep
-          #   - ProbeGate                   — probe-answer memo incl. negative results, key via CacheKeyGenerator::routingProbeUrl($url) — content-addressed by URL (same shape as YoutubeThumbnailResolver/AppleSearch/MenuApifyScraper)
-          #   - LinkProjector               — Cache::add SETNX throttling malformed-pattern error reports to once per detector+field per window, so one bad catalog entry cannot flood Nightwatch. Key is "routing:malformed-detector:{$detectorId}:{$field}" — BOTH segments are catalog-level identifiers, not user- or site-scoped, so there is no tenant prefix to preserve and no cross-tenant collision to cause. Same idiom and same reasoning as LogLeadRateLimits and AnalyticsDedupGuard, which its own docblock (:204) cites as precedent and which are already excluded below.
-          #
-          # -P (PCRE), not -E. The pattern needs \b at both ends — leading, so
-          # MyCache::put doesn't match; trailing, so Cache::adder doesn't. BSD
-          # regcomp (macOS) does not support \b in ERE and silently matches
-          # nothing, so `-E` made this guard report a clean pass locally no
-          # matter what was written, while the same command on the glibc runner
-          # found 50 lines. -P behaves identically on both.
-          set +e
-          BAD=$(git grep -n -P '\bCache::(put|remember|rememberForever|forget|add)\b' -- \
-            'app/' \
-            ':!app/Services/Cache/' \
-            ':!app/Http/Controllers/Api/Webhooks/' \
-            ':!app/Http/Controllers/Api/HealthController.php' \
-            ':!app/Observers/Core/CustomerObserver.php' \
-            ':!app/Http/Controllers/Api/Internal/SupabaseEmailHookController.php' \
-            ':!app/Http/Controllers/Api/Platforms/InstagramController.php' \
-            ':!app/Http/Controllers/Api/Platforms/ShopController.php' \
-            ':!app/Http/Controllers/Api/PublicSite/IndividualProfileController.php' \
-            ':!app/Http/Middleware/IdempotencyKey.php' \
-            ':!app/Http/Middleware/Logging/LogLeadRateLimits.php' \
-            ':!app/Jobs/Notifications/SendFeedbackEmailJob.php' \
-            ':!app/Services/Analytics/AnalyticsCacheService.php' \
-            ':!app/Services/Analytics/AnalyticsDedupGuard.php' \
-            ':!app/Services/FeatureFlags/FeatureFlagService.php' \
-            ':!app/Http/Controllers/Api/Platforms/RefreshController.php' \
-            ':!app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php' \
-            ':!app/Services/Platforms/YoutubeThumbnailResolver.php' \
-            ':!app/Services/Platforms/AppleSearch.php' \
-            ':!app/Http/Controllers/Api/Staff/Analytics/StaffAggregateAnalyticsController.php' \
-            ':!app/Jobs/Platforms/GoogleBusinessEnrichJob.php' \
-            ':!app/Services/Design/Presets/Factors/OwnMediaAccentFactor.php' \
-            ':!app/Services/Design/Presets/Factors/StorePricePointFactor.php' \
-            ':!app/Services/User/AccountDeletionService.php' \
-            ':!app/Jobs/Moderation/Concerns/DedupesRecipientSends.php' \
-            ':!app/Services/Platforms/MenuApifyScraper.php' \
-            ':!app/Services/Platforms/ShopBrandSeeder.php' \
-            ':!app/Listeners/RecordScheduledTaskHeartbeat.php' \
-            ':!app/Routing/Probes/ProbeBudget.php' \
-            ':!app/Routing/LinkProjector.php' \
-            ':!app/Routing/Probes/ProbeGate.php')
-          RC=$?
-          set -e
-          # git grep: 0 = matches found, 1 = none, >1 = the scan itself failed
-          # (bad pathspec, git built without PCRE, ...). `set +e` above turns any
-          # such failure into an empty $BAD and a green "no raw Cache:: calls" —
-          # a guard that reports success precisely when it did not run. Fail loud.
-          if [ "$RC" -gt 1 ]; then
-            echo "::error::git grep exited $RC — the GS-1 scan did NOT run. This is not a pass."
-            exit 1
-          fi
-          if [ -n "$BAD" ]; then
-            echo "::error::Found raw Cache::(put|remember|rememberForever|forget|add) call(s) outside the cache-services allowlist."
-            echo "$BAD"
-            echo ""
-            echo "Use a method on a *CacheService (or CacheLockService::rememberLocked) with CacheKeyGenerator for key construction."
-            echo "If this is a legitimate exception (webhook idempotency, internal token cache), add the file path to the allowlist in .github/workflows/ci.yml."
-            exit 1
-          fi
-          echo "No raw Cache:: calls outside the GS-1 allowlist."
+        # GS-1: Cache keys must flow through CacheKeyGenerator and a *CacheService
+        # to preserve tenant-prefix discipline. A rogue Cache::put('user_count', $n)
+        # in a controller is one git push away from a cross-tenant data leak — this
+        # guard blocks that class of bug before it reaches review.
+        #
+        # This was a two-stage `git grep -n -P '\bCache::(put|…)\b'` until 2026-08-03.
+        # git grep matches per line, so splitting `Cache` from `::method(...)` across
+        # lines makes the literal substring never appear on one line and the grep
+        # finds nothing (COV-GUARD-2). The replacement scanner is token-based
+        # (tests/Support/Architecture/RawCacheCallScanner.php) and has no concept of
+        # a line. Invoked BY PATH, not --filter: a --filter that matches nothing exits
+        # in a way that reads as a pass, which is the same class of rot this replaces.
+        #
+        # The allowlist and its per-file justifications — the audit trail of four
+        # separate incidents (2026-06-12, 07-22, 07-25, 07-28) in which this gate was
+        # masked by an earlier red CI step and unscanned code landed — moved verbatim
+        # to Tests\Support\Architecture\RawCacheCallScanner::ALLOWLIST on 2026-08-03.
+        # New code MUST route through a cache service. To add a new exception, justify
+        # it in PR review and append the path there, not here.
+        run: php artisan test tests/Feature/Architecture/RawCacheCallGuardTest.php
 
       - name: No unsafe migration locking patterns (Master Pattern 20)
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
@@ -443,6 +350,16 @@ jobs:
       # The service container below has no SSL configured — config/database.php
       # defaults DB_SSLMODE to 'require', which would refuse to connect.
       DB_SSLMODE: disable
+      # Preconditions are MANDATORY here. Without this the lane would skip when
+      # the service container failed to come up and the build would stay green
+      # having run zero assertions — the same false-safety-net schema-tests'
+      # SCHEMA_LANE_REQUIRED was created to remove, one layer up.
+      PG_LANE_REQUIRED: '1'
+      # Opt-in: lets DatabaseServiceProvider apply statement_timeout/lock_timeout
+      # against this real, disposable Postgres container so
+      # tests/Postgres/DatabaseTimeoutsTest.php can prove they still fire. See
+      # DatabaseServiceProvider::boot() — every other lane leaves this unset.
+      DB_APPLY_TIMEOUTS_IN_TESTS: '1'
     services:
       postgres:
         image: postgres:16

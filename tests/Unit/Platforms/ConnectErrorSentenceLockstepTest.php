@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Platforms\Concerns\DefersBespokeConnect;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use PHPUnit\Framework\ExpectationFailedException;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -93,7 +94,32 @@ it('W9 reads the canonical constants rather than keeping its own copies', functi
     ] as $relative) {
         $source = connectErrorSentenceSource($relative);
 
-        expect($source)->not->toContain(FetchUnavailableException::STALE_CONNECT_ERROR, "[$relative] hand-types the stale-connect sentence; read FetchUnavailableException::STALE_CONNECT_ERROR instead.");
-        expect($source)->not->toContain(FetchUnavailableException::GENERIC_USER_MESSAGE, "[$relative] hand-types the generic-failure sentence; read FetchUnavailableException::GENERIC_USER_MESSAGE instead.");
+        // NOT expect()->not->toContain(): Pest's toContain is variadic
+        // (mixed ...$needles), so a trailing message becomes a SECOND needle —
+        // and `not` passes as soon as ONE needle is absent. The prose is never
+        // in the source, so that form passed unconditionally (COV-GUARD-1).
+        $this->assertStringNotContainsString(
+            FetchUnavailableException::STALE_CONNECT_ERROR,
+            $source,
+            "[$relative] hand-types the stale-connect sentence; read FetchUnavailableException::STALE_CONNECT_ERROR instead."
+        );
+        $this->assertStringNotContainsString(
+            FetchUnavailableException::GENERIC_USER_MESSAGE,
+            $source,
+            "[$relative] hand-types the generic-failure sentence; read FetchUnavailableException::GENERIC_USER_MESSAGE instead."
+        );
     }
+});
+
+// Positive control (COV-GUARD-1). The old negated-toContain-with-a-message form
+// returned PASS on exactly this input. This pins the replacement matcher to
+// going RED on it, so the trap cannot be reintroduced silently.
+it('proves the lockstep guard can fail: a hand-typed sentence IS caught', function () {
+    $forged = 'return $this->error('."'".FetchUnavailableException::STALE_CONNECT_ERROR."'".');';
+
+    expect(fn () => $this->assertStringNotContainsString(
+        FetchUnavailableException::STALE_CONNECT_ERROR,
+        $forged,
+        'probe'
+    ))->toThrow(ExpectationFailedException::class);
 });
