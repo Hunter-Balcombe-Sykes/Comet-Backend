@@ -130,6 +130,10 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
             'description' => 'The best company.',
             'favicon' => 'https://acme.example/favicon.ico',
             'logo' => 'https://acme.example/og-image.png',
+            // Rides every dashboard link since 2026-08-04 (content_popularity
+            // ranks keyed by resource_id; null when the site has none) — the
+            // Smart order switch sorts on it.
+            'popularityRank' => null,
         ]]]);
 });
 
@@ -158,5 +162,6 @@ it('custom/links emits nulls for absent optional fields', function () {
             'description' => null,
             'favicon' => null,
             'logo' => null,
+            'popularityRank' => null,
         ]]]);
 });

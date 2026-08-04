@@ -16,6 +16,12 @@ class ServiceCategoryResource extends ApiResource
             'id' => (string) $this->id,
             'user_id' => $this->user_id,
             'title' => $this->title,
+            // 'fresha' = auto-created from a Fresha category during
+            // projection; NULL = owner-authored. Without it the dashboard
+            // couldn't tell a synced category from an editable one —
+            // ServiceResource and the menu payload both already say whose
+            // row it is.
+            'source' => $this->source,
             'sort_order' => $this->sort_order,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

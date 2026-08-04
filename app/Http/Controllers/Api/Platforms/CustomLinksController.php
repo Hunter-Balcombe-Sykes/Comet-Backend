@@ -9,6 +9,7 @@ use App\Http\Requests\Platforms\AddCustomLinkRequest;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Platforms\LinkCardScraper;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -157,6 +158,15 @@ class CustomLinksController extends ApiController
                 }
             }
 
+            // A pure sort_order shuffle fires NOTHING by itself:
+            // IntegrationConnectionObserver::saved() gates on payload/
+            // display_settings/is_active, so neither the edge purge nor the
+            // site touch ran and the public payload key (site.updated_at)
+            // stayed pinned on the old order for the full TTL. Same bug
+            // class ServiceObserver::touchParentSite() documents; Gallery's
+            // reorder touches via ReorderService's afterCommit.
+            $user->site?->touch();
+
             return $this->success(['links' => $this->linksData($user)]);
         });
     }
@@ -225,7 +235,16 @@ class CustomLinksController extends ApiController
     /** @return list<array<string,mixed>> */
     private function linksData(User $user): array
     {
-        return $this->linkRows($user)->map(function (IntegrationConnection $row): array {
+        // link_item ranks (keyed by the link's resource_id — how the scoring
+        // command seeds custom links). The dashboard's Smart order switch
+        // sorts on popularityRank; until 2026-08-04 this payload never
+        // carried it, so "engagement order" silently meant "stored order".
+        // Fail-open: a read fault degrades to null ranks.
+        $ranks = app(ContentPopularityReader::class)
+            ->forSite($user->site()->value('id'));
+        $linkRanks = $ranks['link_item'] ?? [];
+
+        return $this->linkRows($user)->map(function (IntegrationConnection $row) use ($linkRanks): array {
             $card = CardPayload::fromArray($row->payload);
 
             return [
@@ -235,6 +254,7 @@ class CustomLinksController extends ApiController
                 'description' => $card->description(),
                 'favicon' => $card->favicon(),
                 'logo' => $card->logo(),
+                'popularityRank' => $linkRanks[(string) $row->resource_id] ?? null,
             ];
         })->values()->all();
     }

@@ -3,6 +3,8 @@
 namespace App\Services\Platforms\Concerns;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -154,6 +156,26 @@ trait BuildsAutoSyncFindings
 
         $looksBooking = $this->looksLikeBookingSlotApply($finding, $apply);
         $looksReservations = $this->looksLikeReservationsSlotApply($finding, $apply);
+
+        // Capability RE-check at apply time (2026-08-04). The capability was
+        // verified when the finding was RECORDED (GoogleBusinessAutoSync::
+        // sync() gates on can_use_booking / can_use_reservations before
+        // producing either family's recipe), but findings are durable and the
+        // account's sector — hence its capability set — can change between
+        // record and apply. Without this, a stale conflict finding was a
+        // ticket to install a booking/reservations connection the connect
+        // controllers themselves would 403. Mirrors the seed-time gate; a
+        // blocked apply reports true ("nothing to apply") rather than 423 —
+        // the finding is obsolete, not contended.
+        if ($looksBooking || $looksReservations) {
+            $user = User::find($userId);
+            $capabilities = $user ? AccountCapabilities::for($user) : null;
+            if ($capabilities === null
+                || ($looksBooking && ! $capabilities->can_use_booking)
+                || ($looksReservations && ! $capabilities->can_use_reservations)) {
+                return true;
+            }
+        }
 
         // Trap 4 / escape hatch: `apply.instagram` is produced in exactly one
         // place — GoogleBusinessAutoSync's Instagram/social recipe — and that

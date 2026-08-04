@@ -20,6 +20,7 @@ use App\Models\Core\Site\ShopBrand;
 use App\Models\Core\Site\ShopProduct;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Http\FetchBudget;
@@ -109,6 +110,7 @@ class ShopController extends ApiController
         private readonly FetchBudget $budget,
         private readonly ShopBrandProfiler $profiler,
         private readonly ShopBrandIdentity $identity,
+        private readonly ContentPopularityReader $popularity,
     ) {}
 
     protected function platform(): string
@@ -1002,9 +1004,16 @@ class ShopController extends ApiController
             return [];
         }
 
+        // shop_product ranks (keyed by product HANDLE), the same annotation
+        // the public wire carries — the dashboard's Smart order switch sorts
+        // on popularityRank, and until 2026-08-04 the dashboard path omitted
+        // the key entirely, so "engagement order" silently meant "stored
+        // order". Fail-open: a read fault degrades to null ranks.
+        $ranks = $this->popularity->forSite($user->site()->value('id'));
+
         return $connection->shopBrands()->with('products')->get()
             ->keyBy('brand_id')
-            ->map(fn (ShopBrand $b) => $b->toBrandArray())
+            ->map(fn (ShopBrand $b) => $b->toBrandArray($ranks['shop_product'] ?? []))
             ->all();
     }
 

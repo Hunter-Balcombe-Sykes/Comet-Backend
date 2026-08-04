@@ -199,7 +199,31 @@ class MediaUploadService
             throw new OriginalStoreFailedException('Failed to store file: '.$e->getMessage(), 0, $e);
         }
 
-        $media->update(['path' => $originalPath]);
+        // CONDITIONAL claim, not a bare update (2026-08-04): a concurrent
+        // replace's purge — or the new explicit DELETE — can soft-delete this
+        // row while storeOriginal() was doing its R2 round-trip, and a plain
+        // $media->update() would still succeed (save() uses newModelQuery(),
+        // which carries no SoftDeletingScope). The result was a 201 for a row
+        // no read can see: silent data loss, reclaimed only by the 30-day
+        // sweep. Guarding on deleted_at IS the optimistic-concurrency token
+        // the KNOWN-UNFIXED-RACE docblock below asks for — a lost race now
+        // surfaces as the same 409 the unique-violation half already throws,
+        // and the stored original is cleaned up rather than orphaned.
+        // (Query-builder update skips SiteMediaObserver::updated, which is
+        // fine here: the page can't render this media until the processing
+        // job flips it to ready, and THAT update still fires the observer.)
+        $claimed = SiteMedia::query()
+            ->whereKey($media->id)
+            ->whereNull('deleted_at')
+            ->update(['path' => $originalPath]);
+        if ($claimed === 0) {
+            $this->imageService->deleteVariants($media->id, $originalPath);
+
+            throw new SingletonConflictException(
+                'This image slot changed while the upload was storing — try again.'
+            );
+        }
+
         $this->dispatchSingletonProcessing($media->id, $originalPath, $basePath, $site, $purpose);
 
         $media->refresh();
@@ -236,19 +260,28 @@ class MediaUploadService
      * clearing a logo or cover rather than replacing it). Same soft-delete +
      * variant purge as the replace path; returns whether a row existed, so
      * the controller can 404 an empty slot instead of pretending a delete.
+     *
+     * Deletes ONLY the rows captured at inspection time (not a re-query like
+     * purgeExistingSingleton) so a row an upload inserts between the read and
+     * the purge is never collateral — the delete removes what existed when
+     * the user clicked, and an upload it does catch mid-store surfaces as
+     * that upload's own 409 via the conditional path-claim above.
      */
     public function removeSingleton(Site $site, string $purpose): bool
     {
-        $existed = SiteMedia::query()
+        $rows = SiteMedia::query()
             ->where('site_id', $site->id)
             ->where('pool', SiteMedia::POOL_DESIGN)
             ->where('purpose', $purpose)
             ->whereNull('deleted_at')
-            ->exists();
+            ->get();
 
-        $this->purgeExistingSingleton($site, $purpose);
+        foreach ($rows as $media) {
+            $this->imageService->deleteVariants($media->id, $media->path);
+            $media->delete();
+        }
 
-        return $existed;
+        return $rows->isNotEmpty();
     }
 
     private function purgeExistingSingleton(Site $site, string $purpose): void

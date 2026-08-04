@@ -81,7 +81,10 @@ it('shop selection returns the compat flat view of the first brand with products
             'url' => 'https://f',
             'provider' => 'shopify',
             'discountCode' => 'SAVE',
-            'products' => [['productId' => 'p1', 'url' => 'https://f/p1']],
+            // popularityRank rides every dashboard product since 2026-08-04
+            // (brandMap annotates from content_popularity_scores; null when
+            // the site has no ranks) — the Smart order switch sorts on it.
+            'products' => [['productId' => 'p1', 'url' => 'https://f/p1', 'popularityRank' => null]],
         ]]);
 });
 
