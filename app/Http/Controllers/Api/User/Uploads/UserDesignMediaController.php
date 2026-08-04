@@ -91,4 +91,43 @@ class UserDesignMediaController extends ApiController
 
         return $this->success((new DesignMediaResource($media))->toArray(request()), 201);
     }
+
+    /**
+     * DELETE /api/design-media/{purpose} — clear one singleton slot (remove a
+     * logo or cover without replacing it). Until now the only way to empty a
+     * slot was to upload something else into it. Soft-delete + variant purge,
+     * same as the replace path; 404 when the slot is already empty or the
+     * purpose isn't a design singleton.
+     */
+    public function destroy(Request $request, string $purpose): JsonResponse
+    {
+        if (! in_array($purpose, SiteMedia::designSingletonPurposes(), true)) {
+            return $this->error('Unknown design image slot.', 404);
+        }
+
+        $pro = $this->currentUser($request);
+        $pro->loadMissing('site');
+        $site = $this->currentSite($pro);
+
+        // SitePolicy::delete — ownership + the pending-deletion 423 gate,
+        // authorized against every live row this purge would touch. The policy
+        // resolves SiteMedia ownership through a PRELOADED site relation
+        // (never lazy — see resolveOwnerId), so set it explicitly.
+        $rows = SiteMedia::query()
+            ->where('site_id', $site->id)
+            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('purpose', $purpose)
+            ->whereNull('deleted_at')
+            ->get();
+        foreach ($rows as $row) {
+            $row->setRelation('site', $site);
+            $this->authorizeForUser($pro, 'delete', $row);
+        }
+
+        if (! $this->uploadService->removeSingleton($site, $purpose)) {
+            return $this->error('Nothing uploaded for this slot.', 404);
+        }
+
+        return $this->success(['purpose' => $purpose, 'removed' => true]);
+    }
 }

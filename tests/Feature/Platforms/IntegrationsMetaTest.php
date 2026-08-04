@@ -91,6 +91,35 @@ it('deterministically aggregates status across tied never-refreshed connections'
     }
 });
 
+// The availability map folds BOTH gates — staff-managed feature availability
+// AND the descriptor's requiresCapability predicate — because the consumer's
+// question is singular: "can I connect this?". Before 2026-08-04 the
+// capability half was enforced only at connect time (a 403 from
+// IntegrationConnectionPolicy), so the dashboard offered platforms whose
+// connect was guaranteed to fail.
+it('reports capability-gated platforms as unavailable', function () {
+    // A non-food business: can_use_reservations is false (NULL sector reads
+    // as not-food), so the reservations family must read unavailable.
+    $business = User::create([
+        'handle' => 'bizmeta', 'handle_lc' => 'bizmeta', 'display_name' => 'Bizmeta',
+        'first_name' => 'Bizmeta',
+        'account_type' => 'business', 'auth_user_id' => (string) Str::uuid(),
+        'primary_email' => 'bizmeta@example.com',
+    ]);
+
+    $response = actingAsUser($business)->getJson('/api/platforms/meta')->assertOk();
+    expect($response->json('availability.opentable'))->toBeFalse()
+        ->and($response->json('availability.resdiary'))->toBeFalse()
+        ->and($response->json('availability.nowbookit'))->toBeFalse()
+        // Ungated platforms stay available.
+        ->and($response->json('availability.youtube'))->toBeTrue();
+
+    // A partna account has can_use_reservations, so the same keys read true.
+    $partna = integrationsMetaUser('partnameta');
+    $response = actingAsUser($partna)->getJson('/api/platforms/meta')->assertOk();
+    expect($response->json('availability.opentable'))->toBeTrue();
+});
+
 it('scopes metadata to the authenticated user', function () {
     $user = integrationsMetaUser('lonely');
     $other = integrationsMetaUser('busy');

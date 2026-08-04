@@ -231,6 +231,26 @@ class MediaUploadService
      * or a redesign — do not "simplify" this method into the lock without reading
      * that plan first.
      */
+    /**
+     * Remove a design singleton outright (the dashboard's explicit delete —
+     * clearing a logo or cover rather than replacing it). Same soft-delete +
+     * variant purge as the replace path; returns whether a row existed, so
+     * the controller can 404 an empty slot instead of pretending a delete.
+     */
+    public function removeSingleton(Site $site, string $purpose): bool
+    {
+        $existed = SiteMedia::query()
+            ->where('site_id', $site->id)
+            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('purpose', $purpose)
+            ->whereNull('deleted_at')
+            ->exists();
+
+        $this->purgeExistingSingleton($site, $purpose);
+
+        return $existed;
+    }
+
     private function purgeExistingSingleton(Site $site, string $purpose): void
     {
         $existing = SiteMedia::query()

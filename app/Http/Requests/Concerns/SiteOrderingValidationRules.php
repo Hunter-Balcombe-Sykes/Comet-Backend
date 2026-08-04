@@ -22,6 +22,18 @@ trait SiteOrderingValidationRules
      *
      * @var array<string, string>
      */
+    /**
+     * The dashboard's nine content pools — the domain of
+     * settings.manual_order_pools. Mirrors the pool registry in
+     * Partna-App/components/blocks/site-page.tsx.
+     *
+     * @var list<string>
+     */
+    private const POOL_KEYS = [
+        'links', 'events', 'services', 'menu', 'watch',
+        'listen', 'media', 'sell', 'posts',
+    ];
+
     private const LEGACY_BUTTON_REF_TO_ACTION_ID = [
         'booking' => 'booking-services',
         // getLinks() historically emitted the singular platform slug (matches
@@ -50,6 +62,15 @@ trait SiteOrderingValidationRules
             'settings.smart_page_order' => ['sometimes', 'boolean'],
             'settings.manual_page_order' => ['sometimes', 'array', 'max:16'],
             'settings.manual_page_order.*' => ['string', 'distinct', Rule::in(SitepageId::canonicalOrder())],
+            // The dashboard's per-pool Smart order switch (2026-08-04): pools
+            // listed here use the owner's MANUAL arrangement; absent pools
+            // follow the engagement ranking (content_popularity_scores).
+            // Sparse-by-default like the toggle stores — smart is the default,
+            // so only deviations persist. Accepts every pool key even though
+            // only the ranked pools currently render the switch, so a pool
+            // gaining a rank needs no backend change.
+            'settings.manual_order_pools' => ['sometimes', 'array', 'max:9'],
+            'settings.manual_order_pools.*' => ['string', 'distinct', Rule::in(self::POOL_KEYS)],
             'settings.smart_actions' => ['sometimes', 'boolean'],
             'settings.manual_actions' => ['sometimes', 'array', 'max:26', $this->distinctActionRefsRule()],
             'settings.manual_actions.*' => ['array', $this->manualActionEntryRule()],

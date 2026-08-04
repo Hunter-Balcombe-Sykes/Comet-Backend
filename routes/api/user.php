@@ -378,6 +378,8 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Design-layer singleton images (brand logos + per-integration covers).
         Route::get('/design-media', [UserDesignMediaController::class, 'index']);
         Route::post('/design-media', [UserDesignMediaController::class, 'upload']);
+        Route::delete('/design-media/{purpose}', [UserDesignMediaController::class, 'destroy'])
+            ->where('purpose', '[a-z_]+');
 
         // Content library + selection (sitepage background picks). Library =
         // content-pool uploads + referenced Google Business photos; Selection =

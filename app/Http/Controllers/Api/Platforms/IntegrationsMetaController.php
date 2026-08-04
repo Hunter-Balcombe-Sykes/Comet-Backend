@@ -56,14 +56,22 @@ class IntegrationsMetaController extends ApiController
             ];
         }
 
-        // OV-A: staff-managed availability (core.feature_availability, keys
-        // 'integration.<platform>') for EVERY registry platform — connected or
-        // not — so the dashboard index can hide/grey unavailable integrations.
-        // Absence of rules = available; see FeatureAvailability for the pattern.
+        // OV-A: availability for EVERY registry platform — connected or not —
+        // so the dashboard index can hide/grey integrations this user cannot
+        // connect. Two gates fold into the one answer, because the consumer's
+        // question is singular ("can I connect this?"): staff-managed
+        // availability (core.feature_availability, keys 'integration.<platform>';
+        // absence of rules = available) AND the descriptor's requiresCapability
+        // predicate (e.g. reservations providers need can_use_reservations).
+        // The capability gate was previously enforced only at connect time via
+        // IntegrationConnectionPolicy, so the dashboard offered platforms whose
+        // connect then 403'd.
         $availabilityMap = FeatureAvailability::for($professional);
+        $registry = app(PlatformRegistry::class);
         $availability = [];
-        foreach (app(PlatformRegistry::class)->keys() as $platformKey) {
-            $availability[$platformKey] = $availabilityMap->allows('integration.'.$platformKey);
+        foreach ($registry->keys() as $platformKey) {
+            $availability[$platformKey] = $availabilityMap->allows('integration.'.$platformKey)
+                && $registry->get($platformKey)->availableFor($professional);
         }
 
         $payload = (new IntegrationsMetaResource($platforms))->resolve();

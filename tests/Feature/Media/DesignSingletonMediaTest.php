@@ -190,6 +190,50 @@ it('replaces the existing singleton of the same purpose on re-upload', function 
     expect($active->first()->id)->not->toBe($oldId);
 });
 
+// ── Delete endpoint (2026-08-04: clear a slot without replacing it) ─────────
+
+it('deletes a design singleton by purpose and purges its variants', function () {
+    $pro = createTenant('deletehost');
+    $site = $pro->site;
+
+    $id = seedReadyDesignSingleton($site->id, 'cover_youtube', 'img/yt.webp');
+
+    $imageService = Mockery::mock(ImageVariantService::class);
+    $imageService->shouldReceive('deleteVariants')->once()->andReturnNull();
+    app()->instance(ImageVariantService::class, $imageService);
+
+    $request = Request::create('/api/design-media/cover_youtube', 'DELETE');
+    $request->attributes->set('professional', $pro);
+
+    $response = app(UserDesignMediaController::class)->destroy($request, 'cover_youtube');
+
+    expect($response->getStatusCode())->toBe(200);
+    expect(SiteMedia::withTrashed()->find($id)?->trashed())->toBeTrue();
+    expect(
+        SiteMedia::query()->where('site_id', $site->id)->where('purpose', 'cover_youtube')->exists()
+    )->toBeFalse();
+});
+
+it('404s a delete for an empty slot and an unknown purpose', function () {
+    $pro = createTenant('deleteempty');
+
+    $request = Request::create('/api/design-media/cover_youtube', 'DELETE');
+    $request->attributes->set('professional', $pro);
+
+    // Empty slot: a real purpose with nothing uploaded.
+    expect(
+        app(UserDesignMediaController::class)->destroy($request, 'cover_youtube')->getStatusCode()
+    )->toBe(404);
+
+    // Unknown purpose: never a design singleton (and the retired shopify slot).
+    expect(
+        app(UserDesignMediaController::class)->destroy($request, 'gallery_image')->getStatusCode()
+    )->toBe(404);
+    expect(
+        app(UserDesignMediaController::class)->destroy($request, 'cover_shopify')->getStatusCode()
+    )->toBe(404);
+});
+
 // ── Read endpoint ───────────────────────────────────────────────────────────
 
 it('reads back current design singletons by purpose (null for empty slots)', function () {
@@ -258,7 +302,9 @@ it('registers the design-media routes', function () {
 
     $get = $routes->first(fn ($r) => in_array('GET', $r->methods()) && $r->uri() === 'api/design-media');
     $post = $routes->first(fn ($r) => in_array('POST', $r->methods()) && $r->uri() === 'api/design-media');
+    $delete = $routes->first(fn ($r) => in_array('DELETE', $r->methods()) && $r->uri() === 'api/design-media/{purpose}');
 
     expect($get?->getActionName())->toContain('UserDesignMediaController@index');
     expect($post?->getActionName())->toContain('UserDesignMediaController@upload');
+    expect($delete?->getActionName())->toContain('UserDesignMediaController@destroy');
 });
