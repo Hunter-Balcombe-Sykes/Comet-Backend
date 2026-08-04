@@ -21,7 +21,7 @@ class UpdateSiteAction
      *
      * @var list<string>
      */
-    public const LIST_SETTINGS_KEYS = ['manual_page_order', 'manual_actions'];
+    public const LIST_SETTINGS_KEYS = ['manual_page_order', 'manual_actions', 'manual_order_pools'];
 
     public function __construct(private readonly RenameSubdomainAction $renameSubdomain) {}
 

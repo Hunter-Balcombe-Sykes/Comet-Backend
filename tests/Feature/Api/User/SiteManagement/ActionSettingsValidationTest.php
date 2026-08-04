@@ -48,6 +48,47 @@ it('accepts and persists the four ordering settings', function () {
         ->and($settings['manual_actions'][2])->toBe(['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards']);
 });
 
+// manual_order_pools (2026-08-04): the dashboard's per-pool Smart order
+// switch. Sparse list of pool keys whose owner turned smart order OFF —
+// absent = every pool smart. List-valued, so it replaces atomically like the
+// other two manual lists.
+it('accepts, persists and atomically replaces manual_order_pools', function () {
+    $pro = createTenant('as-pools');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => [
+            'manual_order_pools' => ['links', 'sell'],
+        ]])
+        ->assertOk();
+    expect(siteSettings($pro)['manual_order_pools'])->toBe(['links', 'sell']);
+
+    // A shorter incoming list must REPLACE, not positionally merge.
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_order_pools' => ['watch']]])
+        ->assertOk();
+    expect(siteSettings($pro)['manual_order_pools'])->toBe(['watch']);
+
+    // And emptying it returns every pool to smart order.
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_order_pools' => []]])
+        ->assertOk();
+    expect(siteSettings($pro)['manual_order_pools'])->toBe([]);
+});
+
+it('rejects unknown or duplicate pool keys in manual_order_pools', function () {
+    $pro = createTenant('as-badpool');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_order_pools' => ['links', 'checkout']]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.manual_order_pools.1']);
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['manual_order_pools' => ['links', 'links']]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.manual_order_pools.0']);
+});
+
 it('rejects unknown page ids in manual_page_order', function () {
     $pro = createTenant('as-badpage');
 
