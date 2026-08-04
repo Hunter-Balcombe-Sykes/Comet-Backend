@@ -190,7 +190,6 @@ disprove, and it trains the reader to distrust real findings.
 ```
 --scope tests/Feature/Resources
 --scope tests/Unit/Resources
---scope tests/Feature/Requests
 --scope tests/Unit/Requests
 --scope tests/Feature/Platforms
 --scope tests/Feature/PublicSite
