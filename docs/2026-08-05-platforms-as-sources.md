@@ -156,19 +156,39 @@ facts copy mentioning Featured.
 Pages: delete `dedupedHighlights` + highlight reads (already dead after
 Phase 2), stale type fields on the fetch-*-selection files.
 
-## Open items (owner to confirm — flagged, not blocking Phase 1 design)
+## Per-item platform links (owner, 2026-08-05)
 
-1. **Events + Shop auto semantics**: single-rolling-latest fits watch/
-   listen/media but not events (all upcoming should show) or shop (newest
-   products). Assumption: under the unified toggle name, events keep
-   "sync upcoming from each organiser" and shop keeps "selection follows
-   newest products" — the toggle gates the behaviour each content type
-   honestly has. Confirm.
-2. **Removing the current auto pick**: if the user removes the item that is
-   the rolling latest, does it come back next sync? Proposal: removal
-   writes an exclude for THAT item; the auto rule then selects nothing
-   until a NEWER item arrives (no re-add of the excluded one). Confirm.
-3. **Latest tag in Media**: assumed yes (inherited from the posts decision).
-4. Whether `site.site_documents` freshness (5-min builds + on-change
+Embed-only platforms (Spotify, SoundCloud, Mixcloud, Tidal) can never be
+item sources — so the item itself carries the cross-platform links:
+
+- Every Watch and Listen item's sheet gets an **add-a-link** control: pick
+  a platform from **that pool's full roster** (not a fixed pair — future
+  platforms need no schema change), paste the item's URL on that platform.
+- **Alternates only**: a platform that IS the item's synced source never
+  appears in the picker — the synced link is not manually editable, so it
+  can't drift from the sync. Hand-added items offer the whole roster.
+- **Public rendering: platform buttons on the item's card** — "Spotify ·
+  SoundCloud" style links beside the item's source link, each going to
+  that item on that platform.
+- Storage: per-item platform→url map in the content library (candidates:
+  `content.item_refs` or a manual-links row keyed (item, platform) —
+  decide in Phase 1 design; must survive re-sync and identity merges).
+- Phases: storage + wire in Phase 1, public buttons in Phase 2, the sheet
+  UI in Phase 3. Validation: URL must belong to the platform's domain(s),
+  same normalisers the connect flows already use.
+
+## Resolved (owner confirmed 2026-08-05)
+
+1. **Events + Shop auto semantics** — confirmed: under the unified toggle
+   name, events keep "sync upcoming from each organiser" and shop keeps
+   "selection follows newest products"; the toggle gates whichever
+   behaviour the content type honestly has.
+2. **Removing the current auto pick** — confirmed: removal writes an
+   exclude for that item; auto selects nothing until a NEWER item arrives.
+3. **Latest tag in Media** — confirmed yes.
+
+## Open items
+
+1. Whether `site.site_documents` freshness (5-min builds + on-change
    `BuildState` bumps) is acceptable end-to-end latency for "I changed my
    pool, my site follows". If not, resolve pools directly in the payload.
