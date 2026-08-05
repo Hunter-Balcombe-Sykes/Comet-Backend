@@ -476,6 +476,10 @@ function bindThrowingCacheStore(): void
 function setupUsersTable(): void
 {
     attachTestSchemas();
+    // user_handle_aliases rides along: UserDashboardResource reads it on every
+    // /me serialization (reclaimable_handles, 2026-08-06), so any lane that
+    // seeds users can now serialize them without a bespoke setup call.
+    setupHandleAliasesTable();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.users (
         id TEXT PRIMARY KEY NOT NULL,
         auth_user_id TEXT NULL,

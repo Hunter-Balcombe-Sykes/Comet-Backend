@@ -74,7 +74,9 @@ class UserDashboardResource extends ApiResource
             // GRACE 0-14d). POST /me/site/reclaim-handle takes one back; the
             // dashboard shows the affordance only when this list is non-empty.
             // Added 2026-08-06 — the endpoint predates any UI (audit decision 6).
-            'reclaimable_handles' => UserHandleAlias::query()
+            // Guard: an unsaved model (resource unit tests build these) has no
+            // id — querying with user_id NULL is never meaningful.
+            'reclaimable_handles' => $this->id === null ? [] : UserHandleAlias::query()
                 ->where('user_id', $this->id)
                 ->where('reclaim_until', '>', now())
                 ->orderBy('reclaim_until')
