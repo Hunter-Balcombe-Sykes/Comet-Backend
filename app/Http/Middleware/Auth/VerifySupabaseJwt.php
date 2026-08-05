@@ -125,6 +125,12 @@ class VerifySupabaseJwt
                         'code' => 'session_id_missing',
                     ], 401);
                 }
+
+                // Reached only via the incident-revert flag above. A token with
+                // no session_id can never be looked up in the blocklist, so the
+                // revocation question is permanently unanswerable for it — not
+                // "answered no". Strict routes must treat that as unverified.
+                $this->recordRevocationVerified($request, false);
             } else {
                 // Revocation is a best-effort oracle layered on top of an
                 // already-cryptographically-valid token. isRevoked() does a Redis
@@ -135,8 +141,10 @@ class VerifySupabaseJwt
                 // Mirrors the setSupabaseContext guard immediately below.
                 try {
                     $revoked = $this->revocation->isRevoked($sessionId);
+                    $this->recordRevocationVerified($request, true);
                 } catch (\Throwable $revocationEx) {
                     $revoked = false;
+                    $this->recordRevocationVerified($request, false);
                     Log::warning('Revocation check failed after successful JWT verification', [
                         'request_id' => $requestId,
                         'operation' => __METHOD__,
@@ -231,6 +239,9 @@ class VerifySupabaseJwt
                             'code' => 'session_id_missing',
                         ], 401);
                     }
+
+                    // Mirrors the JWKS path: unanswerable, not answered-no.
+                    $this->recordRevocationVerified($request, false);
                 } else {
                     // Same fail-open contract as the JWKS path above: isRevoked() is a
                     // Redis EXISTS layered on an already-verified token. A Redis outage
@@ -240,8 +251,10 @@ class VerifySupabaseJwt
                     // not-revoked and log distinctly.
                     try {
                         $revoked = $this->revocation->isRevoked($fallbackSessionId);
+                        $this->recordRevocationVerified($request, true);
                     } catch (\Throwable $revocationEx) {
                         $revoked = false;
+                        $this->recordRevocationVerified($request, false);
                         Log::warning('Revocation check failed after successful JWT verification', [
                             'request_id' => $requestId,
                             'operation' => __METHOD__,
@@ -283,6 +296,35 @@ class VerifySupabaseJwt
                 return response()->json(['error' => 'unauthenticated', 'message' => 'Invalid token'], 401);
             }
         }
+    }
+
+    /**
+     * Record whether the revocation blocklist actually answered this request.
+     *
+     * The revocation check fails OPEN here by design — a Redis outage must not
+     * log every customer out of their dashboard. But "we could not ask" and
+     * "we asked and the session is live" are very different facts, and until
+     * now the difference was destroyed the moment the catch block set
+     * $revoked = false. This attribute preserves it.
+     *
+     * Only RequireVerifiedRevocation (alias `revocation.strict`) consumes it,
+     * to turn "could not ask" into a 503 on the handful of routes where a
+     * revoked session could do irreversible damage. Everything else keeps the
+     * fail-open behaviour untouched — this method changes no existing
+     * control flow, it only leaves a record behind.
+     *
+     * false covers three distinct causes, all of which must fail closed on a
+     * strict route: isRevoked() threw (Redis unreachable or timed out), the
+     * command was skipped outright by an open RedisRequestBreaker, or the
+     * token carries no session_id and so can never be looked up at all.
+     *
+     * Never set to true anywhere except immediately after isRevoked() returns
+     * normally. A default of true would silently convert every strict route
+     * back to fail-open.
+     */
+    private function recordRevocationVerified(Request $request, bool $verified): void
+    {
+        $request->attributes->set('supabase_revocation_verified', $verified);
     }
 
     private function getBearerToken(Request $request): ?string

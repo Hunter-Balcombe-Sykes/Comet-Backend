@@ -194,7 +194,23 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // priority list in bootstrap/app.php (`prependToPriorityList(ThrottleRequests,
         // IdempotencyKey)`), regardless of textual group nesting. Do not "fix" this
         // by reordering groups.
-        Route::prefix('me/deletion')->middleware('idempotent')->group(function () {
+        // `revocation.strict`: account deletion is the one irreversible action a
+        // user can take. During a Redis outage the revocation blocklist cannot
+        // be consulted, and everywhere else this app fails OPEN rather than lock
+        // customers out — but "a revoked session destroyed the account" has no
+        // undo, so here the trade inverts and the request 503s instead. Signed
+        // off 2026-08-05; see the plan §3 for why PATCH /site did NOT get this.
+        //
+        // Ordering note: the textual order below is NOT the execution order.
+        // IdempotencyKey is in bootstrap/app.php's priority list and
+        // RequireVerifiedRevocation is not, so SortedMiddleware always runs
+        // `idempotent` first. A replay of a stored Idempotency-Key therefore
+        // re-serves the cached response without the strict gate running. That is
+        // benign — a replay returns a stored response and never re-runs the
+        // handler, and under a real Redis outage the idempotency Cache::get
+        // throws and falls through to the gate anyway. Recorded so a future
+        // reader does not "fix" the order and assume it changed anything.
+        Route::prefix('me/deletion')->middleware(['idempotent', 'revocation.strict'])->group(function () {
             Route::post('/request', [UserAccountDeletionController::class, 'request'])
                 ->middleware('throttle:3,60');
             Route::post('/confirm', [UserAccountDeletionController::class, 'confirm']);
@@ -205,12 +221,19 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Data export — exempt from EnforcePendingDeletionReadOnly so a
         // professional in their grace period can still pull their data
         // (the whole point of GDPR portability). Rate-limited 1/24h.
+        // `revocation.strict`: one call returns the entire GDPR PII bundle, so a
+        // revoked session here is a complete data exfiltration rather than a
+        // recoverable edit. Fails closed (503) when Redis cannot confirm the
+        // session is live.
         Route::post('/me/data-export', [UserDataExportController::class, 'store'])
             ->withoutMiddleware([EnforcePendingDeletionReadOnly::class])
-            ->middleware('throttle:1,1440');
+            ->middleware(['throttle:1,1440', 'revocation.strict']);
         // MFA self-service — fresh AAL2 enforced inside the controller (tighter
         // 60s window than session-level aal2). No require.aal2 middleware here.
-        Route::prefix('account/mfa')->group(function () {
+        // `revocation.strict` because stripping a factor is a credential
+        // mutation: it removes the victim's second factor for every future
+        // login, not just this request.
+        Route::prefix('account/mfa')->middleware('revocation.strict')->group(function () {
             Route::delete('/factors/{factorId}', [MfaController::class, 'destroy'])
                 ->whereUuid('factorId')
                 ->name('account.mfa.factors.destroy');
@@ -221,13 +244,21 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // blocklist in TokenRevocationService. Bypasses pending-deletion gate
         // so a user mid-deletion can still log themselves out.
         Route::prefix('sessions')->withoutMiddleware([EnforcePendingDeletionReadOnly::class])->group(function () {
+            // index and logout stay FAIL-OPEN on purpose. Listing your own
+            // sessions is a read, and logging YOURSELF out is not damage — a
+            // strict gate there would only stop a legitimate user signing out
+            // during an outage, for no security gain.
             Route::get('/', [SessionController::class, 'index'])->name('sessions.index');
             Route::post('/logout', [SessionController::class, 'logout'])->name('sessions.logout')
                 ->middleware('throttle:session-writes');
+            // These two revoke OTHER sessions — the path by which a revoked
+            // session could kick the real owner out. They are Redis writes, so
+            // during an outage they fail regardless; `revocation.strict` costs
+            // no availability and turns a raw 500 into an honest 503.
             Route::post('/logout-others', [SessionController::class, 'logoutOthers'])->name('sessions.logout-others')
-                ->middleware('throttle:session-writes');
+                ->middleware(['throttle:session-writes', 'revocation.strict']);
             Route::delete('/{sessionId}', [SessionController::class, 'destroy'])->name('sessions.destroy')
-                ->middleware('throttle:session-writes');
+                ->middleware(['throttle:session-writes', 'revocation.strict']);
         });
 
         // View Site Details
