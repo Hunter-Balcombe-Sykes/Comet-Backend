@@ -250,10 +250,10 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
 
     // GB content seed never ran: no google-photo pick was created despite a
     // seedable photo in the payload.
+    // (2026-08-05: the IG auto flag moved to connection display_settings and
+    // the connect flip only STRIPS an explicit false there — the slot check
+    // below is the observable that proves the IG hooks were bypassed.)
     expect(ContentSelection::query()->where('site_id', $gbSiteId)->exists())->toBeFalse()
-        // IG auto-enable flag never flipped: the site's flag stays unset.
-        ->and(DB::connection('pgsql')->table('site.sites')->where('id', $igSiteId)->value('content_instagram_auto_enabled'))
-        ->toBeFalsy()
         // IG slot reservation never ran: no ig-reel/ig-post rows despite a
         // seedable image in the payload.
         ->and(ContentSelection::query()->where('site_id', $igSiteId)->whereIn('entry_type', ContentSelection::IG_TYPES)->exists())
