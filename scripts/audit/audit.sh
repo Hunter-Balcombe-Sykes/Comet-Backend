@@ -361,7 +361,7 @@ writers-routing-site|app/Routing app/Site
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
-services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
+services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
 services-rest|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks
 EOF
         ;;
@@ -383,7 +383,7 @@ consumers-console-mw|app/Console app/Http/Middleware
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-core|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
-services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit
+services-data|app/Services/Analytics app/Services/Cache app/Services/Moderation app/Services/Segments app/Services/Audit app/Services/Redis
 services-rest|app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Auth app/Services/Cloudflare app/Services/Streaming app/Services/BotProtection app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/Accounts app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding
 EOF
         ;;
@@ -456,7 +456,7 @@ EOF
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
-services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
+services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User
@@ -477,7 +477,7 @@ EOF
 services-platforms|app/Services/Platforms app/Services/Brand
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan
 services-site|app/Services/User app/Services/Site app/Services/PublicSite app/Services/Content
-services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit
+services-data|app/Services/Analytics app/Services/Cache app/Services/Segments app/Services/Moderation app/Services/Audit app/Services/Redis
 services-integrations|app/Services/Accounts app/Services/Auth app/Services/EarlyAccess app/Services/Profile app/Services/Onboarding app/Services/PreAccount app/Services/Notifications app/Services/Http app/Services/Cloudflare app/Services/Streaming app/Services/FeatureFlags app/Services/FeatureAvailability app/Services/BotProtection app/Services/Feedback app/Services/Diagnostics app/Services/Webhooks app/Mail
 controllers-platforms|app/Http/Controllers/Api/Platforms
 controllers-user|app/Http/Controllers/Api/User

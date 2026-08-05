@@ -12,9 +12,11 @@ use App\Http\Middleware\Auth\EnsurePartnaAdmin;
 use App\Http\Middleware\Auth\EnsurePartnaStaff;
 use App\Http\Middleware\Auth\RequireAal2;
 use App\Http\Middleware\Auth\RequireEmailVerified;
+use App\Http\Middleware\Auth\RequireVerifiedRevocation;
 use App\Http\Middleware\Auth\VerifyResendWebhookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
+use App\Http\Middleware\Context\ArmRedisRequestBreaker;
 use App\Http\Middleware\Context\EnsurePlatformAvailable;
 use App\Http\Middleware\Context\LoadCurrentUser;
 use App\Http\Middleware\FeatureGate;
@@ -61,6 +63,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ModerationShowCaseCommand::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
+        // Must run FIRST — resets RedisRequestBreaker before any other
+        // middleware (or the routes/controllers behind them) can touch
+        // Redis, so every request starts with a clean breaker state.
+        $middleware->prepend(ArmRedisRequestBreaker::class);
+
         // Trust all proxy IPs — the app is exclusively behind Cloudflare, so every
         // inbound connection is from a Cloudflare edge node. Without this, $request->ip()
         // returns the Cloudflare edge IP and all rate-limit keys collapse to the same value.
@@ -112,6 +119,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => FeatureGate::class,
             'bot.token' => VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
+            // Selective fail-closed revocation. NOT redundant with require.aal2:
+            // that reads a JWT claim and proves MFA happened at LOGIN; this
+            // proves the session has not been revoked SINCE. Different questions,
+            // so staff routes carry both.
+            'revocation.strict' => RequireVerifiedRevocation::class,
             'idempotent' => IdempotencyKey::class,
             'platform.available' => EnsurePlatformAvailable::class,
         ]);

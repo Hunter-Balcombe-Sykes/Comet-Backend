@@ -5,6 +5,7 @@ use App\Providers\BotProtectionServiceProvider;
 use App\Providers\DatabaseServiceProvider;
 use App\Providers\EventServiceProvider;
 use App\Providers\PlatformRegistryServiceProvider;
+use App\Providers\RedisBreakerServiceProvider;
 use App\Providers\SectionVisibilityServiceProvider;
 
 return [
@@ -14,4 +15,5 @@ return [
     BotProtectionServiceProvider::class,
     PlatformRegistryServiceProvider::class,
     SectionVisibilityServiceProvider::class,
+    RedisBreakerServiceProvider::class,
 ];
