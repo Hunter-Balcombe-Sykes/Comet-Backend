@@ -113,7 +113,7 @@ from core.users u join site.sites s on s.user_id = u.id where u.deleted_at is nu
 Consequence: every collided signup shows the visitor a dead link at the exact moment they decide
 whether to claim.
 
-### - [ ] `SIGNUP-2` · P1 · every Instagram-built site is nameless
+### - [x] `SIGNUP-2` · P1 · every Instagram-built site is nameless — **FIXED 2026-08-06**
 
 `display_name` came out as `simondoylehair2` — the handle — instead of the account's real name.
 Stored payload has `fullName: null`, `businessCategory: null`, and **no `biography` key at all**.
