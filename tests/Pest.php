@@ -122,6 +122,16 @@ function actingAsUser(
     ];
     $resolvedClaims = array_merge($defaultClaims, $claims);
 
+    // Not a JWT claim — a knob for the `revocation.strict` gate. The real
+    // VerifySupabaseJwt sets supabase_revocation_verified=true after isRevoked()
+    // answers, so a stub standing in for a SUCCESSFUL verification must do the
+    // same or every strict route would 503 in tests that have nothing to do with
+    // revocation. Pass ['revocation_verified' => false] to simulate a Redis
+    // outage at route level. Pulled out of the claim set so it never leaks into
+    // the supabase_claims attribute.
+    $revocationVerified = $resolvedClaims['revocation_verified'] ?? true;
+    unset($resolvedClaims['revocation_verified']);
+
     // Replace both auth middleware with stubs that set the request attributes.
     // We can't use withoutMiddleware() because some route action callbacks
     // (registered in AppServiceProvider::boot) read supabase_uid and throw if
@@ -133,12 +143,13 @@ function actingAsUser(
     // app()->resolving(Request::class, ...) doesn't help here: Laravel's HTTP
     // testing layer creates the Request via createFromBase, not via container
     // resolution, so resolving() callbacks never fire.
-    app()->bind(VerifySupabaseJwt::class, function () use ($supabaseUid, $resolvedClaims) {
-        return new class($supabaseUid, $resolvedClaims)
+    app()->bind(VerifySupabaseJwt::class, function () use ($supabaseUid, $resolvedClaims, $revocationVerified) {
+        return new class($supabaseUid, $resolvedClaims, $revocationVerified)
         {
             public function __construct(
                 private readonly string $uid,
                 private readonly array $claims,
+                private readonly bool $revocationVerified,
             ) {}
 
             public function handle(Request $request, Closure $next)
@@ -148,6 +159,7 @@ function actingAsUser(
                 $request->attributes->set('supabase_aal', $this->claims['aal'] ?? 'aal1');
                 $request->attributes->set('supabase_amr', $this->claims['amr'] ?? []);
                 $request->attributes->set('supabase_session_id', $this->claims['session_id'] ?? null);
+                $request->attributes->set('supabase_revocation_verified', $this->revocationVerified);
 
                 return $next($request);
             }
@@ -214,13 +226,20 @@ function actingAsStaff(
         'session_id' => (string) Str::uuid(),
     ], $claims);
 
+    // See actingAsUser: every staff route carries `revocation.strict`, so a stub
+    // standing in for a successful verification must report the revocation check
+    // as answered. ['revocation_verified' => false] simulates a Redis outage.
+    $revocationVerified = $defaultClaims['revocation_verified'] ?? true;
+    unset($defaultClaims['revocation_verified']);
+
     // Stub VerifySupabaseJwt — same shape as actingAsUser uses.
-    app()->bind(VerifySupabaseJwt::class, function () use ($authUserId, $defaultClaims) {
-        return new class($authUserId, $defaultClaims)
+    app()->bind(VerifySupabaseJwt::class, function () use ($authUserId, $defaultClaims, $revocationVerified) {
+        return new class($authUserId, $defaultClaims, $revocationVerified)
         {
             public function __construct(
                 private readonly string $uid,
                 private readonly array $claims,
+                private readonly bool $revocationVerified,
             ) {}
 
             public function handle(Request $request, Closure $next)
@@ -230,6 +249,7 @@ function actingAsStaff(
                 $request->attributes->set('supabase_aal', $this->claims['aal'] ?? 'aal1');
                 $request->attributes->set('supabase_amr', $this->claims['amr'] ?? []);
                 $request->attributes->set('supabase_session_id', $this->claims['session_id'] ?? null);
+                $request->attributes->set('supabase_revocation_verified', $this->revocationVerified);
 
                 return $next($request);
             }

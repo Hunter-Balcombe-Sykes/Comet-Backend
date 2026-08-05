@@ -32,7 +32,15 @@ use Illuminate\Support\Facades\Route;
 
 // Authorised Staff Viewing
 Route::prefix('staff')
-    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'throttle:staff', 'staff.audit'])
+    // `revocation.strict` fails the request closed (503) when Redis could not
+    // answer "is this session revoked?". Every other route in the app fails
+    // OPEN there, deliberately — but staff act on EVERY user (purge accounts,
+    // export data, moderate), so a revoked staff session is the highest-value
+    // target in the system and the availability trade inverts. It does not
+    // duplicate `require.aal2`: that proves MFA at login, this proves the
+    // session has not been revoked since. See
+    // docs/superpowers/plans/2026-08-05-auth-selective-failclosed-PLAN.md §3.
+    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'revocation.strict', 'throttle:staff', 'staff.audit'])
     ->whereUuid('professional')
     ->scopeBindings()
     ->group(function () {
