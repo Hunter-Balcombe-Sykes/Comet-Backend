@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Content\ItemController;
 use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\PoolController;
+use App\Http\Controllers\Api\Content\PoolItemCreateController;
 use App\Models\Core\Site\Site;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\Request;
@@ -359,4 +360,30 @@ it('breaks a full timestamp tie to exactly one auto item per source', function (
     }
 
     expect(poolGet($pro)['selection'])->toHaveCount(1);
+});
+
+it('hand-adds an item by link: manual source, pinned, titled', function () {
+    [$pro] = poolTenant();
+
+    $request = Request::create('/api/content/pools/watch/items', 'POST', [
+        'url' => 'https://vimeo.com/999', 'title' => 'Our showreel',
+    ]);
+    $request->attributes->set('professional', $pro);
+    $data = app(PoolItemCreateController::class)
+        ->store($request, 'watch')->getData(true);
+
+    expect(array_column($data['selection'], 'headline'))->toBe(['Our showreel']);
+    expect($data['selection'][0]['origin'])->toBe('manual');
+    expect($data['selection'][0]['url'])->toBe('https://vimeo.com/999');
+    expect(DB::connection('pgsql')->table('content.sources')
+        ->where('user_id', $pro->id)->where('kind', 'manual')->count())->toBe(1);
+
+    // A second add reuses the one manual source.
+    $again = Request::create('/api/content/pools/watch/items', 'POST', [
+        'url' => 'https://youtu.be/abc',
+    ]);
+    $again->attributes->set('professional', $pro);
+    app(PoolItemCreateController::class)->store($again, 'watch');
+    expect(DB::connection('pgsql')->table('content.sources')
+        ->where('user_id', $pro->id)->where('kind', 'manual')->count())->toBe(1);
 });

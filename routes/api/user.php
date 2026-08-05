@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Content\ItemController;
 use App\Http\Controllers\Api\Content\ItemLinkController;
 use App\Http\Controllers\Api\Content\ManualOverrideController;
 use App\Http\Controllers\Api\Content\PoolController;
+use App\Http\Controllers\Api\Content\PoolItemCreateController;
 use App\Http\Controllers\Api\PublicSite\PublicConfigController;
 use App\Http\Controllers\Api\PublicSite\SiteVisibilityController;
 use App\Http\Controllers\Api\Routing\ConnectionsController;
@@ -188,6 +189,8 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
             ->whereUuid('item')->name('content.pools.deselect');
         Route::put('/content/pools/{pool}/order', [PoolController::class, 'reorder'])
             ->name('content.pools.reorder');
+        Route::post('/content/pools/{pool}/items', [PoolItemCreateController::class, 'store'])
+            ->name('content.pools.items.store');
         Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.destroy');
 

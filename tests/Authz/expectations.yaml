@@ -94,6 +94,9 @@
 - route: "PUT api/content/pools/{pool}/order"
   body: { itemIds: [] }
   fixture: { pool: unknown }
+- route: "POST api/content/pools/{pool}/items"
+  body: { url: "https://example.com/x" }
+  fixture: { pool: unknown }
 - route: "api/content/items/{item}"
   fixture: { item: unknown }
 - route: "api/content/items/{item}/links/{platform}"
