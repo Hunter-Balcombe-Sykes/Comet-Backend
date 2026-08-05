@@ -12,7 +12,7 @@
 |------|-------|
 | P0 | 0 |
 | P1 | 2 |
-| P2 | 5 |
+| P2 | 6 |
 | P3 | 4 |
 
 ## Execution policy
@@ -25,9 +25,10 @@
 
 ## Progress
 
-- **Total findings:** 11
-- **Closed:** 10 / 11
-- P1 1/2 · P2 5/5 · P3 4/4
+- **Total findings:** 12 (the generated header said 11 and `P2 5`; there are 6 P2s — corrected 2026-08-05)
+- **Closed:** 11 / 12
+- P1 1/2 · P2 6/6 · P3 4/4
+- Open: **#DEPLOY-1** only — a prod DB operation, deliberately not worked on this branch.
 
 ## Suggested Bundled Sessions
 
