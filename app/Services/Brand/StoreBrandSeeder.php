@@ -13,6 +13,7 @@ use App\Routing\RoutingContext;
 use App\Routing\SourceReconciler;
 use App\Routing\Verdict;
 use App\Services\Platforms\UrlParamExtractor;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The new-pipeline successor to ShopBrandSeeder (P8 blocker B2).
@@ -37,6 +38,13 @@ use App\Services\Platforms\UrlParamExtractor;
  */
 class StoreBrandSeeder
 {
+    /**
+     * Mirrors ShopController::MAX_BRANDS / the legacy ShopBrandSeeder's own
+     * copy — keep in lockstep. The reserved individual-products bucket
+     * (is_individual = true) never counts against this.
+     */
+    private const MAX_BRANDS = 5;
+
     public function __construct(
         private readonly IriCanonicalizer $canonicalizer,
         private readonly LinkProbeWorker $worker,
@@ -84,6 +92,42 @@ class StoreBrandSeeder
                 'connectionId' => null,
                 'brandId' => null,
             ];
+        }
+
+        // MAX_BRANDS parity (WAVE-2C): the legacy seeder refused a 6th store
+        // after its own connection/tombstone/lock decisions but before the
+        // brand row write — the observation log and the reconciler's intent
+        // ledger stay honest (the connection was placed; only the brand row
+        // is capped) exactly as they were for the legacy seeder's identical
+        // ordering. A re-scan of an ALREADY-connected store never counts
+        // against the cap.
+        //
+        // Counted ACROSS every one of the user's shop connections, not just
+        // this one: unlike the legacy seeder's single shared connection
+        // (resource_id='shop') holding up to 5 ShopBrand rows, the probe
+        // pipeline mints one connection PER store (SourceReconciler::
+        // applyIntent() keys on surface_key+resource_id=identifier — each
+        // distinct storefront, even same-provider, gets its own row). A count
+        // scoped to $applied['connection_id'] alone would only ever see the
+        // ONE brand that connection can hold and never cap anything.
+        $isNewBrand = ! ShopBrand::where('connection_id', $applied['connection_id'])
+            ->where('brand_id', $probe->identifier)
+            ->exists();
+        if ($isNewBrand) {
+            $storeCount = ShopBrand::where('is_individual', false)
+                ->whereHas('connection', fn ($q) => $q->where('user_id', $user->id))
+                ->count();
+            if ($storeCount >= self::MAX_BRANDS) {
+                Log::info('store_brand_seeder.cap', ['user_id' => (string) $user->id]);
+
+                return [
+                    'outcome' => 'capped',
+                    'verdict' => $applied['verdict'],
+                    'reason' => 'max_brands',
+                    'connectionId' => null,
+                    'brandId' => null,
+                ];
+            }
         }
 
         $brand = $this->upsertBrand($applied['connection_id'], $probe, $iri->canonical ?? $url);

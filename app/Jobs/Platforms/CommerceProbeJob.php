@@ -3,12 +3,11 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\User\User;
+use App\Services\Brand\StoreBrandSeeder;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\GenericShopScraper;
-use App\Services\Platforms\ShopBrandSeeder;
 use App\Services\Platforms\ShopProductSeeder;
-use App\Services\Platforms\ShopProviderDetector;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,10 +27,15 @@ use Throwable;
  * Resolution chain:
  *   category 'event'           → EventsSeeder::seedStandalone()
  *   category 'event-organiser' → EventsSeeder::seedAccount()
- *   category 'shop'            → ShopProviderDetector → ShopBrandSeeder
+ *   category 'shop'            → StoreBrandSeeder (probe subsumes detection)
  *   category null (unknown)    → GenericShopScraper probe → product/store/neither
  *
  * Every miss falls through to seedCustom() — "nothing vanishes."
+ *
+ * WAVE-2C (2026-08-06): seedStore() used to run ShopProviderDetector::detect()
+ * then hand the result to the legacy ShopBrandSeeder. StoreBrandSeeder's own
+ * probe (LinkProbeWorker) subsumes that detection step entirely, so this job
+ * no longer needs ShopProviderDetector at all.
  */
 class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 {
@@ -44,6 +48,20 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
     public int $timeout = 90;
 
     public int $uniqueFor = 300;
+
+    /**
+     * This job is reached from LinkRouter for BOTH a manually-added link
+     * (CustomLinksController) and a harvested one (Instagram bio scrape,
+     * link-in-bio unroll) — LinkRouter::route() carries no origin parameter,
+     * so which of those it was is genuinely not known here. Deliberately NOT
+     * 'paste': that origin bypasses the tombstone check (RoutingContext::
+     * isDirectRequest()), and overclaiming directness for a link that may
+     * have been harvested would risk resurrecting something a user removed.
+     * A distinct origin, like every other importer's own string
+     * (website_import, the LinkInBioImporter kind), keeps this honest and
+     * tombstone-safe.
+     */
+    private const ORIGIN = 'commerce_probe';
 
     public function __construct(
         public readonly string $userId,
@@ -61,8 +79,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(
         GenericShopScraper $generic,
-        ShopProviderDetector $detector,
-        ShopBrandSeeder $brands,
+        StoreBrandSeeder $brands,
         ShopProductSeeder $products,
         EventsSeeder $events,
         CustomLinkSeeder $links,
@@ -76,8 +93,8 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             $resolved = match ($this->category) {
                 'event' => $events->seedStandalone($user, (string) $this->platform, $this->url),
                 'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url),
-                'shop' => $this->seedStore($detector, $brands, $user, $this->url),
-                default => $this->probe($generic, $detector, $brands, $products, $user),
+                'shop' => $this->seedStore($brands, $user, $this->url),
+                default => $this->probe($generic, $brands, $products, $user),
             };
         } catch (Throwable $e) {
             report($e);
@@ -97,8 +114,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
     private function probe(
         GenericShopScraper $generic,
-        ShopProviderDetector $detector,
-        ShopBrandSeeder $brands,
+        StoreBrandSeeder $brands,
         ShopProductSeeder $products,
         User $user,
     ): bool {
@@ -109,24 +125,19 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
-            return $this->seedStore($detector, $brands, $user, $read['storeUrl']);
+            return $this->seedStore($brands, $user, $read['storeUrl']);
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_NO_PRODUCT) {
-            return $this->seedStore($detector, $brands, $user, $this->url);
+            return $this->seedStore($brands, $user, $this->url);
         }
 
         return false;
     }
 
-    private function seedStore(ShopProviderDetector $detector, ShopBrandSeeder $brands, User $user, string $url): bool
+    private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
     {
-        $detected = $detector->detect($url);
-        if ($detected === null) {
-            return false;
-        }
-
-        return $brands->seed($user, $detected) !== null;
+        return $brands->seed($user, $url, self::ORIGIN)['outcome'] === 'placed';
     }
 
     public function failed(Throwable $e): void
