@@ -36,12 +36,23 @@ function buildStrictRevocationJwt(string $kid, string $privPem, array $claims): 
 }
 
 /**
- * Mint a valid token, publish a matching JWKS, and bind a revocation service
- * that behaves as $isRevoked dictates — either returning a bool or throwing.
- *
- * @param  bool|Throwable  $isRevoked  what TokenRevocationService::isRevoked does
+ * Mint a valid token and publish a matching JWKS, WITHOUT touching the
+ * revocation service — so a caller can leave the real one in place.
  */
-function bindStrictRevocationAuth(bool|Throwable $isRevoked): string
+function mintStrictRevocationJwt(): string
+{
+    return bindStrictRevocationAuth(null);
+}
+
+/**
+ * Mint a valid token, publish a matching JWKS, and (unless $isRevoked is null)
+ * bind a revocation service that behaves as $isRevoked dictates — either
+ * returning a bool or throwing.
+ *
+ * @param  bool|Throwable|null  $isRevoked  what TokenRevocationService::isRevoked does;
+ *                                          null leaves the REAL service bound
+ */
+function bindStrictRevocationAuth(bool|Throwable|null $isRevoked): string
 {
     $kid = 'strict-kid-'.uniqid();
     $privKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
@@ -61,15 +72,17 @@ function bindStrictRevocationAuth(bool|Throwable $isRevoked): string
     $cacheLock->shouldReceive('rememberLocked')->andReturn($jwks);
     app()->instance(CacheLockService::class, $cacheLock);
 
-    $revocation = Mockery::mock(TokenRevocationService::class);
-    $expectation = $revocation->shouldReceive('isRevoked');
-    $isRevoked instanceof Throwable
-        ? $expectation->andThrow($isRevoked)
-        : $expectation->andReturn($isRevoked);
-    // Session tracking is a separate best-effort side-effect; it must not be
-    // what decides this test's outcome either way.
-    $revocation->shouldReceive('trackForUser');
-    app()->instance(TokenRevocationService::class, $revocation);
+    if ($isRevoked !== null) {
+        $revocation = Mockery::mock(TokenRevocationService::class);
+        $expectation = $revocation->shouldReceive('isRevoked');
+        $isRevoked instanceof Throwable
+            ? $expectation->andThrow($isRevoked)
+            : $expectation->andReturn($isRevoked);
+        // Session tracking is a separate best-effort side-effect; it must not be
+        // what decides this test's outcome either way.
+        $revocation->shouldReceive('trackForUser');
+        app()->instance(TokenRevocationService::class, $revocation);
+    }
 
     return buildStrictRevocationJwt($kid, $privPem, [
         'sub' => 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
@@ -147,27 +160,52 @@ it('still 401s a genuinely revoked session on a strict route, not 503', function
         ->assertJson(['code' => 'session_revoked']);
 });
 
-it('fails a strict route CLOSED when the E request breaker is already open', function () {
-    // The interaction the brief calls the easiest thing to get wrong: once the
-    // breaker is open, GuardedPhpRedisConnection throws RedisUnavailableException
-    // INSTEAD of issuing the command. The strict route must not inherit that
-    // skip as "not revoked". Arm and trip the real singleton so the scenario is
-    // the real one, and throw the exact exception type the guarded connection
-    // raises — RedisUnavailableException extends RedisException, so a narrower
-    // catch in VerifySupabaseJwt would still swallow it and this test pins that.
-    $breaker = app(RedisRequestBreaker::class);
-    $breaker->arm();
-    $breaker->trip(new RedisException('read error on connection'), 'app', 'exists');
-    expect($breaker->isOpen())->toBeTrue();
+it('fails a strict route CLOSED when a real Redis outage trips the E breaker', function () {
+    // The interaction the brief calls the easiest thing to get wrong: once
+    // RedisRequestBreaker is open, GuardedPhpRedisConnection throws
+    // RedisUnavailableException INSTEAD of issuing the command, so isRevoked() is
+    // SKIPPED rather than merely slow. The strict route must not inherit that skip
+    // as "not revoked".
+    //
+    // This drives the REAL stack: the real TokenRevocationService (no mock), the
+    // real GuardedPhpRedisConnection, against an unroutable Redis. Pre-tripping the
+    // singleton by hand would prove nothing — ArmRedisRequestBreaker is prepended as
+    // global middleware and arm() sets open=false, so the very first thing the
+    // request does is close any breaker the test opened. An earlier version of this
+    // test did exactly that and would have passed with all four breaker lines
+    // deleted.
+    config([
+        'database.redis.app.host' => '127.0.0.1',
+        'database.redis.app.port' => 1,      // nothing listens here
+        'database.redis.app.timeout' => 0.2, // keep the test fast
+    ]);
 
-    $jwt = bindStrictRevocationAuth(
-        RedisUnavailableException::forSkippedCommand('app', 'exists', 'breaker open'),
-    );
+    $jwt = mintStrictRevocationJwt();   // real revocation service left bound
 
     $this->withHeader('Authorization', 'Bearer '.$jwt)
         ->getJson('/api/__test/strict')
         ->assertStatus(503)
         ->assertHeader('Retry-After', '5');
+
+    // The load-bearing assertion: the breaker really tripped DURING the request,
+    // off a genuine transport failure. Without this the test could pass on any
+    // exception at all and would say nothing about the breaker.
+    expect(app(RedisRequestBreaker::class)->isOpen())->toBeTrue();
+});
+
+it('still serves a NON-strict route when a real Redis outage trips the breaker', function () {
+    // The selective property, proven against the real breaker rather than a mock.
+    config([
+        'database.redis.app.host' => '127.0.0.1',
+        'database.redis.app.port' => 1,
+        'database.redis.app.timeout' => 0.2,
+    ]);
+
+    $jwt = mintStrictRevocationJwt();
+
+    $this->withHeader('Authorization', 'Bearer '.$jwt)
+        ->getJson('/api/__test/lenient')
+        ->assertOk();
 });
 
 it('401s rather than 503s when the token itself is invalid', function () {
@@ -219,8 +257,23 @@ it('applies revocation.strict to exactly the signed-off surfaces', function () {
     expect($strict)->toContain('api/sessions/logout-others');
     expect($strict)->toContain('api/sessions/{sessionId}');
 
-    // The whole staff group inherits it from one middleware list.
-    expect($strict->filter(fn ($u) => str_starts_with($u, 'api/staff')))->not->toBeEmpty();
+    // EVERY staff route, enumerated from the route table — not "at least one".
+    //
+    // The first draft of this change asserted `->not->toBeEmpty()` here and passed
+    // green while 58 of 104 staff routes were unprotected, because routes/api/staff.php
+    // has THREE top-level prefix('staff') groups and only one had been edited. A
+    // presence check cannot detect a missing group; only an exhaustive one can. If a
+    // fourth group is ever added without the gate, this fails and names the routes.
+    $allStaff = collect(Route::getRoutes()->getRoutes())
+        ->filter(fn ($r) => str_starts_with($r->uri(), 'api/staff'));
+    $unprotected = $allStaff
+        ->reject(fn ($r) => in_array('revocation.strict', $r->gatherMiddleware(), true))
+        ->map(fn ($r) => implode('|', $r->methods()).' '.$r->uri())
+        ->values()
+        ->all();
+
+    expect($allStaff)->not->toBeEmpty();          // the filter itself must not be broken
+    expect($unprotected)->toBe([]);               // and nothing may be left out
 
     // Deliberate exclusions. Asserted individually — `not->toContain($a, $b)` is
     // variadic and means "not BOTH", which passes vacuously whenever either is

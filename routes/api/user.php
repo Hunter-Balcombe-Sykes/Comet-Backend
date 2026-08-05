@@ -200,6 +200,16 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // customers out — but "a revoked session destroyed the account" has no
         // undo, so here the trade inverts and the request 503s instead. Signed
         // off 2026-08-05; see the plan §3 for why PATCH /site did NOT get this.
+        //
+        // Ordering note: the textual order below is NOT the execution order.
+        // IdempotencyKey is in bootstrap/app.php's priority list and
+        // RequireVerifiedRevocation is not, so SortedMiddleware always runs
+        // `idempotent` first. A replay of a stored Idempotency-Key therefore
+        // re-serves the cached response without the strict gate running. That is
+        // benign — a replay returns a stored response and never re-runs the
+        // handler, and under a real Redis outage the idempotency Cache::get
+        // throws and falls through to the gate anyway. Recorded so a future
+        // reader does not "fix" the order and assume it changed anything.
         Route::prefix('me/deletion')->middleware(['idempotent', 'revocation.strict'])->group(function () {
             Route::post('/request', [UserAccountDeletionController::class, 'request'])
                 ->middleware('throttle:3,60');

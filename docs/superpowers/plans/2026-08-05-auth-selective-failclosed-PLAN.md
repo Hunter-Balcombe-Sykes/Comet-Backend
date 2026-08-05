@@ -172,9 +172,23 @@ dashboard read, public site read and analytics beacon.
    not 503. Proves the verifier runs first.
 5. **Feature test — missing attribute defaults closed.** Strict middleware in isolation, no
    `supabase.jwt` ahead of it ⇒ 503.
-6. **Non-vacuity.** Break each assertion once, capture the failure output, restore. Recorded in
-   the commit body. (Memory: negated `toContain` is vacuous; `toContain` is variadic and a second
-   argument is another *needle*, not a message — avoid both.)
+6. **Non-vacuity.** Break each assertion once, capture the failure output, restore. (Memory:
+   negated `toContain` is vacuous; `toContain` is variadic and a second argument is another
+   *needle*, not a message — avoid both.)
+
+   **Done — five mutations, each producing exactly the predicted failures, tree restored clean
+   after every one:**
+
+   | # | Mutation | Result | Proves |
+   |---|---|---|---|
+   | A | `RequireVerifiedRevocation` always passes | 3 failed / 5 passed — the outage, breaker and bypass tests | the gate is what produces every 503 |
+   | B | `VerifySupabaseJwt` records `true` in the Redis-failure catch | 2 failed / 6 passed — outage + breaker only; bypass still passed | the **attribute contract** drives the outcome, not the middleware alone |
+   | C | drop `revocation.strict` from `/api/me/data-export` | wiring guard failed: *"a traversable contains 'api/me/data-export'"* | the route-table guard really reads the route table |
+   | D | `RequireVerifiedRevocation` always throws | 1 failed — "serves a strict route normally" | the gate is not trivially closed |
+   | E | add `revocation.strict` to the **lenient** test route | 1 failed — "still serves a NON-strict route" | the *selective* half is genuinely measured, not assumed |
+
+   B and E are the two that matter most: B distinguishes this design from "a middleware that
+   happens to 503", and E is the only thing standing between this change and blanket fail-closed.
 7. **Drill 03 re-run** with one strict route added to the probe set. Read
    `docs/runbooks/drills/03-redis-down.md` preconditions first: `APP_ENV` must not be `local`;
    start Horizon *before* flipping to `staging`; fire Scenario C probes **in parallel**. Mint a
@@ -244,6 +258,43 @@ setting on a project about to carry customers, and it should be observable in is
 than tangled with a middleware change. Flagged for Josh's decision; no dashboard edit made.
 
 ---
+
+## 5a. Independent review — findings and resolution
+
+Independent Opus review of `24f230e0` returned **DO-NOT-MERGE**. It was right, and the headline
+finding was a real hole, not a style objection.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| 1 | **CRITICAL** | `routes/api/staff.php` has **three** top-level `Route::prefix('staff')` groups, each with its own complete middleware array. Only the first was edited ⇒ **58 of 104 staff routes fail open**, including `DELETE /professionals/{id}/force`, deletion initiate/cancel, and status changes. Posture was **inverted**: staff *reads* failed closed, staff *hard-deletes* failed open. | Gate added to groups 2 and 3. Verified 104/104. A ⚠️ note on the first group records the three-group trap. |
+| 2 | **HIGH** | The wiring test written to catch exactly finding 1 was **vacuous** — `expect(...staff...)->not->toBeEmpty()` is satisfied by one route, and passed green with 58 missing. | Replaced with an exhaustive check: every `api/staff*` route in the route table must carry the gate, and the failure message names the offending routes. |
+| 3 | MEDIUM | The E-breaker test was **neutralised**: `ArmRedisRequestBreaker` is prepended global middleware and `arm()` sets `open=false`, so the request closed the breaker the test had opened. It would have passed with all four breaker lines deleted. | Rewritten to drive the **real** stack — real `TokenRevocationService`, real `GuardedPhpRedisConnection`, unroutable Redis — and to assert `isOpen()` is true *after* the request, so the breaker must genuinely have tripped. A matching lenient-route test proves selectivity against the real breaker. |
+| 4 | MEDIUM | No test exercised a single **real** strict route; all behaviour was proven on ad-hoc `/api/__test/*` routes. | New `tests/Feature/Auth/StrictRevocationRoutesTest.php`: `POST /api/me/deletion/confirm`, `DELETE /api/staff/professionals/{id}/force` (group 2), and the notifications route (group 3) each 503; each has a passing control; `GET /api/site` still 200s under the same failure. |
+| 5 | LOW | `IdempotencyKey` sorts ahead of the gate on `me/deletion/*`, so a key replay re-serves a cached response without it. Reviewer could construct no damaging scenario (a replay re-serves, never re-runs the handler; under a real outage the idempotency `Cache::get` throws and falls through). | Documented in `routes/api/user.php` rather than "fixed", so nobody later reorders it believing it matters. |
+| 6 | LOW | The fail-closed event raised **no Nightwatch alert** — `Log::warning` is breadcrumb-only in this app; `report()` is what pages someone. | Added a throttled `report()` (1/min, `cache_locks` store, try/catch), matching `VerifySupabaseJwt::jwksOutage()`. |
+| 7 | NIT | A comment contradicted the line beneath it. | Comment corrected. |
+
+Reviewer's clean findings, recorded so the absence isn't mistaken for not looking: middleware
+**ordering/bypass** verified sound on every strict route (nothing outside `VerifySupabaseJwt` and
+the two test stubs writes the attribute; `prependToPriorityList` cannot hoist an unlisted
+middleware); the **fail-open boundary** is byte-for-byte unchanged on non-strict routes; the
+**auth-server fallback** records the attribute on every path reaching `$next()`; the **503 shape**
+matches `RateLimiterUnavailableException`; `RedisConnectionPinningTest` unaffected (no Redis calls
+added); PHPStan clean.
+
+### Second non-vacuity pass, on the fixes
+
+| # | Mutation | Result |
+|---|---|---|
+| F | revert the staff admin group | exhaustive guard fails, naming `DELETE api/staff/professionals/{professional}/force` |
+| G | strip the gate from staff groups 2+3 and `me/deletion` | exactly the three real-route 503 tests fail; all three controls still pass |
+
+### One process note worth keeping
+
+During mutation F I restored with `git checkout -- routes/api/staff.php` and silently **lost the
+uncommitted fix**, because checkout restores the *committed* state, not the pre-mutation state.
+The tell was the test still failing after "restore". Mutation testing on uncommitted work must use
+a file copy (`cp`), not git — which is how G was run.
 
 ## 6. Sequence
 

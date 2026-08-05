@@ -40,6 +40,14 @@ Route::prefix('staff')
     // duplicate `require.aal2`: that proves MFA at login, this proves the
     // session has not been revoked since. See
     // docs/superpowers/plans/2026-08-05-auth-selective-failclosed-PLAN.md §3.
+    //
+    // ⚠️ THIS FILE HAS THREE top-level Route::prefix('staff') groups (here, ~192,
+    // ~346), each declaring its own COMPLETE middleware array. "Add it to the staff
+    // routes" means all three — the first draft of this change edited only this one
+    // and left 58 of 104 staff routes, including
+    // DELETE /professionals/{id}/force, failing open. StrictRevocationTest now
+    // asserts every api/staff* route carries the gate, so a fourth group cannot
+    // silently miss it.
     ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'revocation.strict', 'throttle:staff', 'staff.audit'])
     ->whereUuid('professional')
     ->scopeBindings()
@@ -189,8 +197,12 @@ Route::prefix('staff')
     });
 
 // Authorised Staff Admin Editing
+// `revocation.strict` — see the note on the first staff group. These admin groups
+// are strictly MORE dangerous than the read-mostly group above (hard delete, status
+// change, feature flags), so omitting them would invert the intent: reads fail
+// closed while destructive writes fail open.
 Route::prefix('staff')
-    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'staff.admin', 'throttle:staff', 'staff.audit'])
+    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'staff.admin', 'revocation.strict', 'throttle:staff', 'staff.audit'])
     ->whereUuid('professional')
     ->scopeBindings()
     ->group(function () {
@@ -342,8 +354,10 @@ Route::prefix('staff')
 // This must stay a SEPARATE top-level group: a nested Route::withoutScopedBindings()
 // inside the scoped group does not take effect (the route still reports
 // enforcesScopedBindings=true), which 500'd both endpoints.
+//
+// `revocation.strict` — third and last staff group; see the note on the first.
 Route::prefix('staff')
-    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'staff.admin', 'throttle:staff', 'staff.audit'])
+    ->middleware(['supabase.jwt', 'require.email_verified', 'staff', 'require.aal2', 'staff.admin', 'revocation.strict', 'throttle:staff', 'staff.audit'])
     ->whereUuid('professional')
     ->group(function () {
 

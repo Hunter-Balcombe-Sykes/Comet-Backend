@@ -5,6 +5,7 @@ namespace App\Http\Middleware\Auth;
 use App\Exceptions\Auth\RevocationUnverifiableException;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -59,17 +60,36 @@ class RequireVerifiedRevocation
         // Log BEFORE throwing. This is the only telemetry that distinguishes
         // "a customer was blocked from deleting their account during a Redis
         // outage" from a generic 503, and it is the signal that says whether
-        // the strict list is drawn in the right place. Deliberately warning,
-        // not error: a correctly-working fail-closed gate is not a fault.
+        // the strict list is drawn in the right place. uid is null on the
+        // absent-attribute (bypass) branch, where no identity was ever resolved.
         Log::warning('auth.revocation_unverified_on_strict_route', [
             'path' => $request->path(),
             'method' => $request->method(),
             'operation' => __METHOD__,
-            // No uid: on the absent-attribute (bypass) branch there is no
-            // resolved identity to log, and a half-populated field reads as
-            // though the user were known.
             'uid' => $request->attributes->get('supabase_uid'),
         ]);
+
+        // Log::warning is breadcrumb-only in this app — it does NOT reach
+        // Nightwatch. Every staff route in the product failing closed is an
+        // incident someone needs to be paged about, not something to discover
+        // later in a log search, so surface it with report() the same way
+        // VerifySupabaseJwt::jwksOutage() surfaces a JWKS outage.
+        //
+        // Throttled to one report per minute: a sustained Redis outage would
+        // otherwise flood the exception pipeline with one report per request.
+        // Uses the `cache_locks` store for the same reason jwksOutage() does —
+        // it is isolated from data-cache flushes. Wrapped in try/catch because
+        // the throttle store is Redis too, and during exactly the outage this
+        // fires on it is likely unreachable; a broken throttle must never turn
+        // a clean 503 into a 500.
+        try {
+            if (Cache::store('cache_locks')->add('auth:revocation-unverified-reported', true, 60)) {
+                report(new RevocationUnverifiableException);
+            }
+        } catch (\Throwable) {
+            // Throttle layer unreachable — swallow. The Log line above still
+            // carries the breadcrumb, and the 503 below is unaffected.
+        }
 
         throw new RevocationUnverifiableException;
     }
