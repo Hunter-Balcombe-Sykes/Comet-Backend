@@ -15,14 +15,6 @@ use Illuminate\Validation\Rule;
 trait SiteOrderingValidationRules
 {
     /**
-     * Action ref -> ActionVocabulary id, for the legacy '<kind>:<ref>' shapes
-     * the pre-2026-07-23 dashboard could have persisted. Only entries that
-     * genuinely renamed (not just moved kind) need a table entry — everything
-     * else is handled structurally in normalizeOrderingPageIds() below.
-     *
-     * @var array<string, string>
-     */
-    /**
      * The dashboard's nine content pools — the domain of
      * settings.manual_order_pools. Mirrors the pool registry in
      * Partna-App/components/blocks/site-page.tsx.
@@ -34,6 +26,14 @@ trait SiteOrderingValidationRules
         'listen', 'media', 'sell', 'posts',
     ];
 
+    /**
+     * Action ref -> ActionVocabulary id, for the legacy '<kind>:<ref>' shapes
+     * the pre-2026-07-23 dashboard could have persisted. Only entries that
+     * genuinely renamed (not just moved kind) need a table entry — everything
+     * else is handled structurally in normalizeOrderingPageIds() below.
+     *
+     * @var array<string, string>
+     */
     private const LEGACY_BUTTON_REF_TO_ACTION_ID = [
         'booking' => 'booking-services',
         // getLinks() historically emitted the singular platform slug (matches
@@ -69,7 +69,7 @@ trait SiteOrderingValidationRules
             // so only deviations persist. Accepts every pool key even though
             // only the ranked pools currently render the switch, so a pool
             // gaining a rank needs no backend change.
-            'settings.manual_order_pools' => ['sometimes', 'array', 'max:9'],
+            'settings.manual_order_pools' => ['sometimes', 'array', 'max:'.count(self::POOL_KEYS)],
             'settings.manual_order_pools.*' => ['string', 'distinct', Rule::in(self::POOL_KEYS)],
             'settings.smart_actions' => ['sometimes', 'boolean'],
             'settings.manual_actions' => ['sometimes', 'array', 'max:26', $this->distinctActionRefsRule()],

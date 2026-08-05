@@ -124,7 +124,7 @@ class UserDesignMediaController extends ApiController
             $this->authorizeForUser($pro, 'delete', $row);
         }
 
-        if (! $this->uploadService->removeSingleton($site, $purpose)) {
+        if (! $this->uploadService->removeSingleton($site, $purpose, $rows)) {
             return $this->error('Nothing uploaded for this slot.', 404);
         }
 

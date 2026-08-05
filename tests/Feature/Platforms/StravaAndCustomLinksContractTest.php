@@ -8,11 +8,13 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupContentPopularityScoresTable();
 });
 
 function stravaCustomUser(string $h): User
@@ -101,6 +103,14 @@ it('strava selection emits nulls for absent optional fields', function () {
 
 it('custom/links freezes the exact per-link shape and strips payload-only fields', function () {
     $user = stravaCustomUser('clsel1');
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $user->id,
+        'subdomain' => 'clsel1',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
     // Seed a row manually so we don't need to hit the external scraper.
     // The controller's linksData() reads CardPayload fields: url, name, description,
     // favicon, logo. The `kind` field is stored but only used internally.
@@ -121,6 +131,18 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
         'last_refresh_status' => 'ok',
     ]);
 
+    // RANK-1: link_item ranks are keyed by payload.url, not resource_id —
+    // seed a real rank row under the URL and assert the dashboard surfaces it.
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId,
+        'content_type' => 'link_item',
+        'content_key' => 'https://acme.example',
+        'score' => 12.5,
+        'rank' => 2,
+        'computed_at' => now()->toDateTimeString(),
+    ]);
+
     actingAsUser($user)->getJson('/api/platforms/custom/links')
         ->assertOk()
         ->assertExactJson(['links' => [[
@@ -131,14 +153,21 @@ it('custom/links freezes the exact per-link shape and strips payload-only fields
             'favicon' => 'https://acme.example/favicon.ico',
             'logo' => 'https://acme.example/og-image.png',
             // Rides every dashboard link since 2026-08-04 (content_popularity
-            // ranks keyed by resource_id; null when the site has none) — the
-            // Smart order switch sorts on it.
-            'popularityRank' => null,
+            // ranks keyed by payload.url) — the Smart order switch sorts on it.
+            'popularityRank' => 2,
         ]]]);
 });
 
-it('custom/links emits nulls for absent optional fields', function () {
+it('custom/links emits nulls for absent optional fields and unseeded ranks', function () {
     $user = stravaCustomUser('clsel2');
+    $siteId = (string) Str::uuid();
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId,
+        'user_id' => $user->id,
+        'subdomain' => 'clsel2',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'custom',
@@ -153,6 +182,10 @@ it('custom/links emits nulls for absent optional fields', function () {
         'last_refresh_status' => 'ok',
     ]);
 
+    // Deliberately no content_popularity_scores row for this link's URL —
+    // the site exists and the reader runs its real query, it just finds
+    // nothing to key against. This is the legitimate "no rank yet" contract,
+    // not the RANK-1 mismatch (which produced null for every link, seeded or not).
     actingAsUser($user)->getJson('/api/platforms/custom/links')
         ->assertOk()
         ->assertExactJson(['links' => [[

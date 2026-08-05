@@ -5,7 +5,6 @@ namespace App\Routing;
 use App\Catalog\CatalogIntegrityCheck;
 use App\Catalog\CompiledCatalog;
 use App\Models\Core\User\User;
-use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -123,17 +122,10 @@ class PlacementPolicy
         return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'below_threshold', 'kept as a link');
     }
 
-    /** The sanctioned capability read — never a raw account_type branch. */
+    /** The arms live in RoutingCapabilityGate, shared with SuggestionApplier (#DRIFT-1). */
     private function capabilityDenial(User $user, string $routingClass): ?string
     {
-        $capabilities = AccountCapabilities::for($user);
-
-        return match ($routingClass) {
-            'booking' => $capabilities->can_use_booking ? null : 'booking is not available for this account',
-            'reservations' => $capabilities->can_use_reservations ? null : 'reservations are not available for this account',
-            'ordering' => $capabilities->can_use_online_ordering ? null : 'online ordering is not available for this account',
-            default => null,
-        };
+        return RoutingCapabilityGate::denialFor($user, $routingClass);
     }
 
     /**

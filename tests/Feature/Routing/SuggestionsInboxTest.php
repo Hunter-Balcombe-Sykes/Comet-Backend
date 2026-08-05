@@ -164,3 +164,31 @@ it('never lets one user resolve another user\'s suggestion', function () {
 it('requires authentication', function () {
     $this->getJson('/api/routing/suggestions')->assertStatus(401);
 });
+
+// #TEST-1 / #DRIFT-1: SuggestionApplier::apply()'s capability re-check
+// (RoutingCapabilityGate) exercised at the HTTP layer, via the real accept
+// endpoint — CapabilityGateParityTest.php already covers the applier
+// directly, this covers the controller wiring (status code, response body,
+// nothing left half-applied). Every OTHER fixture in this file uses a
+// createTenant() default (account_type 'partna'), for which can_use_booking
+// is unconditionally true — the denial branch is structurally unreachable
+// with that fixture, so this needs the food-sector business account
+// (SectorTaxonomy::FOOD_SECTORS) that makes can_use_booking false.
+it('403s accepting a booking suggestion the account cannot have, and blocks the intent instead of applying it', function () {
+    $pro = createTenant('inbox-gate-booking', ['account_type' => 'business', 'sector' => 'restaurant']);
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'fresha.book', 'routing_class' => 'booking',
+        'identifier' => 'doc-cuts', 'canonical_url' => 'https://www.fresha.com/a/doc-cuts',
+    ]);
+
+    $response = actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept");
+
+    $response->assertStatus(403)
+        ->assertJsonPath('message', 'booking is not available for this account');
+
+    $intent = DB::table('routing.source_intents')->where('id', $intentId)->first();
+    expect($intent->state)->toBe('blocked')
+        ->and($intent->block_reason)->toBe('gate');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeFalse();
+});

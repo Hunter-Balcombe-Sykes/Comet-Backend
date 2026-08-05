@@ -14,6 +14,7 @@ use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\Exceptions\SingletonConflictException;
 use App\Services\Media\Exceptions\VideoDispatchFailedException;
 use App\Support\Concerns\NormalisesOptionalString;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -205,10 +206,13 @@ class MediaUploadService
         // $media->update() would still succeed (save() uses newModelQuery(),
         // which carries no SoftDeletingScope). The result was a 201 for a row
         // no read can see: silent data loss, reclaimed only by the 30-day
-        // sweep. Guarding on deleted_at IS the optimistic-concurrency token
-        // the KNOWN-UNFIXED-RACE docblock below asks for — a lost race now
-        // surfaces as the same 409 the unique-violation half already throws,
-        // and the stored original is cleaned up rather than orphaned.
+        // sweep. What fixes it is going through SiteMedia::query(), which DOES
+        // apply SoftDeletingScope — the explicit whereNull below is redundant
+        // with that scope and kept only to state the intent at the call site.
+        // Either way the 0-row result is the optimistic-concurrency token the
+        // KNOWN-UNFIXED-RACE docblock below asks for: a lost race surfaces as
+        // the same 409 the unique-violation half already throws, and the
+        // stored original is cleaned up rather than orphaned.
         // (Query-builder update skips SiteMediaObserver::updated, which is
         // fine here: the page can't render this media until the processing
         // job flips it to ready, and THAT update still fires the observer.)
@@ -218,6 +222,11 @@ class MediaUploadService
             ->update(['path' => $originalPath]);
         if ($claimed === 0) {
             $this->imageService->deleteVariants($media->id, $originalPath);
+
+            Log::warning('Singleton upload lost a concurrent-replace race (conditional claim)', [
+                'site_id' => $site->id,
+                'purpose' => $purpose,
+            ]);
 
             throw new SingletonConflictException(
                 'This image slot changed while the upload was storing — try again.'
@@ -266,10 +275,14 @@ class MediaUploadService
      * the purge is never collateral — the delete removes what existed when
      * the user clicked, and an upload it does catch mid-store surfaces as
      * that upload's own 409 via the conditional path-claim above.
+     *
+     * @param  Collection<int, SiteMedia>|null  $rows  the caller's own inspection-time
+     *                                                 read (e.g. the rows it just authorized against), to avoid running this
+     *                                                 query twice. Defaults to re-querying for callers that don't have it.
      */
-    public function removeSingleton(Site $site, string $purpose): bool
+    public function removeSingleton(Site $site, string $purpose, ?Collection $rows = null): bool
     {
-        $rows = SiteMedia::query()
+        $rows ??= SiteMedia::query()
             ->where('site_id', $site->id)
             ->where('pool', SiteMedia::POOL_DESIGN)
             ->where('purpose', $purpose)

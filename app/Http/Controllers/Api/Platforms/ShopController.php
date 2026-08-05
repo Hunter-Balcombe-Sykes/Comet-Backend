@@ -1009,7 +1009,7 @@ class ShopController extends ApiController
         // on popularityRank, and until 2026-08-04 the dashboard path omitted
         // the key entirely, so "engagement order" silently meant "stored
         // order". Fail-open: a read fault degrades to null ranks.
-        $ranks = $this->popularity->forSite($user->site()->value('id'));
+        $ranks = $this->popularity->forSite($user->site?->id);
 
         return $connection->shopBrands()->with('products')->get()
             ->keyBy('brand_id')
