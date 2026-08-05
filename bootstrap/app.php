@@ -116,8 +116,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // FailOpenThrottleRequests::FAIL_OPEN_LIMITERS (all five are public).
         // The protection looked correct and was entirely accidental — one
         // allow-list edit away from silently vanishing. Ahead of throttle, the
-        // gate is the layer that answers, and it answers without touching Redis
-        // at all (it reads one request attribute).
+        // gate is the layer that answers, and it decides from one request
+        // attribute rather than from a Redis round-trip.
+        //
+        // Precisely: the PASS-THROUGH branch touches nothing. The DENY branch does
+        // one `cache_locks` write to throttle its Nightwatch report. That write is
+        // itself short-circuited in the outage case, because RedisRequestBreaker is
+        // one breaker for all connections and VerifySupabaseJwt will already have
+        // tripped it — but "the gate never touches Redis" would be too strong a
+        // claim, and this pin should not rest on one.
         //
         // Ahead of IdempotencyKey specifically so a replayed Idempotency-Key
         // cannot re-serve a cached response for a session whose revocation

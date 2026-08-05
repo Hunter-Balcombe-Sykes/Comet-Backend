@@ -82,16 +82,44 @@ final class FeatureAvailability
 
             $version = (int) Cache::get(self::CACHE_VERSION_KEY, 0);
         } catch (Throwable $e) {
-            // The cache store itself is unreachable. rememberLocked() below would
-            // fault on the same store, so there is nothing to attempt — fail open
-            // directly, on the same absence-==-enabled contract as the catch below.
-            Log::warning('feature_availability.cache_unavailable', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
+            // Store unreachable. DO NOT fail open here.
+            //
+            // It is tempting to return an empty override set and be done — an
+            // earlier draft of this fix did exactly that, reasoning that
+            // rememberLocked() below would fault on the same store anyway. That
+            // reasoning is FALSE and the mistake is expensive: rememberLocked()
+            // catches store faults itself and falls through to
+            // computeWithoutCache(), which runs the query directly against
+            // Postgres (CacheLockService::rememberLocked ~:106 →
+            // computeWithoutCache ~:351). With a dead cache and a healthy DB it
+            // returns the TRUE rule set.
+            //
+            // Failing open here would therefore silently re-enable every
+            // staff-disabled feature and integration — including kill-switches
+            // pulled for legal reasons — for the whole duration of a Valkey blip,
+            // while the authoritative answer sat one healthy query away.
+            //
+            // Both reads above are pure optimisation: the sentinel only avoids
+            // re-running a query we would fail open on anyway, and the version
+            // token only namespaces the cache key (v0 is a valid namespace — a
+            // dead store has no cached entry under any version). Drop them and
+            // carry on to the real lookup. A genuine DB fault still fails open,
+            // via the catch below, which is the case where we truly cannot know.
+            // Guarded: config/logging.php's `stack` sets 'ignore_exceptions' => false
+            // and LOG_STACK includes nightwatch, so a broken handler here would throw
+            // out of the very catch that exists to stop this path 500ing.
+            // escalateIfSustained is already catch-all internally.
+            try {
+                Log::warning('feature_availability.cache_unavailable', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            } catch (Throwable) {
+                // Breadcrumb lost; the lookup below is unaffected.
+            }
             self::escalateIfSustained($e, 'cache_unavailable');
 
-            return new UserFeatureAvailability([]);
+            $version = 0;
         }
 
         // Single-flight via CacheLockService — without this, a staff flush() bumping
@@ -118,10 +146,11 @@ final class FeatureAvailability
             self::escalateIfSustained($e, 'resolve_overrides');
 
             // Writing the sentinel is a courtesy to the NEXT request, not part of
-            // serving this one — and it targets the same store that may be the
-            // thing that just failed. A throw here would escape the very handler
-            // that exists to fail open, so it is guarded separately: losing the
-            // sentinel only costs a repeated fault, never a 500.
+            // serving this one. rememberLockedNullable() already absorbs read and
+            // lock faults internally, so this guard is belt-and-braces rather than
+            // a live failure mode — kept because this catch's contract is that
+            // NOTHING escapes it, and that should not depend on the internals of a
+            // collaborator. Losing the sentinel only costs a repeated fault.
             try {
                 $lock->rememberLockedNullable($failopenKey, self::FAILOPEN_TTL_SECONDS, fn () => null);
             } catch (Throwable) {

@@ -27,12 +27,20 @@ use Symfony\Component\HttpFoundation\Response;
  * re-introduce the very timeout this design routes around. Because it only
  * reads a request attribute, this middleware cannot itself fail.
  *
- * ORDERING. Depends on the `supabase_revocation_verified` attribute, so it must
- * run after VerifySupabaseJwt. It is unlisted in bootstrap/app.php's priority
- * list and applied at route level, which places it after the route group's
- * `supabase.jwt`. An invalid or absent token therefore still 401s from the
- * verifier and never reaches this class — pinned by
- * tests/Feature/Auth/StrictRevocationTest.php rather than left to trust.
+ * ORDERING. Pinned in bootstrap/app.php's priority list, immediately after
+ * VerifySupabaseJwt (whose attribute it depends on) and ahead of IdempotencyKey
+ * and ThrottleRequests. It was UNLISTED until 2026-08-05, which left it last;
+ * drill 03 measured the cost — during a Redis outage the rate limiter 503'd every
+ * strict route first and this gate never ran, so the protection in production was
+ * the limiter's and only accidentally so. An invalid or absent token still 401s
+ * from the verifier and never reaches this class. All three orderings are pinned
+ * by tests/Feature/Auth/StrictRevocationTest.php rather than left to trust.
+ *
+ * Knock-on worth knowing: on staff routes this now runs BEFORE `require.aal2` and
+ * `staff.audit`. So during an outage a non-AAL2 staff session gets 503 rather than
+ * 401 `mfa_required` (correct — see RevocationUnverifiableException on why a 401
+ * would be a harmful lie), and a staff request blocked this way writes NO audit
+ * row, because RecordStaffAuditEntry never runs.
  *
  * THE DEFAULT IS THE BYPASS DEFENCE. The attribute defaults to false when
  * ABSENT, not just when false. A strict route reachable by some path that skips

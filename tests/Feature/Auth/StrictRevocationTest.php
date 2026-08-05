@@ -9,6 +9,7 @@ use App\Services\Redis\Exceptions\RedisUnavailableException;
 use App\Services\Redis\RedisRequestBreaker;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -235,6 +236,39 @@ it('503s when the strict gate is reached with no verifier ahead of it', function
     $this->getJson('/api/__test/strict-unguarded')
         ->assertStatus(503)
         ->assertHeader('Retry-After', '5');
+});
+
+it('produces the 503 itself on a throttled strict route, and says so in the log', function () {
+    // RevocationUnverifiableException and RateLimiterUnavailableException are
+    // byte-identical on the wire — both 503, same message, same Retry-After: 5.
+    // So on any throttled route the STATUS alone cannot say which layer answered.
+    // Drill 03 nearly recorded a false PASS on exactly that, and the only honest
+    // discriminator is the gate's own log line. This asserts it.
+    //
+    // SCOPE, STATED HONESTLY: this proves the gate answers when a throttle is
+    // present on the route. It does NOT prove the gate runs BEFORE the throttle —
+    // I could not make the limiter fail inside the test environment (four
+    // approaches tried: array store, Cache::swap, a throwing inner RateLimiter,
+    // and the documented facade clearResolvedInstance; the test passed with the
+    // priority pin removed in every one). The ordering guarantee rests on the
+    // priority-list assertion below, which IS mutation-proven: removing the pin
+    // fails it. Do not read this test as an ordering guard, and do not weaken
+    // that one on the assumption that this covers it.
+    Route::middleware(['api', 'supabase.jwt', 'throttle:authenticated', 'revocation.strict'])
+        ->get('/api/__test/strict-throttled', fn () => response()->json(['ok' => true]));
+
+    $jwt = bindStrictRevocationAuth(new RedisException('Connection refused'));
+
+    Log::spy();
+
+    $this->withHeader('Authorization', 'Bearer '.$jwt)
+        ->getJson('/api/__test/strict-throttled')
+        ->assertStatus(503)
+        ->assertHeader('Retry-After', '5');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($msg, $ctx = []) => $msg === 'auth.revocation_unverified_on_strict_route')
+        ->atLeast()->once();
 });
 
 /**

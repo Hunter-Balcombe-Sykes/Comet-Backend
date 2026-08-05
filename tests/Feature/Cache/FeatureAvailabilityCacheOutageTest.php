@@ -2,27 +2,37 @@
 
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\FeatureAvailability\UserFeatureAvailability;
-use Illuminate\Contracts\Cache\Repository as CacheRepository;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
- * FeatureAvailability::for() must fail OPEN when its cache store is unreachable.
+ * FeatureAvailability::for() under a dead cache store.
  *
- * Drill 03 (2026-08-05) found `GET /api/site` returning a raw 500 during a Redis
- * outage whenever the rate limiter did not preempt it. Root cause: `for()` wraps
- * its `rememberLocked` call in a try/catch, but the two `Cache::get()` calls that
- * run BEFORE that try were unguarded, so a dead store threw straight past the
- * fail-open handler.
+ * TWO requirements, and they pull in opposite directions — which is exactly why
+ * both are asserted here:
  *
- * In production today the limiter usually masks this as a 503 — which is why it
+ *   1. It must not THROW. Drill 03 (2026-08-05) found `GET /api/site` returning a
+ *      raw 500 during a Redis outage whenever the rate limiter did not preempt
+ *      it. Root cause: `for()` wrapped its `rememberLocked` call in a try/catch,
+ *      but the two `Cache::get()` calls ABOVE that try were unguarded, so a dead
+ *      store threw straight past the fail-open handler.
+ *
+ *   2. It must not FAIL OPEN either. A dead cache is not a dead database.
+ *      `CacheLockService::rememberLocked` absorbs store faults and falls through
+ *      to `computeWithoutCache()`, which queries Postgres directly — so the real
+ *      rule set is still reachable. Returning "everything available" here would
+ *      silently lift every staff-disabled feature for the outage's duration.
+ *
+ * Requirement 2 is the one an obvious fix gets wrong, so it has its own test.
+ * Fail-open remains correct for a genuine DB fault, which `for()` handles in its
+ * other catch — there we truly cannot know the answer.
+ *
+ * In production the limiter usually masks requirement 1 as a 503, which is why it
  * had never been seen as a 500. That masking is not a guarantee: the five
  * fail-open limiters (`public-site`, `public-profile`, `analytics`,
  * `analytics-click`, `health-check`) do NOT throw, and any route whose limiter
  * joins that list, or any request with throttling disabled, reaches this code
  * with a live exception.
- *
- * The contract: absence == enabled. A cache outage must degrade to
- * "everything available", never to a 500.
  */
 beforeEach(function () {
     setupUsersTable();
@@ -30,139 +40,53 @@ beforeEach(function () {
     FeatureAvailability::flush();
 });
 
-/** Swap the cache repository for one whose reads throw like a dead Redis. */
-function bindThrowingCacheStore(): void
-{
-    $throwing = new class implements CacheRepository
-    {
-        private function boom(): never
-        {
-            throw new RedisException('Connection refused');
-        }
+// bindThrowingCacheStore() lives in tests/Pest.php — shared with StrictRevocationTest.
 
-        public function get($key, $default = null): mixed
-        {
-            $this->boom();
-        }
-
-        public function put($key, $value, $ttl = null): bool
-        {
-            $this->boom();
-        }
-
-        public function add($key, $value, $ttl = null): bool
-        {
-            $this->boom();
-        }
-
-        public function increment($key, $value = 1)
-        {
-            $this->boom();
-        }
-
-        public function decrement($key, $value = 1)
-        {
-            $this->boom();
-        }
-
-        public function forever($key, $value): bool
-        {
-            $this->boom();
-        }
-
-        public function forget($key): bool
-        {
-            $this->boom();
-        }
-
-        public function has($key): bool
-        {
-            $this->boom();
-        }
-
-        public function many(array $keys): array
-        {
-            $this->boom();
-        }
-
-        public function putMany(array $values, $ttl = null): bool
-        {
-            $this->boom();
-        }
-
-        public function pull($key, $default = null): mixed
-        {
-            $this->boom();
-        }
-
-        public function remember($key, $ttl, Closure $callback): mixed
-        {
-            $this->boom();
-        }
-
-        public function sear($key, Closure $callback): mixed
-        {
-            $this->boom();
-        }
-
-        public function rememberForever($key, Closure $callback): mixed
-        {
-            $this->boom();
-        }
-
-        public function missing($key): bool
-        {
-            $this->boom();
-        }
-
-        public function clear(): bool
-        {
-            $this->boom();
-        }
-
-        public function delete($key): bool
-        {
-            $this->boom();
-        }
-
-        public function deleteMultiple($keys): bool
-        {
-            $this->boom();
-        }
-
-        public function getMultiple($keys, $default = null): iterable
-        {
-            $this->boom();
-        }
-
-        public function setMultiple($values, $ttl = null): bool
-        {
-            $this->boom();
-        }
-
-        public function set($key, $value, $ttl = null): bool
-        {
-            $this->boom();
-        }
-
-        public function getStore()
-        {
-            $this->boom();
-        }
-    };
-
-    Cache::swap($throwing);
-}
-
-it('fails open instead of throwing when the cache store is unreachable', function () {
+it('does not throw when the cache store is unreachable', function () {
     $pro = createTenant('feat-avail-outage');
 
     bindThrowingCacheStore();
 
-    // Absence == enabled: an empty override set means "everything available".
-    $availability = FeatureAvailability::for($pro);
+    expect(FeatureAvailability::for($pro))->toBeInstanceOf(UserFeatureAvailability::class);
+});
 
-    expect($availability)->toBeInstanceOf(UserFeatureAvailability::class);
+it('KEEPS a staff-disabled feature disabled when only the cache is dead', function () {
+    // The finding that matters, and the reason this file exists in its current
+    // shape. An earlier draft of the fix returned an empty override set the moment
+    // the cache threw — which silently re-enables every staff-disabled feature and
+    // integration (including kill-switches pulled for legal reasons) for the whole
+    // outage.
+    //
+    // That draft justified itself with "rememberLocked would fault on the same
+    // store anyway". It would not: CacheLockService::rememberLocked catches store
+    // faults and falls through to computeWithoutCache(), which queries Postgres
+    // directly. With a dead cache and a healthy DB the TRUE answer is one query
+    // away, so failing open there was a self-inflicted security hole.
+    //
+    // Absence == enabled, so "disabled" is the only state a lost override set can
+    // destroy — which makes it the only state worth asserting.
+    setupFeatureAvailabilityTable();
+    setupSegmentsTables();
+    $pro = createTenant('feat-avail-killswitch');
+
+    DB::connection('pgsql')->table('core.feature_availability')->insert([
+        'id' => (string) Str::uuid(),
+        'feature_key' => 'integration.fresha',
+        'mode' => 'disabled',
+        'segment_id' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+    FeatureAvailability::flush();
+
+    // Sanity: the rule bites with a healthy cache. Without this the assertion
+    // below could pass because the rule never applied at all.
+    expect(FeatureAvailability::for($pro)->allows('integration.fresha'))->toBeFalse();
+
+    FeatureAvailability::flush();
+    bindThrowingCacheStore();
+
+    expect(FeatureAvailability::for($pro)->allows('integration.fresha'))->toBeFalse();
 });
 
 it('serves GET /api/site rather than 500ing when the cache store is unreachable', function () {
