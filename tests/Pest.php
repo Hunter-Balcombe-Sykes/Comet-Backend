@@ -2929,10 +2929,15 @@ function setupAuthFactorEventsTable(): void
 function setupHandleAliasesTable(): void
 {
     attachTestSchemas();
+    // handle_lc included: this helper now also runs via setupUsersTable's
+    // ride-along, and CREATE IF NOT EXISTS means whichever runs first wins —
+    // so this shared shape must be the SUPERSET of every lane's needs
+    // (BootstrapHandleAliasUniquenessTest inserts handle_lc).
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.user_handle_aliases (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
         handle TEXT NULL,
+        handle_lc TEXT NULL,
         reclaim_until TEXT NULL,
         expires_at TEXT NULL,
         notified_t3_at TEXT NULL,
