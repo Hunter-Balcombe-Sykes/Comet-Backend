@@ -369,3 +369,47 @@ item sources — so the item itself carries the cross-platform links:
 1. Whether `site.site_documents` freshness (5-min builds + on-change
    `BuildState` bumps) is acceptable end-to-end latency for "I changed my
    pool, my site follows". If not, resolve pools directly in the payload.
+
+## P4 CHECKPOINT (2026-08-06 ~03:15 AEST) — SHIPPED, ALL FOUR PHASES LIVE
+
+Open item 1 was resolved earlier by the owner: Option B (live resolution in
+the payload), already shipped in P1.
+
+- **Posts → Media fold** (Partna-App `9bc2aad`, pushed + Vercel): the Posts
+  pool route, grid, nav row, site-page section and fixtures are gone. Post
+  photos/videos are Media options via the instagram connector (grab-all
+  live since P1); auto-select-latest-post rides the unified
+  auto_sync_latest toggle.
+- **Featured teardown, dashboard** (Partna-App `496c1ee`): HighlightsPicker,
+  the recent/selection/highlights query trio, rules.highlights and the
+  connect roster's Highlight promises are gone; connect facts promise the
+  pool. platformPath reads CONNECT_PATHS for Apple's nested prefix.
+- **Featured teardown, backend** (`565e1102`, merged `9992c8e7`, deploy
+  succeeded 17:04Z): strategies + picker + /recent + /highlights routes
+  (registry loop and Apple's bespoke four) + form requests + FeedPayload
+  key + resource/public allowlist keys + catalog capability + bandcamp
+  show_all_releases (selection governs; stored `releases` stays off the
+  wire unconditionally) + the snapshot TTL config. DSAR allowlists KEEP
+  the highlights key deliberately — old stored payloads carry it until a
+  refresh rewrites them, and an export must disclose what is held.
+- **Presence-via-pools** (same deploy): PoolResolver::hasSelection() —
+  pins→candidates→excludes, no payload hydration — and presentPageIds()
+  counts a non-empty watch/listen pool as presence. ADDITIVE only: embed
+  platforms keep connection presence; capability gates still run last
+  (Maha's missing `listen` is the business STANDARD_ONLY gate, correct).
+- **Pages legacy fallback removed** (partna-monorepo main `0966934`,
+  worker deployed 4a16104a): watch/listen/shop-tracks read profile.pools
+  only; the connection-derived builders and their selectors left the
+  resolver. Twitch embed rail untouched.
+- **Live-verified post-deploy**: public integrations wire carries NO
+  highlights key on any of ollies' 30 platforms; /public/profiles/ollies
+  serves pools (watch 2 + Latest, listen 4 + Latest) with watch in
+  pageOrder; ollies.partna.au/watch renders the 2 pool cards + Latest
+  chip; 10-minute log scan clean (no presence_probe failures).
+- Gates at ship: pest full suite green (6928+; the 20 parallel "failures"
+  are the known flake families, all pass serially), PHPStan 0 errors
+  (stale baseline entries dropped — baseline shrinks), pint clean,
+  catalog recompiled, astro check + build + tokens-only audit clean.
+
+The program is complete: platforms are sources, pools are the one curation
+surface, the public site follows instantly, and Featured is gone end to end.
