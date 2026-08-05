@@ -331,14 +331,23 @@ So dev media is landing on a different disk than the config names, and this "noi
 evidence of it. The `public_dev` disk is documented in `config/filesystems.php:91-95` as a legacy
 alias that mirrors `media`, so nothing is broken today — but the override is silent by design.
 
-**Recommended fix (Josh's call — an env change, not a code change):** set `PARTNA_MEDIA_DISK=public_dev`
-on dev. `$configured` then equals what the resolver already returns, so **behaviour is unchanged** and
-the warning stops. ⚠️ `cloud environment:variables` **REPLACES ALL** — a partial push drops the other
-92 vars.
+#### ✅ DECIDED by Josh 2026-08-06 — set the env var; Josh applies it. No code change.
 
-Code-side alternative if the env stays as-is: memoise `MediaDiskResolver::resolve()` per process, which
-cuts ~20 identical lines per build to 1 without hiding the condition. Not applied — the prompt prefers
-the env fix, and no unit in this run had that file open (the opportunistic-fix rule does not reach it).
+**Action, assigned to Josh:** set `PARTNA_MEDIA_DISK=public_dev` on the dev environment.
+`$configured` then equals what the resolver already returns, so **behaviour is unchanged** and the
+warning stops. ⚠️ `cloud environment:variables` **REPLACES ALL** — a partial push drops the other 92
+vars, so this must go out as a full set.
+
+**This box stays unticked until that lands** — the diagnosis is settled but the condition is still
+live on dev.
+
+Rejected alternatives, recorded so they are not relitigated:
+- *Change `MediaDiskResolver` to consult `config('partna.media_disk')`.* Behaviour DOES change — dev
+  media would start landing on `media` instead of `public_dev`, splitting old and new uploads across
+  two buckets without a backfill.
+- *Memoise `resolve()` per process* (~20 lines → 1, no behaviour change). Kills the noise but leaves
+  the config lying about which disk is in use.
+- *WONTFIX.* Nothing is broken today (`public_dev` mirrors `media`), but the config would stay wrong.
 
 ### - [ ] `SIGNUP-7` · P1 · retire `sites.subdomain` — **SEPARATE BRANCH, NOT part of this run**
 
@@ -370,5 +379,25 @@ Effort: **XL.** Needs its own spec, its own branch, and a frontend change landed
 
 ## Progress
 
-`0 / 7` resolved — P0 `0/1` · P1 `0/3` · P2 `0/1` · P3 `0/2`
-(`SIGNUP-7` is out of scope for the `SIGNUP-1..6` run — tracked, not executed.)
+`5 / 7` resolved — P0 `1/1` · P1 `2/3` · P2 `1/1` · P3 `1/2`
+(`SIGNUP-7` is out of scope for the `SIGNUP-1..6` run — tracked, not executed, and is the only
+unresolved P1.)
+
+Worked 2026-08-06 on `audit-fix/signup-flow-live-test-2026-08-05`, plan → implement → independent
+review per `scripts/audit/fix-flow.md`.
+
+| id | outcome | commit |
+|---|---|---|
+| `SIGNUP-1` | fixed — convergence + guard + backfill command + regression tests | `71e981ff5` |
+| `SIGNUP-2` | fixed — figue actor's snake_case identity fields, two files | `65b9b1fca` |
+| `SIGNUP-3` | documented, no gate added (Josh's decision) | `eff63a082` |
+| `SIGNUP-4` | closed — premise error, the fold was already correct | `71e981ff5` |
+| `SIGNUP-5` | fixed — docs corrected to match the code | `eff63a082` |
+| `SIGNUP-6` | **OPEN — decided, awaiting Josh: set `PARTNA_MEDIA_DISK=public_dev` on dev** | — |
+| `SIGNUP-7` | not executed, by design | — |
+
+**Three of the six premises were wrong as written** and were corrected in place rather than
+"fixed": `SIGNUP-2` (regression dated to the 2026-07-19 actor swap, not "always broken"),
+`SIGNUP-4` (the address folded correctly, into a different table), and `SIGNUP-6` (the env var is
+set; the warning masks a silent disk override). `SIGNUP-1` and `SIGNUP-3` were understated — each
+had live consequences the finding did not record.
