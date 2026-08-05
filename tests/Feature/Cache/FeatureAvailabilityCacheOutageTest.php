@@ -2,14 +2,17 @@
 
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\FeatureAvailability\UserFeatureAvailability;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * FeatureAvailability::for() under a dead cache store.
+ * FeatureAvailability::for() when its cache store misbehaves.
  *
- * TWO requirements, and they pull in opposite directions — which is exactly why
- * both are asserted here:
+ * THREE requirements. The first two pull in opposite directions, and the third is
+ * the trap that catches a fix satisfying both — which is why each has its own
+ * test rather than being folded together:
  *
  *   1. It must not THROW. Drill 03 (2026-08-05) found `GET /api/site` returning a
  *      raw 500 during a Redis outage whenever the rate limiter did not preempt
@@ -23,7 +26,13 @@ use Illuminate\Support\Str;
  *      rule set is still reachable. Returning "everything available" here would
  *      silently lift every staff-disabled feature for the outage's duration.
  *
- * Requirement 2 is the one an obvious fix gets wrong, so it has its own test.
+ *   3. It must not GUESS A NAMESPACE either. The obvious way to satisfy 1 and 2
+ *      is `$version = 0` plus fall-through — but the catch fires on ANY throwable,
+ *      including the transient shape where op 1 fails and ops 2..N succeed. v0 is
+ *      a LIVE namespace, so that serves a pre-flush snapshot and lifts the very
+ *      kill-switch requirement 2 protects. Both earlier drafts of this fix failed
+ *      one of these three.
+ *
  * Fail-open remains correct for a genuine DB fault, which `for()` handles in its
  * other catch — there we truly cannot know the answer.
  *
@@ -85,6 +94,168 @@ it('KEEPS a staff-disabled feature disabled when only the cache is dead', functi
 
     FeatureAvailability::flush();
     bindThrowingCacheStore();
+
+    expect(FeatureAvailability::for($pro)->allows('integration.fresha'))->toBeFalse();
+});
+
+it('does not serve a stale namespace when only the VERSION read fails', function () {
+    // The transient shape, which a dead-store fake cannot reproduce: op 1 throws,
+    // Laravel reconnects, ops 2..N SUCCEED (GuardedPhpRedisConnection:52-54).
+    //
+    // A previous revision handled the version-read failure with `$version = 0` and
+    // fell through to rememberLocked. v0 is a LIVE namespace, so that read the
+    // `:v0` key while the real version was N — serving a pre-flush snapshot and
+    // silently lifting a staff kill-switch. Reachable in queue workers in
+    // particular, where ArmRedisRequestBreaker deliberately never arms, so nothing
+    // stops op 2 succeeding; FeatureAvailability::for() runs in ConnectFetchJob,
+    // ShopBrandConnectJob, FreshaConnectFetch and CustomLinkSeeder.
+    //
+    // The fix resolves directly instead of guessing a namespace, so this test
+    // fails against `$version = 0` and passes against a direct resolve.
+    setupFeatureAvailabilityTable();
+    setupSegmentsTables();
+    $pro = createTenant('feat-avail-stale-v0');
+
+    // Truth in the DB: disabled.
+    DB::connection('pgsql')->table('core.feature_availability')->insert([
+        'id' => (string) Str::uuid(),
+        'feature_key' => 'integration.fresha',
+        'mode' => 'disabled',
+        'segment_id' => null,
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    // A stale pre-flush snapshot parked under v0 saying the opposite, and a live
+    // version token well past it.
+    Cache::put("feature-availability:user:{$pro->id}:v0", ['integration.fresha' => true], 600);
+    Cache::put('feature-availability:version', 3, 600);
+
+    // Fail ONLY the version read; everything else keeps working.
+    $real = Cache::store();
+    Cache::swap(new class($real) implements CacheRepository
+    {
+        public function __construct(private readonly CacheRepository $real) {}
+
+        public function get($key, $default = null): mixed
+        {
+            if ($key === 'feature-availability:version') {
+                throw new RedisException('read error on connection');
+            }
+
+            return $this->real->get($key, $default);
+        }
+
+        public function __call($method, $parameters)
+        {
+            return $this->real->{$method}(...$parameters);
+        }
+
+        public function put($key, $value, $ttl = null): bool
+        {
+            return $this->real->put($key, $value, $ttl);
+        }
+
+        public function add($key, $value, $ttl = null): bool
+        {
+            return $this->real->add($key, $value, $ttl);
+        }
+
+        public function increment($key, $value = 1)
+        {
+            return $this->real->increment($key, $value);
+        }
+
+        public function decrement($key, $value = 1)
+        {
+            return $this->real->decrement($key, $value);
+        }
+
+        public function forever($key, $value): bool
+        {
+            return $this->real->forever($key, $value);
+        }
+
+        public function forget($key): bool
+        {
+            return $this->real->forget($key);
+        }
+
+        public function has($key): bool
+        {
+            return $this->real->has($key);
+        }
+
+        public function many(array $keys): array
+        {
+            return $this->real->many($keys);
+        }
+
+        public function putMany(array $values, $ttl = null): bool
+        {
+            return $this->real->putMany($values, $ttl);
+        }
+
+        public function pull($key, $default = null): mixed
+        {
+            return $this->real->pull($key, $default);
+        }
+
+        public function remember($key, $ttl, Closure $callback): mixed
+        {
+            return $this->real->remember($key, $ttl, $callback);
+        }
+
+        public function sear($key, Closure $callback): mixed
+        {
+            return $this->real->sear($key, $callback);
+        }
+
+        public function rememberForever($key, Closure $callback): mixed
+        {
+            return $this->real->rememberForever($key, $callback);
+        }
+
+        public function missing($key): bool
+        {
+            return $this->real->missing($key);
+        }
+
+        public function clear(): bool
+        {
+            return $this->real->clear();
+        }
+
+        public function delete($key): bool
+        {
+            return $this->real->delete($key);
+        }
+
+        public function deleteMultiple($keys): bool
+        {
+            return $this->real->deleteMultiple($keys);
+        }
+
+        public function getMultiple($keys, $default = null): iterable
+        {
+            return $this->real->getMultiple($keys, $default);
+        }
+
+        public function setMultiple($values, $ttl = null): bool
+        {
+            return $this->real->setMultiple($values, $ttl);
+        }
+
+        public function set($key, $value, $ttl = null): bool
+        {
+            return $this->real->set($key, $value, $ttl);
+        }
+
+        public function getStore()
+        {
+            return $this->real->getStore();
+        }
+    });
 
     expect(FeatureAvailability::for($pro)->allows('integration.fresha'))->toBeFalse();
 });

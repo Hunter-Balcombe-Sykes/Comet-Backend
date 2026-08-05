@@ -36,11 +36,22 @@ use Symfony\Component\HttpFoundation\Response;
  * from the verifier and never reaches this class. All three orderings are pinned
  * by tests/Feature/Auth/StrictRevocationTest.php rather than left to trust.
  *
- * Knock-on worth knowing: on staff routes this now runs BEFORE `require.aal2` and
- * `staff.audit`. So during an outage a non-AAL2 staff session gets 503 rather than
- * 401 `mfa_required` (correct — see RevocationUnverifiableException on why a 401
- * would be a harmful lie), and a staff request blocked this way writes NO audit
- * row, because RecordStaffAuditEntry never runs.
+ * Two knock-ons on staff routes, where this now runs ahead of `require.aal2`,
+ * `staff` and `SubstituteBindings`:
+ *
+ *   - A non-AAL2 staff session gets 503 during an outage rather than 401
+ *     `mfa_required`. Correct — see RevocationUnverifiableException for why a 401
+ *     during a store outage is a lie with a harmful consequence.
+ *
+ *   - A blocked staff request STILL WRITES an audit row, but a degraded one.
+ *     RecordStaffAuditEntry writes in terminate(), and Kernel::terminateMiddleware
+ *     iterates the gathered stack unconditionally — it has no idea the pipeline
+ *     short-circuited. But `partna_staff` (set by EnsurePartnaStaff) and the
+ *     resolved `{professional}` binding are both populated by middleware that now
+ *     run AFTER this one, so the row lands with `staff_id = null` and no
+ *     professional. Forensics on a gate-blocked staff request are therefore
+ *     anonymous — worth knowing before an incident, not during one. (An earlier
+ *     revision of this docblock claimed no row was written at all; that was wrong.)
  *
  * THE DEFAULT IS THE BYPASS DEFENCE. The attribute defaults to false when
  * ABSENT, not just when false. A strict route reachable by some path that skips

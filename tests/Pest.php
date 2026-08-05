@@ -318,15 +318,6 @@ function attachTestSchemas(): void
 }
 
 /**
- * core.users — mirrors the NOT NULL / CHECK constraints of the real dev
- * Postgres (T3 triage; guarded by SchemaDriftGuardTest). Columns prod leaves
- * nullable stay nullable here: auth_user_id and primary_email are NULL for
- * provisional pre-account users, which is why they are NOT tightened.
- * Defaults mirror prod too — a column that is NOT NULL DEFAULT x in Postgres
- * must carry that default here, or the test schema is stricter than prod and
- * manufactures failures prod would never see.
- */
-/**
  * Swap the cache repository for one that throws on every operation, the way a
  * dead Redis does.
  *
@@ -342,9 +333,9 @@ function attachTestSchemas(): void
  * and would not catch a layer that narrowed its catch to RedisException. __call()
  * routes those to the same throw so the failure mode is at least the right one.
  */
-function bindThrowingCacheStore(): void
+function throwingCacheRepository(): Repository
 {
-    $throwing = new class implements Repository
+    return new class implements Repository
     {
         private function boom(): never
         {
@@ -466,10 +457,23 @@ function bindThrowingCacheStore(): void
             $this->boom();
         }
     };
-
-    Cache::swap($throwing);
 }
 
+/** Swap the Cache facade for the throwing repository above. */
+function bindThrowingCacheStore(): void
+{
+    Cache::swap(throwingCacheRepository());
+}
+
+/**
+ * core.users — mirrors the NOT NULL / CHECK constraints of the real dev
+ * Postgres (T3 triage; guarded by SchemaDriftGuardTest). Columns prod leaves
+ * nullable stay nullable here: auth_user_id and primary_email are NULL for
+ * provisional pre-account users, which is why they are NOT tightened.
+ * Defaults mirror prod too — a column that is NOT NULL DEFAULT x in Postgres
+ * must carry that default here, or the test schema is stricter than prod and
+ * manufactures failures prod would never see.
+ */
 function setupUsersTable(): void
 {
     attachTestSchemas();
