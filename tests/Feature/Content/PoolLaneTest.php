@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -20,6 +21,8 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupContentTables();
+    // Pool mutations dispatch the sitepage edge purge — a no-op here.
+    Queue::fake();
 });
 
 function poolTenant(): array

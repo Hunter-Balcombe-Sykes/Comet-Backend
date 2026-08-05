@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\Content;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Content\Item;
 use App\Models\Core\Site\SectionItem;
+use App\Models\Core\Site\Site;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
@@ -70,7 +72,7 @@ class PoolController extends ApiController
         }
         $row->save();
 
-        BuildState::bump((string) $site->id);
+        $this->poolChanged($site);
 
         return $this->success($this->resolver->resolve($site, $pool));
     }
@@ -108,7 +110,7 @@ class PoolController extends ApiController
             $row->save();
         }
 
-        BuildState::bump((string) $site->id);
+        $this->poolChanged($site);
 
         return $this->success($this->resolver->resolve($site, $pool));
     }
@@ -169,9 +171,25 @@ class PoolController extends ApiController
             SectionItem::query()->insert($rows);
         });
 
-        BuildState::bump((string) $site->id);
+        $this->poolChanged($site);
 
         return $this->success($this->resolver->resolve($site, $pool));
+    }
+
+    /**
+     * Every pool mutation ends here: the document build-state bump AND the
+     * sitepage edge purge. Option B serves pools LIVE, but the CDN in front
+     * still holds the rendered page — without the purge, "the site follows
+     * instantly" was true of the payload and false of what a visitor saw
+     * (found verifying P2: the deploy's edge cache outlived a pool edit).
+     * ShouldBeUnique per handle, so bursts coalesce.
+     */
+    private function poolChanged(Site $site): void
+    {
+        BuildState::bump((string) $site->id);
+        if (is_string($site->subdomain) && $site->subdomain !== '') {
+            CloudflareCachePurgeJob::dispatch($site->subdomain);
+        }
     }
 
     private function assertPool(string $pool): void

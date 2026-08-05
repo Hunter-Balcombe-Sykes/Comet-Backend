@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Content;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Content\Item;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\ItemLinkRules;
@@ -62,6 +63,11 @@ class ItemLinkController extends ApiController
         }
 
         BuildState::bump((string) $site->id);
+        if (is_string($site->subdomain) && $site->subdomain !== '') {
+            // The pools serve LIVE (Option B) but the sitepage edge cache
+            // does not — purge so the visitor page follows the edit.
+            CloudflareCachePurgeJob::dispatch($site->subdomain);
+        }
 
         return $this->success(['platform' => $platform, 'url' => $data['url']]);
     }
@@ -83,6 +89,11 @@ class ItemLinkController extends ApiController
         }
 
         BuildState::bump((string) $site->id);
+        if (is_string($site->subdomain) && $site->subdomain !== '') {
+            // The pools serve LIVE (Option B) but the sitepage edge cache
+            // does not — purge so the visitor page follows the edit.
+            CloudflareCachePurgeJob::dispatch($site->subdomain);
+        }
 
         return $this->success(['deleted' => true]);
     }
