@@ -269,6 +269,36 @@ external/trailingIcon/attrs) → ItemsGrid → ui/Card.
   badge on watch/listen/media. Embed platforms unchanged. This kills the
   YT-Music unread-`items` asymmetry by construction.
 
+## P3 CHECKPOINT (2026-08-05 ~22:15 AEST) — Watch + Listen LIVE-VERIFIED
+
+- Backend `b35c4f3b` (deployed, CI green through e8684f6c): hand-add by
+  link — POST /content/pools/{pool}/items (manual source find-or-create,
+  item + f_text + f_link, pinned; purge + bump).
+- Partna-App `a743310` + `fa284a0` + `1a34619` (LOCAL, unpushed like the
+  rest of main): lib/queries/pools.ts (the whole lane), WatchPage +
+  ListenPage live on the wire (fixtures gone from their mounts;
+  site-page counts read the pool queries), Latest chip on both cards,
+  panels save/reset titles via the real overrides API, the Also-on
+  section (components/blocks/item-links.tsx, alternates-only, brand-
+  cased labels).
+- LIVE-VERIFIED in the dashboard (Maha): Watch = the 2 real videos
+  (Latest chip on the newer), Listen = the 4-item rolling selection
+  (Latest on The Daily's episode); panel shows real synced facts; the
+  add-a-link flow SAVED A REAL SPOTIFY LINK end to end — dashboard toast
+  → row with remove ✕ → public payload carries spotify[manual] beside
+  apple-podcast[synced] (60s profile cache, then present).
+- Platform sheets: the seven new auto_sync_latest toggles render through
+  the EXISTING generic display-settings card — no bespoke FE needed
+  (registry-driven; verified by the DisplaySettingsTest contract suite).
+
+P3 REMAINING: Posts pool folds into Media (remove the Posts pool from
+site-page picker/nav + post-grid page component; Media gains the posts-
+derived options via the gallery lane's instagram surface — grab-all is
+already live via the ig connector; the auto-select-latest-post ride the
+instagram auto_sync_latest toggle already unified). Then P4: the Featured
+teardown per the Phase 4 inventory + the legacy pages fallback removal +
+presence-via-pools.
+
 ## Phase 3 — Dashboard: pools go live
 
 - Live wrappers for Watch/Listen on the new endpoints; Media gains the
